@@ -1,6 +1,31 @@
 import Foundation
 import Security
 
+/// The chats used last and where the accounts server is, as the app writes them down for its share extension.
+struct ShareSnapshot: Codable, Equatable {
+    struct Chat: Codable, Equatable, Identifiable {
+        let host: String
+        let hostName: String
+        let chatId: String
+        let provider: String
+        let title: String
+        let name: String?
+        let project: String
+        var id: String { "\(host):\(chatId)" }
+    }
+
+    struct NewChat: Codable, Equatable {
+        let host: String
+        let hostName: String
+        let project: String
+        let projectPath: String
+    }
+
+    let apiUrl: String
+    let chats: [Chat]
+    let newChat: NewChat?
+}
+
 /// What the app leaves for its share extension: the chats used last and where the accounts server
 /// is, in the App Group both can read, and this phone's key, in a Keychain group both can read.
 enum StashShared {
@@ -22,13 +47,14 @@ enum StashShared {
             fileName)
     }
 
-    static func write(_ data: Data?) {
+    static func write(_ snapshot: ShareSnapshot?) {
         guard let file = file() else {
             return print("sikemux: this build has no App Group to share with its extension")
         }
         do {
-            if let data {
-                try data.write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+            if let snapshot {
+                try JSONEncoder().encode(snapshot).write(
+                    to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
             } else if FileManager.default.fileExists(atPath: file.path) {
                 try FileManager.default.removeItem(at: file)
             }
@@ -38,10 +64,10 @@ enum StashShared {
     }
 
     /// Nil when the app has written nothing, as before it is signed in.
-    static func read() -> Data? {
+    static func read() -> ShareSnapshot? {
         guard let file = file(), FileManager.default.fileExists(atPath: file.path) else { return nil }
         do {
-            return try Data(contentsOf: file)
+            return try JSONDecoder().decode(ShareSnapshot.self, from: Data(contentsOf: file))
         } catch {
             print("sikemux: could not read what the app left for the share extension: \(error)")
             return nil

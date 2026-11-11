@@ -4,34 +4,11 @@ import Foundation
 /// accounts server is, and this phone's key. Signing out takes them all away.
 @MainActor
 enum ShareExtension {
-    private struct Chat: Encodable, Equatable {
-        let host: String
-        let hostName: String
-        let chatId: String
-        let provider: String
-        let title: String
-        let name: String?
-        let project: String
-    }
-
-    private struct NewChat: Encodable, Equatable {
-        let host: String
-        let hostName: String
-        let project: String
-        let projectPath: String
-    }
-
-    private struct Snapshot: Encodable, Equatable {
-        let apiUrl: String
-        let chats: [Chat]
-        let newChat: NewChat?
-    }
-
     private static let shown = 4
     /// Hosts change their chats in bursts; the extension's copy follows once they settle.
     private static let settle: Duration = .seconds(1)
 
-    private static var written: Snapshot?
+    private static var written: ShareSnapshot?
     private static var settling: Task<Void, Never>?
     private static var signedIn = false
 
@@ -63,7 +40,7 @@ enum ShareExtension {
 
     /// The chats used last across every host this phone has full access to, and a new chat in the newest one's project.
     private static func write() {
-        var found: [(chat: Chat, path: String, at: Int)] = []
+        var found: [(chat: ShareSnapshot.Chat, path: String, at: Int)] = []
         for device in Hub.shared.devices where device.access == "full" {
             guard let view = Hub.shared.live(device.core).view else { continue }
             for chat in view.chats {
@@ -72,7 +49,7 @@ enum ShareExtension {
                 let project = view.workspace.projects.first { $0.id == place || $0.path == place }
                 found.append(
                     (
-                        Chat(
+                        ShareSnapshot.Chat(
                             host: device.core, hostName: device.displayName, chatId: chat.agentId,
                             provider: chat.provider,
                             title: chat.title ?? shown?.title ?? "New chat", name: chat.name,
@@ -86,16 +63,13 @@ enum ShareExtension {
         // Hosts not reached yet since launch know no chats; the last ones written stay until one is.
         if found.isEmpty, written != nil { return }
         let newChat = found.first.map {
-            NewChat(host: $0.chat.host, hostName: $0.chat.hostName, project: $0.chat.project, projectPath: $0.path)
+            ShareSnapshot.NewChat(
+                host: $0.chat.host, hostName: $0.chat.hostName, project: $0.chat.project, projectPath: $0.path)
         }
-        let next = Snapshot(
+        let next = ShareSnapshot(
             apiUrl: Config.apiUrl.absoluteString, chats: found.prefix(shown).map(\.chat), newChat: newChat)
         guard next != written else { return }
-        do {
-            StashShared.write(try JSONEncoder().encode(next))
-            written = next
-        } catch {
-            print("sikemux: could not write the share extension its chats: \(error)")
-        }
+        StashShared.write(next)
+        written = next
     }
 }

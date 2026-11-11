@@ -2,31 +2,6 @@ import LinkPresentation
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// A chat the app wrote down for the extension, as its share sheet lists it.
-struct ShareChat: Decodable, Identifiable {
-    let host: String
-    let hostName: String
-    let chatId: String
-    let provider: String
-    let title: String
-    let name: String?
-    let project: String
-    var id: String { "\(host):\(chatId)" }
-}
-
-struct ShareNewChat: Decodable {
-    let host: String
-    let hostName: String
-    let project: String
-    let projectPath: String
-}
-
-private struct Snapshot: Decodable {
-    let apiUrl: String
-    let chats: [ShareChat]
-    let newChat: ShareNewChat?
-}
-
 enum Outgoing {
     case link(URL)
     case text(String)
@@ -55,8 +30,8 @@ final class ShareModel: ObservableObject {
     @Published var thumbnails: [UIImage] = []
     /// Called once the confirmation has shown, to close the sheet.
     var onFinish: (() -> Void)?
-    private(set) var chats: [ShareChat] = []
-    private(set) var newChat: ShareNewChat?
+    private(set) var chats: [ShareSnapshot.Chat] = []
+    private(set) var newChat: ShareSnapshot.NewChat?
     private var upload: StashUpload?
     private var lastSend: (() -> Void)?
     private let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -76,7 +51,7 @@ final class ShareModel: ObservableObject {
     }
 
     func load(_ inputs: [NSExtensionItem]) async {
-        guard let snapshot = Self.snapshot(), let key = StashShared.key(),
+        guard let snapshot = StashShared.read(), let key = StashShared.key(),
             let upload = StashUpload(api: snapshot.apiUrl, keyHex: key)
         else {
             phase = .signedOut
@@ -119,13 +94,13 @@ final class ShareModel: ObservableObject {
         lastSend?()
     }
 
-    func toChat(_ chat: ShareChat) {
+    func toChat(_ chat: ShareSnapshot.Chat) {
         send(
             to: StashTarget(hostKey: chat.host, chatId: chat.chatId),
             done: ("Added to \(chat.name.map { "@\($0)" } ?? "the chat")'s draft", "Unsent, on \(chat.hostName)"))
     }
 
-    func toNewChat(_ chat: ShareNewChat) {
+    func toNewChat(_ chat: ShareSnapshot.NewChat) {
         send(
             to: StashTarget(hostKey: chat.host, projectPath: chat.projectPath, newChat: true),
             done: ("In a new chat in \(chat.project)", "Unsent, on \(chat.hostName)"))
@@ -140,17 +115,6 @@ final class ShareModel: ObservableObject {
             try FileManager.default.removeItem(at: folder)
         } catch {
             print("sikemux: could not clear what the share copied: \(error)")
-        }
-    }
-
-    /// What the app left; nil until it has signed in, which sends the person there first.
-    private static func snapshot() -> Snapshot? {
-        guard let data = StashShared.read() else { return nil }
-        do {
-            return try JSONDecoder().decode(Snapshot.self, from: data)
-        } catch {
-            print("sikemux: could not read the chats the app left: \(error)")
-            return nil
         }
     }
 
