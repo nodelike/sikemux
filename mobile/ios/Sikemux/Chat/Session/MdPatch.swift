@@ -104,20 +104,48 @@ extension MdElement {
         set {
             guard let c = newValue else { return }
             switch self {
-            case .p(var e): e.c = c; self = .p(e)
-            case .h(var e): e.c = c; self = .h(e)
-            case .quote(var e): e.c = c; self = .quote(e)
-            case .ul(var e): e.c = c; self = .ul(e)
-            case .ol(var e): e.c = c; self = .ol(e)
-            case .li(var e): e.c = c; self = .li(e)
-            case .fndef(var e): e.c = c; self = .fndef(e)
-            case .em(var e): e.c = c; self = .em(e)
-            case .strong(var e): e.c = c; self = .strong(e)
-            case .del(var e): e.c = c; self = .del(e)
-            case .a(var e): e.c = c; self = .a(e)
-            case .path(var e): e.c = c; self = .path(e)
-            case .div(var e): e.c = c; self = .div(e)
-            case .details(var e): e.c = c; self = .details(e)
+            case .p(var e):
+                e.c = c
+                self = .p(e)
+            case .h(var e):
+                e.c = c
+                self = .h(e)
+            case .quote(var e):
+                e.c = c
+                self = .quote(e)
+            case .ul(var e):
+                e.c = c
+                self = .ul(e)
+            case .ol(var e):
+                e.c = c
+                self = .ol(e)
+            case .li(var e):
+                e.c = c
+                self = .li(e)
+            case .fndef(var e):
+                e.c = c
+                self = .fndef(e)
+            case .em(var e):
+                e.c = c
+                self = .em(e)
+            case .strong(var e):
+                e.c = c
+                self = .strong(e)
+            case .del(var e):
+                e.c = c
+                self = .del(e)
+            case .a(var e):
+                e.c = c
+                self = .a(e)
+            case .path(var e):
+                e.c = c
+                self = .path(e)
+            case .div(var e):
+                e.c = c
+                self = .div(e)
+            case .details(var e):
+                e.c = c
+                self = .details(e)
             default: break
             }
         }

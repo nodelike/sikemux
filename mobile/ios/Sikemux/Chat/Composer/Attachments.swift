@@ -24,13 +24,15 @@ struct ComposerAttachments<Lead: View>: View {
                 .padding(.bottom, 2)
             }
             if let first = failed.first {
-                Text("\(failed.count == 1 ? "\(first.name) did not reach the host" : "\(failed.count) files did not reach the host")\(first.problem.map { ": \($0)" } ?? ""). Tap to try again.")
-                    .font(Theme.ui(12))
-                    .lineSpacing(16 - 12 * 1.2)
-                    .foregroundStyle(palette.danger)
-                    .lineLimit(2)
-                    .padding(.horizontal, 6)
-                    .padding(.top, 6)
+                Text(
+                    "\(failed.count == 1 ? "\(first.name) did not reach the host" : "\(failed.count) files did not reach the host")\(first.problem.map { ": \($0)" } ?? ""). Tap to try again."
+                )
+                .font(Theme.ui(12))
+                .lineSpacing(16 - 12 * 1.2)
+                .foregroundStyle(palette.danger)
+                .lineLimit(2)
+                .padding(.horizontal, 6)
+                .padding(.top, 6)
             }
         }
     }
@@ -66,7 +68,9 @@ struct ComposerAttachments<Lead: View>: View {
         }
         .overlay(alignment: .topTrailing) {
             if !sending && !broken {
-                Button { onRemove(attachment.id) } label: {
+                Button {
+                    onRemove(attachment.id)
+                } label: {
                     IconView(icon: Icons.close, size: 10)
                         .foregroundStyle(palette.ground)
                         .frame(width: 18, height: 18)
@@ -81,14 +85,18 @@ struct ComposerAttachments<Lead: View>: View {
         .contentShape(shape)
         .onTapGesture { if broken { onRetry() } }
         .accessibilityAddTraits(broken ? .isButton : [])
-        .accessibilityLabel(broken
-            ? "\(attachment.name) did not reach the host\(attachment.problem.map { ": \($0)" } ?? ""). Try again"
-            : "\(attachment.name)\(sending ? ", sending" : "")")
+        .accessibilityLabel(
+            broken
+                ? "\(attachment.name) did not reach the host\(attachment.problem.map { ": \($0)" } ?? ""). Try again"
+                : "\(attachment.name)\(sending ? ", sending" : "")")
     }
 }
 
 extension ComposerAttachments where Lead == EmptyView {
-    init(attachments: [Attachment], core: String? = nil, onRemove: @escaping (String) -> Void, onRetry: @escaping () -> Void) {
+    init(
+        attachments: [Attachment], core: String? = nil, onRemove: @escaping (String) -> Void,
+        onRetry: @escaping () -> Void
+    ) {
         self.init(attachments: attachments, core: core, onRemove: onRemove, onRetry: onRetry) { EmptyView() }
     }
 }
@@ -155,7 +163,9 @@ struct FileChip: View {
         .background {
             if !tall {
                 RoundedRectangle(cornerRadius: 9, style: .continuous).fill(palette.raised)
-                    .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(palette.border, lineWidth: 1))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(palette.border, lineWidth: 1)
+                    )
             }
         }
     }

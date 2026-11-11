@@ -24,7 +24,11 @@ struct StashFace: View {
             if let photo {
                 Image(uiImage: photo).resizable().scaledToFill()
             } else if item.kind == .link, let picture = item.preview?.imageUrl.flatMap(URL.init(string:)) {
-                AsyncImage(url: picture) { image in image.resizable().scaledToFill() } placeholder: { glyph }
+                AsyncImage(url: picture) { image in
+                    image.resizable().scaledToFill()
+                } placeholder: {
+                    glyph
+                }
             } else {
                 glyph
             }
@@ -90,7 +94,8 @@ private struct StashPress: ButtonStyle {
     @Environment(\.palette) private var palette
 
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label.background(RoundedRectangle(cornerRadius: 7).fill(configuration.isPressed ? palette.active : .clear))
+        configuration.label.background(
+            RoundedRectangle(cornerRadius: 7).fill(configuration.isPressed ? palette.active : .clear))
     }
 }
 
@@ -164,12 +169,15 @@ struct StashMenu: View {
         let matches = Array(StashWords.matches(store.items, query).prefix(4))
         VStack(spacing: 4) {
             if matches.isEmpty {
-                Text(store.items.isEmpty ? "Nothing stashed. Share to Sikemux from any app to keep it here."
-                     : "Nothing in the stash matches \(query)")
-                    .font(Theme.ui(12)).foregroundStyle(palette.tertiary)
-                    .frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)
-                    .padding(.horizontal, 12)
-                    .background(item)
+                Text(
+                    store.items.isEmpty
+                        ? "Nothing stashed. Share to Sikemux from any app to keep it here."
+                        : "Nothing in the stash matches \(query)"
+                )
+                .font(Theme.ui(12)).foregroundStyle(palette.tertiary)
+                .frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)
+                .padding(.horizontal, 12)
+                .background(item)
             } else {
                 ForEach(matches) { found in
                     Button {
@@ -218,7 +226,8 @@ struct StashedToast: View {
             } else {
                 ProgressView().controlSize(.small).tint(palette.inkDim)
             }
-            Text(done ? "Stashed" : "Stashing…").font(Theme.ui(13, .medium)).foregroundStyle(palette.ink).padding(.trailing, 4)
+            Text(done ? "Stashed" : "Stashing…").font(Theme.ui(13, .medium)).foregroundStyle(palette.ink).padding(
+                .trailing, 4)
             if done {
                 Button(action: onUndo) {
                     Text("Undo").font(Theme.ui(13, .semibold)).foregroundStyle(palette.accent)

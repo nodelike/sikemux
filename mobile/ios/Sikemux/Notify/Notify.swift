@@ -39,7 +39,9 @@ final class Notify {
             print("sikemux: could not read the notifications choice: \(error)")
         }
         UNUserNotificationCenter.current().setNotificationCategories([Self.answers])
-        NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
+        NotificationCenter.default.addObserver(
+            forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main
+        ) { _ in
             Task { await Notify.shared.checkAllowed() }
         }
     }
@@ -78,7 +80,9 @@ final class Notify {
         offered = false
         choose(.on)
         do {
-            allowed = try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
+            allowed = try await UNUserNotificationCenter.current().requestAuthorization(options: [
+                .alert, .sound, .badge,
+            ])
         } catch {
             print("sikemux: could not ask to notify: \(error)")
             allowed = false
@@ -161,15 +165,18 @@ final class Notify {
         Keys().phone = identity.id()
         let pushToken = try await deviceToken().map { String(format: "%02x", $0) }.joined()
         let tokenSha256 = SHA256.hash(data: Data(pushToken.utf8)).map { String(format: "%02x", $0) }.joined()
-        var next = SentToken(device: identity.id(), tokenSha256: tokenSha256, app: Config.isDev ? .dev : .production,
-                             apnsEnvironment: Self.apnsEnvironment)
+        var next = SentToken(
+            device: identity.id(), tokenSha256: tokenSha256, app: Config.isDev ? .dev : .production,
+            apnsEnvironment: Self.apnsEnvironment)
         if let sent, sent.same(as: next), Date().timeIntervalSince1970 - sent.at / 1000 < Self.resend { return }
         let nonce = try await AccountCalls.challenge()
-        let registration = PushTokenRegistration.apns(ApnsTokenRegistration(
-            token: pushToken, app: next.app, apnsEnvironment: next.apnsEnvironment, nonce: nonce,
-            signature: try identity.signPush(nonce: nonce, tokenSha256: tokenSha256)
-        ))
-        _ = try await AccountAPI.send("PUT", "/v1/devices/\(identity.id())/push", body: registration, as: PushTokenState.self)
+        let registration = PushTokenRegistration.apns(
+            ApnsTokenRegistration(
+                token: pushToken, app: next.app, apnsEnvironment: next.apnsEnvironment, nonce: nonce,
+                signature: try identity.signPush(nonce: nonce, tokenSha256: tokenSha256)
+            ))
+        _ = try await AccountAPI.send(
+            "PUT", "/v1/devices/\(identity.id())/push", body: registration, as: PushTokenState.self)
         next.at = Date().timeIntervalSince1970 * 1000
         try keepSent(next)
     }
@@ -200,20 +207,25 @@ final class Notify {
     /// TestFlight builds carry no profile.
     private static let apnsEnvironment: ApnsEnvironment = {
         #if targetEnvironment(simulator)
-        return .sandbox
-        #else
-        guard let url = Bundle.main.url(forResource: "embedded", withExtension: "mobileprovision") else { return .production }
-        do {
-            let signed = try String(contentsOf: url, encoding: .isoLatin1)
-            guard let start = signed.range(of: "<?xml"), let end = signed.range(of: "</plist>") else { return .sandbox }
-            let profile = try PropertyListSerialization.propertyList(
-                from: Data(signed[start.lowerBound..<end.upperBound].utf8), format: nil) as? [String: Any]
-            let entitlements = profile?["Entitlements"] as? [String: Any]
-            return entitlements?["aps-environment"] as? String == "production" ? .production : .sandbox
-        } catch {
-            print("sikemux: could not read this build's provisioning profile: \(error)")
             return .sandbox
-        }
+        #else
+            guard let url = Bundle.main.url(forResource: "embedded", withExtension: "mobileprovision") else {
+                return .production
+            }
+            do {
+                let signed = try String(contentsOf: url, encoding: .isoLatin1)
+                guard let start = signed.range(of: "<?xml"), let end = signed.range(of: "</plist>") else {
+                    return .sandbox
+                }
+                let profile =
+                    try PropertyListSerialization.propertyList(
+                        from: Data(signed[start.lowerBound..<end.upperBound].utf8), format: nil) as? [String: Any]
+                let entitlements = profile?["Entitlements"] as? [String: Any]
+                return entitlements?["aps-environment"] as? String == "production" ? .production : .sandbox
+            } catch {
+                print("sikemux: could not read this build's provisioning profile: \(error)")
+                return .sandbox
+            }
         #endif
     }()
 
@@ -259,8 +271,10 @@ final class Notify {
     private static let answers = UNNotificationCategory(
         identifier: Card.answerCategory,
         actions: [
-            UNNotificationAction(identifier: CardAction.reject.rawValue, title: "Reject", options: [.foreground, .destructive]),
-            UNNotificationAction(identifier: CardAction.allow.rawValue, title: "Allow", options: [.foreground, .authenticationRequired]),
+            UNNotificationAction(
+                identifier: CardAction.reject.rawValue, title: "Reject", options: [.foreground, .destructive]),
+            UNNotificationAction(
+                identifier: CardAction.allow.rawValue, title: "Allow", options: [.foreground, .authenticationRequired]),
         ],
         intentIdentifiers: []
     )

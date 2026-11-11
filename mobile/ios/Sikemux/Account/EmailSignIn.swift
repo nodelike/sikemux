@@ -7,7 +7,9 @@ enum CodePurpose {
 
 /// Where signing in with an email address has got to.
 enum SignInStep: Equatable {
-    case email, password, create, code(CodePurpose), newPassword
+    case email, password, create
+    case code(CodePurpose)
+    case newPassword
 }
 
 /// Signing in with an email address and a password or emailed code, as the web app does: each step's Clerk calls,
@@ -17,8 +19,10 @@ final class EmailSignIn {
     private var signIn: Clerk.SignIn?
     private var signUp: Clerk.SignUp?
 
-    private static let unsupportedSignIn = "This account needs a sign-in step the app does not do yet; sign in on the web first."
-    private static let unsupportedSignUp = "The account needs more than this app asks for; finish signing up on the web."
+    private static let unsupportedSignIn =
+        "This account needs a sign-in step the app does not do yet; sign in on the web first."
+    private static let unsupportedSignUp =
+        "The account needs more than this app asks for; finish signing up on the web."
 
     func reset() {
         signIn = nil
@@ -44,13 +48,16 @@ final class EmailSignIn {
             "POST", "v1/client/sign_ups", ["email_address": email.trimmed, "password": password], as: Clerk.SignUp.self
         )
         signUp = made
-        signUp = try await Clerk.call("POST", "v1/client/sign_ups/\(made.id)/prepare_verification", ["strategy": "email_code"]).0
+        signUp = try await Clerk.call(
+            "POST", "v1/client/sign_ups/\(made.id)/prepare_verification", ["strategy": "email_code"]
+        ).0
         return .code(.verify)
     }
 
     func forgot() async throws -> SignInStep {
         var form = ["strategy": "reset_password_email_code"]
-        form["email_address_id"] = signIn?.supportedFirstFactors?.first { $0.strategy == "reset_password_email_code" }?.emailAddressId
+        form["email_address_id"] =
+            signIn?.supportedFirstFactors?.first { $0.strategy == "reset_password_email_code" }?.emailAddressId
         try await step(signIn: "prepare_first_factor", form)
         return .code(.reset)
     }
@@ -92,7 +99,8 @@ final class EmailSignIn {
             return nil
         case .needsClientTrust, .needsSecondFactor:
             var form = ["strategy": "email_code"]
-            form["email_address_id"] = signIn.supportedSecondFactors?.first { $0.strategy == "email_code" }?.emailAddressId
+            form["email_address_id"] =
+                signIn.supportedSecondFactors?.first { $0.strategy == "email_code" }?.emailAddressId
             try await step(signIn: "prepare_second_factor", form)
             return .code(.trust)
         default:
@@ -103,7 +111,8 @@ final class EmailSignIn {
     @discardableResult
     private func step(signIn action: String, _ form: [String: String]) async throws -> Clerk.Client? {
         guard let id = signIn?.id else { throw Clerk.Problem(code: nil, message: Self.unsupportedSignIn) }
-        let (next, client) = try await Clerk.call("POST", "v1/client/sign_ins/\(id)/\(action)", form, as: Clerk.SignIn.self)
+        let (next, client) = try await Clerk.call(
+            "POST", "v1/client/sign_ins/\(id)/\(action)", form, as: Clerk.SignIn.self)
         signIn = next
         return client
     }
@@ -114,6 +123,6 @@ final class EmailSignIn {
     }
 }
 
-private extension String {
-    var trimmed: String { trimmingCharacters(in: .whitespacesAndNewlines) }
+extension String {
+    fileprivate var trimmed: String { trimmingCharacters(in: .whitespacesAndNewlines) }
 }

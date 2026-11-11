@@ -89,7 +89,9 @@ final class ChatSession {
             draft.takeIn()
         }
         emit()
-        NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
+        NotificationCenter.default.addObserver(
+            forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main
+        ) { [weak self] _ in
             MainActor.assumeIsolated {
                 self?.keep()
                 self?.draft.keep()
@@ -131,8 +133,12 @@ final class ChatSession {
     private func since(_ view: ChatRows) -> Date {
         if let at = view.head.turnOpening?.at { return Date(timeIntervalSince1970: Double(at) / 1000) }
         for row in view.messages.reversed() {
-            if row.role == .user { return row.sentAt.map { Date(timeIntervalSince1970: Double($0) / 1000) } ?? sawTurnBegin }
-            if let opens = row.opensTurn { return opens.at.map { Date(timeIntervalSince1970: Double($0) / 1000) } ?? sawTurnBegin }
+            if row.role == .user {
+                return row.sentAt.map { Date(timeIntervalSince1970: Double($0) / 1000) } ?? sawTurnBegin
+            }
+            if let opens = row.opensTurn {
+                return opens.at.map { Date(timeIntervalSince1970: Double($0) / 1000) } ?? sawTurnBegin
+            }
         }
         return sawTurnBegin
     }
@@ -269,7 +275,8 @@ final class ChatSession {
             case .live(let json, let mark):
                 return .live(try JSONDecoder().decode(ChatView.self, from: Data(json.utf8)), mark, json.utf8.count)
             case .resumed(let json, let mark):
-                return .resumed(try JSONDecoder().decode([ChatChange].self, from: Data(json.utf8)), mark, json.utf8.count)
+                return .resumed(
+                    try JSONDecoder().decode([ChatChange].self, from: Data(json.utf8)), mark, json.utf8.count)
             case .missing:
                 return .missing
             }
@@ -301,15 +308,19 @@ final class ChatSession {
         emit()
     }
 
-    private static func logOpen(_ agentId: String, woke: Bool, answered: TimeInterval, _ opened: Opened, _ began: Date) {
+    private static func logOpen(_ agentId: String, woke: Bool, answered: TimeInterval, _ opened: Opened, _ began: Date)
+    {
         #if DEBUG
-        let (answer, bytes): (String, Int) = switch opened {
-        case .live(_, _, let bytes): ("live", bytes)
-        case .resumed(_, _, let bytes): ("resumed", bytes)
-        case .missing: ("missing", 0)
-        }
-        let ms = { (seconds: TimeInterval) in "\(Int(seconds * 1000))ms" }
-        print("sikemux: \(agentId) \(woke ? "woke and " : "")\(answer) after \(ms(answered)) with \(bytes / 1024) KB, applied by \(ms(Date().timeIntervalSince(began)))")
+            let (answer, bytes): (String, Int) =
+                switch opened {
+                case .live(_, _, let bytes): ("live", bytes)
+                case .resumed(_, _, let bytes): ("resumed", bytes)
+                case .missing: ("missing", 0)
+                }
+            let ms = { (seconds: TimeInterval) in "\(Int(seconds * 1000))ms" }
+            print(
+                "sikemux: \(agentId) \(woke ? "woke and " : "")\(answer) after \(ms(answered)) with \(bytes / 1024) KB, applied by \(ms(Date().timeIntervalSince(began)))"
+            )
         #endif
     }
 
@@ -320,7 +331,9 @@ final class ChatSession {
         if !chat.running { stoppingTurn = false }
         if chat.permissionMode != before.permissionMode { mode = nil }
         if chat.head.queued != before.head.queued || chat.running != before.running { outbox.dropTaken() }
-        if !chosen.isEmpty && (chat.head.model != before.head.model || chat.head.effort != before.head.effort) { chosen = [:] }
+        if !chosen.isEmpty && (chat.head.model != before.head.model || chat.head.effort != before.head.effort) {
+            chosen = [:]
+        }
         outbox.settle(turnEnded: before.running && !chat.running)
         if chat.head.draft != before.head.draft { draft.takeIn() }
     }
@@ -328,14 +341,19 @@ final class ChatSession {
     // MARK: Asking the host
 
     func openConnection() throws -> Connection {
-        guard let connection, connection.isOpen(), attached == .live else { throw ChatProblem("the host is not connected") }
+        guard let connection, connection.isOpen(), attached == .live else {
+            throw ChatProblem("the host is not connected")
+        }
         return connection
     }
 
     /// Runs a request on the open connection; on failure says `what` went wrong where the person is looking and
     /// runs `undo`.
     @discardableResult
-    func ask<T>(_ what: String, then: ((T) -> Void)? = nil, undo: (() -> Void)? = nil, _ request: @escaping (Connection) async throws -> T) async -> Bool {
+    func ask<T>(
+        _ what: String, then: ((T) -> Void)? = nil, undo: (() -> Void)? = nil,
+        _ request: @escaping (Connection) async throws -> T
+    ) async -> Bool {
         do {
             guard let connection, connection.isOpen() else { throw ChatProblem("the host is not connected") }
             let answer = try await request(connection)
@@ -405,13 +423,16 @@ final class ChatSession {
     /// Takes the chat back to before the person's message `rowId` and sends `text` in its place with the files it
     /// carried. The message and everything after it leave at once; if the host refuses, the chat is read again whole.
     func edit(_ rowId: String, _ text: String) {
-        guard let row = feed.chat.messages.first(where: { $0.id == rowId }), let messageId = row.promptId, !text.isEmpty else { return }
+        guard let row = feed.chat.messages.first(where: { $0.id == rowId }), let messageId = row.promptId, !text.isEmpty
+        else { return }
         notice = nil
         feed.apply { chat, touched in chat.apply([.drop(.init(from: rowId))], touched: &touched) }
         emit()
         let params = EditParams(agentId: agentId, messageId: messageId, text: text, paths: row.attachments ?? [])
         Task {
-            await ask("Could not edit the message", undo: { self.retry() }) { _ = try await $0.call(PhoneCall.EditMessage.self, params) }
+            await ask("Could not edit the message", undo: { self.retry() }) {
+                _ = try await $0.call(PhoneCall.EditMessage.self, params)
+            }
         }
     }
 
@@ -429,9 +450,14 @@ final class ChatSession {
     }
 
     /// Asks the host to find words across the whole chat, held here or not.
-    func find(_ query: String, matchCase: Bool, wholeWord: Bool, from: FindAt?, direction: FindDirection?, limit: Int?, countOnly: Bool) async throws -> FindAnswer {
+    func find(
+        _ query: String, matchCase: Bool, wholeWord: Bool, from: FindAt?, direction: FindDirection?, limit: Int?,
+        countOnly: Bool
+    ) async throws -> FindAnswer {
         guard let feed = feed.mark?.feed else { throw ChatProblem("the chat is not open") }
-        let params = FindParams(agentId: agentId, feed: feed, query: query, matchCase: matchCase, wholeWord: wholeWord, from: from, direction: direction, limit: limit, countOnly: countOnly)
+        let params = FindParams(
+            agentId: agentId, feed: feed, query: query, matchCase: matchCase, wholeWord: wholeWord, from: from,
+            direction: direction, limit: limit, countOnly: countOnly)
         return try await openConnection().call(PhoneCall.ChatFind.self, params)
     }
 

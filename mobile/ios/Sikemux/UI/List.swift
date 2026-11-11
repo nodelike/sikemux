@@ -83,12 +83,13 @@ struct Row<Mark: View, End: View, After: View>: View {
         }
         .buttonStyle(RowPressStyle(enabled: onPress != nil))
         .disabled(onPress == nil && onLongPress == nil)
-        .simultaneousGesture(LongPressGesture().onEnded { _ in
-            guard let onLongPress else { return }
-            held = true
-            Haptics.tap()
-            onLongPress()
-        }, including: onLongPress == nil ? .subviews : .all)
+        .simultaneousGesture(
+            LongPressGesture().onEnded { _ in
+                guard let onLongPress else { return }
+                held = true
+                Haptics.tap()
+                onLongPress()
+            }, including: onLongPress == nil ? .subviews : .all)
 
         if After.self == EmptyView.self {
             row

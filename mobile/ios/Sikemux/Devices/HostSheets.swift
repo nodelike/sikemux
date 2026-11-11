@@ -105,7 +105,9 @@ struct ProjectSheet<Tail: View>: View {
             .padding(.horizontal, 12)
             .frame(height: 44)
             .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(palette.sunken))
-            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(query.isEmpty ? palette.border : palette.borderSelected, lineWidth: 1))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(
+                    query.isEmpty ? palette.border : palette.borderSelected, lineWidth: 1))
             VStack(spacing: 0) {
                 if showAll {
                     row(on: chosen == nil, divided: false, action: { choose(nil) }) {
@@ -150,7 +152,9 @@ struct ProjectSheet<Tail: View>: View {
         onChoose(project)
     }
 
-    private func row<Content: View>(on: Bool, divided: Bool, action: @escaping () -> Void, @ViewBuilder content: () -> Content) -> some View {
+    private func row<Content: View>(
+        on: Bool, divided: Bool, action: @escaping () -> Void, @ViewBuilder content: () -> Content
+    ) -> some View {
         Button(action: action) {
             HStack(spacing: 12) {
                 content()
@@ -177,14 +181,20 @@ struct ProjectSheet<Tail: View>: View {
                 } label: {
                     Group {
                         if provider == "all" {
-                            Text("All").font(Theme.ui(13.5, .medium)).foregroundStyle(on ? palette.ink : palette.secondary)
+                            Text("All").font(Theme.ui(13.5, .medium)).foregroundStyle(
+                                on ? palette.ink : palette.secondary)
                         } else {
                             AgentMark(provider: provider, size: 20)
                         }
                     }
                     .frame(maxWidth: .infinity, minHeight: 44)
-                    .background(RoundedRectangle(cornerRadius: Radius.control, style: .continuous).fill(on ? palette.active : palette.raised))
-                    .overlay(RoundedRectangle(cornerRadius: Radius.control, style: .continuous).strokeBorder(on ? palette.borderStrong : palette.border, lineWidth: 1))
+                    .background(
+                        RoundedRectangle(cornerRadius: Radius.control, style: .continuous).fill(
+                            on ? palette.active : palette.raised)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: Radius.control, style: .continuous).strokeBorder(
+                            on ? palette.borderStrong : palette.border, lineWidth: 1))
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(provider == "all" ? "All agents" : agentLabel(provider, core: core))
@@ -201,10 +211,15 @@ struct ProjectSheet<Tail: View>: View {
 }
 
 extension ProjectSheet where Tail == EmptyView {
-    init(device: String? = nil, projects: [ProjectInfo], chosen: String?, all: String? = nil, providers: ProviderFilter? = nil,
-         onChoose: @escaping (String?) -> Void) {
-        self.init(device: device, projects: projects, chosen: chosen, all: all, tail: { _ in EmptyView() }, providers: providers,
-                  onChoose: onChoose)
+    init(
+        device: String? = nil, projects: [ProjectInfo], chosen: String?, all: String? = nil,
+        providers: ProviderFilter? = nil,
+        onChoose: @escaping (String?) -> Void
+    ) {
+        self.init(
+            device: device, projects: projects, chosen: chosen, all: all, tail: { _ in EmptyView() },
+            providers: providers,
+            onChoose: onChoose)
     }
 }
 
@@ -298,7 +313,9 @@ struct AwaySheet: View {
                 MenuItem(icon: Icons.clock, label: "Wake now") { snooze(until: nil) }.padding(.vertical, 8)
             } else {
                 ForEach(presets, id: \.label) { preset in
-                    Button { snooze(until: preset.until) } label: {
+                    Button {
+                        snooze(until: preset.until)
+                    } label: {
                         HStack {
                             Text(preset.label).font(Theme.ui(15)).foregroundStyle(palette.inkDim)
                             Spacer()
@@ -313,36 +330,44 @@ struct AwaySheet: View {
                     }
                     .buttonStyle(RowPressStyle())
                 }
-                TextField("", text: $typed, prompt: Text("Or type a time: fri 2pm, in 90m").foregroundStyle(palette.tertiary))
-                    .font(Theme.ui(15))
-                    .foregroundStyle(palette.ink)
-                    .tint(palette.accent)
-                    .autocorrectionDisabled()
-                    .textInputAutocapitalization(.never)
-                    .submitLabel(.done)
-                    .onSubmit {
-                        let words = typed.trimmingCharacters(in: .whitespaces)
-                        if !words.isEmpty { snooze(until: nil, words: words) }
-                    }
-                    .onChange(of: typed) { failed = nil }
-                    .padding(.horizontal, 14)
-                    .frame(height: 44)
-                    .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(palette.sunken))
-                    .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(palette.border, lineWidth: 1))
-                    .padding(.top, 8)
+                TextField(
+                    "", text: $typed, prompt: Text("Or type a time: fri 2pm, in 90m").foregroundStyle(palette.tertiary)
+                )
+                .font(Theme.ui(15))
+                .foregroundStyle(palette.ink)
+                .tint(palette.accent)
+                .autocorrectionDisabled()
+                .textInputAutocapitalization(.never)
+                .submitLabel(.done)
+                .onSubmit {
+                    let words = typed.trimmingCharacters(in: .whitespaces)
+                    if !words.isEmpty { snooze(until: nil, words: words) }
+                }
+                .onChange(of: typed) { failed = nil }
+                .padding(.horizontal, 14)
+                .frame(height: 44)
+                .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(palette.sunken))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(palette.border, lineWidth: 1)
+                )
+                .padding(.top, 8)
             }
             if let failed {
                 Text(failed).font(Theme.ui(13)).foregroundStyle(palette.danger).padding(.horizontal, 8).padding(.top, 8)
             }
             Group {
                 if settled {
-                    MenuItem(icon: Icons.rotate, label: "Restore") { act { try await Self.settle($0, [shown.agentId], false) } }
+                    MenuItem(icon: Icons.rotate, label: "Restore") {
+                        act { try await Self.settle($0, [shown.agentId], false) }
+                    }
                 } else {
                     MenuItem(icon: Icons.check, label: "Settle") {
                         let ids = [shown.agentId]
-                        act({ try await Self.settle($0, ids, true) }, said: Said(text: "Settled") { connection in
-                            Task { await Self.undo { try await Self.settle(connection, ids, false) } }
-                        })
+                        act(
+                            { try await Self.settle($0, ids, true) },
+                            said: Said(text: "Settled") { connection in
+                                Task { await Self.undo { try await Self.settle(connection, ids, false) } }
+                            })
                     }
                 }
             }
@@ -365,10 +390,19 @@ struct AwaySheet: View {
         if until != nil || words != nil {
             let text = until.map { "Snoozed until \(Self.clock(Format.date(millis: $0)))" } ?? "Snoozed"
             said = Said(text: text) { connection in
-                Task { await Self.undo { _ = try await connection.call(PhoneCall.SnoozeAgents.self, SnoozeParams(agentIds: ids, until: nil, typed: nil)) } }
+                Task {
+                    await Self.undo {
+                        _ = try await connection.call(
+                            PhoneCall.SnoozeAgents.self, SnoozeParams(agentIds: ids, until: nil, typed: nil))
+                    }
+                }
             }
         }
-        act({ _ = try await $0.call(PhoneCall.SnoozeAgents.self, SnoozeParams(agentIds: ids, until: until, typed: words)) }, said: said)
+        act(
+            {
+                _ = try await $0.call(
+                    PhoneCall.SnoozeAgents.self, SnoozeParams(agentIds: ids, until: until, typed: words))
+            }, said: said)
     }
 
     /// What the sheet says it did once it closes, and how to take that back.

@@ -23,9 +23,11 @@ struct ChatMenu: View {
     var body: some View {
         if confirming, let onStop {
             VStack(alignment: .leading, spacing: 10) {
-                Text("Stop this chat?").font(Theme.ui(17, .semibold)).tracking(-0.35).foregroundStyle(palette.ink).padding(.horizontal, 4)
+                Text("Stop this chat?").font(Theme.ui(17, .semibold)).tracking(-0.35).foregroundStyle(palette.ink)
+                    .padding(.horizontal, 4)
                 Text("\(agentName) stops and closes on \(hostName), along with anything it still has running.")
-                    .font(Theme.ui(14)).lineSpacing(3).foregroundStyle(palette.tertiary).padding(.horizontal, 4).padding(.bottom, 6)
+                    .font(Theme.ui(14)).lineSpacing(3).foregroundStyle(palette.tertiary).padding(.horizontal, 4)
+                    .padding(.bottom, 6)
                 ActionButton(stopping ? "Stopping…" : "Stop chat", kind: .danger, busy: stopping) {
                     stopping = true
                     Task {
@@ -40,9 +42,24 @@ struct ChatMenu: View {
             .padding(.bottom, 4)
         } else {
             VStack(spacing: 8) {
-                if let onFind { MenuItem(icon: Icons.search, label: "Find in chat") { close(); onFind() } }
-                if let onRecent { MenuItem(icon: Icons.clock, label: "Recent prompts") { close(); onRecent() } }
-                if let onAway { MenuItem(icon: Icons.clock, label: "Snooze") { close(); onAway() } }
+                if let onFind {
+                    MenuItem(icon: Icons.search, label: "Find in chat") {
+                        close()
+                        onFind()
+                    }
+                }
+                if let onRecent {
+                    MenuItem(icon: Icons.clock, label: "Recent prompts") {
+                        close()
+                        onRecent()
+                    }
+                }
+                if let onAway {
+                    MenuItem(icon: Icons.clock, label: "Snooze") {
+                        close()
+                        onAway()
+                    }
+                }
                 MenuItem(icon: Icons.copy, label: "Copy link") {
                     let core = core.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? core
                     let agent = agentId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? agentId

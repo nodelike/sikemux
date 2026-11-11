@@ -26,8 +26,8 @@ enum Config {
 
     private static let release: Release = {
         guard let url = Bundle.main.url(forResource: "release", withExtension: "json"),
-              let data = try? Data(contentsOf: url),
-              let release = try? JSONDecoder().decode(Release.self, from: data)
+            let data = try? Data(contentsOf: url),
+            let release = try? JSONDecoder().decode(Release.self, from: data)
         else { fatalError("the app was built without server/protocol/src/release.json") }
         return release
     }()

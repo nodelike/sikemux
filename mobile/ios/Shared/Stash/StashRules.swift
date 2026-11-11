@@ -8,7 +8,9 @@ enum StashRules {
     static let mostText = 16000
 
     /// A file's headers: its name, note and target URI-encoded, and the prompt it belongs to.
-    static func headers(mime: String, name: String, note: String? = nil, target: String? = nil, prompt: String? = nil) -> [String: String] {
+    static func headers(mime: String, name: String, note: String? = nil, target: String? = nil, prompt: String? = nil)
+        -> [String: String]
+    {
         var headers = ["content-type": mime, "x-stash-name": uriEncoded(name)]
         headers["x-stash-note"] = note.map(uriEncoded)
         headers["x-stash-target"] = target.map(uriEncoded)
@@ -18,7 +20,8 @@ enum StashRules {
 
     /// As JavaScript's encodeURIComponent, which the server decodes with.
     private static func uriEncoded(_ text: String) -> String {
-        let allowed = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.!~*'()")
+        let allowed = CharacterSet(
+            charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.!~*'()")
         return text.addingPercentEncoding(withAllowedCharacters: allowed) ?? text
     }
 }

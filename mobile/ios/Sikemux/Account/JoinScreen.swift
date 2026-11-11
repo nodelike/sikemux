@@ -21,9 +21,11 @@ struct JoinScreen: View {
                 if arrived, problem == nil {
                     found
                 } else {
-                    Prompt(icon: Icons.laptop, tone: problem == nil ? .neutral : .danger,
-                           title: problem?.title ?? "Allow this phone on \(name)", detail: problem?.detail)
-                        .frame(maxHeight: .infinity, alignment: .top)
+                    Prompt(
+                        icon: Icons.laptop, tone: problem == nil ? .neutral : .danger,
+                        title: problem?.title ?? "Allow this phone on \(name)", detail: problem?.detail
+                    )
+                    .frame(maxHeight: .infinity, alignment: .top)
                 }
                 VStack(spacing: 8) {
                     if problem != nil {
@@ -48,7 +50,8 @@ struct JoinScreen: View {
             Text("\(name) just signed in")
                 .font(Theme.ui(25, .semibold)).tracking(-0.75).foregroundStyle(palette.ink)
                 .multilineTextAlignment(.center).padding(.top, 28)
-            (Text("Click ") + Text("Allow").font(Theme.ui(15, .semibold)).foregroundStyle(palette.ink) + Text(" on \(name) to let this phone in."))
+            (Text("Click ") + Text("Allow").font(Theme.ui(15, .semibold)).foregroundStyle(palette.ink)
+                + Text(" on \(name) to let this phone in."))
                 .font(Theme.body).lineSpacing(7).foregroundStyle(palette.secondary)
                 .multilineTextAlignment(.center).padding(.top, 10)
         }
@@ -63,13 +66,15 @@ struct JoinScreen: View {
                 .font(Theme.ui(15)).foregroundStyle(palette.secondary).lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
             if waiting {
-                Text(String(format: "%d:%02d", left / 60, left % 60)).font(Theme.monoText).foregroundStyle(palette.tertiary)
+                Text(String(format: "%d:%02d", left / 60, left % 60)).font(Theme.monoText).foregroundStyle(
+                    palette.tertiary)
             }
         }
         .padding(.horizontal, 16)
         .frame(minHeight: 52)
         .background(RoundedRectangle(cornerRadius: Radius.row, style: .continuous).fill(palette.raised))
-        .overlay(RoundedRectangle(cornerRadius: Radius.row, style: .continuous).strokeBorder(palette.border, lineWidth: 1))
+        .overlay(
+            RoundedRectangle(cornerRadius: Radius.row, style: .continuous).strokeBorder(palette.border, lineWidth: 1))
     }
 
     private func secondsLeft(_ now: Date) -> Int {
@@ -120,7 +125,9 @@ private struct Handshake: View {
                     }
                 }
                 TimelineView(.animation(paused: still)) { context in
-                    let t = still ? 0 : context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1.6) / 1.6
+                    let t =
+                        still
+                        ? 0 : context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1.6) / 1.6
                     let eased = t < 0.5 ? 2 * t * t : 1 - pow(-2 * t + 2, 2) / 2
                     Circle().fill(palette.live)
                         .frame(width: Self.dot, height: Self.dot)

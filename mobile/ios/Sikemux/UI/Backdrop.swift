@@ -93,12 +93,13 @@ struct PaneBackdrop: View {
                 ZStack(alignment: .top) {
                     field(size: size, picture: picture)
                         .opacity(shown ? (picture == nil ? 0.85 : 0.38) : 0)
-                    LinearGradient(stops: [
-                        .init(color: palette.ground.opacity(0), location: 0),
-                        .init(color: palette.ground.opacity(0.55), location: 0.4),
-                        .init(color: palette.ground.opacity(0.92), location: 0.76),
-                        .init(color: palette.ground, location: 1),
-                    ], startPoint: .top, endPoint: .bottom)
+                    LinearGradient(
+                        stops: [
+                            .init(color: palette.ground.opacity(0), location: 0),
+                            .init(color: palette.ground.opacity(0.55), location: 0.4),
+                            .init(color: palette.ground.opacity(0.92), location: 0.76),
+                            .init(color: palette.ground, location: 1),
+                        ], startPoint: .top, endPoint: .bottom)
                 }
                 .frame(width: size.width, height: size.height)
                 .clipped()
@@ -133,15 +134,18 @@ struct PaneBackdrop: View {
     @ViewBuilder private func field(size: CGSize, picture: Picture?) -> some View {
         if let picture {
             Rectangle()
-                .colorEffect(ShaderLibrary.backdropPicture(
-                    .float2(size), .float(scale), .float(picture.aspect), .image(Image(uiImage: picture.image))))
+                .colorEffect(
+                    ShaderLibrary.backdropPicture(
+                        .float2(size), .float(scale), .float(picture.aspect), .image(Image(uiImage: picture.image)))
+                )
                 .frame(width: size.width, height: size.height)
         } else {
             let moving = showing && phase == .active && !still && !BackdropPause.shared.paused
             TimelineView(.animation(minimumInterval: Self.tick, paused: !moving)) { _ in
                 Rectangle()
-                    .colorEffect(ShaderLibrary.backdropGrain(
-                        .float2(size), .float(scale), .float(time), .color(palette.shaderDot)))
+                    .colorEffect(
+                        ShaderLibrary.backdropGrain(
+                            .float2(size), .float(scale), .float(time), .color(palette.shaderDot)))
             }
             .frame(width: size.width, height: size.height)
         }

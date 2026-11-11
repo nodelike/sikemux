@@ -54,7 +54,9 @@ enum ChatWords {
         let date = Date(timeIntervalSince1970: Double(at) / 1000)
         let calendar = Calendar.current
         let clock = time.string(from: date)
-        let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: date), to: calendar.startOfDay(for: now)).day ?? 0
+        let days =
+            calendar.dateComponents([.day], from: calendar.startOfDay(for: date), to: calendar.startOfDay(for: now)).day
+            ?? 0
         if days == 0 { return "Today, \(clock)" }
         if days == 1 { return "Yesterday, \(clock)" }
         let sameYear = calendar.component(.year, from: date) == calendar.component(.year, from: now)
@@ -67,7 +69,8 @@ enum ChatWords {
     static func activity(_ activity: ChatActivity?) -> String? {
         switch activity {
         case .retrying(let retrying):
-            return (retrying.connection ? "Reconnecting…" : "Retrying…") + (retrying.attempt.map { " (attempt \($0))" } ?? "")
+            return (retrying.connection ? "Reconnecting…" : "Retrying…")
+                + (retrying.attempt.map { " (attempt \($0))" } ?? "")
         case .call(let call): return activityLabel(call.row)
         case .thinking: return "Thinking…"
         case .starting: return "Starting agent…"

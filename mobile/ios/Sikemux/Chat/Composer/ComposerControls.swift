@@ -100,7 +100,10 @@ struct ContextRing: View {
                 Circle().stroke(palette.border, lineWidth: Self.stroke)
                 Circle()
                     .trim(from: 0, to: share)
-                    .stroke(ContextFill.color(usage, provider: provider, palette: palette), style: StrokeStyle(lineWidth: Self.stroke, lineCap: .round))
+                    .stroke(
+                        ContextFill.color(usage, provider: provider, palette: palette),
+                        style: StrokeStyle(lineWidth: Self.stroke, lineCap: .round)
+                    )
                     .rotationEffect(.degrees(-90))
             }
             .frame(width: Self.ring - Self.stroke, height: Self.ring - Self.stroke)
@@ -197,7 +200,9 @@ struct ContextChips: View {
                 .padding(.horizontal, 10)
                 .frame(maxWidth: 240)
                 .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(palette.raised))
-                .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(palette.border, lineWidth: 1))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(palette.border, lineWidth: 1)
+                )
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("\(label) \(tracked.map { "#\($0.number) " } ?? "")\(tracked?.title ?? item.title)")
             }

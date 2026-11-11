@@ -42,7 +42,8 @@ struct DeleteAccountScreen: View {
                                 .padding(.trailing, 8)
                             }
                         }
-                        (Text("Type ") + Text(Self.word).font(Theme.monoText).foregroundStyle(palette.ink) + Text(" to confirm"))
+                        (Text("Type ") + Text(Self.word).font(Theme.monoText).foregroundStyle(palette.ink)
+                            + Text(" to confirm"))
                             .metaStyle(palette)
                             .padding(.top, 8)
                             .padding(.bottom, -4)
@@ -53,8 +54,10 @@ struct DeleteAccountScreen: View {
                             .onSubmit(start)
                             .disabled(deleting)
                         if let problem { ProblemLine(text: problem) }
-                        ActionButton(deleting ? "Deleting…" : "Delete account", kind: .danger, icon: Icons.trash, action: start)
-                            .disabled(deleting || !confirmed)
+                        ActionButton(
+                            deleting ? "Deleting…" : "Delete account", kind: .danger, icon: Icons.trash, action: start
+                        )
+                        .disabled(deleting || !confirmed)
                     }
                     .padding(.horizontal, 24)
                     .padding(.top, 24)
@@ -70,7 +73,8 @@ struct DeleteAccountScreen: View {
             Text("Delete your account")
                 .font(Theme.ui(22, .semibold)).tracking(-0.7).foregroundStyle(palette.ink)
                 .padding(.top, 20)
-            (Text("This deletes ") + (Account.shared.user?.email.map { Text($0).foregroundStyle(palette.ink) } ?? Text("your account"))
+            (Text("This deletes ")
+                + (Account.shared.user?.email.map { Text($0).foregroundStyle(palette.ink) } ?? Text("your account"))
                 + Text(". You can restore it within \(Config.restorableDays) days."))
                 .font(Theme.body).lineSpacing(7).foregroundStyle(palette.secondary)
                 .multilineTextAlignment(.center).padding(.top, 8)

@@ -12,7 +12,9 @@ struct ProseStyle: Equatable {
     var spacing: CGFloat { max(0, lineHeight - size * 1.22) }
 
     static func prose(_ palette: Palette) -> ProseStyle { ProseStyle(color: palette.ink) }
-    static func thought(_ palette: Palette) -> ProseStyle { ProseStyle(size: 12.5, lineHeight: 19.5, color: palette.inkFaint, italic: true) }
+    static func thought(_ palette: Palette) -> ProseStyle {
+        ProseStyle(size: 12.5, lineHeight: 19.5, color: palette.inkFaint, italic: true)
+    }
 }
 
 /// Links the transcript opens itself rather than handing to the system: files on the host.
@@ -36,7 +38,9 @@ enum TranscriptLink {
     static func openable(_ raw: String) -> URL? {
         guard let url = URL(string: raw), let scheme = url.scheme?.lowercased() else { return nil }
         if scheme == "mailto" { return url }
-        guard scheme == "http" || scheme == "https", url.user == nil, url.password == nil, url.host != nil else { return nil }
+        guard scheme == "http" || scheme == "https", url.user == nil, url.password == nil, url.host != nil else {
+            return nil
+        }
         return url
     }
 }
@@ -207,7 +211,10 @@ struct MarkdownView: View {
         let starts = marks.map { _ in FindText.starts(blocks.map(MdNode.element), separated: true, top: true) }
         VStack(alignment: .leading, spacing: 10) {
             ForEach(Array(blocks.enumerated()), id: \.offset) { index, block in
-                BlockView(block: block, style: style, palette: palette, marks: marks?.from(starts![index]), fading: index == blocks.count - 1 ? fading : []).equatable()
+                BlockView(
+                    block: block, style: style, palette: palette, marks: marks?.from(starts![index]),
+                    fading: index == blocks.count - 1 ? fading : []
+                ).equatable()
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -228,7 +235,9 @@ struct BlockView: View, Equatable {
             && a.fading.map(\.text) == b.fading.map(\.text) && a.fading.map(\.opacity) == b.fading.map(\.opacity)
     }
 
-    private var inline: Inline { Inline(palette: palette, style: style, marks: marks, cursor: marks.map { FindCursor($0.base) }) }
+    private var inline: Inline {
+        Inline(palette: palette, style: style, marks: marks, cursor: marks.map { FindCursor($0.base) })
+    }
 
     var body: some View {
         switch block {
@@ -237,7 +246,8 @@ struct BlockView: View, Equatable {
         case .h(let heading):
             let size = heading.l <= headingSizes.count ? headingSizes[heading.l - 1] : style.size
             let set = ProseStyle(size: size, lineHeight: size * 1.35, color: palette.ink)
-            var text = Inline(palette: palette, style: set, marks: marks, cursor: marks.map { FindCursor($0.base) }).string(heading.c)
+            var text = Inline(palette: palette, style: set, marks: marks, cursor: marks.map { FindCursor($0.base) })
+                .string(heading.c)
             let _ = text.font = Theme.ui(size, .semibold)
             Prose(text: text.fading(fading, color: set.color), style: set).accessibilityAddTraits(.isHeader)
         case .ul(let list):
@@ -256,8 +266,12 @@ struct BlockView: View, Equatable {
             TableBlock(table: table, style: style)
         case .fndef(let note):
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text("\(note.n)").font(Theme.ui(10)).foregroundStyle(palette.accent).frame(minWidth: 14, alignment: .leading)
-                Contents(nodes: note.c, style: ProseStyle(size: 12.5, lineHeight: style.lineHeight, color: palette.secondary), palette: palette, marks: marks)
+                Text("\(note.n)").font(Theme.ui(10)).foregroundStyle(palette.accent).frame(
+                    minWidth: 14, alignment: .leading)
+                Contents(
+                    nodes: note.c,
+                    style: ProseStyle(size: 12.5, lineHeight: style.lineHeight, color: palette.secondary),
+                    palette: palette, marks: marks)
             }
             .padding(.leading, 2)
         case .details(let details):
@@ -330,7 +344,11 @@ struct Contents: View {
             ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
                 switch group {
                 case .words(let run, let start):
-                    Prose(text: Inline(palette: palette, style: style, marks: marks?.from(start), cursor: marks.map { _ in FindCursor(start) }).string(run), style: style)
+                    Prose(
+                        text: Inline(
+                            palette: palette, style: style, marks: marks?.from(start),
+                            cursor: marks.map { _ in FindCursor(start) }
+                        ).string(run), style: style)
                 case .block(let block, let start):
                     BlockView(block: block, style: style, palette: palette, marks: marks?.from(start))
                 }
@@ -369,7 +387,13 @@ private struct ListBlock: View {
                                 .foregroundStyle(palette.tertiary)
                                 .frame(minWidth: 14, alignment: .leading)
                         }
-                        Contents(nodes: item.c, style: item.checked == true ? ProseStyle(size: style.size, lineHeight: style.lineHeight, color: palette.tertiary, italic: style.italic) : style, palette: palette, marks: starts.isEmpty ? nil : marks?.from(starts[index]))
+                        Contents(
+                            nodes: item.c,
+                            style: item.checked == true
+                                ? ProseStyle(
+                                    size: style.size, lineHeight: style.lineHeight, color: palette.tertiary,
+                                    italic: style.italic) : style, palette: palette,
+                            marks: starts.isEmpty ? nil : marks?.from(starts[index]))
                     }
                     .padding(.leading, 2)
                 }
@@ -402,7 +426,9 @@ private struct DetailsBlock: View {
             }
             .buttonStyle(.plain)
             .accessibilityValue(shown ? "expanded" : "collapsed")
-            if shown || marks != nil { Contents(nodes: details.c, style: style, palette: palette, marks: marks, separated: true) }
+            if shown || marks != nil {
+                Contents(nodes: details.c, style: style, palette: palette, marks: marks, separated: true)
+            }
         }
     }
 }
@@ -464,7 +490,9 @@ private struct TableBlock: View {
     private var widths: [CGFloat] {
         table.align.indices.map { column in
             var width = CGFloat(visibleText(table.head?[safe: column] ?? []).count) * Self.headChar
-            for row in table.rows { width = max(width, CGFloat(visibleText(row[safe: column] ?? []).count) * Self.cellChar) }
+            for row in table.rows {
+                width = max(width, CGFloat(visibleText(row[safe: column] ?? []).count) * Self.cellChar)
+            }
             let room = column == table.align.count - 1 ? Self.copyRoom : 0
             return min(240, max(56, width.rounded(.up) + Self.cellPad)) + room
         }
@@ -498,10 +526,14 @@ private struct TableBlock: View {
         HStack(alignment: .top, spacing: 0) {
             ForEach(Array(widths.enumerated()), id: \.offset) { column, width in
                 let nodes = cells[safe: column] ?? []
-                let set = head
+                let set =
+                    head
                     ? ProseStyle(size: 12, lineHeight: 19, color: palette.secondary)
                     : ProseStyle(size: 13.5, lineHeight: 19, color: style.color)
-                let words = head ? AttributedString(visibleText(nodes).uppercased()) : Inline(palette: palette, style: set).string(nodes)
+                let words =
+                    head
+                    ? AttributedString(visibleText(nodes).uppercased())
+                    : Inline(palette: palette, style: set).string(nodes)
                 Text(words)
                     .font(head ? Theme.ui(12, .semibold) : set.font)
                     .tracking(head ? 0.6 : 0)
@@ -591,7 +623,8 @@ enum FileGlyph: AttributedStringKey {
         var out = Text("")
         for run in words.runs {
             if let size = run[FileGlyph.self], let image = image(size) {
-                out = out + Text(Image(uiImage: image).renderingMode(.template)).foregroundColor(ink).baselineOffset(-1.5)
+                out =
+                    out + Text(Image(uiImage: image).renderingMode(.template)).foregroundColor(ink).baselineOffset(-1.5)
             } else {
                 out = out + Text(AttributedString(words[run.range]))
             }

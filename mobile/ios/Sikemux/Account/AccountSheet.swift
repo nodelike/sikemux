@@ -31,7 +31,8 @@ struct Avatar: View {
     private func picture(_ user: Clerk.User?) -> URL? {
         guard let user, user.hasImage == true, let url = user.imageUrl else { return nil }
         let pixels = Int(size * scale)
-        return URL(string: "\(url)\(url.contains("?") ? "&" : "?")width=\(pixels)&height=\(pixels)&fit=scale-down&quality=100")
+        return URL(
+            string: "\(url)\(url.contains("?") ? "&" : "?")width=\(pixels)&height=\(pixels)&fit=scale-down&quality=100")
     }
 
     private func initials(_ user: Clerk.User?) -> String {
@@ -76,8 +77,10 @@ struct AccountSheet: View {
                     .padding(.horizontal, 8).padding(.top, 4).padding(.bottom, 12)
                 VStack(spacing: 8) {
                     ActionButton("Try again") { leave() }.disabled(leaving)
-                    ActionButton(leaving ? "Signing out…" : "Sign out anyway", kind: .danger, icon: Icons.logOut) { leave(anyway: true) }
-                        .disabled(leaving)
+                    ActionButton(leaving ? "Signing out…" : "Sign out anyway", kind: .danger, icon: Icons.logOut) {
+                        leave(anyway: true)
+                    }
+                    .disabled(leaving)
                 }
             } else {
                 ActionButton(leaving ? "Signing out…" : "Sign out", kind: .danger, icon: Icons.logOut) { leave() }
@@ -128,7 +131,8 @@ struct AccountSheet: View {
             IconView(icon: Icons.phone, size: 18).foregroundStyle(palette.secondary)
             VStack(alignment: .leading, spacing: 0) {
                 Text(UIDevice.current.name).font(Theme.ui(15, .medium)).tracking(-0.15).foregroundStyle(palette.ink)
-                (Text(id == nil ? "This phone" : "This phone · ") + Text(id.map { String($0.prefix(8)) } ?? "").font(Theme.mono(12)))
+                (Text(id == nil ? "This phone" : "This phone · ")
+                    + Text(id.map { String($0.prefix(8)) } ?? "").font(Theme.mono(12)))
                     .metaStyle(palette)
                 if case .failed(let problem, _) = session.status {
                     Text("Not on your account yet: \(problem)").font(Theme.meta).foregroundStyle(palette.danger)
@@ -162,7 +166,8 @@ struct AccountSheet: View {
                     try await Leave.signOut()
                 } catch {
                     let problem = error as? ApiProblem
-                    unconfirmed = problem.map { $0.unreachable ? "Can't reach Sikemux" : $0.message } ?? "Can't reach Sikemux"
+                    unconfirmed =
+                        problem.map { $0.unreachable ? "Can't reach Sikemux" : $0.message } ?? "Can't reach Sikemux"
                     return
                 }
             }
@@ -170,7 +175,8 @@ struct AccountSheet: View {
         }
     }
 
-    private static let crashReports = "When the app crashes or hits an error, sends what went wrong and where in the code, with the app version, phone model and system version, and a one-way hash of your account. Never your hosts, chats, prompts, files or projects."
+    private static let crashReports =
+        "When the app crashes or hits an error, sends what went wrong and where in the code, with the app version, phone model and system version, and a one-way hash of your account. Never your hosts, chats, prompts, files or projects."
 
     /// The installed release and the commit it was built from: `0.1.0-nightly.5 · cef3bae`.
     static let version: String = {
@@ -186,11 +192,12 @@ struct FarewellScreen: View {
 
     var body: some View {
         let restore = "Sign in again within \(Config.restorableDays) days to restore it."
-        let (icon, title, detail): (IconDef, String, String?) = switch farewell {
-        case .removed: (Icons.phone, "This phone was removed from your account", nil)
-        case .deleted: (Icons.trash, "Your account was deleted", restore)
-        case .deletedHere: (Icons.trash, "Your account is deleted", restore)
-        }
+        let (icon, title, detail): (IconDef, String, String?) =
+            switch farewell {
+            case .removed: (Icons.phone, "This phone was removed from your account", nil)
+            case .deleted: (Icons.trash, "Your account was deleted", restore)
+            case .deletedHere: (Icons.trash, "Your account is deleted", restore)
+            }
         PromptScreen(icon: icon, title: title, detail: detail) {
             ActionButton("Continue", kind: .primary) { AccountSession.shared.farewell = nil }
         }

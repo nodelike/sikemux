@@ -76,7 +76,9 @@ final class StashStore {
         await withTaskGroup(of: Void.self) { group in
             for id in ids {
                 group.addTask {
-                    do { try await StashAPI.take(id) } catch { print("sikemux: the stash kept an item it was asked to give up: \(error)") }
+                    do { try await StashAPI.take(id) } catch {
+                        print("sikemux: the stash kept an item it was asked to give up: \(error)")
+                    }
                 }
             }
         }

@@ -8,7 +8,10 @@ struct NotificationsRow: View {
     private let notify = Notify.shared
 
     var body: some View {
-        SwitchRow(icon: Icons.inbox, title: "Notifications", isOn: Binding(get: { notify.on }, set: { flip($0) }), disabled: busy) {
+        SwitchRow(
+            icon: Icons.inbox, title: "Notifications", isOn: Binding(get: { notify.on }, set: { flip($0) }),
+            disabled: busy
+        ) {
             if notify.blocked {
                 Button {
                     if let settings = URL(string: UIApplication.openSettingsURLString) { openURL(settings) }
@@ -42,7 +45,8 @@ struct NotificationsOffer: ViewModifier {
             VStack(spacing: 0) {
                 VStack(spacing: 12) {
                     PromptGlyph(icon: Icons.inbox, small: true)
-                    Text("Turn on notifications?").font(Theme.ui(17, .semibold)).tracking(-0.35).foregroundStyle(palette.ink)
+                    Text("Turn on notifications?").font(Theme.ui(17, .semibold)).tracking(-0.35).foregroundStyle(
+                        palette.ink)
                 }
                 .padding(.top, 12)
                 .padding(.bottom, 20)

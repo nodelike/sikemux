@@ -18,10 +18,14 @@ struct ChatRows: Codable, Equatable {
             "setup": .object([:]), "permissions": .array([]), "tasks": .array([]), "runningSubagents": .array([]),
             "queued": .array([]), "triggers": .array([]), "earlierLost": .bool(false),
         ]
-        return ChatRows(headFields: fields, head: decodeJSON(.object(fields))!, messages: [], subagentRows: [:], olderBefore: nil)
+        return ChatRows(
+            headFields: fields, head: decodeJSON(.object(fields))!, messages: [], subagentRows: [:], olderBefore: nil)
     }()
 
-    init(headFields: [String: JSONValue], head: ChatHead, messages: [ChatMessage], subagentRows: [String: [ChatMessage]], olderBefore: Int?) {
+    init(
+        headFields: [String: JSONValue], head: ChatHead, messages: [ChatMessage], subagentRows: [String: [ChatMessage]],
+        olderBefore: Int?
+    ) {
         self.headFields = headFields
         self.head = head
         self.messages = messages
@@ -34,7 +38,9 @@ struct ChatRows: Codable, Equatable {
         if case .object(let sent) = encodeJSON(view.head) {
             for (key, value) in sent { fields[key] = value }
         }
-        self.init(headFields: fields, head: view.head, messages: view.rows, subagentRows: view.subagents ?? [:], olderBefore: view.olderBefore)
+        self.init(
+            headFields: fields, head: view.head, messages: view.rows, subagentRows: view.subagents ?? [:],
+            olderBefore: view.olderBefore)
     }
 
     var running: Bool { head.running }
@@ -93,7 +99,11 @@ extension ChatRows {
             touched.head = true
         case .row(let change):
             within(change.in, &touched, change.row.id) { rows in
-                if let at = rows.lastIndex(where: { $0.id == change.row.id }) { rows[at] = change.row } else { rows.append(change.row) }
+                if let at = rows.lastIndex(where: { $0.id == change.row.id }) {
+                    rows[at] = change.row
+                } else {
+                    rows.append(change.row)
+                }
             }
         case .part(let change):
             within(change.in, &touched, change.row) { rows in
@@ -107,15 +117,15 @@ extension ChatRows {
         case .text(let change):
             within(change.in, &touched, change.row) { rows in
                 guard let at = rows.lastIndex(where: { $0.id == change.row }),
-                      let index = rows[at].parts.firstIndex(where: { $0.id == change.part })
+                    let index = rows[at].parts.firstIndex(where: { $0.id == change.part })
                 else { return }
                 rows[at].parts[index].append(change.text, change.md)
             }
         case .set(let change):
             within(change.in, &touched, change.row) { rows in
                 guard let at = rows.lastIndex(where: { $0.id == change.row }),
-                      case .object(var fields) = encodeJSON(rows[at]),
-                      case .object(let set) = change.set
+                    case .object(var fields) = encodeJSON(rows[at]),
+                    case .object(let set) = change.set
                 else { return }
                 for (key, value) in set {
                     if value == .null { fields[key] = nil } else { fields[key] = value }
@@ -142,7 +152,9 @@ extension ChatRows {
         }
     }
 
-    private mutating func within(_ session: String?, _ touched: inout Touched, _ row: String, _ change: (inout [ChatMessage]) -> Void) {
+    private mutating func within(
+        _ session: String?, _ touched: inout Touched, _ row: String, _ change: (inout [ChatMessage]) -> Void
+    ) {
         if let session {
             change(&subagentRows[session, default: []])
             touched.head = true

@@ -66,7 +66,10 @@ struct ActionButton<Lead: View>: View {
 }
 
 extension ActionButton where Lead == AnyView {
-    init(_ title: String, kind: ButtonKind = .neutral, busy: Bool = false, icon: IconDef? = nil, action: @escaping () -> Void) {
+    init(
+        _ title: String, kind: ButtonKind = .neutral, busy: Bool = false, icon: IconDef? = nil,
+        action: @escaping () -> Void
+    ) {
         self.init(title: title, kind: kind, busy: busy, action: action) {
             AnyView(icon.map { IconView(icon: $0, size: 17) })
         }
@@ -153,17 +156,22 @@ struct PasswordField: View {
     @State private var shown = false
 
     var body: some View {
-        Field(placeholder: placeholder, text: $text, icon: Icons.lock, secure: !shown, trailingRoom: 48, autoFocus: autoFocus)
-            .overlay(alignment: .trailing) {
-                Button { shown.toggle() } label: {
-                    IconView(icon: shown ? Icons.eyeOff : Icons.eye, size: 18)
-                        .foregroundStyle(palette.tertiary)
-                        .frame(width: 48, height: 50)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(shown ? "Hide password" : "Show password")
+        Field(
+            placeholder: placeholder, text: $text, icon: Icons.lock, secure: !shown, trailingRoom: 48,
+            autoFocus: autoFocus
+        )
+        .overlay(alignment: .trailing) {
+            Button {
+                shown.toggle()
+            } label: {
+                IconView(icon: shown ? Icons.eyeOff : Icons.eye, size: 18)
+                    .foregroundStyle(palette.tertiary)
+                    .frame(width: 48, height: 50)
+                    .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .accessibilityLabel(shown ? "Hide password" : "Show password")
+        }
     }
 }
 
@@ -187,7 +195,10 @@ struct Chip: View {
                 .lineLimit(1)
                 .padding(.horizontal, 12)
                 .frame(minHeight: 32)
-                .background(RoundedRectangle(cornerRadius: Radius.control, style: .continuous).fill(primary ? palette.ink : palette.raised))
+                .background(
+                    RoundedRectangle(cornerRadius: Radius.control, style: .continuous).fill(
+                        primary ? palette.ink : palette.raised)
+                )
                 .overlay(
                     RoundedRectangle(cornerRadius: Radius.control, style: .continuous)
                         .strokeBorder(primary ? palette.ink : palette.border, lineWidth: 1)
@@ -233,7 +244,9 @@ struct Track<Value: Hashable>: View {
                         }
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(on ? palette.active : .clear))
+                    .background(
+                        RoundedRectangle(cornerRadius: 7, style: .continuous).fill(on ? palette.active : .clear)
+                    )
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -279,7 +292,8 @@ private struct MenuItemPress: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label.overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous).fill(configuration.isPressed ? palette.active : .clear)
+            RoundedRectangle(cornerRadius: 14, style: .continuous).fill(
+                configuration.isPressed ? palette.active : .clear)
         )
     }
 }
@@ -298,13 +312,16 @@ struct Wrap: Layout {
             var x = bounds.minX
             for index in row.items {
                 let size = subviews[index].sizeThatFits(.unspecified)
-                subviews[index].place(at: CGPoint(x: x, y: bounds.minY + row.y + (row.height - size.height) / 2), proposal: .unspecified)
+                subviews[index].place(
+                    at: CGPoint(x: x, y: bounds.minY + row.y + (row.height - size.height) / 2), proposal: .unspecified)
                 x += size.width + spacing
             }
         }
     }
 
-    private func arrange(_ width: CGFloat, _ subviews: Subviews) -> [(items: [Int], y: CGFloat, width: CGFloat, height: CGFloat)] {
+    private func arrange(_ width: CGFloat, _ subviews: Subviews) -> [(
+        items: [Int], y: CGFloat, width: CGFloat, height: CGFloat
+    )] {
         var rows: [(items: [Int], y: CGFloat, width: CGFloat, height: CGFloat)] = []
         var current: (items: [Int], y: CGFloat, width: CGFloat, height: CGFloat) = ([], 0, 0, 0)
         for (index, subview) in subviews.enumerated() {

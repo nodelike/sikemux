@@ -99,7 +99,8 @@ final class Lock {
     private func authenticate(_ reason: String) async -> Result {
         let context = LAContext()
         do {
-            return try await context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason) ? .passed : .failed
+            return try await context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason)
+                ? .passed : .failed
         } catch let error as LAError where error.code == .passcodeNotSet || error.code == .biometryNotEnrolled {
             return .noPasscode
         } catch {

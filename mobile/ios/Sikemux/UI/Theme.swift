@@ -169,8 +169,18 @@ extension Color {
 
     /// Two colours mixed, `weight` of this one, as the Mac's stylesheet mixes its inks.
     func mixed(with other: Color, _ weight: Double) -> Color {
-        let a = UIColor(self).cgColor.converted(to: CGColorSpace(name: CGColorSpace.sRGB)!, intent: .defaultIntent, options: nil)?.components ?? [0, 0, 0, 1]
-        let b = UIColor(other).cgColor.converted(to: CGColorSpace(name: CGColorSpace.sRGB)!, intent: .defaultIntent, options: nil)?.components ?? [0, 0, 0, 1]
-        return Color(.sRGB, red: a[0] * weight + b[0] * (1 - weight), green: a[1] * weight + b[1] * (1 - weight), blue: a[2] * weight + b[2] * (1 - weight), opacity: 1)
+        let a =
+            UIColor(self).cgColor.converted(
+                to: CGColorSpace(name: CGColorSpace.sRGB)!, intent: .defaultIntent, options: nil)?.components ?? [
+                0, 0, 0, 1,
+            ]
+        let b =
+            UIColor(other).cgColor.converted(
+                to: CGColorSpace(name: CGColorSpace.sRGB)!, intent: .defaultIntent, options: nil)?.components ?? [
+                0, 0, 0, 1,
+            ]
+        return Color(
+            .sRGB, red: a[0] * weight + b[0] * (1 - weight), green: a[1] * weight + b[1] * (1 - weight),
+            blue: a[2] * weight + b[2] * (1 - weight), opacity: 1)
     }
 }

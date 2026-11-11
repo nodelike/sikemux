@@ -65,10 +65,14 @@ struct TranscriptRow: View {
         VStack(alignment: .leading, spacing: 0) {
             if let worktree = look.worktree { WorktreeLine(worktree: worktree) }
             if let line = look.team, let id = look.teamId {
-                TeamFoldLine(line: line, open: look.teamOpen, all: look.teamAll, onToggle: { context.actions.toggleRun(id) }, onAll: { context.actions.showRunEarlier(id) })
+                TeamFoldLine(
+                    line: line, open: look.teamOpen, all: look.teamAll, onToggle: { context.actions.toggleRun(id) },
+                    onAll: { context.actions.showRunEarlier(id) })
             }
             if let fold = look.summary {
-                WorkSummary(took: fold.took, calls: fold.calls, thought: fold.thought, open: look.workOpen) { context.actions.toggleWork(fold.id) }
+                WorkSummary(took: fold.took, calls: fold.calls, thought: fold.thought, open: look.workOpen) {
+                    context.actions.toggleWork(fold.id)
+                }
             }
             if !look.hidden { TranscriptMessage(message: entry.message, look: look) }
         }
@@ -141,8 +145,14 @@ private struct UserMessage: View {
                     .textSelection(.enabled)
                     .padding(.vertical, 9)
                     .padding(.horizontal, 13)
-                    .background(RoundedRectangle(cornerRadius: 12).fill(look.lit ? palette.ink.mixed(with: palette.raised, 0.12) : palette.raised))
-                    .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(failed ? palette.danger : palette.border, lineWidth: 1))
+                    .background(
+                        RoundedRectangle(cornerRadius: 12).fill(
+                            look.lit ? palette.ink.mixed(with: palette.raised, 0.12) : palette.raised)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12).strokeBorder(
+                            failed ? palette.danger : palette.border, lineWidth: 1)
+                    )
                     .opacity(look.unsent?.state == .sending ? 0.7 : 1)
                     .containerRelativeFrame(.horizontal, alignment: .trailing) { width, _ in width * 0.84 }
                     .fixedSize(horizontal: false, vertical: true)
@@ -150,7 +160,9 @@ private struct UserMessage: View {
                     .accessibilityHint("Tap for copy and the time it was sent")
             }
             if failed {
-                Button { self.context.actions.retry(message.id) } label: {
+                Button {
+                    self.context.actions.retry(message.id)
+                } label: {
                     HStack(spacing: 5) {
                         IconView(icon: Icons.warning, size: 12).foregroundStyle(palette.danger)
                         Text("Not sent").foregroundStyle(palette.danger)
@@ -165,7 +177,8 @@ private struct UserMessage: View {
             } else if look.unsent?.state == .sending {
                 Text("Sending…").font(Theme.ui(11)).foregroundStyle(palette.inkFaint).padding(.top, 4)
             } else if let strip = look.strip, !look.editing {
-                StripView(strip: strip, mine: true, onEdit: look.editable ? { self.context.actions.edit(message) } : nil)
+                StripView(
+                    strip: strip, mine: true, onEdit: look.editable ? { self.context.actions.edit(message) } : nil)
             }
         }
         .frame(maxWidth: .infinity, alignment: .trailing)
@@ -206,16 +219,20 @@ private struct StripView: View {
                 .frame(width: 24, height: 24)
             if let onEdit {
                 Button(action: onEdit) {
-                    IconView(icon: Icons.pencil, size: 15).foregroundStyle(palette.inkFaint).frame(width: 24, height: 24)
+                    IconView(icon: Icons.pencil, size: 15).foregroundStyle(palette.inkFaint).frame(
+                        width: 24, height: 24)
                 }
                 .buttonStyle(ActiveFill(radius: 7))
                 .accessibilityLabel("Edit message")
             }
             if let at = strip.at {
-                Text(strip.took.map { "\(ChatWords.sent(at)) · took \(ChatWords.duration(ms: Double($0)))" } ?? ChatWords.sent(at))
-                    .font(Theme.ui(11))
-                    .monospacedDigit()
-                    .foregroundStyle(palette.inkDim)
+                Text(
+                    strip.took.map { "\(ChatWords.sent(at)) · took \(ChatWords.duration(ms: Double($0)))" }
+                        ?? ChatWords.sent(at)
+                )
+                .font(Theme.ui(11))
+                .monospacedDigit()
+                .foregroundStyle(palette.inkDim)
             }
             if let rate = strip.rate {
                 Spacer(minLength: 0)
@@ -242,27 +259,37 @@ private struct Letters: View {
                     FiredTrigger(id: "\(message.id)/letter/\(index)", fired: trigger)
                 } else if letter.kind == .answer {
                     VStack(alignment: .leading, spacing: 0) {
-                        AnsweredQuestion(own: letter.agentId == context.agentId, asker: letter.name, cli: letter.cli, question: letter.question ?? "", answer: letter.text, secret: letter.secret ?? false)
-                        if let attachments = letter.attachments, !attachments.isEmpty { SentAttachments(paths: attachments) }
+                        AnsweredQuestion(
+                            own: letter.agentId == context.agentId, asker: letter.name, cli: letter.cli,
+                            question: letter.question ?? "", answer: letter.text, secret: letter.secret ?? false)
+                        if let attachments = letter.attachments, !attachments.isEmpty {
+                            SentAttachments(paths: attachments)
+                        }
                     }
                 } else {
                     VStack(alignment: .leading, spacing: 0) {
                         HStack(spacing: 8) {
                             Rectangle().fill(palette.border).frame(height: 1 / UIScreen.main.scale)
                             AgentFaceView(agentId: letter.agentId, provider: letter.cli, size: 13)
-                            (Text("Message from ").foregroundColor(palette.inkDim) + Text("@\(letter.name)").font(Theme.ui(11.5, .semibold)).foregroundColor(palette.ink))
+                            (Text("Message from ").foregroundColor(palette.inkDim)
+                                + Text("@\(letter.name)").font(Theme.ui(11.5, .semibold)).foregroundColor(palette.ink))
                                 .font(Theme.ui(11.5))
                                 .fixedSize()
                             Rectangle().fill(palette.border).frame(height: 1 / UIScreen.main.scale)
                         }
                         .padding(.top, 16)
                         .padding(.bottom, 2)
-                        LongText(id: "\(message.id)/letter/\(index)", text: letter.text, md: letter.tree, live: false, style: .prose(palette))
+                        LongText(
+                            id: "\(message.id)/letter/\(index)", text: letter.text, md: letter.tree, live: false,
+                            style: .prose(palette))
                     }
                 }
             }
             if let strip {
-                StripView(strip: Strip(at: strip.at, took: strip.took, rate: strip.rate, text: letters.map(\.text).joined(separator: "\n\n")), mine: false)
+                StripView(
+                    strip: Strip(
+                        at: strip.at, took: strip.took, rate: strip.rate,
+                        text: letters.map(\.text).joined(separator: "\n\n")), mine: false)
             }
         }
     }
@@ -305,7 +332,8 @@ private struct PartView: View {
         case .thought(let thought):
             let words = thought.text.trimmingCharacters(in: .whitespacesAndNewlines)
             if !words.isEmpty {
-                LongText(id: thought.id, text: words, md: thought.md, live: last, style: .thought(palette)).padding(.vertical, 8)
+                LongText(id: thought.id, text: words, md: thought.md, live: last, style: .thought(palette)).padding(
+                    .vertical, 8)
             }
         case .subagent(let subagent):
             SubagentRow(subagent: subagent.subagent)
@@ -348,13 +376,16 @@ struct LongText: View {
             if live && cut == nil && found == nil {
                 let newest = context.reveal.newest(id, text: plain, live: live)
                 TimelineView(.explicit([newest.until])) { timeline in
-                    MarkdownView(blocks: blocks, style: style, fading: timeline.date < newest.until ? newest.fading : [])
+                    MarkdownView(
+                        blocks: blocks, style: style, fading: timeline.date < newest.until ? newest.fading : [])
                 }
             } else {
                 MarkdownView(blocks: cut?.blocks ?? blocks, style: style, marks: found)
             }
             if let cut {
-                Button { context.folds.set("whole/\(id)", true) } label: {
+                Button {
+                    context.folds.set("whole/\(id)", true)
+                } label: {
                     Text("Show the rest · \(Int((Double(cut.hidden) / 1000).rounded()))k more characters")
                         .font(Theme.ui(12.5, .medium))
                         .foregroundStyle(palette.tertiary)
@@ -449,12 +480,13 @@ struct TeamFoldLine: View {
     private var words: (String, Bool) {
         guard let need = line.need else { return (line.latest.map { "@\($0.name): \($0.text)" } ?? "", false) }
         let name = "@\(need.name)"
-        let said: String = switch need.kind {
-        case .asks: need.text.map { "\(name) asks: \($0)" } ?? "\(name) has a question"
-        case .waits: need.text.map { "\(name): \($0)" } ?? "\(name) waits on you"
-        case .failed: need.text.map { "\(name) failed: \($0)" } ?? "\(name) failed"
-        default: "\(name) stopped"
-        }
+        let said: String =
+            switch need.kind {
+            case .asks: need.text.map { "\(name) asks: \($0)" } ?? "\(name) has a question"
+            case .waits: need.text.map { "\(name): \($0)" } ?? "\(name) waits on you"
+            case .failed: need.text.map { "\(name) failed: \($0)" } ?? "\(name) failed"
+            default: "\(name) stopped"
+            }
         return (said, true)
     }
 
@@ -472,11 +504,17 @@ struct TeamFoldLine: View {
                         .opacity(0.7)
                         .rotationEffect(.degrees(open ? 90 : 0))
                     HStack(spacing: 2) {
-                        ForEach(Array(line.agents.enumerated()), id: \.offset) { _, agent in AgentFaceView(agentId: agent.agentId, provider: agent.cli, size: 16) }
-                        if line.more > 0 { Text("+\(line.more)").font(Theme.ui(11)).foregroundStyle(palette.inkDim).padding(.leading, 2) }
+                        ForEach(Array(line.agents.enumerated()), id: \.offset) { _, agent in
+                            AgentFaceView(agentId: agent.agentId, provider: agent.cli, size: 16)
+                        }
+                        if line.more > 0 {
+                            Text("+\(line.more)").font(Theme.ui(11)).foregroundStyle(palette.inkDim).padding(
+                                .leading, 2)
+                        }
                     }
                     Text(count).font(Theme.ui(12.5, .semibold)).foregroundStyle(palette.ink)
-                    Text(said).font(Theme.ui(12.5)).foregroundStyle(wanting ? palette.danger : palette.inkDim).lineLimit(1)
+                    Text(said).font(Theme.ui(12.5)).foregroundStyle(wanting ? palette.danger : palette.inkDim)
+                        .lineLimit(1)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     if let took = line.took {
                         Text(Self.took(took)).font(Theme.ui(12)).monospacedDigit().foregroundStyle(palette.inkDim)

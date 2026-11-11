@@ -300,11 +300,13 @@ final class Hub {
 
     private func readHost(_ found: HostLive, _ connection: Connection) async {
         guard let json = try? await connection.host(),
-              let host = try? JSONDecoder().decode(HostInfo.self, from: Data(json.utf8))
+            let host = try? JSONDecoder().decode(HostInfo.self, from: Data(json.utf8))
         else { return }
         found.host = host
         let known = device(found.core)
-        guard known?.name != host.name || known?.model != host.model || known?.channel != host.channel.rawValue else { return }
+        guard known?.name != host.name || known?.model != host.model || known?.channel != host.channel.rawValue else {
+            return
+        }
         await update(found.core) {
             $0.name = host.name
             $0.model = host.model
@@ -359,10 +361,12 @@ final class Hub {
             if case .Outdated(let macIsOlder) = error { outdated = macIsOlder ? .host : .phone }
         }
         found.failure = reason
-        let holding = found.recovering && !unpaired && outdated == nil && found.attempt < Self.patientTries
+        let holding =
+            found.recovering && !unpaired && outdated == nil && found.attempt < Self.patientTries
             && found.watchers > 0 && !away
         if !holding { found.recovering = false }
-        found.status = holding ? .connecting(problem: nil) : .closed(problem: reason, outdated: outdated, unpaired: unpaired)
+        found.status =
+            holding ? .connecting(problem: nil) : .closed(problem: reason, outdated: outdated, unpaired: unpaired)
         if !found.settled { scheduleRetry(found) }
     }
 
