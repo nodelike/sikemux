@@ -4,13 +4,12 @@
 use sikemux_view::chat::ToolStatus;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
 use std::time::Instant;
 
 use gpui::{Context, Render};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    div, px, relative, Action, AnyElement, App, ClipboardItem, Div, ElementId, HighlightStyle,
+    div, px, relative, AnyElement, App, ClipboardItem, Div, ElementId, FontWeight, HighlightStyle,
     Hsla, InteractiveElement, IntoElement, MouseButton, ParentElement, ScrollHandle, SharedString,
     StatefulInteractiveElement, Styled, StyledText, Window,
 };
@@ -21,20 +20,17 @@ use sikemux_view::chat::{
 
 use super::Drawn;
 use crate::core::ChatAsk;
-use crate::editor::OpenAt;
 use crate::icons::Icon;
 use crate::motion;
 use crate::picture::{self, Picture};
-use crate::theme::{
-    self, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, TEXT_2XS, TEXT_3XS, TEXT_XS,
-};
+use crate::theme::{self, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, TEXT_2XS, TEXT_3XS, TEXT_XS};
 use crate::ui;
 use crate::ui::clock::{self, Slot};
 use crate::ui::shimmer::shimmer;
 use crate::ui::time;
 
-/// An output longer than this opens on its first lines, and the reader asks for the rest.
-const OUTPUT_FOLD_LINES: usize = 12;
+/// An output longer than this opens on its last lines, and the reader asks for the rest.
+const OUTPUT_TAIL_LINES: usize = 8;
 /// Unchanged lines kept either side of a change; the rest fold into a gap the reader opens.
 const DIFF_CONTEXT: usize = 3;
 /// A diff taller than this scrolls inside its card.
@@ -51,8 +47,6 @@ pub struct Opened {
     pub(super) calls: HashSet<String>,
     /// Outputs shown whole and diffs shown with every unchanged line, by call.
     whole: HashSet<String>,
-    /// Diffs the reader folded under their file's head, by call.
-    folded: HashSet<String>,
     /// Where each diff that scrolls inside its card is scrolled to, by call.
     scrolls: RefCell<HashMap<String, ScrollHandle>>,
     details: HashMap<String, Asked>,
@@ -412,7 +406,7 @@ pub(super) fn opened_detail(
         cx,
     );
     (shown > 0.).then(|| {
-        let detail = detail(call, looks, cx);
+        let detail = detail(call, looks);
         motion::folded(
             ElementId::Name(format!("call-body:{id}").into()),
             shown,
@@ -700,15 +694,13 @@ fn spine(last: bool, looks: &Drawn) -> Div {
 }
 
 /// What an opened call did: its change, the command and what it printed, or why it failed.
-fn detail(call: &Call, looks: &Drawn, cx: &App) -> AnyElement {
+fn detail(call: &Call, looks: &Drawn) -> AnyElement {
     let id = &call.tool.tool_call_id;
     let asked = looks.reading.tools.details.get(id);
     let held = asked.and_then(|asked| asked.detail.as_ref());
     let body = if call.diff.is_some() {
-        held.and_then(|held| held.diff.as_ref()).map(|diff| {
-            diff_body(id, &diff.path, diff.adds, diff.dels, &diff.lines, looks, cx)
-                .into_any_element()
-        })
+        held.and_then(|held| held.diff.as_ref())
+            .map(|diff| diff_body(id, &diff.lines, looks).into_any_element())
     } else if call.command().is_some() || call.output.is_some() {
         let picture = asked.and_then(|asked| asked.picture.clone());
         Some(terminal(call, held, picture, looks).into_any_element())
@@ -730,20 +722,16 @@ fn detail(call: &Call, looks: &Drawn, cx: &App) -> AnyElement {
         .into_any_element()
 }
 
-fn boxed(looks: &Drawn) -> Div {
+/// A quiet sunken surface for what a call printed or changed, set in the mono face.
+fn well(looks: &Drawn) -> Div {
     div()
-        .flex()
-        .flex_col()
-        .overflow_hidden()
-        .border_1()
-        .border_color(looks.tints.line_soft)
-        .rounded(theme::RADIUS_2)
-        .bg(looks.tints.well)
-        .text_size(crate::theme::ui_text(TEXT_2XS))
-        .line_height(crate::theme::ui_text(17.))
+        .rounded(px(8.))
+        .bg(looks.tints.sunken)
+        .font_family(theme::MONO)
+        .text_size(crate::theme::ui_text(TEXT_XS))
 }
 
-/// A command and what it printed, the way a terminal would have shown them.
+/// What a command printed: its exit code and size, then its last lines, the rest a click away.
 fn terminal(
     call: &Call,
     held: Option<&ToolDetail>,
@@ -753,100 +741,43 @@ fn terminal(
     let id = call.tool.tool_call_id.clone();
     let output = held.and_then(|held| held.output.as_ref());
     let whole = looks.reading.tools.whole.contains(&id);
-    let text = output.map_or("", |output| output.text.as_str());
-    let lines: Vec<&str> = if text.is_empty() {
-        Vec::new()
+    let text = output.map_or("", |output| output.text.trim_end_matches('\n'));
+    let count = if text.is_empty() {
+        0
     } else {
-        text.split('\n').collect()
+        text.split('\n').count()
     };
-    let folds = lines.len() > OUTPUT_FOLD_LINES;
-    let shown = if folds && !whole {
-        lines[..OUTPUT_FOLD_LINES].join("\n")
-    } else {
-        text.to_owned()
+    let folds = count > OUTPUT_TAIL_LINES;
+    let shown = match folds && !whole {
+        true => {
+            let from = text
+                .rmatch_indices('\n')
+                .nth(OUTPUT_TAIL_LINES - 1)
+                .map_or(0, |(at, _)| at + 1);
+            &text[from..]
+        }
+        false => text,
     };
-    let rule = looks.tints.line_soft;
-    let command = call.command().map(|command| {
-        div()
-            .flex()
-            .gap(px(7.))
-            .pl(px(9.))
-            .pr(px(5.))
-            .py(px(5.))
-            .child(div().flex_none().text_color(looks.tints.ran).child("$"))
-            .child(
-                div()
-                    .min_w_0()
-                    .flex_1()
-                    .text_color(looks.ink)
-                    .child(command.to_owned()),
-            )
-            .child(copy(
-                format!("copy-command:{id}"),
-                "command",
-                command.to_owned(),
-            ))
+    let exit = (call.status() == ToolStatus::Failed).then(|| {
+        match call.output.and_then(|output| output.exit_code) {
+            Some(code) => format!("exit {code}"),
+            None => "failed".to_owned(),
+        }
     });
-    let shot = picture.map(|picture| {
-        div().p(SPACE_1).child(picture::thumb(
-            SharedString::from(format!("shot:{id}")),
-            picture,
-            px(300.),
-            px(440.),
-            looks.bench.clone(),
-            looks.quiet,
-        ))
-    });
-    let printed = output
-        .filter(|_| !shown.is_empty() || shot.is_none())
-        .map(|_| {
-            if shown.is_empty() {
-                return div()
-                    .px(px(9.))
-                    .py(px(5.))
-                    .text_size(crate::theme::ui_text(TEXT_3XS))
-                    .text_color(looks.faint)
-                    .child("No output");
-            }
-            div()
-                .relative()
-                .pl(px(9.))
-                .pr(px(30.))
-                .pt(SPACE_1H)
-                .pb(px(7.))
-                .text_color(looks.quiet)
-                .child(
-                    div()
-                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                        .child(crate::ui::selectable::selectable(
-                            SharedString::from(format!("output:{id}")),
-                            shown,
-                            [],
-                        )),
-                )
-                .child(div().absolute().top(px(2.)).right(px(4.)).child(copy(
-                    format!("copy-output:{id}"),
-                    "output",
-                    text.to_owned(),
-                )))
-        });
+    let lines =
+        (count > 0).then(|| format!("{count} {}", if count == 1 { "line" } else { "lines" }));
     let more = folds.then(|| {
-        let (reader, hover) = (looks.reader.clone(), looks.hover);
-        let label = if whole {
-            "Show fewer lines".to_owned()
-        } else {
-            format!("Show all {} lines", lines.len())
-        };
+        let (reader, id, quiet, ink) = (looks.reader.clone(), id.clone(), looks.quiet, looks.ink);
+        let key = id.clone();
         div()
             .id(SharedString::from(format!("more:{id}")))
-            .h(px(22.))
-            .pl(px(9.))
+            .ml_auto()
             .flex()
             .items_center()
-            .text_size(crate::theme::ui_text(TEXT_3XS))
-            .text_color(looks.faint)
+            .gap(px(5.))
+            .text_color(quiet)
             .cursor_pointer()
-            .hover(move |more| more.bg(hover))
+            .hover(move |more| more.text_color(ink))
             .on_click(move |_, _, cx| {
                 cx.stop_propagation();
                 reader.update(cx, |reading, cx| {
@@ -856,101 +787,88 @@ fn terminal(
                     cx.notify();
                 });
             })
-            .child(label)
+            .child(chevron(format!("more-chevron:{key}"), whole, quiet))
+            .child(if whole { "Show less" } else { "Show all" })
     });
-    let cut = output.is_some_and(|output| output.cut) && (!folds || whole);
-    let exit = call
-        .output
-        .and_then(|output| output.exit_code)
-        .filter(|_| call.status() == ToolStatus::Failed);
-    let mut parts: Vec<AnyElement> = command
-        .into_iter()
-        .map(IntoElement::into_any_element)
-        .collect();
-    parts.extend(shot.map(IntoElement::into_any_element));
-    parts.extend(printed.map(IntoElement::into_any_element));
-    parts.extend(more.map(IntoElement::into_any_element));
-    if cut {
-        parts.push(
+    let head = div()
+        .h(px(26.))
+        .flex()
+        .items_center()
+        .gap(px(10.))
+        .text_size(crate::theme::ui_text(TEXT_XS))
+        .children(exit.map(|exit| {
             div()
-                .px(px(9.))
-                .py(px(5.))
-                .text_size(crate::theme::ui_text(TEXT_3XS))
-                .text_color(looks.faint)
-                .child("The rest of the output was not kept")
-                .into_any_element(),
-        );
-    }
-    let ruled = parts.into_iter().enumerate().map(|(ix, part)| {
-        div()
-            .when(ix > 0, |part| part.border_t_1().border_color(rule))
-            .child(part)
+                .px(px(7.))
+                .py(px(1.))
+                .rounded(px(10.))
+                .bg(looks.tints.failed_ground)
+                .font_family(theme::MONO)
+                .text_size(crate::theme::ui_text(TEXT_2XS))
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(looks.tints.failed_ink)
+                .child(exit)
+        }))
+        .children(lines.map(|lines| div().text_color(looks.faint).child(lines)))
+        .children(more);
+    let shot = picture.map(|picture| {
+        div().pt(SPACE_1).child(picture::thumb(
+            SharedString::from(format!("shot:{id}")),
+            picture,
+            px(300.),
+            px(440.),
+            looks.bench.clone(),
+            looks.quiet,
+        ))
     });
-    boxed(looks).children(ruled).children(exit.map(|code| {
+    let printed = output.filter(|_| !shown.is_empty()).map(|_| {
+        well(looks)
+            .relative()
+            .mt(px(4.))
+            .pl(px(12.))
+            .pr(px(30.))
+            .py(px(10.))
+            .line_height(relative(1.7))
+            .text_color(looks.tints.printed)
+            .child(
+                div()
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .child(crate::ui::selectable::selectable(
+                        SharedString::from(format!("output:{id}")),
+                        shown.to_owned(),
+                        [],
+                    )),
+            )
+            .child(div().absolute().top(px(6.)).right(px(6.)).child(copy(
+                format!("copy-output:{id}"),
+                "output",
+                text.to_owned(),
+            )))
+    });
+    let quiet_note = |words: &'static str| {
         div()
-            .px(px(9.))
-            .pb(SPACE_1H)
+            .pt(px(4.))
             .text_size(crate::theme::ui_text(TEXT_3XS))
-            .text_color(looks.tints.failed)
-            .child(format!("exit {code}"))
-    }))
+            .text_color(looks.faint)
+            .child(words)
+    };
+    let silent = output.is_some() && text.is_empty() && shot.is_none();
+    let cut = output.is_some_and(|output| output.cut) && (!folds || whole);
+    div()
+        .flex()
+        .flex_col()
+        .child(head)
+        .children(shot)
+        .children(printed)
+        .when(silent, |body| body.child(quiet_note("No output")))
+        .when(cut, |body| {
+            body.child(quiet_note("The rest of the output was not kept"))
+        })
 }
 
-/// The lines a change made, numbered, with the lines around it and a gap for the rest.
-fn diff_body(
-    id: &str,
-    path: &str,
-    adds: u64,
-    dels: u64,
-    lines: &[DiffLine],
-    looks: &Drawn,
-    cx: &App,
-) -> Div {
-    let open = OpenAt {
-        path: PathBuf::from(path),
-        line: lines
-            .iter()
-            .find(|line| line.sign != " ")
-            .and_then(|line| line.new_line.or(line.old_line))
-            .map_or(0, |line| line.saturating_sub(1) as u32),
-        column: None,
-    };
+/// The lines a change made, with their old and new numbers, a +/− gutter and the lines around
+/// them; the unchanged rest folds into a row the reader opens.
+fn diff_body(id: &str, lines: &[DiffLine], looks: &Drawn) -> impl IntoElement {
     let whole = looks.reading.tools.whole.contains(id);
-    let folded = looks.reading.tools.folded.contains(id);
-    let shown = looks.files.borrow().shown(path);
-    let opens: ui::Opens =
-        Box::new(move |window, cx| window.dispatch_action(open.boxed_clone(), cx));
-    let (reader, folding) = (looks.reader.clone(), id.to_owned());
-    let head = ui::file_head(format!("diff:{id}"), &shown, !folded, Some(opens), cx)
-        .on_click(move |_, _, cx| {
-            cx.stop_propagation();
-            reader.update(cx, |reading, cx| {
-                if !reading.tools.folded.remove(&folding) {
-                    reading.tools.folded.insert(folding.clone());
-                }
-                cx.notify();
-            });
-        })
-        .child(
-            div()
-                .flex()
-                .gap(px(5.))
-                .pr(px(1.))
-                .text_size(crate::theme::ui_text(TEXT_XS))
-                .child(
-                    div()
-                        .text_color(looks.tints.added)
-                        .child(format!("+{adds}")),
-                )
-                .child(
-                    div()
-                        .text_color(looks.tints.deleted_line)
-                        .child(format!("−{dels}")),
-                ),
-        );
-    if folded {
-        return div().child(head);
-    }
     let keep = kept(lines, if whole { usize::MAX } else { DIFF_CONTEXT });
     let mut body: Vec<AnyElement> = Vec::new();
     let mut gap = 0;
@@ -968,7 +886,6 @@ fn diff_body(
     if gap > 0 {
         body.push(diff_gap(id, gap, looks));
     }
-    let t = Tokens::get(cx);
     let scroll = looks
         .reading
         .tools
@@ -978,29 +895,21 @@ fn diff_body(
         .or_default()
         .clone();
     let held = scroll.clone();
-    div().child(head).child(
-        div()
-            .id(SharedString::from(format!("diff-body:{id}")))
-            .max_h(px(DIFF_MOST_HEIGHT))
-            .overflow_y_scroll()
-            .track_scroll(&scroll)
-            .on_scroll(move |_, _, cx| {
-                let (at, most) = (held.offset().y, held.max_offset().y);
-                if most > px(0.) && at <= px(0.) && at >= -most {
-                    cx.stop_propagation();
-                }
-            })
-            .py(px(3.))
-            .flex()
-            .flex_col()
-            .border_1()
-            .border_color(t.border)
-            .rounded_b(theme::RADIUS_2)
-            .bg(t.surface)
-            .text_size(crate::theme::ui_text(TEXT_2XS))
-            .line_height(crate::theme::ui_text(17.))
-            .children(body),
-    )
+    well(looks)
+        .id(SharedString::from(format!("diff-body:{id}")))
+        .max_h(px(DIFF_MOST_HEIGHT))
+        .overflow_y_scroll()
+        .track_scroll(&scroll)
+        .on_scroll(move |_, _, cx| {
+            let (at, most) = (held.offset().y, held.max_offset().y);
+            if most > px(0.) && at <= px(0.) && at >= -most {
+                cx.stop_propagation();
+            }
+        })
+        .flex()
+        .flex_col()
+        .line_height(relative(1.85))
+        .children(body)
 }
 
 /// Which lines are within `context` of a change.
@@ -1017,18 +926,23 @@ fn kept(lines: &[DiffLine], context: usize) -> Vec<bool> {
     keep
 }
 
+/// The two number columns and the sign's, before a diff line's text.
+const DIFF_NUMBER_WIDTH: f32 = 34.;
+const DIFF_SIGN_WIDTH: f32 = 18.;
+
 fn diff_gap(id: &str, gap: usize, looks: &Drawn) -> AnyElement {
-    let (reader, id, hover) = (looks.reader.clone(), id.to_owned(), looks.hover);
+    let (reader, id, quiet, ink) = (looks.reader.clone(), id.to_owned(), looks.quiet, looks.ink);
     div()
         .id(SharedString::from(format!("gap:{id}:{gap}")))
-        .h(px(20.))
-        .pl(px(42.))
+        .h(px(28.))
+        .pl(px(DIFF_NUMBER_WIDTH * 2. + DIFF_SIGN_WIDTH))
         .flex()
         .items_center()
-        .text_size(crate::theme::ui_text(TEXT_3XS))
-        .text_color(looks.faint)
+        .gap(px(6.))
+        .font_family(theme::UI)
+        .text_color(quiet)
         .cursor_pointer()
-        .hover(move |gap| gap.bg(hover))
+        .hover(move |gap| gap.text_color(ink))
         .on_click(move |_, _, cx| {
             cx.stop_propagation();
             reader.update(cx, |reading, cx| {
@@ -1036,8 +950,9 @@ fn diff_gap(id: &str, gap: usize, looks: &Drawn) -> AnyElement {
                 cx.notify();
             });
         })
+        .child(ui::icon(Icon::Chevron, 10.))
         .child(format!(
-            "{gap} unchanged {}",
+            "{gap} more {}",
             if gap == 1 { "line" } else { "lines" }
         ))
         .into_any_element()
@@ -1045,19 +960,28 @@ fn diff_gap(id: &str, gap: usize, looks: &Drawn) -> AnyElement {
 
 fn diff_line(line: &DiffLine, looks: &Drawn) -> AnyElement {
     let tints = &looks.tints;
-    let (ground, sign, mark) = match line.sign.as_str() {
-        "+" => (Some(tints.added_ground), tints.added, tints.added_mark),
+    let (ground, sign, ink, number, mark) = match line.sign.as_str() {
+        "+" => (
+            Some(tints.added_ground),
+            tints.added,
+            tints.added_ink,
+            tints.added_number,
+            tints.added_mark,
+        ),
         "-" => (
             Some(tints.deleted_ground),
             tints.deleted_line,
+            tints.deleted_ink,
+            tints.deleted_number,
             tints.deleted_mark,
         ),
-        _ => (None, looks.faint, tints.added_mark),
-    };
-    let number = if line.sign == "+" {
-        line.new_line
-    } else {
-        line.old_line
+        _ => (
+            None,
+            looks.faint,
+            looks.quiet,
+            tints.gutter,
+            tints.added_mark,
+        ),
     };
     let marked = line
         .mark
@@ -1072,29 +996,33 @@ fn diff_line(line: &DiffLine, looks: &Drawn) -> AnyElement {
             },
         )
     }));
+    let column = |at: Option<u64>| {
+        div()
+            .w(px(DIFF_NUMBER_WIDTH))
+            .flex_none()
+            .pr(SPACE_2)
+            .flex()
+            .justify_end()
+            .text_size(crate::theme::ui_text(TEXT_2XS))
+            .text_color(number)
+            .children(at.map(|n| n.to_string()))
+    };
     div()
         .flex()
         .whitespace_nowrap()
         .when_some(ground, |line, ground| line.bg(ground))
+        .child(column(line.old_line))
+        .child(column(line.new_line))
         .child(
             div()
-                .w(px(30.))
+                .w(px(DIFF_SIGN_WIDTH))
                 .flex_none()
-                .pr(SPACE_2)
                 .flex()
-                .justify_end()
-                .text_size(crate::theme::ui_text(TEXT_3XS))
-                .text_color(looks.faint)
-                .children(number.map(|n| n.to_string())),
-        )
-        .child(
-            div()
-                .w(px(12.))
-                .flex_none()
+                .justify_center()
                 .text_color(sign)
-                .child(line.sign.clone()),
+                .when(line.sign != " ", |gutter| gutter.child(line.sign.clone())),
         )
-        .child(div().min_w_0().text_color(looks.ink).child(text))
+        .child(div().min_w_0().pr(SPACE_2).text_color(ink).child(text))
         .into_any_element()
 }
 

@@ -83,16 +83,6 @@ impl Files {
         self.home.as_deref()
     }
 
-    /// `path` as the chat would write it: within its folder from there, else from home.
-    pub fn shown(&self, path: &str) -> String {
-        let within = |root: &str| {
-            path.strip_prefix(root)
-                .and_then(|rest| rest.strip_prefix('/'))
-                .map(str::to_owned)
-        };
-        within(&self.cwd).unwrap_or_else(|| crate::ui::path::tilde(path, self.home()))
-    }
-
     /// Where `name` points, given the chat's folder.
     pub fn resolve(&self, name: &str) -> Option<PathRef> {
         parse(name, &self.cwd, self.home())

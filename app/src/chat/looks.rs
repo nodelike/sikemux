@@ -81,7 +81,18 @@ pub(super) struct Tints {
     pub(super) spine: Hsla,
     pub(super) tick: Hsla,
     pub(super) line_soft: Hsla,
-    pub(super) well: Hsla,
+    /// The ground under a diff or what a command printed, and the printed text.
+    pub(super) sunken: Hsla,
+    pub(super) printed: Hsla,
+    /// A diff's changed text and line numbers, and the numbers of the lines around them.
+    pub(super) added_ink: Hsla,
+    pub(super) deleted_ink: Hsla,
+    pub(super) added_number: Hsla,
+    pub(super) deleted_number: Hsla,
+    pub(super) gutter: Hsla,
+    /// A failed command's exit code, and the ground under it.
+    pub(super) failed_ink: Hsla,
+    pub(super) failed_ground: Hsla,
 }
 
 impl Tints {
@@ -115,9 +126,17 @@ impl Tints {
             spine: t.tree_spine,
             tick: t.tree_tick,
             line_soft: t.line_soft,
-            well: Hsla {
-                a: 0.62,
-                ..t.surface_sunken
+            sunken: t.surface_sunken,
+            printed: t.text_secondary,
+            added_ink: theme::mix(t.git_added, t.text_primary, 0.22),
+            deleted_ink: theme::mix(t.git_deleted, t.text_primary, 0.25),
+            added_number: theme::mix(t.git_added, t.surface_sunken, 0.38),
+            deleted_number: theme::mix(t.git_deleted, t.surface_sunken, 0.38),
+            gutter: theme::mix(t.text_disabled, t.surface_sunken, 0.5),
+            failed_ink: theme::mix(t.danger, t.text_primary, 0.7),
+            failed_ground: Hsla {
+                a: 0.12,
+                ..t.danger
             },
         }
     }
