@@ -7,12 +7,6 @@ extension HostLive {
     }
 }
 
-/// The agent's name on `core`; anything not in the catalog keeps the id it came with.
-@MainActor
-func agentLabel(_ provider: String, core: String) -> String {
-    Catalog.label(provider, core: core)
-}
-
 /// The agents each paired host can run, as its core's catalog says. An agent is named and coloured alike on every
 /// host, so where no host is in view any host's word for it does.
 @MainActor

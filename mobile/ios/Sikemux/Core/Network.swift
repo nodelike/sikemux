@@ -6,11 +6,6 @@ import SikemuxCore
 /// it. Relays rarely change, so a saved copy is used at once while the server is asked behind it.
 @MainActor @Observable
 final class Network {
-    struct UpdateRequired: Equatable {
-        let current: String
-        let minimum: String
-    }
-
     static let shared = Network()
 
     /// Where hosts listen when nothing better is known. Never iroh's public relays: no host listens there.

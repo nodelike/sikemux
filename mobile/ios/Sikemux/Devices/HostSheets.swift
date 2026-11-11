@@ -197,7 +197,7 @@ struct ProjectSheet<Tail: View>: View {
                             on ? palette.borderStrong : palette.border, lineWidth: 1))
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(provider.map { agentLabel($0, core: core) } ?? "All agents")
+                .accessibilityLabel(provider.map { Catalog.label($0, core: core) } ?? "All agents")
                 .accessibilityAddTraits(on ? [.isSelected] : [])
             }
         }

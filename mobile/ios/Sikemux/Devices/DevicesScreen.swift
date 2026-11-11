@@ -141,7 +141,7 @@ private struct DeviceCard: View {
                         VStack(alignment: .leading, spacing: 1) {
                             Text(
                                 needs.title ?? needs.card?.title ?? needs.name.map { "@\($0)" }
-                                    ?? agentLabel(needs.cli ?? "agent", core: device.core)
+                                    ?? Catalog.label(needs.cli ?? "agent", core: device.core)
                             )
                             .font(Theme.ui(13.5, .medium))
                             .foregroundStyle(palette.ink)
