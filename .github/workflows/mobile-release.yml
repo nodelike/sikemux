@@ -487,17 +487,6 @@ jobs:
           echo "build=$build" >>"$GITHUB_OUTPUT"
           echo "Sent build $build to TestFlight" >>"$GITHUB_STEP_SUMMARY"
 
-      # The dSYMs hold the Swift's and the Rust client's debug info, so crash reports read as source lines.
-      - name: Send the debug symbols to Sentry
-        env:
-          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
-        run: |
-          cli="$RUNNER_TEMP/sentry-cli"
-          curl -fsSL --retry 3 -o "$cli" https://github.com/getsentry/sentry-cli/releases/download/3.8.1/sentry-cli-Darwin-universal
-          echo "fb8413278fc45bb0e149db0cb201d6e1a2f20883fde4dc96b45961ab22946c3e  $cli" | shasum -a 256 -c -
-          chmod +x "$cli"
-          "$cli" debug-files upload --org nodelike --project sikemux-mobile --url https://de.sentry.io "$RUNNER_TEMP/Sikemux.xcarchive/dSYMs"
-
       - name: Send the build to the external testers through beta review
         working-directory: mobile/ios
         env:
@@ -507,3 +496,14 @@ jobs:
           VERSION: ${{ needs.plan.outputs.version }}
           BUILD: ${{ steps.upload.outputs.build }}
         run: node scripts/testflight-release.mjs submit "$VERSION" "$BUILD"
+
+      # The dSYMs hold the Swift's and the Rust client's debug info, so crash reports read as source lines.
+      - name: Send the debug symbols to Sentry
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+        run: |
+          cli="$RUNNER_TEMP/sentry-cli"
+          curl -fsSL --retry 3 -o "$cli" https://github.com/getsentry/sentry-cli/releases/download/3.8.1/sentry-cli-Darwin-universal
+          echo "fb8413278fc45bb0e149db0cb201d6e1a2f20883fde4dc96b45961ab22946c3e  $cli" | shasum -a 256 -c -
+          chmod +x "$cli"
+          "$cli" --url https://de.sentry.io debug-files upload --org nodelike --project sikemux-mobile "$RUNNER_TEMP/Sikemux.xcarchive/dSYMs"
