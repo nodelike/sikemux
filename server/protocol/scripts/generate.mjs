@@ -10,6 +10,7 @@ import {
   collect,
   HEADER,
   openapi,
+  reachable,
   rust,
   SchemaError,
   swift,
@@ -87,7 +88,7 @@ const SWIFT_RENAMED = new Set([
 /** Definitions sikemux-wire carries, which the app already has in Wire.generated.swift. */
 const SWIFT_FROM_THE_WIRE = new Set(["RevokeReason"]);
 /** What the share extension sends as well as the app, in a file both compile; the app's own file leaves them out. */
-const SHARED_SWIFT = ["StashTarget"];
+const SHARED_SWIFT = ["StashTarget", "StashAdd", "ApiError"];
 const FROM_THE_WIRE = "\nuse sikemux_wire::accounts::protocol::*;\n";
 const CORE_ONLY = new Map([
   ["share.json", { module: "share.rs", imports: FROM_THE_WIRE }],
@@ -128,7 +129,7 @@ try {
         renamed: SWIFT_RENAMED,
         provided: new Set([
           ...SWIFT_FROM_THE_WIRE,
-          ...SHARED_SWIFT,
+          ...reachable(definitions, SHARED_SWIFT),
           "DeviceKey",
         ]),
       },

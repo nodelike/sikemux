@@ -33,11 +33,11 @@ final class StashUpload: Sendable {
     }
 
     func link(_ url: String, note: String?, target: StashTarget?) async throws {
-        try await json(["kind": "link", "url": url], note: note, target: target)
+        try await json(.link(StashAddLink(url: url, note: note, target: target)))
     }
 
     func text(_ text: String, note: String?, target: StashTarget?) async throws {
-        try await json(["kind": "text", "text": text], note: note, target: target)
+        try await json(.text(StashAddText(text: text, note: note, target: target)))
     }
 
     /// Sends the file as its bytes, read from disk as it goes rather than held in memory.
@@ -54,11 +54,8 @@ final class StashUpload: Sendable {
         try answer(try await perform { try await self.session.upload(for: request, fromFile: url, delegate: watcher) })
     }
 
-    private func json(_ fields: [String: String], note: String?, target: StashTarget?) async throws {
-        var body: [String: Any] = fields
-        if let note { body["note"] = note }
-        if let target { body["target"] = try JSONSerialization.jsonObject(with: try JSONEncoder().encode(target)) }
-        let data = try JSONSerialization.data(withJSONObject: body)
+    private func json(_ add: StashAdd) async throws {
+        let data = try JSONEncoder().encode(add)
         var request = try signed(body: SHA256.hash(data: data).hex)
         request.setValue("application/json", forHTTPHeaderField: "content-type")
         try answer(try await perform { try await self.session.upload(for: request, from: data) })
@@ -96,8 +93,7 @@ final class StashUpload: Sendable {
         let status = (answer.1 as? HTTPURLResponse)?.statusCode ?? 0
         if (200..<300).contains(status) { return }
         if status == 401 { throw StashProblem.signedOut }
-        let failure = (try? JSONSerialization.jsonObject(with: answer.0)) as? [String: Any]
-        let message = (failure?["error"] as? [String: Any])?["message"] as? String
+        let message = (try? JSONDecoder().decode(ApiError.self, from: answer.0))?.error.message
         throw StashProblem.refused(message ?? "Sikemux answered \(status).")
     }
 
