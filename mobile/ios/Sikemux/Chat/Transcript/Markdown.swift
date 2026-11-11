@@ -250,7 +250,7 @@ struct BlockView: View, Equatable {
                 .padding(.leading, 12)
                 .overlay(alignment: .leading) { Rectangle().fill(palette.borderStrong).frame(width: 2) }
         case .hr:
-            Rectangle().fill(palette.borderStrong).frame(height: 1 / UIScreen.main.scale).padding(.vertical, 4)
+            Hairline(color: palette.borderStrong).padding(.vertical, 4)
         case .table(let table):
             TableBlock(table: table, style: style)
         case .fndef(let note):
@@ -276,11 +276,12 @@ struct BlockView: View, Equatable {
 /// Words set in the transcript's prose, selectable as the Mac's are.
 struct Prose: View {
     @Environment(\.palette) private var palette
+    @Environment(\.displayScale) private var scale
     let text: AttributedString
     let style: ProseStyle
 
     var body: some View {
-        FileGlyph.text(text, ink: palette.inkDim)
+        FileGlyph.text(text, ink: palette.inkDim, scale: scale)
             .font(style.font)
             .foregroundStyle(style.color)
             .lineSpacing(style.spacing)
@@ -607,11 +608,11 @@ enum FileGlyph: AttributedStringKey {
     }
 
     /// The words as one `Text`, with each glyph's place drawn as the file icon.
-    @MainActor static func text(_ words: AttributedString, ink: Color) -> Text {
+    @MainActor static func text(_ words: AttributedString, ink: Color, scale: CGFloat) -> Text {
         guard words.runs.contains(where: { $0[FileGlyph.self] != nil }) else { return Text(words) }
         var out = Text("")
         for run in words.runs {
-            if let size = run[FileGlyph.self], let image = image(size) {
+            if let size = run[FileGlyph.self], let image = image(size, scale: scale) {
                 out =
                     out + Text(Image(uiImage: image).renderingMode(.template)).foregroundColor(ink).baselineOffset(-1.5)
             } else {
@@ -621,14 +622,14 @@ enum FileGlyph: AttributedStringKey {
         return out
     }
 
-    @MainActor private static var drawn: [CGFloat: UIImage] = [:]
+    @MainActor private static var drawn: [[CGFloat]: UIImage] = [:]
 
-    @MainActor private static func image(_ size: CGFloat) -> UIImage? {
-        if let found = drawn[size] { return found }
+    @MainActor private static func image(_ size: CGFloat, scale: CGFloat) -> UIImage? {
+        if let found = drawn[[size, scale]] { return found }
         let renderer = ImageRenderer(content: IconView(icon: Icons.file, size: size).foregroundStyle(.black))
-        renderer.scale = UIScreen.main.scale
+        renderer.scale = scale
         guard let image = renderer.uiImage?.withRenderingMode(.alwaysTemplate) else { return nil }
-        drawn[size] = image
+        drawn[[size, scale]] = image
         return image
     }
 }

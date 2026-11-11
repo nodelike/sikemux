@@ -367,6 +367,7 @@ struct WorktreeLine: View {
 /// that fired it folded beneath.
 struct FiredTrigger: View {
     @Environment(\.palette) private var palette
+    @Environment(\.displayScale) private var scale
     @Environment(TranscriptContext.self) private var context
     let id: String
     let fired: TriggerFired
@@ -416,7 +417,7 @@ struct FiredTrigger: View {
                     .background(RoundedRectangle(cornerRadius: 8).fill(palette.raised))
                     .overlay(
                         RoundedRectangle(cornerRadius: 8).strokeBorder(
-                            palette.border, lineWidth: 1 / UIScreen.main.scale)
+                            palette.border, lineWidth: 1 / scale)
                     )
                     .padding(.top, 4)
                 }
