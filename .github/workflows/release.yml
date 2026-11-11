@@ -189,12 +189,12 @@ jobs:
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
 
-      # The core and the app are stripped here, once their symbols are in a dSYM published beside
-      # the release. It names a crash's functions but not their lines: line tables carried
-      # through the link's LTO need more memory than a runner has, and more than double the build.
+      # The core and the app are stripped here, once their symbols are in a debug file published
+      # beside the release, with the line tables of Sikemux's own crates. Those add about a tenth to
+      # the build; every crate's would need more memory than a runner has, and double it.
       - &keep_symbols
         name: Leave the symbols in for the dSYM
-        run: mkdir -p "${CARGO_HOME:-$HOME/.cargo}" && printf '[profile.release]\nstrip = "none"\n[profile.release.package.sikemux-gpui]\nstrip = "none"\n' >>"${CARGO_HOME:-$HOME/.cargo}/config.toml"
+        run: mkdir -p "${CARGO_HOME:-$HOME/.cargo}" && printf '[profile.release]\nstrip = "none"\ndebug = "line-tables-only"\n[profile.release.package."*"]\ndebug = false\n[profile.release.package.sikemux-gpui]\nstrip = "none"\n' >>"${CARGO_HOME:-$HOME/.cargo}/config.toml"
 
       - name: Build the core
         env:
