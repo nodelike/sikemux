@@ -7,7 +7,6 @@
 //!   remote mac <socket> publish            offers the fake agent to devices
 //!   remote mac <socket> chat [prompt]      starts a chat with it
 //!   remote mac <socket> say <agent> <text>
-//!   remote mac <socket> backdrop on|off [image.jpg]  publishes the pane backdrop
 //!   remote mac <socket> chats              lists the chats running on the core
 //!   remote mac <socket> sleepy             keeps a sleeping chat for a device to wake
 //!   remote mac <socket> login              signs the core in by a code a phone approves
