@@ -46,6 +46,9 @@ pub(crate) struct Foreign {
     /// The branch its latest commits came back on and how many there are,
     /// until its next report says so.
     pub landed: Option<(String, usize)>,
+    /// The call that starts it there, while whether it started is not known yet.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pending: Option<String>,
 }
 
 /// A worker's own checkout here, cut for its lead on another host.
@@ -204,6 +207,19 @@ impl Team {
                 .find(|tree| tree.agent_id == agent_id)
             {
                 tree.sent = Some(head.to_owned());
+            }
+        });
+    }
+
+    /// The worker's commits did not reach its lead, so the next go sends all of them again.
+    pub(crate) fn tree_unsent(&self, agent_id: &str) {
+        self.change(|record| {
+            if let Some(tree) = record
+                .trees
+                .iter_mut()
+                .find(|tree| tree.agent_id == agent_id)
+            {
+                tree.sent = None;
             }
         });
     }

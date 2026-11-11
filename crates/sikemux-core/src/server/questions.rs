@@ -129,7 +129,7 @@ struct Question {
     secret: bool,
     at: u64,
     stage: Stage,
-    /// The linked host it was put to the person on, where its asker's team
+    /// The linked host it was also put to the person on, where its asker's team
     /// is led from.
     #[serde(skip_serializing_if = "Option::is_none")]
     relayed: Option<String>,
@@ -206,7 +206,7 @@ impl Question {
     }
 
     fn asks_person(&self) -> bool {
-        matches!(self.stage, Stage::Person { .. }) && self.relayed.is_none() && !self.stands()
+        matches!(self.stage, Stage::Person { .. }) && !self.stands()
     }
 
     /// An assumption nobody raised needs no answer: it goes on the record as decided. One an
@@ -354,6 +354,8 @@ struct State {
     /// views last showed, and whose they are.
     shown_devices: HashMap<String, String>,
     keeper: Keeper,
+    /// The open questions also put to the person on another host, and which.
+    relayed_to: HashMap<String, String>,
 }
 
 pub(crate) struct Questions {
@@ -2387,21 +2389,14 @@ pub(crate) fn settle(core: &Arc<Core>) {
     let now = epoch_ms();
     let mut withdrawn = Vec::new();
     let mut next = None;
-    let mut closed = Vec::new();
     let mut again = Vec::new();
     let standing: Vec<Question>;
     {
         let mut state = core.harness.questions.state.locked();
         let before = state.open.len();
-        state.open.retain(|question| {
-            let keep = !gone.contains(&question.agent_id);
-            if !keep {
-                if let Some(host) = &question.relayed {
-                    closed.push((host.clone(), question.id.clone()));
-                }
-            }
-            keep
-        });
+        state
+            .open
+            .retain(|question| !gone.contains(&question.agent_id));
         let answered = state.answered.len();
         state
             .answered
@@ -2474,9 +2469,6 @@ pub(crate) fn settle(core: &Arc<Core>) {
     }
     for (lead, question) in withdrawn {
         messages::withdraw(core, &lead, &question);
-    }
-    for (host, id) in closed {
-        super::hosts::route::relay_closed(core, &host, &id);
     }
     relay(core);
     if let Some(next) = next {

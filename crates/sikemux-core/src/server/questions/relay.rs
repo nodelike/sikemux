@@ -4,8 +4,30 @@
 use super::*;
 
 /// Puts each question now for the person, whose asker's team is led from a
-/// linked host, to the person there instead.
+/// linked host, to the person there too, and tells that host of those no longer open.
 pub(super) fn relay(core: &Core) {
+    let closed: Vec<(String, String)> = {
+        let mut state = core.harness.questions.state.locked();
+        let state = &mut *state;
+        for question in &state.open {
+            if let Some(host) = &question.relayed {
+                state.relayed_to.insert(question.id.clone(), host.clone());
+            }
+        }
+        let open = &state.open;
+        let mut closed = Vec::new();
+        state.relayed_to.retain(|id, host| {
+            let still = open.iter().any(|question| &question.id == id);
+            if !still {
+                closed.push((host.clone(), id.clone()));
+            }
+            still
+        });
+        closed
+    };
+    for (host, id) in closed {
+        crate::server::hosts::route::relay_closed(core, &host, &id);
+    }
     let candidates: Vec<String> = core
         .harness
         .questions

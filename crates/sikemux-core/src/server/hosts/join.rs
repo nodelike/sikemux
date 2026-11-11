@@ -81,9 +81,16 @@ pub(super) async fn link_with(core: &Arc<Core>, params: LinkParams) -> CoreResul
         .map_err(|error| CoreError::from(format!("{name} is out of reach: {error}")))?;
     let mut hello = introduction(core);
     hello["ticket"] = serde_json::to_value(&ticket)?;
-    let reply = link::ask(&connection, "join", hello, None, APPROVAL_TIMEOUT + STEP)
-        .await
-        .map_err(|error| CoreError::from(format!("{name} did not link: {error}")))?;
+    let reply = link::ask(
+        &connection,
+        "join",
+        hello,
+        None,
+        APPROVAL_TIMEOUT + STEP,
+        None,
+    )
+    .await
+    .map_err(|error| CoreError::from(format!("{name} did not link: {error}")))?;
     match reply["result"].as_str() {
         Some("allowed") => {}
         Some("denied") => return Err(format!("{name} did not allow the link").into()),
@@ -142,7 +149,9 @@ pub(super) async fn answer(core: Arc<Core>, connection: Connection) {
     };
     if incoming.method != "join" {
         incoming
-            .reply(Err("this host is not linked with yours".into()))
+            .reply(Err(link::Refusal::not_linked(
+                "this host is not linked with yours",
+            )))
             .await;
         connection.close(link::NOT_LINKED.into(), b"not linked");
         return;

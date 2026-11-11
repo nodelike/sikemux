@@ -20,6 +20,7 @@ mod listed;
 pub mod open;
 mod outbox;
 pub(crate) mod probe;
+mod receipts;
 pub(crate) mod route;
 pub(crate) mod spawn;
 pub(crate) mod team;
@@ -47,6 +48,7 @@ use super::remote::{self, StoredLink};
 use super::wake::{sooner, Wake};
 use super::{Core, CoreError, CoreResult};
 use crate::backoff::Backoff;
+use calls::HostAsk;
 
 pub use install::{SetUpWork, SetupRow};
 pub(crate) use join::link_host;
@@ -55,9 +57,14 @@ pub(crate) use listed::{installed_from, rows};
 pub use listed::{HostRow, Reach as HostReach};
 pub(crate) use outbox::Sending;
 pub use probe::Found as HostFound;
+pub(crate) use receipts::Stands;
 
 const DIAL_WAIT: Duration = Duration::from_secs(15);
 const ASK_WAIT: Duration = Duration::from_secs(30);
+/// How long a post the other host could not take yet waits before it is sent again.
+const RETRY_REFUSED_MS: u64 = 60_000;
+/// How long posts wait to go again after one got no answer over a connection still open.
+const RETRY_UNANSWERED_MS: u64 = 10_000;
 const REDIAL: Backoff = Backoff {
     first: Duration::from_secs(2),
     cap: Duration::from_secs(60),
@@ -90,6 +97,8 @@ struct State {
     connections: HashMap<String, Connection>,
     dialing: HashSet<String>,
     flushing: HashSet<String>,
+    /// Hosts whose posts wait to be sent again until then, after one could not go.
+    held: HashMap<String, u64>,
     down: HashMap<String, Down>,
     /// When each agent's teammates elsewhere last heard it did other work.
     worked: HashMap<String, u64>,
@@ -98,6 +107,7 @@ struct State {
 pub(crate) struct Hosts {
     state: Mutex<State>,
     pub(crate) outbox: outbox::Outbox,
+    receipts: receipts::Receipts,
     pub(crate) team: team::Team,
     /// What the other hosts hold of the account's projects.
     pub(crate) copies: copies::Copies,
@@ -125,6 +135,7 @@ impl Hosts {
         Self {
             state: Mutex::new(State::default()),
             outbox: outbox::Outbox::new(data_dir),
+            receipts: receipts::Receipts::new(data_dir),
             team: team::Team::new(data_dir),
             copies: copies::Copies::new(data_dir),
             wake: Wake::default(),
@@ -203,6 +214,13 @@ impl Hosts {
         }
         state.worked.insert(agent_id.to_owned(), now);
         true
+    }
+
+    /// Holds what waits for `host` for `for_ms` before it is sent again.
+    fn hold(&self, host: &str, for_ms: u64) {
+        let until = epoch_ms() + for_ms;
+        self.state.locked().held.insert(host.to_owned(), until);
+        self.wake.at(until);
     }
 
     fn note_down(&self, host: &str) {
@@ -416,8 +434,63 @@ pub(crate) async fn ask(
     body: Option<&Path>,
     limit: Duration,
 ) -> Result<Value, Failed> {
+    asking(core, host, method, params, body, limit, None).await
+}
+
+/// A new id for a call that does work on another host, made once and passed to every
+/// [`call`] that retries it.
+pub(crate) fn call_id() -> String {
+    uuid::Uuid::new_v4().simple().to_string()
+}
+
+/// Asks a linked host to do something once: asked again with the same `id`, it answers what
+/// it answered the first time instead of doing it again.
+pub(crate) async fn call(
+    core: &Arc<Core>,
+    host: &str,
+    method: &str,
+    params: Value,
+    body: Option<&Path>,
+    limit: Duration,
+    id: &str,
+) -> Result<Value, Failed> {
+    asking(core, host, method, params, body, limit, Some(id)).await
+}
+
+/// What became of the call `id` this host made to `host`. A host too old to keep receipts
+/// refuses, as it does any ask it does not know.
+pub(crate) async fn receipt(core: &Arc<Core>, host: &str, id: &str) -> Result<Stands, Failed> {
+    let params = calls::params_of::<calls::Receipt>(&calls::ReceiptParams {
+        call: id.to_owned(),
+    });
+    let answer = ask(core, host, calls::Receipt::METHOD, params, None, ASK_WAIT).await?;
+    Stands::heard(&answer)
+        .ok_or_else(|| Failed::Refused(format!("{} answered unreadably", name_of(core, host))))
+}
+
+async fn asking(
+    core: &Arc<Core>,
+    host: &str,
+    method: &str,
+    params: Value,
+    body: Option<&Path>,
+    limit: Duration,
+    id: Option<&str>,
+) -> Result<Value, Failed> {
     let connection = connection(core, host).await?;
-    link::ask(&connection, method, params, body, limit).await
+    let answer = link::ask(&connection, method, params, body, limit, id).await;
+    if let Err(Failed::NotLinked(_)) = &answer {
+        unlinked_there(core, host);
+    }
+    answer
+}
+
+/// `host` no longer has the link with this one, though the person there could not tell this
+/// host when they removed it: this host lets it go too.
+fn unlinked_there(core: &Core, host: &str) {
+    if core.remote.forget_link(host) {
+        unlinked(core, host, "the person there removed the link");
+    }
 }
 
 /// Sends a linked host something that must arrive, behind whatever already
@@ -438,8 +511,15 @@ pub(crate) fn goes_now(core: &Core, host: &str) -> bool {
 
 /// Sends what waits for `host`, in order, while it stays reachable.
 fn flush(core: &Arc<Core>, host: &str) {
-    if !core.hosts.state.locked().flushing.insert(host.to_owned()) {
-        return;
+    {
+        let mut state = core.hosts.state.locked();
+        let held = state
+            .held
+            .get(host)
+            .is_some_and(|until| *until > epoch_ms());
+        if held || !state.flushing.insert(host.to_owned()) {
+            return;
+        }
     }
     let (core, host) = (core.clone(), host.to_owned());
     tokio::spawn(async move {
@@ -453,19 +533,27 @@ fn flush(core: &Arc<Core>, host: &str) {
                 post.params.clone(),
                 post.body.as_deref(),
                 ASK_WAIT,
+                post.call.as_deref(),
             )
             .await
             {
                 Ok(_) => core.hosts.outbox.sent(&host, post.seq),
                 Err(Failed::Refused(why)) => {
-                    eprintln!(
-                        "sikemux core: {} turned away a {} that waited for it: {why}",
-                        name_of(&core, &host),
-                        post.method
-                    );
                     core.hosts.outbox.sent(&host, post.seq);
+                    turned_away(&core, &host, &post, &why);
                 }
-                Err(Failed::Unreachable(_)) => break,
+                Err(Failed::NotLinked(_)) => {
+                    unlinked_there(&core, &host);
+                    break;
+                }
+                Err(Failed::Retry(_)) => {
+                    core.hosts.hold(&host, RETRY_REFUSED_MS);
+                    break;
+                }
+                Err(Failed::Unreachable(_) | Failed::Unknown(_)) => {
+                    core.hosts.hold(&host, RETRY_UNANSWERED_MS);
+                    break;
+                }
             }
         }
         core.hosts.state.locked().flushing.remove(&host);
@@ -473,6 +561,32 @@ fn flush(core: &Arc<Core>, host: &str) {
             core.hosts.wake.now();
         }
     });
+}
+
+/// `host` turned away a post that waited for it, for good: the agent that sent it hears why.
+fn turned_away(core: &Core, host: &str, post: &outbox::Post, why: &str) {
+    let name = name_of(core, host);
+    eprintln!(
+        "sikemux core: {name} turned away a {} that waited for it: {why}",
+        post.method
+    );
+    if post.method == calls::Commits::METHOD {
+        if let Some(worker) = &post.from {
+            core.hosts.team.tree_unsent(worker);
+        }
+    }
+    let Some(from) = post.from.clone() else {
+        return;
+    };
+    let what = match post.method.as_str() {
+        "deliver" => "Your message",
+        method if method == calls::Commits::METHOD => "Your commits",
+        _ => "What you sent",
+    };
+    let text = format!(
+        "{what} did not reach {name}: it turned it away ({why}). Nothing more will be sent of it; what you committed stays in your checkout and goes with your next report."
+    );
+    route::notice(core, from, text);
 }
 
 /// Takes `connection` as the one to `host`: answers what it asks over it,
@@ -484,6 +598,7 @@ fn adopt(core: &Arc<Core>, host: &str, connection: Connection) {
         state
             .connections
             .insert(host.to_owned(), connection.clone());
+        state.held.remove(host);
         state.down.remove(host)
     };
     core.remote.link_seen(host, None);
@@ -496,6 +611,7 @@ fn adopt(core: &Arc<Core>, host: &str, connection: Connection) {
     flush(core, host);
     core.hosts.copies.reached(host);
     route::resync(core, host);
+    spawn::settle_pending_on(core, host);
     if was_down.is_some_and(|down| down.told) {
         route::back_in_reach(core, host);
     }
@@ -517,7 +633,8 @@ async fn answer_asks(core: Arc<Core>, host: String, connection: Connection) {
             let method = std::mem::take(&mut incoming.method);
             let params = std::mem::take(&mut incoming.params);
             let body = incoming.body.take();
-            let answer = calls::answer(&core, &host, &method, params, body).await;
+            let call = incoming.call.take();
+            let answer = calls::answer(&core, &host, &method, params, body, call).await;
             incoming.reply(answer).await;
             drop(slot);
         });
@@ -556,7 +673,10 @@ pub(crate) async fn serve(core: Arc<Core>, connection: Connection) {
 /// The person here removed the link with `host`: the other host hears of it
 /// if it can, and the agents working across the link are let go.
 pub(crate) fn unlink(core: &Core, host: &str) {
-    let connection = core.hosts.connected(host);
+    let connection = {
+        let mut state = core.hosts.state.locked();
+        state.connections.remove(host)
+    };
     unlinked(core, host, "the person removed the link");
     if let Some(connection) = connection {
         tokio::spawn(async move {
@@ -566,6 +686,7 @@ pub(crate) fn unlink(core: &Core, host: &str) {
                 Value::Null,
                 None,
                 Duration::from_secs(5),
+                None,
             )
             .await;
             connection.close(link::NOT_LINKED.into(), b"unlinked");
@@ -577,6 +698,7 @@ pub(crate) fn unlink(core: &Core, host: &str) {
 /// waits for it is dropped, and the leads of workers there are told.
 pub(crate) fn unlinked(core: &Core, host: &str, why: &str) {
     core.hosts.outbox.forget(host);
+    core.hosts.receipts.forget(host);
     core.hosts.copies.forget(host);
     let connection = {
         let mut state = core.hosts.state.locked();
@@ -623,9 +745,22 @@ pub(crate) fn settle(core: &Arc<Core>) {
     let mut redial = Vec::new();
     let window = core.window.is_open();
     let mut tell = Vec::new();
+    let mut flushes = Vec::new();
     {
         let mut state = core.hosts.state.locked();
         state.down.retain(|host, _| linked.contains(host));
+        state
+            .held
+            .retain(|host, until| linked.contains(host) && *until > now);
+        for host in state.connections.keys() {
+            if !core.hosts.outbox.has(host) || state.flushing.contains(host) {
+                continue;
+            }
+            match state.held.get(host) {
+                Some(until) => next = sooner(next, Some(*until)),
+                None => flushes.push(host.clone()),
+            }
+        }
         for link in &links {
             let needed = core.hosts.outbox.has(&link.id)
                 || core.hosts.team.has_host(&link.id)
@@ -690,6 +825,9 @@ pub(crate) fn settle(core: &Arc<Core>) {
                 }
             }
         });
+    }
+    for host in flushes {
+        flush(core, &host);
     }
     for host in tell {
         route::out_of_reach(core, &host);

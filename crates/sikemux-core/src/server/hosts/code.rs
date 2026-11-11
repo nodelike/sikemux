@@ -15,7 +15,7 @@ use serde_json::{json, Value};
 use super::super::connection::blocking;
 use super::super::worktree::{self, inside, slug};
 use super::super::Core;
-use super::link::Received;
+use super::link::{Received, Refusal};
 use super::name_of;
 use super::team::{Role, Tree};
 use crate::git::Git;
@@ -718,13 +718,14 @@ pub(super) struct ArrivingCommits {
 }
 
 /// A worker on `host` sent its commits: they go onto a branch named for it
-/// in its lead's checkout here, which its next report names.
+/// in its lead's checkout here, which its next report names. Commits that cannot land for good
+/// are told to its lead; the worker's host keeps them to send again.
 pub(super) async fn land(
     core: &Arc<Core>,
     host: &str,
     params: ArrivingCommits,
     body: Option<Received>,
-) -> Result<Value, String> {
+) -> Result<Value, Refusal> {
     let landing = params;
     let worker = core
         .hosts
@@ -732,10 +733,19 @@ pub(super) async fn land(
         .get(&landing.agent_id)
         .filter(|worker| worker.host == host && worker.role == Role::Worker)
         .ok_or("that worker is not one this host started")?;
+    let refused = |why: String| {
+        if let Some(lead) = worker.parent.clone() {
+            super::route::notice(core, lead, format!("The commits {} on {} sent back did not land in your checkout: {why}. They stay in its checkout there.", worker.name, name_of(core, host)));
+        }
+        Refusal::from(why)
+    };
     let repo = worker
         .repo
         .clone()
-        .ok_or("this host does not know where that worker's lead works")?;
+        .ok_or_else(|| refused("this host does not know where that worker's lead works".into()))?;
+    if !repo.is_dir() {
+        return Err(refused(format!("{} is no longer there", repo.display())));
+    }
     let body = body.ok_or("the commits came without their bundle")?;
     let branch = format!(
         "sikemux/{}/{}",
@@ -751,7 +761,7 @@ pub(super) async fn land(
         })
         .await
     };
-    landed.map_err(|error| error.to_string())?;
+    landed.map_err(|error| Refusal::retry(error.to_string()))?;
     let count = landing.count;
     core.hosts.team.update(&landing.agent_id, |worker| {
         worker.landed = Some((branch.clone(), count));

@@ -5,6 +5,7 @@
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use iroh::endpoint::{Connection, RecvStream, SendStream};
@@ -28,27 +29,120 @@ struct Ask {
     params: Value,
     #[serde(default)]
     body: bool,
+    /// Names a call that does work, the same on every retry, so the other host does it once.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    call: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
 struct Reply {
     ok: Option<Value>,
     error: Option<String>,
+    /// What kind of refusal `error` is; a host that does not say means it is final.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    refusal: Option<String>,
+}
+
+/// Why a host turned an ask away, which tells the asker whether to ask again.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Kind {
+    /// Asking again changes nothing.
+    Final,
+    /// It may go through later, as when a checkout is busy.
+    Retry,
+    /// The host no longer has a link with the asker.
+    NotLinked,
+}
+
+impl Kind {
+    fn word(self) -> Option<&'static str> {
+        match self {
+            Kind::Final => None,
+            Kind::Retry => Some("retry"),
+            Kind::NotLinked => Some("notLinked"),
+        }
+    }
+
+    fn of(word: Option<&str>) -> Self {
+        match word {
+            Some("retry") => Kind::Retry,
+            Some("notLinked") => Kind::NotLinked,
+            _ => Kind::Final,
+        }
+    }
+}
+
+/// A host's refusal of an ask, and why.
+#[derive(Debug)]
+pub(crate) struct Refusal {
+    pub why: String,
+    pub kind: Kind,
+}
+
+impl Refusal {
+    pub(crate) fn retry(why: impl Into<String>) -> Self {
+        Self {
+            why: why.into(),
+            kind: Kind::Retry,
+        }
+    }
+
+    pub(crate) fn not_linked(why: impl Into<String>) -> Self {
+        Self {
+            why: why.into(),
+            kind: Kind::NotLinked,
+        }
+    }
+}
+
+impl From<String> for Refusal {
+    fn from(why: String) -> Self {
+        Self {
+            why,
+            kind: Kind::Final,
+        }
+    }
+}
+
+impl From<&str> for Refusal {
+    fn from(why: &str) -> Self {
+        why.to_owned().into()
+    }
 }
 
 /// Why an ask came to nothing.
 #[derive(Debug)]
 pub(crate) enum Failed {
-    /// The other host could not be reached, or the connection broke.
+    /// The ask never reached the other host.
     Unreachable(String),
-    /// The other host answered with this refusal.
+    /// The ask went out but no answer came back, so whether it was done is not known yet.
+    Unknown(String),
+    /// The other host answered with a refusal that asking again does not change.
     Refused(String),
+    /// The other host answered with a refusal that may not hold later.
+    Retry(String),
+    /// The other host no longer has a link with this one.
+    NotLinked(String),
+}
+
+impl Failed {
+    /// Whether the ask is worth sending again later.
+    pub(crate) fn passing(&self) -> bool {
+        matches!(
+            self,
+            Failed::Unreachable(_) | Failed::Unknown(_) | Failed::Retry(_)
+        )
+    }
 }
 
 impl std::fmt::Display for Failed {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Failed::Unreachable(why) | Failed::Refused(why) => f.write_str(why),
+            Failed::Unreachable(why)
+            | Failed::Unknown(why)
+            | Failed::Refused(why)
+            | Failed::Retry(why)
+            | Failed::NotLinked(why) => f.write_str(why),
         }
     }
 }
@@ -126,31 +220,43 @@ pub(crate) async fn ask(
     params: Value,
     body: Option<&Path>,
     limit: Duration,
+    call: Option<&str>,
 ) -> Result<Value, Failed> {
+    let sent = AtomicBool::new(false);
     let exchange = async {
         let (mut send, mut recv) = connection.open_bi().await.map_err(broken)?;
         let ask = Ask {
             method: method.to_owned(),
             params,
             body: body.is_some(),
+            call: call.map(str::to_owned),
         };
         write_message(&mut send, &ask).await.map_err(broken)?;
         if let Some(path) = body {
             write_body(&mut send, path).await.map_err(broken)?;
         }
         send.finish().map_err(broken)?;
-        let reply: Reply = read_message(&mut recv).await.map_err(broken)?;
+        sent.store(true, Ordering::Relaxed);
+        let reply: Reply = read_message(&mut recv)
+            .await
+            .map_err(|error| Failed::Unknown(error.to_string()))?;
         match (reply.ok, reply.error) {
-            (_, Some(error)) => Err(Failed::Refused(error)),
+            (_, Some(error)) => Err(match Kind::of(reply.refusal.as_deref()) {
+                Kind::Final => Failed::Refused(error),
+                Kind::Retry => Failed::Retry(error),
+                Kind::NotLinked => Failed::NotLinked(error),
+            }),
             (ok, None) => Ok(ok.unwrap_or(Value::Null)),
         }
     };
     tokio::time::timeout(limit, exchange)
         .await
         .unwrap_or_else(|_| {
-            Err(Failed::Unreachable(
-                "the other host did not answer in time".into(),
-            ))
+            let why = "the other host did not answer in time".to_owned();
+            Err(match sent.load(Ordering::Relaxed) {
+                true => Failed::Unknown(why),
+                false => Failed::Unreachable(why),
+            })
         })
 }
 
@@ -161,6 +267,7 @@ pub(crate) struct Incoming {
     pub method: String,
     pub params: Value,
     pub body: Option<Received>,
+    pub call: Option<String>,
     send: SendStream,
 }
 
@@ -184,6 +291,7 @@ pub(crate) async fn next(connection: &Connection) -> Option<Result<Incoming, Str
             method: ask.method,
             params: ask.params,
             body,
+            call: ask.call,
             send,
         })
     };
@@ -191,15 +299,17 @@ pub(crate) async fn next(connection: &Connection) -> Option<Result<Incoming, Str
 }
 
 impl Incoming {
-    pub(crate) async fn reply(mut self, answer: Answer) {
+    pub(crate) async fn reply(mut self, answer: Result<Value, Refusal>) {
         let reply = match answer {
             Ok(ok) => Reply {
                 ok: Some(ok),
                 error: None,
+                refusal: None,
             },
-            Err(error) => Reply {
+            Err(refusal) => Reply {
                 ok: None,
-                error: Some(error),
+                error: Some(refusal.why),
+                refusal: refusal.kind.word().map(str::to_owned),
             },
         };
         if write_message(&mut self.send, &reply).await.is_ok() {

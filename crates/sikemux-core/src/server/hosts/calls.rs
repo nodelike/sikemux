@@ -8,7 +8,8 @@ use serde::Serialize;
 use serde_json::Value;
 
 use super::super::Core;
-use super::link::{Answer, Received};
+use super::link::{Answer, Kind, Received, Refusal};
+use super::receipts::Stands;
 use super::{
     answered, chat_move, code, copies, introduction, not_linked, open, route, spawn, transfer,
 };
@@ -50,6 +51,13 @@ host_asks! {
     QuestionClosed "questionClosed" route::ClosedParams;
     Copies "copies" copies::HeldParams;
     TakeChat "takeChat" chat_move::TakeChat;
+    Receipt "receipt" ReceiptParams;
+}
+
+/// Asks what became of the call `call`.
+#[derive(serde::Serialize, serde::Deserialize)]
+pub(super) struct ReceiptParams {
+    pub(super) call: String,
 }
 
 pub(super) fn params_of<A: HostAsk>(params: &A::Params) -> Value {
@@ -66,10 +74,54 @@ pub(super) async fn answer(
     method: &str,
     params: Value,
     body: Option<Received>,
-) -> Answer {
+    call: Option<String>,
+) -> Result<Value, Refusal> {
     if core.remote.link(host).is_none() {
-        return Err(not_linked(core, host).to_string());
+        return Err(Refusal::not_linked(not_linked(core, host).to_string()));
     }
+    if method == Receipt::METHOD {
+        let params = read::<Receipt>(params)?;
+        return Ok(core.hosts.receipts.stands(host, &params.call).told());
+    }
+    let Some(call) = call else {
+        return work(core, host, method, params, body).await;
+    };
+    let doing = match core.hosts.receipts.begin(host, &call) {
+        Ok(doing) => doing,
+        Err(Stands::Done(answer)) => return answer.map_err(Refusal::from),
+        Err(_) => return Err(Refusal::retry("this host is still doing that")),
+    };
+    let answer = work(core, host, method, params, body).await;
+    match &answer {
+        Ok(value) if value.get("needs").is_none() => doing.done(&Ok(value.clone())),
+        Err(refusal) if refusal.kind == Kind::Final => doing.done(&Err(refusal.why.clone())),
+        _ => {}
+    }
+    answer
+}
+
+async fn work(
+    core: &Arc<Core>,
+    host: &str,
+    method: &str,
+    params: Value,
+    body: Option<Received>,
+) -> Result<Value, Refusal> {
+    if method == Commits::METHOD {
+        return code::land(core, host, read::<Commits>(params)?, body).await;
+    }
+    dispatch(core, host, method, params, body)
+        .await
+        .map_err(Refusal::from)
+}
+
+async fn dispatch(
+    core: &Arc<Core>,
+    host: &str,
+    method: &str,
+    params: Value,
+    body: Option<Received>,
+) -> Answer {
     match method {
         "join" => {
             let mut reply = introduction(core);
@@ -92,7 +144,6 @@ pub(super) async fn answer(
         Happened::METHOD => answered(route::happened_here(core, host, read::<Happened>(params)?)),
         Team::METHOD => answered(route::team_here(core, host, read::<Team>(params)?)),
         Worked::METHOD => answered(route::worked_here(core, host, read::<Worked>(params)?)),
-        Commits::METHOD => code::land(core, host, read::<Commits>(params)?, body).await,
         AutoTurn::METHOD => {
             super::super::board::elsewhere::turn_ended(core, host, read::<AutoTurn>(params)?)
         }

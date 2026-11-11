@@ -3,9 +3,9 @@ title: Linked hosts
 description: "Agents that start workers on your other hosts, and the sign-ins they use there."
 ---
 
-Every host signed in to your account links with every other on its own, so an agent on one starts workers on another. A host that turned on **Require approval for new devices** asks you first. Removing a host from your account unlinks it everywhere.
+Every host signed in to your account links with every other on its own, so an agent on one starts workers on another. A host that turned on **Require approval for new devices** asks you first. Removing a host from your account unlinks it everywhere. A host that was off when it was removed learns of it the next time it reaches another, and lets the link and its teams go.
 
-A worker on another host runs there on that host's own sign-in for its CLI, in a checkout of its own. Its commits come back to a branch in the lead's checkout each time its turn ends. A lead or worker that went to sleep stays on its team and wakes when its teammate writes to it; only closing an agent takes it off.
+A worker on another host runs there on that host's own sign-in for its CLI, in a checkout of its own. Its commits come back to a branch in the lead's checkout each time its turn ends. A lead or worker that went to sleep stays on its team and wakes when its teammate writes to it; only closing an agent takes it off. A question a worker asks waits for you on both hosts, and answering it on either closes it on the other.
 
 ## Sign-ins
 

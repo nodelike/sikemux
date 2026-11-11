@@ -15,6 +15,7 @@ use crate::cli::protocol::{is_tool_agent_id, HarnessRequest};
 use sikemux_wire::protocol::AgentStatus;
 
 use super::super::connection::blocking;
+use super::super::follow::Happened;
 use super::super::names::{Adopted, Worker};
 use super::super::remote::StoredLink;
 use super::super::spawn::{self as local, Ending, ForHost};
@@ -25,10 +26,12 @@ use super::code::{self, Checked, Code, Packed};
 use super::link::Received;
 use super::route::pin;
 use super::team::{Foreign, Role, Tree};
-use super::{ask, find, name_of, post, Failed, Sending};
+use super::{call, find, name_of, post, Failed, Sending, Stands};
 
 /// Under the minute an agent's tool call may take.
 const SPAWN_WAIT: Duration = Duration::from_secs(50);
+/// How often a host is asked again whether a worker it may be starting has started.
+const PENDING_AGAIN: Duration = Duration::from_secs(20);
 const MAX_PROMPT_BYTES: usize = 64 * 1024;
 
 fn text<'a>(params: &'a Value, key: &str) -> Option<&'a str> {
@@ -104,7 +107,11 @@ pub(crate) async fn spawn(
     };
     let lead_name = core.names.name(&lead_id).unwrap_or_else(|| lead_id.clone());
     let depth = core.names.depth(&lead_id);
-    let Handed { name, answer } = hand_over(
+    let Handed {
+        name,
+        answer,
+        pending,
+    } = hand_over(
         core,
         &link,
         Handing {
@@ -131,6 +138,15 @@ pub(crate) async fn spawn(
     )
     .await?;
     let shown = format!("{name} on {}", link.name);
+    if pending {
+        return Ok(json!({
+            "name": shown,
+            "agentId": agent_id,
+            "host": link.name,
+            "started": "not known yet",
+            "note": format!("{} did not answer in time, so whether {shown} started is not known yet. Do not start it again: Sikemux asks {} until it knows, and tells you whether it started.", link.name, link.name),
+        }));
+    }
     let branch = answer["branch"].as_str().unwrap_or_default();
     Ok(json!({
         "name": shown,
@@ -168,6 +184,8 @@ pub(crate) struct Handing {
 pub(crate) struct Handed {
     pub name: String,
     pub answer: Value,
+    /// Whether it started is not known yet; its lead hears once it is.
+    pub pending: bool,
 }
 
 /// Starts a named worker on `link`, sending the code when it lacks it. When it does not
@@ -192,6 +210,7 @@ pub(crate) async fn hand_over(
         auto,
         wait,
     } = handing;
+    let id = super::call_id();
     core.hosts.team.add(Foreign {
         agent_id: agent_id.clone(),
         host: link.id.clone(),
@@ -204,6 +223,7 @@ pub(crate) async fn hand_over(
         active_at: Some(epoch_ms()),
         repo: Some(packed.repo.clone()),
         landed: None,
+        pending: Some(id.clone()),
     });
     pin(core);
     let task = params_of::<asks::Spawn>(&SpawnParams {
@@ -219,13 +239,14 @@ pub(crate) async fn hand_over(
         code: packed.code.clone(),
         auto,
     });
-    let started = match ask(
+    let started = match call(
         core,
         &link.id,
         asks::Spawn::METHOD,
         task.clone(),
         None,
         wait,
+        &id,
     )
     .await
     {
@@ -240,13 +261,14 @@ pub(crate) async fn hand_over(
             let (repo, commit) = (packed.repo.clone(), packed.code.commit.clone());
             match blocking(move || code::bundle(&repo, &commit, &tips).map_err(Into::into)).await {
                 Ok(bundle) => {
-                    match ask(
+                    match call(
                         core,
                         &link.id,
                         asks::Spawn::METHOD,
                         task,
                         Some(bundle.path()),
                         wait,
+                        &id,
                     )
                     .await
                     {
@@ -263,23 +285,108 @@ pub(crate) async fn hand_over(
     };
     let answer = match started {
         Ok(answer) => answer,
+        Err(Failed::Unknown(_) | Failed::Retry(_)) => {
+            let host = link.id.clone();
+            let (core, agent_id) = (core.clone(), agent_id.clone());
+            tokio::spawn(
+                async move { settle_pending(&core, &host, &agent_id, PENDING_AGAIN).await },
+            );
+            return Ok(Handed {
+                name: given,
+                answer: Value::Null,
+                pending: true,
+            });
+        }
         Err(error) => {
-            core.hosts.team.remove(&agent_id);
-            core.names.forget(&agent_id);
-            pin(core);
-            super::changed(core);
+            not_started(core, &agent_id);
             return Err(format!("{given} did not start on {}: {error}", link.name));
         }
     };
-    let name = answer["name"].as_str().unwrap_or(&given).to_owned();
+    Ok(Handed {
+        name: started_as(core, &agent_id, &given, &answer),
+        answer,
+        pending: false,
+    })
+}
+
+/// The worker started there, under the name its answer gives.
+fn started_as(core: &Core, agent_id: &str, given: &str, answer: &Value) -> String {
+    let name = answer["name"].as_str().unwrap_or(given).to_owned();
     if name != given {
-        core.names.set_name(&agent_id, &name);
-        core.hosts
-            .team
-            .update(&agent_id, |worker| worker.name = name.clone());
+        core.names.set_name(agent_id, &name);
     }
+    core.hosts.team.update(agent_id, |worker| {
+        worker.name = name.clone();
+        worker.pending = None;
+    });
     super::changed(core);
-    Ok(Handed { name, answer })
+    name
+}
+
+fn not_started(core: &Core, agent_id: &str) {
+    if let Some(worker) = core.hosts.team.remove(agent_id) {
+        core.harness
+            .note_agent(&worker.project, Happened::Gone.kind(), agent_id);
+    }
+    core.names.forget(agent_id);
+    pin(core);
+    super::changed(core);
+}
+
+/// The workers being started on `host` whose start is not known yet find out how it went.
+pub(crate) fn settle_pending_on(core: &Arc<Core>, host: &str) {
+    for worker in core.hosts.team.on(host) {
+        if worker.pending.is_none() {
+            continue;
+        }
+        let (core, host) = (core.clone(), host.to_owned());
+        tokio::spawn(async move {
+            settle_pending(&core, &host, &worker.agent_id, Duration::ZERO).await
+        });
+    }
+}
+
+/// Asks `host` what became of starting the worker `agent_id`, while it is reachable, and tells
+/// its lead once that is known. A host too old to say has the worker stopped instead.
+async fn settle_pending(core: &Arc<Core>, host: &str, agent_id: &str, first: Duration) {
+    tokio::time::sleep(first).await;
+    loop {
+        let Some(worker) = core.hosts.team.get(agent_id) else {
+            return;
+        };
+        let (Some(id), Some(lead)) = (worker.pending.clone(), worker.parent.clone()) else {
+            return;
+        };
+        let place = name_of(core, host);
+        let told = match super::receipt(core, host, &id).await {
+            Ok(Stands::Done(Ok(answer))) => {
+                let name = started_as(core, agent_id, &worker.name, &answer);
+                format!("{name} on {place} has started, and gets your prompt once it is ready.")
+            }
+            Ok(Stands::Done(Err(why))) => {
+                not_started(core, agent_id);
+                format!("{} did not start on {place}: {why}", worker.name)
+            }
+            Ok(Stands::Unknown) => {
+                not_started(core, agent_id);
+                format!("{} did not start on {place}: what started it never arrived there. Start it again if you still need it.", worker.name)
+            }
+            Err(Failed::Refused(_)) => {
+                super::route::stop_worker(core, agent_id);
+                not_started(core, agent_id);
+                format!("{} may have started on {place}, but {place} runs an older Sikemux that cannot say, so Sikemux stopped it there. Start it again if you still need it.", worker.name)
+            }
+            Ok(Stands::Running) | Err(_) => {
+                if core.hosts.connected(host).is_none() {
+                    return;
+                }
+                tokio::time::sleep(PENDING_AGAIN).await;
+                continue;
+            }
+        };
+        super::route::notice(core, lead, told);
+        return;
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -378,6 +485,7 @@ pub(super) async fn start_here(
             active_at: Some(epoch_ms()),
             repo: None,
             landed: None,
+            pending: None,
         });
         core.names.adopt(
             Adopted {
@@ -469,17 +577,18 @@ async fn send_commits_to(core: &Arc<Core>, worker: &str, tree: Tree, host: &str)
             post(
                 core,
                 host,
-                Sending {
-                    method: asks::Commits::METHOD,
-                    params: params_of::<asks::Commits>(&code::ArrivingCommits {
+                Sending::new(
+                    asks::Commits::METHOD,
+                    params_of::<asks::Commits>(&code::ArrivingCommits {
                         agent_id: worker.to_owned(),
                         head: head.clone(),
                         count,
                     }),
-                    key: Some(format!("commits:{worker}")),
-                    body: Some(into),
-                    keep: true,
-                },
+                )
+                .keyed(format!("commits:{worker}"))
+                .body(into)
+                .kept()
+                .from(worker),
             );
             core.hosts.team.tree_sent(worker, &head);
         }
@@ -519,18 +628,16 @@ pub(crate) async fn auto_turn_ended(
     post(
         core,
         &host,
-        Sending {
-            method: asks::AutoTurn::METHOD,
-            params: params_of::<asks::AutoTurn>(&AutoTurn {
+        Sending::new(
+            asks::AutoTurn::METHOD,
+            params_of::<asks::AutoTurn>(&AutoTurn {
                 agent_id: worker,
                 ending,
                 answer,
                 cost_usd,
             }),
-            key: None,
-            body: None,
-            keep: true,
-        },
+        )
+        .kept(),
     );
 }
 
@@ -564,18 +671,5 @@ pub(crate) async fn hire_elsewhere(
 
 /// A worker the lead's host named never started here.
 pub(crate) fn never_started(core: &Core, hired: &Hired) {
-    let (host, agent_id) = (&hired.host, &hired.agent_id);
-    post(
-        core,
-        host,
-        Sending {
-            method: asks::Forget::METHOD,
-            params: params_of::<asks::Forget>(&super::route::AboutAgent {
-                agent_id: agent_id.clone(),
-            }),
-            key: None,
-            body: None,
-            keep: false,
-        },
-    );
+    super::route::forget_hired(core, &hired.host, &hired.agent_id);
 }

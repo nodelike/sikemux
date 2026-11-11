@@ -31,6 +31,12 @@ pub(crate) struct Post {
     /// Never dropped to make room, such as a worker's report to its lead.
     #[serde(default)]
     pub keep: bool,
+    /// The agent here that hears when the other host turns it away.
+    #[serde(default)]
+    pub from: Option<String>,
+    /// Names it to the other host, which does it once however often it is sent.
+    #[serde(default)]
+    pub call: Option<String>,
     pub at: u64,
 }
 
@@ -48,11 +54,56 @@ pub(crate) struct Outbox {
 }
 
 pub(crate) struct Sending {
-    pub method: &'static str,
-    pub params: Value,
-    pub key: Option<String>,
-    pub body: Option<PathBuf>,
-    pub keep: bool,
+    method: &'static str,
+    params: Value,
+    key: Option<String>,
+    body: Option<PathBuf>,
+    keep: bool,
+    from: Option<String>,
+    call: Option<String>,
+}
+
+impl Sending {
+    pub(crate) fn new(method: &'static str, params: Value) -> Self {
+        Self {
+            method,
+            params,
+            key: None,
+            body: None,
+            keep: false,
+            from: None,
+            call: None,
+        }
+    }
+
+    /// Replaces whatever waits under the same `key`.
+    pub(crate) fn keyed(mut self, key: String) -> Self {
+        self.key = Some(key);
+        self
+    }
+
+    /// Must arrive: never dropped to make room.
+    pub(crate) fn kept(mut self) -> Self {
+        self.keep = true;
+        self
+    }
+
+    pub(crate) fn body(mut self, body: PathBuf) -> Self {
+        self.body = Some(body);
+        self
+    }
+
+    /// Sends it as the call `id`, already tried directly.
+    pub(crate) fn call(mut self, id: String) -> Self {
+        self.call = Some(id);
+        self
+    }
+
+    /// `agent` hears if the other host turns it away.
+    pub(crate) fn from(mut self, agent: &str) -> Self {
+        self.from = Some(agent.to_owned());
+        self
+    }
 }
 
 impl Outbox {
@@ -77,6 +128,7 @@ impl Outbox {
     pub(crate) fn push(&self, host: &str, sending: Sending) {
         let mut record = self.record.locked();
         record.next += 1;
+        let call = (sending.call).or_else(|| sending.key.is_none().then(super::call_id));
         let post = Post {
             seq: record.next,
             method: sending.method.to_owned(),
@@ -84,6 +136,8 @@ impl Outbox {
             key: sending.key,
             body: sending.body,
             keep: sending.keep,
+            from: sending.from,
+            call,
             at: epoch_ms(),
         };
         let posts = record.posts.entry(host.to_owned()).or_default();

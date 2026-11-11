@@ -23,7 +23,7 @@ use super::super::roster::{self, Reach};
 use super::super::{questions, Core, CoreResult};
 use super::calls::{self as asks, params_of, HostAsk};
 use super::team::{Foreign, Role};
-use super::{ask, goes_now, name_of, post, Failed, Sending};
+use super::{ask, call, call_id, goes_now, name_of, post, Failed, Sending};
 
 const ASK_WAIT: Duration = Duration::from_secs(30);
 /// How often a host hears that an agent of a team did other work than
@@ -131,21 +131,22 @@ pub(crate) fn closed(core: &Core, agent_ids: &[&String]) {
 
 fn tell_watchers(core: &Core, agent_id: &str, kind: &str, status: AgentStatus, keep: bool) {
     for host in watchers(core, agent_id) {
-        post(
-            core,
-            &host,
-            Sending {
-                method: asks::Happened::METHOD,
-                params: params_of::<asks::Happened>(&HappenedParams {
+        post(core, &host, {
+            let sending = Sending::new(
+                asks::Happened::METHOD,
+                params_of::<asks::Happened>(&HappenedParams {
                     agent_id: agent_id.to_owned(),
                     kind: kind.to_owned(),
                     status,
                 }),
-                key: Some(format!("happened:{agent_id}")),
-                body: None,
-                keep,
-            },
-        );
+            )
+            .keyed(format!("happened:{agent_id}"));
+            if keep {
+                sending.kept()
+            } else {
+                sending
+            }
+        });
     }
 }
 
@@ -277,13 +278,11 @@ pub(crate) fn resync(core: &Arc<Core>, host: &str) {
         post(
             &core,
             &host,
-            Sending {
-                method: asks::Team::METHOD,
-                params: params_of::<asks::Team>(&TeamParams { agents }),
-                key: Some("team".into()),
-                body: None,
-                keep: false,
-            },
+            Sending::new(
+                asks::Team::METHOD,
+                params_of::<asks::Team>(&TeamParams { agents }),
+            )
+            .keyed("team".to_owned()),
         );
     });
 }
@@ -310,6 +309,7 @@ pub(super) fn team_here(core: &Core, host: &str, params: TeamParams) -> CoreResu
         .collect();
     for foreign in core.hosts.team.on(host) {
         match present.get(&foreign.agent_id) {
+            None if foreign.pending.is_some() => {}
             Some(status) => {
                 core.hosts
                     .team
@@ -332,7 +332,7 @@ pub(super) fn team_here(core: &Core, host: &str, params: TeamParams) -> CoreResu
     Ok(Value::Null)
 }
 
-fn notice(core: &Core, to: String, text: String) {
+pub(super) fn notice(core: &Core, to: String, text: String) {
     let Some(core) = core.arc() else {
         return;
     };
@@ -437,15 +437,18 @@ pub(crate) async fn deliver(
     let host_name = name_of(core, &foreign.host);
     let shown = shown(&foreign, core);
     let keep = carried.kind == MessageKind::Report;
+    let from = carried.from_id.clone();
     let params = serde_json::to_value(&carried).map_err(|error| error.to_string())?;
+    let id = call_id();
     if goes_now(core, &foreign.host) {
-        match ask(
+        match call(
             core,
             &foreign.host,
             "deliver",
             params.clone(),
             None,
             ASK_WAIT,
+            &id,
         )
         .await
         {
@@ -454,22 +457,19 @@ pub(crate) async fn deliver(
                 answer["host"] = host_name.into();
                 return Ok(answer);
             }
-            Err(Failed::Refused(why)) => return Err(why),
-            Err(Failed::Unreachable(_)) => {}
+            Err(error) if !error.passing() => return Err(error.to_string()),
+            Err(_) => {}
         }
     }
     let reachable = core.hosts.reachable(&foreign.host);
-    post(
-        core,
-        &foreign.host,
-        Sending {
-            method: "deliver",
-            params,
-            key: None,
-            body: None,
-            keep,
-        },
-    );
+    post(core, &foreign.host, {
+        let sending = Sending::new("deliver", params).from(&from).call(id);
+        if keep {
+            sending.kept()
+        } else {
+            sending
+        }
+    });
     let note = if reachable {
         format!("This goes to {shown} after what was sent to {host_name} before it.")
     } else {
@@ -542,10 +542,10 @@ pub(crate) async fn read(
     )
     .await
     .map_err(|error| match error {
-        Failed::Unreachable(why) => {
+        Failed::Unreachable(why) | Failed::Unknown(why) | Failed::Retry(why) => {
             format!("{} cannot be read now: {why}", shown(&foreign, core))
         }
-        Failed::Refused(why) => why,
+        Failed::Refused(why) | Failed::NotLinked(why) => why,
     })?;
     answer["name"] = shown(&foreign, core).into();
     answer["host"] = name_of(core, &foreign.host).into();
@@ -594,11 +594,17 @@ pub(crate) async fn hire(
         provider: provider.to_owned(),
         reports,
     });
-    let answer = ask(core, host, asks::Hire::METHOD, params, None, ASK_WAIT)
+    let id = call_id();
+    let answer = call(core, host, asks::Hire::METHOD, params, None, ASK_WAIT, &id)
         .await
-        .map_err(|error| match error {
-            Failed::Unreachable(_) => format!("{}, where your team's lead runs, is out of reach, and Sikemux counts your team there; try again once it is back", name_of(core, host)),
-            Failed::Refused(why) => why,
+        .map_err(|error| {
+            if let Failed::Unknown(_) = error {
+                forget_hired(core, host, agent_id);
+            }
+            match error {
+                error if error.passing() => format!("{}, where your team's lead runs, did not answer, and Sikemux counts your team there; try again once it is back", name_of(core, host)),
+                error => error.to_string(),
+            }
         })?;
     answer["name"]
         .as_str()
@@ -651,6 +657,7 @@ pub(super) fn hire_here(core: &Core, host: &str, params: HireParams) -> CoreResu
         active_at: Some(epoch_ms()),
         repo: lead.repo,
         landed: None,
+        pending: None,
     });
     pin(core);
     super::changed(core);
@@ -661,6 +668,20 @@ pub(super) fn hire_here(core: &Core, host: &str, params: HireParams) -> CoreResu
 #[serde(rename_all = "camelCase")]
 pub(super) struct AboutAgent {
     pub(super) agent_id: String,
+}
+
+/// A worker `host` may have named for an agent here, which will not start.
+pub(crate) fn forget_hired(core: &Core, host: &str, agent_id: &str) {
+    post(
+        core,
+        host,
+        Sending::new(
+            asks::Forget::METHOD,
+            params_of::<asks::Forget>(&AboutAgent {
+                agent_id: agent_id.to_owned(),
+            }),
+        ),
+    );
 }
 
 /// A worker this host named for another host never started there.
@@ -696,15 +717,13 @@ pub(crate) fn stop_worker(core: &Core, agent_id: &str) {
     post(
         core,
         &worker.host,
-        Sending {
-            method: asks::Stop::METHOD,
-            params: params_of::<asks::Stop>(&AboutAgent {
+        Sending::new(
+            asks::Stop::METHOD,
+            params_of::<asks::Stop>(&AboutAgent {
                 agent_id: agent_id.to_owned(),
             }),
-            key: None,
-            body: None,
-            keep: true,
-        },
+        )
+        .kept(),
     );
     super::changed(core);
 }
@@ -731,15 +750,13 @@ pub(crate) fn worked(core: &Core, agent_id: &str) {
         post(
             core,
             &host,
-            Sending {
-                method: asks::Worked::METHOD,
-                params: params_of::<asks::Worked>(&AboutAgent {
+            Sending::new(
+                asks::Worked::METHOD,
+                params_of::<asks::Worked>(&AboutAgent {
                     agent_id: agent_id.to_owned(),
                 }),
-                key: Some(format!("worked:{agent_id}")),
-                body: None,
-                keep: false,
-            },
+            )
+            .keyed(format!("worked:{agent_id}")),
         );
     }
 }
@@ -760,32 +777,12 @@ pub(super) fn worked_here(core: &Core, host: &str, params: AboutAgent) -> CoreRe
 /// Puts a question an agent here asked to the person on the host its team's
 /// lead runs on.
 pub(crate) fn relay_question(core: &Core, host: &str, question: Value) {
-    post(
-        core,
-        host,
-        Sending {
-            method: "question",
-            params: question,
-            key: None,
-            body: None,
-            keep: true,
-        },
-    );
+    post(core, host, Sending::new("question", question).kept());
 }
 
 /// Sends the person's answer to a question back to the host its asker runs on.
 pub(crate) fn relay_answer(core: &Core, host: &str, answer: Value) {
-    post(
-        core,
-        host,
-        Sending {
-            method: "answer",
-            params: answer,
-            key: None,
-            body: None,
-            keep: true,
-        },
-    );
+    post(core, host, Sending::new("answer", answer).kept());
 }
 
 #[derive(Serialize, Deserialize)]
@@ -798,13 +795,10 @@ pub(crate) fn relay_closed(core: &Core, host: &str, id: &str) {
     post(
         core,
         host,
-        Sending {
-            method: asks::QuestionClosed::METHOD,
-            params: params_of::<asks::QuestionClosed>(&ClosedParams { id: id.to_owned() }),
-            key: None,
-            body: None,
-            keep: false,
-        },
+        Sending::new(
+            asks::QuestionClosed::METHOD,
+            params_of::<asks::QuestionClosed>(&ClosedParams { id: id.to_owned() }),
+        ),
     );
 }
 
