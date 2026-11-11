@@ -75,7 +75,7 @@ pub fn strip(
         .said
         .first()
         .map_or(looks.quiet, |clause| tint(clause.intent, looks));
-    let said = sentence(run, current.is_some());
+    let said = sentence(run, current.map(|call| &*call.tool.row));
     let (adds, dels) = calls
         .iter()
         .filter_map(|call| call.diff)
@@ -551,21 +551,29 @@ fn line_icon(intent: ToolIntent, family: ToolFamily, call: Option<&Call>) -> Ico
 
 /// The run's sentence, as the app says it: each thing it did, counted, in the order it first
 /// did it. A run that only looked says it explored; a running one says what it is doing.
-pub(super) fn sentence(run: &ToolRun, running: bool) -> String {
-    let mut clauses: Vec<String> = run
-        .said
-        .iter()
+pub(super) fn sentence(run: &ToolRun, running: Option<&sikemux_view::chat::ToolRow>) -> String {
+    let doing = running.and_then(|row| {
+        run.said.iter().position(|clause| {
+            clause.intent == row.intent
+                && (clause.family == row.family
+                    || clause.family == ToolFamily::Files && row.family == ToolFamily::Shell)
+        })
+    });
+    let order = doing
+        .into_iter()
+        .chain((0..run.said.len()).filter(|at| Some(*at) != doing));
+    let mut clauses: Vec<String> = order
         .take(SENTENCE_CLAUSES)
         .enumerate()
-        .map(|(at, clause)| {
-            let (past, doing, rest) = words(clause);
-            let verb = if running && at == 0 { doing } else { past };
+        .map(|(place, at)| {
+            let (past, now, rest) = words(&run.said[at]);
+            let verb = if Some(at) == doing { now } else { past };
             let said = if rest.is_empty() {
                 verb.to_owned()
             } else {
                 format!("{verb} {rest}")
             };
-            if at == 0 && !run.explored {
+            if place == 0 && !run.explored {
                 said
             } else {
                 lower_first(&said)
@@ -577,12 +585,10 @@ pub(super) fn sentence(run: &ToolRun, running: bool) -> String {
         clauses.push(format!("{more} more"));
     }
     let said = clauses.join(", ");
-    if run.explored && !running {
-        format!("Explored: {said}")
-    } else if run.explored {
-        format!("Exploring: {said}")
-    } else {
-        said
+    match (run.explored, doing.is_some()) {
+        (true, false) => format!("Explored: {said}"),
+        (true, true) => format!("Exploring: {said}"),
+        (false, _) => said,
     }
 }
 

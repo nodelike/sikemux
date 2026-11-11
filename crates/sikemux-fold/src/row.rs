@@ -5,7 +5,7 @@
 use std::collections::HashMap;
 
 use serde_json::{Map, Value};
-use sikemux_view::chat::{ToolAction, ToolCall, ToolRow};
+use sikemux_view::chat::{ToolAction, ToolCall, ToolFamily, ToolRow};
 
 use super::kinds;
 use super::tool_rows::SPECS;
@@ -37,7 +37,10 @@ pub(super) fn row(tool: &ToolCall) -> ToolRow {
     let kind = kinds::kind(tool, &args, row.action, row.server.as_deref());
     row.family = kind.family;
     row.intent = kind.intent;
-    row.subject = kind.subject.filter(|subject| *subject != row.target);
+    let names = matches!(row.family, ToolFamily::Agents | ToolFamily::Waiting);
+    row.subject = kind
+        .subject
+        .filter(|subject| names || *subject != row.target);
     row
 }
 
