@@ -36,8 +36,8 @@ enum Mentions {
     static let earlier = "earlier:"
     static let tracked = "tracked:"
 
-    static func trackedId(_ kind: String, _ number: Int, _ url: String) -> String {
-        "\(tracked)\(kind):\(number):\(url)"
+    static func trackedId(_ kind: TrackedKind, _ number: Int, _ url: String) -> String {
+        "\(tracked)\(kind.rawValue):\(number):\(url)"
     }
 
     private static let typedPattern = try! NSRegularExpression(pattern: "(^|\\s)([@+#!])(\\S*)$")
