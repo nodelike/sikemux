@@ -213,7 +213,7 @@ struct DiffBody: View {
                 Button {
                     folds.set("\(fold)/rows", true)
                 } label: {
-                    Text("Show \(more) more lines")
+                    Text("Show \(more) more \(Format.counted("line", more))")
                         .font(Theme.mono(10.5))
                         .foregroundStyle(palette.inkFaint)
                         .padding(.horizontal, 9)
