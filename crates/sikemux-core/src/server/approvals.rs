@@ -15,6 +15,7 @@ use crate::cli::protocol::HarnessRequest;
 use super::plugins::{self, Gated};
 use super::questions;
 use super::Core;
+use sikemux_plugin_api::vault::{as_caller, Caller};
 use sikemux_view::questions::QuestionChoice;
 
 /// A development build keeps entries of its own, so it never reads or deletes the
@@ -57,6 +58,7 @@ struct Proposal {
 #[derive(Serialize, Deserialize)]
 pub(crate) struct Held {
     arguments: Value,
+    caller: Caller,
 }
 
 /// A call waiting on the person, kept with its question; what it holds is kept apart.
@@ -183,6 +185,7 @@ pub(crate) async fn propose(
     request: &HarnessRequest,
     gated: Gated,
     arguments: Value,
+    caller: Caller,
 ) -> Result<Value, String> {
     let agent_id = request
         .agent_id
@@ -216,7 +219,7 @@ pub(crate) async fn propose(
         plugin: gated.plugin,
         method: gated.method,
         does,
-        held: Some(Arc::new(Held { arguments })),
+        held: Some(Arc::new(Held { arguments, caller })),
     };
     questions::put_to_person(
         core,
@@ -248,9 +251,13 @@ pub(crate) async fn settle(
     };
     match choice.and_then(|choice| approval.does.get(choice)) {
         Some(Does::Approve) => {
-            let done = plugins::call(core, plugin, method, held()?.arguments.clone())
-                .await
-                .map_err(|failure| failure.message)?;
+            let held = held()?;
+            let done = as_caller(
+                held.caller.clone(),
+                plugins::call(core, plugin, method, held.arguments.clone()),
+            )
+            .await
+            .map_err(|failure| failure.message)?;
             plugins::tell_agents_if_theirs(core, plugin);
             plugins::wrote(core, plugin, method, &Value::Null);
             Ok(match done {

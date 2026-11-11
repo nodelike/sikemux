@@ -86,6 +86,9 @@ struct State {
     entries: BTreeMap<String, Entry>,
     /// Each secret's entry, by service and account.
     index: HashMap<(String, String), String>,
+    /// Who may use each entry this host held when it last reached the account, until it reaches
+    /// it again in this run.
+    rules: BTreeMap<String, local::Rule>,
     /// Uses not yet sent to the account, by entry and who used it.
     uses: BTreeMap<(String, String), Tally>,
     /// The latest use of each entry here, for Settings.
@@ -125,6 +128,39 @@ impl State {
         let id = self.index.get(&(service.to_owned(), account.to_owned()))?;
         Some((id, self.entries.get(id)?))
     }
+
+    fn allowed(&self, service: &str, account: &str) -> Option<Allowed<'_>> {
+        if let Some((id, entry)) = self.entry_of(service, account) {
+            return Some(Allowed {
+                id,
+                label: &entry.body.sign_in.label,
+                refresher: &entry.body.refresher,
+                access: &entry.body.access,
+                shared: entry.body.shared.as_ref(),
+            });
+        }
+        let (id, rule) = self.rules.iter().find(|(_, rule)| {
+            rule.secrets
+                .iter()
+                .any(|(kept, named)| kept == service && named == account)
+        })?;
+        Some(Allowed {
+            id,
+            label: &rule.label,
+            refresher: &rule.refresher,
+            access: &rule.access,
+            shared: None,
+        })
+    }
+}
+
+/// What the keeper needs of an entry to decide a use.
+struct Allowed<'a> {
+    id: &'a String,
+    label: &'a String,
+    refresher: &'a String,
+    access: &'a BTreeMap<String, Scope>,
+    shared: Option<&'a SharedAccess>,
 }
 
 #[derive(Default)]
@@ -174,12 +210,12 @@ impl Keeper for HostKeeper {
             let Some(me) = state.me.clone() else {
                 return Ok(());
             };
-            let Some((id, entry)) = state.entry_of(service, account) else {
+            let Some(entry) = state.allowed(service, account) else {
                 return Ok(());
             };
-            let id = id.clone();
-            let label = entry.body.sign_in.label.clone();
-            let Some(scope) = entry.body.access.get(&me) else {
+            let id = entry.id.clone();
+            let label = entry.label.clone();
+            let Some(scope) = entry.access.get(&me).cloned() else {
                 return Err(not_allowed(&label));
             };
             let agent = caller.and_then(|caller| caller.agent.as_deref());
@@ -217,20 +253,20 @@ impl Keeper for HostKeeper {
             let Some(me) = state.me.as_deref() else {
                 return Refresh::Here;
             };
-            let Some((_, entry)) = state.entry_of(service, account) else {
+            let Some(entry) = state.allowed(service, account) else {
                 return Refresh::Here;
             };
-            if entry.body.refresher == me {
+            if entry.refresher == me {
                 return Refresh::Here;
             }
-            match &entry.body.shared {
+            match entry.shared {
                 Some(shared) if shared.expires_at > epoch_ms() + 60_000 => {
                     Refresh::Use(shared.clone())
                 }
                 _ => Refresh::Wait(format!(
                     "{} refreshes {} for your account and has not handed on a fresh token; it may be offline",
-                    shown::named(core, state, &entry.body.refresher).0,
-                    entry.body.sign_in.label
+                    shown::named(core, state, entry.refresher).0,
+                    entry.label
                 )),
             }
         })

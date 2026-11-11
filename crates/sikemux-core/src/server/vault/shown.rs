@@ -238,11 +238,19 @@ pub struct UsesParams {
 
 /// The sign-in's uses over the last 30 days, on every host, newest first.
 pub(crate) async fn uses(core: &Arc<Core>, params: UsesParams) -> CoreResult<Vec<ShownUse>> {
-    let read: VaultUses = as_host(core, Method::GET, "/v1/vault/uses", None).await?;
+    if params.entry.len() != 32
+        || !params
+            .entry
+            .bytes()
+            .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+    {
+        return Err("that is not a vault entry's id".into());
+    }
+    let path = format!("/v1/vault/uses?entry={}", params.entry);
+    let read: VaultUses = as_host(core, Method::GET, &path, None).await?;
     Ok(read
         .uses
         .into_iter()
-        .filter(|row| row.entry_id == params.entry)
         .map(|row| ShownUse {
             actor: row.actor,
             host: row

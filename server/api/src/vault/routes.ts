@@ -122,7 +122,10 @@ export function vaultRoutes({
         return c.body(null, 204);
       },
     )
-    .get("/uses", onAccount, perUser(limiter, "vault-uses", 120), async (c) =>
-      c.json(await vaultUses(db, c.get("identity").userId)),
-    );
+    .get("/uses", onAccount, perUser(limiter, "vault-uses", 120), async (c) => {
+      const entry = c.req.query("entry");
+      if (entry !== undefined && !ENTRY_ID.test(entry))
+        throw badRequest("A vault entry's id is 32 lowercase hex characters.");
+      return c.json(await vaultUses(db, c.get("identity").userId, entry));
+    });
 }

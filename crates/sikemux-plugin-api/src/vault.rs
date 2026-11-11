@@ -18,7 +18,7 @@ use crate::store::{self, Secrets};
 use crate::PluginFuture;
 
 /// Who a plugin call is made for: an agent in a project, or the host itself when neither is set.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Caller {
     pub agent: Option<String>,
     pub project: Option<String>,

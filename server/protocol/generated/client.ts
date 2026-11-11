@@ -35,6 +35,7 @@ import type {
   StashUpdate,
   VaultCreate,
   VaultEntry,
+  VaultEntryId,
   VaultEntryPut,
   VaultKeysAdd,
   VaultRevisionParam,
@@ -190,7 +191,8 @@ export function apiClient(send: Send) {
     addVaultUses: (body: VaultUsesAdd) =>
       send<void>("POST", `/v1/vault/uses`, body),
     /** Which agents on which hosts used the vault's entries in the last 30 days. */
-    listVaultUses: () => send<VaultUses>("GET", `/v1/vault/uses`),
+    listVaultUses: (query: { entry?: VaultEntryId } = {}) =>
+      send<VaultUses>("GET", `/v1/vault/uses${search(query)}`),
   };
 }
 

@@ -119,19 +119,32 @@ pub(crate) fn unwrap(wrapped: &str, secret: &Key, context: &str) -> Option<Key> 
     open_with(&key, context, sealed)?.try_into().ok()
 }
 
-fn entry_aad(id: &str, generation: i64) -> String {
-    format!("sikemux-vault-entry|v1|{id}|{generation}")
+/// What a sealed entry is bound to, so the server cannot hand back an older copy of it.
+#[derive(Clone, Copy)]
+pub(crate) struct Place<'a> {
+    pub id: &'a str,
+    pub generation: i64,
+    pub revision: i64,
 }
 
-pub(crate) fn seal_entry(vault: &Key, id: &str, generation: i64, plain: &[u8]) -> Option<String> {
+fn entry_aad(place: Place) -> String {
+    let Place {
+        id,
+        generation,
+        revision,
+    } = place;
+    format!("sikemux-vault-entry|v1|{id}|{generation}|{revision}")
+}
+
+pub(crate) fn seal_entry(vault: &Key, place: Place, plain: &[u8]) -> Option<String> {
     let key = LessSafeKey::new(UnboundKey::new(&AES_256_GCM, vault).ok()?);
-    Some(URL_SAFE_NO_PAD.encode(seal_with(&key, &entry_aad(id, generation), plain)?))
+    Some(URL_SAFE_NO_PAD.encode(seal_with(&key, &entry_aad(place), plain)?))
 }
 
-pub(crate) fn open_entry(vault: &Key, id: &str, generation: i64, sealed: &str) -> Option<Vec<u8>> {
+pub(crate) fn open_entry(vault: &Key, place: Place, sealed: &str) -> Option<Vec<u8>> {
     let key = LessSafeKey::new(UnboundKey::new(&AES_256_GCM, vault).ok()?);
     let bytes = URL_SAFE_NO_PAD.decode(sealed).ok()?;
-    open_with(&key, &entry_aad(id, generation), &bytes)
+    open_with(&key, &entry_aad(place), &bytes)
 }
 
 /// Crockford's base32, which leaves out letters that read like digits.

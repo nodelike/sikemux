@@ -1897,6 +1897,14 @@
         "summary": "Which agents on which hosts used the vault's entries in the last 30 days",
         "security": [{ "session": [] }, { "host": [] }, { "device": [] }],
         "description": "The phone's or the web app's sign-in, the Mac app's OAuth token, or a request signed by a host or a phone on the account.",
+        "parameters": [
+          {
+            "name": "entry",
+            "in": "query",
+            "required": false,
+            "schema": { "$ref": "#/components/schemas/VaultEntryId" }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Up to 500 uses, the most recent first.",

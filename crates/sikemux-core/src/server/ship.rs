@@ -16,6 +16,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use sikemux_plugin_api::vault::{as_caller, Caller};
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 use sikemux_view::inbox::{ShipHold, ShipKind};
@@ -107,6 +108,7 @@ struct Hold {
 pub(crate) struct ToolCall {
     pub name: String,
     pub arguments: Value,
+    pub caller: Caller,
 }
 
 /// An action the person allowed the agent to take once.
@@ -541,6 +543,7 @@ pub(crate) async fn check_tool(
     let call = ToolCall {
         name: name.to_owned(),
         arguments: arguments.clone(),
+        caller: plugins::caller_of(core, request),
     };
     tokio::task::spawn_blocking(move || {
         check_call(
@@ -784,7 +787,11 @@ async fn allow_hold(core: &Arc<Core>, mut hold: Hold) {
 fn run_held(core: &Arc<Core>, hold: Hold, call: ToolCall, allowed: String) {
     let core = core.clone();
     tokio::spawn(async move {
-        let ran = plugins::run_agent_tool(&core, &call.name, call.arguments, hold.deploy).await;
+        let ran = as_caller(
+            call.caller,
+            plugins::run_agent_tool(&core, &call.name, call.arguments, hold.deploy),
+        )
+        .await;
         let text = match ran {
             Ok(Value::String(answer)) => {
                 format!("{allowed}, and Sikemux ran it for you. It answered:\n{answer}")
