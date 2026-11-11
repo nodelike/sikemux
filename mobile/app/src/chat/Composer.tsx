@@ -29,6 +29,7 @@ import { typedMention } from './mentions';
 import { MentionMenu } from './MentionMenu';
 import { useMentions } from './useMentions';
 import { PermissionDock } from '@/chat/PermissionDock';
+import { ChatPlace, type Place } from './ChatPlace';
 import { ContextRing } from '@/chat/ContextRing';
 import { YoloToggle } from '@/chat/YoloToggle';
 import { ConfigSheet } from '@/chat/ConfigSheet';
@@ -113,6 +114,7 @@ export const Composer = memo(function Composer({
   onRecent,
   question,
   inputRef,
+  place,
 }: {
   session: ChatSession;
   /** The host the chat is on. */
@@ -151,6 +153,8 @@ export const Composer = memo(function Composer({
   question?: ComposerQuestion | null;
   /** Lets the screen hand the keyboard to the composer. */
   inputRef?: RefObject<TextInput | null>;
+  /** Where the chat runs, said quietly under the box. */
+  place?: Place;
 }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
@@ -202,6 +206,7 @@ export const Composer = memo(function Composer({
           <Icon name="IconEye" size={17} color={colors.inkDim} />
           <Text style={styles.watchText}>Watching</Text>
         </View>
+        {place ? <ChatPlace place={place} /> : null}
       </SafeAreaView>
     );
   }
@@ -356,6 +361,7 @@ export const Composer = memo(function Composer({
           )}
         </View>
       </View>
+      {place ? <ChatPlace place={place} /> : null}
       <AttachSheet
         visible={adding !== false}
         stash={adding === 'stash'}

@@ -25,13 +25,13 @@ import { useTranscriptScroll } from '@/chat/transcriptScroll';
 import { HostContext } from '@/chat/hostFiles';
 import { WorktreeNote, worktreeOf } from '@/chat/Worktree';
 import { LiveSheet, LiveStrip } from '@/chat/Live';
-import { AnsweredQuestion, AssumedQuestion, QuestionDock } from '@/chat/Question';
+import { AnsweredQuestions, AssumedQuestion, QuestionDock } from '@/chat/Question';
 import { useQuestions } from '@/chat/questions';
 import { hasLiveWork, liveKey, liveWork } from '@/chat/liveWork';
 import { stripOf, stripOwner } from '@/chat/messageMeta';
 import { ToolDetailContext } from '@/chat/Tools';
 import { Trouble } from '@/chat/Trouble';
-import { Message, TeamFold, WorkSummary } from '@/chat/Transcript';
+import { Message, plainlySent, TeamFold, WorkSummary } from '@/chat/Transcript';
 import { Activity } from '@/chat/Activity';
 import { SmartPick } from '@/chat/Notices';
 import { Earlier, EarlierLost, Queued } from '@/chat/TranscriptEdges';
@@ -168,6 +168,16 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
   const steers = steerable && preferences?.midTurnSend !== 'queue';
   const saved = live.snapshot?.workspace.agents?.find((shown) => shown.id === agentId);
   const worktree = worktreeOf(saved?.worktree);
+  const project = live.snapshot?.workspace.projects.find((known) => known.id === saved?.project);
+  const accounts = live.snapshot?.workspace.launchers.filter((known) => known.provider === provider) ?? [];
+  const place = {
+    host: hostName,
+    project: project?.name,
+    branch: worktree?.branch || project?.git?.branch,
+    goal: state.goal,
+    account:
+      accounts.length > 1 && saved?.profileId ? accounts.find((known) => known.id.endsWith(`:${saved.profileId}`))?.label : undefined,
+  };
   const startOver = saved
     ? () => {
         const launcher = live.snapshot?.workspace.launchers.find(
@@ -307,6 +317,8 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
                                     kept={kept}
                                     onEdit={editable(item) ? startEdit : undefined}
                                     editing={item.id === editing ? editingRow : undefined}
+                                    followsOwn={plainlySent(item) && plainlySent(rows[index - 1])}
+                                    followedByOwn={plainlySent(item) && plainlySent(rows[index + 1])}
                                   />
                                 </>
                               );
@@ -337,14 +349,12 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
                                   onStartOver={startOver}
                                 />
                                 {questions.answered.map((question) => (
-                                  <AnsweredQuestion
+                                  <AnsweredQuestions
                                     key={question.id}
-                                    own={question.agentId === agentId}
-                                    asker={question.name}
+                                    agentId={question.agentId}
                                     cli={question.cli}
-                                    question={question.asked}
-                                    answer={question.answer ?? ''}
-                                    secret={question.secret}
+                                    asker={question.agentId === agentId ? null : question.name}
+                                    answers={[{ question: question.asked, answer: question.answer ?? '', secret: question.secret }]}
                                   />
                                 ))}
                                 <QuestionDock
@@ -438,6 +448,7 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
                   strip={strip}
                   onRecent={recalls ? openRecent : undefined}
                   inputRef={input}
+                  place={place}
                   question={
                     composing && {
                       name: composing.name,

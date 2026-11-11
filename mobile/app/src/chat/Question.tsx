@@ -1,12 +1,14 @@
 import { useState, type ReactNode } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { SECRET_ANSWERED } from '@shared/chat/agentLetters';
 import type { AgentQuestion } from '@shared/wire.generated';
 import { Chip, Field } from '@/ui/controls';
 import { haptics } from '@/ui/haptics';
 import { AgentIcon, Icon } from '@/ui/Icon';
+import { AgentFace } from '@/devices/Buddy';
 import { fonts, type Palette, useColors, useStyles } from '@/ui/theme';
+
+import { Bubble, makeBubbleStyles, TheirBubble } from './Bubble';
 
 import type { ChatQuestions } from './questions';
 
@@ -37,44 +39,64 @@ function AskedBy({ cli, ticket, onFold, children }: { cli: string; ticket?: stri
   );
 }
 
-/** A question as it reads once answered: its words, and the answer in one line, or only that it was answered when the answer is a secret. */
-export function AnsweredQuestion({
-  own,
-  asker,
+/** One question an agent asked and how the person answered it. */
+export type Answered = { question: string; answer: string; secret: boolean; files?: ReactNode };
+
+/**
+ * The questions an agent asked and the person's answers, as the conversation they were: each question in the
+ * asker's bubble at the left, its mark on the first, and the answer in the person's bubble at the right.
+ * Someone else's questions say who asked above them.
+ */
+export function AnsweredQuestions({
+  agentId,
   cli,
-  question,
-  answer,
-  secret,
+  asker,
+  answers,
 }: {
-  /** This chat's own agent asked, so who asked goes without saying. */
-  own: boolean;
-  asker: string;
+  agentId: string;
   cli: string;
-  question: string;
-  answer: string;
-  secret: boolean;
+  /** Who asked, when it was not this chat's own agent. */
+  asker: string | null;
+  answers: readonly Answered[];
 }) {
   const styles = useStyles(makeStyles);
+  const bubble = useStyles(makeBubbleStyles);
   return (
-    <View>
-      {own ? null : (
-        <AskedBy cli={cli}>
-          <Text style={styles.name}>{asker}</Text> asked you
-        </AskedBy>
-      )}
-      <Text style={styles.prose} selectable>
-        {question}
-      </Text>
-      {secret ? (
-        <Private text={SECRET_ANSWERED} />
-      ) : (
-        <Text style={styles.answered} selectable>
-          You answered: <Text style={styles.answer}>{answer}</Text>
-        </Text>
-      )}
+    <View style={styles.thread}>
+      {asker ? <Text style={styles.askedBy}>@{asker}</Text> : null}
+      {answers.map((answered, index) => (
+        <View key={index} style={styles.pair}>
+          <View style={styles.asked}>
+            <View style={index === 0 ? styles.askerMark : styles.askerGap}>
+              {index === 0 ? <AgentFace agentId={agentId} provider={cli} size={ASKER_MARK} /> : null}
+            </View>
+            <TheirBubble>
+              <Text style={bubble.text} selectable>
+                {answered.question}
+              </Text>
+            </TheirBubble>
+          </View>
+          <View style={styles.said}>
+            {answered.files}
+            {answered.secret ? (
+              <Bubble>
+                <Text style={[bubble.text, styles.kept]}>Kept private</Text>
+              </Bubble>
+            ) : answered.answer ? (
+              <Bubble>
+                <Text style={bubble.text} selectable>
+                  {answered.answer}
+                </Text>
+              </Bubble>
+            ) : null}
+          </View>
+        </View>
+      ))}
     </View>
   );
 }
+
+const ASKER_MARK = 16;
 
 /** How much a hidden answer holds, so the person can see their typing and paste landed. */
 function hiddenSize(text: string) {
@@ -363,6 +385,14 @@ export function AssumedQuestion({
 
 const makeStyles = (colors: Palette) =>
   StyleSheet.create({
+    thread: { gap: 6, marginTop: 14, marginBottom: 6 },
+    askedBy: { paddingLeft: ASKER_MARK + 10, fontFamily: fonts.ui, fontSize: 12, color: colors.tertiary },
+    pair: { gap: 6 },
+    asked: { maxWidth: '86%', flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+    askerMark: { width: ASKER_MARK, marginTop: 13 },
+    askerGap: { width: ASKER_MARK },
+    said: { alignItems: 'flex-end', gap: 6, marginLeft: '14%' },
+    kept: { color: colors.tertiary },
     who: { flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 14, marginBottom: 2 },
     whoText: { flexShrink: 1, fontFamily: fonts.ui, fontSize: 11.5, lineHeight: 16, color: colors.inkDim },
     name: { fontFamily: fonts.uiSemibold, color: colors.ink },
@@ -409,8 +439,6 @@ const makeStyles = (colors: Palette) =>
     foldedLabel: { fontFamily: fonts.uiMedium, fontSize: 11, letterSpacing: 0.6, color: colors.inkFaint },
     foldedCount: { fontFamily: fonts.mono, fontSize: 11, color: colors.inkDim },
     foldedNames: { flex: 1, fontFamily: fonts.ui, fontSize: 12.5, color: colors.inkDim },
-    answered: { marginTop: 4, marginBottom: 8, fontFamily: fonts.ui, fontSize: 13, lineHeight: 19, color: colors.inkDim },
-    answer: { color: colors.ink },
     ticket: { fontFamily: fonts.mono, fontSize: 11, color: colors.inkDim, marginLeft: 'auto' },
     assumed: { flexDirection: 'row', alignItems: 'flex-start', gap: 7, marginTop: 10, marginBottom: 6 },
     check: { height: 18, justifyContent: 'center' },

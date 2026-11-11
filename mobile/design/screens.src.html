@@ -14,6 +14,7 @@
     --bg: #0f0f13;
     --bg-dim: #09090b;
     --rail-2: #19191e;
+    --composer-ground: #17171b;
     --ink: #e7e5ef;
     --ink-dim: #8b8898;
     --ink-faint: #736f80;
@@ -197,13 +198,33 @@
   .chat { flex: 1; min-height: 0; overflow: hidden; padding: 6px 18px 20px; display: flex; flex-direction: column; justify-content: flex-end; -webkit-mask-image: linear-gradient(transparent, #000 22px, #000 calc(100% - 22px), transparent); mask-image: linear-gradient(transparent, #000 22px, #000 calc(100% - 22px), transparent); }
   .chat > * { flex: none; }
   .earlier { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 10px 0 6px; font-size: 12.5px; color: var(--text-tertiary); }
-  .msg-user { align-self: flex-end; max-width: 84%; margin: 12px 0 8px; padding: 9px 13px; border-radius: 12px; border: 1px solid color-mix(in oklab, var(--line) 80%, transparent); background: color-mix(in oklab, var(--rail-2) 72%, transparent); color: var(--ink); font-size: 14px; line-height: 1.57; }
+  .msg-user { align-self: flex-end; max-width: 84%; margin: 20px 0 10px; padding: 10px 14px; border-radius: 16px 16px 6px 16px; background: color-mix(in srgb, color-mix(in srgb, var(--acc) 25%, var(--ink)) 7.5%, transparent); color: var(--ink); font-size: 14px; line-height: 1.57; }
+  .msg-user.stacked { margin-top: 4px; }
+  .msg-user.followed { margin-bottom: 0; }
+  .msg-time { align-self: flex-end; height: 24px; line-height: 24px; margin: -10px 0 10px; font-size: 11px; font-variant-numeric: tabular-nums; color: var(--ink-faint); }
+  .from { align-self: flex-start; max-width: 86%; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin: 14px 0 6px; }
+  .from-head { align-self: stretch; display: flex; align-items: center; gap: 8px; min-height: 22px; font-size: 12.5px; }
+  .from-head b { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-weight: 600; color: var(--ink); }
+  .from-head .when { margin-left: auto; padding-left: 8px; font-size: 11.5px; color: var(--ink-faint); }
+  .from-head > .timer svg { width: 13px; height: 13px; color: var(--cmd); }
+  .msg-theirs { padding: 10px 14px; border-radius: 16px 16px 16px 6px; border: 1px solid color-mix(in oklab, var(--line) 80%, transparent); background: var(--composer-ground); color: var(--ink); font-size: 14px; line-height: 1.57; }
+  .qa { display: flex; flex-direction: column; gap: 6px; margin: 14px 0 6px; }
+  .qa .by { padding-left: 26px; font-size: 12px; color: var(--text-tertiary); }
+  .qa .asked { max-width: 86%; display: flex; align-items: flex-start; gap: 10px; }
+  .qa .asked > .mk { flex: none; width: 16px; }
+  .qa .asked > .mk.first { margin-top: 13px; }
+  .qa .msg-user { margin: 0; max-width: 86%; }
+  .qa .kept { color: var(--text-tertiary); }
   code.chip { font-family: var(--mono); font-size: .86em; padding: 1px 5px; border-radius: 5px; background: var(--acc-soft); color: color-mix(in oklab, var(--acc) 74%, var(--ink)); }
-  .prose { color: var(--ink); font-size: 14.5px; line-height: 1.59; margin: 6px 0 8px; }
-  .letter-from { display: flex; align-items: center; gap: 8px; margin: 16px 0 2px; color: var(--ink-dim); font-size: 11.5px; line-height: 1.4; }
-  .letter-from::before, .letter-from::after { content: ""; flex: 1; height: 1px; background: var(--line); }
-  .letter-from b { color: var(--ink); font-weight: 600; }
-  .letter-from svg { flex: none; }
+  .prose { color: var(--ink); font-size: 14.5px; line-height: 1.7; margin: 6px 0 8px; }
+  .prose a, .md-list a { color: color-mix(in srgb, var(--acc) 50%, var(--ink)); text-decoration: underline; text-decoration-color: color-mix(in srgb, color-mix(in srgb, var(--acc) 50%, var(--ink)) 40%, transparent); text-underline-offset: 2px; }
+  .prose a svg, .md-list a svg { display: inline-block; width: 12px; height: 12px; vertical-align: -1px; margin-right: 4px; }
+  .md-h2 { margin: 22px 0 4px; font-size: 18px; line-height: 1.3; font-weight: 600; letter-spacing: -0.01em; color: var(--ink); }
+  .md-h3 { margin: 6px 0 2px; font-size: 10.5px; line-height: 1.6; font-weight: 600; letter-spacing: .16em; text-transform: uppercase; color: var(--ink-dim); }
+  .md-list { margin: 6px 0 8px; display: flex; flex-direction: column; gap: 6px; font-size: 14.5px; line-height: 1.7; color: var(--ink); }
+  .md-list > div { display: flex; gap: 8px; }
+  .md-list > div > i { flex: none; min-width: 14px; padding-left: 4px; font-style: normal; color: var(--acc); }
+  .md-list.num > div > i { min-width: 20px; padding-left: 0; font: 500 11px/24.65px var(--mono); }
   .team-fold { display: flex; align-items: center; gap: 6px; height: 28px; margin: 6px -6px 2px; padding: 0 6px; border-radius: 6px; font-size: 12.5px; color: var(--ink-dim); }
   .team-fold > svg { flex: none; }
   .team-fold.open > svg { transform: rotate(90deg); }
@@ -251,8 +272,6 @@
   .ask-assumed .act { color: var(--ink); padding: 4px 2px; }
   .ask-assumed svg { flex: none; }
   .rows .row .s.asked { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; color: var(--ink-dim); }
-  .ask-answered { margin: 4px 0 8px; color: var(--ink-dim); font-size: 13px; }
-  .ask-answered b { color: var(--ink); font-weight: 400; }
   .ask-secret { display: flex; align-items: flex-start; gap: 8px; margin: 8px 0 0; }
   .ask-secret-size { margin: 6px 0 0; font-size: 12.5px; line-height: 18px; color: var(--ink-dim); }
   .ask-secret .field { flex: 1; height: 40px; padding: 0 12px; display: flex; align-items: center; border-radius: 10px; border: 1px solid var(--acc); background: var(--surface-sunken); color: var(--ink); font-size: 14.5px; letter-spacing: 2px; }
@@ -456,11 +475,8 @@
   .reconnect > span:nth-child(2) { flex: 1; min-width: 0; }
   .reconnect b { font-weight: 600; color: var(--ink); }
   .reconnect .no { color: var(--danger); }
-  .msg-user.failed { border-color: var(--danger); margin-bottom: 4px; }
-  .trigger-from { align-self: flex-end; display: flex; align-items: center; gap: 5px; margin: 12px 0 -4px; font-size: 11.5px; color: var(--ink-dim); }
-  .trigger-from svg { width: 12px; height: 12px; color: var(--cmd); }
-  .trigger-from b { font-weight: 500; color: var(--ink); }
-  .request-line { align-self: flex-end; display: flex; align-items: center; gap: 6px; margin: -2px 0 0; padding: 4px 8px; font: 11px var(--mono); color: var(--ink-faint); }
+  .msg-user.failed { border: 1px solid var(--danger); margin-bottom: 4px; }
+  .request-line { align-self: flex-start; display: flex; align-items: center; gap: 6px; margin: -2px 0 0; padding: 4px 8px; font: 11px var(--mono); color: var(--ink-faint); }
   .request-line svg { width: 10px; height: 10px; transform: rotate(90deg); }
   .request-card { align-self: stretch; margin: 2px 0 8px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--rail-2); font: 11px/17px var(--mono); color: var(--ink); white-space: pre-wrap; }
   .request-card i { font-style: normal; color: var(--ink-faint); }
@@ -904,7 +920,7 @@
   .msg-strip .cp { width: 24px; height: 24px; display: grid; place-items: center; }
   .msg-strip .rate { margin-left: auto; font-family: var(--mono); font-style: italic; }
   .msg-strip.mine { justify-content: flex-end; align-self: flex-end; margin-top: -2px; }
-  .msg-edit { align-self: flex-end; width: 84%; margin: 12px 0 8px; padding: 9px 13px 8px; border-radius: 12px; border: 1px solid var(--border-selected); background: color-mix(in oklab, var(--rail-2) 72%, transparent); display: flex; flex-direction: column; gap: 8px; }
+  .msg-edit { align-self: flex-end; width: 84%; margin: 20px 0 10px; padding: 10px 14px 8px; border-radius: 16px 16px 6px 16px; border: 1px solid var(--border-selected); background: color-mix(in srgb, color-mix(in srgb, var(--acc) 25%, var(--ink)) 7.5%, transparent); display: flex; flex-direction: column; gap: 8px; }
   .msg-edit .ta { color: var(--ink); font-size: 14px; line-height: 1.57; }
   .msg-edit .acts { display: flex; justify-content: flex-end; gap: 6px; }
   .msg-edit .acts span { height: 30px; padding: 0 12px; border-radius: 8px; display: inline-flex; align-items: center; font-size: 13px; font-weight: 600; border: 1px solid var(--border-strong); color: var(--ink); }
@@ -921,11 +937,16 @@
   .sources > span.danger { color: var(--danger); }
   .recent-row { display: flex; align-items: flex-start; gap: 12px; padding: 11px 8px; font-size: 14.5px; line-height: 20px; color: var(--text-secondary); }
   .recent-row .ico { margin-top: 2px; color: var(--ink-faint); }
-  .code-box { margin: 6px 0 8px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface-sunken); font-family: var(--mono); font-size: 11.5px; line-height: 17px; color: var(--ink); overflow: hidden; }
-  .code-box .title { display: flex; align-items: center; gap: 6px; height: 26px; padding: 0 1px 0 10px; border-bottom: 1px solid var(--border); font-size: 10.5px; color: var(--ink-faint); }
-  .code-box .title .nm { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-  .code-box .cp { width: 26px; height: 26px; display: grid; place-items: center; color: var(--ink-faint); }
-  .code-box pre { margin: 0; padding: 9px 12px; font: inherit; white-space: pre; overflow: hidden; }
+  .code-box { margin: 6px 0 8px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface-raised); font-family: var(--mono); font-size: 12px; line-height: 20px; color: var(--ink); overflow: hidden; }
+  .code-box .title { display: flex; align-items: center; gap: 8px; height: 38px; padding: 0 8px 0 14px; font-family: var(--ui); font-size: 12px; color: var(--ink); }
+  .code-box .title > svg { flex: none; width: 13px; height: 13px; color: var(--ink-faint); }
+  .code-box .title .nm { flex: none; max-width: 60%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-weight: 500; }
+  .code-box .title .dir { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; direction: rtl; text-align: left; font-size: 11.5px; color: var(--ink-faint); }
+  .code-box .cp { flex: none; height: 26px; padding: 0 9px; display: inline-flex; align-items: center; gap: 6px; border-radius: 7px; border: 1px solid var(--border); background: var(--surface-overlay); font: 500 11.5px var(--ui); color: var(--text-secondary); }
+  .code-box .cp svg { width: 13px; height: 13px; }
+  .code-box pre { margin: 0; padding: 0 16px 14px; font: inherit; white-space: pre; overflow: hidden; display: flex; }
+  .code-box pre .gut { flex: none; width: 24px; margin-right: 16px; text-align: right; color: color-mix(in srgb, var(--ink-faint) 50%, var(--surface-raised)); }
+  .code-box pre.numbered { padding-left: 0; }
   .md-diff { padding: 3px 0; white-space: pre; overflow: hidden; }
   .md-diff .ln { display: grid; grid-template-columns: 12px minmax(0, 1fr); padding-left: 10px; }
   .md-table { position: relative; margin: 6px 0 8px; border-radius: 8px; border: 1px solid var(--border); overflow: hidden; }
@@ -937,7 +958,34 @@
   .md-table tr:last-child td { border-bottom: 0; }
   .md-table th { background: rgba(231, 229, 239, 0.10); border-bottom-color: var(--border-strong); font-size: 12px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--text-secondary); white-space: nowrap; }
   .md-table .cp { position: absolute; top: 3px; right: 3px; width: 26px; height: 26px; display: grid; place-items: center; color: var(--ink-faint); background: var(--surface-raised); border-radius: 6px; }
-  .md-quote { margin: 6px 0 8px; padding-left: 12px; border-left: 2px solid var(--border-strong); color: var(--text-secondary); font-size: 14.5px; line-height: 1.59; }
+  .md-quote { margin: 6px 0 8px; padding-left: 16px; border-left: 2px solid var(--acc); font-style: italic; color: var(--ink); font-size: 14.5px; line-height: 1.7; }
+  .goal-line { display: flex; align-items: center; gap: 9px; min-height: 36px; margin: 6px 0; font-size: 12.5px; }
+  .goal-line .dot { flex: none; width: 14px; height: 14px; display: grid; place-items: center; }
+  .goal-line .dot::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--live); }
+  .goal-line .dot.moving::before { background: none; border: 1.5px solid var(--live); width: 5px; height: 5px; }
+  .goal-line .dot.failed::before { background: var(--danger); }
+  .goal-line b { flex: none; font-weight: 600; color: var(--live); }
+  .goal-line b.failed { color: var(--danger); }
+  .goal-line .nm { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--text-secondary); }
+  .goal-line .end { margin-left: auto; flex: none; display: flex; align-items: center; gap: 8px; color: var(--text-tertiary); }
+  .goal-line .took { font-size: 11.5px; color: var(--ink-faint); }
+  .goal-steps { flex: none; display: flex; gap: 3px; }
+  .goal-steps i { display: block; box-sizing: border-box; width: 14px; height: 4px; border-radius: 2px; background: var(--live); }
+  .goal-steps i.moving { background: color-mix(in srgb, var(--live) 45%, transparent); }
+  .goal-steps i.dash { background: none; border: 1px dashed var(--ink-faint); }
+  .goal-steps i.failed { background: var(--danger); }
+  .composer-wrap:has(.place) { padding-bottom: 14px; }
+  .place { display: flex; align-items: center; gap: 4px; height: 24px; margin-top: 6px; padding: 0 8px; font-size: 12px; color: var(--text-tertiary); white-space: nowrap; }
+  .place > span { display: inline-flex; align-items: center; gap: 6px; min-width: 0; padding: 0 4px; overflow: hidden; }
+  .place > span > em { font-style: normal; overflow: hidden; text-overflow: ellipsis; }
+  .place svg { flex: none; width: 12px; height: 12px; }
+  .place .proj { color: var(--text-secondary); }
+  .place .proj svg { color: var(--live); }
+  .place .br { font: 10.5px var(--mono); }
+  .place .br svg { width: 11px; height: 11px; }
+  .place .fill { flex: 1; }
+  .place .goal em { font-weight: 500; color: var(--ink); }
+  .place .goal .dot { width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid var(--live); box-sizing: border-box; }
   .md-task { display: flex; gap: 8px; align-items: flex-start; font-size: 14.5px; line-height: 23px; color: var(--ink); }
   .md-task .box { flex: none; width: 15px; height: 15px; margin-top: 4px; border-radius: 4px; border: 1px solid var(--border-strong); display: grid; place-items: center; color: var(--acc); }
   .md-task .box.on { border-color: rgba(162, 119, 255, 0.42); background: rgba(162, 119, 255, 0.14); }
@@ -2581,8 +2629,7 @@
         <div class="nav"><span class="back">{{IconChevron:18}}</span><span class="mid"><span class="codex">{{IconCodex:17}}</span><span class="named"><b>@Flint</b><i>·</i><em>Fix the flaky PTY replay test</em></span></span><span class="icon-btn">{{IconMoreVertical:16}}</span></div>
         <div class="chat" style="justify-content:flex-start">
           <div class="prose">All 214 terminal tests pass. The fix keeps channel output back until the snapshot is written, then lets it through in order.</div>
-          <div class="letter-from"><span class="claude">{{IconClaude:13}}</span><span>Message from <b>@Otter</b></span></div>
-          <div class="prose">I'm changing the attach handshake in <code class="chip">core/session.rs</code>. Hold off on committing the replay fix until I push, so we don't both touch the snapshot code.</div>
+          <div class="from"><div class="from-head"><span class="claude">{{IconClaude:17}}</span><b>@Otter</b><span class="when">14:02</span></div><div class="msg-theirs">I'm changing the attach handshake in <code class="chip">core/session.rs</code>. Hold off on committing the replay fix until I push, so we don't both touch the snapshot code.</div></div>
           <div class="work"><span class="work-sum"><span class="codex">{{IconCodex:17}}</span>Worked for 6s <span class="calls">· 1 tool call</span>{{IconChevron:10}}</span></div>
           <div class="prose">Holding the commit. I told Otter the fix only touches the reader, and asked it to send word once its change is in.</div>
         </div>
@@ -2602,7 +2649,7 @@
         </div>
       </div>
       <div class="home-bar"></div></div>
-      <figcaption><b>A message from another agent</b><div class="note">Another agent on the host sent this chat a message with agent_send. It reads as prose under a centred line with the sender's mark and name, as on the Mac, never in the person's bubble, so it is not taken for something the person wrote. Several sent together each get their own line. A tap shows its copy button and the time it came.</div></figcaption>
+      <figcaption><b>A message from another agent</b><div class="note">Another agent on the host sent this chat a message with agent_send. It sits in its own bubble at the left, mirroring the person's at the right, with a hairline edge and its tail at the bottom left, so it is never taken for something the person wrote. Over it are the sender's mark and @name, with the time it came at the line's end, as on the Mac. Several sent together each get their own bubble. A tap shows its copy button.</div></figcaption>
     </figure>
 
     <figure><div class="phone"><div class="island"></div>
@@ -2615,8 +2662,7 @@
           <div class="team-fold">{{IconChevron:10}}<span class="marks"><span class="claude">{{IconClaude:16}}</span><span class="codex">{{IconCodex:16}}</span><span class="claude">{{IconClaude:16}}</span><span class="codex">{{IconCodex:16}}</span><span class="more">+3</span></span><b>23 messages</b><span class="last wants">@Otter asks: revert the phone fix or hold the release?</span><span class="took">41m</span></div>
           <div class="team-fold open">{{IconChevron:10}}<span class="marks"><span class="claude">{{IconClaude:16}}</span><span class="codex">{{IconCodex:16}}</span></span><b>7 messages</b><span class="last">@Maple: iOS job passed on the second run.</span><span class="took">19m</span></div>
           <div class="team-earlier">Show 2 earlier</div>
-          <div class="letter-from"><span class="claude">{{IconClaude:13}}</span><span>Message from <b>@Maple</b></span></div>
-          <div class="prose">iOS job passed on the second run.</div>
+          <div class="from"><div class="from-head"><span class="claude">{{IconClaude:17}}</span><b>@Maple</b><span class="when">10:18</span></div><div class="msg-theirs">iOS job passed on the second run.</div></div>
           <div class="prose">Nightly is out.</div>
         </div>
         <div class="composer-wrap">
@@ -2643,8 +2689,7 @@
       <div class="screen">
         <div class="nav"><span class="back">{{IconChevron:18}}</span><span class="mid"><span class="claude">{{IconClaude:17}}</span><span class="named"><b>@Otter</b><i>·</i><em>Keep main green</em></span></span><span class="icon-btn">{{IconMoreVertical:16}}</span></div>
         <div class="chat" style="justify-content:flex-start">
-          <div class="trigger-from">{{IconTimer:12}}<span>Trigger · <b>CI on main</b></span></div>
-          <div class="msg-user">Read the failed run, fix it on a branch and open a pull request.</div>
+          <div class="from"><div class="from-head"><span class="timer">{{IconTimer:13}}</span><b>CI on main</b><span class="when">09:12</span></div><div class="msg-theirs">Read the failed run, fix it on a branch and open a pull request.</div></div>
           <div class="request-line">{{IconChevron:10}}<span>POST · application/json · 163 B</span></div>
           <div class="request-card"><i>content-type</i> application/json
 <i>x-github-event</i> workflow_run<div class="body">{
@@ -2667,7 +2712,7 @@
         </div>
       </div>
       <div class="home-bar"></div></div>
-      <figcaption><b>A trigger fires</b><div class="note">A trigger the agent set sends its chat a prompt when its time comes or its webhook takes a request. It sits where your own messages sit, in the same bubble, under a line with the pink timer naming the trigger. A webhook's request is folded beneath as one line, its method, kind, size and query; a tap opens its headers and body, JSON laid out, as on the Mac. The request came from outside Sikemux, so it is shown as data and never as the prompt.</div></figcaption>
+      <figcaption><b>A trigger fires</b><div class="note">A trigger the agent set sends its chat a prompt when its time comes or its webhook takes a request. It sits in a bubble at the left, as another agent's message does, under the pink timer and the trigger's name with the time it fired at the line's end; it no longer sits at the right where the person's own messages do. A webhook's request is folded beneath, at the left, as one line, its method, kind, size and query; a tap opens its headers and body, JSON laid out, as on the Mac. The request came from outside Sikemux, so it is shown as data and never as the prompt.</div></figcaption>
     </figure>
 
     <figure><div class="phone"><div class="island"></div>
@@ -2675,8 +2720,7 @@
       <div class="screen">
         <div class="nav"><span class="back">{{IconChevron:18}}</span><span class="mid"><span class="codex">{{IconCodex:17}}</span><span class="named"><b>@Maple</b><i>·</i><em>Move the ledger import</em></span></span><span class="icon-btn">{{IconMoreVertical:16}}</span></div>
         <div class="chat" style="justify-content:flex-start">
-          <div class="letter-from"><span class="claude">{{IconClaude:13}}</span><span>Message from <b>@Otter</b></span></div>
-          <div class="prose">Take PROJ-12: move the ledger import onto the new amounts table. Ask me if anything about the data is unclear.</div>
+          <div class="from"><div class="from-head"><span class="claude">{{IconClaude:17}}</span><b>@Otter</b><span class="when">11:40</span></div><div class="msg-theirs">Take PROJ-12: move the ledger import onto the new amounts table. Ask me if anything about the data is unclear.</div></div>
           <div class="work"><span class="work-sum"><span class="codex">{{IconCodex:17}}</span>Worked for 41s <span class="calls">· 6 tool calls</span>{{IconChevron:10}}</span></div>
           <div class="ask-who"><span class="codex">{{IconCodex:14}}</span><span><b>Maple</b> asks you · @Otter raised this</span><span class="ticket">PROJ-12</span><span class="fold">{{IconChevron:10}}</span></div>
           <div class="prose" style="margin-top:0">Should amounts be stored in cents or as decimals? The API sends decimals but the ledger table uses integers.</div>
@@ -2773,9 +2817,10 @@
       <div class="screen">
         <div class="nav"><span class="back">{{IconChevron:18}}</span><span class="mid"><span class="codex">{{IconCodex:17}}</span><span class="named"><b>@Maple</b><i>·</i><em>Move the ledger import</em></span></span><span class="icon-btn">{{IconMoreVertical:16}}</span></div>
         <div class="chat" style="justify-content:flex-start">
-          <div class="ask-who"><span class="codex">{{IconCodex:14}}</span><span><b>Maple</b> asked you</span></div>
-          <div class="prose" style="margin-top:0">Which timezone should the ledger dates use?</div>
-          <div class="ask-answered">You answered: <b>UTC, and show local time only in the app</b></div>
+          <div class="qa">
+            <div class="asked"><span class="mk first codex">{{IconCodex:16}}</span><div class="msg-theirs">Which timezone should the ledger dates use?</div></div>
+            <div class="msg-user">UTC, and show local time only in the app</div>
+          </div>
           <div class="prose">Dates go into the ledger in UTC now. Next, the amounts.</div>
           <div class="ask-assumed">{{IconCheck:13}}<span><b>Maple</b> assumed old invoices keep their decimals</span><span>·</span><span class="act">Fine</span><span class="act">Change</span></div>
           <div class="ask-who"><span class="codex">{{IconCodex:14}}</span><span><b>Maple</b> asks you</span><span class="fold">{{IconChevron:10}}</span></div>
@@ -2801,7 +2846,7 @@
         </div>
       </div>
       <div class="home-bar"></div></div>
-      <figcaption><b>Answering in your own words</b><div class="note">Something else… takes the keyboard to the composer, whose Answering Maple chip says that what is sent next answers the question rather than starting a turn of its own; × takes the chip off and the composer sends normal messages again. Once answered, the question keeps its words and its answers fold into one line, You answered: …, which is also how the answer reads in the transcript afterwards, with any files sent with it under it as under a sent message. A question the agent went on without, on an assumption it stated, is one dim line under a check: Fine tells it the assumption holds, and Change opens the composer with the chip to answer it.</div></figcaption>
+      <figcaption><b>Answering in your own words</b><div class="note">Something else… takes the keyboard to the composer, whose Answering Maple chip says that what is sent next answers the question rather than starting a turn of its own; × takes the chip off and the composer sends normal messages again. Once answered, the question and its answer read as the conversation they were: the question in the asker's bubble at the left, with its mark beside the first of a run, and the answer in the person's own bubble at the right under it, with any files sent with it above that bubble. A private answer's bubble says Kept private. Another agent's question says @who asked above it. This is also how it reads in the transcript afterwards. A question the agent went on without, on an assumption it stated, is one dim line under a check: Fine tells it the assumption holds, and Change opens the composer with the chip to answer it.</div></figcaption>
     </figure>
 
     <figure><div class="phone"><div class="island"></div>
@@ -2809,9 +2854,10 @@
       <div class="screen">
         <div class="nav"><span class="back">{{IconChevron:18}}</span><span class="mid"><span class="codex">{{IconCodex:17}}</span><span class="named"><b>@Maple</b><i>·</i><em>Move the ledger import</em></span></span><span class="icon-btn">{{IconMoreVertical:16}}</span></div>
         <div class="chat" style="justify-content:flex-start">
-          <div class="ask-who"><span class="codex">{{IconCodex:14}}</span><span><b>Maple</b> asked you</span></div>
-          <div class="prose" style="margin-top:0">What is the API token for the ledger sandbox?</div>
-          <div class="ask-private">{{IconLock:12}}<span>Answered, kept private</span></div>
+          <div class="qa">
+            <div class="asked"><span class="mk first codex">{{IconCodex:16}}</span><div class="msg-theirs">What is the API token for the ledger sandbox?</div></div>
+            <div class="msg-user kept">Kept private</div>
+          </div>
           <div class="prose">The sandbox import ran clean. One more for the staging copy.</div>
           <div class="ask-who"><span class="codex">{{IconCodex:14}}</span><span><b>Maple</b> asks you</span><span class="ticket">PROJ-12</span></div>
           <div class="prose" style="margin-top:0">What is the password for the staging database? I need it to check the migrated amounts.</div>
@@ -2833,7 +2879,7 @@
         </div>
       </div>
       <div class="home-bar"></div></div>
-      <figcaption><b>A secret question</b><div class="note">Empty, the field reads "Type or paste the answer". The agent asked for something secret, such as a password or a token, so the question came straight to the person. Under its words sits a field with Send beside it that grows with its lines, so a multi-line paste such as a private key or an env file keeps its line breaks. Its text is never drawn: a line under it says how many lines and characters it holds. Below that is a dim line under a lock saying the answer stays private: the agent reads it from a file only the person's account can open, and it never shows in the chat. The field is never the composer, so the composer keeps no Answering chip and no draft of it, and nothing is corrected, suggested or saved to the keyboard or the password manager. Any answers the agent offered still sit above it as rows. Once sent, the answer folds into Answered, kept private, here and in the transcript afterwards, never its text. A watching phone shows the question without the field.</div></figcaption>
+      <figcaption><b>A secret question</b><div class="note">Empty, the field reads "Type or paste the answer". The agent asked for something secret, such as a password or a token, so the question came straight to the person. Under its words sits a field with Send beside it that grows with its lines, so a multi-line paste such as a private key or an env file keeps its line breaks. Its text is never drawn: a line under it says how many lines and characters it holds. Below that is a dim line under a lock saying the answer stays private: the agent reads it from a file only the person's account can open, and it never shows in the chat. The field is never the composer, so the composer keeps no Answering chip and no draft of it, and nothing is corrected, suggested or saved to the keyboard or the password manager. Any answers the agent offered still sit above it as rows. Once sent, the question and its answer read as a conversation, the answer's bubble saying Kept private, here and in the transcript afterwards, never its text. A watching phone shows the question without the field.</div></figcaption>
     </figure>
 
     <figure><div class="phone"><div class="island"></div>
@@ -3410,9 +3456,10 @@ expected 1 write, got 2</div>
           <div class="msg-user">Show the download size next to the button.</div>
           <div class="work"><span class="work-sum"><span class="claude">{{IconClaude:17}}</span>Worked for 14s <span class="calls">· 2 tool calls</span>{{IconChevron:10}}</span></div>
           <div class="prose" style="margin-top:0">Done. <span class="fref link"><span class="g">{{IconFile:12}}</span>src/lib/release.ts</span> reads the size from the latest release at build time:</div>
-          <div class="code-box"><div class="title">{{IconFile:11}}<span class="nm">ts</span><span class="cp">{{IconCopy:12}}</span></div><pre>const dmg = assets.find((a) =&gt;
-  a.name.endsWith("_aarch64.dmg"));</pre></div>
-          <div class="code-box"><div class="title"><span class="nm"></span><span class="cp">{{IconCopy:12}}</span></div><div class="md-diff"><div class="ln d"><b>-</b><span>const size = <mark>"16 MB"</mark>;</span></div><div class="ln a"><b>+</b><span>const size = <mark>formatBytes(dmg.size)</mark>;</span></div></div></div>
+          <div class="code-box"><div class="title">{{IconFile:13}}<span class="nm">release.ts</span><span class="dir">src/lib</span><span class="cp">{{IconCopy:13}}Copy</span></div><pre class="numbered"><span class="gut">1
+2</span><span>const dmg = assets.find((a) =&gt;
+  a.name.endsWith("_aarch64.dmg"));</span></pre></div>
+          <div class="code-box"><div class="title">{{IconFile:13}}<span class="nm">diff</span><span class="dir"></span><span class="cp">{{IconCopy:13}}Copy</span></div><div class="md-diff"><div class="ln d"><b>-</b><span>const size = <mark>"16 MB"</mark>;</span></div><div class="ln a"><b>+</b><span>const size = <mark>formatBytes(dmg.size)</mark>;</span></div></div></div>
           <div class="msg-strip"><span class="cp">{{IconCopy:15}}</span><span class="when">Today, 21:07 · took 2m 04s</span><span class="rate">~48 tok/s</span></div>
         </div>
         <div class="composer-wrap">
@@ -3432,7 +3479,7 @@ expected 1 write, got 2</div>
         </div>
       </div>
       <div class="home-bar"></div></div>
-      <figcaption><b>Tapping a message</b><div class="note">A tap on a message, yours or the agent's answer, shows the strip the Mac shows under it on hover: Copy, when it was sent or finished and how long the turn took, and roughly how fast it wrote. Another tap, or a tap on another message, hides it. An answer is all of its prose across the tool calls in between, so its strip sits under its last part. The text itself is selectable where it stands: a long press selects it. Code blocks wear the Mac's title bar, with the file or language the fence names and a copy button, and a patch in a fence is tinted by sign with the changed words marked. A path in the prose reads as the Mac's file ref; the phone cannot ask the host whether it is there, so only a name with a folder and an extension counts. A picture it names on the host opens over the whole screen, and one it links to is drawn in place.</div></figcaption>
+      <figcaption><b>Tapping a message</b><div class="note">A tap on a message, yours or the agent's answer, shows the strip the Mac shows under it on hover: Copy, when it was sent or finished and how long the turn took, and roughly how fast it wrote. Another tap, or a tap on another message, hides it. An answer is all of its prose across the tool calls in between, so its strip sits under its last part. The text itself is selectable where it stands: a long press selects it. A code block is one card with 12px corners, as on the Mac: its head names the file the fence names (```ts:src/lib/release.ts), with its folder quiet beside it, else its language, Terminal for commands, or Code, then a Copy pill that says Copied for a moment. Its lines are numbered in a faint gutter, except a Terminal's, and a patch in a fence is tinted by sign with the changed words marked. A path in the prose reads as the Mac's file ref; the phone cannot ask the host whether it is there, so only a name with a folder and an extension counts. A picture it names on the host opens over the whole screen, and one it links to is drawn in place.</div></figcaption>
     </figure>
 
     <figure><div class="phone"><div class="island"></div>
@@ -3444,9 +3491,10 @@ expected 1 write, got 2</div>
           <div class="msg-strip mine"><span class="cp">{{IconCopy:15}}</span><span class="cp">{{IconPencil:15}}</span><span class="when">Today, 21:05</span></div>
           <div class="work"><span class="work-sum"><span class="claude">{{IconClaude:17}}</span>Worked for 14s <span class="calls">· 2 tool calls</span>{{IconChevron:10}}</span></div>
           <div class="prose" style="margin-top:0">Done. <span class="fref link"><span class="g">{{IconFile:12}}</span>src/lib/release.ts</span> reads the size from the latest release at build time:</div>
-          <div class="code-box"><div class="title">{{IconFile:11}}<span class="nm">ts</span><span class="cp">{{IconCopy:12}}</span></div><pre>const dmg = assets.find((a) =&gt;
-  a.name.endsWith("_aarch64.dmg"));</pre></div>
-          <div class="code-box"><div class="title"><span class="nm"></span><span class="cp">{{IconCopy:12}}</span></div><div class="md-diff"><div class="ln d"><b>-</b><span>const size = <mark>"16 MB"</mark>;</span></div><div class="ln a"><b>+</b><span>const size = <mark>formatBytes(dmg.size)</mark>;</span></div></div></div>
+          <div class="code-box"><div class="title">{{IconFile:13}}<span class="nm">release.ts</span><span class="dir">src/lib</span><span class="cp">{{IconCopy:13}}Copy</span></div><pre class="numbered"><span class="gut">1
+2</span><span>const dmg = assets.find((a) =&gt;
+  a.name.endsWith("_aarch64.dmg"));</span></pre></div>
+          <div class="code-box"><div class="title">{{IconFile:13}}<span class="nm">diff</span><span class="dir"></span><span class="cp">{{IconCopy:13}}Copy</span></div><div class="md-diff"><div class="ln d"><b>-</b><span>const size = <mark>"16 MB"</mark>;</span></div><div class="ln a"><b>+</b><span>const size = <mark>formatBytes(dmg.size)</mark>;</span></div></div></div>
         </div>
         <div class="composer-wrap">
           <div class="composer">
@@ -3508,6 +3556,41 @@ expected 1 write, got 2</div>
     <figure><div class="phone"><div class="island"></div>
       <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
       <div class="screen">
+        <div class="nav"><span class="back">{{IconChevron:18}}</span><span class="mid"><span class="claude">{{IconClaude:17}}</span><span class="named"><b>@Birch</b><i>·</i><em>Release notes</em></span></span><span class="icon-btn">{{IconMoreVertical:16}}</span></div>
+        <div class="chat">
+          <div class="goal-line"><span class="dot moving"></span><b>Goal</b><span class="nm">Ship the 0.7 release</span><span class="end"><span class="goal-steps"><i></i><i class="moving"></i><i class="dash"></i></span>1 of 3 done</span></div>
+          <div class="msg-user followed">Write release notes for this week.</div>
+          <div class="msg-user stacked">Keep them short, and link the PRs.</div>
+          <div class="msg-time">21:04</div>
+          <div class="work"><span class="work-sum"><span class="claude">{{IconClaude:17}}</span>Worked for 38s <span class="calls">· 5 tool calls</span>{{IconChevron:10}}</span></div>
+          <div class="md-h2">Sikemux 0.7</div>
+          <div class="md-h3">What's new</div>
+          <div class="md-list"><div><i>•</i><span>Chats read like an article, with <code class="chip">###</code> as labels.</span></div><div><i>•</i><span>Code blocks name their file (<a>{{IconGithub:12}}#412</a>).</span></div></div>
+          <div class="md-h3">Upgrade</div>
+          <div class="md-list num"><div><i>01</i><span>Quit Sikemux on every Mac.</span></div><div><i>02</i><span>Install the new build.</span></div></div>
+          <div class="goal-line"><span class="dot"></span><b>Goal done</b><span class="nm">Write the notes</span><span class="end"><span class="goal-steps"><i></i><i></i></span>2 of 2 done<span class="took">12m</span></span></div>
+        </div>
+        <div class="composer-wrap">
+          <div class="composer">
+            <div class="ta ph">Ask about this project</div>
+            <div class="bar">
+              <span class="ib">{{IconPlus:18}}</span>
+              <span class="yolo on">{{IconShieldBolt:13}}<b>yolo</b></span>
+              <span class="picker model"><span class="claude">{{IconClaude:16}}</span>Opus 5.5<span class="ch">{{IconChevron:10}}</span></span>
+              <span class="spacer"></span>
+              <span class="send off">{{IconArrowUp:16}}</span>
+            </div>
+          </div>
+          <div class="place"><span>{{IconLaptop:12}}<em>MacBook Pro</em></span><span class="proj">{{IconFolder:12}}<em>sikemux</em></span><span class="br">{{IconGit:11}}<em>main</em></span><span class="fill"></span><span class="goal"><i class="dot"></i><em>Ship 0.7</em></span><span>{{IconUser:12}}<em>Work</em></span></div>
+        </div>
+      </div>
+      <div class="home-bar"></div></div>
+      <figcaption><b>Reading an answer</b><div class="note">Your message is a clean bubble with no edge: a soft fill the accent warms, 16px corners with its tail at the bottom right, and 14px text. Messages sent one after another sit 4px apart with the time only under the last; a tap still opens a message's strip. An answer reads like an article, as on the Mac: ## headings stand at 18px with room above, ### headings are small spaced capitals, bullets take the accent and numbered steps read 01, 02 in mono. Links are lavender and underlined, and a link to GitHub, Bitbucket, Jira, GitLab, Linear, Vercel, Slack, AWS, Grok, Apple or Google Play carries that service's mark. Only a --- the agent wrote draws a rule. Where a goal starts or ends is a milestone line at the left: its mark, its state in its colour (Goal, Goal done, Goal stopped), its name, and at the right its steps with how many are done and, once it ended, how long it took. Under the composer, with no frame or divider, sits where the chat runs: the host, the project and the branch at the left, and the goal and the account, when its agent has more than one here, at the right.</div></figcaption>
+    </figure>
+
+    <figure><div class="phone"><div class="island"></div>
+      <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
+      <div class="screen">
         <div class="nav"><span class="back">{{IconChevron:18}}</span><span class="mid"><span class="claude">{{IconClaude:17}}</span><span class="named"><b>@Moss</b><i>·</i><em>Atlassian MCP vs our plugin</em></span></span><span class="icon-btn">{{IconMoreVertical:16}}</span></div>
         <div class="chat">
           <div class="msg-user">Why did it pick Atlassian's server?</div>
@@ -3543,7 +3626,7 @@ expected 1 write, got 2</div>
         </div>
       </div>
       <div class="home-bar"></div></div>
-      <figcaption><b>Tables, quotes and notices</b><div class="note">An answer's markdown is drawn as the Mac draws it. A table sits in its own bordered box with a tinted header row, and a wide one scrolls sideways inside that box. Each column is sized from its longest cell, up to a limit past which the text wraps. Its copy button sits in the header's last cell and copies the table back as markdown. A quote is indented in the secondary ink behind a plain rule. A task list item shows a box, ticked in the accent when done, with the item's text dimmed. Headings step down in size, nested list items step in, and italics and strikethrough are drawn. A page the agent showed stays out of the fold as a card with its title. The phone has no web view to draw the page in, so the card says it is on the computer. Notices from the agent and moves between accounts are their own quiet bordered lines, as on the Mac, with a warning in amber and an error in red.</div></figcaption>
+      <figcaption><b>Tables, quotes and notices</b><div class="note">An answer's markdown is drawn as the Mac draws it. A table sits in its own bordered box with a tinted header row, and a wide one scrolls sideways inside that box. Each column is sized from its longest cell, up to a limit past which the text wraps. Its copy button sits in the header's last cell and copies the table back as markdown. A quote leans on an accent rule, in italics. A task list item shows a box, ticked in the accent when done, with the item's text dimmed. Headings step down in size, nested list items step in, and italics and strikethrough are drawn. A page the agent showed stays out of the fold as a card with its title. The phone has no web view to draw the page in, so the card says it is on the computer. Notices from the agent and moves between accounts are their own quiet bordered lines, as on the Mac, with a warning in amber and an error in red.</div></figcaption>
     </figure>
 
     <figure><div class="phone"><div class="island"></div>

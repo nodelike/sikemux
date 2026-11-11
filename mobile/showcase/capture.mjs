@@ -35,6 +35,9 @@ const SCENES = [
   { name: 'boards', route: `/device/${CORE}?tab=board` },
   { name: 'board', route: `/device/${CORE}?tab=board`, tap: 'acme-shop' },
   { name: 'chat', route: `/device/${CORE}/chat/chat-login` },
+  { name: 'notes', route: `/device/${CORE}/chat/chat-notes` },
+  { name: 'notes-top', route: `/device/${CORE}/chat/chat-notes`, scroll: -500 },
+  { name: 'team', route: `/device/${CORE}/chat/chat-team` },
   { name: 'asking', route: `/device/${CORE}/chat/chat-dark-mode` },
   { name: 'question', route: `/device/${CORE}/chat/chat-release` },
   { name: 'assumed', route: `/device/${CORE}/chat/chat-login-check` },
@@ -153,6 +156,11 @@ for (const scene of SCENES) {
       .first()
       .click({ timeout: 5000 })
       .catch(() => problems.push(`no ${scene.tapLabel} on ${scene.name}`));
+    await page.waitForTimeout(800);
+  }
+  if (scene.scroll) {
+    await page.mouse.move(SCREEN.width / 2, SCREEN.height / 2);
+    await page.mouse.wheel(0, scene.scroll);
     await page.waitForTimeout(800);
   }
   await page.evaluate(separateGradients);

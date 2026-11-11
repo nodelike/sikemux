@@ -5,14 +5,16 @@ import { Icon } from '@/ui/Icon';
 import { fonts, type Palette, useColors, useStyles } from '@/ui/theme';
 import { useFold } from './folds';
 import { LongText } from '@/chat/LongText';
+import { From, makeBubbleStyles } from './Bubble';
 
 type Fired = NonNullable<NonNullable<ChatMessage['letters']>[number]['trigger']>;
 
-/** A trigger's prompt where the person's own messages sit, under a line naming the trigger, with the
- *  webhook request that fired it folded beneath. */
-export function FiredTrigger({ id, fired }: { id: string; fired: Fired }) {
+/** A trigger's prompt in a bubble at the left under the trigger's name, with the webhook request that fired it
+ *  folded beneath. */
+export function FiredTrigger({ id, fired, at }: { id: string; fired: Fired; at?: number }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
+  const bubble = useStyles(makeBubbleStyles);
   const [open, setOpen] = useFold(`${id}/request`, false);
   const request = fired.request;
   const kind = request?.headers
@@ -22,18 +24,21 @@ export function FiredTrigger({ id, fired }: { id: string; fired: Fired }) {
   const size = request ? (request.body.length < 1024 ? `${request.body.length} B` : `${(request.body.length / 1024).toFixed(1)} KB`) : '';
   const summary = request ? [request.method, kind, size, request.query ? `?${request.query}` : undefined].filter(Boolean).join(' · ') : '';
   return (
-    <View style={styles.userRow}>
-      <View style={styles.triggerFrom}>
-        <Icon name="IconTimer" size={12} color={colors.cmd} />
-        <Text style={styles.letterLabel} numberOfLines={1}>
-          Trigger · <Text style={styles.triggerTitle}>{fired.title}</Text>
-        </Text>
-      </View>
-      <View style={styles.bubble}>
-        <Text style={styles.userText} selectable>
+    <View>
+      <From
+        at={at}
+        who={
+          <>
+            <Icon name="IconTimer" size={13} color={colors.cmd} />
+            <Text style={styles.triggerTitle} numberOfLines={1}>
+              {fired.title}
+            </Text>
+          </>
+        }>
+        <Text style={bubble.text} selectable>
           {fired.prompt}
         </Text>
-      </View>
+      </From>
       {request ? (
         <>
           <Pressable
@@ -71,21 +76,8 @@ export function FiredTrigger({ id, fired }: { id: string; fired: Fired }) {
 
 const makeStyles = (colors: Palette) => {
   return StyleSheet.create({
-    userRow: { alignItems: 'flex-end', marginTop: 14, marginBottom: 6 },
-    bubble: {
-      maxWidth: '84%',
-      paddingVertical: 9,
-      paddingHorizontal: 13,
-      borderRadius: 12,
-      borderWidth: 1,
-      borderColor: colors.border,
-      backgroundColor: colors.raised,
-    },
-    userText: { fontFamily: fonts.ui, fontSize: 14, lineHeight: 22, color: colors.ink },
     prose: { fontFamily: fonts.ui, fontSize: 14.5, lineHeight: 23, color: colors.ink },
-    letterLabel: { fontFamily: fonts.ui, fontSize: 11.5, lineHeight: 16, color: colors.inkDim },
-    triggerFrom: { flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 6, maxWidth: '85%' },
-    triggerTitle: { fontFamily: fonts.uiMedium, color: colors.ink, flexShrink: 1 },
+    triggerTitle: { flexShrink: 1, fontFamily: fonts.uiSemibold, fontSize: 12.5, color: colors.ink },
     requestLine: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6, paddingVertical: 4, paddingHorizontal: 8 },
     requestSummary: { fontFamily: fonts.mono, fontSize: 11, color: colors.inkFaint, flexShrink: 1 },
     requestCard: {

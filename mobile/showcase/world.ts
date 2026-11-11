@@ -3,7 +3,18 @@
  * terminals and chats, written to read well in a screenshot.
  */
 
-import type { PermissionMode, ChatMessage, ChatPart, ChatView, PermissionAsk, ToolAction, ToolCall } from '@shared/wire.generated';
+import type {
+  AgentLetter,
+  ChatGoal,
+  ChatMessage,
+  ChatPart,
+  ChatView,
+  GoalMarker,
+  PermissionAsk,
+  PermissionMode,
+  ToolAction,
+  ToolCall,
+} from '@shared/wire.generated';
 
 export const CORE = 'showcase0000000000000000000000000000000000000000000000000000core';
 export const HOST = { name: 'MacBook Pro', model: 'MacBook Pro' };
@@ -18,7 +29,12 @@ export const PROJECTS = [
     path: `${HOME}/acme-shop`,
     codeHost: { host: 'github', repo: 'edon/acme-shop', ciName: 'Actions', sections: ['pulls', 'actions', 'issues', 'releases'] },
   },
-  { id: 'p-site', name: 'marketing-site', path: `${HOME}/marketing-site` },
+  {
+    id: 'p-site',
+    name: 'marketing-site',
+    path: `${HOME}/marketing-site`,
+    git: { branch: 'release-notes', ahead: 2, behind: 0, dirty: false },
+  },
   { id: 'p-api', name: 'payments-api', path: `${HOME}/payments-api` },
 ];
 
@@ -30,7 +46,7 @@ export const LAUNCHERS = [
 ];
 
 /** One thing said or done in a demo chat: a prompt, or a part of the answer after it. */
-type Step = { ask: string } | { part: ChatPart };
+type Step = { ask: string } | { part: ChatPart } | { letters: AgentLetter[] };
 
 let ids = 0;
 const next = (prefix: string) => `${prefix}-${++ids}`;
@@ -43,6 +59,10 @@ const tool = (kind: ToolAction, title: string, status: ToolCall['status'] = 'com
     id: next('part'),
     tool: { toolCallId: next('tool'), kind, title, status, row: { action: kind, target: title, ...row } },
   },
+});
+const letters = (...sent: AgentLetter[]): Step => ({ letters: sent });
+const goal = (marker: GoalMarker): Step => ({
+  part: { kind: 'agent_notice', id: next('part'), notice: { severity: 'info', title: marker.name ?? 'Goal', goal: marker } },
 });
 const file = (kind: ToolAction, path: string, name: string): Step => tool(kind, path, 'completed', { target: name, path });
 
@@ -99,6 +119,10 @@ type DemoChat = {
   asking?: { title: string; command: string };
   /** What it left when its last turn ended. */
   handoff?: { answer: string; files: string[]; recording?: number };
+  /** The goal it works on now. */
+  goal?: ChatGoal;
+  /** Left out of the host's agent list, so only its own scene opens it. */
+  unlisted?: boolean;
 };
 
 export const CHATS: DemoChat[] = [
@@ -188,6 +212,81 @@ export const CHATS: DemoChat[] = [
       files: ['src/refunds/route.ts', 'src/refunds/validate.ts', 'test/refunds.test.ts'],
       recording: 14,
     },
+  },
+  {
+    agentId: 'chat-notes',
+    name: 'Kuro',
+    provider: 'claude',
+    title: 'Release notes for 2.4',
+    project: 'p-site',
+    running: false,
+    unlisted: true,
+    permissionMode: 'bypass',
+    goal: { project: 'p-site', card: 41, name: 'Ship 2.4', state: 'moving', steps: ['done', 'moving', 'waiting'] },
+    history: [
+      goal({ card: 41, name: 'Ship 2.4', state: 'moving', steps: ['done', 'moving', 'waiting'] }),
+      user('Write release notes for this week from the merged pull requests.'),
+      user('Keep them short, and link each one.'),
+      tool('execute', 'gh pr list --state merged'),
+      say(
+        [
+          '## Release 2.4',
+          '### What is new',
+          '- **Faster checkout** on slow connections ([#212](https://github.com/edon/acme-shop/pull/212))',
+          '- **Dark mode** in settings, from [SHOP-88](https://edon.atlassian.net/browse/SHOP-88)',
+          '### Shipping it',
+          '1. Merge the notes branch',
+          '2. Tag `v2.4.0` and let CI publish',
+          '```ts:src/lib/release.ts\nexport const version = "2.4.0";\nexport const notes = "notes/2.4.md";\n```',
+        ].join('\n\n'),
+      ),
+    ],
+  },
+  {
+    agentId: 'chat-team',
+    name: 'Kuro',
+    provider: 'claude',
+    title: 'Ledger import',
+    project: 'p-api',
+    running: false,
+    unlisted: true,
+    permissionMode: 'bypass',
+    history: [
+      letters({
+        kind: 'message',
+        name: 'Otter',
+        agentId: 'chat-dark-mode',
+        cli: 'claude',
+        text: 'Take PROJ-12: move the ledger import onto the new amounts table. Ask me if the data is unclear.',
+      }),
+      say('On it. Two questions first.'),
+      letters(
+        {
+          kind: 'answer',
+          name: 'Kuro',
+          agentId: 'chat-team',
+          cli: 'claude',
+          question: 'Which timezone should the ledger dates use?',
+          text: 'UTC',
+        },
+        {
+          kind: 'answer',
+          name: 'Kuro',
+          agentId: 'chat-team',
+          cli: 'claude',
+          question: 'Store amounts in cents or as decimals?',
+          text: 'Cents, and convert at the API edge',
+        },
+      ),
+      say('Dates go in as UTC and amounts as cents. The import runs clean.'),
+      letters({
+        kind: 'trigger',
+        name: 'CI on main',
+        cli: 'claude',
+        text: 'Read the failed run, fix it on a branch and open a pull request.',
+        trigger: { title: 'CI on main', prompt: 'Read the failed run, fix it on a branch and open a pull request.' },
+      }),
+    ],
   },
 ];
 
@@ -394,6 +493,10 @@ export function chatRows(chat: DemoChat): ChatMessage[] {
   let asked = start;
   chat.history.forEach((step, index) => {
     const at = start + index * STEP_MS;
+    if ('letters' in step) {
+      rows.push({ id: next('m'), role: 'user', parts: [], letters: step.letters, sentAt: at });
+      return;
+    }
     if ('ask' in step) {
       const id = next('m');
       asked = at;
@@ -438,6 +541,7 @@ export function chatHead(chat: DemoChat): ChatView['head'] {
     runningSubagents: [],
     queued: [],
     earlierLost: false,
+    goal: chat.goal,
   };
 }
 

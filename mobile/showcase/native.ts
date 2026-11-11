@@ -56,28 +56,30 @@ const GROUP_LABELS = { blocked: 'Needs input', working: 'Working', done: 'Done',
 
 /** How the core shows each demo chat, in the order it lists them. */
 function shown() {
-  return CHATS.map((chat) => {
-    const asks = chat.asking || QUESTIONS.some((question) => question.agentId === chat.agentId && question.blocked);
-    const group = asks ? 'blocked' : chat.running ? 'working' : 'idle';
-    return {
-      agentId: chat.agentId,
-      name: chat.name,
-      cli: chat.provider,
-      title: chat.title,
-      titled: true,
-      project: chat.project,
-      projectName: PROJECTS.find((project) => project.id === chat.project)?.name,
-      status: group,
-      group,
-      label: GROUP_LABELS[group],
-      unread: false,
-      subagents: 0,
-      tasks: 0,
-      busy: group !== 'idle',
-      background: false,
-      activeAt: Date.now(),
-    };
-  }).sort((a, b) => Object.keys(GROUP_LABELS).indexOf(a.group) - Object.keys(GROUP_LABELS).indexOf(b.group));
+  return CHATS.filter((chat) => !chat.unlisted)
+    .map((chat) => {
+      const asks = chat.asking || QUESTIONS.some((question) => question.agentId === chat.agentId && question.blocked);
+      const group = asks ? 'blocked' : chat.running ? 'working' : 'idle';
+      return {
+        agentId: chat.agentId,
+        name: chat.name,
+        cli: chat.provider,
+        title: chat.title,
+        titled: true,
+        project: chat.project,
+        projectName: PROJECTS.find((project) => project.id === chat.project)?.name,
+        status: group,
+        group,
+        label: GROUP_LABELS[group],
+        unread: false,
+        subagents: 0,
+        tasks: 0,
+        busy: group !== 'idle',
+        background: false,
+        activeAt: Date.now(),
+      };
+    })
+    .sort((a, b) => Object.keys(GROUP_LABELS).indexOf(a.group) - Object.keys(GROUP_LABELS).indexOf(b.group));
 }
 
 /** The host's inbox as its core would rank the demo world. */

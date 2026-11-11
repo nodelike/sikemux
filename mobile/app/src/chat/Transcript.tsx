@@ -3,7 +3,7 @@ import { Animated, Easing, Image, Pressable, StyleSheet, Text, View, type Layout
 
 import { durationLabel } from '@shared/chat/durationLabel';
 import { basename } from '@shared/lib/paths';
-import { rateLabel, sentLabel } from '@shared/chat/messageMeta';
+import { clockLabel, rateLabel, sentLabel } from '@shared/chat/messageMeta';
 import type { MdElement } from '@shared/markdown/types';
 import {
   attachmentName,
@@ -37,7 +37,8 @@ import type { Strip as StripMeta } from './messageMeta';
 import type { Unsent } from './outbox';
 import type { Attachment } from './uploads';
 import { ToolGroup } from './Tools';
-import { AnsweredQuestion } from './Question';
+import { AnsweredQuestions } from './Question';
+import { Bubble, From, makeBubbleStyles } from './Bubble';
 import { AgentContext, ProviderContext, SubagentsContext } from '@/chat/transcriptContext';
 import { AccountLine, AgentNoticeLine, PageCard, TaskNotice } from '@/chat/Notices';
 import { ContextChips } from '@/chat/ContextChips';
@@ -257,6 +258,25 @@ function TypedFound({ parts, finding }: { parts: Extract<ChatPart, { kind: 'text
   });
 }
 
+/** A message the person sent themselves, as opposed to letters or a trigger's prompt. */
+export function plainlySent(message: ChatMessage | undefined): boolean {
+  return message?.role === 'user' && !message.letters?.length;
+}
+
+type Letter = NonNullable<ChatMessage['letters']>[number];
+
+/** A message's letters, with each run of answers to one agent's questions together as one thread. */
+function letterGroups(letters: readonly Letter[]) {
+  const groups: ({ kind: 'answers'; at: number; letters: Letter[] } | { kind: 'letter'; at: number; letter: Letter })[] = [];
+  letters.forEach((letter, at) => {
+    const last = groups[groups.length - 1];
+    if (letter.kind !== 'answer') groups.push({ kind: 'letter', at, letter });
+    else if (last?.kind === 'answers' && last.letters[0].agentId === letter.agentId) last.letters.push(letter);
+    else groups.push({ kind: 'answers', at, letters: [letter] });
+  });
+  return groups;
+}
+
 /** A long press is the text's own, for selecting it, so it must not also count as a tap. */
 const keepLongPress = () => {};
 
@@ -271,6 +291,8 @@ export function Message({
   kept = null,
   onEdit,
   editing,
+  followsOwn = false,
+  followedByOwn = false,
 }: {
   message: ChatMessage;
   live?: boolean;
@@ -287,9 +309,14 @@ export function Message({
   onEdit?: (message: ChatMessage) => void;
   /** This message is being written again. */
   editing?: Editing;
+  /** The message before this one was also the person's own, so this one stacks under it. */
+  followsOwn?: boolean;
+  /** The next message is the person's own too, so it stacks under this one. */
+  followedByOwn?: boolean;
 }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
+  const bubbleText = useStyles(makeBubbleStyles);
   const chatAgent = useContext(AgentContext);
   const finding = useContext(FindingContext);
   const tap = onTap
@@ -301,34 +328,47 @@ export function Message({
   const letters = message.letters;
   if (letters?.length) {
     return (
-      <Pressable onPress={tap} onLongPress={keepLongPress} accessibilityHint={tap ? 'Tap for copy and the time it came' : undefined}>
-        {letters.map((letter, index) =>
-          letter.trigger ? (
-            <FiredTrigger key={index} id={`${message.id}/letter/${index}`} fired={letter.trigger} />
-          ) : letter.kind === 'answer' ? (
-            <View key={index}>
-              <AnsweredQuestion
-                own={letter.agentId === chatAgent}
-                asker={letter.name}
-                cli={letter.cli}
-                question={letter.question ?? ''}
-                answer={letter.text}
-                secret={letter.secret ?? false}
-              />
-              {letter.attachments?.length ? <SentAttachments paths={letter.attachments} sentFiles={sentFiles} /> : null}
-            </View>
+      <Pressable
+        onPress={tap}
+        onLongPress={keepLongPress}
+        style={styles.letters}
+        accessibilityHint={tap ? 'Tap for copy and the time it came' : undefined}>
+        {letterGroups(letters).map((group) =>
+          group.kind === 'answers' ? (
+            <AnsweredQuestions
+              key={group.at}
+              agentId={group.letters[0].agentId ?? ''}
+              cli={group.letters[0].cli}
+              asker={group.letters[0].agentId === chatAgent ? null : group.letters[0].name}
+              answers={group.letters.map((letter) => ({
+                question: letter.question ?? '',
+                answer: letter.text,
+                secret: letter.secret ?? false,
+                files: letter.attachments?.length ? <SentAttachments paths={letter.attachments} sentFiles={sentFiles} /> : null,
+              }))}
+            />
+          ) : group.letter.trigger ? (
+            <FiredTrigger key={group.at} id={`${message.id}/letter/${group.at}`} fired={group.letter.trigger} at={message.sentAt} />
           ) : (
-            <View key={index}>
-              <View style={styles.letterFrom}>
-                <View style={styles.letterRule} />
-                <AgentFace agentId={letter.agentId} provider={letter.cli} size={13} />
-                <Text style={styles.letterLabel}>
-                  Message from <Text style={styles.letterName}>@{letter.name}</Text>
-                </Text>
-                <View style={styles.letterRule} />
-              </View>
-              <LongText id={`${message.id}/letter/${index}`} text={letter.text} md={letter.tree} live={false} style={styles.prose} />
-            </View>
+            <From
+              key={group.at}
+              at={message.sentAt}
+              who={
+                <>
+                  <AgentFace agentId={group.letter.agentId} provider={group.letter.cli} size={17} />
+                  <Text style={styles.letterName} numberOfLines={1}>
+                    @{group.letter.name}
+                  </Text>
+                </>
+              }>
+              <LongText
+                id={`${message.id}/letter/${group.at}`}
+                text={group.letter.text}
+                md={group.letter.tree}
+                live={false}
+                style={bubbleText.text}
+              />
+            </From>
           ),
         )}
         {strip ? <Strip meta={{ ...strip, text: letters.map((letter) => letter.text).join('\n\n') }} mine={false} /> : null}
@@ -342,7 +382,7 @@ export function Message({
     const spans = message.spans ?? [];
     const context = (message.context ?? []).filter((item) => !spans.some((span) => span.chip?.carried === item.uri));
     return (
-      <View style={styles.userRow}>
+      <View style={[styles.userRow, followsOwn && styles.followsOwn, followedByOwn && styles.followedByOwn]}>
         {message.attachments?.length ? <SentAttachments paths={message.attachments} sentFiles={sentFiles} /> : null}
         {context.length ? <ContextChips items={context} /> : null}
         {editing ? (
@@ -351,25 +391,27 @@ export function Message({
           <Pressable
             onPress={tap}
             onLongPress={keepLongPress}
-            style={[styles.bubble, unsent?.state === 'sending' && { opacity: 0.7 }, failed && styles.failedBubble]}
+            style={[styles.bubble, unsent?.state === 'sending' && { opacity: 0.7 }]}
             accessibilityHint={tap ? 'Tap for copy and the time it was sent' : undefined}>
-            <Text style={styles.userText} selectable>
-              {finding ? (
-                <TypedFound parts={typed} finding={finding} />
-              ) : spans.length ? (
-                spans.map((span, index) =>
-                  span.chip ? (
-                    <Text key={index} style={styles.sentChip}>
-                      {span.chip.label}
-                    </Text>
-                  ) : (
-                    span.text
-                  ),
-                )
-              ) : (
-                text
-              )}
-            </Text>
+            <Bubble style={failed && styles.failedBubble}>
+              <Text style={bubbleText.text} selectable>
+                {finding ? (
+                  <TypedFound parts={typed} finding={finding} />
+                ) : spans.length ? (
+                  spans.map((span, index) =>
+                    span.chip ? (
+                      <Text key={index} style={styles.sentChip}>
+                        {span.chip.label}
+                      </Text>
+                    ) : (
+                      span.text
+                    ),
+                  )
+                ) : (
+                  text
+                )}
+              </Text>
+            </Bubble>
           </Pressable>
         ) : null}
         {failed ? (
@@ -388,6 +430,8 @@ export function Message({
           <Text style={styles.queuedLabel}>Sending…</Text>
         ) : strip && !editing ? (
           <Strip meta={strip} mine onEdit={onEdit && (() => onEdit(message))} />
+        ) : !followedByOwn && !editing && message.sentAt ? (
+          <Text style={styles.sentTime}>{clockLabel(message.sentAt)}</Text>
         ) : null}
       </View>
     );
@@ -542,21 +586,16 @@ export function WorkSummary({
 
 const makeStyles = (colors: Palette) => {
   return StyleSheet.create({
-    userRow: { alignItems: 'flex-end', marginTop: 14, marginBottom: 6 },
-    bubble: {
-      maxWidth: '84%',
-      paddingVertical: 9,
-      paddingHorizontal: 13,
-      borderRadius: 12,
-      borderWidth: 1,
-      borderColor: colors.border,
-      backgroundColor: colors.raised,
-    },
-    userText: { fontFamily: fonts.ui, fontSize: 14, lineHeight: 22, color: colors.ink },
+    userRow: { alignItems: 'flex-end', marginTop: 20, marginBottom: 10 },
+    followsOwn: { marginTop: 4 },
+    followedByOwn: { marginBottom: 0 },
+    sentTime: { height: 24, lineHeight: 24, fontFamily: fonts.ui, fontSize: 11, fontVariant: ['tabular-nums'], color: colors.inkFaint },
+    bubble: { maxWidth: '84%' },
+    letters: { gap: 14, marginTop: 14, marginBottom: 6 },
     sentChip: { color: colors.accent, backgroundColor: colors.active },
     found: { backgroundColor: translucent(colors.accent, 0.34), color: colors.ink },
     foundCurrent: { backgroundColor: colors.accent, color: colors.sunken },
-    failedBubble: { borderColor: colors.danger },
+    failedBubble: { borderWidth: 1, borderColor: colors.danger },
     unsent: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 5 },
     unsentText: { fontFamily: fonts.uiMedium, fontSize: 12, color: colors.inkFaint },
     image: { width: '100%', aspectRatio: 4 / 3, borderRadius: 8, marginVertical: 6, backgroundColor: colors.sunken },
@@ -623,11 +662,8 @@ const makeStyles = (colors: Palette) => {
     stripButton: { borderRadius: 7, alignItems: 'center', justifyContent: 'center' },
     stripTime: { fontFamily: fonts.ui, fontSize: 11, fontVariant: ['tabular-nums'], color: colors.inkDim },
     stripRate: { marginLeft: 'auto', fontFamily: fonts.mono, fontSize: 11, fontStyle: 'italic', color: colors.inkDim },
-    prose: { fontFamily: fonts.ui, fontSize: 14.5, lineHeight: 23, color: colors.ink },
-    letterFrom: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 16, marginBottom: 2 },
-    letterRule: { flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: colors.border },
-    letterLabel: { fontFamily: fonts.ui, fontSize: 11.5, lineHeight: 16, color: colors.inkDim },
-    letterName: { fontFamily: fonts.uiSemibold, color: colors.ink },
+    prose: { fontFamily: fonts.ui, fontSize: 14.5, lineHeight: 24.5, color: colors.ink },
+    letterName: { flexShrink: 1, fontFamily: fonts.uiSemibold, fontSize: 12.5, color: colors.ink },
     thought: { marginVertical: 8 },
     thoughtText: { ...italic, fontSize: 12.5, lineHeight: 19.5, color: colors.inkFaint },
     subagent: { marginVertical: 6 },

@@ -51,6 +51,12 @@ export function sentLabel(at: number, now = Date.now(), locale?: string): string
     return `${day}, ${time}`;
 }
 
+/** When a message came, as the line over someone else's bubble says it: today only the time. */
+export function clockLabel(at: number, now = Date.now(), locale?: string): string {
+    const label = sentLabel(at, now, locale);
+    return label.startsWith("Today, ") ? label.slice("Today, ".length) : label;
+}
+
 /** The whole moment, for a tooltip: "Tuesday, 29 September 2026 at 21:07:15". */
 export function sentTitle(at: number, locale?: string): string {
     return new Date(at).toLocaleString(locale, { dateStyle: "full", timeStyle: "medium" });

@@ -4,12 +4,14 @@ import { EARLIER_LOST } from '@shared/chat/messageMeta';
 import { Working } from '@/devices/AgentMarks';
 import { fonts, type Palette, useStyles } from '@/ui/theme';
 import { SentAttachments } from './Attachments';
+import { Bubble, makeBubbleStyles } from './Bubble';
 import type { Held } from './outbox';
 import type { Attachment } from './uploads';
 
 /** Messages waiting behind the running turn, faded where they will go. */
 export function Queued({ held, sentFiles }: { held: readonly Held[]; sentFiles: ReadonlyMap<string, Attachment> }) {
   const styles = useStyles(makeStyles);
+  const bubble = useStyles(makeBubbleStyles);
   return (
     <View style={styles.userRow}>
       {held.map((message) => {
@@ -18,9 +20,9 @@ export function Queued({ held, sentFiles }: { held: readonly Held[]; sentFiles: 
           <View key={message.id} style={styles.queued}>
             {paths.length ? <SentAttachments paths={paths} sentFiles={sentFiles} /> : null}
             {message.text ? (
-              <View style={styles.bubble}>
-                <Text style={styles.userText}>{message.text}</Text>
-              </View>
+              <Bubble style={styles.bubble}>
+                <Text style={bubble.text}>{message.text}</Text>
+              </Bubble>
             ) : null}
           </View>
         );
@@ -67,19 +69,10 @@ export function EarlierLost() {
 
 const makeStyles = (colors: Palette) => {
   return StyleSheet.create({
-    userRow: { alignItems: 'flex-end', marginTop: 14, marginBottom: 6 },
-    bubble: {
-      maxWidth: '84%',
-      paddingVertical: 9,
-      paddingHorizontal: 13,
-      borderRadius: 12,
-      borderWidth: 1,
-      borderColor: colors.border,
-      backgroundColor: colors.raised,
-    },
-    userText: { fontFamily: fonts.ui, fontSize: 14, lineHeight: 22, color: colors.ink },
+    userRow: { alignItems: 'flex-end', marginTop: 20, marginBottom: 10 },
+    bubble: { maxWidth: '84%' },
     retry: { color: colors.ink, fontFamily: fonts.uiMedium },
-    queued: { alignItems: 'flex-end', alignSelf: 'stretch', opacity: 0.55, marginBottom: 6 },
+    queued: { alignItems: 'flex-end', alignSelf: 'stretch', opacity: 0.55, marginBottom: 4 },
     queuedLabel: { fontFamily: fonts.ui, fontSize: 11, color: colors.inkFaint, marginTop: 4 },
     earlier: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingTop: 10, paddingBottom: 6 },
     earlierIdle: { width: 13, height: 13 },

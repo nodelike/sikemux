@@ -3,6 +3,8 @@ import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { fonts, keyboardFor, type Palette, useColors, useStyles } from '@/ui/theme';
 
+import { BUBBLE_RADIUS, bubbleFill } from './Bubble';
+
 /** Writing a sent message again where its bubble was. */
 export type Editing = { onCancel: () => void; onSend: (text: string) => void };
 
@@ -50,13 +52,14 @@ const makeStyles = (colors: Palette) => {
     editor: {
       width: '84%',
       gap: 8,
-      paddingTop: 9,
+      paddingTop: 10,
       paddingBottom: 8,
-      paddingHorizontal: 13,
-      borderRadius: 12,
+      paddingHorizontal: 14,
+      borderRadius: BUBBLE_RADIUS,
+      borderBottomRightRadius: 6,
       borderWidth: 1,
       borderColor: colors.borderSelected,
-      backgroundColor: colors.raised,
+      backgroundColor: bubbleFill(colors),
     },
     editorText: { fontFamily: fonts.ui, fontSize: 14, lineHeight: 22, color: colors.ink, maxHeight: 264, padding: 0 },
     editorActs: { flexDirection: 'row', justifyContent: 'flex-end', gap: 6 },
