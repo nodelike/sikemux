@@ -3,8 +3,9 @@
 use super::*;
 
 /// Signing in starts the live connection to the account and turns remote
-/// access on. Signing out turns remote access off and sends `leave` on the
-/// live connection, now or on the next one, so the account drops this host;
+/// access on, forgetting every device that joined through another account.
+/// Signing out turns remote access off and sends `leave` on the live
+/// connection, now or on the next one, so the account drops this host;
 /// paired devices stay.
 pub(crate) async fn set_owner(
     core: &Arc<Core>,
@@ -17,12 +18,14 @@ pub(crate) async fn set_owner(
         core.remote.bind(Some(owner.clone()))?;
     }
     let live = core.remote.inner.locked().accounts_api.is_some();
+    let mut dropped = Vec::new();
     let leaving = core.remote.change(|stored| {
         match owner {
             Some(owner) => {
                 if stored.owner.as_ref() != Some(&owner) {
                     stored.account_event_id = 0;
                 }
+                dropped = stored.forget_joined_elsewhere(&owner);
                 stored.owner = Some(owner);
                 stored.pending_leave = None;
                 stored.removed = None;
@@ -37,6 +40,9 @@ pub(crate) async fn set_owner(
         }
         Ok(stored.pending_leave.is_some())
     })?;
+    for device in &dropped {
+        core.close_device_clients(Some(device));
+    }
     if core.remote.owner().is_none() {
         unlink_all(core);
     }
@@ -404,10 +410,15 @@ pub(super) fn let_go(core: &Core, reason: Option<RevokeReason>) {
     core.remote.left.notify_waiters();
 }
 
+/// Takes a device or linked host off this host only. A device removed here
+/// waits for the person the next time it asks to join, and comes back with no
+/// more than it had.
 pub(crate) fn revoke(core: &Core, id: &str) -> CoreResult<RemoteStatus> {
     let linked = core.remote.change(|stored| {
         let linked = stored.links.iter().any(|link| link.id == id);
-        stored.forget(id);
+        if let Some(device) = stored.forget(id) {
+            stored.removed_here.insert(device.id, device.access);
+        }
         Ok(linked)
     })?;
     if linked {

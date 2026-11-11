@@ -326,7 +326,7 @@ pub(super) async fn serve_device(core: Arc<Core>, incoming: Incoming) {
         return;
     }
     let id = connection.remote_id().to_string();
-    if core.remote.standing_of(&id).is_none() {
+    if !core.remote.is_paired(&id) {
         connection.close(
             sikemux_client::remote::NOT_PAIRED.into(),
             b"this device is not paired with this core",
@@ -348,7 +348,14 @@ pub(super) async fn serve_device(core: Arc<Core>, incoming: Incoming) {
     .await;
     core.remote.note_connected(&id, false);
     announce(&core);
-    connection.close(0u32.into(), b"");
+    if !core.remote.is_paired(&id) {
+        connection.close(
+            sikemux_client::remote::NOT_PAIRED.into(),
+            b"this device was removed from this host",
+        );
+    } else {
+        connection.close(0u32.into(), b"");
+    }
 }
 
 impl Remote {

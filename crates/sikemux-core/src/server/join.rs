@@ -105,7 +105,7 @@ pub(super) async fn serve(core: Arc<Core>, connection: Connection) {
         from_account: true,
         expires_at: sikemux_process::clock::epoch_ms() + APPROVAL_TIMEOUT.as_millis() as u64,
     };
-    if !core.remote.requires_approval() {
+    if !core.remote.requires_approval_of(&request.device_id) {
         let reply = match core.remote.admit(&request, hello.ticket.account.clone()) {
             Ok(()) => JoinReply::Allowed {
                 access: DeviceAccess::Full,

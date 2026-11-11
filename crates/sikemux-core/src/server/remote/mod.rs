@@ -109,6 +109,11 @@ struct Stored {
     /// in whatever their account signed in.
     #[serde(default)]
     require_approval: bool,
+    /// Devices the person removed from this host, with the most each may do
+    /// if let back in. Each waits for the person to let it in again, even
+    /// with approval off.
+    #[serde(default)]
+    removed_here: BTreeMap<String, DeviceAccess>,
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
@@ -271,6 +276,7 @@ impl Stored {
             shares: &'a [StoredShare],
             revoked: &'a BTreeMap<String, u64>,
             require_approval: bool,
+            removed_here: &'a BTreeMap<String, DeviceAccess>,
         }
         let trusted = Trusted {
             owner: &self.owner,
@@ -295,6 +301,7 @@ impl Stored {
             shares: &self.shares,
             revoked: &self.revoked,
             require_approval: self.require_approval,
+            removed_here: &self.removed_here,
         };
         let canonical = without_defaults(serde_json::to_value(&trusted)?).unwrap_or_default();
         Ok(sha256_hex(&serde_json::to_vec(&canonical)?))
@@ -321,6 +328,24 @@ impl Stored {
         self.joined_through.remove(id);
         let index = self.devices.iter().position(|device| device.id == id)?;
         Some(self.devices.remove(index))
+    }
+
+    /// Forgets every device that did not join through `account`, answering
+    /// their ids, so a host moved to another account keeps none of the old
+    /// account's phones.
+    fn forget_joined_elsewhere(&mut self, account: &str) -> Vec<String> {
+        let elsewhere: Vec<String> = self
+            .devices
+            .iter()
+            .filter(|device| {
+                self.joined_through.get(&device.id).map(String::as_str) != Some(account)
+            })
+            .map(|device| device.id.clone())
+            .collect();
+        for id in &elsewhere {
+            self.forget(id);
+        }
+        elsewhere
     }
 
     fn want(&self) -> Want {
@@ -454,6 +479,11 @@ impl Remote {
             owners: stored.owner.is_some()
                 && stored.joined_through.get(id) == stored.owner.as_ref(),
         })
+    }
+
+    pub(crate) fn is_paired(&self, id: &str) -> bool {
+        let inner = self.inner.locked();
+        inner.stored.devices.iter().any(|device| device.id == id)
     }
 
     pub(crate) fn device_platform(&self, id: &str) -> Option<String> {
@@ -1145,6 +1175,7 @@ mod tests {
             joined_through: BTreeMap::new(),
             links: Vec::new(),
             require_approval: false,
+            removed_here: BTreeMap::new(),
             devices: vec![DeviceInfo {
                 id: SecretKey::generate().public().to_string(),
                 name: "Phone".into(),

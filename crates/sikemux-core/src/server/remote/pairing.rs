@@ -120,9 +120,16 @@ impl Remote {
         TrustedKeys::for_this_build()
     }
 
-    pub(super) fn add_device(&self, device: DeviceInfo, account: Option<String>) -> CoreResult<()> {
+    pub(super) fn add_device(
+        &self,
+        mut device: DeviceInfo,
+        account: Option<String>,
+    ) -> CoreResult<()> {
         self.change(|stored| {
             stored.forget(&device.id);
+            if stored.removed_here.remove(&device.id) == Some(DeviceAccess::Watch) {
+                device.access = DeviceAccess::Watch;
+            }
             if let Some(account) = account {
                 stored.joined_through.insert(device.id.clone(), account);
             }
@@ -134,6 +141,13 @@ impl Remote {
     /// Whether a device or host with a good ticket waits for the person.
     pub(crate) fn requires_approval(&self) -> bool {
         self.inner.locked().stored.require_approval
+    }
+
+    /// Whether the device `id` with a good ticket waits for the person: it
+    /// does when they asked to approve each one, or removed this one before.
+    pub(crate) fn requires_approval_of(&self, id: &str) -> bool {
+        let inner = self.inner.locked();
+        inner.stored.require_approval || inner.stored.removed_here.contains_key(id)
     }
 
     /// A host with this key, signed in to `owner`, with these phones paired.
