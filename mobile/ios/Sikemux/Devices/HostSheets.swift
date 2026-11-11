@@ -1,7 +1,7 @@
 import SikemuxCore
 import SwiftUI
 
-/// Forgets a host and goes back to Devices; a failure stays to be shown.
+/// Forgets a host and goes back to Devices.
 @MainActor @Observable
 final class Forgetting {
     private(set) var busy = false
@@ -52,7 +52,7 @@ struct ForgetSheet: View {
     }
 }
 
-/// The agents a host's list can be narrowed to, as the provider tiles head the Mac's rail; `all` shows every one.
+/// The agents a host's list can be narrowed to, as the provider tiles head the Mac's rail; none chosen shows every one.
 struct ProviderFilter {
     let offered: [String]
     let chosen: String?

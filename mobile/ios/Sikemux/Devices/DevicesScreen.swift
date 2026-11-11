@@ -190,7 +190,7 @@ private struct DeviceCard: View {
     }
 }
 
-/// A card dims a little under a finger, as the RN app's did.
+/// A card dims a little under a finger.
 private struct CardPress: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label.opacity(configuration.isPressed ? 0.85 : 1)
