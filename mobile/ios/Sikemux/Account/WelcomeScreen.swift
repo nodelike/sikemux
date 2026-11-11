@@ -123,7 +123,7 @@ private struct Reel: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .padding(.horizontal, 16)
-        .frame(maxHeight: 340)
+        .frame(maxHeight: 340, alignment: .top)
         .clipped()
         .overlay(alignment: .top) { fade(top: true) }
         .overlay(alignment: .bottom) { fade(top: false) }
