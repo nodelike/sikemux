@@ -1,15 +1,12 @@
 //! Finding text in a transcript, or in one markdown drawn on its own: every place a query is
 //! found, in reading order.
 
-use std::cell::RefCell;
 use std::ops::Range;
-use std::rc::Rc;
 
-use gpui::{Pixels, SharedString};
+use gpui::Pixels;
 
-use crate::draw::LayoutBudget;
-use crate::select::{RowHit, Selecting, Shown};
-use crate::{Markdown, Pen, Style};
+use crate::select::{DocSelect, RowHit};
+use crate::{Markdown, Style};
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Query {
@@ -78,14 +75,12 @@ fn folded_found_in(text: &str, needle: &str) -> Vec<Range<usize>> {
 /// The transcript came to find something else, or the reader moved to another place found.
 pub struct FoundChanged;
 
-/// Find in one markdown drawn on its own, as a file's preview is: the places found, the one the
-/// reader is on, and where the last frame drew its texts.
+/// Find in one markdown drawn on its own, as a file's preview is: the places found and the one
+/// the reader is on.
 #[derive(Clone)]
 pub struct DocFind {
     hits: Vec<Hit>,
     current: usize,
-    shown: Rc<RefCell<Vec<Shown>>>,
-    budget: Rc<LayoutBudget>,
 }
 
 impl DocFind {
@@ -99,12 +94,7 @@ impl DocFind {
                 }));
             }
         }
-        DocFind {
-            hits,
-            current: 0,
-            shown: Rc::default(),
-            budget: Rc::default(),
-        }
+        DocFind { hits, current: 0 }
     }
 
     /// Which place found the reader is on, counting from 0, and how many there are.
@@ -124,35 +114,28 @@ impl DocFind {
         };
     }
 
-    /// A pen that draws `doc` with every place found marked, and the reader's own apart.
-    pub fn pen(&self, style: Rc<Style>, doc: &Markdown) -> Pen {
-        self.shown.borrow_mut().clear();
-        self.budget.reset();
-        let hits = (self.hits.iter().enumerate())
+    /// Every place found, with the reader's own apart, as a pen marks them.
+    pub(crate) fn row_hits(&self) -> Vec<RowHit> {
+        (self.hits.iter().enumerate())
             .map(|(ix, hit)| RowHit {
                 text: (hit.at.1, hit.at.2, hit.at.3),
                 range: hit.range.clone(),
                 current: ix == self.current,
             })
-            .collect();
-        let selecting = Selecting {
-            row: SharedString::default(),
-            ix: 0,
-            docs: vec![doc as *const Markdown],
-            span: None,
-            shown: self.shown.clone(),
-            hits,
-            budget: self.budget.clone(),
-        };
-        Pen::selecting(style, Some(selecting))
+            .collect()
     }
 
     /// How far below the top of `doc` the place the reader is on is, as the last frame laid it
     /// out: its line once that frame drew its text, else the top of its block.
-    pub fn current_offset(&self, doc: &Markdown, style: &Style) -> Option<Pixels> {
+    pub fn current_offset(
+        &self,
+        doc: &Markdown,
+        style: &Style,
+        drawn: &DocSelect,
+    ) -> Option<Pixels> {
         let hit = self.hits.get(self.current)?;
         let (_, _, block, n) = hit.at;
-        let line = self.shown.borrow().iter().find_map(|text| {
+        let line = drawn.shown.borrow().iter().find_map(|text| {
             let held = (text.key.1, text.key.2, text.key.3) == (0, block, n)
                 && (text.offset..=text.offset + text.len).contains(&hit.range.start);
             held.then(|| {

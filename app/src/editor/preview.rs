@@ -8,12 +8,12 @@ use std::rc::Rc;
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    actions, div, img, point, px, AnyElement, App, AppContext, Context, Entity, FocusHandle,
-    Focusable, FontWeight, Hsla, InteractiveElement, IntoElement, KeyBinding, MouseButton,
-    ParentElement, Pixels, RenderOnce, ScrollHandle, SharedString, StatefulInteractiveElement,
-    Styled, StyledImage, Subscription, Window,
+    actions, div, img, point, px, AnyElement, App, AppContext, ClipboardItem, Context, Entity,
+    FocusHandle, Focusable, FontWeight, Hsla, InteractiveElement, IntoElement, KeyBinding,
+    MouseButton, ParentElement, Pixels, RenderOnce, ScrollHandle, SharedString,
+    StatefulInteractiveElement, Styled, StyledImage, Subscription, Window,
 };
-use gpui_transcript::{DocFind, Markdown, Pen, Query, Style};
+use gpui_transcript::{Copy, DocFind, DocSelect, Markdown, Query, Style};
 use tokio::sync::mpsc::UnboundedSender;
 
 use super::{Document, FileKey, OpenAt};
@@ -35,12 +35,15 @@ const WIDTH: f32 = 860.;
 const REVEAL_FRAMES: u8 = 2;
 
 pub(super) fn install(cx: &mut App) {
-    let find = if cfg!(target_os = "macos") {
-        "cmd-f"
+    let (find, copy) = if cfg!(target_os = "macos") {
+        ("cmd-f", "cmd-c")
     } else {
-        "ctrl-f"
+        ("ctrl-f", "ctrl-c")
     };
-    cx.bind_keys([KeyBinding::new(find, FindInPreview, Some(CONTEXT))]);
+    cx.bind_keys([
+        KeyBinding::new(find, FindInPreview, Some(CONTEXT)),
+        KeyBinding::new(copy, Copy, Some(CONTEXT)),
+    ]);
 }
 
 /// Whether a file's editor shows its text or the markdown it renders to.
@@ -140,6 +143,7 @@ pub(super) struct Body {
     pub(super) path: PathBuf,
     pub(super) markdown: Rc<Markdown>,
     pub(super) found: Option<Rc<DocFind>>,
+    pub(super) select: DocSelect,
     pub(super) scroll: ScrollHandle,
     pub(super) focus: FocusHandle,
     /// How pictures on the web are fetched; none while the file is on another host, whose
@@ -171,20 +175,37 @@ impl RenderOnce for Body {
             ruled_headings: true,
             ..reading_style(TEXT_SIZE, cx)
         });
-        let pen = match &self.found {
-            Some(found) => found.pen(style, &self.markdown),
-            None => Pen::new(style),
-        };
+        let pen = (self.select).pen(style, &self.markdown, self.found.as_deref());
         let id = SharedString::from(format!("markdown-{}", self.path.display()));
         let focus = self.focus.clone();
+        let (pressed, dragged, released, copied) = (
+            self.select.clone(),
+            self.select.clone(),
+            self.select.clone(),
+            self.select,
+        );
+        let (markdown, copying) = (self.markdown.clone(), self.markdown.clone());
         div()
             .id(id.clone())
             .size_full()
             .overflow_y_scroll()
             .track_scroll(&self.scroll)
             .track_focus(&self.focus)
-            .on_mouse_down(MouseButton::Left, move |_, window, cx| {
-                focus.focus(window, cx)
+            .on_mouse_down(MouseButton::Left, move |event, window, cx| {
+                focus.focus(window, cx);
+                pressed.press(event, &markdown);
+                window.refresh();
+            })
+            .on_mouse_move(move |event, window, _| {
+                if dragged.drag(event) {
+                    window.refresh();
+                }
+            })
+            .on_mouse_up(MouseButton::Left, move |_, _, _| released.release())
+            .on_action(move |_: &Copy, _, cx| {
+                if let Some(text) = copied.selected_text(&copying) {
+                    cx.write_to_clipboard(ClipboardItem::new_string(text));
+                }
             })
             .child(
                 div()
@@ -340,7 +361,8 @@ fn reveal_in(document: &mut Document, cx: &mut Context<super::Editors>) {
     };
     finding.reveal = finding.reveal.saturating_sub(1);
     let style = reading_style(TEXT_SIZE, cx);
-    let offset = (finding.found.as_ref()).and_then(|found| found.current_offset(&markdown, &style));
+    let offset = (finding.found.as_ref())
+        .and_then(|found| found.current_offset(&markdown, &style, &document.preview_select));
     if let Some(offset) = offset {
         let scroll = &document.preview_scroll;
         let (line, room) = (px(PAD_Y) + offset, room(scroll));

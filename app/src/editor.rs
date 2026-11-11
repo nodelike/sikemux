@@ -201,6 +201,7 @@ struct Document {
     /// The find bar over the markdown as it reads, while it is open.
     finding: Option<preview::Finding>,
     preview_focus: FocusHandle,
+    preview_select: gpui_transcript::DocSelect,
     preview_scroll: ScrollHandle,
     /// What changed since the last commit, marked beside the lines.
     gutter: gutter::Gutter,
@@ -483,6 +484,7 @@ pub fn pane(
                             path: path.clone(),
                             markdown: markdown.clone(),
                             found: finding.and_then(preview::Finding::found),
+                            select: document.preview_select.clone(),
                             scroll: document.preview_scroll.clone(),
                             focus: document.preview_focus.clone(),
                             asks: (bench.place() == crate::hosts::Place::This)
@@ -1084,6 +1086,7 @@ fn open(bench: &mut Workbench, key: FileKey, window: &mut Window, cx: &mut Conte
         rendered: None,
         finding: None,
         preview_focus: cx.focus_handle(),
+        preview_select: Default::default(),
         preview_scroll: ScrollHandle::new(),
         gutter: gutter::Gutter::default(),
         blame: blame::Blame::default(),

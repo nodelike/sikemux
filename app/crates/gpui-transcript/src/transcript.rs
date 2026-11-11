@@ -14,7 +14,7 @@ use gpui::{
 use crate::draw::{LayoutBudget, Pen, Style};
 use crate::find::{ranges_in, FoundChanged, Hit, Query};
 use crate::markdown::Markdown;
-use crate::select::{spot_at, word_at, Key, Place, RowHit, Selecting, Shown, Span, Spot};
+use crate::select::{picked, spot_at, word_at, Key, Place, RowHit, Selecting, Shown, Span, Spot};
 
 actions!(transcript, [Copy]);
 
@@ -787,18 +787,7 @@ impl<R: Row> Transcript<R> {
         let mut blocks = Vec::new();
         for ix in span.0 .0..=span.1 .0 {
             for (doc, markdown) in self.rows[ix].docs().into_iter().enumerate() {
-                for block in 0..markdown.blocks().len() {
-                    let texts = markdown.texts(block);
-                    let picked: Vec<&str> = (1..)
-                        .zip(&texts)
-                        .filter_map(|(n, text)| {
-                            text.get(span.range((ix, doc, block, n), text.len())?)
-                        })
-                        .collect();
-                    if !picked.is_empty() {
-                        blocks.push(picked.join("\n"));
-                    }
-                }
+                blocks.extend(picked(markdown, span, ix, doc));
             }
         }
         (!blocks.is_empty()).then(|| blocks.join("\n\n"))

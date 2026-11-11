@@ -1,11 +1,12 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::ops::Range;
 use std::rc::Rc;
 
-use gpui::{Pixels, Point, SharedString, TextLayout};
+use gpui::{MouseDownEvent, MouseMoveEvent, Pixels, Point, SharedString, TextLayout};
 
 use crate::draw::LayoutBudget;
-use crate::Markdown;
+use crate::find::DocFind;
+use crate::{Markdown, Pen, Style};
 
 /// A text a transcript draws: its row, which markdown in the row, which block, which text in the block.
 pub(crate) type Key = (SharedString, usize, usize, u32);
@@ -146,4 +147,116 @@ pub struct RowHit {
     pub text: (usize, usize, u32),
     pub range: Range<usize>,
     pub current: bool,
+}
+
+/// The text `span` covers in `markdown`, the `doc`th of row `ix`, a string per block it reaches.
+pub(crate) fn picked(markdown: &Markdown, span: Span, ix: usize, doc: usize) -> Vec<String> {
+    (0..markdown.blocks().len())
+        .filter_map(|block| {
+            let texts = markdown.texts(block);
+            let picked: Vec<&str> = (1..)
+                .zip(&texts)
+                .filter_map(|(n, text)| text.get(span.range((ix, doc, block, n), text.len())?))
+                .collect();
+            (!picked.is_empty()).then(|| picked.join("\n"))
+        })
+        .collect()
+}
+
+/// Selecting in one markdown drawn on its own, as a file's preview is: the selection's ends
+/// and where the last frame drew its texts. Clones share the same selection.
+#[derive(Clone, Default)]
+pub struct DocSelect {
+    ends: Rc<RefCell<Option<(Spot, Spot)>>>,
+    dragging: Rc<Cell<bool>>,
+    pub(crate) shown: Rc<RefCell<Vec<Shown>>>,
+    budget: Rc<LayoutBudget>,
+}
+
+impl DocSelect {
+    fn span(&self) -> Option<Span> {
+        let ends = self.ends.borrow();
+        let (anchor, head) = ends.as_ref()?;
+        let place = |spot: &Spot| (0, spot.key.1, spot.key.2, spot.key.3, spot.at);
+        let (anchor, head) = (place(anchor), place(head));
+        Some(Span(anchor.min(head), anchor.max(head)))
+    }
+
+    /// A pen that draws `doc` with the selection, and every place `found` found marked.
+    pub fn pen(&self, style: Rc<Style>, doc: &Markdown, found: Option<&DocFind>) -> Pen {
+        self.shown.borrow_mut().clear();
+        self.budget.reset();
+        Pen::selecting(
+            style,
+            Some(Selecting {
+                row: SharedString::default(),
+                ix: 0,
+                docs: vec![doc as *const Markdown],
+                span: self.span(),
+                shown: self.shown.clone(),
+                hits: found.map(DocFind::row_hits).unwrap_or_default(),
+                budget: self.budget.clone(),
+            }),
+        )
+    }
+
+    /// Starts a selection at the press, or picks the word or text under a double or triple click.
+    pub fn press(&self, event: &MouseDownEvent, doc: &Markdown) {
+        let Some(spot) = spot_at(&self.shown.borrow(), event.position) else {
+            return;
+        };
+        let (_, _, block, n) = spot.key;
+        let text = (doc.texts(block))
+            .get((n as usize).wrapping_sub(1))
+            .cloned();
+        let mut ends = self.ends.borrow_mut();
+        if let (true, Some(text)) = (event.click_count > 1, text) {
+            let range = match event.click_count {
+                2 => word_at(&text, spot.at),
+                _ => 0..text.len(),
+            };
+            let end = Spot {
+                key: spot.key.clone(),
+                at: range.end,
+            };
+            *ends = Some((
+                Spot {
+                    at: range.start,
+                    ..spot
+                },
+                end,
+            ));
+            self.dragging.set(false);
+            return;
+        }
+        *ends = match ends.take() {
+            Some((anchor, _)) if event.modifiers.shift => Some((anchor, spot)),
+            _ => Some((spot.clone(), spot)),
+        };
+        self.dragging.set(true);
+    }
+
+    /// Moves the selection's free end to the text nearest the pointer; whether it moved.
+    pub fn drag(&self, event: &MouseMoveEvent) -> bool {
+        if !self.dragging.get() || !event.dragging() {
+            return false;
+        }
+        let spot = spot_at(&self.shown.borrow(), event.position);
+        match (spot, self.ends.borrow_mut().as_mut()) {
+            (Some(spot), Some((_, head))) => {
+                *head = spot;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    pub fn release(&self) {
+        self.dragging.set(false);
+    }
+
+    pub fn selected_text(&self, doc: &Markdown) -> Option<String> {
+        let blocks = picked(doc, self.span()?, 0, 0);
+        (!blocks.is_empty()).then(|| blocks.join("\n\n"))
+    }
 }
