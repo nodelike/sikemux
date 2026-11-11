@@ -17,7 +17,7 @@ use super::Core;
 
 mod local;
 mod seal;
-pub(crate) mod shown;
+pub mod shown;
 mod sync;
 
 /// What an entry holds, sealed under the vault key.

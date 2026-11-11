@@ -103,7 +103,7 @@ pub mod triggers;
 pub mod updates;
 mod upgrade;
 pub mod usage;
-pub(crate) mod vault;
+pub mod vault;
 mod wait_for;
 mod wake;
 pub mod wallpaper;
