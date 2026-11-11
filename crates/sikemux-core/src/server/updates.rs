@@ -468,7 +468,6 @@ async fn ask_root(core: &Core) -> (Vec<UpdateStep>, Option<String>) {
         channel: channel(core),
         id: core.updates.status().id,
         action: HostAction::Install,
-        reason: None,
     };
     let last = host_update::ask_root(&request, |step| {
         if let UpdateStep::Downloaded { bytes, .. } = step {
@@ -557,15 +556,27 @@ async fn settle_own_update(core: Arc<Core>) {
         channel: channel(&core),
         id: Some(id),
         action,
-        reason: (action == HostAction::RollBack).then(|| {
-            format!(
-                "{} stopped {} times before it was ready",
-                core.config.build.version,
-                starts - 1
-            )
-        }),
     };
+    let note = host_update::settle_note(&request.id.clone().unwrap_or_default(), action);
+    let noted = blocking(move || {
+        sikemux_keychain::write(
+            host_update::SWITCH_SERVICE,
+            host_update::SETTLE_ACCOUNT,
+            &note,
+        )
+        .map_err(|error| CoreError::from(error.to_string()))
+    })
+    .await;
+    if let Err(error) = noted {
+        eprintln!("sikemux core: could not ask root to settle the update: {error}");
+        return;
+    }
     let answer = host_update::ask_root(&request, |_| {}).await;
+    let _ = blocking(|| {
+        sikemux_keychain::delete(host_update::SWITCH_SERVICE, host_update::SETTLE_ACCOUNT)
+            .map_err(|error| CoreError::from(error.to_string()))
+    })
+    .await;
     if let UpdateStep::Failed { message } = &answer {
         eprintln!("sikemux core: could not settle the update: {message}");
     }

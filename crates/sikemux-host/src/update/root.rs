@@ -50,11 +50,11 @@ pub fn serve() -> i32 {
             let _ = answer.flush();
         }
     };
-    let last = match (peer_uid(io::stdin().as_raw_fd()), request()) {
-        (Some(person), Ok(request)) => match request.action {
-            HostAction::Install => install(person, request.channel, request.id, &mut send),
-            HostAction::Ready | HostAction::RollBack => settle(request),
-        },
+    let last = match (peer(io::stdin().as_raw_fd()), request()) {
+        (Some(person), Ok(request)) if request.action == HostAction::Install => {
+            install(person, request.channel, request.id, &mut send)
+        }
+        (Some(person), Ok(request)) => settle(request, person),
         (None, _) => UpdateStep::Failed {
             message: format!("run this through {}", host_update::SOCKET),
         },
@@ -152,6 +152,7 @@ async fn attempt(
         reason: Some("the update service stopped before it finished".into()),
         evidence: None,
     };
+    forget_previous(dir);
     write_outcome(&outcome);
     let asset = newest
         .feed
@@ -207,6 +208,13 @@ async fn attempt(
     outcome.state = UpdateOutcomeState::Pending;
     outcome.at = now_ms();
     outcome.reason = None;
+    write_waiting(
+        dir,
+        &Waiting {
+            id: id.to_owned(),
+            person,
+        },
+    );
     write_outcome(&outcome);
     Ok(UpdateStep::Installed {
         from: installed.to_string(),
@@ -397,10 +405,14 @@ fn place(archive: &Path, target: &Path) -> Result<u64, Failure> {
     drop(core);
     let previous = Path::new(host_update::PREVIOUS_CORE);
     let _ = fs::remove_file(previous);
-    if let Err(error) = fs::hard_link(target, previous) {
-        eprintln!("sikemux update: the core in place is not kept to go back to: {error}");
-    }
+    let kept = fs::hard_link(target, previous);
     fs::rename(&staged, target).map_err(failed)?;
+    match kept {
+        Ok(()) => keep_out_of_reach(previous),
+        Err(error) => {
+            eprintln!("sikemux update: the core in place is not kept to go back to: {error}")
+        }
+    }
     if let Ok(dir) = File::open(dir) {
         let _ = dir.sync_all();
     }
@@ -440,28 +452,45 @@ fn tail(output: &[u8]) -> Option<String> {
 }
 
 /// Settles the update `request` names once its new core has started: drops the
-/// core it replaced, or puts that one back.
-pub fn settle(request: HostRequest) -> UpdateStep {
-    let failed = |message: String| UpdateStep::Failed { message };
-    // SAFETY: geteuid takes nothing and cannot fail.
-    if unsafe { libc::geteuid() } != 0 {
-        return failed("only root can settle an update".into());
-    }
+/// core it replaced, or puts that one back. Only the person the update was for may ask, and
+/// only through a note their core left in its guarded store, which no other program of theirs
+/// can write, so another user cannot undo an update.
+fn settle(request: HostRequest, person: u32) -> UpdateStep {
+    let failed = |message: &str| UpdateStep::Failed {
+        message: message.to_owned(),
+    };
     let core = Path::new(host_update::INSTALLED_CORE);
     let Some(dir) = core.parent() else {
-        return failed("the core has no folder".into());
+        return failed("the core has no folder");
     };
     let _lock = match lock(dir) {
         Ok(lock) => lock,
-        Err(message) => return failed(message),
+        Err(message) => return UpdateStep::Failed { message },
     };
-    let Some(mut outcome) = host_update::read_outcome().filter(|outcome| {
+    let waiting = read_waiting(dir)
+        .filter(|waiting| request.id.as_ref() == Some(&waiting.id) && waiting.person == person);
+    let outcome = host_update::read_outcome().filter(|outcome| {
         outcome.state == UpdateOutcomeState::Pending && request.id.as_ref() == Some(&outcome.id)
-    }) else {
-        return failed("no update is waiting on that".into());
+    });
+    let (Some(_), Some(mut outcome)) = (waiting, outcome) else {
+        return failed("no update of yours is waiting on that");
     };
+    let installed = read_checked(dir).map(|checked| checked.installed);
+    let asked = sikemux_keychain::read_guarded_of(
+        person,
+        host_update::SWITCH_SERVICE,
+        host_update::SETTLE_ACCOUNT,
+    )
+    .ok()
+    .flatten();
+    if installed != outcome.to
+        || asked != Some(host_update::settle_note(&outcome.id, request.action))
+    {
+        return failed("only the core this update put in place may settle it");
+    }
     let previous = Path::new(host_update::PREVIOUS_CORE);
     outcome.at = now_ms();
+    let _ = fs::remove_file(dir.join(WAITING));
     if request.action != HostAction::RollBack {
         let _ = fs::remove_file(previous);
         outcome.state = UpdateOutcomeState::Done;
@@ -470,11 +499,10 @@ pub fn settle(request: HostRequest) -> UpdateStep {
             version: outcome.to.unwrap_or(outcome.from),
         };
     }
-    let reason =
-        (request.reason.clone()).unwrap_or_else(|| "the new core did not start well".into());
     let restored = Version::parse(&outcome.from)
         .map_err(|error| error.to_string())
         .and_then(|from| {
+            give_back_to_group(previous)?;
             fs::rename(previous, core).map_err(|error| error.to_string())?;
             let inode = fs::metadata(core).map_err(|error| error.to_string())?.ino();
             write_checked(dir, request.channel, &from, inode);
@@ -482,15 +510,64 @@ pub fn settle(request: HostRequest) -> UpdateStep {
         });
     if let Err(error) = restored {
         eprintln!("sikemux update: could not put the previous core back: {error}");
-        return failed(format!("could not put the previous core back: {error}"));
+        return UpdateStep::Failed {
+            message: format!("could not put the previous core back: {error}"),
+        };
     }
+    let reason = "the new core stopped before it was ready";
     eprintln!("sikemux update: put {} back: {reason}", outcome.from);
     outcome.state = UpdateOutcomeState::RolledBack;
-    outcome.reason = Some(reason);
+    outcome.reason = Some(reason.into());
     write_outcome(&outcome);
     UpdateStep::Current {
         version: outcome.from,
     }
+}
+
+/// Root's own note of whom a pending update is for, which only root reads.
+const WAITING: &str = ".update-waiting.json";
+
+#[derive(Serialize, Deserialize)]
+struct Waiting {
+    id: String,
+    person: u32,
+}
+
+fn read_waiting(dir: &Path) -> Option<Waiting> {
+    serde_json::from_slice(&fs::read(dir.join(WAITING)).ok()?).ok()
+}
+
+fn write_waiting(dir: &Path, waiting: &Waiting) {
+    if let Ok(bytes) = serde_json::to_vec(waiting) {
+        let _ = sikemux_process::files::write_atomic(&dir.join(WAITING), &bytes, true);
+    }
+}
+
+/// Drops the core an earlier update kept to go back to, as a new update replaces that one.
+fn forget_previous(dir: &Path) {
+    let _ = fs::remove_file(host_update::PREVIOUS_CORE);
+    let _ = fs::remove_file(dir.join(WAITING));
+}
+
+/// Makes the kept core root's alone, so nobody runs an old build with the secrets group.
+fn keep_out_of_reach(previous: &Path) {
+    let kept = std::os::unix::fs::chown(previous, Some(0), Some(0))
+        .and_then(|()| fs::set_permissions(previous, fs::Permissions::from_mode(0o700)));
+    if let Err(error) = kept {
+        eprintln!(
+            "sikemux update: the kept core could not be made root's alone, so it goes: {error}"
+        );
+        let _ = fs::remove_file(previous);
+    }
+}
+
+/// Gives the kept core back the owner and mode the installed core has, setgid last since
+/// changing the owner clears it.
+fn give_back_to_group(previous: &Path) -> Result<(), String> {
+    let gid = group_id()?;
+    std::os::unix::fs::chown(previous, Some(0), Some(gid))
+        .and_then(|()| fs::set_permissions(previous, fs::Permissions::from_mode(0o2755)))
+        .map_err(|error| error.to_string())
 }
 
 /// Records how an update ended, readable by anyone, since the person's core reports it.
@@ -568,7 +645,7 @@ fn now() -> u64 {
 }
 
 /// Who is on the other end of the socket, as the kernel says.
-fn peer_uid(fd: i32) -> Option<u32> {
+fn peer(fd: i32) -> Option<u32> {
     let mut credentials = libc::ucred {
         pid: 0,
         uid: 0,

@@ -22,6 +22,14 @@ pub const SOCKET: &str = "/run/sikemux-update.sock";
 pub const SWITCH_SERVICE: &str = "sikemux-updates";
 pub const SWITCH_ACCOUNT: &str = "switch";
 pub const SWITCH_OFF: &str = "off";
+/// The guarded store's entry naming the update a core asks root to settle, and how, which
+/// only a core can write; root settles nothing else.
+pub const SETTLE_ACCOUNT: &str = "settle";
+
+/// What [`SETTLE_ACCOUNT`] holds while a core asks root to settle update `id`.
+pub fn settle_note(id: &str, action: HostAction) -> String {
+    format!("{id} {action:?}")
+}
 /// How the last update ended, which root writes before it exits and anyone may read.
 pub const OUTCOME_FILE: &str = "/usr/local/lib/sikemux/update-outcome.json";
 /// The core an update replaced, kept until the new one says it started well.
@@ -37,8 +45,6 @@ pub struct HostRequest {
     pub id: Option<String>,
     #[serde(default)]
     pub action: HostAction,
-    #[serde(default)]
-    pub reason: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
