@@ -273,6 +273,11 @@ fn utc_day(now: SystemTime) -> u64 {
     sikemux_process::clock::epoch_ms_of(now) / 1000 / SECONDS_PER_DAY
 }
 
+/// The person the core at `socket` is signed in as, named as the usage ping names them.
+pub fn signed_in_user(socket: &Path) -> Option<String> {
+    super::remote::signed_in_account(socket).map(|account| account_hash(&account))
+}
+
 fn account_hash(account: &str) -> String {
     hex::encode(Sha256::digest(format!("sikemux-usage|{account}")))
 }

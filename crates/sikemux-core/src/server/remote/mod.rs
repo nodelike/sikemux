@@ -479,6 +479,11 @@ pub(crate) fn file_path(socket: &Path) -> PathBuf {
     PathBuf::from(path)
 }
 
+/// The account the core at `socket` was last signed in to, read without the core.
+pub(crate) fn signed_in_account(socket: &Path) -> Option<String> {
+    read_stored(&file_path(socket)).ok()?.owner
+}
+
 fn read_stored(path: &Path) -> CoreResult<Stored> {
     Ok(read_file(path)?.1)
 }

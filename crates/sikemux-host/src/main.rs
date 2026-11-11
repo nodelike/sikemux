@@ -16,7 +16,7 @@ fn main() {
     #[cfg(unix)]
     if core {
         use sikemux_host::crash_reports::{self, Process};
-        crash_reports::start(Process::Core, core_mode::data_dir());
+        crash_reports::start(Process::Core, core_mode::data_dir(), core_mode::socket());
     }
     sikemux_keychain::settle(core);
     #[cfg(unix)]

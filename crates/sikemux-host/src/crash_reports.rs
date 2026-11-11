@@ -1,7 +1,8 @@
 //! Sends panics, native crashes, release health and how long the app took to start to Sentry.
 //! Only builds the release workflow publishes know where to send, and they send only while the
 //! person shares usage data and `DO_NOT_TRACK` is unset. Nothing a person wrote or opened goes
-//! along, and their home folder is written `~`.
+//! along, their home folder is written `~`, and they are named only by the account hash the
+//! usage ping sends.
 
 use std::net::Ipv4Addr;
 use std::path::{Path, PathBuf};
@@ -58,6 +59,7 @@ impl Process {
 }
 
 static DATA_DIR: OnceLock<PathBuf> = OnceLock::new();
+static USER: OnceLock<String> = OnceLock::new();
 static SENDING_CRASH: AtomicBool = AtomicBool::new(false);
 static STARTUP: Mutex<Option<Startup>> = Mutex::new(None);
 static SESSION: Mutex<Option<SessionUpdate<'static>>> = Mutex::new(None);
@@ -69,8 +71,9 @@ struct Startup {
 
 /// Starts sending from this process. A copy of it started by the crash reporter runs it here
 /// instead and never returns, so this comes first in `main`. The client starts on a thread of
-/// its own, so it costs the person's start nothing.
-pub fn start(process: Process, data_dir: Option<PathBuf>) {
+/// its own, so it costs the person's start nothing. `socket` is the core's, which knows the
+/// account the person is signed in to.
+pub fn start(process: Process, data_dir: Option<PathBuf>, socket: Option<PathBuf>) {
     let Some(dsn) = DSN else {
         return;
     };
@@ -97,6 +100,9 @@ pub fn start(process: Process, data_dir: Option<PathBuf>) {
         minidumps = minidumps.crashes_dir(autopsies.join("minidumps"));
     }
     if minidumps.is_crash_reporter_process() {
+        if let Some(user) = crashed_session().and_then(|session| session.distinct_id) {
+            let _ = USER.set(user);
+        }
         #[cfg(unix)]
         leave_with_parent();
         Client::with_options(options(dsn, process, minidumps));
@@ -125,6 +131,16 @@ pub fn start(process: Process, data_dir: Option<PathBuf>) {
     let spawned = std::thread::Builder::new()
         .name("crash-reports".into())
         .spawn(move || {
+            if let Some(user) = socket
+                .or_else(sikemux_core::default_socket_path)
+                .as_deref()
+                .and_then(usage::signed_in_user)
+            {
+                if let Some(session) = SESSION.locked().as_mut() {
+                    session.distinct_id = Some(user.clone());
+                }
+                let _ = USER.set(user);
+            }
             let hub = Hub::main();
             hub.bind_client(Some(Arc::new(Client::with_options(options(
                 dsn, process, minidumps,
@@ -194,15 +210,17 @@ fn end_session(client: &Client, status: SessionStatus) {
 
 /// In the crash reporter: ends the session of the process that crashed as crashed.
 fn send_crashed_session() {
-    let Some(session) = std::env::var(SESSION_VARIABLE)
-        .ok()
-        .and_then(|session| serde_json::from_str::<SessionUpdate<'static>>(&session).ok())
-    else {
+    let Some(session) = crashed_session() else {
         return;
     };
     if let Some(client) = Hub::main().client() {
         client.send_envelope(ended(session, SessionStatus::Crashed).into());
     }
+}
+
+/// In the crash reporter: the session of the process it watches.
+fn crashed_session() -> Option<SessionUpdate<'static>> {
+    serde_json::from_str(&std::env::var(SESSION_VARIABLE).ok()?).ok()
 }
 
 fn ended(mut session: SessionUpdate<'static>, status: SessionStatus) -> SessionUpdate<'static> {
@@ -351,9 +369,12 @@ fn before_send(mut event: Event<'static>, process: Process) -> Option<Event<'sta
         return None;
     }
     event.server_name = None;
+    let user = event.user.get_or_insert_with(Default::default);
     // An address of its own stops Sentry placing the person by the one the report came from.
-    event.user.get_or_insert_with(Default::default).ip_address =
-        Some(IpAddress::Exact(Ipv4Addr::UNSPECIFIED.into()));
+    user.ip_address = Some(IpAddress::Exact(Ipv4Addr::UNSPECIFIED.into()));
+    if user.id.is_none() {
+        user.id = USER.get().cloned();
+    }
     let channel = channel(event.release.as_deref().unwrap_or_default());
     for (tag, value) in [
         ("process", process.name()),
@@ -558,7 +579,6 @@ fn event(report: &PanicReport) -> Event<'static> {
         .extra
         .insert("thread".into(), report.thread.clone().into());
     event.release = Some(release.into());
-    event.fingerprint = vec!["panic".into(), report.location.clone().into()].into();
     event.transaction = Some(report.location.clone());
     event
 }

@@ -20,8 +20,17 @@ pub fn run() -> i32 {
 
 /// The folder `--data-dir` names.
 pub fn data_dir() -> Option<PathBuf> {
+    path_arg("--data-dir")
+}
+
+/// The socket `--socket` names.
+pub fn socket() -> Option<PathBuf> {
+    path_arg("--socket")
+}
+
+fn path_arg(name: &str) -> Option<PathBuf> {
     let mut args = std::env::args_os().skip(2);
-    args.find(|arg| arg == "--data-dir")?;
+    args.find(|arg| arg == name)?;
     args.next().map(PathBuf::from)
 }
 

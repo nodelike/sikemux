@@ -10,7 +10,7 @@ fn main() {
     hand_cli_to_core();
     let began = std::time::SystemTime::now();
     sikemux_host::panic_reports::record_panics("app");
-    crash_reports::start(Process::App, None);
+    crash_reports::start(Process::App, None, None);
     #[cfg(target_os = "linux")]
     {
         sikemux_browser::choose_page_rendering();
