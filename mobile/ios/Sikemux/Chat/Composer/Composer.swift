@@ -135,7 +135,7 @@ struct Composer: View {
                     attachments: attachments, core: core, onRemove: session.removeAttachment, onRetry: send
                 ) {
                     ForEach(chips, id: \.uri) { chip in
-                        StashChip(chip: chip) { session.removeChip(chip.uri) }
+                        StashChip(chip: chip) { session.draft.removeChip(chip.uri) }
                     }
                 }
             }

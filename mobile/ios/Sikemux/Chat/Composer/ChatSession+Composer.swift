@@ -10,15 +10,8 @@ extension ChatSession {
         draft.write(text)
     }
 
-    /// Writes what was picked from the mention menu over the word from `start` that asked for it, as a chip when it
-    /// is one.
-    func mention(_ start: Int, written: String, id: String? = nil, label: String? = nil, context: ChatContext? = nil) {
-        draft.mention(start, written: written, id: id, label: label, context: context)
-    }
-
-    /// Keeps what the issue or pull request chip `id` sends, once the host has read it.
-    func track(_ id: String, _ context: ChatContext) {
-        draft.track(id, context)
+    func removeAttachment(_ id: String) {
+        _ = draft.removeAttachment(id)
     }
 
     /// Adds what was picked for the next message, leaving out what the host would refuse.
@@ -32,14 +25,6 @@ extension ChatSession {
         for id in ids {
             _ = try await connection.call(PhoneCall.AttachStash.self, AttachStashParams(id: id, agentId: agentId))
         }
-    }
-
-    func removeChip(_ uri: String) {
-        draft.removeChip(uri)
-    }
-
-    func removeAttachment(_ id: String) {
-        _ = draft.removeAttachment(id)
     }
 
     /// Stashes the whole draft as one prompt, with the files picked here put on the host first, and empties it.
