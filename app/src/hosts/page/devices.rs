@@ -35,6 +35,7 @@ pub fn pair_button(bench: &Workbench) -> AnyElement {
             .tooltip("Sign in to pair a device")
             .into_any_element();
     }
+    let asks_first = bench.feeds.this.approval == Some(true);
     Popover::new("devices-pair-popover")
         .anchor(Anchor::TopRight)
         .offset(SPACE_1H)
@@ -43,10 +44,10 @@ pub fn pair_button(bench: &Workbench) -> AnyElement {
                 .icon(Icon::Plus)
                 .into_any_element()
         })
-        .content(|_, _, cx| {
+        .content(move |_, _, cx| {
             ui::float(cx)
                 .w(px(480.))
-                .child(phone_panel(cx))
+                .child(phone_panel(asks_first, cx))
                 .into_any_element()
         })
         .into_any_element()
@@ -338,13 +339,15 @@ fn notification_note(state: Option<NotificationState>) -> Option<(&'static str, 
     })
 }
 
-fn phone_panel(cx: &App) -> AnyElement {
+fn phone_panel(asks_first: bool, cx: &App) -> AnyElement {
     let t = Tokens::get(cx);
-    let steps = [
+    let mut steps = vec![
         "Scan the code with your phone's camera",
         "Sign in with the same account",
-        "Click Allow here when it asks",
     ];
+    if asks_first {
+        steps.push("Click Allow here when it asks");
+    }
     div()
         .flex()
         .items_center()
