@@ -50,21 +50,38 @@ pub(super) async fn run(core: Weak<Core>) {
             tokio::time::sleep(SETTLE).await;
         }
         let Some(core) = core.upgrade() else { return };
-        if let Err(error) = round(&core).await {
-            eprintln!("sikemux core: the account vault did not sync: {error}");
-            let changed = {
-                let mut state = core.vault.state.locked();
-                let failed = Status::Failed(error.to_string());
-                let changed = state.status != failed && state.status != Status::Waiting;
-                if changed {
-                    state.status = failed;
-                }
-                changed
-            };
-            if changed {
-                announce(&core);
-            }
+        match round(&core).await {
+            Ok(()) => core.vault.state.locked().failures = 0,
+            Err(error) => failed(&core, &error),
         }
+    }
+}
+
+/// Rounds that may fail before Settings says so: one lost to the network for a moment, as
+/// when the Mac wakes, comes right on the next.
+const FAILURES_SHOWN: u32 = 3;
+
+fn failed(core: &Core, error: &CoreError) {
+    eprintln!("sikemux core: the account vault did not sync: {error}");
+    let changed = {
+        let mut state = core.vault.state.locked();
+        state.failures = state.failures.saturating_add(1);
+        let said = if error.is_unreachable() {
+            "Can't reach Sikemux's server. Trying again."
+        } else {
+            "The account vault could not sync. Trying again."
+        };
+        let failed = Status::Failed(said.to_owned());
+        let shown = state.failures >= FAILURES_SHOWN
+            && state.status != failed
+            && state.status != Status::Waiting;
+        if shown {
+            state.status = failed;
+        }
+        shown
+    };
+    if changed {
+        announce(core);
     }
 }
 

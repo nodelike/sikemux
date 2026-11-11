@@ -95,6 +95,8 @@ struct State {
     latest: BTreeMap<String, (String, u64)>,
     /// Entries whose body changed here and wait to be written to the vault.
     pending: BTreeSet<String>,
+    /// Rounds that failed in a row since the last that synced.
+    failures: u32,
     /// A plugin wrote or deleted a secret, or the person changed a connector, since this
     /// host last compared its store with the vault.
     dirty: bool,
