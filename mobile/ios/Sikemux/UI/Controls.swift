@@ -160,6 +160,8 @@ struct PasswordField: View {
             placeholder: placeholder, text: $text, icon: Icons.lock, secure: !shown, trailingRoom: 48,
             autoFocus: autoFocus
         )
+        .textInputAutocapitalization(.never)
+        .autocorrectionDisabled()
         .overlay(alignment: .trailing) {
             Button {
                 shown.toggle()
