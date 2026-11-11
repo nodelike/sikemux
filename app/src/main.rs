@@ -113,6 +113,8 @@ fn hand_cli_to_core() {
         eprintln!("sikemux: the core is not installed beside the app");
         std::process::exit(1);
     };
+    // The CLI takes this process's place, in the person's own shell, which already has their PATH.
+    #[allow(clippy::disallowed_methods)]
     let error = std::process::Command::new(core).args(args).exec();
     eprintln!("sikemux: could not run the core: {error}");
     std::process::exit(1);
