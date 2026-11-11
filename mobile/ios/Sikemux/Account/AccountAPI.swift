@@ -113,7 +113,7 @@ enum AccountCalls {
 
     /// Adds this phone to the account, proving it holds its key; again only updates its name. A deleted account
     /// that can still be restored throws AccountDeleting.
-    static func registerPhone(userId: String) async throws {
+    static func registerPhone(userId: String) async throws -> WireDevice {
         do {
             let nonce = try await challenge()
             let me = try Identity.shared.deviceIdentity()
@@ -125,7 +125,7 @@ enum AccountCalls {
                 nonce: nonce,
                 signature: try me.signRegistration(nonce: nonce, userId: userId)
             )
-            _ = try await AccountAPI.send("POST", "/v1/devices", body: registration, as: WireDevice.self)
+            return try await AccountAPI.send("POST", "/v1/devices", body: registration, as: WireDevice.self)
         } catch let problem as ApiProblem where problem.status == 401 {
             let account = try? await standing()
             if account?.status == .deleting, let deletesAt = account?.deletesAt {

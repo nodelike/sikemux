@@ -120,12 +120,13 @@ final class AccountSession {
         status = .registering
         Task {
             do {
-                try await AccountCalls.registerPhone(userId: userId)
+                let phone = try await AccountCalls.registerPhone(userId: userId)
                 registering = false
                 guard self.userId == userId else { return }
                 registered = true
                 status = .registered
                 if front { live?.start() }
+                await Notify.shared.phoneAdded(at: phone.createdAt)
             } catch {
                 registering = false
                 guard self.userId == userId else { return }
