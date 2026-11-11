@@ -4153,6 +4153,9 @@ struct Preferences: Codable, Hashable, Sendable {
     /// The host whose copy of each project is in front (ADR 0023), by the
     /// project's identity: `this` or `host:<key>`.
     var frontCopies: [String: String]
+    /// The space of each project only other hosts hold (ADR 0023), by its identity, so it
+    /// keeps its space wherever its copies are.
+    var elsewhereSpaces: [String: String]
     /// How many builds agents start may run at once on this host; 0 sizes it from the
     /// host's cores and memory.
     var buildRuns: Int

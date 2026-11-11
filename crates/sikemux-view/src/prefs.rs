@@ -169,6 +169,9 @@ pub struct Preferences {
     /// The host whose copy of each project is in front (ADR 0023), by the
     /// project's identity: `this` or `host:<key>`.
     pub front_copies: BTreeMap<String, String>,
+    /// The space of each project only other hosts hold (ADR 0023), by its identity, so it
+    /// keeps its space wherever its copies are.
+    pub elsewhere_spaces: BTreeMap<String, String>,
     /// How many builds agents start may run at once on this host; 0 sizes it from the
     /// host's cores and memory.
     pub build_runs: u32,
@@ -265,6 +268,7 @@ preference_changes! {
     WindowView window_view: WindowView,
     RecentCommandKeys recent_command_keys: Vec<String>,
     FrontCopies front_copies: BTreeMap<String, String>,
+    ElsewhereSpaces elsewhere_spaces: BTreeMap<String, String>,
     BuildRuns build_runs: u32,
 }
 
@@ -420,6 +424,7 @@ impl Default for Preferences {
             window_view: WindowView::default(),
             recent_command_keys: Vec::new(),
             front_copies: BTreeMap::new(),
+            elsewhere_spaces: BTreeMap::new(),
             build_runs: 0,
         }
     }

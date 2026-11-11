@@ -2631,6 +2631,11 @@ export interface Preferences {
      */
     frontCopies: Record<string, string>;
     /**
+     * The space of each project only other hosts hold (ADR 0023), by its identity, so it
+     * keeps its space wherever its copies are.
+     */
+    elsewhereSpaces: Record<string, string>;
+    /**
      * How many builds agents start may run at once on this host; 0 sizes it from the
      * host's cores and memory.
      */

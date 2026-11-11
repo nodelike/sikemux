@@ -80,7 +80,8 @@ impl Workbench {
         let Some(view) = self.this_view() else {
             return Vec::new();
         };
-        let own = view.workspace.projects.iter().map(|project| {
+        let mut folded: Vec<Folded> = Vec::new();
+        for project in &view.workspace.projects {
             let here = HostCopy {
                 place: Place::This,
                 project: project.id.clone(),
@@ -89,22 +90,31 @@ impl Workbench {
                 git: project.git.clone(),
                 away: false,
             };
-            Folded {
-                name: project.name.clone(),
-                identity: project.identity.clone(),
-                copies: std::iter::once(here)
-                    .chain(project.copies.iter().map(copy_of))
-                    .collect(),
-                own: Some(project.clone()),
+            let elsewhere = project.copies.iter().map(copy_of);
+            let same = (project.identity.as_ref()).and_then(|identity| {
+                (folded.iter_mut()).find(|f| f.identity.as_ref() == Some(identity))
+            });
+            match same {
+                Some(same) => {
+                    same.copies.push(here);
+                    same.copies.extend(elsewhere);
+                }
+                None => folded.push(Folded {
+                    name: project.name.clone(),
+                    identity: project.identity.clone(),
+                    copies: std::iter::once(here).chain(elsewhere).collect(),
+                    own: Some(project.clone()),
+                }),
             }
-        });
+        }
         let elsewhere = view.workspace.elsewhere.iter().map(|project| Folded {
             name: project.name.clone(),
             identity: project.identity.clone(),
             own: None,
             copies: project.copies.iter().map(copy_of).collect(),
         });
-        own.chain(elsewhere).collect()
+        folded.extend(elsewhere);
+        folded
     }
 
     /// The copy of `folded` that is the project in front, if one is.
@@ -249,6 +259,27 @@ impl Workbench {
         }
     }
 
+    /// The space `folded` is listed in: this host's project's, else the one the person put the
+    /// repository in while only other hosts held it.
+    pub fn space_of<'a>(&'a self, folded: &'a Folded) -> Option<&'a str> {
+        match &folded.own {
+            Some(own) => own.space.as_deref(),
+            None => (folded.identity.as_ref())
+                .and_then(|identity| self.preferences().elsewhere_spaces.get(identity))
+                .map(String::as_str),
+        }
+    }
+
+    /// Lists the project known as `identity`, which only other hosts hold, in `space`.
+    pub fn set_elsewhere_space(&self, identity: &str, space: Option<String>) {
+        let mut spaces = self.preferences().elsewhere_spaces.clone();
+        match space {
+            Some(space) => spaces.insert(identity.to_owned(), space),
+            None => spaces.remove(identity),
+        };
+        crate::settings::set(self, PreferenceChange::ElsewhereSpaces(spaces));
+    }
+
     /// A project of the host at `place`, by its id there.
     pub fn project_on(&self, place: &Place, id: &str) -> Option<&ProjectInfo> {
         (self.view_at(place)?.workspace.projects.iter()).find(|project| project.id == id)
@@ -288,6 +319,13 @@ pub fn copy_menu(
                 (Some(git), _) if git.ahead > 0 => format!("{} ↑{}", git.branch, git.ahead),
                 (Some(git), _) => git.branch.clone(),
                 (None, _) => String::new(),
+            };
+            let twins = (folded.copies.iter())
+                .filter(|other| other.place == copy.place)
+                .count();
+            let hint = match (twins > 1, copy.path.file_name()) {
+                (true, Some(folder)) => format!("{} · {hint}", folder.to_string_lossy()),
+                _ => hint,
             };
             let glyph = copy.icon();
             let ink = t.host;
@@ -564,14 +602,21 @@ pub fn copy_note(
 }
 
 /// The host and how many hold `folded`, at the end of its row: the count of hosts when more than
-/// one holds it, the host's name when only another one does, else nothing.
+/// one holds it, the host's name when only another one does, else nothing. Two clones on one
+/// host count once.
 pub fn where_held(folded: &Folded, cx: &App) -> Option<AnyElement> {
     let t = Tokens::get(cx);
-    let label: SharedString = match folded.copies.as_slice() {
+    let mut hosts: Vec<&HostCopy> = Vec::new();
+    for copy in &folded.copies {
+        if !hosts.iter().any(|held| held.place == copy.place) {
+            hosts.push(copy);
+        }
+    }
+    let label: SharedString = match hosts.as_slice() {
         [] => return None,
         [only] if only.place == Place::This => return None,
         [only] => only.host.clone(),
-        copies => copies.len().to_string().into(),
+        hosts => hosts.len().to_string().into(),
     };
     Some(
         div()

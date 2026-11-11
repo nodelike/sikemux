@@ -179,11 +179,7 @@ pub fn side_rail(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoEle
     let space = bench.space();
     let listed = bench.folded();
     let projects: Vec<_> = (listed.iter())
-        .filter(|folded| {
-            space.is_none_or(|space| {
-                folded.own.as_ref().and_then(|own| own.space.as_deref()) == Some(&space.id)
-            })
-        })
+        .filter(|folded| space.is_none_or(|space| bench.space_of(folded) == Some(&space.id)))
         .map(|folded| project_tree(bench, folded, cx).into_any_element())
         .collect();
     let empty = match space {
@@ -1088,7 +1084,9 @@ fn project_menu(
 ) -> impl Fn(PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu + 'static {
     let bench_entity = cx.weak_entity();
     let front = bench.front_copy(folded).cloned();
-    let own = (folded.own.as_ref()).map(|own| (own.id.clone(), own.space.clone()));
+    let own = (folded.own.as_ref()).map(|own| own.id.clone());
+    let identity = folded.identity.clone();
+    let current = bench.space_of(folded).map(str::to_owned);
     let copies = crate::copies::copy_menu(bench, folded, cx);
     let spaces: Vec<(String, String, Option<Icon>)> =
         bench.this_view().map_or(Vec::new(), |view| {
@@ -1125,15 +1123,21 @@ fn project_menu(
             None => popup,
         };
         popup = copies(popup.separator(), window, cx);
-        let Some((id, current)) = &own else {
+        if own.is_none() && identity.is_none() {
             return popup;
-        };
+        }
         let move_to = |space: Option<String>| {
-            let id = id.clone();
+            let (own, identity) = (own.clone(), identity.clone());
             act(Rc::new(move |bench: &mut Workbench| {
-                crate::core::Target::here(&bench.asks).call_typed::<call::UpdateProject>(
-                    UpdateProjectParams::space(id.clone(), space.clone()),
-                )
+                match (&own, &identity) {
+                    (Some(id), _) => {
+                        crate::core::Target::here(&bench.asks).call_typed::<call::UpdateProject>(
+                            UpdateProjectParams::space(id.clone(), space.clone()),
+                        )
+                    }
+                    (None, Some(identity)) => bench.set_elsewhere_space(identity, space.clone()),
+                    (None, None) => {}
+                }
             }))
         };
         popup = popup.separator();
@@ -1146,17 +1150,19 @@ fn project_menu(
             }
             popup = popup.item(item);
         }
-        let new_space = {
-            let (bench, id) = (bench_entity.clone(), id.clone());
-            move |_: &ClickEvent, _: &mut Window, cx: &mut App| {
-                let _ = bench.update(cx, |bench, cx| bench.new_space(Some(id.clone()), cx));
-            }
-        };
-        popup = popup.item(
-            PopupMenuItem::new("New Space…")
-                .icon(Icon::Plus)
-                .on_click(new_space),
-        );
+        if let Some(id) = &own {
+            let new_space = {
+                let (bench, id) = (bench_entity.clone(), id.clone());
+                move |_: &ClickEvent, _: &mut Window, cx: &mut App| {
+                    let _ = bench.update(cx, |bench, cx| bench.new_space(Some(id.clone()), cx));
+                }
+            };
+            popup = popup.item(
+                PopupMenuItem::new("New Space…")
+                    .icon(Icon::Plus)
+                    .on_click(new_space),
+            );
+        }
         popup.separator().item(
             PopupMenuItem::new("No Space")
                 .icon(Icon::Move)
