@@ -3153,15 +3153,11 @@ fn a_run_counts_what_it_did_failures_first_and_leaves_housekeeping_out() {
     let lines: Vec<_> = run
         .lines
         .iter()
-        .map(|line| (line.calls.join(","), line.failed))
+        .map(|line| (line.calls.clone(), line.failed))
         .collect();
     assert_eq!(
         lines,
-        [
-            ("e".into(), true),
-            ("b,c".into(), false),
-            ("d".into(), false)
-        ]
+        [(vec![4], true), (vec![1, 2], false), (vec![3], false)]
     );
     let families: Vec<_> = run.said.iter().map(|clause| clause.family).collect();
     assert_eq!(

@@ -2154,8 +2154,8 @@ export interface RunClause {
 export interface RunLine {
     intent: ToolIntent;
     family: ToolFamily;
-    /** The calls it stands for, by `toolCallId`. */
-    calls: string[];
+    /** The calls it stands for, by their place in the run, its first call 0. */
+    calls: number[];
     failed?: boolean;
 }
 

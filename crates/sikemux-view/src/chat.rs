@@ -1368,8 +1368,8 @@ pub struct RunClause {
 pub struct RunLine {
     pub intent: ToolIntent,
     pub family: ToolFamily,
-    /// The calls it stands for, by `toolCallId`.
-    pub calls: Vec<String>,
+    /// The calls it stands for, by their place in the run, its first call 0.
+    pub calls: Vec<u32>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub failed: bool,
 }

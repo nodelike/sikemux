@@ -69,6 +69,8 @@ fn counted_family(tool: &ToolCall) -> ToolFamily {
 }
 
 struct Call<'a> {
+    /// Its place in the run.
+    at: u32,
     tool: &'a ToolCall,
     failed: bool,
     took: Option<u64>,
@@ -77,7 +79,8 @@ struct Call<'a> {
 fn calls(parts: &[ChatPart]) -> Vec<Call<'_>> {
     parts
         .iter()
-        .filter_map(|part| match part {
+        .zip(0..)
+        .filter_map(|(part, at)| match part {
             ChatPart::Tool {
                 tool,
                 failure,
@@ -85,6 +88,7 @@ fn calls(parts: &[ChatPart]) -> Vec<Call<'_>> {
                 ended_at,
                 ..
             } => Some(Call {
+                at,
                 tool,
                 failed: tool.status == Some(ToolStatus::Failed) || failure.is_some(),
                 took: ended_at
@@ -169,7 +173,7 @@ fn lines(shown: &[&Call]) -> Vec<RunLine> {
     let line = |call: &Call| RunLine {
         intent: call.tool.row.intent,
         family: counted_family(call.tool),
-        calls: vec![call.tool.tool_call_id.clone()],
+        calls: vec![call.at],
         failed: call.failed,
     };
     let mut lines: Vec<RunLine> = shown
@@ -185,7 +189,7 @@ fn lines(shown: &[&Call]) -> Vec<RunLine> {
                     && last.family == counted_family(call.tool)
                     && merges(call.tool.row.intent) =>
             {
-                last.calls.push(call.tool.tool_call_id.clone())
+                last.calls.push(call.at)
             }
             _ => lines.push(line(call)),
         }

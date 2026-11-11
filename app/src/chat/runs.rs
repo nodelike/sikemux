@@ -1,8 +1,6 @@
 //! A run of tool calls as one flat strip: a sentence saying what the run did, as the core
 //! counted it, opening onto a line for each thing it did and, behind that, every call.
 
-use std::collections::HashMap;
-
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     div, px, AnyElement, App, ElementId, Hsla, InteractiveElement, IntoElement, ParentElement,
@@ -47,10 +45,6 @@ pub fn strip(
         return div().into_any_element();
     }
     let key = first.id().to_owned();
-    let by_id: HashMap<&str, &Call> = calls
-        .iter()
-        .map(|call| (call.tool.tool_call_id.as_str(), call))
-        .collect();
     let t = Tokens::get(cx).clone();
     let open = looks
         .reading
@@ -69,7 +63,7 @@ pub fn strip(
         None => (spent > 0).then(|| time::took(spent).into_any_element()),
     };
     let time = time.map(|time| tools::settled(format!("run-time:{key}"), current.is_some(), time));
-    let lead = run.lines.first().and_then(|line| line_call(line, &by_id));
+    let lead = run.lines.first().and_then(|line| line_call(line, &calls));
     let lead_icon = match (lead, run.said.first()) {
         (Some(call), _) if !call.failed() => {
             line_icon(call.tool.row.intent, call.tool.row.family, Some(call))
@@ -170,7 +164,7 @@ pub fn strip(
         let lines = run
             .lines
             .iter()
-            .map(|line| run_line(line, &by_id, looks, window, cx))
+            .map(|line| run_line(line, &calls, looks, window, cx))
             .collect::<Vec<_>>();
         let total: u64 = calls.iter().map(|call| call.tool.row.calls()).sum();
         let reader = looks.reader.clone();
@@ -278,10 +272,11 @@ fn uncounted(calls: &[Call]) -> ToolRun {
     ToolRun {
         lines: calls
             .iter()
-            .map(|call| RunLine {
+            .zip(0..)
+            .map(|(call, at)| RunLine {
                 intent: call.tool.row.intent,
                 family: call.tool.row.family,
-                calls: vec![call.tool.tool_call_id.clone()],
+                calls: vec![at],
                 failed: call.failed(),
             })
             .collect(),
@@ -291,17 +286,15 @@ fn uncounted(calls: &[Call]) -> ToolRun {
     }
 }
 
-fn line_call<'a>(line: &RunLine, by_id: &HashMap<&str, &'a Call<'a>>) -> Option<&'a Call<'a>> {
-    line.calls
-        .first()
-        .and_then(|id| by_id.get(id.as_str()).copied())
+fn line_call<'a>(line: &RunLine, calls: &'a [Call<'a>]) -> Option<&'a Call<'a>> {
+    line.calls.first().and_then(|at| calls.get(*at as usize))
 }
 
 /// One thing the run did: a command, a change, or neighbours that did the same thing named
 /// together. A line of one call opens onto what it changed or printed.
 fn run_line(
     line: &RunLine,
-    by_id: &HashMap<&str, &Call>,
+    run: &[Call],
     looks: &Drawn,
     window: &mut Window,
     cx: &mut App,
@@ -309,7 +302,7 @@ fn run_line(
     let calls: Vec<&Call> = line
         .calls
         .iter()
-        .filter_map(|id| by_id.get(id.as_str()).copied())
+        .filter_map(|at| run.get(*at as usize))
         .collect();
     let Some(&first) = calls.first() else {
         return div().into_any_element();

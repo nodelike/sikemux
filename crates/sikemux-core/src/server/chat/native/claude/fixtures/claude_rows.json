@@ -52,7 +52,7 @@
                       "intent": "start",
                       "family": "agents",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -109,7 +109,7 @@
                       "intent": "start",
                       "family": "agents",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -161,7 +161,7 @@
                       "intent": "start",
                       "family": "agents",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -222,7 +222,7 @@
                       "intent": "list",
                       "family": "files",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -274,7 +274,7 @@
                       "intent": "run",
                       "family": "shell",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -331,7 +331,7 @@
                       "intent": "run",
                       "family": "shell",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -390,7 +390,7 @@
                       "intent": "read",
                       "family": "files",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -454,7 +454,7 @@
                       "intent": "read",
                       "family": "files",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -516,7 +516,7 @@
                       "intent": "read",
                       "family": "files",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -576,7 +576,7 @@
                       "intent": "read",
                       "family": "files",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -635,7 +635,7 @@
                       "intent": "read",
                       "family": "files",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -696,7 +696,7 @@
                       "intent": "read",
                       "family": "files",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -748,7 +748,7 @@
                       "intent": "read",
                       "family": "files",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -811,7 +811,7 @@
                       "intent": "read",
                       "family": "files",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -872,7 +872,7 @@
                       "intent": "write",
                       "family": "files",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -933,7 +933,7 @@
                       "intent": "write",
                       "family": "files",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -990,7 +990,7 @@
                       "intent": "write",
                       "family": "files",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -1049,7 +1049,7 @@
                       "intent": "write",
                       "family": "files",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -1101,7 +1101,7 @@
                       "intent": "write",
                       "family": "files",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -1164,7 +1164,7 @@
                       "intent": "edit",
                       "family": "files",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -1226,7 +1226,7 @@
                       "intent": "edit",
                       "family": "files",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -1287,7 +1287,7 @@
                       "intent": "edit",
                       "family": "files",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -1346,7 +1346,7 @@
                       "intent": "edit",
                       "family": "files",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -1398,7 +1398,7 @@
                       "intent": "edit",
                       "family": "files",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -1459,7 +1459,7 @@
                       "intent": "search",
                       "family": "files",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -1516,7 +1516,7 @@
                       "intent": "search",
                       "family": "files",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -1568,7 +1568,7 @@
                       "intent": "search",
                       "family": "files",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -1646,7 +1646,7 @@
                       "intent": "search",
                       "family": "files",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -1705,7 +1705,7 @@
                       "intent": "search",
                       "family": "files",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -1764,7 +1764,7 @@
                       "intent": "search",
                       "family": "files",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -1816,7 +1816,7 @@
                       "intent": "search",
                       "family": "files",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -1875,7 +1875,7 @@
                       "intent": "fetch",
                       "family": "web",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -1927,7 +1927,7 @@
                       "intent": "fetch",
                       "family": "web",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -1985,7 +1985,7 @@
                       "intent": "search",
                       "family": "web",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -2037,7 +2037,7 @@
                       "intent": "search",
                       "family": "web",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -2102,7 +2102,7 @@
                       "intent": "use",
                       "family": "other",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -2152,7 +2152,7 @@
                       "intent": "use",
                       "family": "other",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -2217,7 +2217,7 @@
                       "intent": "use",
                       "family": "other",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -2277,7 +2277,7 @@
                       "intent": "use",
                       "family": "other",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -2327,7 +2327,7 @@
                       "intent": "use",
                       "family": "other",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -2382,7 +2382,7 @@
                       "intent": "use",
                       "family": "other",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -2432,7 +2432,7 @@
                       "intent": "use",
                       "family": "other",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -2487,7 +2487,7 @@
                       "intent": "use",
                       "family": "other",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -2537,7 +2537,7 @@
                       "intent": "use",
                       "family": "other",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -2592,7 +2592,7 @@
                       "intent": "use",
                       "family": "other",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -2648,7 +2648,7 @@
                       "intent": "mode",
                       "family": "other",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -2699,7 +2699,7 @@
                       "intent": "mode",
                       "family": "other",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -2990,7 +2990,7 @@
                       "intent": "use",
                       "family": "other",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -3050,7 +3050,7 @@
                       "intent": "click",
                       "family": "browser",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -3107,7 +3107,7 @@
                       "intent": "use",
                       "family": "other",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -3159,7 +3159,7 @@
                       "intent": "use",
                       "family": "other",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -3228,7 +3228,7 @@
                       "intent": "read",
                       "family": "files",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -3307,7 +3307,7 @@
                       "intent": "read",
                       "family": "files",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -3385,7 +3385,7 @@
                       "intent": "read",
                       "family": "files",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -3458,7 +3458,7 @@
                       "intent": "read",
                       "family": "files",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -3538,7 +3538,7 @@
                       "intent": "read",
                       "family": "files",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -3608,7 +3608,7 @@
                       "intent": "read",
                       "family": "files",
                       "calls": [
-                        "toolu_1"
+                        0
                       ],
                       "failed": true
                     }
@@ -3681,7 +3681,7 @@
                       "intent": "read",
                       "family": "files",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -3753,7 +3753,7 @@
                       "intent": "list",
                       "family": "files",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -3831,7 +3831,7 @@
                       "intent": "list",
                       "family": "files",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -3906,7 +3906,7 @@
                       "intent": "list",
                       "family": "files",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -3977,7 +3977,7 @@
                       "intent": "list",
                       "family": "files",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -4057,7 +4057,7 @@
                       "intent": "list",
                       "family": "files",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -4141,7 +4141,7 @@
                       "intent": "list",
                       "family": "files",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -4216,7 +4216,7 @@
                       "intent": "run",
                       "family": "shell",
                       "calls": [
-                        "toolu_1"
+                        0
                       ],
                       "failed": true
                     }
@@ -4292,7 +4292,7 @@
                       "intent": "run",
                       "family": "shell",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -4362,7 +4362,7 @@
                       "intent": "start",
                       "family": "agents",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -4427,7 +4427,7 @@
                       "intent": "start",
                       "family": "agents",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -4492,7 +4492,7 @@
                       "intent": "start",
                       "family": "agents",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -4569,7 +4569,7 @@
                       "intent": "start",
                       "family": "agents",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -4634,7 +4634,7 @@
                       "intent": "start",
                       "family": "agents",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -4702,7 +4702,7 @@
                       "intent": "start",
                       "family": "agents",
                       "calls": [
-                        "toolu_1"
+                        0
                       ],
                       "failed": true
                     }
@@ -4770,7 +4770,7 @@
                       "intent": "edit",
                       "family": "files",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -4837,7 +4837,7 @@
                       "intent": "write",
                       "family": "files",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -4907,7 +4907,7 @@
                       "intent": "edit",
                       "family": "files",
                       "calls": [
-                        "toolu_1"
+                        0
                       ],
                       "failed": true
                     }
@@ -5025,7 +5025,7 @@
                       "intent": "mode",
                       "family": "other",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -5089,7 +5089,7 @@
                       "intent": "mode",
                       "family": "other",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -5153,7 +5153,7 @@
                       "intent": "mode",
                       "family": "other",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -5236,7 +5236,7 @@
                       "intent": "search",
                       "family": "web",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -5304,7 +5304,7 @@
                       "intent": "search",
                       "family": "web",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -5482,7 +5482,7 @@
                       "intent": "use",
                       "family": "other",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -5564,7 +5564,7 @@
                       "intent": "use",
                       "family": "other",
                       "calls": [
-                        "toolu_1"
+                        0
                       ],
                       "failed": true
                     }
@@ -5633,7 +5633,7 @@
                       "intent": "use",
                       "family": "other",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -5701,7 +5701,7 @@
                       "intent": "use",
                       "family": "other",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -5763,7 +5763,7 @@
                       "intent": "use",
                       "family": "other",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -5829,7 +5829,7 @@
                       "intent": "use",
                       "family": "other",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -5895,7 +5895,7 @@
                       "intent": "search",
                       "family": "files",
                       "calls": [
-                        "toolu_1"
+                        0
                       ]
                     }
                   ]
@@ -5963,7 +5963,7 @@
                       "intent": "fetch",
                       "family": "web",
                       "calls": [
-                        "toolu_1"
+                        0
                       ],
                       "failed": true
                     }
@@ -6814,7 +6814,7 @@
                       "intent": "mode",
                       "family": "other",
                       "calls": [
-                        "toolu_plan"
+                        3
                       ],
                       "failed": true
                     },
@@ -6822,21 +6822,21 @@
                       "intent": "edit",
                       "family": "files",
                       "calls": [
-                        "toolu_edit"
+                        0
                       ]
                     },
                     {
                       "intent": "look",
                       "family": "browser",
                       "calls": [
-                        "toolu_mcp"
+                        1
                       ]
                     },
                     {
                       "intent": "read",
                       "family": "files",
                       "calls": [
-                        "toolu_read"
+                        2
                       ]
                     }
                   ]
@@ -7010,7 +7010,7 @@
                         "intent": "list",
                         "family": "files",
                         "calls": [
-                          "toolu_sbash"
+                          0
                         ]
                       }
                     ]
