@@ -511,7 +511,17 @@ pub(super) async fn run(
             }
             Request::Host => {
                 tokio::spawn(async move {
-                    let host = blocking(|| Ok(serde_json::to_value(host::info())?)).await;
+                    let access = match &client.peer {
+                        Peer::Device { id } => core.remote.standing_of(id).map(|it| it.access),
+                        _ => None,
+                    };
+                    let host = blocking(move || {
+                        Ok(serde_json::to_value(sikemux_view::device::HostInfo {
+                            access,
+                            ..host::info()
+                        })?)
+                    })
+                    .await;
                     client.answer::<ask::Host>(request_id, host);
                 });
             }

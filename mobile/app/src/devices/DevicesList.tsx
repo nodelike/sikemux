@@ -38,7 +38,8 @@ function DeviceCard({ device, onAccount, offAccount }: { device: PairedDevice; o
   const busy = (snapshot?.inbox.agents ?? []).filter((agent) => agent.group === 'working' || agent.background);
   const work = [working ? `${working} working` : null, background ? `${background} in the background` : null].filter(Boolean).join(' · ');
   const channel = channelLabel(device.channel);
-  const meta = offAccount ? 'Not on your account' : snapshot ? summary(snapshot) : status.online ? 'Connecting…' : status.line;
+  const state = offAccount ? 'Not on your account' : snapshot ? summary(snapshot) : status.online ? 'Connecting…' : status.line;
+  const meta = device.access === 'watch' ? `Watch only · ${state}` : state;
 
   return (
     <Pressable

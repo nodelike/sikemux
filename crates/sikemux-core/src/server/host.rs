@@ -16,6 +16,7 @@ pub fn info() -> HostInfo {
         version: VERSION.into(),
         channel: channel(cfg!(debug_assertions), VERSION),
         home: sikemux_process::paths::home().unwrap_or_default(),
+        access: None,
     })
     .clone()
 }

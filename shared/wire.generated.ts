@@ -3638,6 +3638,8 @@ export interface HostInfo {
     channel: BuildChannel;
     /** The home folder of the person the core runs as, so a client can shorten its paths. */
     home: string;
+    /** What the paired device that asked may do here; none for a program on this host. */
+    access?: DeviceAccess;
 }
 
 /**
@@ -3645,6 +3647,8 @@ export interface HostInfo {
  * paired devices, so one host can show up once per channel.
  */
 export type BuildChannel = "dev" | "nightly" | "stable";
+
+export type DeviceAccess = "full" | "watch";
 
 export interface RemoteStatus {
     enabled: boolean;
@@ -3698,8 +3702,6 @@ export interface DeviceInfo {
     pairedAt: number;
     lastSeen: number | null;
 }
-
-export type DeviceAccess = "full" | "watch";
 
 export interface PendingDevice {
     /** Names this request in `AnswerPairing`. */

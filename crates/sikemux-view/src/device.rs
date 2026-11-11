@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use crate::workspace::Workspace;
 use serde::{Deserialize, Serialize};
-use sikemux_wire::protocol::{Attention, BuildChannel, ChatInfo, SessionInfo};
+use sikemux_wire::protocol::{Attention, BuildChannel, ChatInfo, DeviceAccess, SessionInfo};
 
 use crate::layout::Layout;
 use crate::updates::UpdateStatus;
@@ -153,4 +153,7 @@ pub struct HostInfo {
     pub channel: BuildChannel,
     /// The home folder of the person the core runs as, so a client can shorten its paths.
     pub home: PathBuf,
+    /// What the paired device that asked may do here; none for a program on this host.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub access: Option<DeviceAccess>,
 }

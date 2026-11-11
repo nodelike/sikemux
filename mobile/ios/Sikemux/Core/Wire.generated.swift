@@ -5681,6 +5681,8 @@ struct HostInfo: Codable, Hashable, Sendable {
     var channel: BuildChannel
     /// The home folder of the person the core runs as, so a client can shorten its paths.
     var home: String
+    /// What the paired device that asked may do here; none for a program on this host.
+    var access: DeviceAccess?
 }
 
 /// Which kind of Sikemux build a core belongs to. Each keeps its own key and
@@ -5689,6 +5691,19 @@ enum BuildChannel: String, Codable, Hashable, Sendable {
     case dev
     case nightly
     case stable
+    /// One added after this build.
+    case unknown
+
+    init(from decoder: any Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
+}
+
+enum DeviceAccess: String, Codable, Hashable, Sendable {
+    /// Everything a person at the host can do in a session.
+    case full
+    /// Read sessions and answer agents' permission requests.
+    case watch
     /// One added after this build.
     case unknown
 
@@ -5738,19 +5753,6 @@ struct DeviceInfo: Codable, Hashable, Sendable {
     /// Milliseconds since the Unix epoch.
     var pairedAt: Int
     var lastSeen: Int?
-}
-
-enum DeviceAccess: String, Codable, Hashable, Sendable {
-    /// Everything a person at the host can do in a session.
-    case full
-    /// Read sessions and answer agents' permission requests.
-    case watch
-    /// One added after this build.
-    case unknown
-
-    init(from decoder: any Decoder) throws {
-        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
-    }
 }
 
 struct PendingDevice: Codable, Hashable, Sendable {

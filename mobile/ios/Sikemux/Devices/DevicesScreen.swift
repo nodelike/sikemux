@@ -113,10 +113,11 @@ private struct DeviceCard: View {
         let busy = (view?.inbox.agents ?? []).filter { $0.group == .working || $0.background }
         let work = [working > 0 ? "\(working) working" : nil, background > 0 ? "\(background) in the background" : nil]
             .compactMap { $0 }.joined(separator: " · ")
-        let meta =
+        let state =
             offAccount
             ? "Not on your account"
             : view.map(HostStatus.summary) ?? (status.online ? "Connecting…" : status.line)
+        let meta = device.access == .watch ? "Watch only · \(state)" : state
 
         Button {
             Router.shared.push(.device(core: device.core))
