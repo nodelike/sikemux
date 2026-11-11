@@ -78,6 +78,8 @@ enum Case {
     ProposedEnvironments,
     /// Something about a host needs the person.
     HostAlert,
+    /// The account vault needs the person.
+    Vault,
     /// An agent wrote a command as an assertion's evidence, for the person to accept.
     ProposedCommand,
     PullRequest,
@@ -142,6 +144,7 @@ impl Case {
             }
             Case::ProposedEnvironments => (InboxKind::ProposedEnvironments, Wants::Person(Decide)),
             Case::HostAlert => (InboxKind::HostAlert, Wants::Person(Fix)),
+            Case::Vault => (InboxKind::Vault, Wants::Person(Unblock)),
             Case::Failed(Some(Fault::Account)) => (InboxKind::Failed, Wants::Person(Unblock)),
             Case::Failed(Some(Fault::Broke)) => (InboxKind::Failed, Wants::Person(Fix)),
             Case::Failed(Some(Fault::Retrying) | None) => {
@@ -1597,6 +1600,7 @@ pub(crate) fn agent_needs(core: &Core) -> Vec<AgentNeed> {
 fn waiting(core: &Core, agents: &[Agent], sessions: &[SessionInfo]) -> Vec<InboxItem> {
     let mut items = needs(core, agents, sessions);
     items.extend(host_alert_items(core));
+    items.extend(vault_items(core));
     for card in board::cards_for_person(core, None) {
         if let Some(item) = card
             .waits
@@ -1627,6 +1631,20 @@ fn host_alert_items(core: &Core) -> Vec<InboxItem> {
             item.title = Some(name);
             item.host = host;
             item.host_alert = Some(alert);
+            item
+        })
+        .collect()
+}
+
+/// What the account vault waits on the person for: a host that may use none of the
+/// account's sign-ins until they allow it, and a recovery key not yet saved.
+fn vault_items(core: &Core) -> Vec<InboxItem> {
+    super::vault::waits(core)
+        .into_iter()
+        .map(|wait| {
+            let mut item = item(wait.id, Case::Vault, wait.what, wait.since);
+            item.title = Some(wait.title);
+            item.host = wait.host;
             item
         })
         .collect()

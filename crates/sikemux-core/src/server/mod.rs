@@ -103,6 +103,7 @@ pub mod triggers;
 pub mod updates;
 mod upgrade;
 pub mod usage;
+pub(crate) mod vault;
 mod wait_for;
 mod wake;
 pub mod wallpaper;
@@ -415,6 +416,8 @@ pub(crate) struct Core {
     pub(crate) layouts: layout::Layouts,
     /// Who this host is signed in to Sikemux as.
     pub(crate) account: account::Account,
+    /// The account's vault of sign-ins, as this host holds it.
+    pub(crate) vault: vault::Vault,
     /// The rail numbers running loose terminals have.
     rail_numbers: Mutex<BTreeSet<u32>>,
     /// Watches the SSH config once a client has listed its hosts.
@@ -564,6 +567,7 @@ impl Core {
             open_files: Default::default(),
             layouts: layout::Layouts::new(data_dir),
             account: Default::default(),
+            vault: vault::Vault::default(),
             rail_numbers: Mutex::default(),
             ssh_watch: OnceLock::new(),
             ci: Default::default(),
@@ -1121,6 +1125,9 @@ pub(crate) async fn run_core(
     listener.set_nonblocking(true)?;
     let listener = tokio::net::UnixListener::from_std(listener)?;
     remote::start(&core, &config).await;
+    if config.plugins.is_some() {
+        vault::start(&core);
+    }
     git::follow_projects(&core);
     backdrop::follow(&core);
     goal_summary::name_unnamed(&core);

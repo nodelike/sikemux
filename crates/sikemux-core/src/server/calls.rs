@@ -380,6 +380,12 @@ calls! { core, client, method, params;
         super::stash::attach(&core, params).await?
     },
     "removeStash" RemoveStash (super::stash::StashItemParams) -> (): Owner => super::stash::remove(&core, params).await?,
+    "vault" Vault (NoParams) -> super::vault::shown::ShownVault: Owner => super::vault::shown::vault(&core),
+    "vaultAllow" VaultAllow (super::vault::shown::AllowParams) -> (): Owner, counted => super::vault::shown::allow(&core, params).await?,
+    "vaultRevoke" VaultRevoke (super::vault::shown::RevokeParams) -> (): Owner, counted => super::vault::shown::revoke(&core, params).await?,
+    "vaultRecoverySaved" VaultRecoverySaved (NoParams) -> (): Owner => super::vault::shown::recovery_saved(&core).await?,
+    "vaultRecover" VaultRecover (super::vault::shown::RecoverParams) -> (): Owner => super::vault::shown::recover(&core, params).await?,
+    "vaultUses" VaultUses (super::vault::shown::UsesParams) -> Vec<super::vault::shown::ShownUse>: Owner => super::vault::shown::uses(&core, params).await?,
     "drafts" Drafts (Option<super::drafts::DraftsParams>) -> std::collections::BTreeMap<String, super::drafts::Draft>: Watch => core.drafts.get(params.unwrap_or_default().keys.as_deref()),
     "setDraft" SetDraft (super::drafts::SetDraftParams) -> (): Owner => super::drafts::set(&core, params)?,
     "diagramLayout" DiagramLayout (super::diagrams::DiagramParams) -> super::diagrams::DiagramLayout: Owner => super::diagrams::layout(&core, params),

@@ -122,6 +122,16 @@ pub trait Plugins: Send + Sync {
     /// The tool an agent knows by `name`, when the person approves each call to it.
     fn gated(&self, name: &str) -> Option<Gated>;
     fn call_agent_tool<'a>(&'a self, name: &'a str, arguments: Value) -> Answer<'a, Value>;
+    /// Each plugin's sign-ins, for the account vault, with the folder the plugin keeps them in.
+    fn vault_books(
+        &self,
+    ) -> Vec<(
+        String,
+        PathBuf,
+        &'static dyn sikemux_plugin_api::vault::Book,
+    )> {
+        Vec::new()
+    }
 }
 
 /// The plugins the binary that runs the core provides. They live as long as
@@ -362,6 +372,7 @@ pub(crate) fn sign_in_moved(core: &Core, plugin: &str, method: &str) {
             .any(|account| account == method)
     });
     if account_moved {
+        core.vault.touched();
         core.changed(What::Read(Topic::Plugins));
     }
 }
@@ -459,7 +470,34 @@ pub(crate) async fn call_agent_tool(
     if let Some(gated) = plugins.gated(name) {
         return super::approvals::propose(core, request, gated, arguments).await;
     }
-    run_agent_tool(core, name, arguments, deploy).await
+    let caller = caller_of(core, request);
+    sikemux_plugin_api::vault::as_caller(caller, run_agent_tool(core, name, arguments, deploy))
+        .await
+}
+
+/// The agent a tool call is for, as the account vault checks and logs it.
+fn caller_of(core: &Core, request: &HarnessRequest) -> sikemux_plugin_api::vault::Caller {
+    let named = request
+        .agent_id
+        .as_deref()
+        .and_then(|agent_id| core.names.get(agent_id));
+    sikemux_plugin_api::vault::Caller {
+        agent: Some(
+            named
+                .as_ref()
+                .map_or_else(|| "an agent".to_owned(), |named| format!("@{}", named.name)),
+        ),
+        project: Some(project_name(&super::caller::project_of(core, request))),
+    }
+}
+
+/// A project as the vault's scopes name it: by its folder's name, which its copy on every host
+/// shares.
+pub(crate) fn project_name(project: &str) -> String {
+    Path::new(project).file_name().map_or_else(
+        || project.to_owned(),
+        |name| name.to_string_lossy().into_owned(),
+    )
 }
 
 /// A code host's tool names its repository by `owner` and `name`; one left out is taken from

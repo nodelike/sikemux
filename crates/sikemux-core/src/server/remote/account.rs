@@ -48,6 +48,7 @@ pub(crate) async fn set_owner(
         stop(core).await;
     }
     ensure_live(core);
+    core.vault.wake();
     if leaving {
         let confirmed = async {
             loop {
@@ -190,6 +191,7 @@ impl live::Account for HostAccount {
         }
         if link == Link::Live {
             core.hosts.relink.now();
+            core.vault.wake();
             crate::server::stash::catch_up(&core);
             crate::server::hooks::connect(&core);
         }
@@ -279,9 +281,11 @@ pub(super) fn apply_events(core: &Core, events: &[AccountEvent]) {
             AccountEventType::DeviceChanged if event.role == Some(DeviceRole::Host) => {
                 core.hosts.relink.now();
             }
+            AccountEventType::VaultChanged => core.vault.wake(),
             AccountEventType::DeviceAdded => {
                 if event.role == Some(DeviceRole::Host) {
                     core.hosts.relink.now();
+                    core.vault.wake();
                 }
                 // Events a host missed while offline come all at once; only a
                 // device that joined lately is news.
