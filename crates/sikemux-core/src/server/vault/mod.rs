@@ -81,6 +81,8 @@ struct State {
     recovery_wrap: Option<String>,
     holders: Vec<String>,
     waiting: Vec<String>,
+    /// What the account calls each of its hosts, by key.
+    hosts: HashMap<String, String>,
     entries: BTreeMap<String, Entry>,
     /// Each secret's entry, by service and account.
     index: HashMap<(String, String), String>,
@@ -224,7 +226,7 @@ impl Keeper for HostKeeper {
                 }
                 _ => Refresh::Wait(format!(
                     "{} refreshes {} for your account and has not handed on a fresh token; it may be offline",
-                    shown::host_name(core, &entry.body.refresher),
+                    shown::named(core, state, &entry.body.refresher).0,
                     entry.body.sign_in.label
                 )),
             }
