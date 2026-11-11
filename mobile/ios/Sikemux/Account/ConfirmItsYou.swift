@@ -145,7 +145,7 @@ struct ConfirmItsYou: View {
                 Prompt(icon: Icons.shield, title: "Confirm it's you")
                 VStack(spacing: 12) {
                     PasswordField(
-                        placeholder: "Password", text: Binding(get: { verify.entry }, set: recent.enter),
+                        placeholder: "Password", text: Binding(get: { verify.entry }, set: { recent.enter($0) }),
                         autoFocus: true
                     )
                     .textContentType(.password)

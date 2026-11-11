@@ -241,7 +241,7 @@ private struct ApprovalRow: View {
                 Text(problem ?? "Ask here before a device or host on your account connects").metaStyle(palette)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            Toggle("Require approval for new devices", isOn: Binding(get: { on ?? false }, set: flip))
+            Toggle("Require approval for new devices", isOn: Binding(get: { on ?? false }, set: { flip($0) }))
                 .labelsHidden()
                 .tint(palette.live)
                 .disabled(on == nil)
