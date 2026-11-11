@@ -4,6 +4,7 @@ import type { AccountMove, AgentNotice, ChatPart, TaskNotice as Notice } from '@
 import { AgentIcon, Icon } from '@/ui/Icon';
 import { fonts, type Palette, useColors, useStyles } from '@/ui/theme';
 import { useFold } from './folds';
+import { GoalLine } from './GoalLine';
 
 export function TaskNotice({ id, notice }: { id: string; notice: Notice }) {
   const colors = useColors();
@@ -41,6 +42,7 @@ export function TaskNotice({ id, notice }: { id: string; notice: Notice }) {
 export function AgentNoticeLine({ notice }: { notice: AgentNotice }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
+  if (notice.goal) return <GoalLine notice={notice} goal={notice.goal} />;
   const tint = notice.severity === 'error' ? colors.danger : notice.severity === 'warning' ? colors.warn : colors.inkFaint;
   return (
     <View style={styles.notice} accessible accessibilityLabel={`${notice.title}${notice.description ? `. ${notice.description}` : ''}`}>
