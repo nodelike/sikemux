@@ -839,6 +839,13 @@ fn parse_claude_usage(text: &str, request_id: &str) -> Option<Usage> {
         for (key, scope, duration, minutes) in windows_named {
             push_claude_usage_window(&mut windows, limits, key, (scope, duration), minutes);
         }
+        // Claude leaves the five-hour window empty until a session starts one.
+        if windows
+            .first()
+            .is_none_or(|window| window.window_minutes != Some(300))
+        {
+            windows.insert(0, UsageWindow::new(None, "5h", 0.0, None, Some(300)));
+        }
         if let Some(model_scoped) = limits.get("model_scoped").and_then(Value::as_array) {
             for window in model_scoped {
                 let Some(display_name) = window
