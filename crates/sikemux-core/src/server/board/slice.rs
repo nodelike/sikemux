@@ -265,6 +265,8 @@ pub(super) enum Said {
     Ready,
     /// Its work made no commit, so its owner closes it on the result it gave.
     Closed,
+    /// Its owner left without landing a commit of it, so it is archived on the result given.
+    Archived,
     /// Its gate passes by itself later; `recheck` is a commit to check again.
     Pending {
         note: String,
@@ -1182,15 +1184,15 @@ impl Slice {
         Ok(())
     }
 
-    /// The owner says the slice is done, with `result` saying what it did. Refuses, changing
-    /// nothing, when nothing the core collected can show its latest commit sound, or git does
-    /// not confirm it is its latest: `confirmed`. Work that made no commit, such as a deploy,
-    /// closes on its result, unless an assertion needs evidence on a commit.
+    /// The owner says the slice is done, with `result` saying what it did. Refuses when nothing
+    /// the core collected can show its latest commit sound, or git does not confirm it is its
+    /// latest: `confirmed`. Work that made no commit, such as a deploy, or whose owner left
+    /// without landing any, closes on its result, unless an assertion needs evidence on a commit.
     pub(super) fn say_done(
         &mut self,
         label: &str,
         checking: &Checking,
-        confirmed: Result<(), &str>,
+        confirmed: Result<&Confirmed, &str>,
         result: Option<&str>,
         settings: &BoardSettings,
     ) -> Result<Said, Refused> {
@@ -1218,8 +1220,25 @@ impl Slice {
             )
             .into());
         }
+        let said = result.is_some_and(|result| !result.trim().is_empty());
+        match confirmed {
+            Ok(Confirmed::Newer(head)) => self.worked(head, true, None, None),
+            Ok(Confirmed::Unbuilt) if self.work.is_some() => {
+                return match (said, self.asserts.is_empty()) {
+                    (true, true) => Ok(Said::Archived),
+                    (_, false) => Err(format!(
+                        "Not {words}: its owner left no commit of {label} on the project's branch, and the assertions it fulfils need evidence on a commit, so only the person can close it"
+                    )
+                    .into()),
+                    (false, true) => Err(format!(
+                        "Not {words}: its owner left no commit of {label} on the project's branch. To archive it, mark it done again with a result saying it was archived and why"
+                    )
+                    .into()),
+                };
+            }
+            _ => {}
+        }
         let Some(work) = &self.work else {
-            let said = result.is_some_and(|result| !result.trim().is_empty());
             return match (said, self.asserts.is_empty()) {
                 (true, true) => Ok(Said::Closed),
                 (_, false) => Err(format!(
@@ -1633,8 +1652,8 @@ pub(super) enum Checking {
 /// What git and the project's files say of a slice, read before the board is locked.
 pub(super) struct Seen {
     pub checking: Checking,
-    /// Whether git confirms the slice's head is its owner's latest commit, or why not.
-    confirmed: Result<(), String>,
+    /// What git confirms of the slice's head, or why it can't.
+    confirmed: Result<Confirmed, String>,
     /// The card's `updated_at` when it was read; what was read holds only
     /// while the card has not changed since.
     read: Option<u64>,
@@ -1649,14 +1668,24 @@ impl Seen {
         }
     }
 
-    /// Whether git confirms `card`'s slice head, if the card has not changed since.
-    pub(super) fn confirmed(&self, card: &Card) -> Result<(), &str> {
-        self.confirmed.as_ref().map_err(String::as_str)?;
+    /// What git confirms of `card`'s slice head, if the card has not changed since.
+    pub(super) fn confirmed(&self, card: &Card) -> Result<&Confirmed, &str> {
+        let confirmed = self.confirmed.as_ref().map_err(String::as_str)?;
         if self.read != Some(card.updated_at) {
             return Err("the card changed while Sikemux read git; mark it done again");
         }
-        Ok(())
+        Ok(confirmed)
     }
+}
+
+/// What git confirms of a slice's head.
+pub(super) enum Confirmed {
+    /// It is its owner's latest commit, or git still holds it.
+    Head,
+    /// Its owner left, and its latest commit is a newer one, such as the head landed again.
+    Newer(Head),
+    /// Its owner left without a commit of it on the project's branch.
+    Unbuilt,
 }
 
 /// A slice's change from `base` to `head`, to collect toward `gate`.
@@ -1913,8 +1942,12 @@ pub(super) fn seen(core: &Core, project: &str, id: u64, check: &Result<Checker, 
         let state = core.boards.state.locked();
         state.boards.get(project).and_then(|board| {
             let card = board.card(id).ok()?;
-            let owner = card.owner_id()?.to_owned();
-            let work = card.slice.as_ref()?.work.clone()?;
+            let slice = card.slice.as_ref()?;
+            let owner = card
+                .owner_id()
+                .or_else(|| slice.stalled.as_ref().map(|lost| lost.agent.as_str()))?
+                .to_owned();
+            let work = slice.work.clone()?;
             let current = board.working_card(&owner).map(|card| card.id) == Some(id);
             Some((owner, work, current, card.updated_at))
         })
@@ -1933,27 +1966,48 @@ pub(super) fn seen(core: &Core, project: &str, id: u64, check: &Result<Checker, 
             ..Seen::unread()
         };
     };
-    let tells_latest = core
+    let own_checkout = core
         .workspaces
         .agent(&owner)
-        .is_some_and(|agent| agent.worktree.is_some())
-        || footer::attributed(Path::new(project));
-    let confirmed = match current && tells_latest {
-        true => owner_latest(core, project, &owner, &work.base).and_then(|latest| {
-            (latest == work.head).then_some(()).ok_or_else(|| {
+        .is_some_and(|agent| agent.worktree.is_some());
+    let tells_latest = own_checkout || footer::attributed(Path::new(project));
+    let left = !core.agent_now(&owner).open();
+    let confirmed = match (tells_latest, left, current) {
+        (true, true, _) => match owner_latest(core, project, &owner, &work.base) {
+            Ok(Some(latest)) if latest == work.head => Ok(Confirmed::Head),
+            Ok(Some(latest)) => Ok(Confirmed::Newer(Head {
+                from: work.base.clone(),
+                head: latest,
+                on_branch: !own_checkout,
+            })),
+            Ok(None) => Ok(Confirmed::Unbuilt),
+            Err(why) => Err(why),
+        },
+        (true, false, true) => owner_latest(core, project, &owner, &work.base).and_then(|latest| {
+            let latest = latest.ok_or_else(|| {
+                format!(
+                    "no commit since {} names you in its Sikemux footer",
+                    short(&work.base)
+                )
+            })?;
+            (latest == work.head).then_some(Confirmed::Head).ok_or_else(|| {
                 format!(
                     "your latest commit {} hasn't been checked yet; mark the card done again once it has",
                     short(&latest)
                 )
             })
         }),
-        false => Git::quick(Path::new(project))
+        _ => Git::quick(Path::new(project))
             .trimmed(&["cat-file", "-e", &format!("{}^{{commit}}", work.head)])
-            .map(drop)
+            .map(|_| Confirmed::Head)
             .map_err(|_| format!("{} is not in git any more", short(&work.head))),
     };
+    let head = match &confirmed {
+        Ok(Confirmed::Newer(newer)) => &newer.head,
+        _ => &work.head,
+    };
     Seen {
-        checking: checking(Some(&work.head)),
+        checking: checking(Some(head)),
         confirmed,
         read: Some(at),
     }
@@ -1963,14 +2017,21 @@ pub(super) fn seen(core: &Core, project: &str, id: u64, check: &Result<Checker, 
 /// `base`. In a checkout of its own: that checkout's head. In the project's
 /// own: the newest commit since `base` on the branch whose Sikemux footer
 /// names it, leaving out the commits that bring generated files up to date,
-/// within the newest `OWNER_COMMITS_READ`.
-fn owner_latest(core: &Core, project: &str, agent: &str, base: &str) -> Result<String, String> {
+/// within the newest `OWNER_COMMITS_READ`, or none.
+fn owner_latest(
+    core: &Core,
+    project: &str,
+    agent: &str,
+    base: &str,
+) -> Result<Option<String>, String> {
     if let Some(worktree) = core
         .workspaces
         .agent(agent)
         .and_then(|agent| agent.worktree)
     {
-        return Git::quick(&worktree.path).trimmed(&["rev-parse", "HEAD"]);
+        return Git::quick(&worktree.path)
+            .trimmed(&["rev-parse", "HEAD"])
+            .map(Some);
     }
     let dir = Path::new(project);
     // A push that rebases main drops `base` from the branch; the newest commits still hold the work.
@@ -1989,15 +2050,12 @@ fn owner_latest(core: &Core, project: &str, agent: &str, base: &str) -> Result<S
         .map(|(sha, _)| sha)
         .find(|sha| core.boards.footers.names(core, dir, sha, agent));
     match latest {
-        Some(latest) => Ok(latest.to_owned()),
+        Some(latest) => Ok(Some(latest.to_owned())),
         None if log.lines().count() > OWNER_COMMITS_READ => Err(format!(
-            "more than {OWNER_COMMITS_READ} commits came since {}, and Sikemux reads no further back for yours",
+            "more than {OWNER_COMMITS_READ} commits came since {}, and Sikemux reads no further back for its owner's",
             short(base)
         )),
-        None => Err(format!(
-            "no commit since {} names you in its Sikemux footer",
-            short(base)
-        )),
+        None => Ok(None),
     }
 }
 

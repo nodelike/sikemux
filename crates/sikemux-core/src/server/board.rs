@@ -2249,6 +2249,7 @@ fn change_in(
     let mut pending = None;
     let mut later = slice::Later::default();
     let mut closed = Vec::new();
+    let mut archived = false;
     if let Some(ticks) = &changes.ticks {
         let By::Agent(agent) = by else {
             return Err("Only the agent a change went to ticks it off".into());
@@ -2284,6 +2285,10 @@ fn change_in(
             Ok(slice::Said::Ready) => {}
             Ok(slice::Said::Closed) => {
                 closed = slice.close(slice::PassedBy::Agent(agent.clone()));
+            }
+            Ok(slice::Said::Archived) => {
+                closed = slice.close(slice::PassedBy::Agent(agent.clone()));
+                archived = true;
             }
             Err(refused) => {
                 return Err(match refused.failed.is_some() {
@@ -2330,7 +2335,12 @@ fn change_in(
         slice.name(named);
     }
     if let Some(result) = changes.result {
-        card.result = (!result.is_empty()).then_some(result);
+        card.result = match archived {
+            true => Some(format!(
+                "Archived: its owner left no commit of it. {result}"
+            )),
+            false => (!result.is_empty()).then_some(result),
+        };
     }
     if let Some(depends_on) = changes.depends_on {
         card.depends_on = depends_on;
