@@ -128,9 +128,6 @@ struct WireDevice: Codable, Hashable, Sendable {
     var lastSeenAt: String?
 }
 
-/// A device's iroh public key: 32 bytes of Ed25519, in lowercase hex.
-typealias DeviceKey = String
-
 struct DeviceList: Codable, Hashable, Sendable {
     var devices: [WireDevice]
 }
@@ -990,14 +987,6 @@ struct StashPreview: Codable, Hashable, Sendable {
 /// When the person last looked at the stash. Setting it only ever moves it forward, and never past the server's clock.
 struct StashSeen: Codable, Hashable, Sendable {
     var at: String
-}
-
-/// Where the person sent the item from the share sheet: a chat on a host (chatId), or a new chat in a project on it (projectPath with newChat true). That host puts it in the chat's draft and marks it taken.
-struct StashTarget: Codable, Hashable, Sendable {
-    var hostKey: DeviceKey
-    var chatId: String?
-    var projectPath: String?
-    var newChat: Bool?
 }
 
 /// A change to an item: a new note, or taken true once it is used. A taken item cannot be untaken.
