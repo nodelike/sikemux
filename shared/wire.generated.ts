@@ -1962,6 +1962,8 @@ export type MdElement =
     | {
           t: "pre";
           lang?: string;
+          /** The file the block shows, when its fence names one. */
+          name?: string;
           v: string;
       }
     | {
