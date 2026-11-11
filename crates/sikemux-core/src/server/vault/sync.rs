@@ -15,6 +15,7 @@ use sikemux_process::sync::Locked;
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
+use crate::accounts::protocol::DeviceList;
 use crate::accounts::vault::{
     Vault as Remote, VaultCreate, VaultEntry, VaultEntryPut, VaultEntryReseal, VaultKeysAdd,
     VaultRotate, VaultState, VaultUse, VaultUsesAdd, WrappedKey,
@@ -139,6 +140,7 @@ async fn open(
                 .ok_or_else(|| CoreError::from("the account has no vault after making one"))?
         }
     };
+    let listed: DeviceList = as_host(core, Method::GET, "/v1/devices?role=host", None).await?;
     let context = seal::wrap_context(account, vault.generation, me);
     let key = vault
         .key
@@ -156,6 +158,11 @@ async fn open(
         state.recovery_wrap = Some(vault.recovery_wrap.clone());
         state.holders = vault.holders.clone();
         state.waiting = vault.waiting.clone();
+        state.hosts = listed
+            .devices
+            .into_iter()
+            .map(|host| (host.key, host.name))
+            .collect();
         state.key = key;
         state.status = if key.is_some() {
             Status::Open

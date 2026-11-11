@@ -13,7 +13,7 @@ use crate::accounts::vault::VaultUses;
 use super::super::account::api::as_host;
 use super::super::hosts::{self, HostReach as Reach};
 use super::super::{connection::blocking, Core, CoreError, CoreResult};
-use super::{local, sync, Scope, Status};
+use super::{local, sync, Scope, State, Status};
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -79,24 +79,30 @@ pub struct ShownUse {
     pub at: u64,
 }
 
-/// What the account calls a host, or the start of its key when this host does not know it.
-pub(crate) fn host_name(core: &Core, key: &str) -> String {
-    if core
-        .remote
-        .host_key()
-        .is_some_and(|me| me.public().to_string() == key)
-    {
-        return core.notify.host_name();
+/// What the account calls a host, and whether this host reaches it now, or the start of its
+/// key when the account does not name it.
+pub(super) fn named(core: &Core, state: &State, key: &str) -> (String, bool) {
+    if state.me.as_deref() == Some(key) {
+        return (core.notify.host_name(), true);
     }
-    hosts::rows(core)
+    let linked = hosts::rows(core)
         .into_iter()
-        .find(|row| row.id.as_deref() == Some(key))
-        .map(|row| row.name)
-        .unwrap_or_else(|| key.get(..8).unwrap_or(key).to_owned())
+        .find(|row| row.id.as_deref() == Some(key));
+    let name = state
+        .hosts
+        .get(key)
+        .cloned()
+        .or_else(|| linked.as_ref().map(|row| row.name.clone()))
+        .unwrap_or_else(|| key.get(..8).unwrap_or(key).to_owned());
+    (name, linked.is_some_and(|row| row.reach == Reach::Connected))
+}
+
+pub(crate) fn host_name(core: &Core, key: &str) -> String {
+    let state = core.vault.state.locked();
+    named(core, &state, key).0
 }
 
 pub(crate) fn vault(core: &Core) -> ShownVault {
-    let rows = hosts::rows(core);
     let state = core.vault.state.locked();
     let me = state.me.clone().unwrap_or_default();
     let (status, failed) = match &state.status {
@@ -106,17 +112,7 @@ pub(crate) fn vault(core: &Core) -> ShownVault {
         Status::Failed(why) => (ShownStatus::Failed, Some(why.clone())),
     };
     let hosts: BTreeSet<&String> = state.holders.iter().chain(&state.waiting).collect();
-    let named = |key: &str| {
-        if key == me {
-            return (core.notify.host_name(), true);
-        }
-        rows.iter()
-            .find(|row| row.id.as_deref() == Some(key))
-            .map_or_else(
-                || (key.get(..8).unwrap_or(key).to_owned(), false),
-                |row| (row.name.clone(), row.reach == Reach::Connected),
-            )
-    };
+    let named = |key: &str| named(core, &state, key);
     let sign_ins = state
         .entries
         .iter()
