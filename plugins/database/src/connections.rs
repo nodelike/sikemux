@@ -14,6 +14,8 @@ use crate::queries::Lane;
 struct Open {
     session: Session,
     read_only: bool,
+    /// Where its password is kept, when it has one.
+    password: Option<String>,
 }
 
 /// A saved database's id.
@@ -25,6 +27,14 @@ pub struct Pool {
     /// One lock per connection, so calls that arrive together sign in once rather than each on their own.
     opening: std::sync::Mutex<HashMap<Key, Arc<tokio::sync::Mutex<()>>>>,
     lanes: std::sync::Mutex<HashMap<Key, Arc<Lane>>>,
+}
+
+/// A connection kept open is used only while its password still may be.
+async fn still_allowed(kept: Open) -> DatabaseResult<Open> {
+    if let Some(account) = kept.password.clone() {
+        profiles::blocking(move || profiles::check_password(&account)).await?;
+    }
+    Ok(kept)
 }
 
 impl Pool {
@@ -44,7 +54,7 @@ impl Pool {
     async fn open(&self, data_dir: &Path, id: &str) -> DatabaseResult<Open> {
         let key = id.to_string();
         if let Some(kept) = self.kept(&key).await {
-            return Ok(kept);
+            return still_allowed(kept).await;
         }
         let opening = Arc::clone(
             self.opening
@@ -55,7 +65,7 @@ impl Pool {
         );
         let _one_at_a_time = opening.lock().await;
         if let Some(kept) = self.kept(&key).await {
-            return Ok(kept);
+            return still_allowed(kept).await;
         }
         let dir = data_dir.to_path_buf();
         let wanted = id.to_string();
@@ -67,7 +77,13 @@ impl Pool {
         .await?;
         let read_only = profile.read_only || !profile.agent_writes;
         let session = Session::open(&profile.target, password.as_deref(), read_only).await?;
-        let opened = Open { session, read_only };
+        let opened = Open {
+            session,
+            read_only,
+            password: profile
+                .has_password
+                .then(|| profiles::split_id(&profile.id).0.to_owned()),
+        };
         self.open.lock().await.insert(key, opened.clone());
         Ok(opened)
     }

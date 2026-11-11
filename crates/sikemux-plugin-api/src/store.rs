@@ -51,11 +51,13 @@ impl Secrets {
         let Some(secret) = sikemux_keychain::read(self.0, account)? else {
             return Ok(None);
         };
-        self.may_use(account)?;
+        self.check(account)?;
         Ok(Some(secret))
     }
 
-    pub(crate) fn may_use(self, account: &str) -> Result<(), KeychainError> {
+    /// Whether the caller may use the secret under `account`, logged as a use when it may. A
+    /// plugin that keeps what the secret opened, such as a connection, asks this each time.
+    pub fn check(self, account: &str) -> Result<(), KeychainError> {
         vault::using(self.0, account).map_err(KeychainError::Failed)
     }
 
@@ -186,7 +188,7 @@ impl Held<String> {
         entry: String,
     ) -> Result<String, ServiceError<S>> {
         if let Some(secret) = self.get(key) {
-            secrets.may_use(&entry)?;
+            secrets.check(&entry)?;
             return Ok(secret);
         }
         let secret = blocking(move || Ok(secrets.read(&entry)?))

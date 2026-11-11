@@ -314,14 +314,14 @@ impl<S: Service> Refreshing<S> {
             Refresh::Here => {}
             Refresh::Use(shared) => {
                 let secrets = self.secrets;
-                blocking(move || Ok(secrets.may_use(&entry)?)).await?;
+                blocking(move || Ok(secrets.check(&entry)?)).await?;
                 return Ok(Access::shared(&shared));
             }
             Refresh::Wait(why) => return Err(ServiceError::Auth(why)),
         }
         let secrets = self.secrets;
         let checking = entry.clone();
-        blocking(move || Ok(secrets.may_use(&checking)?)).await?;
+        blocking(move || Ok(secrets.check(&checking)?)).await?;
         let mut held = self.held.lock().await;
         if let Some(access) = held
             .get(account)
