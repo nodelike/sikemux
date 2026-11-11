@@ -179,7 +179,7 @@ pub(crate) fn share(core: &Arc<Core>) {
                 projects: held.clone(),
             });
             let sent = ask(&core, &host, asks::Copies::METHOD, params, None, ASK_WAIT).await;
-            if let Err(super::Failed::Unreachable(_)) = sent {
+            if sent.is_err_and(|failed| failed.passing()) {
                 let mut told = core.hosts.copies.told.locked();
                 if told.get(&host) == Some(&held) {
                     told.remove(&host);
