@@ -6,18 +6,13 @@ import { fonts, type Palette, translucent, useColors, useStyles } from '@/ui/the
 
 /** What the line says and the state its mark takes, from the moment of the goal it marks. */
 function said(goal: GoalMarker): { state: SliceState; word: string } {
-  switch (goal.moment ?? 'started') {
-    case 'step':
-      return { state: 'done', word: 'Step done' };
-    case 'done':
-      return { state: 'done', word: 'Goal done' };
-    case 'stopped':
-      return { state: goal.state === 'failed' ? 'failed' : 'waiting', word: 'Goal stopped' };
-    default:
-      if (goal.state === 'needsYou') return { state: 'needsYou', word: 'Goal needs you' };
-      if (goal.state === 'waiting') return { state: 'waiting', word: 'Goal waiting' };
-      return { state: goal.state, word: 'Goal' };
-  }
+  const moment = goal.moment ?? 'started';
+  if (moment === 'step') return { state: 'done', word: 'Step done' };
+  if (moment === 'done') return { state: 'done', word: 'Goal done' };
+  if (moment === 'stopped') return { state: goal.state === 'failed' ? 'failed' : 'waiting', word: 'Goal stopped' };
+  if (goal.state === 'needsYou') return { state: 'needsYou', word: 'Goal needs you' };
+  if (goal.state === 'waiting') return { state: 'waiting', word: 'Goal waiting' };
+  return { state: goal.state, word: 'Goal' };
 }
 
 const STEP_WIDTH = 14;
