@@ -148,6 +148,7 @@ enum PhoneCall {
     enum CancelResume {}
     enum ChangeDevice {}
     enum ChatAccounts {}
+    enum ChatFile {}
     enum ChatFind {}
     enum ChatToolDetail {}
     enum CloseChat {}
@@ -255,6 +256,12 @@ extension PhoneCall.ChatAccounts: PhoneCallable {
     static let method = "chatAccounts"
     typealias Params = ChatAccountsParams
     typealias Answer = ChatAccounts
+}
+
+extension PhoneCall.ChatFile: PhoneCallable {
+    static let method = "chatFile"
+    typealias Params = ChatFileParams
+    typealias Answer = ChatFile
 }
 
 extension PhoneCall.ChatFind: PhoneCallable {
@@ -6329,6 +6336,18 @@ struct ChatAccounts: Codable, Hashable, Sendable {
 struct NamedAccount: Codable, Hashable, Sendable {
     var id: String
     var label: String
+}
+
+struct ChatFileParams: Codable, Hashable, Sendable {
+    var path: String
+    /// For a picture shown small: the longest side, in pixels, to send it scaled to.
+    var maxEdge: Int?
+}
+
+struct ChatFile: Codable, Hashable, Sendable {
+    /// Set when the file was sent as a scaled copy, which is a JPEG.
+    var mime: String?
+    var data: String
 }
 
 struct FindParams: Codable, Hashable, Sendable {
