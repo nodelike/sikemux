@@ -1,7 +1,7 @@
 import Foundation
 import Observation
 
-/// Every screen the app opens, as the RN app's routes named them. Links and notifications name them by path:
+/// Every screen the app opens, named as the Android app's routes are. Links and notifications name them by path:
 /// `/device/<core>?tab=terminals`, `/device/<core>/chat/<agent>`, `/device/<core>/new?project=…`, `/join?core=…`.
 enum Route: Hashable {
     enum DeviceTab: String {

@@ -1,6 +1,6 @@
 import UIKit
 
-/// The few taps the app gives back, as the RN app's expo-haptics did. A phone without a haptic engine stays still.
+/// The few taps the app gives back. A phone without a haptic engine stays still.
 @MainActor
 enum Haptics {
     private static let light = UIImpactFeedbackGenerator(style: .light)

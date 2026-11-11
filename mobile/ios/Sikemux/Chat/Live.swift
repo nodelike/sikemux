@@ -102,9 +102,10 @@ struct LiveWork: Equatable {
     }
 
     static func agentCost(_ agent: WorkflowAgent) -> String? {
-        let cost = [agent.tokens.map { "\(tokenCount($0)) tokens" }, agent.toolCalls.map { "\($0) tools" }].compactMap {
-            $0
-        }
+        let cost = [agent.tokens.map { "\(Format.tokens($0)) tokens" }, agent.toolCalls.map { "\($0) tools" }]
+            .compactMap {
+                $0
+            }
         return cost.isEmpty ? nil : cost.joined(separator: " · ")
     }
 
