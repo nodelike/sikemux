@@ -22,7 +22,7 @@ use crate::icons::Icon;
 use crate::motion::{Curve, Ease};
 use crate::theme::{
     self, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_4, TEXT_2XS, TEXT_2XS_H,
-    TEXT_3XS_H, TEXT_SM, TEXT_XS, TEXT_XS_H,
+    TEXT_3XS_H, TEXT_XS, TEXT_XS_H,
 };
 use crate::ui::{self, DockMenu, IconButton};
 use crate::workbench::Workbench;
@@ -540,7 +540,7 @@ fn context_line(strip: Strip, cx: &App) -> impl IntoElement {
             .gap(SPACE_1H)
             .rounded_full()
             .text_size(crate::theme::ui_text(TEXT_XS))
-            .text_color(t.text_tertiary)
+            .text_color(t.text_secondary)
             .child(ui::icon(Icon::Folder, 12.).text_color(t.live))
             .child(
                 div()
@@ -635,9 +635,7 @@ fn context_line(strip: Strip, cx: &App) -> impl IntoElement {
         .items_center()
         .gap(SPACE_1)
         .child(host)
-        .child(slash(&t))
         .child(project)
-        .children(strip.branch.is_some().then(|| slash(&t)))
         .children(strip.branch.map(|branch| {
             div()
                 .min_w_0()
@@ -668,11 +666,6 @@ fn context_line(strip: Strip, cx: &App) -> impl IntoElement {
         let strip = bounds.iter().map(|part| f32::from(part.size.width)).sum();
         Drawn::keep(cx, |drawn| Drawn { strip, ..drawn });
     })
-}
-
-/// The thin slash between the host, project and branch in the line under the box.
-fn slash(t: &Tokens) -> impl IntoElement {
-    ui::text("/", TEXT_SM, FontWeight::NORMAL).text_color(t.border_strong)
 }
 
 /// The widths the composer and what the context line under it holds were last drawn at, which
