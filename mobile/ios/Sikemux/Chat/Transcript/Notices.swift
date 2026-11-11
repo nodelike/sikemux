@@ -434,7 +434,7 @@ struct FiredTrigger: View {
         let kind = request.headers.first { $0.name == "content-type" }?.value.split(separator: ";").first?
             .trimmingCharacters(in: .whitespaces)
         let bytes = request.body.utf16.count
-        let size = bytes < 1024 ? "\(bytes) B" : String(format: "%.1f KB", Double(bytes) / 1024)
+        let size = Format.bytes(bytes)
         return [request.method, kind, size, request.query.isEmpty ? nil : "?\(request.query)"].compactMap { $0 }.filter
         { !$0.isEmpty }.joined(separator: " · ")
     }

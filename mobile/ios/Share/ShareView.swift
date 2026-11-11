@@ -202,7 +202,7 @@ private struct Preview: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(title).font(all.count == 1 && pictures == 0 ? Theme.mono(13) : Theme.ui(14.5, .semibold))
                     .foregroundColor(palette.ink).lineLimit(2)
-                Text(ByteCountFormatter.string(fromByteCount: size, countStyle: .file)).font(Theme.ui(12.5))
+                Text(Format.bytes(Int(size))).font(Theme.ui(12.5))
                     .foregroundColor(palette.tertiary)
             }
             Spacer(minLength: 0)

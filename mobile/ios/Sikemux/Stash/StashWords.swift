@@ -35,23 +35,10 @@ enum StashWords {
         case .prompt:
             let files = item.attachments?.count ?? 0
             what = files > 0 ? "Prompt · \(files) \(Format.counted("file", files))" : "Prompt"
-        default: what = bytes(item.size ?? 0)
+        default: what = Format.bytes(item.size ?? 0)
         }
         let age = Format.age(Format.date(iso: item.createdAt), now: now)
         return "\(what) · \(age == "now" ? "just now" : age)"
-    }
-
-    static func bytes(_ count: Int) -> String {
-        if abs(count) < 1024 { return "\(count) B" }
-        let units = ["KB", "MB", "GB", "TB"]
-        var value = Double(count) / 1024
-        var unit = 0
-        while abs(value) >= 1024, unit < units.count - 1 {
-            value /= 1024
-            unit += 1
-        }
-        let shown = abs(value) < 10 ? String(format: "%.1f", value) : String(Int(value.rounded()))
-        return "\(shown) \(units[unit])"
     }
 
     private static let mention = #"(^|\s)&(\S*)$"#
