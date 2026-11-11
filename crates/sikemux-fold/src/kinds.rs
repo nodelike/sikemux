@@ -5,6 +5,7 @@
 use serde_json::{Map, Value};
 use sikemux_view::chat::{ToolAction, ToolCall, ToolFamily, ToolIntent};
 
+use super::servers;
 use super::tools::sikemux_tool_name;
 
 /// Calls the reader never needs to see as calls: they show as themselves, or only load
@@ -45,15 +46,21 @@ pub(super) fn kind(
     let ours = (ours != tool.title.trim()).then_some(ours);
     let name = ours
         .or(tool.name.as_deref())
-        .or_else(|| server.and(tool.title.rsplit("__").next()))
+        .or_else(|| server.and(Some(tool.title.as_str())))
         .unwrap_or_default();
+    let name = match server {
+        Some(_) => name.rsplit("__").next().unwrap_or(name),
+        None => name,
+    };
     let plain = |family, intent| Kind {
         family,
         intent,
         subject: None,
         within: None,
     };
-    if HOUSEKEEPING.contains(&name) {
+    let setup = server.is_some_and(|server| servers::is_jira(server, name))
+        && servers::JIRA_SETUP.contains(&name);
+    if HOUSEKEEPING.contains(&name) || setup {
         return plain(ToolFamily::Housekeeping, ToolIntent::Use);
     }
     if let Some(kind) = named(name, tool, args) {
@@ -278,7 +285,7 @@ pub(super) fn command(tool: &ToolCall) -> Kind {
     }
 }
 
-fn typed_command(tool: &ToolCall) -> Option<String> {
+pub(super) fn typed_command(tool: &ToolCall) -> Option<String> {
     let input = tool.raw_input.as_ref().and_then(Value::as_object);
     match input.and_then(|input| input.get("command")) {
         Some(Value::String(command)) => Some(command.clone()),
@@ -438,6 +445,185 @@ pub(super) fn command_intent(command: &str) -> (ToolIntent, Option<String>) {
         }
         _ => (ToolIntent::Run, None),
     }
+}
+
+/// A command's row in what it did: the verb, its icon, what it acted on and anything quieter.
+pub(super) struct Said {
+    pub verb: &'static str,
+    pub icon: &'static str,
+    pub target: String,
+    pub detail: Option<String>,
+}
+
+/// Flags of test and build tools that take the next word as their value.
+const VALUED_FLAGS: &[&str] = &[
+    "-p",
+    "--package",
+    "-F",
+    "--filter",
+    "--features",
+    "--target",
+    "-j",
+    "--jobs",
+    "--manifest-path",
+    "-C",
+    "--bin",
+    "--test",
+    "--example",
+    "--profile",
+    "--config",
+    "-k",
+];
+
+/// A command in the words of what it does, when it does one of the things a row names:
+/// searching, reading, listing, testing, building or git. A plain command stays as typed.
+pub(super) fn said(command: &str) -> Option<Said> {
+    let step = first_step(command)?;
+    let program = step[0].rsplit('/').next().unwrap_or_default();
+    let args = &step[1..];
+    let positional: Vec<&str> = args
+        .iter()
+        .map(String::as_str)
+        .filter(|arg| !arg.starts_with('-'))
+        .collect();
+    let said = |verb, icon, target: Option<String>, detail: Option<String>| {
+        let target = target.filter(|target| !target.is_empty())?;
+        Some(Said {
+            verb,
+            icon,
+            target,
+            detail: detail.filter(|detail| !detail.is_empty()),
+        })
+    };
+    if program == "git" {
+        let sub = positional.first().copied().unwrap_or_default();
+        let rest = || positional.get(1..).unwrap_or_default().join(" ");
+        return match sub {
+            "push" => said(
+                "push",
+                "push",
+                Some(rest())
+                    .filter(|rest| !rest.is_empty())
+                    .or(Some("upstream".into())),
+                None,
+            ),
+            "commit" => {
+                let message = args
+                    .iter()
+                    .position(|arg| matches!(arg.as_str(), "-m" | "--message"))
+                    .and_then(|at| args.get(at + 1))
+                    .map(|message| message.lines().next().unwrap_or_default().to_owned());
+                said(
+                    "commit",
+                    "commit",
+                    message.or(Some("staged changes".into())),
+                    None,
+                )
+            }
+            "grep" => None,
+            _ => said("git", "git", Some(args.join(" ")), None),
+        };
+    }
+    let (intent, subject) = command_intent(command);
+    match intent {
+        ToolIntent::Search => said("search", "search", subject, command_within(command)),
+        ToolIntent::Read => said(
+            "read",
+            "file",
+            subject,
+            read_lines(program, &positional, args),
+        ),
+        ToolIntent::List => said("list", "folder", subject.filter(|place| place != "."), None),
+        ToolIntent::Test | ToolIntent::Build => {
+            let (verb, icon) = match intent {
+                ToolIntent::Test => ("test", "flask"),
+                _ => ("build", "cube"),
+            };
+            let (target, detail) = built(program, args, verb);
+            said(verb, icon, Some(target), detail)
+        }
+        _ => None,
+    }
+}
+
+/// The lines a read command printed: `sed -n 10,20p` as `10-20`, `head -n 40` as `first 40`.
+fn read_lines(program: &str, positional: &[&str], args: &[String]) -> Option<String> {
+    match program {
+        "sed" => {
+            let range = positional.first()?.strip_suffix('p')?;
+            let (from, to) = range.split_once(',').unwrap_or((range, range));
+            let number =
+                |text: &str| text.bytes().all(|byte| byte.is_ascii_digit()) && !text.is_empty();
+            (number(from) && number(to)).then(|| format!("{from}-{to}"))
+        }
+        "head" | "tail" => {
+            let count = args
+                .iter()
+                .position(|arg| arg == "-n")
+                .and_then(|at| args.get(at + 1))
+                .map(|count| count.trim_start_matches('+').to_owned())
+                .or_else(|| {
+                    args.iter()
+                        .find_map(|arg| arg.strip_prefix('-'))
+                        .filter(|count| count.bytes().all(|byte| byte.is_ascii_digit()))
+                        .map(str::to_owned)
+                })?;
+            let end = if program == "head" { "first" } else { "last" };
+            Some(format!("{end} {count}"))
+        }
+        _ => None,
+    }
+}
+
+/// What a test or build ran on: the package it names, else the tool and its script, with the
+/// rest of what it was given after.
+fn built(program: &str, args: &[String], verb: &str) -> (String, Option<String>) {
+    let mut package = None;
+    let mut rest = Vec::new();
+    let mut words = args.iter().map(String::as_str);
+    while let Some(word) = words.next() {
+        match word {
+            "--" => break,
+            "-p" | "--package" | "-F" | "--filter" => package = words.next(),
+            flag if VALUED_FLAGS.contains(&flag) => {
+                words.next();
+            }
+            flag if flag.starts_with('-') => {}
+            word => rest.push(word),
+        }
+    }
+    let scripted = matches!(
+        program,
+        "cargo"
+            | "go"
+            | "swift"
+            | "dotnet"
+            | "mvn"
+            | "zig"
+            | "make"
+            | "pnpm"
+            | "npm"
+            | "yarn"
+            | "bun"
+            | "npx"
+            | "bunx"
+            | "deno"
+    );
+    if scripted && matches!(rest.first(), Some(&("run" | "exec" | "x" | "dlx"))) {
+        rest.remove(0);
+    }
+    let script = if scripted && !rest.is_empty() {
+        Some(rest.remove(0))
+    } else {
+        None
+    };
+    let target = match (package, script) {
+        (Some(package), _) => package.to_owned(),
+        (None, Some(script)) if script != verb => format!("{program} {script}"),
+        (None, _) => program.to_owned(),
+    };
+    let detail = (!rest.is_empty()).then(|| rest.join(" "));
+    (target, detail)
 }
 
 /// A step's words, with quotes taken off.

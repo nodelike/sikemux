@@ -316,8 +316,8 @@ for (const { where, plugin, tools } of described) {
       (key) => !["verb", "kind", "icon", "target", "detail"].includes(key),
     );
     if (extra.length > 0) fail(`row has unknown keys: ${extra.join(", ")}`);
-    if (!/^[a-z]{2,8}$/u.test(row.verb ?? ""))
-      fail("row verb must be one lowercase word of 2 to 8 letters");
+    if (!/^[a-z]{2,8}( [a-z]{2,8})?$/u.test(row.verb ?? ""))
+      fail("row verb must be one or two lowercase words of 2 to 8 letters");
     if (!kinds.has(row.kind))
       fail(
         `row kind "${row.kind}" is not one of ${[...kinds].join(", ")} (ToolAction in sikemux-view)`,

@@ -3,7 +3,7 @@
   "guide": {
     "file": "SIKEMUX_GUIDE.md",
     "name": "guide",
-    "row": {"verb": "read", "kind": "read", "icon": "logo", "target": ["the guide: {topic}", "the guide"]},
+    "row": {"verb": "guide", "kind": "read", "icon": "book", "target": ["{topic}", "the index"]},
     "description": "Read before your first process or browser click. Topics go deeper.",
     "comment": "The tools MCP server answers it from the guide the core serves with this manifest, so it has no harness method."
   },
@@ -86,7 +86,7 @@
     },
     {
       "name": "browser_state",
-      "row": {"verb": "read", "kind": "read", "icon": "eye", "target": ["{selector}"]},
+      "row": {"verb": "look", "kind": "read", "icon": "eye", "target": ["{selector}", "the page"]},
       "method": "browser.state",
       "description": "Read the tab: url, title, numbered elements, text, tabs, downloads.",
       "properties": {
@@ -1287,7 +1287,7 @@
     },
     {
       "name": "workspace_inspect",
-      "row": {"verb": "inspect", "kind": "read", "icon": "logo", "target": ["the workspace"]},
+      "row": {"verb": "inspect", "kind": "read", "icon": "server", "target": ["the workspace"]},
       "method": "workspace.inspect",
       "description": "The open project: processes, runs and ports.",
       "properties": {},
@@ -1352,7 +1352,7 @@
     },
     {
       "name": "process_read",
-      "row": {"verb": "read", "kind": "read", "icon": "log-lines", "target": ["{processId}", "{executionId}"], "detail": ["“{search}”"]},
+      "row": {"verb": "tail", "kind": "read", "icon": "log-lines", "target": ["{processId}", "{executionId}"], "detail": ["“{search}”", "last {tail} lines"]},
       "method": "process.read",
       "description": "Read process output by cursor, tail or search.",
       "properties": {
@@ -1485,7 +1485,7 @@
     },
     {
       "name": "page_show",
-      "row": {"verb": "show", "kind": "read", "icon": "panel", "target": ["{title}"]},
+      "row": {"verb": "show", "kind": "read", "icon": "image", "target": ["{title}"]},
       "method": "page.show",
       "description": "Show a page in your reply.",
       "properties": {
@@ -1517,7 +1517,7 @@
     },
     {
       "name": "events_wait",
-      "row": {"verb": "wait", "kind": "think", "icon": "clock", "target": ["for {executionId}", "for {file}", "for pid {pid}", "for process or page events"], "detail": ["until {until}"]},
+      "row": {"verb": "wait", "kind": "think", "icon": "hourglass", "target": ["for {executionId}", "for {file}", "for pid {pid}", "for process or page events"], "detail": ["until {until}"]},
       "method": "events.wait",
       "description": "Wait for process or UI events, a file or a pid.",
       "properties": {
@@ -1562,7 +1562,7 @@
     },
     {
       "name": "agent_list",
-      "row": {"verb": "list", "kind": "read", "icon": "status", "target": ["agents"]},
+      "row": {"verb": "list", "kind": "read", "icon": "agents", "target": ["agents"]},
       "method": "agent.list",
       "description": "List Sikemux agents.",
       "properties": {
@@ -1690,7 +1690,7 @@
     },
     {
       "name": "who_wrote",
-      "row": {"verb": "find", "kind": "search", "icon": "search", "target": ["who wrote {target}"]},
+      "row": {"verb": "who wrote", "kind": "search", "icon": "user", "target": ["{target}"]},
       "method": "agent.wrote",
       "description": "Who broke CI, a test or a commit; how to reach them.",
       "properties": {
@@ -1757,7 +1757,7 @@
     },
     {
       "name": "agent_wait",
-      "row": {"verb": "wait", "kind": "think", "icon": "clock", "target": ["for {agents}"], "detail": ["{until}"]},
+      "row": {"verb": "wait", "kind": "think", "icon": "hourglass", "target": ["for {agents}"], "detail": ["{until}"]},
       "method": "agent.wait",
       "description": "Wait until agents stop.",
       "properties": {
@@ -1946,7 +1946,7 @@
     },
     {
       "name": "board_add",
-      "row": {"verb": "add", "kind": "edit", "icon": "square-plus", "target": ["card {title}"]},
+      "row": {"verb": "add", "kind": "edit", "icon": "board", "target": ["card {title}"]},
       "method": "board.add",
       "description": "Add a board card.",
       "properties": {
@@ -1997,7 +1997,7 @@
     },
     {
       "name": "board_list",
-      "row": {"verb": "list", "kind": "read", "icon": "dashboard", "target": ["card #{card}", "the board"]},
+      "row": {"verb": "list", "kind": "read", "icon": "board", "target": ["card #{card}", "the board"]},
       "method": "board.list",
       "description": "List the board.",
       "properties": {
@@ -2017,7 +2017,7 @@
     },
     {
       "name": "board_claim",
-      "row": {"verb": "claim", "kind": "edit", "icon": "issue", "target": ["card #{card}"]},
+      "row": {"verb": "claim", "kind": "edit", "icon": "board", "target": ["card #{card}"]},
       "method": "board.claim",
       "description": "Claim a card.",
       "properties": {
@@ -2032,7 +2032,7 @@
     },
     {
       "name": "board_update",
-      "row": {"verb": "update", "kind": "edit", "icon": "issue", "target": ["card #{card} to {status}", "card #{card}"], "detail": ["{result}"]},
+      "row": {"verb": "update", "kind": "edit", "icon": "board", "target": ["card #{card}"], "detail": ["to {status}", "{result}"]},
       "method": "board.update",
       "description": "Change a card.",
       "properties": {
@@ -2127,7 +2127,7 @@
     },
     {
       "name": "board_decide",
-      "row": {"verb": "decide", "kind": "edit", "icon": "issue", "target": ["decision #{decision}", "{text}"]},
+      "row": {"verb": "decide", "kind": "edit", "icon": "board", "target": ["decision #{decision}", "{text}"]},
       "method": "board.decide",
       "description": "Keep a goal's decisions.",
       "properties": {
@@ -2159,7 +2159,7 @@
     },
     {
       "name": "board_assert",
-      "row": {"verb": "assert", "kind": "edit", "icon": "issue", "target": ["assertion #{assertion}", "{text}"]},
+      "row": {"verb": "assert", "kind": "edit", "icon": "board", "target": ["assertion #{assertion}", "{text}"]},
       "method": "board.assert",
       "description": "Keep a goal's assertions.",
       "properties": {
@@ -2210,7 +2210,7 @@
     },
     {
       "name": "memory_add",
-      "row": {"verb": "remember", "kind": "edit", "icon": "square-plus", "target": ["{kind}: {text}"]},
+      "row": {"verb": "remember", "kind": "edit", "icon": "book", "target": ["{text}"], "detail": ["{kind}"]},
       "method": "memory.add",
       "description": "Keep a rule or knowledge.",
       "properties": {
@@ -2286,7 +2286,7 @@
     },
     {
       "name": "memory_update",
-      "row": {"verb": "update", "kind": "edit", "icon": "text", "target": ["memory #{id}"], "detail": ["{text}", "{wrong}"]},
+      "row": {"verb": "update", "kind": "edit", "icon": "book", "target": ["memory #{id}"], "detail": ["{text}", "{wrong}"]},
       "method": "memory.update",
       "description": "Mend what is kept.",
       "properties": {
@@ -2363,7 +2363,7 @@
     },
     {
       "name": "memory_list",
-      "row": {"verb": "list", "kind": "read", "icon": "log-lines", "target": ["what Sikemux keeps"]},
+      "row": {"verb": "list", "kind": "read", "icon": "book", "target": ["what Sikemux keeps"]},
       "method": "memory.list",
       "description": "List what is kept.",
       "properties": {},
@@ -2371,7 +2371,7 @@
     },
     {
       "name": "trigger_add",
-      "row": {"verb": "set", "kind": "edit", "icon": "clock", "target": ["trigger {title}"]},
+      "row": {"verb": "trigger", "kind": "edit", "icon": "bolt", "target": ["{title}"], "detail": ["after CI on {ci}", "daily at {daily}"]},
       "method": "trigger.add",
       "description": "Prompt this chat later.",
       "properties": {
@@ -2444,7 +2444,7 @@
     },
     {
       "name": "trigger_list",
-      "row": {"verb": "list", "kind": "read", "icon": "clock", "target": ["triggers"]},
+      "row": {"verb": "list", "kind": "read", "icon": "bolt", "target": ["triggers"]},
       "method": "trigger.list",
       "description": "List your triggers.",
       "properties": {},
@@ -2452,7 +2452,7 @@
     },
     {
       "name": "trigger_remove",
-      "row": {"verb": "remove", "kind": "edit", "icon": "clock", "target": ["trigger {trigger}"]},
+      "row": {"verb": "trigger", "kind": "edit", "icon": "bolt", "target": ["remove #{trigger}"]},
       "method": "trigger.remove",
       "description": "Stop a trigger.",
       "properties": {
@@ -2578,7 +2578,7 @@
     },
     {
       "name": "git_commit",
-      "row": {"verb": "commit", "kind": "edit", "icon": "pull-request", "target": ["{message}"]},
+      "row": {"verb": "commit", "kind": "edit", "icon": "commit", "target": ["{message}"]},
       "method": "git.commit",
       "description": "Commit only the lines you wrote.",
       "properties": {
@@ -2615,7 +2615,7 @@
     },
     {
       "name": "skills",
-      "row": {"verb": "skills", "kind": "edit", "icon": "logo", "target": ["{action} {name}", "{action} from {source}", "{action}"]},
+      "row": {"verb": "skills", "kind": "edit", "icon": "book", "target": ["{action} {name}", "{action} from {source}", "{action}"]},
       "method": "skills.manage",
       "description": "Manage the skills every agent gets.",
       "properties": {
@@ -2653,7 +2653,7 @@
     },
     {
       "name": "app_console",
-      "row": {"verb": "read", "kind": "read", "icon": "logo", "target": ["the app console"]},
+      "row": {"verb": "console", "kind": "read", "icon": "terminal", "target": ["the app"]},
       "method": "app.console",
       "description": "Read Sikemux's console and errors.",
       "properties": {

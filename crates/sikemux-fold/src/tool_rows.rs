@@ -5,10 +5,10 @@ pub(super) const SPECS: &[(&str, Spec)] = &[
     (
         "guide",
         Spec {
-            verb: "read",
+            verb: "guide",
             kind: "read",
-            icon: "logo",
-            target: &["the guide: {topic}", "the guide"],
+            icon: "book",
+            target: &["{topic}", "the index"],
             detail: &[],
             plugin: None,
         },
@@ -27,10 +27,10 @@ pub(super) const SPECS: &[(&str, Spec)] = &[
     (
         "browser_state",
         Spec {
-            verb: "read",
+            verb: "look",
             kind: "read",
             icon: "eye",
-            target: &["{selector}"],
+            target: &["{selector}", "the page"],
             detail: &[],
             plugin: None,
         },
@@ -459,7 +459,7 @@ pub(super) const SPECS: &[(&str, Spec)] = &[
         Spec {
             verb: "inspect",
             kind: "read",
-            icon: "logo",
+            icon: "server",
             target: &["the workspace"],
             detail: &[],
             plugin: None,
@@ -490,11 +490,11 @@ pub(super) const SPECS: &[(&str, Spec)] = &[
     (
         "process_read",
         Spec {
-            verb: "read",
+            verb: "tail",
             kind: "read",
             icon: "log-lines",
             target: &["{processId}", "{executionId}"],
-            detail: &["“{search}”"],
+            detail: &["“{search}”", "last {tail} lines"],
             plugin: None,
         },
     ),
@@ -536,7 +536,7 @@ pub(super) const SPECS: &[(&str, Spec)] = &[
         Spec {
             verb: "show",
             kind: "read",
-            icon: "panel",
+            icon: "image",
             target: &["{title}"],
             detail: &[],
             plugin: None,
@@ -547,7 +547,7 @@ pub(super) const SPECS: &[(&str, Spec)] = &[
         Spec {
             verb: "wait",
             kind: "think",
-            icon: "clock",
+            icon: "hourglass",
             target: &[
                 "for {executionId}",
                 "for {file}",
@@ -563,7 +563,7 @@ pub(super) const SPECS: &[(&str, Spec)] = &[
         Spec {
             verb: "list",
             kind: "read",
-            icon: "status",
+            icon: "agents",
             target: &["agents"],
             detail: &[],
             plugin: None,
@@ -594,10 +594,10 @@ pub(super) const SPECS: &[(&str, Spec)] = &[
     (
         "who_wrote",
         Spec {
-            verb: "find",
+            verb: "who wrote",
             kind: "search",
-            icon: "search",
-            target: &["who wrote {target}"],
+            icon: "user",
+            target: &["{target}"],
             detail: &[],
             plugin: None,
         },
@@ -629,7 +629,7 @@ pub(super) const SPECS: &[(&str, Spec)] = &[
         Spec {
             verb: "wait",
             kind: "think",
-            icon: "clock",
+            icon: "hourglass",
             target: &["for {agents}"],
             detail: &["{until}"],
             plugin: None,
@@ -662,7 +662,7 @@ pub(super) const SPECS: &[(&str, Spec)] = &[
         Spec {
             verb: "add",
             kind: "edit",
-            icon: "square-plus",
+            icon: "board",
             target: &["card {title}"],
             detail: &[],
             plugin: None,
@@ -673,7 +673,7 @@ pub(super) const SPECS: &[(&str, Spec)] = &[
         Spec {
             verb: "list",
             kind: "read",
-            icon: "dashboard",
+            icon: "board",
             target: &["card #{card}", "the board"],
             detail: &[],
             plugin: None,
@@ -684,7 +684,7 @@ pub(super) const SPECS: &[(&str, Spec)] = &[
         Spec {
             verb: "claim",
             kind: "edit",
-            icon: "issue",
+            icon: "board",
             target: &["card #{card}"],
             detail: &[],
             plugin: None,
@@ -695,9 +695,9 @@ pub(super) const SPECS: &[(&str, Spec)] = &[
         Spec {
             verb: "update",
             kind: "edit",
-            icon: "issue",
-            target: &["card #{card} to {status}", "card #{card}"],
-            detail: &["{result}"],
+            icon: "board",
+            target: &["card #{card}"],
+            detail: &["to {status}", "{result}"],
             plugin: None,
         },
     ),
@@ -706,7 +706,7 @@ pub(super) const SPECS: &[(&str, Spec)] = &[
         Spec {
             verb: "decide",
             kind: "edit",
-            icon: "issue",
+            icon: "board",
             target: &["decision #{decision}", "{text}"],
             detail: &[],
             plugin: None,
@@ -717,7 +717,7 @@ pub(super) const SPECS: &[(&str, Spec)] = &[
         Spec {
             verb: "assert",
             kind: "edit",
-            icon: "issue",
+            icon: "board",
             target: &["assertion #{assertion}", "{text}"],
             detail: &[],
             plugin: None,
@@ -728,9 +728,9 @@ pub(super) const SPECS: &[(&str, Spec)] = &[
         Spec {
             verb: "remember",
             kind: "edit",
-            icon: "square-plus",
-            target: &["{kind}: {text}"],
-            detail: &[],
+            icon: "book",
+            target: &["{text}"],
+            detail: &["{kind}"],
             plugin: None,
         },
     ),
@@ -739,7 +739,7 @@ pub(super) const SPECS: &[(&str, Spec)] = &[
         Spec {
             verb: "update",
             kind: "edit",
-            icon: "text",
+            icon: "book",
             target: &["memory #{id}"],
             detail: &["{text}", "{wrong}"],
             plugin: None,
@@ -750,7 +750,7 @@ pub(super) const SPECS: &[(&str, Spec)] = &[
         Spec {
             verb: "list",
             kind: "read",
-            icon: "log-lines",
+            icon: "book",
             target: &["what Sikemux keeps"],
             detail: &[],
             plugin: None,
@@ -759,11 +759,11 @@ pub(super) const SPECS: &[(&str, Spec)] = &[
     (
         "trigger_add",
         Spec {
-            verb: "set",
+            verb: "trigger",
             kind: "edit",
-            icon: "clock",
-            target: &["trigger {title}"],
-            detail: &[],
+            icon: "bolt",
+            target: &["{title}"],
+            detail: &["after CI on {ci}", "daily at {daily}"],
             plugin: None,
         },
     ),
@@ -772,7 +772,7 @@ pub(super) const SPECS: &[(&str, Spec)] = &[
         Spec {
             verb: "list",
             kind: "read",
-            icon: "clock",
+            icon: "bolt",
             target: &["triggers"],
             detail: &[],
             plugin: None,
@@ -781,10 +781,10 @@ pub(super) const SPECS: &[(&str, Spec)] = &[
     (
         "trigger_remove",
         Spec {
-            verb: "remove",
+            verb: "trigger",
             kind: "edit",
-            icon: "clock",
-            target: &["trigger {trigger}"],
+            icon: "bolt",
+            target: &["remove #{trigger}"],
             detail: &[],
             plugin: None,
         },
@@ -805,7 +805,7 @@ pub(super) const SPECS: &[(&str, Spec)] = &[
         Spec {
             verb: "commit",
             kind: "edit",
-            icon: "pull-request",
+            icon: "commit",
             target: &["{message}"],
             detail: &[],
             plugin: None,
@@ -816,7 +816,7 @@ pub(super) const SPECS: &[(&str, Spec)] = &[
         Spec {
             verb: "skills",
             kind: "edit",
-            icon: "logo",
+            icon: "book",
             target: &["{action} {name}", "{action} from {source}", "{action}"],
             detail: &[],
             plugin: None,
@@ -825,10 +825,10 @@ pub(super) const SPECS: &[(&str, Spec)] = &[
     (
         "app_console",
         Spec {
-            verb: "read",
+            verb: "console",
             kind: "read",
-            icon: "logo",
-            target: &["the app console"],
+            icon: "terminal",
+            target: &["the app"],
             detail: &[],
             plugin: None,
         },

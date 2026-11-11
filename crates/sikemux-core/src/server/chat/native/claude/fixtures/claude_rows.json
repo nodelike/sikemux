@@ -30,6 +30,10 @@
                   "row": {
                     "action": "think",
                     "target": "Explore code",
+                    "detail": "Explore",
+                    "verb": "delegate",
+                    "icon": "agents",
+                    "activity": "delegate Explore code",
                     "family": "agents",
                     "intent": "start",
                     "subject": "Explore"
@@ -70,6 +74,9 @@
                   "row": {
                     "action": "think",
                     "target": "Task",
+                    "verb": "delegate",
+                    "icon": "agents",
+                    "activity": "delegate Task",
                     "family": "agents",
                     "intent": "start"
                   }
@@ -104,6 +111,9 @@
                   "row": {
                     "action": "think",
                     "target": "Task",
+                    "verb": "delegate",
+                    "icon": "agents",
+                    "activity": "delegate Task",
                     "family": "agents",
                     "intent": "start"
                   }
@@ -599,6 +609,9 @@
                     "action": "edit",
                     "target": "new.txt",
                     "path": "/repo/app/new.txt",
+                    "verb": "write",
+                    "icon": "file-plus",
+                    "activity": "write new.txt",
                     "family": "files",
                     "intent": "write"
                   }
@@ -642,6 +655,9 @@
                     "action": "edit",
                     "target": "p.txt",
                     "path": "/repo/app/p.txt",
+                    "verb": "write",
+                    "icon": "file-plus",
+                    "activity": "write p.txt",
                     "family": "files",
                     "intent": "write"
                   }
@@ -681,6 +697,9 @@
                   "row": {
                     "action": "edit",
                     "target": "Preparing file…",
+                    "verb": "write",
+                    "icon": "file-plus",
+                    "activity": "write Preparing file…",
                     "family": "files",
                     "intent": "write"
                   }
@@ -722,6 +741,9 @@
                     "action": "edit",
                     "target": "side.txt",
                     "path": "/out/side.txt",
+                    "verb": "write",
+                    "icon": "file-plus",
+                    "activity": "write side.txt",
                     "family": "files",
                     "intent": "write"
                   }
@@ -756,6 +778,9 @@
                   "row": {
                     "action": "edit",
                     "target": "Preparing file…",
+                    "verb": "write",
+                    "icon": "file-plus",
+                    "activity": "write Preparing file…",
                     "family": "files",
                     "intent": "write"
                   }
@@ -1302,7 +1327,10 @@
                   },
                   "row": {
                     "action": "fetch",
-                    "target": "Fetch https://e.com",
+                    "target": "e.com",
+                    "verb": "read",
+                    "icon": "globe",
+                    "activity": "read e.com",
                     "family": "web",
                     "intent": "fetch"
                   }
@@ -1337,6 +1365,9 @@
                   "row": {
                     "action": "fetch",
                     "target": "Fetch",
+                    "verb": "read",
+                    "icon": "globe",
+                    "activity": "read Fetch",
                     "family": "web",
                     "intent": "fetch"
                   }
@@ -1375,10 +1406,13 @@
                   },
                   "row": {
                     "action": "fetch",
-                    "target": "Search \"rust serde\"",
+                    "target": "rust serde",
+                    "detail": "web",
+                    "verb": "search",
+                    "icon": "search",
+                    "activity": "search rust serde",
                     "family": "web",
-                    "intent": "search",
-                    "subject": "rust serde"
+                    "intent": "search"
                   }
                 },
                 "startedAt": 1000
@@ -1411,6 +1445,10 @@
                   "row": {
                     "action": "fetch",
                     "target": "Web search",
+                    "detail": "web",
+                    "verb": "search",
+                    "icon": "search",
+                    "activity": "search Web search",
                     "family": "web",
                     "intent": "search"
                   }
@@ -1895,9 +1933,10 @@
                   },
                   "row": {
                     "action": "other",
-                    "target": "Load skill: caveman",
-                    "verb": "load",
-                    "activity": "Load skill: caveman",
+                    "target": "caveman",
+                    "verb": "skill",
+                    "icon": "book",
+                    "activity": "skill caveman",
                     "family": "housekeeping"
                   }
                 },
@@ -1931,8 +1970,9 @@
                   "row": {
                     "action": "other",
                     "target": "Load skill",
-                    "verb": "load",
-                    "activity": "Load skill",
+                    "verb": "skill",
+                    "icon": "book",
+                    "activity": "skill Load skill",
                     "family": "housekeeping"
                   }
                 },
@@ -1975,8 +2015,9 @@
                   "row": {
                     "action": "other",
                     "target": "Which?",
-                    "verb": "which?",
-                    "activity": "Which?",
+                    "verb": "ask",
+                    "icon": "message",
+                    "activity": "ask Which?",
                     "family": "housekeeping"
                   }
                 },
@@ -2025,8 +2066,9 @@
                   "row": {
                     "action": "other",
                     "target": "Asking for your input",
-                    "verb": "asking",
-                    "activity": "Asking for your input",
+                    "verb": "ask",
+                    "icon": "message",
+                    "activity": "ask Asking for your input",
                     "family": "housekeeping"
                   }
                 },
@@ -2060,8 +2102,9 @@
                   "row": {
                     "action": "other",
                     "target": "Asking for your input",
-                    "verb": "asking",
-                    "activity": "Asking for your input",
+                    "verb": "ask",
+                    "icon": "message",
+                    "activity": "ask Asking for your input",
                     "family": "housekeeping"
                   }
                 },
@@ -3114,6 +3157,9 @@
                   "row": {
                     "action": "think",
                     "target": "d",
+                    "verb": "delegate",
+                    "icon": "agents",
+                    "activity": "delegate d",
                     "family": "agents",
                     "intent": "start"
                   }
@@ -3160,6 +3206,9 @@
                   "row": {
                     "action": "think",
                     "target": "d",
+                    "verb": "delegate",
+                    "icon": "agents",
+                    "activity": "delegate d",
                     "family": "agents",
                     "intent": "start"
                   }
@@ -3206,6 +3255,9 @@
                   "row": {
                     "action": "think",
                     "target": "d",
+                    "verb": "delegate",
+                    "icon": "agents",
+                    "activity": "delegate d",
                     "family": "agents",
                     "intent": "start"
                   }
@@ -3264,6 +3316,9 @@
                   "row": {
                     "action": "think",
                     "target": "d",
+                    "verb": "delegate",
+                    "icon": "agents",
+                    "activity": "delegate d",
                     "family": "agents",
                     "intent": "start"
                   }
@@ -3310,6 +3365,9 @@
                   "row": {
                     "action": "think",
                     "target": "d",
+                    "verb": "delegate",
+                    "icon": "agents",
+                    "activity": "delegate d",
                     "family": "agents",
                     "intent": "start"
                   }
@@ -3357,6 +3415,9 @@
                   "row": {
                     "action": "think",
                     "target": "d",
+                    "verb": "delegate",
+                    "icon": "agents",
+                    "activity": "delegate d",
                     "family": "agents",
                     "intent": "start"
                   }
@@ -3454,6 +3515,9 @@
                     "action": "edit",
                     "target": "a",
                     "path": "/repo/app/a",
+                    "verb": "write",
+                    "icon": "file-plus",
+                    "activity": "write a",
                     "family": "files",
                     "intent": "write"
                   }
@@ -3549,9 +3613,10 @@
                   },
                   "row": {
                     "action": "other",
-                    "target": "Load skill: x",
-                    "verb": "load",
-                    "activity": "Load skill: x",
+                    "target": "x",
+                    "verb": "skill",
+                    "icon": "book",
+                    "activity": "skill x",
                     "family": "housekeeping"
                   }
                 },
@@ -3749,10 +3814,13 @@
                   },
                   "row": {
                     "action": "fetch",
-                    "target": "Search \"q\"",
+                    "target": "q",
+                    "detail": "web",
+                    "verb": "search",
+                    "icon": "search",
+                    "activity": "search q",
                     "family": "web",
-                    "intent": "search",
-                    "subject": "q"
+                    "intent": "search"
                   }
                 },
                 "startedAt": 1000,
@@ -3798,10 +3866,13 @@
                   },
                   "row": {
                     "action": "fetch",
-                    "target": "Search \"q\"",
+                    "target": "q",
+                    "detail": "web",
+                    "verb": "search",
+                    "icon": "search",
+                    "activity": "search q",
                     "family": "web",
-                    "intent": "search",
-                    "subject": "q"
+                    "intent": "search"
                   }
                 },
                 "startedAt": 1000,
@@ -3950,9 +4021,10 @@
                   "status": "completed",
                   "row": {
                     "action": "mcp",
-                    "target": "y",
+                    "target": "",
+                    "detail": "x",
                     "server": "x",
-                    "activity": "y"
+                    "verb": "y"
                   }
                 },
                 "output": {
@@ -4009,9 +4081,10 @@
                   "status": "failed",
                   "row": {
                     "action": "mcp",
-                    "target": "y",
+                    "target": "",
+                    "detail": "x",
                     "server": "x",
-                    "activity": "y"
+                    "verb": "y"
                   }
                 },
                 "output": {
@@ -4055,9 +4128,10 @@
                   "status": "completed",
                   "row": {
                     "action": "mcp",
-                    "target": "y",
+                    "target": "",
+                    "detail": "x",
                     "server": "x",
-                    "activity": "y"
+                    "verb": "y"
                   }
                 },
                 "output": {
@@ -4101,9 +4175,10 @@
                   "status": "completed",
                   "row": {
                     "action": "mcp",
-                    "target": "y",
+                    "target": "",
+                    "detail": "x",
                     "server": "x",
-                    "activity": "y"
+                    "verb": "y"
                   }
                 },
                 "output": {
@@ -4146,9 +4221,10 @@
                   "status": "completed",
                   "row": {
                     "action": "mcp",
-                    "target": "y",
+                    "target": "",
+                    "detail": "x",
                     "server": "x",
-                    "activity": "y"
+                    "verb": "y"
                   }
                 },
                 "startedAt": 1000,
@@ -4190,9 +4266,10 @@
                   "status": "completed",
                   "row": {
                     "action": "mcp",
-                    "target": "y",
+                    "target": "",
+                    "detail": "x",
                     "server": "x",
-                    "activity": "y"
+                    "verb": "y"
                   }
                 },
                 "startedAt": 1000,
@@ -4285,7 +4362,10 @@
                   },
                   "row": {
                     "action": "fetch",
-                    "target": "Fetch u",
+                    "target": "u",
+                    "verb": "read",
+                    "icon": "globe",
+                    "activity": "read u",
                     "family": "web",
                     "intent": "fetch"
                   }

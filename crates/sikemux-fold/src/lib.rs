@@ -9,8 +9,10 @@ pub mod pickers;
 mod prompt;
 pub use prompt::{sent_spans, SentNames};
 mod kinds;
+mod own;
 mod row;
 mod send;
+mod servers;
 mod team;
 #[cfg(test)]
 mod tests;

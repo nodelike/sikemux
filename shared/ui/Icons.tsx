@@ -638,6 +638,25 @@ function Svg24({ size = 14, children }: { size?: number; children: React.ReactNo
     );
 }
 
+export function IconCommit({ size = 14 }: { size?: number }) {
+    return (
+        <Svg24 size={size}>
+            <circle cx="12" cy="12" r="3" />
+            <path d="M3 12h6M15 12h6" />
+        </Svg24>
+    );
+}
+
+export function IconPush({ size = 14 }: { size?: number }) {
+    return (
+        <Svg24 size={size}>
+            <path d="M5 4h14" />
+            <path d="M12 20V9" />
+            <path d="M7 13l5-5 5 5" />
+        </Svg24>
+    );
+}
+
 export function IconPullRequest({ size = 14 }: { size?: number }) {
     return (
         <Svg24 size={size}>

@@ -2637,7 +2637,7 @@ fn titled(title: &str) -> sikemux_view::chat::ToolRow {
 }
 
 #[test]
-fn an_mcp_call_is_named_for_its_server_and_reads_its_tool_as_words() {
+fn an_mcp_call_says_its_tools_first_word_and_what_it_was_given_with_the_server_after() {
     let row = row_of(
         "mcp__linear__create_issue",
         Some("fetch_custom"),
@@ -2645,9 +2645,15 @@ fn an_mcp_call_is_named_for_its_server_and_reads_its_tool_as_words() {
     );
     assert_eq!(row.action, sikemux_view::chat::ToolAction::Mcp);
     assert_eq!(row.server.as_deref(), Some("linear"));
-    assert_eq!(row.target, "create issue");
-    assert_eq!(row.detail.as_deref(), Some("Rows use underscores"));
-    assert_eq!(titled("mcp__server__nested__tool").target, "nested  tool");
+    assert_eq!(row.verb.as_deref(), Some("create"));
+    assert_eq!(row.target, "Rows use underscores");
+    assert_eq!(row.detail.as_deref(), Some("linear"));
+    assert_eq!(row.icon.as_deref(), Some("linear"));
+    let nested = titled("mcp__server__nested__tool");
+    assert_eq!(
+        (nested.verb.as_deref(), nested.target.as_str()),
+        (Some("nested"), "tool")
+    );
     assert_eq!(titled("mcp__half").server, None);
 }
 
@@ -2673,7 +2679,6 @@ fn an_unknown_tool_is_called_by_the_first_word_of_its_title() {
         titled("Averyveryverylongtoolname").verb.as_deref(),
         Some("averyveryver")
     );
-    assert_eq!(titled("ToolSearch").icon.as_deref(), Some("wrench"));
     assert_eq!(row_of("Read", Some("read"), json!({})).verb, None);
 }
 

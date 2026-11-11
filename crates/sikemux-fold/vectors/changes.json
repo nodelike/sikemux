@@ -153,7 +153,10 @@
             "kind": "call",
             "row": {
               "action": "execute",
-              "target": "cargo test",
+              "target": "cargo",
+              "verb": "test",
+              "icon": "flask",
+              "activity": "test cargo",
               "family": "shell",
               "intent": "test"
             }
@@ -176,7 +179,10 @@
             },
             "row": {
               "action": "execute",
-              "target": "cargo test",
+              "target": "cargo",
+              "verb": "test",
+              "icon": "flask",
+              "activity": "test cargo",
               "family": "shell",
               "intent": "test"
             }
@@ -211,7 +217,10 @@
             },
             "row": {
               "action": "execute",
-              "target": "cargo test",
+              "target": "cargo",
+              "verb": "test",
+              "icon": "flask",
+              "activity": "test cargo",
               "family": "shell",
               "intent": "test"
             }
@@ -376,7 +385,10 @@
               },
               "row": {
                 "action": "execute",
-                "target": "cargo test",
+                "target": "cargo",
+                "verb": "test",
+                "icon": "flask",
+                "activity": "test cargo",
                 "family": "shell",
                 "intent": "test"
               }

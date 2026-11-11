@@ -8,6 +8,8 @@ use serde_json::{Map, Value};
 use sikemux_view::chat::{ToolAction, ToolCall, ToolFamily, ToolRow};
 
 use super::kinds;
+use super::own;
+use super::servers;
 use super::tool_rows::SPECS;
 use super::tools::sikemux_tool_name;
 
@@ -30,9 +32,13 @@ const MAX_VERB_CHARS: usize = 12;
 
 pub(super) fn row(tool: &ToolCall) -> ToolRow {
     let args = arguments(tool.raw_input.as_ref());
-    let mut row = match spec(&tool.title) {
+    let mut row = match spec(&tool.title).or_else(|| browser_spec(&tool.title)) {
         Some(spec) => ours(spec, &args),
-        None => theirs(tool, &args),
+        None => {
+            let mut row = theirs(tool, &args);
+            own::reword(tool, &args, &mut row);
+            row
+        }
     };
     let kind = kinds::kind(tool, &args, row.action, row.server.as_deref());
     row.family = kind.family;
@@ -67,10 +73,35 @@ fn spec(title: &str) -> Option<&'static Spec> {
         .map(|(_, spec)| spec)
 }
 
+/// Our browser's tools reached through a browser server of its own, such as `sikemux-browser`.
+fn browser_spec(title: &str) -> Option<&'static Spec> {
+    match label(title) {
+        (Some(server), name) if servers::is_browser(server) => spec(name),
+        _ => None,
+    }
+}
+
 fn ours(spec: &Spec, args: &Map<String, Value>) -> ToolRow {
-    let target = fill(spec.target, args).unwrap_or_default();
-    let detail = fill(spec.detail, args).filter(|detail| !detail.is_empty() && *detail != target);
+    let filled = fill(spec.target, args).unwrap_or_default();
+    let file = is_path(&filled).then(|| filled.clone());
+    let (target, lines) = match &file {
+        Some(file) => {
+            let named = basename(without_line(file)).to_owned();
+            let lines = file[without_line(file).len()..].trim_start_matches(':');
+            let said = match lines {
+                "" => None,
+                lines if lines.contains('-') => Some(format!("lines {lines}")),
+                line => Some(format!("line {line}")),
+            };
+            (named, said)
+        }
+        None => (filled, None),
+    };
+    let detail = fill(spec.detail, args)
+        .or(lines)
+        .filter(|detail| !detail.is_empty() && *detail != target);
     ToolRow {
+        path: file,
         action: action(spec.kind),
         activity: Some(activity(spec.verb, &target)),
         target,
@@ -82,7 +113,26 @@ fn ours(spec: &Spec, args: &Map<String, Value>) -> ToolRow {
     }
 }
 
-fn activity(verb: &str, target: &str) -> String {
+/// A row in words of our own: what the call did, to what, and anything quieter after it.
+pub(super) fn said(
+    action: ToolAction,
+    verb: &str,
+    icon: Option<&str>,
+    target: String,
+    detail: Option<String>,
+) -> ToolRow {
+    ToolRow {
+        action,
+        activity: Some(activity(verb, &target)),
+        detail: detail.filter(|detail| !detail.is_empty() && *detail != target),
+        verb: Some(verb.to_owned()),
+        icon: icon.map(str::to_owned),
+        target,
+        ..ToolRow::default()
+    }
+}
+
+pub(super) fn activity(verb: &str, target: &str) -> String {
     let said = format!("{verb} {target}").trim().to_owned();
     if fits(&said, MAX_ACTIVITY_CHARS) {
         said
@@ -97,6 +147,7 @@ pub(super) fn name_run(tool: &mut ToolCall, runs: &HashMap<String, String>) {
     let args = arguments(tool.raw_input.as_ref());
     let text = |key: &str| args.get(key).and_then(Value::as_str);
     let row = &mut tool.row;
+    let task = || text("task_id").or_else(|| text("shell_id"));
     let named = match (text("executionId"), text("file")) {
         (Some(id), _) => Some((id, runs.get(id).map_or("a process", String::as_str))),
         (None, Some(file)) => Some((
@@ -104,7 +155,15 @@ pub(super) fn name_run(tool: &mut ToolCall, runs: &HashMap<String, String>) {
             runs.get(file)
                 .map_or_else(|| basename(file), String::as_str),
         )),
-        (None, None) => None,
+        (None, None) => task().map(|id| {
+            let started = runs
+                .iter()
+                .find(|(file, _)| basename(file).split('.').next() == Some(id));
+            (
+                id,
+                started.map_or("a background command", |(_, name)| name.as_str()),
+            )
+        }),
     };
     if let Some((id, name)) = named.filter(|(id, _)| row.target.contains(id)) {
         row.target = row.target.replace(id, name);
@@ -127,18 +186,12 @@ pub(super) fn name_run(tool: &mut ToolCall, runs: &HashMap<String, String>) {
 }
 
 fn theirs(tool: &ToolCall, args: &Map<String, Value>) -> ToolRow {
-    let (server, name) = label(&tool.title);
+    if let (Some(server), name) = label(&tool.title) {
+        return servers::row(server, name, args);
+    }
+    let name = tool.title.as_str();
     let line = name.split('\n').next().unwrap_or_default().trim();
-    let named = tool
-        .kind
-        .as_deref()
-        .map(action)
-        .filter(|action| *action != ToolAction::Other);
-    let action = match (named, server) {
-        (_, Some(_)) => ToolAction::Mcp,
-        (Some(action), None) => action,
-        (None, None) => ToolAction::Other,
-    };
+    let action = tool.kind.as_deref().map_or(ToolAction::Other, action);
     let command = action == ToolAction::Execute;
     let touches_file = matches!(
         action,
@@ -190,16 +243,15 @@ fn theirs(tool: &ToolCall, args: &Map<String, Value>) -> ToolRow {
         (None, None, None) => None,
     }
     .filter(|aside| !aside.is_empty());
-    let target = match (server, file, ran, searched) {
-        (Some(_), ..) => line.replace('_', " "),
-        (None, _, _, Some(pattern)) => pattern.to_owned(),
-        (None, Some(path), _, _) => match patched.len() {
+    let target = match (file, ran, searched) {
+        (_, _, Some(pattern)) => pattern.to_owned(),
+        (Some(path), _, _) => match patched.len() {
             0 | 1 => basename(path).to_owned(),
             files => format!("{} and {} more", basename(path), files - 1),
         },
-        (None, None, Some(ran), _) => ran.to_owned(),
-        (None, None, None, None) if !command && is_path(line) => basename(line).to_owned(),
-        (None, None, None, None) => line.to_owned(),
+        (None, Some(ran), _) => ran.to_owned(),
+        (None, None, None) if !command && is_path(line) => basename(line).to_owned(),
+        (None, None, None) => line.to_owned(),
     };
     let verb = (action == ToolAction::Other).then(|| {
         let word = name
@@ -211,11 +263,9 @@ fn theirs(tool: &ToolCall, args: &Map<String, Value>) -> ToolRow {
             .collect::<String>()
             .to_lowercase()
     });
-    let says = matches!(action, ToolAction::Mcp | ToolAction::Other);
     ToolRow {
         action,
-        detail: server.and_then(|_| first_short_argument(args)).or(aside),
-        server: server.map(str::to_owned),
+        detail: aside,
         path: (!command)
             .then(|| {
                 tool.path
@@ -225,17 +275,17 @@ fn theirs(tool: &ToolCall, args: &Map<String, Value>) -> ToolRow {
             })
             .flatten()
             .filter(|path| !path.contains(';')),
-        icon: (verb.as_deref() == Some("toolsearch")).then(|| "wrench".to_owned()),
-        activity: (says && !target.is_empty() && fits(&target, MAX_ACTIVITY_CHARS))
-            .then(|| target.clone()),
+        activity: (action == ToolAction::Other
+            && !target.is_empty()
+            && fits(&target, MAX_ACTIVITY_CHARS))
+        .then(|| target.clone()),
         verb,
         target,
-        plugin: None,
         ..ToolRow::default()
     }
 }
 
-fn action(kind: &str) -> ToolAction {
+pub(super) fn action(kind: &str) -> ToolAction {
     match kind {
         "read" => ToolAction::Read,
         "edit" => ToolAction::Edit,
@@ -251,7 +301,7 @@ fn action(kind: &str) -> ToolAction {
 }
 
 /// An MCP call's server and tool, from `mcp__server__tool`.
-fn label(title: &str) -> (Option<&str>, &str) {
+pub(super) fn label(title: &str) -> (Option<&str>, &str) {
     let mut segments = title.splitn(3, "__");
     match (segments.next(), segments.next(), segments.next()) {
         (Some("mcp"), Some(server), Some(name)) => (Some(server), name),
@@ -325,7 +375,7 @@ fn is_web_url(text: &str) -> bool {
     !host.is_empty() && !host.contains('@') && !rest.contains(char::is_whitespace)
 }
 
-fn basename(path: &str) -> &str {
+pub(super) fn basename(path: &str) -> &str {
     let trimmed = path.trim_end_matches(['/', '\\']);
     match trimmed.rsplit(['/', '\\']).next() {
         Some(name) if !name.is_empty() => name,
@@ -349,7 +399,7 @@ fn arguments(input: Option<&Value>) -> Map<String, Value> {
         .clone()
 }
 
-fn first_short_argument(args: &Map<String, Value>) -> Option<String> {
+pub(super) fn first_short_argument(args: &Map<String, Value>) -> Option<String> {
     let first = args
         .values()
         .filter_map(Value::as_str)
@@ -408,7 +458,7 @@ fn value_text(key: &str, value: &Value) -> Option<String> {
 }
 
 /// How long something took, as the app says it: milliseconds under a second, then seconds, minutes and hours.
-fn duration(ms: f64) -> String {
+pub(super) fn duration(ms: f64) -> String {
     let ms = ms.max(0.);
     if ms < 1000. {
         return format!("{}ms", ms.round());

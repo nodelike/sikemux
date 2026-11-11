@@ -14,6 +14,10 @@ extension Icons {
     static let agentLine = IconDef(viewBox: ViewBox(x: 0, y: 0, width: 16, height: 16), shapes: [
         IconShape(d: "M8 1.8c.5 3.3 2.9 5.7 6.2 6.2-3.3.5-5.7 2.9-6.2 6.2-.5-3.3-2.9-5.7-6.2-6.2C5.1 7.5 7.5 5.1 8 1.8Z", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0)),
     ])
+    static let agents = IconDef(viewBox: ViewBox(x: 0, y: 0, width: 16, height: 16), shapes: [
+        IconShape(d: "M6.2 2.2c.4 2.6 2.2 4.4 4.8 4.8-2.6.4-4.4 2.2-4.8 4.8-.4-2.6-2.2-4.4-4.8-4.8 2.6-.4 4.4-2.2 4.8-4.8Z", style: .fill(.current), opacity: 1, evenOdd: false, translate: (0, 0)),
+        IconShape(d: "M12.3 9.2c.2 1.4 1.1 2.3 2.5 2.5-1.4.2-2.3 1.1-2.5 2.5-.2-1.4-1.1-2.3-2.5-2.5 1.4-.2 2.3-1.1 2.5-2.5Z", style: .fill(.current), opacity: 1, evenOdd: false, translate: (0, 0)),
+    ])
     static let arrowDown = IconDef(viewBox: ViewBox(x: 0, y: 0, width: 16, height: 16), shapes: [
         IconShape(d: "M8 3.4v9.2M4.2 8.8 8 12.6l3.8-3.8", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0)),
     ])
@@ -29,6 +33,9 @@ extension Icons {
     static let book = IconDef(viewBox: ViewBox(x: 0, y: 0, width: 16, height: 16), shapes: [
         IconShape(d: "M8 4.2C6.6 3.2 4.6 3 2.6 3.2v9.2c2-.2 4 0 5.4 1 1.4-1 3.4-1.2 5.4-1V3.2c-2-.2-4 0-5.4 1Z", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0)),
         IconShape(d: "M8 4.2v9.2", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0)),
+    ])
+    static let bolt = IconDef(viewBox: ViewBox(x: 0, y: 0, width: 16, height: 16), shapes: [
+        IconShape(d: "M8.8 2.4 3.8 9h3.6l-.6 4.6L12.2 7H8.6Z", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0)),
     ])
     static let camera = IconDef(viewBox: ViewBox(x: 0, y: 0, width: 16, height: 16), shapes: [
         IconShape(d: "M2.4 5.6c0-.7.5-1.2 1.2-1.2h1.7l1-1.5h3.4l1 1.5h1.7c.7 0 1.2.5 1.2 1.2v6.3c0 .7-.5 1.2-1.2 1.2H3.6c-.7 0-1.2-.5-1.2-1.2z", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0)),
@@ -50,9 +57,17 @@ extension Icons {
         IconShape(d: "M10.4 4.6 13.6 8l-3.2 3.4", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0)),
         IconShape(d: "M9 3.4 7 12.6", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0)),
     ])
+    static let commit = IconDef(viewBox: ViewBox(x: 0, y: 0, width: 24, height: 24), shapes: [
+        IconShape(d: "M15 12a3 3 0 1 1 -6 0a3 3 0 1 1 6 0z", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 1.8),
+        IconShape(d: "M3 12h6M15 12h6", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 1.8),
+    ])
     static let copy = IconDef(viewBox: ViewBox(x: 0, y: 0, width: 16, height: 16), shapes: [
         IconShape(d: "M6.8 5.8h5.7a1 1 0 0 1 1 1v5.7a1 1 0 0 1 -1 1h-5.7a1 1 0 0 1 -1 -1v-5.7a1 1 0 0 1 1 -1z", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0)),
         IconShape(d: "M10.2 3.6a1 1 0 0 0-1-1.1H3.5a1 1 0 0 0-1 1v5.7a1 1 0 0 0 1.1 1", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0)),
+    ])
+    static let cube = IconDef(viewBox: ViewBox(x: 0, y: 0, width: 16, height: 16), shapes: [
+        IconShape(d: "M8 2.4 13.2 5.2v5.6L8 13.6 2.8 10.8V5.2Z", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0)),
+        IconShape(d: "M2.8 5.2 8 8l5.2-2.8M8 8v5.6", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0)),
     ])
     static let dashboard = IconDef(viewBox: ViewBox(x: 0, y: 0, width: 24, height: 24), shapes: [
         IconShape(d: "M4.5 3h4.5a1.5 1.5 0 0 1 1.5 1.5v6a1.5 1.5 0 0 1 -1.5 1.5h-4.5a1.5 1.5 0 0 1 -1.5 -1.5v-6a1.5 1.5 0 0 1 1.5 -1.5z", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 2.1),
@@ -67,6 +82,14 @@ extension Icons {
     static let eye = IconDef(viewBox: ViewBox(x: 0, y: 0, width: 16, height: 16), shapes: [
         IconShape(d: "M1.6 8s2.3-4 6.4-4 6.4 4 6.4 4-2.3 4-6.4 4S1.6 8 1.6 8Z", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0)),
         IconShape(d: "M9.8 8a1.8 1.8 0 1 1 -3.6 0a1.8 1.8 0 1 1 3.6 0z", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0)),
+    ])
+    static let filePlus = IconDef(viewBox: ViewBox(x: 0, y: 0, width: 16, height: 16), shapes: [
+        IconShape(d: "M9 2H4v12h4.5M9 2l3 3v3M9 2v3h3M12 10.5v4M10 12.5h4", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0)),
+    ])
+    static let flask = IconDef(viewBox: ViewBox(x: 0, y: 0, width: 16, height: 16), shapes: [
+        IconShape(d: "M6.4 2.6h3.2", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0)),
+        IconShape(d: "M6.8 2.6v3.8L3.2 12.4a.8.8 0 0 0 .7 1.2h8.2a.8.8 0 0 0 .7-1.2L9.2 6.4V2.6", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0)),
+        IconShape(d: "M4.8 9.8h6.4", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0)),
     ])
     static let git = IconDef(viewBox: ViewBox(x: 0, y: 0, width: 16, height: 16), shapes: [
         IconShape(d: "M6.3 3.6a1.7 1.7 0 1 1 -3.4 0a1.7 1.7 0 1 1 3.4 0z", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0)),
@@ -173,6 +196,11 @@ extension Icons {
         IconShape(d: "M15 6h1.5A2.5 2.5 0 0 1 19 8.5V16", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 1.8),
         IconShape(d: "M15 3l-3 3 3 3", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 1.8),
     ])
+    static let push = IconDef(viewBox: ViewBox(x: 0, y: 0, width: 24, height: 24), shapes: [
+        IconShape(d: "M5 4h14", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 1.8),
+        IconShape(d: "M12 20V9", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 1.8),
+        IconShape(d: "M7 13l5-5 5 5", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 1.8),
+    ])
     static let record = IconDef(viewBox: ViewBox(x: 0, y: 0, width: 24, height: 24), shapes: [
         IconShape(d: "M20.5 12a8.5 8.5 0 1 1 -17 0a8.5 8.5 0 1 1 17 0z", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 2.1),
         IconShape(d: "M15.2 12a3.2 3.2 0 1 1 -6.4 0a3.2 3.2 0 1 1 6.4 0z", style: .fill(.current), opacity: 1, evenOdd: false, translate: (0, 0)),
@@ -204,6 +232,12 @@ extension Icons {
     static let search = IconDef(viewBox: ViewBox(x: 0, y: 0, width: 16, height: 16), shapes: [
         IconShape(d: "M11.4 7a4.4 4.4 0 1 1 -8.8 0a4.4 4.4 0 1 1 8.8 0z", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0)),
         IconShape(d: "M10.4 10.4 14 14", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0)),
+    ])
+    static let share = IconDef(viewBox: ViewBox(x: 0, y: 0, width: 16, height: 16), shapes: [
+        IconShape(d: "M13.7 3.6a1.7 1.7 0 1 1 -3.4 0a1.7 1.7 0 1 1 3.4 0z", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0)),
+        IconShape(d: "M5.7 8a1.7 1.7 0 1 1 -3.4 0a1.7 1.7 0 1 1 3.4 0z", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0)),
+        IconShape(d: "M13.7 12.4a1.7 1.7 0 1 1 -3.4 0a1.7 1.7 0 1 1 3.4 0z", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0)),
+        IconShape(d: "m5.5 7.2 5-2.8M5.5 8.8l5 2.8", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0)),
     ])
     static let squarePlus = IconDef(viewBox: ViewBox(x: 0, y: 0, width: 24, height: 24), shapes: [
         IconShape(d: "M6.5 3.5h11a3 3 0 0 1 3 3v11a3 3 0 0 1 -3 3h-11a3 3 0 0 1 -3 -3v-11a3 3 0 0 1 3 -3z", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 2.1),
@@ -354,11 +388,13 @@ extension Icons {
         case "Logo": return logo
         case "IconActivity": return activity
         case "IconAgent": return agentLine
+        case "IconAgents": return agents
         case "IconArrowDown": return arrowDown
         case "IconArrowUp": return arrowUp
         case "IconAws": return aws
         case "IconBoard": return board
         case "IconBook": return book
+        case "IconBolt": return bolt
         case "IconCamera": return camera
         case "IconCheck": return check
         case "IconChevron": return chevron
@@ -368,13 +404,17 @@ extension Icons {
         case "IconClose": return close
         case "IconCode": return code
         case "IconCodex": return mark("codex")
+        case "IconCommit": return commit
         case "IconCommand": return command
         case "IconCopy": return copy
+        case "IconCube": return cube
         case "IconDashboard": return dashboard
         case "IconDownload": return download
         case "IconEye": return eye
         case "IconFile": return file
+        case "IconFilePlus": return filePlus
         case "IconFolder": return folder
+        case "IconFlask": return flask
         case "IconGit": return git
         case "IconGlobe": return globe
         case "IconGrok": return mark("grok")
@@ -410,6 +450,7 @@ extension Icons {
         case "IconPointer": return pointer
         case "IconPower": return power
         case "IconPullRequest": return pullRequest
+        case "IconPush": return push
         case "IconRecord": return record
         case "IconRefresh": return refresh
         case "IconResize": return resize
@@ -419,6 +460,7 @@ extension Icons {
         case "IconRundeck": return rundeck
         case "IconSearch": return search
         case "IconServer": return server
+        case "IconShare": return share
         case "IconShield": return shield
         case "IconShieldBolt": return shieldBolt
         case "IconSquarePlus": return squarePlus
