@@ -90,3 +90,9 @@ struct NavTitle: View {
 
 /// Space under a screen's last content: the home bar, then a little air.
 let bottomGap: CGFloat = 12
+
+enum Keyboard {
+    static func dismiss() {
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+    }
+}

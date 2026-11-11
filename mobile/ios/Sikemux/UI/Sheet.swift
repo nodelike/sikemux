@@ -109,7 +109,7 @@ struct SheetModifier<SheetContent: View>: ViewModifier {
     }
 
     private func close() {
-        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+        Keyboard.dismiss()
         isPresented = false
     }
 }

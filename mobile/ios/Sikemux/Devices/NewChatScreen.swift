@@ -108,6 +108,8 @@ private struct NewChatContent: View {
                 .environment(context)
                 .padding(.horizontal, 18)
                 .padding(.bottom, 28)
+                .contentShape(Rectangle())
+                .onTapGesture(perform: Keyboard.dismiss)
             } else {
                 VStack(spacing: 12) {
                     if noAgents {
@@ -131,6 +133,8 @@ private struct NewChatContent: View {
                 }
                 .padding(.horizontal, 28)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .contentShape(Rectangle())
+                .onTapGesture(perform: Keyboard.dismiss)
             }
             composer(launcher: launcher, project: project, worktree: worktree, sendable: sendable, starting: starting)
         }

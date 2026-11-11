@@ -100,7 +100,7 @@ struct TranscriptList<Header: View, Footer: View, Row: View>: UIViewControllerRe
     }
 }
 
-final class TranscriptController: UIViewController, UICollectionViewDelegate {
+final class TranscriptController: UIViewController, UICollectionViewDelegate, UIGestureRecognizerDelegate {
     enum Item: Hashable {
         case header
         case row(String)
@@ -148,6 +148,10 @@ final class TranscriptController: UIViewController, UICollectionViewDelegate {
         collection.delegate = self
         collection.allowsSelection = false
         view.addSubview(collection)
+        let tap = UITapGestureRecognizer(target: self, action: #selector(tapped))
+        tap.cancelsTouchesInView = false
+        tap.delegate = self
+        collection.addGestureRecognizer(tap)
 
         let row = UICollectionView.CellRegistration<UICollectionViewCell, String> { [weak self] cell, _, id in
             guard let self, let entry = entries[id] else { return }
@@ -171,6 +175,26 @@ final class TranscriptController: UIViewController, UICollectionViewDelegate {
         sizeWatch = collection.observe(\.contentSize, options: [.old, .new]) { [weak self] _, change in
             MainActor.assumeIsolated { self?.sizeChanged(from: change.oldValue, to: change.newValue) }
         }
+    }
+
+    @objc private func tapped() {
+        Keyboard.dismiss()
+    }
+
+    /// A tap in a message being edited places the caret there instead of closing the keyboard.
+    func gestureRecognizer(_ recognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        var view = touch.view
+        while let current = view, current !== collection {
+            if current is UITextInput { return false }
+            view = current.superview
+        }
+        return true
+    }
+
+    func gestureRecognizer(
+        _ recognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
+    ) -> Bool {
+        true
     }
 
     func update(order: [String], entries: [String: RowEntry], drawn: Int, touched: Touched) {
