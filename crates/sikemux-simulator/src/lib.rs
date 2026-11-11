@@ -175,7 +175,7 @@ struct Shared {
     offered: HashMap<String, bool>,
     /// Agents waiting for room to start a simulator, first come first served.
     line: VecDeque<Waiter>,
-    /// Devices Sikemux is booting now.
+    /// Devices Sikemux is booting now, and room reserved for ones about to boot.
     starting: HashSet<String>,
 }
 
@@ -431,6 +431,11 @@ impl SimulatorManager {
     }
 
     /// Devices someone other than this agent holds, in this copy of Sikemux or another.
+    /// The devices Sikemux booted.
+    pub(crate) fn booted_by_sikemux(&self) -> HashSet<String> {
+        self.shared.locked().booted.clone()
+    }
+
     pub(crate) fn held_by_others(&self, agent_id: &str) -> HashMap<String, Claim> {
         self.claims
             .all()
@@ -687,14 +692,15 @@ impl SimulatorManager {
 
     /// Whether the agent may start a simulator now, `cold` for one never booted: it
     /// must be first in line, and the Mac must have room beside every simulator
-    /// running, whoever started it. Agents that stopped using their devices give
-    /// them up while anyone waits.
+    /// running or reserved, whoever started it. A yes reserves the room until the
+    /// guard is dropped. Agents that stopped using their devices give them up when
+    /// there is no room.
     pub(crate) fn room(
         &self,
         agent_id: &str,
         devices: &[Device],
         cold: bool,
-    ) -> Result<(), Queued> {
+    ) -> Result<Starting<'_>, Queued> {
         let mut running = load::running();
         running.extend(
             devices
@@ -707,25 +713,29 @@ impl SimulatorManager {
             self.leave_line(agent_id);
             return Err(Queued::TooLong);
         }
-        self.expire_leases(agent_id);
-        let starting = {
-            let shared = self.shared.locked();
-            devices.iter().filter(|device| device.busy).count() + shared.starting.len()
-        };
         let machine = load::Machine::now();
+        let mut shared = self.shared.locked();
+        running.extend(shared.starting.iter().cloned());
+        let starting = devices.iter().filter(|device| device.busy).count() + shared.starting.len();
         let limit = machine.limit(running.len());
         let wait = load::room(running.len(), starting, cold, limit).err();
-        match (place, wait) {
-            (0, None) => {
-                self.leave_line(agent_id);
-                Ok(())
-            }
-            (place, wait) => Err(Queued::Waiting {
-                place,
-                wait,
-                machine,
-            }),
+        if place == 0 && wait.is_none() {
+            let key = format!("reserved-by-{agent_id}");
+            shared.starting.insert(key.clone());
+            shared.line.retain(|waiter| waiter.agent_id != agent_id);
+            drop(shared);
+            self.emit(LOAD_EVENT, json!({}));
+            return Ok(Starting { manager: self, key });
         }
+        drop(shared);
+        if matches!(wait, Some(load::Wait::Full { .. })) {
+            self.expire_leases(agent_id);
+        }
+        Err(Queued::Waiting {
+            place,
+            wait,
+            machine,
+        })
     }
 
     /// The agent's place in line, joining it or keeping it, and when it joined.
@@ -808,7 +818,8 @@ impl SimulatorManager {
             return;
         };
         sikemux_base::runtime::spawn(async move {
-            if manager.claims.holder(&device.udid).is_none() {
+            let ours = manager.shared.locked().booted.contains(&device.udid);
+            if ours && manager.claims.holder(&device.udid).is_none() {
                 let _ = manager
                     .request("shutdown", json!({ "udid": device.udid }))
                     .await;
@@ -831,16 +842,6 @@ impl SimulatorManager {
             .collect();
         for agent_id in expired {
             self.release(&agent_id);
-        }
-    }
-
-    /// Notes that Sikemux is booting the device until the guard is dropped.
-    pub(crate) fn starting(&self, udid: &str) -> Starting<'_> {
-        self.shared.locked().starting.insert(udid.to_owned());
-        self.emit(LOAD_EVENT, json!({}));
-        Starting {
-            manager: self,
-            udid: udid.to_owned(),
         }
     }
 
@@ -952,14 +953,27 @@ pub(crate) enum Queued {
     TooLong,
 }
 
+/// Room reserved for one simulator to start, held until it has booted.
 pub(crate) struct Starting<'a> {
     manager: &'a SimulatorManager,
-    udid: String,
+    key: String,
+}
+
+impl Starting<'_> {
+    /// The reserved room is the device `udid`, which is booting now.
+    pub(crate) fn boots(&mut self, udid: &str) {
+        let mut shared = self.manager.shared.locked();
+        shared.starting.remove(&self.key);
+        shared.starting.insert(udid.to_owned());
+        drop(shared);
+        self.key = udid.to_owned();
+        self.manager.emit(LOAD_EVENT, json!({}));
+    }
 }
 
 impl Drop for Starting<'_> {
     fn drop(&mut self) {
-        self.manager.shared.locked().starting.remove(&self.udid);
+        self.manager.shared.locked().starting.remove(&self.key);
         self.manager.emit(LOAD_EVENT, json!({}));
     }
 }

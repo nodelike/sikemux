@@ -1,7 +1,7 @@
 //! The agent's `sim_*` tools. Each agent holds one simulator and acts on it
 //! in device points; a person watching the same device sees every step.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -566,13 +566,15 @@ pub(super) enum Pick<'a> {
 /// The device for an agent that named none: the one the person picked on its
 /// desk, else the one its project used before, else the warmest free one of
 /// the device Sikemux made for the project and the iPhones booted now or
-/// before, else a new one.
+/// before, else a new one. A running iPhone Sikemux did not boot, such as one
+/// the person runs from Xcode, comes after the project's own once that was booted before.
 pub(super) fn pick_device<'a>(
     devices: &'a [Device],
     held: &HashMap<String, Claim>,
     desk: Option<&str>,
     remembered: Option<&str>,
     project_device: &str,
+    booted_by_sikemux: &HashSet<String>,
 ) -> Pick<'a> {
     let free = |device: &&Device| !held.contains_key(&device.udid);
     let by_udid = |udid: Option<&str>| {
@@ -589,6 +591,8 @@ pub(super) fn pick_device<'a>(
     let ours = |device: &Device| device.name == project_device;
     let warmth = |device: &Device| {
         (
+            device.booted && booted_by_sikemux.contains(&device.udid),
+            ours(device) && device.warm,
             device.booted,
             device.warm,
             ours(device),
@@ -645,32 +649,41 @@ async fn attach(
     wanted: Option<&str>,
     fresh: bool,
 ) -> Result<Value, String> {
-    let mut device = loop {
+    let line = InLine { manager, agent_id };
+    let (mut device, mut starting) = loop {
         let devices = list_devices(manager).await?;
         let chosen = choose_for(manager, agent_id, project, wanted, fresh, &devices)?;
         if let Some(device) = chosen
             .as_ref()
             .filter(|device| device.booted || device.busy)
         {
-            manager.leave_line(agent_id);
-            break device.clone();
+            break (device.clone(), None);
         }
         let cold = chosen.as_ref().is_none_or(|device| !device.warm);
         match manager.room(agent_id, &devices, cold) {
-            Ok(()) => match chosen {
-                Some(device) => break device,
-                None => break create_device(manager, project, &devices).await?,
+            Ok(starting) => match chosen {
+                Some(device) => break (device, Some(starting)),
+                None => {
+                    break (
+                        create_device(manager, project, &devices).await?,
+                        Some(starting),
+                    )
+                }
             },
             Err(queued) if near_deadline() || matches!(queued, Queued::TooLong) => {
-                return Err(queued_text(&queued))
+                line.keep_place();
+                return Err(queued_text(&queued));
             }
             Err(_) => pause(WAIT_STEP).await?,
         }
     };
+    drop(line);
     manager.hold(agent_id, project, &device)?;
     if !device.booted {
         manager.note_booted(&device.udid);
-        let _starting = manager.starting(&device.udid);
+        if let Some(starting) = starting.as_mut() {
+            starting.boots(&device.udid);
+        }
         let budget = remaining()
             .unwrap_or(Duration::from_secs(180))
             .saturating_sub(BOOT_MARGIN);
@@ -691,6 +704,7 @@ async fn attach(
             }
         }
     }
+    drop(starting);
     let screen = manager
         .request("screen", json!({ "udid": device.udid }))
         .await?;
@@ -712,6 +726,25 @@ async fn attach(
     let mut state = settled_state(manager, agent_id, None, Report::Full).await?;
     state["shown"] = SHOWN_ON_DESK.into();
     Ok(state)
+}
+
+/// Takes the agent out of the line for a simulator however its attach ends.
+struct InLine<'a> {
+    manager: &'a SimulatorManager,
+    agent_id: &'a str,
+}
+
+impl InLine<'_> {
+    /// The agent stays in line, to come back for its turn.
+    fn keep_place(self) {
+        std::mem::forget(self);
+    }
+}
+
+impl Drop for InLine<'_> {
+    fn drop(&mut self) {
+        self.manager.leave_line(self.agent_id);
+    }
 }
 
 /// The device `sim_attach` takes, or none when the project needs one made.
@@ -774,6 +807,7 @@ fn choose_for(
                 desk.as_deref(),
                 remembered.as_deref(),
                 &project_device_name(project),
+                &manager.booted_by_sikemux(),
             ) {
                 Pick::Use(device) => Ok(Some(device.clone())),
                 Pick::Create if android => any_android(&candidates, &held).map(Some),
@@ -800,13 +834,15 @@ pub(super) fn queued_text(queued: &Queued) -> String {
     };
     let why = match wait {
         Some(Wait::Full { running, .. }) if machine.busy() => format!(
-            "this Mac is busy (load {:.0} on {} cores) and already runs {running} simulator{}",
+            "{} is busy (load {:.0} on {} cores) and already runs {running} simulator{}",
+            this_computer(),
             machine.load.unwrap_or_default(),
             machine.cores,
             if *running == 1 { "" } else { "s" },
         ),
         Some(Wait::Full { running, limit }) => format!(
-            "this Mac runs {running} simulator{}, as many as its cores and memory take now ({limit})",
+            "{} runs {running} simulator{}, as many as its cores and memory take now ({limit})",
+            this_computer(),
             if *running == 1 { "" } else { "s" },
         ),
         Some(Wait::Starting) => "another simulator is starting, and a first boot goes alone".into(),
@@ -822,6 +858,14 @@ pub(super) fn queued_text(queued: &Queued) -> String {
     format!(
         "waiting for a simulator: {line}, as {why}. Call sim_attach again within a minute to keep your place; never boot one with simctl or Xcode yourself"
     )
+}
+
+fn this_computer() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "this Mac"
+    } else {
+        "this computer"
+    }
 }
 
 /// A free Android device for an agent that named none: one already running, else the virtual

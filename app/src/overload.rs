@@ -5,13 +5,13 @@ use gpui_kit::base::Popover;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     div, px, Anchor, AnyElement, App, Context, FontWeight, Hsla, InteractiveElement, IntoElement,
-    ParentElement, SharedString, StatefulInteractiveElement, Styled, Window,
+    ParentElement, SharedString, StatefulInteractiveElement, Styled, WeakEntity, Window,
 };
 use sikemux_core::server::call;
 use sikemux_core::server::calls::StopBuildParams;
 use sikemux_view::device::HostLoad;
 
-use crate::core::typed_call;
+use crate::core::Target;
 use crate::theme::{
     self, Tokens, RADIUS_2, RADIUS_4, SPACE_1, SPACE_1H, SPACE_2, SPACE_3, TEXT_2XS, TEXT_XS,
 };
@@ -19,6 +19,19 @@ use crate::ui::{self, Button, Variant};
 use crate::workbench::Workbench;
 
 const POPOVER_WIDTH: f32 = 340.;
+const OVERLOADED: &str = if cfg!(target_os = "macos") {
+    "Mac overloaded"
+} else {
+    "Computer overloaded"
+};
+
+fn this_computer() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "this Mac"
+    } else {
+        "this computer"
+    }
+}
 const MARK: f32 = 18.;
 
 /// One heavy thing in the list, and what stopping it does.
@@ -66,9 +79,7 @@ pub(crate) fn chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<Any
                     })
                     .when(!open, |chip| chip.tooltip(ui::tooltip(tip.clone())))
                     .child(div().size(px(6.)).rounded_full().bg(t.warn))
-                    .child(
-                        ui::text("Mac overloaded", TEXT_XS, FontWeight::MEDIUM).text_color(t.warn),
-                    )
+                    .child(ui::text(OVERLOADED, TEXT_XS, FontWeight::MEDIUM).text_color(t.warn))
                     .into_any_element()
             })
             .content(move |_, _, cx| {
@@ -79,13 +90,18 @@ pub(crate) fn chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<Any
                 let Some(load) = bench.this_view().and_then(|view| view.load.as_ref()) else {
                     return div().into_any_element();
                 };
-                popover(bench, load, cx)
+                popover(bench, load, &this, cx)
             })
             .into_any_element(),
     )
 }
 
-fn popover(bench: &Workbench, load: &HostLoad, cx: &App) -> AnyElement {
+fn popover(
+    bench: &Workbench,
+    load: &HostLoad,
+    told: &WeakEntity<Workbench>,
+    cx: &App,
+) -> AnyElement {
     let t = Tokens::get(cx);
     let heavy = heavy(bench, load, cx);
     let average = load
@@ -106,7 +122,7 @@ fn popover(bench: &Workbench, load: &HostLoad, cx: &App) -> AnyElement {
                 .pt(SPACE_1H)
                 .flex()
                 .items_baseline()
-                .child(ui::text("Mac overloaded", TEXT_XS, FontWeight::MEDIUM))
+                .child(ui::text(OVERLOADED, TEXT_XS, FontWeight::MEDIUM))
                 .child(div().flex_1())
                 .child(
                     ui::text(average, TEXT_2XS, FontWeight::NORMAL)
@@ -129,7 +145,7 @@ fn popover(bench: &Workbench, load: &HostLoad, cx: &App) -> AnyElement {
             list.child(
                 div().px(SPACE_2).py(SPACE_2).child(
                     ui::text(
-                        "No agent's simulator or build is running; other programs keep this Mac busy.",
+                        format!("No agent's simulator or build is running; other programs keep {} busy.", this_computer()),
                         TEXT_2XS,
                         FontWeight::NORMAL,
                     )
@@ -141,12 +157,18 @@ fn popover(bench: &Workbench, load: &HostLoad, cx: &App) -> AnyElement {
             heavy
                 .into_iter()
                 .enumerate()
-                .map(|(index, heavy)| row(bench, index, heavy, cx)),
+                .map(|(index, heavy)| row(bench, index, heavy, told.clone(), cx)),
         )
         .into_any_element()
 }
 
-fn row(bench: &Workbench, index: usize, heavy: Heavy, cx: &App) -> AnyElement {
+fn row(
+    bench: &Workbench,
+    index: usize,
+    heavy: Heavy,
+    told: WeakEntity<Workbench>,
+    cx: &App,
+) -> AnyElement {
     let t = Tokens::get(cx);
     let agent = heavy
         .agent_id
@@ -215,8 +237,19 @@ fn row(bench: &Workbench, index: usize, heavy: Heavy, cx: &App) -> AnyElement {
                 .on_click(move |_, _: &mut Window, cx: &mut App| match &stop {
                     Stop::Simulator(agent) => sims.read(cx).engine().stop(agent),
                     Stop::Build(id) => {
-                        let _ =
-                            asks.send(typed_call::<call::StopBuild>(StopBuildParams { id: *id }));
+                        let stopped = Target::here(&asks)
+                            .request_typed::<call::StopBuild>(StopBuildParams { id: *id });
+                        let told = told.clone();
+                        cx.spawn(async move |cx| {
+                            let note = match stopped.await {
+                                Ok(()) => crate::toast::success("Build stopped"),
+                                Err(why) => {
+                                    crate::toast::error(format!("The build kept running: {why}"))
+                                }
+                            };
+                            cx.update(|cx| crate::toast::show(&told, note, cx));
+                        })
+                        .detach();
                     }
                 }),
             ),

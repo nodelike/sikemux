@@ -27,24 +27,22 @@ pub(crate) fn already_installed(udid: &str, app: &Path) -> bool {
         .any(|copy| fingerprint(&copy) == Some(wanted))
 }
 
-/// Every file's path and size in the bundle, with the bytes of its executable and Info.plist.
+/// Every file's path and bytes in the bundle.
 fn fingerprint(app: &Path) -> Option<[u8; 20]> {
     let mut files = Vec::new();
     collect(app, PathBuf::new(), &mut files).ok()?;
     files.sort();
     let mut hash = Sha1::new();
-    for (path, size) in &files {
+    for path in &files {
+        let mut file = std::fs::File::open(app.join(path)).ok()?;
         hash.update(path.as_os_str().as_encoded_bytes());
-        hash.update(size.to_le_bytes());
-    }
-    let executable = Path::new(app.file_stem()?);
-    for read in [executable, Path::new("Info.plist")] {
-        hash.update(std::fs::read(app.join(read)).ok()?);
+        hash.update(file.metadata().ok()?.len().to_le_bytes());
+        std::io::copy(&mut file, &mut hash).ok()?;
     }
     Some(hash.finalize().into())
 }
 
-fn collect(root: &Path, inside: PathBuf, files: &mut Vec<(PathBuf, u64)>) -> std::io::Result<()> {
+fn collect(root: &Path, inside: PathBuf, files: &mut Vec<PathBuf>) -> std::io::Result<()> {
     for entry in std::fs::read_dir(root.join(&inside))? {
         let entry = entry?;
         let kind = entry.file_type()?;
@@ -52,7 +50,7 @@ fn collect(root: &Path, inside: PathBuf, files: &mut Vec<(PathBuf, u64)>) -> std
         if kind.is_dir() {
             collect(root, path, files)?;
         } else if kind.is_file() {
-            files.push((path, entry.metadata()?.len()));
+            files.push(path);
         }
     }
     Ok(())
