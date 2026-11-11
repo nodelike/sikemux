@@ -31,8 +31,14 @@ struct LiveWork: Equatable {
     var any: Bool { !subagents.isEmpty || !tasks.isEmpty || !queued.isEmpty || planOpen }
 
     struct Piece: Equatable {
-        var key: String
-        var task: String?
+        enum Kind: Hashable {
+            case subagents
+            case task(String)
+            case queued
+            case plan
+        }
+
+        var kind: Kind
         var count: String
         var word: String
     }
@@ -41,17 +47,17 @@ struct LiveWork: Equatable {
         var pieces: [Piece] = []
         if !subagents.isEmpty {
             pieces.append(
-                Piece(key: "subagents", count: "\(subagents.count)", word: Format.counted("subagent", subagents.count)))
+                Piece(kind: .subagents, count: "\(subagents.count)", word: Format.counted("subagent", subagents.count)))
         }
         for (kind, tasks) in tasks {
             pieces.append(
-                Piece(key: "task-\(kind)", task: kind, count: "\(tasks.count)", word: Format.counted(kind, tasks.count))
+                Piece(kind: .task(kind), count: "\(tasks.count)", word: Format.counted(kind, tasks.count))
             )
         }
-        if !queued.isEmpty { pieces.append(Piece(key: "queued", count: "\(queued.count)", word: "queued")) }
+        if !queued.isEmpty { pieces.append(Piece(kind: .queued, count: "\(queued.count)", word: "queued")) }
         if planOpen {
             let done = plan.filter { $0.status == .completed }.count
-            pieces.append(Piece(key: "plan", count: "\(done)/\(plan.count)", word: "plan"))
+            pieces.append(Piece(kind: .plan, count: "\(done)/\(plan.count)", word: "plan"))
         }
         return pieces
     }
@@ -148,12 +154,12 @@ struct LiveStrip: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 HStack(spacing: lines.isEmpty ? 12 : 10) {
-                    ForEach(pieces, id: \.key) { piece in
+                    ForEach(pieces, id: \.kind) { piece in
                         HStack(spacing: 5) {
                             pieceIcon(piece)
-                            (Text(piece.key == "plan" && worded ? "\(piece.word) " : "")
+                            (Text(piece.kind == .plan && worded ? "\(piece.word) " : "")
                                 + Text(piece.count).font(Theme.ui(12, .medium)).foregroundColor(palette.ink)
-                                + Text(piece.key != "plan" && worded ? " \(piece.word)" : ""))
+                                + Text(piece.kind != .plan && worded ? " \(piece.word)" : ""))
                                 .font(Theme.ui(12)).foregroundStyle(palette.tertiary).monospacedDigit().lineLimit(1)
                         }
                     }
@@ -183,12 +189,11 @@ struct LiveStrip: View {
     }
 
     @ViewBuilder private func pieceIcon(_ piece: LiveWork.Piece) -> some View {
-        if let task = piece.task {
-            IconView(icon: taskIcon(task), size: 12).foregroundStyle(palette.inkDim)
-        } else if piece.key == "subagents" {
-            AgentMark(provider: provider, size: 12)
-        } else {
-            IconView(icon: piece.key == "queued" ? Icons.clock : Icons.check, size: 12).foregroundStyle(palette.inkDim)
+        switch piece.kind {
+        case .task(let task): IconView(icon: taskIcon(task), size: 12).foregroundStyle(palette.inkDim)
+        case .subagents: AgentMark(provider: provider, size: 12)
+        case .queued: IconView(icon: Icons.clock, size: 12).foregroundStyle(palette.inkDim)
+        case .plan: IconView(icon: Icons.check, size: 12).foregroundStyle(palette.inkDim)
         }
     }
 }
