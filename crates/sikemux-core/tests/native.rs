@@ -771,6 +771,7 @@ async fn live_claude_streams_edits_and_resumes() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_long_claude_chat_comes_back_as_its_last_turns_and_pages_back_whole() {
+    const ANSWER: usize = 1_000;
     let config = tempfile::tempdir().expect("config");
     let session = uuid::Uuid::new_v4().to_string();
     let project = config.path().join("projects").join("fake");
@@ -786,7 +787,7 @@ async fn a_long_claude_chat_comes_back_as_its_last_turns_and_pages_back_whole() 
             ),
             (
                 answered.clone(),
-                serde_json::json!({ "type": "assistant", "message": { "id": format!("msg{turn}"), "role": "assistant", "model": "fake", "content": [{ "type": "text", "text": "x".repeat(100_000) }] } }),
+                serde_json::json!({ "type": "assistant", "message": { "id": format!("msg{turn}"), "role": "assistant", "model": "fake", "content": [{ "type": "text", "text": "x".repeat(ANSWER) }] } }),
             ),
         ] {
             let mut record = record;
@@ -814,7 +815,7 @@ async fn a_long_claude_chat_comes_back_as_its_last_turns_and_pages_back_whole() 
     };
     let shown = answers(&chat.view.rows);
     assert!(shown <= 50, "{shown} answers were sent at once");
-    assert_eq!(said(&chat.view.rows).len(), shown * 100_000);
+    assert_eq!(said(&chat.view.rows).len(), shown * ANSWER);
     let ChatAttachment::Live { mark, .. } = client
         .acp_attach("claude-long".into())
         .await

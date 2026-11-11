@@ -41,6 +41,7 @@ impl TestCore {
         let socket = dir.path().join("core.sock");
         let config = ServerConfig {
             idle_exit: Duration::from_secs(600),
+            restart_wait: Duration::from_millis(50),
             build: BuildIdentity {
                 version: "0.0.0-test".into(),
                 commit: "chat".into(),

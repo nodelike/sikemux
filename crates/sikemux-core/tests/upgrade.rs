@@ -38,6 +38,8 @@ const CORE: &str = env!("CARGO_BIN_EXE_sikemux-core");
 const WAIT: Duration = Duration::from_secs(30);
 /// A hand-over starts a new core and every chat's agent again, which takes this long at load 40.
 const UPDATE_WAIT: Duration = Duration::from_secs(120);
+/// How long a forced update waits for a starting chat, short so the tests need not wait out a released core's.
+const HANDOVER_SETTLE: Duration = Duration::from_millis(500);
 
 struct CoreProcess {
     child: Child,
@@ -84,6 +86,8 @@ impl CoreProcess {
             .arg(dir.join("data"))
             .arg("--idle-exit-secs")
             .arg("600")
+            .arg("--handover-settle-ms")
+            .arg(HANDOVER_SETTLE.as_millis().to_string())
             .env(BUILD_ID_OVERRIDE_ENV, build)
             .env(sikemux_process::vars::AGENT_SEARCH, "path")
             .env("SHELL", "/bin/sh")
@@ -1260,7 +1264,7 @@ async fn an_update_waits_for_a_starting_chat_and_then_carries_it_over() {
         .await;
     assert!(matches!(reply, FrozenReply::Deferred { .. }), "{reply:?}");
     // Longer than a forced update waits before it stops a chat.
-    tokio::time::sleep(Duration::from_secs(12)).await;
+    tokio::time::sleep(HANDOVER_SETTLE * 3).await;
     let (still, _) = CoreClient::connect(&core.socket).await.expect("connect");
     assert_eq!(still.hello().build.commit, "first", "{}", core.log());
     drop(still);

@@ -89,7 +89,7 @@ const SUBAGENT_WAIT: Duration = Duration::from_secs(10 * 60);
 const RELEASE_WAIT: Duration = Duration::from_secs(5);
 /// An agent that stops by itself is started again, after a wait that doubles
 /// each time, until it has stopped this often within the window.
-const RESTART_WAIT: Duration = Duration::from_secs(1);
+pub(crate) const RESTART_WAIT: Duration = Duration::from_secs(1);
 const MAX_RESTARTS: usize = 3;
 const RESTART_WINDOW: Duration = Duration::from_secs(5 * 60);
 
@@ -667,7 +667,11 @@ impl Chat {
         if restarts.len() >= MAX_RESTARTS {
             return None;
         }
-        let wait = RESTART_WAIT * (1 << restarts.len());
+        let first = self
+            .core
+            .upgrade()
+            .map_or(RESTART_WAIT, |core| core.config.restart_wait);
+        let wait = first * (1 << restarts.len());
         restarts.push_back(now);
         Some(wait)
     }

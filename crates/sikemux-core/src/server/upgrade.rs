@@ -120,7 +120,7 @@ const TOOL_SETTLE: Duration = Duration::from_secs(1);
 /// of a request, to be able to hand their agents over. One that still cannot
 /// after that is stopped and starts again on its session. An update that is
 /// not forced waits for them however long they take.
-const HANDOVER_SETTLE: Duration = Duration::from_secs(10);
+pub(crate) const HANDOVER_SETTLE: Duration = Duration::from_secs(10);
 const HANDOVER_POLL: Duration = Duration::from_millis(100);
 
 async fn reply(writer: &mut FrameWriter, answer: &FrozenReply) {
@@ -275,7 +275,7 @@ async fn begin(core: &Arc<Core>, binary: &Path, replacement: Replacement) -> Res
 }
 
 async fn settle_chats(core: &Arc<Core>, force: bool) {
-    let deadline = tokio::time::Instant::now() + HANDOVER_SETTLE;
+    let deadline = tokio::time::Instant::now() + core.config.handover_settle;
     while !core.chats.all_handable() && (!force || tokio::time::Instant::now() < deadline) {
         tokio::time::sleep(HANDOVER_POLL).await;
     }

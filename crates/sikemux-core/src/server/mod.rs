@@ -180,6 +180,12 @@ pub struct ServerConfig {
     /// The built-in plugins, which the binary that runs the core provides.
     /// Without them every plugin call says the plugin is missing.
     pub plugins: Option<plugins::Provided>,
+    /// The first wait before an agent that stopped by itself is started again;
+    /// it doubles with each restart. Tests shorten it.
+    pub restart_wait: Duration,
+    /// How long a forced update waits for chats still starting before it stops
+    /// them. Tests shorten it.
+    pub handover_settle: Duration,
 }
 
 impl ServerConfig {
@@ -195,6 +201,8 @@ impl ServerConfig {
             accounts_api: None,
             secret_store: false,
             plugins: None,
+            restart_wait: chat::RESTART_WAIT,
+            handover_settle: upgrade::HANDOVER_SETTLE,
         }
     }
 
@@ -218,6 +226,8 @@ impl ServerConfig {
             accounts_api: Some(crate::accounts::api_base()),
             secret_store: true,
             plugins,
+            restart_wait: chat::RESTART_WAIT,
+            handover_settle: upgrade::HANDOVER_SETTLE,
         }
     }
 }

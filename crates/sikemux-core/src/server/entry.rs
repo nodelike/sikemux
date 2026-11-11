@@ -18,6 +18,7 @@ const USAGE: &str = "usage: sikemux core [--socket <path>] [--cli-endpoint <path
 struct CoreArgs {
     socket: Option<PathBuf>,
     idle_exit: Option<Duration>,
+    handover_settle: Option<Duration>,
     cli_endpoint: Option<PathBuf>,
     data_dir: Option<PathBuf>,
     upgrade_info: bool,
@@ -76,6 +77,12 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<CoreArgs, String
                 parsed.idle_exit = Some(Duration::from_millis(number(
                     args.next(),
                     "--idle-exit-ms",
+                )?));
+            }
+            "--handover-settle-ms" => {
+                parsed.handover_settle = Some(Duration::from_millis(number(
+                    args.next(),
+                    "--handover-settle-ms",
                 )?));
             }
             "--resume" => {
@@ -170,7 +177,7 @@ pub fn main(
     };
     std::thread::spawn(sikemux_pty::user_shell::warm_login_shell_environment);
     sikemux_process::jobs::own();
-    let exit = exit_code(super::run(ServerConfig::production(
+    let production = ServerConfig::production(
         socket,
         args.idle_exit.unwrap_or(DEFAULT_IDLE_EXIT),
         args.cli_endpoint
@@ -178,7 +185,11 @@ pub fn main(
         args.data_dir,
         build,
         plugins,
-    )));
+    );
+    let exit = exit_code(super::run(ServerConfig {
+        handover_settle: args.handover_settle.unwrap_or(production.handover_settle),
+        ..production
+    }));
     sikemux_process::jobs::leave();
     exit
 }

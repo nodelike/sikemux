@@ -625,7 +625,7 @@ async fn a_finished_task_is_kept_and_attachable() {
 
 #[test]
 fn the_core_exits_when_idle_but_not_while_a_client_is_connected() {
-    let idle_exit = Duration::from_secs(3);
+    let idle_exit = Duration::from_secs(1);
     let mut core = start_core_with(idle_exit);
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
