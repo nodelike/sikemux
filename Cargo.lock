@@ -9864,7 +9864,7 @@ dependencies = [
 
 [[package]]
 name = "sikemux-gpui"
-version = "0.6.1-nightly.14"
+version = "0.6.1-nightly.15"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -9937,7 +9937,7 @@ dependencies = [
 
 [[package]]
 name = "sikemux-host"
-version = "0.6.1-nightly.14"
+version = "0.6.1-nightly.15"
 dependencies = [
  "backtrace",
  "hex",
@@ -10295,7 +10295,7 @@ dependencies = [
 
 [[package]]
 name = "sikemux-simulator"
-version = "0.6.1-nightly.14"
+version = "0.6.1-nightly.15"
 dependencies = [
  "base64 0.22.1",
  "bytes",
@@ -10328,7 +10328,7 @@ dependencies = [
 
 [[package]]
 name = "sikemux-voice"
-version = "0.6.1-nightly.14"
+version = "0.6.1-nightly.15"
 dependencies = [
  "hex",
  "objc2-foundation 0.3.2",
