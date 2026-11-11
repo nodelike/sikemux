@@ -1320,6 +1320,7 @@ impl Workspaces {
             backdrop: Backdrop {
                 texture: published.texture,
                 image: published.image.as_ref().map(|image| image.id.clone()),
+                look: None,
             },
         }
     }

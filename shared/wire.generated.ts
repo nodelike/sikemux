@@ -443,7 +443,39 @@ export interface Backdrop {
     texture: boolean;
     /** Names the picture shown in place of the grain; `BackdropImage` fetches it. */
     image: string | null;
+    look?: BackdropLook | null;
 }
+
+/** How the host's panes draw the grain and dither the picture, from its preferences. */
+export interface BackdropLook {
+    /** From 0 to 2. */
+    strength: number;
+    /**
+     * The dark, middle and light inks a dot takes by its brightness, each `#rrggbb` or a CSS
+     * colour, with the theme's already put in; none leaves the dot clear.
+     */
+    inks: (string | null)[];
+    /** Dots take the picture's own colours instead of the inks. */
+    ownColours: boolean;
+    pattern: PanePattern;
+    /** In points. */
+    dotSize: number;
+    /** From -1 to 1. */
+    contrast: number;
+    /** From -1 to 1. */
+    brightness: number;
+    /** How brightly the picture's light parts glow, from 0 to 1. */
+    glow: number;
+    /** How far the glow spreads, from 0 to 1. */
+    glowSize: number;
+    coverage: PaneCoverage;
+}
+
+/** The grid that decides which of two inks each dot takes, or random noise. */
+export type PanePattern = "bayer2" | "bayer4" | "bayer8" | "noise";
+
+/** How much of a pane the picture covers: a band at its top fading down, or all of it. */
+export type PaneCoverage = "band" | "full";
 
 export interface SessionInfo {
     id: number;
@@ -2776,12 +2808,6 @@ export type NotchPeeks = "all" | "needsYou" | "never";
  * own colours, or the person's three.
  */
 export type PaneColours = "theme" | "picture" | "custom";
-
-/** The grid that decides which of two inks each dot takes, or random noise. */
-export type PanePattern = "bayer2" | "bayer4" | "bayer8" | "noise";
-
-/** How much of a pane the picture covers: a band at its top fading down, or all of it. */
-export type PaneCoverage = "band" | "full";
 
 export type RailDensity = "comfortable" | "compact";
 

@@ -8,6 +8,8 @@ use serde_json::Value;
 
 use sikemux_wire::protocol::{PermissionMode, SessionId};
 
+use crate::prefs::{PaneCoverage, PanePattern};
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectInfo {
@@ -275,7 +277,7 @@ pub struct ConfigChoice {
     pub is_default: bool,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Workspace {
     pub projects: Vec<ProjectInfo>,
@@ -306,13 +308,40 @@ pub struct Workspace {
 }
 
 /// What the app draws behind its panes.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Backdrop {
     /// The dithered grain that moves behind each pane.
     pub texture: bool,
     /// Names the picture shown in place of the grain; `BackdropImage` fetches it.
     pub image: Option<String>,
+    #[serde(default)]
+    pub look: Option<BackdropLook>,
+}
+
+/// How the host's panes draw the grain and dither the picture, from its preferences.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BackdropLook {
+    /// From 0 to 2.
+    pub strength: f64,
+    /// The dark, middle and light inks a dot takes by its brightness, each `#rrggbb` or a CSS
+    /// colour, with the theme's already put in; none leaves the dot clear.
+    pub inks: Vec<Option<String>>,
+    /// Dots take the picture's own colours instead of the inks.
+    pub own_colours: bool,
+    pub pattern: PanePattern,
+    /// In points.
+    pub dot_size: u32,
+    /// From -1 to 1.
+    pub contrast: f64,
+    /// From -1 to 1.
+    pub brightness: f64,
+    /// How brightly the picture's light parts glow, from 0 to 1.
+    pub glow: f64,
+    /// How far the glow spreads, from 0 to 1.
+    pub glow_size: f64,
+    pub coverage: PaneCoverage,
 }
 
 /// The checkout an agent was given, as its workspace record keeps it.

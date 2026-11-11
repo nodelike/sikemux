@@ -1,6 +1,10 @@
 //! What devices draw behind their panes: the host's grain, and the picture in its place, taken
 //! from the person's preferences so that no app has to send it.
 
+use sikemux_view::prefs::{PaneColours, Preferences};
+use sikemux_view::theme::UiTokens;
+use sikemux_view::workspace::BackdropLook;
+
 use super::workspace::BackdropImage;
 use super::Core;
 use crate::server::changed::What;
@@ -27,6 +31,30 @@ pub(crate) fn follow(core: &Core) {
             publish(&core, true, image);
         }
     });
+}
+
+/// How the host's panes draw their backdrop, with the inks a themed picture takes resolved.
+pub(crate) fn look(preferences: &Preferences, tokens: &UiTokens) -> BackdropLook {
+    let inks = match preferences.pane_colours {
+        PaneColours::Custom => (0..3)
+            .map(|at| preferences.pane_inks.get(at).cloned())
+            .collect(),
+        PaneColours::Theme | PaneColours::Picture => {
+            vec![None, Some(tokens.accent.clone()), Some(tokens.ink.clone())]
+        }
+    };
+    BackdropLook {
+        strength: preferences.pane_strength,
+        inks,
+        own_colours: preferences.pane_colours == PaneColours::Picture,
+        pattern: preferences.pane_pattern,
+        dot_size: preferences.pane_dot_size,
+        contrast: preferences.pane_contrast,
+        brightness: preferences.pane_brightness,
+        glow: preferences.pane_glow,
+        glow_size: preferences.pane_glow_size,
+        coverage: preferences.pane_coverage,
+    }
 }
 
 fn publish(core: &Core, texture: bool, image: Option<BackdropImage>) {

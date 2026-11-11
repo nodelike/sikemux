@@ -887,6 +887,56 @@ struct Backdrop: Codable, Hashable, Sendable {
     var texture: Bool
     /// Names the picture shown in place of the grain; `BackdropImage` fetches it.
     var image: String?
+    var look: BackdropLook?
+}
+
+/// How the host's panes draw the grain and dither the picture, from its preferences.
+struct BackdropLook: Codable, Hashable, Sendable {
+    /// From 0 to 2.
+    var strength: Double
+    /// The dark, middle and light inks a dot takes by its brightness, each `#rrggbb` or a CSS
+    /// colour, with the theme's already put in; none leaves the dot clear.
+    var inks: [String?]
+    /// Dots take the picture's own colours instead of the inks.
+    var ownColours: Bool
+    var pattern: PanePattern
+    /// In points.
+    var dotSize: Int
+    /// From -1 to 1.
+    var contrast: Double
+    /// From -1 to 1.
+    var brightness: Double
+    /// How brightly the picture's light parts glow, from 0 to 1.
+    var glow: Double
+    /// How far the glow spreads, from 0 to 1.
+    var glowSize: Double
+    var coverage: PaneCoverage
+}
+
+/// The grid that decides which of two inks each dot takes, or random noise.
+enum PanePattern: String, Codable, Hashable, Sendable {
+    case bayer2
+    case bayer4
+    case bayer8
+    case noise
+    /// One added after this build.
+    case unknown
+
+    init(from decoder: any Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
+}
+
+/// How much of a pane the picture covers: a band at its top fading down, or all of it.
+enum PaneCoverage: String, Codable, Hashable, Sendable {
+    case band
+    case full
+    /// One added after this build.
+    case unknown
+
+    init(from decoder: any Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
 }
 
 struct SessionInfo: Codable, Hashable, Sendable {
@@ -4356,32 +4406,6 @@ enum PaneColours: String, Codable, Hashable, Sendable {
     case theme
     case picture
     case custom
-    /// One added after this build.
-    case unknown
-
-    init(from decoder: any Decoder) throws {
-        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
-    }
-}
-
-/// The grid that decides which of two inks each dot takes, or random noise.
-enum PanePattern: String, Codable, Hashable, Sendable {
-    case bayer2
-    case bayer4
-    case bayer8
-    case noise
-    /// One added after this build.
-    case unknown
-
-    init(from decoder: any Decoder) throws {
-        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
-    }
-}
-
-/// How much of a pane the picture covers: a band at its top fading down, or all of it.
-enum PaneCoverage: String, Codable, Hashable, Sendable {
-    case band
-    case full
     /// One added after this build.
     case unknown
 
