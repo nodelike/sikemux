@@ -21,6 +21,7 @@ struct WelcomeScreen: View {
                     .tracking(-1.2)
                     .lineSpacing(-4)
                     .foregroundStyle(palette.ink)
+                    .fixedSize(horizontal: false, vertical: true)
                     .padding(.top, 18)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
