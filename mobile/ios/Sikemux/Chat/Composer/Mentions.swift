@@ -1,7 +1,7 @@
 import Foundation
 
 /// A chip the draft holds, over the text it wrote, as every app keeps it: `agent:<id>`, `file:<path>`,
-/// `folder:<path>`, `earlier:<cli>/<session>` or `tracked:<kind>:<number>:<url>`. Places count UTF-16 units, as
+/// `folder:<path>`, `earlier:<cli>/<session>`, `tracked:<kind>:<number>:<url>` or `image:<attachment>`. Places count UTF-16 units, as
 /// the text field does.
 struct TextToken: Hashable, Sendable {
     var start: Int
@@ -35,6 +35,8 @@ enum Mentions {
     static let folder = "folder:"
     static let earlier = "earlier:"
     static let tracked = "tracked:"
+    /// A picture the message carries, named where it goes in the words.
+    static let image = "image:"
 
     static func trackedId(_ kind: TrackedKind, _ number: Int, _ url: String) -> String {
         "\(tracked)\(kind.rawValue):\(number):\(url)"
@@ -145,6 +147,48 @@ enum Mentions {
             }
         }
         return named
+    }
+}
+
+/// A draft that keeps its pictures' tags only in its words, as a new chat's does: `[Image #n]` names attachment n.
+enum ImageTags {
+    private static let pattern = try! NSRegularExpression(pattern: "\\[Image #(\\d+)\\]")
+
+    /// `text` with `[Image #n]` written at `caret` for each of `numbers`, spaced from the words around it.
+    static func written(_ text: String, at caret: Int?, numbers: [Int]) -> String {
+        guard !numbers.isEmpty else { return text }
+        let length = (text as NSString).length
+        let at = min(caret ?? length, length)
+        let before = text.units(0, at)
+        let after = text.units(at, length)
+        let lead = before.last.map { $0.isWhitespace } ?? true ? "" : " "
+        let trail = after.first?.isWhitespace ?? false ? "" : " "
+        return before + lead + numbers.map { "[Image #\($0)]" }.joined(separator: " ") + trail + after
+    }
+
+    /// `text` without the tag of attachment `removed`, the later ones counted down so they still name theirs.
+    static func removing(_ removed: Int, from text: String) -> String {
+        let result = NSMutableString(string: text)
+        for match in pattern.matches(in: text, range: NSRange(location: 0, length: result.length)).reversed() {
+            let number = Int((text as NSString).substring(with: match.range(at: 1))) ?? 0
+            if number == removed {
+                result.replaceCharacters(in: match.range, with: "")
+            } else if number > removed {
+                result.replaceCharacters(in: match.range, with: "[Image #\(number - 1)]")
+            }
+        }
+        return result as String
+    }
+
+    /// The tags in `text` that name one of the `count` attachments, as chips to draw.
+    static func tokens(in text: String, count: Int) -> [TextToken] {
+        pattern.matches(in: text, range: NSRange(location: 0, length: (text as NSString).length)).compactMap { match in
+            let number = Int((text as NSString).substring(with: match.range(at: 1))) ?? 0
+            guard number >= 1, number <= count else { return nil }
+            return TextToken(
+                start: match.range.location, end: match.range.location + match.range.length,
+                id: "\(Mentions.image)\(number)", label: "Image \(number)")
+        }
     }
 }
 

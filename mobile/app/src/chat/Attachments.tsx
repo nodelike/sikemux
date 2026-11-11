@@ -4,7 +4,7 @@ import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View
 import { basename } from '@shared/lib/paths';
 import { StashPreview, useStashItem } from '@/stash/StashChip';
 import { Icon } from '@/ui/Icon';
-import { fonts, type Palette, useColors, useStyles } from '@/ui/theme';
+import { fonts, type Palette, translucent, useColors, useStyles } from '@/ui/theme';
 import { useHostFile } from './hostFiles';
 import { ImageViewer } from './ImageViewer';
 import { drawsImage } from './FileRef';
@@ -76,7 +76,7 @@ export function ComposerAttachments({
     <View>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row} keyboardShouldPersistTaps="handled">
         {lead}
-        {attachments.map((attachment) => {
+        {attachments.map((attachment, index) => {
           const sending = attachment.upload === 'sending';
           const broken = attachment.upload === 'failed';
           return (
@@ -96,6 +96,12 @@ export function ComposerAttachments({
               <View style={styles.tileBody} accessible={!broken} accessibilityLabel={`${attachment.name}${sending ? ', sending' : ''}`}>
                 {attachment.kind === 'image' ? <TileImage attachment={attachment} /> : <StashedOrFile attachment={attachment} />}
               </View>
+              {attachment.kind === 'image' && !sending && !broken ? (
+                // The number the picture goes by in the words, `[Image #n]`, as the Mac's tile shows it.
+                <View style={styles.number} importantForAccessibility="no-hide-descendants" accessibilityElementsHidden>
+                  <Text style={styles.numberText}>#{index + 1}</Text>
+                </View>
+              ) : null}
               {sending || broken ? (
                 <View style={styles.veil}>
                   {sending ? <ActivityIndicator color={colors.ink} /> : <Icon name="IconRefresh" size={18} color={colors.ink} />}
@@ -170,6 +176,16 @@ const makeStyles = (colors: Palette) => {
     waiting: { flex: 1, alignItems: 'center', justifyContent: 'center' },
     fileItem: { maxWidth: 190, justifyContent: 'center' },
     veil: { ...StyleSheet.absoluteFill, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(9, 9, 11, 0.55)' },
+    number: {
+      position: 'absolute',
+      left: 3,
+      bottom: 3,
+      paddingHorizontal: 4,
+      paddingVertical: 1,
+      borderRadius: 4,
+      backgroundColor: translucent(colors.sunken, 0.72),
+    },
+    numberText: { fontFamily: fonts.mono, fontSize: 9.5, color: colors.ink },
     remove: {
       position: 'absolute',
       top: 3,

@@ -360,7 +360,12 @@
 
   /* ---------- composer ---------- */
   .composer-wrap { flex: none; padding: 8px 10px 30px; }
-  .composer { padding: 6px; border-radius: 16px; border: 1px solid var(--border); background: color-mix(in oklab, var(--surface-raised) 55%, var(--surface-sunken)); }
+  .composer { --box: color-mix(in oklab, var(--surface-raised) 55%, var(--surface-sunken)); padding: 6px; border-radius: 10px; border: 1px solid var(--border); background: var(--box); }
+  /* YOLO edges the box in its rainbow, as the Mac's composer does */
+  .composer:has(.yolo.on) { border-color: transparent; background: linear-gradient(var(--box), var(--box)) padding-box, linear-gradient(90deg, color-mix(in oklab, var(--acc) 45%, var(--box)), color-mix(in oklab, var(--cmd) 45%, var(--box)), color-mix(in oklab, var(--danger) 45%, var(--box)), color-mix(in oklab, var(--warn) 45%, var(--box)), color-mix(in oklab, var(--live) 45%, var(--box)), color-mix(in oklab, var(--acc) 45%, var(--box))) border-box; }
+  /* a picture's tag in the words, where the host puts it, as the Mac's chip for it */
+  .composer .ta .img-tag { padding: 1px 4px; border-radius: 5px; background: var(--surface-active); color: var(--ink); }
+  .attachments .num { position: absolute; left: 3px; bottom: 3px; padding: 1px 4px; border-radius: 4px; background: color-mix(in oklab, var(--surface-sunken) 72%, transparent); font: 9.5px var(--mono); color: var(--ink); }
   .composer.focus { border-color: var(--border-selected); }
   .composer .ta { padding: 9px 10px 4px; min-height: 44px; font-size: 14.5px; line-height: 1.38; color: var(--ink); }
   .composer .ta.ph { color: var(--ink-faint); }
@@ -585,9 +590,11 @@
   .wc-pick .h b { font-weight: 500; font-size: 12.5px; color: var(--text-primary); }
   .wc-pick .h i { font-style: normal; font-weight: 500; font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--text-tertiary); }
   .wc-pick .sm { font-size: 12px; color: var(--text-tertiary); text-align: center; }
-  .welcome-chat { flex: 1; min-height: 0; padding: 0 28px 40px; display: flex; flex-direction: column; justify-content: center; gap: 26px; }
+  /* nothing floats mid-screen: the start sits just above the composer it leads into */
+  .welcome-chat { flex: 1; min-height: 0; padding: 0 28px 28px; display: flex; flex-direction: column; justify-content: flex-end; gap: 26px; }
   .wc-head { display: flex; flex-direction: column; align-items: center; gap: 10px; }
-  .wc-head b { font-size: 20px; font-weight: 600; letter-spacing: -0.028em; color: var(--text-primary); }
+  .wc-head b { font-size: 17px; font-weight: 600; letter-spacing: -0.024em; color: var(--text-primary); }
+  .wc-head .wc-sub { margin-top: -4px; font-size: 13px; color: var(--text-tertiary); }
   .wc-stats { display: grid; grid-template-columns: 1fr 1fr; row-gap: 14px; }
   .wc-stats > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
   .wc-stats > div:nth-child(even) { padding-left: 16px; border-left: 1px solid var(--border); }
@@ -1012,6 +1019,10 @@
   .place .br { font: 10.5px var(--mono); }
   .place .br svg { width: 11px; height: 11px; }
   .place .fill { flex: 1; }
+  .place .sl { flex: none; padding: 0; font-size: 13px; color: var(--border-strong); }
+  .place .acct { flex: none; }
+  .place .pick { color: var(--text-primary); font-weight: 500; }
+  .place .ch svg { width: 10px; height: 10px; transform: rotate(90deg); color: var(--ink-faint); }
   .place .goal em { font-weight: 500; color: var(--ink); }
   .place .goal .dot { width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid var(--live); box-sizing: border-box; }
   .md-task { display: flex; gap: 8px; align-items: flex-start; font-size: 14.5px; line-height: 23px; color: var(--ink); }
@@ -2527,10 +2538,10 @@
         <div class="composer-wrap">
           <div class="composer focus">
             <div class="attachments">
-              <span class="thumb photo"><span class="x">{{IconClose:10}}</span></span>
+              <span class="thumb photo"><span class="num">#1</span><span class="x">{{IconClose:10}}</span></span>
               <span class="file">{{IconFile:16}}<span class="file-words"><b>hero-copy.md</b><span>4 KB</span></span><span class="x">{{IconClose:10}}</span></span>
             </div>
-            <div class="ta">Match this screenshot, using the copy in the file<span class="caret"></span></div>
+            <div class="ta">Make the hero look like <span class="img-tag">[Image #1]</span> <span class="caret"></span>using the copy in the file</div>
             <div class="bar">
               <span class="ib">{{IconPlus:18}}</span>
               <span class="yolo">{{IconShield:13}}<b style="font-weight:560">safe</b></span>
@@ -2544,7 +2555,7 @@
         </div>
       </div>
       <div class="home-bar"></div></div>
-      <figcaption><b>Attachments, before sending</b><div class="note">What was picked sits in a row above the text, as on the Mac: a photo as a small rounded thumbnail, a file as its icon, name and size, each with an × to take it off. Photos go as JPEG, at most 2048 pixels on their longest side, so HEIC from the camera reads everywhere. A file over 10 MB is left out with a line saying so. Send puts each file on the host first, with a spinner on it, and sends the message only once all are there; one that did not get there turns red, and a tap tries again. Sent behind a running turn, the files wait with the message.</div></figcaption>
+      <figcaption><b>Attachments, before sending</b><div class="note">What was picked sits in a row above the text, as on the Mac: a photo as a small rounded thumbnail with the number it goes by, a file as its icon, name and size, each with an × to take it off. Each photo is also named in the words where the caret was, as [Image #1] drawn as a chip, and the host puts the picture at that spot in the message. Deleting the tag takes the photo off, and taking a photo off takes its tag out and counts the later ones down. Photos go as JPEG, at most 2048 pixels on their longest side, so HEIC from the camera reads everywhere. A file over 10 MB is left out with a line saying so. Send puts each file on the host first, with a spinner on it, and sends the message only once all are there; one that did not get there turns red, and a tap tries again. Sent behind a running turn, the files wait with the message.</div></figcaption>
     </figure>
 
     <figure><div class="phone"><div class="island"></div>
@@ -3565,11 +3576,11 @@ expected 1 write, got 2</div>
               <span class="send off">{{IconArrowUp:16}}</span>
             </div>
           </div>
-          <div class="place"><span class="proj">{{IconFolder:12}}<em>sikemux</em></span><span class="br">{{IconGit:11}}<em>main</em></span><span class="fill"></span><span class="goal"><i class="dot"></i><span class="goal-steps"><i></i><i></i><i class="dash"></i></span></span><span>{{IconUser:12}}<em>Work</em></span></div>
+          <div class="place"><span class="proj">{{IconFolder:12}}<em>sikemux</em></span><span class="sl">/</span><span class="br">{{IconGit:11}}<em>main</em></span><span class="fill"></span><span class="goal"><i class="dot"></i><span class="goal-steps"><i></i><i></i><i class="dash"></i></span></span><span class="acct">{{IconUser:13}}</span></div>
         </div>
       </div>
       <div class="home-bar"></div></div>
-      <figcaption><b>Reading an answer</b><div class="note">Your message is a clean bubble with no edge: a soft fill the accent warms, 16px corners with its tail at the bottom right, and 14px text. Messages sent one after another sit 4px apart with the time only under the last; a tap still opens a message's strip. An answer reads like an article, as on the Mac: ## headings stand at 18px with room above, ### headings are small spaced capitals, bullets take the accent and numbered steps read 01, 02 in mono. Links are lavender and underlined, and a link to GitHub, Bitbucket, Jira, GitLab, Linear, Vercel, Slack, AWS, Grok, Apple or Google Play carries that service's mark. Only a --- the agent wrote draws a rule. Where a goal starts or ends is a milestone line at the left: its mark, its state in its colour (Goal, Goal done, Goal stopped), its name, and at the right its steps with how many are done and, once it ended, how long it took. Under the composer, with no frame or divider, sits where the chat runs: the project and the branch at the left, the host before them only when the account has more than one, and at the right the goal as its state dot and step bars, named on a tap, then the account when its agent has more than one here.</div></figcaption>
+      <figcaption><b>Reading an answer</b><div class="note">Your message is a clean bubble with no edge: a soft fill the accent warms, 16px corners with its tail at the bottom right, and 14px text. Messages sent one after another sit 4px apart with the time only under the last; a tap still opens a message's strip. An answer reads like an article, as on the Mac: ## headings stand at 18px with room above, ### headings are small spaced capitals, bullets take the accent and numbered steps read 01, 02 in mono. Links are lavender and underlined, and a link to GitHub, Bitbucket, Jira, GitLab, Linear, Vercel, Slack, AWS, Grok, Apple or Google Play carries that service's mark. Only a --- the agent wrote draws a rule. Where a goal starts or ends is a milestone line at the left: its mark, its state in its colour (Goal, Goal done, Goal stopped), its name, and at the right its steps with how many are done and, once it ended, how long it took. Under the composer, with no frame or divider, sits where the chat runs: the project and the branch at the left, the host before them only when the account has more than one, and at the right the goal as its state dot and step bars, named on a tap, then the account's mark when its agent has more than one here, so the branch keeps its whole name. The host, project and branch are split by a thin slash, as on the Mac.</div></figcaption>
     </figure>
 
     <figure><div class="phone"><div class="island"></div>
@@ -4167,17 +4178,9 @@ expected 1 write, got 2</div>
       <div class="screen">
         <div class="nav"><span class="back">{{IconChevron:18}}</span><span class="mid"><span class="claude">{{IconClaude:17}}</span><span class="named"><b>@New Claude chat</b></span></span><span class="end"></span></div>
         <div class="welcome-chat">
-          <div class="wc-head"><span class="claude">{{IconClaude:36}}</span><b>sikemux</b><span class="wc-pick"><span class="h"><span class="claude">{{IconClaude:12}}</span><b>Personal</b><i>Smart pick</i></span><span class="sm">Its week ends soonest, with 40% still unused</span></span></div>
-          <div class="wc-cal">
-            <div class="wc-heat"><div class="wc-cells"><i data-level="2"></i><i data-level="1"></i><i></i><i data-level="2"></i><i data-level="3"></i><i></i><i></i><i data-level="2"></i><i></i><i data-level="3"></i><i data-level="2"></i><i data-level="3"></i><i data-level="2"></i><i data-level="1"></i><i data-level="1"></i><i data-level="2"></i><i data-level="2"></i><i data-level="3"></i><i data-level="4"></i><i></i><i data-level="2"></i><i data-level="1"></i><i data-level="1"></i><i data-level="3"></i><i data-level="4"></i><i data-level="2"></i><i data-level="1"></i><i></i><i data-level="2"></i><i data-level="2"></i><i></i><i data-level="3"></i><i data-level="4"></i><i></i><i data-level="1"></i><i></i><i data-level="2"></i><i data-level="3"></i><i data-level="4"></i><i></i><i data-level="1"></i><i></i><i data-level="3"></i><i data-level="3"></i><i></i><i></i><i data-level="4"></i><i data-level="1"></i><i data-level="1"></i><i data-level="4"></i><i data-level="2"></i><i data-level="4"></i><i data-level="3"></i><i data-level="3"></i><i></i><i></i><i data-level="2"></i><i data-level="3"></i><i data-level="3"></i><i></i><i data-level="3"></i><i></i><i></i><i data-level="3"></i><i data-level="3"></i><i data-level="4"></i><i data-level="2"></i><i data-level="2"></i><i></i><i data-level="1"></i><i data-level="3"></i><i data-level="2"></i><i></i><i data-level="2"></i><i data-level="2"></i><i data-level="2"></i><i data-level="2"></i><i data-level="4"></i><i></i><i data-level="4"></i><i data-level="3"></i><i data-level="3"></i><i></i><i data-level="1"></i><i data-level="2"></i><i data-level="1"></i><i data-level="1"></i><i></i><i data-level="3"></i><i></i><i></i><i></i><i data-level="3"></i><i data-level="4"></i><i data-level="2"></i><i data-level="3"></i><i></i><i data-level="1"></i><i data-level="2"></i><i></i><i></i><i data-level="2"></i><i data-level="4"></i><i></i><i></i><i data-level="3"></i><i data-level="4"></i><i data-level="1"></i><i data-level="2"></i><i data-level="1"></i><i data-level="1"></i><i data-level="1"></i><i data-level="2"></i><i data-level="3"></i><i data-level="2"></i><i data-level="2"></i><i data-level="3"></i><i data-level="1"></i><i></i><i data-level="4"></i><i></i><i></i><i data-level="2"></i><i data-level="3"></i><i data-level="1"></i><i data-level="2"></i><i data-level="2"></i><i></i><i></i><i data-level="2"></i><i data-level="3"></i><i data-level="2"></i><i data-level="1"></i><i data-level="2"></i><i data-level="1"></i><i data-level="1"></i><i data-level="4"></i><i class="future"></i><i class="future"></i><i class="future"></i></div></div>
-            <div class="wc-caption">96 active days in the last 20 weeks</div>
-          </div>
+          <div class="wc-head"><span class="claude">{{IconClaude:30}}</span><b>New chat</b><span class="wc-sub">Claude Code on MacBook Pro</span><span class="wc-pick"><span class="h"><span class="claude">{{IconClaude:12}}</span><b>Personal</b><i>Smart pick</i></span><span class="sm">Its week ends soonest, with 40% still unused</span></span></div>
         </div>
         <div class="composer-wrap">
-          <div class="project-strip">
-            <span class="ps-project"><span class="folder">{{IconFolder:13}}</span><b>sikemux</b><span class="ch">{{IconChevron:10}}</span></span>
-            <span class="ps-worktree">{{IconGit:12}}worktree</span>
-          </div>
           <div class="composer">
             <div class="ta ph">Ask about this project, or type / for commands</div>
             <div class="bar">
@@ -4190,10 +4193,11 @@ expected 1 write, got 2</div>
               <span class="send off">{{IconArrowUp:16}}</span>
             </div>
           </div>
+          <div class="place"><span>{{IconLaptop:12}}<em>MacBook Pro</em></span><span class="sl">/</span><span class="proj pick">{{IconFolder:12}}<em>sikemux</em><span class="ch">{{IconChevron:10}}</span></span><span class="fill"></span><span class="ps-worktree">{{IconGit:12}}worktree</span></div>
         </div>
       </div>
       <div class="home-bar"></div></div>
-      <figcaption><b>New chat</b><div class="note">The Mac's new-chat welcome, cut to what reads at a glance: the agent, the project, and the last twenty weeks of its activity calendar with one line under it. When the agent has two or more accounts and smart accounts would pick one, a quiet line under the project names the account the chat will start on, marked Smart pick, and why, as the host's core works it out before anything is sent; an account chosen in the chat's settings shows none. The composer takes the keyboard as the screen opens, so the first message can be typed at once. The project strip docks on the composer until the first message; the agent is chosen from the model picker. Its header is the chat's own, with no rule under it, and the first message turns it into that chat in place, with no slide. Send draws the message at once, dimmed with Sending… and Starting under it while the agent comes up; if the chat can't start, the message goes back into the composer with the reason.</div></figcaption>
+      <figcaption><b>New chat</b><div class="note">The Mac's new-chat welcome, cut to what reads at a glance and set just above the composer, so nothing floats mid-screen: the agent's mark, New chat, and which agent it starts on which host. When the agent has two or more accounts and smart accounts would pick one, a quiet line under the project names the account the chat will start on, marked Smart pick, and why, as the host's core works it out before anything is sent; an account chosen in the chat's settings shows none. The composer takes the keyboard as the screen opens, so the first message can be typed at once. Where it will run is the line under the box, as on the Mac's new chat: the host, a slash, then the project with its chevron, which opens the project picker, and the worktree switch at the right; the agent is chosen from the model picker. The box's edge takes the accent while it has the keyboard, and YOLO's rainbow while YOLO is on. Its header is the chat's own, with no rule under it, and the first message turns it into that chat in place, with no slide. Send draws the message at once, dimmed with Sending… and Starting under it while the agent comes up; if the chat can't start, the message goes back into the composer with the reason.</div></figcaption>
     </figure>
 
     <figure><div class="phone"><div class="island"></div>
@@ -4252,13 +4256,10 @@ expected 1 write, got 2</div>
       <div class="screen">
         <div class="nav"><span class="back">{{IconChevron:18}}</span><span class="mid"><span class="claude">{{IconClaude:17}}</span><span class="named"><b>@New Claude chat</b></span></span><span class="end"></span></div>
         <div class="welcome-chat">
-          <div class="wc-head"><span class="claude">{{IconClaude:36}}</span><b>sikemux</b></div>
+          <div class="wc-head"><span class="claude">{{IconClaude:30}}</span><b>New chat</b><span class="wc-sub">Claude Code on MacBook Pro</span></div>
           <div class="wc-caption">Reconnecting to the host…</div>
         </div>
         <div class="composer-wrap">
-          <div class="project-strip">
-            <span class="ps-project"><span class="folder">{{IconFolder:13}}</span><b>sikemux</b><span class="ch">{{IconChevron:10}}</span></span>
-          </div>
           <div class="composer">
             <div class="ta">Run the tests and fix what fails</div>
             <div class="bar">
@@ -4269,6 +4270,7 @@ expected 1 write, got 2</div>
               <span class="send off">{{IconArrowUp:16}}</span>
             </div>
           </div>
+          <div class="place"><span>{{IconLaptop:12}}<em>MacBook Pro</em></span><span class="sl">/</span><span class="proj pick">{{IconFolder:12}}<em>sikemux</em><span class="ch">{{IconChevron:10}}</span></span><span class="fill"></span></div>
         </div>
       </div>
       <div class="home-bar"></div></div>
@@ -4316,10 +4318,6 @@ expected 1 write, got 2</div>
           <div class="wc-head"><span class="claude">{{IconClaude:36}}</span><b>sikemux</b></div>
         </div>
         <div class="composer-wrap">
-          <div class="project-strip">
-            <span class="ps-project"><span class="folder">{{IconFolder:13}}</span><b>sikemux</b><span class="ch">{{IconChevron:10}}</span></span>
-            <span class="ps-worktree on">{{IconGit:12}}worktree</span>
-          </div>
           <div class="composer focus">
             <div class="ta">Remember the last email on the login form<span class="caret"></span></div>
             <div class="bar">
@@ -4331,6 +4329,7 @@ expected 1 write, got 2</div>
               <span class="send">{{IconArrowUp:16}}</span>
             </div>
           </div>
+          <div class="place"><span>{{IconLaptop:12}}<em>MacBook Pro</em></span><span class="sl">/</span><span class="proj pick">{{IconFolder:12}}<em>sikemux</em><span class="ch">{{IconChevron:10}}</span></span><span class="fill"></span><span class="ps-worktree on">{{IconGit:12}}worktree</span></div>
         </div>
       </div>
       <div class="home-bar"></div></div>
@@ -4347,10 +4346,6 @@ expected 1 write, got 2</div>
           <div class="activity"><span class="glyph claude">{{IconClaude:20}}</span><span class="lbl">Creating worktree…</span><span class="el">3s</span></div>
         </div>
         <div class="composer-wrap">
-          <div class="project-strip">
-            <span class="ps-project"><span class="folder">{{IconFolder:13}}</span><b>sikemux</b><span class="ch">{{IconChevron:10}}</span></span>
-            <span class="ps-worktree on off">{{IconGit:12}}worktree</span>
-          </div>
           <div class="composer">
             <div class="ta ph">Ask about this project, or type / for commands</div>
             <div class="bar">
@@ -4362,6 +4357,7 @@ expected 1 write, got 2</div>
               <span class="send">{{IconArrowUp:16}}</span>
             </div>
           </div>
+          <div class="place"><span>{{IconLaptop:12}}<em>MacBook Pro</em></span><span class="sl">/</span><span class="proj pick">{{IconFolder:12}}<em>sikemux</em><span class="ch">{{IconChevron:10}}</span></span><span class="fill"></span><span class="ps-worktree on off">{{IconGit:12}}worktree</span></div>
         </div>
       </div>
       <div class="home-bar"></div></div>

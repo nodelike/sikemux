@@ -17,7 +17,9 @@ struct ComposerAttachments<Lead: View>: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 7) {
                     lead
-                    ForEach(attachments) { attachment in tile(attachment) }
+                    ForEach(Array(attachments.enumerated()), id: \.element.id) { index, attachment in
+                        tile(attachment, number: index + 1)
+                    }
                 }
                 .padding(.horizontal, 4)
                 .padding(.top, 4)
@@ -37,7 +39,7 @@ struct ComposerAttachments<Lead: View>: View {
         }
     }
 
-    private func tile(_ attachment: Attachment) -> some View {
+    private func tile(_ attachment: Attachment, number: Int) -> some View {
         let sending = attachment.upload == .sending
         let broken = attachment.upload == .failed
         let shape = RoundedRectangle(cornerRadius: 9, style: .continuous)
@@ -64,6 +66,21 @@ struct ComposerAttachments<Lead: View>: View {
                     }
                 }
                 .clipShape(shape)
+            }
+        }
+        .overlay(alignment: .bottomLeading) {
+            // The number the picture goes by in the words, `[Image #n]`, as the Mac's tile shows it.
+            if attachment.kind == .image && !sending && !broken {
+                Text("#\(number)")
+                    .font(Theme.mono(9.5))
+                    .foregroundStyle(palette.ink)
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 1)
+                    .background(
+                        RoundedRectangle(cornerRadius: 4, style: .continuous).fill(palette.sunken.opacity(0.72))
+                    )
+                    .padding(3)
+                    .accessibilityHidden(true)
             }
         }
         .overlay(alignment: .topTrailing) {

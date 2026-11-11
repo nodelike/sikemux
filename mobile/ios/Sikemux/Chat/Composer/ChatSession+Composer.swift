@@ -15,8 +15,8 @@ extension ChatSession {
     }
 
     /// Adds what was picked for the next message, leaving out what the host would refuse.
-    func attach(_ picked: [Attachment]) {
-        notice = draft.attach(picked)
+    func attach(_ picked: [Attachment], at caret: Int? = nil) {
+        notice = draft.attach(picked, at: caret)
     }
 
     /// Has the host put stash items in this chat's draft: files beside it, links and text as chips, notes in its words.

@@ -42,18 +42,22 @@ struct YoloToggle: View {
             Text(on ? "YOLO" : "SAFE")
                 .font(Theme.ui(11, .semibold))
                 .tracking(0.9)
-                .foregroundStyle(on ? AnyShapeStyle(yolo) : AnyShapeStyle(palette.inkFaint))
+                .foregroundStyle(
+                    on ? AnyShapeStyle(Self.rainbow(palette, along: .word)) : AnyShapeStyle(palette.inkFaint))
         }
         .padding(.horizontal, 8)
         .frame(height: 34)
         .contentShape(Rectangle())
     }
 
-    /// Twice the word's width, as the Mac draws it, so the word shows the first half.
-    private var yolo: LinearGradient {
+    enum Run { case word, edge }
+
+    /// YOLO's rainbow. Over the word it runs twice the word's width, as the Mac draws it, so the word shows the
+    /// first half; along the composer's edge it runs once.
+    static func rainbow(_ palette: Palette, along run: Run) -> LinearGradient {
         LinearGradient(
             colors: [palette.accent, palette.cmd, palette.danger, palette.warn, palette.live, palette.accent],
-            startPoint: .leading, endPoint: UnitPoint(x: 2, y: 0.5)
+            startPoint: .leading, endPoint: run == .word ? UnitPoint(x: 2, y: 0.5) : .trailing
         )
     }
 }

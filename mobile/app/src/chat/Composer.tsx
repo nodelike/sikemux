@@ -31,7 +31,7 @@ import { useMentions } from './useMentions';
 import { PermissionDock } from '@/chat/PermissionDock';
 import { ChatPlace, type Place } from './ChatPlace';
 import { ContextRing } from '@/chat/ContextRing';
-import { YoloToggle } from '@/chat/YoloToggle';
+import { YoloEdge, YoloToggle } from '@/chat/YoloToggle';
 import { ConfigSheet } from '@/chat/ConfigSheet';
 
 function Commands({ matches, onPick }: { matches: ChatCommandInfo[]; onPick: (name: string) => void }) {
@@ -87,6 +87,8 @@ function AnsweringChip({ question }: { question: ComposerQuestion }) {
 
 /** How far up an empty composer is pulled before it opens the recent prompts. */
 const PULL_UP = 18;
+/** The composer box's corners, as the Mac's. */
+const BOX_RADIUS = 10;
 
 export const Composer = memo(function Composer({
   session,
@@ -164,6 +166,9 @@ export const Composer = memo(function Composer({
   const uploading = attachments.some((attachment) => attachment.upload === 'sending');
   const room = MAX_ATTACHMENTS - attachments.length;
   const [focused, setFocused] = useState(false);
+  /** Where the caret sits in the draft, where a picked picture's tag goes. */
+  const caret = useRef<number | undefined>(undefined);
+  const yolo = permissionMode === 'bypass';
   const ownInput = useRef<TextInput>(null);
   const input = inputRef ?? ownInput;
   const [sheet, setSheet] = useState(false);
@@ -234,7 +239,9 @@ export const Composer = memo(function Composer({
   };
 
   const attach = (picking: Promise<Attachment[]>) => {
-    picking.then(session.attach).catch((error: unknown) => session.report(`could not pick: ${problem(error)}`));
+    picking
+      .then((picked) => session.attach(picked, caret.current))
+      .catch((error: unknown) => session.report(`could not pick: ${problem(error)}`));
   };
 
   const fromStash = (items: StashItem[], base = draft) => {
@@ -258,7 +265,10 @@ export const Composer = memo(function Composer({
       ) : null}
       {prompt.toast}
       {dock || matches.length || mention !== undefined || mentions ? null : strip}
-      <View style={[styles.composer, focused && { borderColor: colors.borderSelected }]} {...pullUp.panHandlers}>
+      <View
+        style={[styles.composer, yolo ? styles.yoloComposer : focused && { borderColor: colors.borderSelected }]}
+        {...pullUp.panHandlers}>
+        {yolo ? <YoloEdge radius={BOX_RADIUS} /> : null}
         {question ? <AnsweringChip question={question} /> : null}
         {attachments.length || chips.length ? (
           <ComposerAttachments
@@ -280,6 +290,9 @@ export const Composer = memo(function Composer({
           accessibilityLabel="Message"
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
+          onSelectionChange={(event) => {
+            caret.current = event.nativeEvent.selection.start;
+          }}
         />
         <View style={styles.bar}>
           <Pressable
@@ -314,11 +327,11 @@ export const Composer = memo(function Composer({
           ) : null}
           {effortLabel ? (
             <Pressable
-              style={styles.picker}
+              style={[styles.picker, styles.effort]}
               onPress={() => setSheet(true)}
               accessibilityRole="button"
               accessibilityLabel={`Effort, ${effortLabel}`}>
-              <Text style={styles.pickerText} numberOfLines={1}>
+              <Text style={[styles.pickerText, { flexShrink: 1 }]} numberOfLines={1}>
                 {effortLabel}
               </Text>
               <View style={{ transform: [{ rotate: '90deg' }], opacity: 0.6 }}>
@@ -390,7 +403,8 @@ export const Composer = memo(function Composer({
 const makeStyles = (colors: Palette) => {
   return StyleSheet.create({
     wrap: { paddingHorizontal: 10, paddingTop: 8, paddingBottom: 6 },
-    composer: { padding: 6, borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.composer },
+    composer: { padding: 6, borderRadius: BOX_RADIUS, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.composer },
+    yoloComposer: { borderColor: 'transparent' },
     answering: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -412,7 +426,9 @@ const makeStyles = (colors: Palette) => {
     bar: { flexDirection: 'row', alignItems: 'center', gap: 2, paddingTop: 6 },
     add: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
     picker: { flexDirection: 'row', alignItems: 'center', gap: 6, height: 34, paddingHorizontal: 7, borderRadius: 7, flexShrink: 0 },
-    model: { flexShrink: 1, maxWidth: 160 },
+    // The model keeps its name; the effort's shortens first, as on the Mac.
+    model: { flexShrink: 0, maxWidth: 160 },
+    effort: { flexShrink: 1, minWidth: 0 },
     modelText: { flexShrink: 1 },
     pickerText: { fontFamily: fonts.ui, fontSize: 12.5, color: colors.inkDim },
     send: { width: 34, height: 34, borderRadius: 17, backgroundColor: colors.ink, alignItems: 'center', justifyContent: 'center' },

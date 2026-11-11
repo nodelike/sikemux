@@ -9,6 +9,8 @@ final class ComposerFocus: ObservableObject {
     @Published var recent = false
 
     func request() { field?.becomeFirstResponder() }
+    /// Where the caret sits in the draft, in UTF-16 units.
+    var caret: Int? { field?.selectedRange.location }
     /// Empties the field, words the keyboard is still composing too.
     func clear() { field?.text = "" }
 }
@@ -93,8 +95,13 @@ struct ComposerInput: UIViewRepresentable {
         let styled = NSMutableAttributedString(string: text, attributes: attributes(UIColor(palette.ink)))
         let length = styled.length
         for token in tokens where token.start < token.end && token.end <= length {
+            // A picture's tag reads as the Mac's chip for it: full ink on the chosen grey.
+            let picture = token.id.hasPrefix(Mentions.image)
             styled.addAttributes(
-                [.foregroundColor: UIColor(palette.accent), .backgroundColor: UIColor(palette.active)],
+                [
+                    .foregroundColor: UIColor(picture ? palette.ink : palette.accent),
+                    .backgroundColor: UIColor(palette.active),
+                ],
                 range: NSRange(location: token.start, length: token.end - token.start)
             )
         }

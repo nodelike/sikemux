@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import MaskedView from '@react-native-masked-view/masked-view';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
@@ -5,12 +6,49 @@ import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import { canSwitchMode } from '@shared/agents/catalog';
 import { haptics } from '@/ui/haptics';
 import { Icon } from '@/ui/Icon';
-import { fonts, type Palette, useColors, useStyles } from '@/ui/theme';
+import { fonts, isLight, type Palette, useColors, useStyles } from '@/ui/theme';
+
+const rainbow = (colors: Palette) => [colors.accent, colors.cmd, colors.danger, colors.warn, colors.live, colors.accent];
+
+/** YOLO's rainbow along the composer's edge, as the Mac's composer draws it while the agent runs without asking. */
+export function YoloEdge({ radius }: { radius: number }) {
+  const colors = useColors();
+  const [size, setSize] = useState({ width: 0, height: 0 });
+  const stops = rainbow(colors);
+  return (
+    <View
+      style={StyleSheet.absoluteFill}
+      pointerEvents="none"
+      onLayout={(event) => setSize({ width: event.nativeEvent.layout.width, height: event.nativeEvent.layout.height })}>
+      {size.width ? (
+        <Svg width={size.width} height={size.height} opacity={isLight(colors) ? 0.6 : 0.45}>
+          <Defs>
+            <LinearGradient id="yolo-edge" x1="0" y1="0" x2="1" y2="0">
+              {stops.map((color, index) => (
+                <Stop key={index} offset={index / (stops.length - 1)} stopColor={color} />
+              ))}
+            </LinearGradient>
+          </Defs>
+          <Rect
+            x={0.5}
+            y={0.5}
+            width={size.width - 1}
+            height={size.height - 1}
+            rx={radius - 0.5}
+            fill="none"
+            stroke="url(#yolo-edge)"
+            strokeWidth={1}
+          />
+        </Svg>
+      ) : null}
+    </View>
+  );
+}
 
 function YoloWord() {
   const colors = useColors();
   const styles = useStyles(makeStyles);
-  const stops = [colors.accent, colors.cmd, colors.danger, colors.warn, colors.live, colors.accent];
+  const stops = rainbow(colors);
   return (
     <MaskedView maskElement={<Text style={styles.yoloText}>yolo</Text>}>
       <Text style={[styles.yoloText, { opacity: 0 }]} importantForAccessibility="no" accessibilityElementsHidden>

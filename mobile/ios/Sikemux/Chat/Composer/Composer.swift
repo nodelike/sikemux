@@ -74,7 +74,7 @@ struct Composer: View {
         .task(id: session.agentId) { mentions = MentionSearch(core: core, session: session) }
     }
 
-    private var composerShape: RoundedRectangle { RoundedRectangle(cornerRadius: 16, style: .continuous) }
+    private var composerShape: RoundedRectangle { RoundedRectangle(cornerRadius: 10, style: .continuous) }
 
     private var holdsHere: [ShipHold] {
         (Hub.shared.live(core).view?.inbox.items ?? []).filter { $0.agentId == session.agentId }.compactMap(\.hold)
@@ -151,7 +151,15 @@ struct Composer: View {
         }
         .padding(6)
         .background(composerShape.fill(palette.composer))
-        .overlay(composerShape.strokeBorder(focused ? palette.borderSelected : palette.border, lineWidth: 1))
+        .overlay {
+            // YOLO edges the box in its rainbow, as the Mac's composer does.
+            if session.permissionMode == .bypass {
+                composerShape.strokeBorder(YoloToggle.rainbow(palette, along: .edge), lineWidth: 1)
+                    .opacity(palette.isLight ? 0.6 : 0.45)
+            } else {
+                composerShape.strokeBorder(focused ? palette.borderSelected : palette.border, lineWidth: 1)
+            }
+        }
         .simultaneousGesture(
             DragGesture(minimumDistance: Self.pullUp).onChanged { drag in
                 guard text.isEmpty, let onRecent, -drag.translation.height > Self.pullUp,
@@ -165,7 +173,7 @@ struct Composer: View {
         .attachSheet(
             shown: Binding(get: { adding != nil }, set: { if !$0 { adding = nil } }),
             stash: adding == .stash, room: room,
-            onAttach: { session.attach($0) },
+            onAttach: { session.attach($0, at: focus.caret) },
             onStash: { fromStash($0) },
             onStashPrompt: sendable && !uploading ? { stashPrompt() } : nil,
             onProblem: { session.report($0) }
@@ -197,11 +205,12 @@ struct Composer: View {
             YoloToggle(
                 core: core, mode: session.permissionMode, provider: provider,
                 locked: modeLocked, onToggle: session.setPermissionMode)
+            // The model keeps its name; the effort's shortens first, as on the Mac.
             if let model {
-                Capped(width: 160) { picker(model, accent: true, label: "Model, \(model)") }
+                Capped(width: 160) { picker(model, accent: true, label: "Model, \(model)") }.layoutPriority(1)
             }
             if let effort {
-                picker(effort, accent: false, label: "Effort, \(effort)").fixedSize()
+                picker(effort, accent: false, label: "Effort, \(effort)").layoutPriority(-1)
             }
             if let usage = rows.usage {
                 ContextRing(usage: usage, provider: provider) { configuring = true }

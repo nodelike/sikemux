@@ -216,8 +216,8 @@ export class ChatSession {
   };
 
   /** Adds what was picked for the next message, leaving out what the host would refuse. */
-  attach = (picked: Attachment[]) => {
-    this.notice = this.draft.attach(picked);
+  attach = (picked: Attachment[], caret?: number) => {
+    this.notice = this.draft.attach(picked, caret);
     this.emit();
   };
 

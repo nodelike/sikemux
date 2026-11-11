@@ -17,8 +17,9 @@ export type Place = {
 };
 
 /**
- * Where the chat runs, quietly under the composer: its project and branch, the host when there are
- * several, then its goal as its mark and steps, named on a tap, and its account at the right.
+ * Where the chat runs, quietly under the composer as the Mac's line under the box: the host when there
+ * are several, its project and branch with a slash between, then its goal as its mark and steps, named
+ * on a tap, and its account as its mark at the right, so the branch keeps its whole name.
  */
 export function ChatPlace({ place }: { place: Place }) {
   const colors = useColors();
@@ -35,16 +36,18 @@ export function ChatPlace({ place }: { place: Place }) {
           </Text>
         </View>
       ) : null}
+      {host && (project || branch) ? <Slash /> : null}
       {project ? (
-        <View style={[styles.part, styles.shrinks]}>
+        <View style={styles.part}>
           <Icon name="IconFolder" size={12} color={colors.live} />
           <Text style={styles.project} numberOfLines={1}>
             {project}
           </Text>
         </View>
       ) : null}
+      {project && branch ? <Slash /> : null}
       {branch ? (
-        <View style={[styles.part, styles.shrinksMore]}>
+        <View style={[styles.part, styles.shrinks]}>
           <Icon name="IconGit" size={11} color={colors.tertiary} />
           <Text style={styles.branch} numberOfLines={1}>
             {branch}
@@ -69,14 +72,20 @@ export function ChatPlace({ place }: { place: Place }) {
         </Pressable>
       ) : null}
       {account ? (
-        <View style={[styles.part, styles.shrinks]}>
-          <Icon name="IconUser" size={12} color={colors.tertiary} />
-          <Text style={styles.quiet} numberOfLines={1}>
-            {account}
-          </Text>
+        <View style={styles.part} accessible accessibilityLabel={`Account, ${account}`}>
+          <Icon name="IconUser" size={13} color={colors.tertiary} />
         </View>
       ) : null}
     </View>
+  );
+}
+
+function Slash() {
+  const styles = useStyles(makeStyles);
+  return (
+    <Text style={styles.slash} importantForAccessibility="no" accessibilityElementsHidden>
+      /
+    </Text>
   );
 }
 
@@ -85,12 +94,12 @@ const makeStyles = (colors: Palette) => {
     line: { flexDirection: 'row', alignItems: 'center', gap: 4, height: 24, marginTop: 6, paddingHorizontal: 8 },
     part: { flexDirection: 'row', alignItems: 'center', gap: 6, minWidth: 0, paddingHorizontal: 4 },
     shrinks: { flexShrink: 1 },
-    shrinksMore: { flexShrink: 2 },
     shrinksMost: { flexShrink: 4 },
     fill: { flexGrow: 1, minWidth: 4 },
     quiet: { flexShrink: 1, fontFamily: fonts.ui, fontSize: 12, color: colors.tertiary },
     project: { flexShrink: 1, fontFamily: fonts.ui, fontSize: 12, color: colors.secondary },
     branch: { flexShrink: 1, fontFamily: fonts.mono, fontSize: 10.5, color: colors.tertiary },
     goal: { flexShrink: 1, fontFamily: fonts.uiMedium, fontSize: 12, color: colors.ink },
+    slash: { fontFamily: fonts.ui, fontSize: 13, color: colors.borderStrong },
   });
 };

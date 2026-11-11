@@ -58,7 +58,13 @@ final class ComposerDraft {
     @discardableResult
     func write(_ next: String) -> Bool {
         let named = !tokens.isEmpty
+        let tagged = Set(tokens.map(\.id).filter { $0.hasPrefix(Mentions.image) })
         (text, tokens) = Mentions.edit(text, next, tokens)
+        // Deleting a picture's tag takes the picture off the message, as on the Mac.
+        let kept = Set(tokens.map(\.id))
+        for id in tagged.subtracting(kept) {
+            detach(String(id.dropFirst(Mentions.image.count)))
+        }
         edited()
         return named
     }
@@ -82,12 +88,40 @@ final class ComposerDraft {
         edited()
     }
 
-    /// Adds what was picked, leaving out what the host would refuse; answers why some was left out.
-    func attach(_ picked: [Attachment]) -> String? {
+    /// Adds what was picked, leaving out what the host would refuse, and names each new picture in the words at
+    /// `caret` as `[Image #n]`, where the host puts it; answers why some was left out.
+    func attach(_ picked: [Attachment], at caret: Int? = nil) -> String? {
         let (fits, notice) = Uploads.fitting(held: attachments.count, picked)
-        attachments += fits
+        var tags: [(written: String, id: String, label: String)] = []
+        for file in fits {
+            attachments.append(file)
+            if file.kind == .image {
+                let number = attachments.count
+                tags.append(("[Image #\(number)]", Mentions.image + file.id, "Image \(number)"))
+            }
+        }
+        if !tags.isEmpty { insert(tags, at: min(caret ?? (text as NSString).length, (text as NSString).length)) }
         edited()
         return notice
+    }
+
+    /// Writes the pictures' tags at `at`, spaced from the words around them, and keeps them as chips.
+    private func insert(_ tags: [(written: String, id: String, label: String)], at: Int) {
+        let before = text.units(0, at)
+        let after = text.units(at, (text as NSString).length)
+        let lead = before.last.map { $0.isWhitespace } ?? true ? "" : " "
+        let trail = after.first?.isWhitespace ?? false ? "" : " "
+        var start = at + lead.utf16.count
+        var placed: [TextToken] = []
+        for (index, tag) in tags.enumerated() {
+            if index > 0 { start += 1 }
+            placed.append(TextToken(start: start, end: start + tag.written.utf16.count, id: tag.id, label: tag.label))
+            start += tag.written.utf16.count
+        }
+        let written = lead + tags.map(\.written).joined(separator: " ") + trail
+        let moved = Mentions.edit(text, before + written + after, tokens).tokens
+        text = before + written + after
+        tokens = (moved + placed).sorted { $0.start < $1.start }
     }
 
     func removeChip(_ uri: String) {
@@ -98,9 +132,41 @@ final class ComposerDraft {
     /// Answers whether it could, which it cannot while a file is going up.
     func removeAttachment(_ id: String) -> Bool {
         if uploading { return false }
-        attachments.removeAll { $0.id == id }
+        detach(id)
         edited()
         return true
+    }
+
+    /// Takes the file `id` off the message with its tags, and counts the later pictures down so their tags still
+    /// name them.
+    private func detach(_ id: String) {
+        attachments.removeAll { $0.id == id }
+        var next = text
+        var kept: [TextToken] = []
+        var shift = 0
+        for token in tokens.sorted(by: { $0.start < $1.start }) {
+            var token = token
+            token.start += shift
+            token.end += shift
+            let range = NSRange(location: token.start, length: token.end - token.start)
+            if token.id == Mentions.image + id {
+                next = (next as NSString).replacingCharacters(in: range, with: "")
+                shift -= range.length
+                continue
+            }
+            if token.id.hasPrefix(Mentions.image),
+                let number = attachments.firstIndex(where: { Mentions.image + $0.id == token.id }).map({ $0 + 1 })
+            {
+                let written = "[Image #\(number)]"
+                next = (next as NSString).replacingCharacters(in: range, with: written)
+                shift += written.utf16.count - range.length
+                token.end = token.start + written.utf16.count
+                token.label = "Image \(number)"
+            }
+            kept.append(token)
+        }
+        text = next
+        tokens = kept
     }
 
     var uploading: Bool { attachments.contains { $0.upload == .sending } }
