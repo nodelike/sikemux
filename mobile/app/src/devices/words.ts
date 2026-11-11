@@ -1,7 +1,7 @@
 import type { ProjectInfo } from '@shared/wire.generated';
 import type { Snapshot } from '@/core/protocol';
 
-export function folder(path: string): string {
+function folder(path: string): string {
   return path.split('/').filter(Boolean).pop() ?? path;
 }
 

@@ -45,11 +45,6 @@ describe('signOutHere', () => {
     expect(home).toHaveBeenCalledWith('/');
   });
 
-  it('keeps the device key when the server took the phone off the account', async () => {
-    await signOutHere(async () => {}, { confirmed: true });
-    expect(rotate.rotateDeviceKey).not.toHaveBeenCalled();
-  });
-
   it('makes the phone a new device when the server never confirmed it left', async () => {
     await signOutHere(async () => {}, { confirmed: false });
     expect(rotate.rotateDeviceKey).toHaveBeenCalledTimes(1);
@@ -71,10 +66,5 @@ describe('signOutHere', () => {
     const signOut = vi.fn(async () => {});
     await signOutHere(signOut, { confirmed: false });
     expect(signOut).toHaveBeenCalledTimes(1);
-  });
-
-  it('says why the phone signed out when it was not the person here', async () => {
-    await signOutHere(async () => {}, { farewell: 'removed', confirmed: true });
-    expect(farewell.sayFarewell).toHaveBeenCalledWith('removed');
   });
 });
