@@ -46,8 +46,8 @@ struct DeviceAgents: View {
                     }
                     .padding(.top, 10)
                 }
-                AwayGroup(label: "Snoozed", fold: "snoozed", agents: snoozed) { row($0, now: now) }
-                AwayGroup(label: "Settled", fold: "settled", agents: settled) { row($0, now: now) }
+                AwayGroup(label: "Snoozed", fold: .snoozed, agents: snoozed) { row($0, now: now) }
+                AwayGroup(label: "Settled", fold: .settled, agents: settled) { row($0, now: now) }
                 Recent(
                     core: core, view: view, scope: scope, provider: provider, full: full, hostName: hostName, now: now)
                 if open.isEmpty && strays.isEmpty && snoozed.isEmpty && settled.isEmpty && !recent {
@@ -184,7 +184,7 @@ private struct RestoreButton: View {
 private struct AwayGroup<Content: View>: View {
     @Environment(\.palette) private var palette
     let label: String
-    let fold: String
+    let fold: Folded.Group
     let agents: [AgentShown]
     @ViewBuilder var row: (AgentShown) -> Content
 
