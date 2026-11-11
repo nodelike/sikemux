@@ -67,7 +67,7 @@ When an agent starts a Spring Boot, Next.js, FastAPI or Flask app and its port i
 
 ## Builds take turns
 
-When several agents build at once, only as many of their Cargo builds run side by side as the host has room for: one for about every six cores, fewer when free memory would not hold another (a build of a large workspace can take 3 GB). The rest wait in the order they started. A waiting build prints that it is queued and behind how many, then starts by itself when one finishes, and its agent's row shows **queued** meanwhile. A `cargo test` or `cargo run` gives up its turn as soon as its program starts. To choose the number yourself, set **Settings → Chats → Builds at once**.
+When several agents build at once, only as many of their builds (`cargo`, `xcodebuild`, `gradle`, `swift build` and `swift test`) run side by side as the host has room for: one for about every six cores, fewer when free memory would not hold another (a build of a large workspace can take 3 GB). The rest wait in the order they started. A waiting build prints that it is queued and behind how many, then starts by itself when one finishes, and its agent's row shows **queued** meanwhile. A `cargo test` or `cargo run` gives up its turn as soon as its program starts. To choose the number yourself, set **Settings → Chats → Builds at once**.
 
 The builds that run share one pool of jobs, one fewer than the host has cores, instead of each starting a job per core. Cargo, rustc and the C compilers that build scripts start draw from it. When the host runs short of memory, the pool shrinks to half, or to a single job, until memory frees up.
 

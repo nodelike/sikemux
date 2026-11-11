@@ -50,7 +50,7 @@ pub(crate) fn install(data_dir: &Path, endpoint: Option<&Path>) {
     crate::agent_shell::install(data_dir);
     match link(&folder, "git") {
         Ok(()) => {
-            for program in crate::ship::PROGRAMS {
+            for program in crate::ship::PROGRAMS.iter().chain(super::builds::PROGRAMS) {
                 if let Err(error) = link(&folder, program) {
                     eprintln!("sikemux core: agents' {program} commands go unchecked: {error}");
                 }
@@ -248,6 +248,7 @@ pub fn run_if_git() -> Option<i32> {
         program => {
             let program = crate::ship::PROGRAMS
                 .iter()
+                .chain(super::builds::PROGRAMS)
                 .find(|known| **known == program)?;
             Some(run_program(program, args.collect()))
         }
@@ -408,11 +409,8 @@ fn run_program(program: &str, args: Vec<OsString>) -> i32 {
         tell_ran(&went, &cwd, code);
         return code.unwrap_or(1);
     }
-    if let Some(build) = (program == "cargo")
-        .then(|| super::builds::of_cargo(&words))
-        .flatten()
-    {
-        return super::builds::run(&real, &args, &words, build);
+    if let Some(build) = super::builds::of_program(program, &words) {
+        return super::builds::run(program, &real, &args, &words, build);
     }
     let mut command = sikemux_process::user_environment::command(&real);
     if program == "cargo" {

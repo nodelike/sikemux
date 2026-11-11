@@ -14,6 +14,24 @@ use sikemux_process::vars;
 
 use super::footer;
 
+/// The build tools besides cargo the shim stands in for, so their builds take turns too.
+pub(crate) const PROGRAMS: &[&str] = &["xcodebuild", "gradle", "swift"];
+/// What `xcodebuild` and `gradle` are asked that only reads, and builds nothing.
+const ASKING: &[&str] = &[
+    "-h",
+    "-help",
+    "--help",
+    "-v",
+    "-version",
+    "--version",
+    "-list",
+    "-showsdks",
+    "-showBuildSettings",
+    "-showdestinations",
+    "-showTestPlans",
+    "--status",
+    "--stop",
+];
 const COMPILING: &[&str] = &[
     "b", "build", "c", "check", "clippy", "d", "doc", "fix", "install", "rustc", "rustdoc",
 ];
@@ -39,8 +57,19 @@ pub(super) enum Build {
     CompilesThenRuns,
 }
 
-/// What `cargo words` does, when it builds.
-pub(super) fn of_cargo(words: &[String]) -> Option<Build> {
+/// What `program words` does, when it builds.
+pub(super) fn of_program(program: &str, words: &[String]) -> Option<Build> {
+    let asking = || words.iter().any(|word| ASKING.contains(&word.as_str()));
+    match program {
+        "cargo" => of_cargo(words),
+        "xcodebuild" | "gradle" if !asking() => Some(Build::Compiles),
+        "swift" => matches!(words.first().map(String::as_str), Some("build" | "test"))
+            .then_some(Build::Compiles),
+        _ => None,
+    }
+}
+
+fn of_cargo(words: &[String]) -> Option<Build> {
     if words.iter().any(|word| word == "-h" || word == "--help") {
         return None;
     }
@@ -101,25 +130,32 @@ pub(crate) fn rustc_cache() -> Option<(&'static str, PathBuf)> {
     })
 }
 
-/// Runs `cargo args` once the host has room for one more build, and answers
-/// with its exit code.
-pub(super) fn run(cargo: &Path, args: &[OsString], words: &[String], build: Build) -> i32 {
-    let what = std::iter::once("cargo".to_owned())
+/// Runs `program args`, found at `real`, once the host has room for one more
+/// build, and answers with its exit code.
+pub(super) fn run(
+    program: &str,
+    real: &Path,
+    args: &[OsString],
+    words: &[String],
+    build: Build,
+) -> i32 {
+    let what = std::iter::once(program.to_owned())
         .chain(words.iter().cloned())
         .collect::<Vec<_>>()
         .join(" ");
     let nested = std::env::var_os(vars::BUILD_TURN).is_some();
-    let turn = Arc::new(Mutex::new((!nested).then(|| take_turn(what)).flatten()));
-    let mut command = sikemux_process::user_environment::command(cargo);
-    command
-        .args(args)
-        .envs(rustc_cache())
-        .env("PATH", path_with(cargo))
-        .env(vars::BUILD_TURN, "1");
+    let turn = Arc::new(Mutex::new(
+        (!nested).then(|| take_turn(program, what)).flatten(),
+    ));
+    let mut command = sikemux_process::user_environment::command(real);
+    command.args(args).env(vars::BUILD_TURN, "1");
+    if program == "cargo" {
+        command.envs(rustc_cache()).env("PATH", path_with(real));
+    }
     let mut child = match command.spawn() {
         Ok(child) => child,
         Err(error) => {
-            eprintln!("cargo: {error}");
+            eprintln!("{program}: {error}");
             return 126;
         }
     };
@@ -140,7 +176,7 @@ pub(super) fn run(cargo: &Path, args: &[OsString], words: &[String], build: Buil
     match status {
         Ok(status) => exit_code(status),
         Err(error) => {
-            eprintln!("cargo: {error}");
+            eprintln!("{program}: {error}");
             1
         }
     }
@@ -155,7 +191,7 @@ fn exit_code(status: std::process::ExitStatus) -> i32 {
 
 /// Waits for the core to give the build a turn, saying so while it waits. None
 /// when no core answers, and the build runs at once.
-fn take_turn(command: String) -> Option<Session> {
+fn take_turn(program: &str, command: String) -> Option<Session> {
     let descriptor = read_endpoint(&footer::endpoint()?).ok()?;
     let mut session = Session::open(&descriptor, CONNECT_TIMEOUT, CONNECT_TIMEOUT).ok()?;
     session.wait_for_answers(None).ok()?;
@@ -180,12 +216,12 @@ fn take_turn(command: String) -> Option<Session> {
                 limit,
             } => {
                 queued = true;
-                eprintln!("cargo: {}", queued_line(ahead, building, limit));
+                eprintln!("{program}: {}", queued_line(ahead, building, limit));
             }
             CliServerResponse::Building => {
                 if queued {
                     let waited = since.elapsed().as_secs();
-                    eprintln!("cargo: started after {waited}s in the queue.");
+                    eprintln!("{program}: started after {waited}s in the queue.");
                 }
                 return Some(session);
             }
