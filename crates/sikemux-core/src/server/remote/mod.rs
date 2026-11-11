@@ -28,7 +28,7 @@ use sikemux_client::join::JOIN_ALPN;
 use sikemux_client::remote::CORE_ALPN;
 use sikemux_wire::accounts::protocol::{JoinTicket, Network, Relay, RevokeReason};
 use sikemux_wire::protocol::{
-    AccountLink, AccountLinkState, AllowedDevice, DeviceAccess, DeviceInfo, Event,
+    AccountLink, AccountLinkState, AllowedDevice, DeviceAccess, DeviceInfo, Event, HeldTrust,
     NotificationState, NotifyPrefs, NotifyWhen, PendingDevice, PhoneNotifications, RemoteStatus,
     UpdateRequired,
 };
@@ -40,6 +40,7 @@ use super::host_key::{secret_from_hex, HostKey, Keeper};
 use super::{Core, CoreError, CoreResult, ServerConfig};
 
 mod account;
+mod held;
 mod links;
 mod listening;
 mod pairing;
@@ -47,6 +48,7 @@ pub use pairing::{ApprovalSetting, RemotePairing};
 mod push;
 
 pub(crate) use account::*;
+pub(crate) use held::*;
 pub(crate) use listening::*;
 pub(crate) use pairing::*;
 pub(crate) use push::*;
@@ -206,6 +208,44 @@ fn trusted_as_written(file: &serde_json::Value) -> CoreResult<String> {
         trusted.insert("require_approval".into(), require_approval.clone());
     }
     Ok(sha256_hex(&serde_json::to_vec(&Value::Object(trusted))?))
+}
+
+/// The digest of what `file` trusts, taken over the file as written rather
+/// than as this build reads it, so a field a later build no longer knows
+/// still counts and the file stays trusted across that update.
+fn trusted_in_file(file: &serde_json::Value) -> CoreResult<String> {
+    use serde_json::Value;
+    let field = |name: &str| file.get(name).cloned().unwrap_or(Value::Null);
+    let unseen = |list: Value, cleared: &[&str]| match list {
+        Value::Array(items) => Value::Array(
+            items
+                .into_iter()
+                .map(|mut item| {
+                    if let Value::Object(fields) = &mut item {
+                        for name in cleared {
+                            fields.remove(*name);
+                        }
+                    }
+                    item
+                })
+                .collect(),
+        ),
+        other => other,
+    };
+    let mut trusted = serde_json::Map::new();
+    trusted.insert("owner".into(), field("owner"));
+    trusted.insert("devices".into(), unseen(field("devices"), &["lastSeen"]));
+    trusted.insert("joined_through".into(), field("joinedThrough"));
+    trusted.insert(
+        "links".into(),
+        unseen(field("links"), &["lastSeen", "addresses"]),
+    );
+    trusted.insert("shares".into(), field("shares"));
+    trusted.insert("revoked".into(), field("revoked"));
+    trusted.insert("require_approval".into(), field("requireApproval"));
+    trusted.insert("removed_here".into(), field("removedHere"));
+    let canonical = without_defaults(Value::Object(trusted)).unwrap_or_default();
+    Ok(sha256_hex(&serde_json::to_vec(&canonical)?))
 }
 
 fn readable_or_none<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
@@ -413,6 +453,9 @@ struct Inner {
     pushed: HashMap<String, (NotificationState, u64)>,
     /// Phones the account will not pass notifications to.
     refused: HashSet<String>,
+    /// What the remote file trusted when it failed its check, until the
+    /// person trusts it again or lets it go.
+    held: Option<(Stored, u64)>,
     /// Each host on the account that failed to link lately: how many times
     /// in a row, and not before when it is asked again.
     relink_failures: HashMap<String, (u32, u64)>,
@@ -551,6 +594,12 @@ impl Remote {
             update_required: inner.update_required.clone(),
             notifications: notifications(&inner),
             require_approval: inner.stored.require_approval,
+            held: inner.held.as_ref().map(|(held, at)| HeldTrust {
+                devices: held.devices.clone(),
+                hosts: held.links.iter().map(|link| link.name.clone()).collect(),
+                signed_in: held.owner.is_some(),
+                at: *at,
+            }),
         }
     }
 
@@ -960,7 +1009,13 @@ pub fn trust_remote_file(socket: &Path, key: &SecretKey) -> Result<(), String> {
 fn vouches(key: &HostKey, file: &serde_json::Value, trusted: &str) -> CoreResult<bool> {
     Ok(key.trusted == trusted
         || key.written.as_deref() == Some(trusted)
+        || key.trusted == trusted_in_file(file)?
         || key.trusted == trusted_as_written(file)?)
+}
+
+/// Where a remote file that failed its check is kept until the person decides.
+pub(super) fn held_path(path: &Path) -> PathBuf {
+    path.with_extension("held.json")
 }
 
 /// Copies the host's key from the secret store entry named for the socket's
@@ -998,9 +1053,15 @@ fn load(keeper: &Keeper, path: &Path) -> CoreResult<(Stored, HostKey, String)> {
         Some(key) if vouches(&key, &file, &trusted)? => key,
         Some(key) => {
             eprintln!(
-                "sikemux core: {} was changed by something other than this host, so it trusts none of the devices or hosts it names",
-                path.display()
+                "sikemux core: {} was changed by something other than this host, so remote access is off and the devices and hosts it names wait for the person to trust them again; the file is kept as {}",
+                path.display(),
+                held_path(path).display()
             );
+            sikemux_process::files::write_atomic(
+                &held_path(path),
+                &serde_json::to_vec_pretty(&file)?,
+                true,
+            )?;
             stored.distrust();
             key
         }

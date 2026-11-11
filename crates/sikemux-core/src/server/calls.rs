@@ -432,6 +432,8 @@ calls! { core, client, method, params;
     "setRequireApproval" SetRequireApproval (remote::ApprovalSetting) -> RemoteStatus: Owner => {
         remote::set_require_approval(&core, params)?
     },
+    "trustHeldRemote" TrustHeldRemote (NoParams) -> RemoteStatus: NoDevice => remote::trust_held(&core).await?,
+    "forgetHeldRemote" ForgetHeldRemote (NoParams) -> RemoteStatus: NoDevice => remote::discard_held(&core)?,
     "questions" Questions (NoParams) -> Vec<AgentQuestion>: Watch, any_program => questions::views(&core),
     "answerQuestion" AnswerQuestion (questions::AnswerParams) -> (): Full, counted => questions::answer(&core, params).await?,
     "answerQuestions" AnswerQuestions (questions::AnswersParams) -> (): Full, counted => questions::answer_all(&core, params).await?,

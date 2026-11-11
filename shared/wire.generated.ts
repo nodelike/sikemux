@@ -3669,6 +3669,12 @@ export interface RemoteStatus {
      * let in whatever their account signed in (ADR 0018).
      */
     requireApproval?: boolean;
+    /**
+     * What the remote file trusted when this host found it changed by
+     * something else, set aside until the person trusts it again or lets it
+     * go. Remote access stays off meanwhile.
+     */
+    held?: HeldTrust;
 }
 
 /** A device approved to reach this core from another machine. */
@@ -3734,6 +3740,17 @@ export interface PhoneNotifications {
 }
 
 export type NotificationState = "off" | "on" | "phoneOff" | "notReaching" | "otherAccount" | "signedOut";
+
+/** The devices and hosts a remote file named when it failed its check. */
+export interface HeldTrust {
+    devices: DeviceInfo[];
+    /** What this host called each linked host. */
+    hosts: string[];
+    /** Whether the file named the account this host belongs to. */
+    signedIn: boolean;
+    /** Milliseconds since the Unix epoch. */
+    at: number;
+}
 
 /**
  * Who waits to join this host and who is paired, and the hosts linked with

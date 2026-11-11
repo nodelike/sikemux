@@ -5716,6 +5716,10 @@ struct RemoteStatus: Codable, Hashable, Sendable {
     /// The person asked to allow each new device and host here, rather than
     /// let in whatever their account signed in (ADR 0018).
     var requireApproval: Bool?
+    /// What the remote file trusted when this host found it changed by
+    /// something else, set aside until the person trusts it again or lets it
+    /// go. Remote access stays off meanwhile.
+    var held: HeldTrust?
 }
 
 /// A device approved to reach this core from another machine.
@@ -5829,6 +5833,17 @@ enum NotificationState: String, Codable, Hashable, Sendable {
     init(from decoder: any Decoder) throws {
         self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
     }
+}
+
+/// The devices and hosts a remote file named when it failed its check.
+struct HeldTrust: Codable, Hashable, Sendable {
+    var devices: [DeviceInfo]
+    /// What this host called each linked host.
+    var hosts: [String]
+    /// Whether the file named the account this host belongs to.
+    var signedIn: Bool
+    /// Milliseconds since the Unix epoch.
+    var at: Int
 }
 
 /// Who waits to join this host and who is paired, and the hosts linked with

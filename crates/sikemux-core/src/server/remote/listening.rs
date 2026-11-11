@@ -12,10 +12,10 @@ pub(crate) async fn start(core: &Arc<Core>, config: &ServerConfig) {
     let loaded = blocking(move || {
         let keeper = Keeper::new(&socket, secret_store)?;
         let (stored, key, trusted) = load(&keeper, &loading)?;
-        Ok((stored, key, trusted, keeper))
+        Ok((stored, key, trusted, keeper, read_held(&loading)))
     })
     .await;
-    let (stored, key, trusted, keeper) = match loaded {
+    let (stored, key, trusted, keeper, held) = match loaded {
         Ok(loaded) => loaded,
         Err(error) => {
             eprintln!(
@@ -43,6 +43,7 @@ pub(crate) async fn start(core: &Arc<Core>, config: &ServerConfig) {
         inner.secret = Some(key.secret);
         inner.retired = key.retired;
         inner.stored = stored;
+        inner.held = held;
         inner.accounts_api = config.accounts_api.clone();
     }
     ensure_live(core);

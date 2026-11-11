@@ -95,6 +95,24 @@ pub struct RemoteStatus {
     /// let in whatever their account signed in (ADR 0018).
     #[serde(default)]
     pub require_approval: bool,
+    /// What the remote file trusted when this host found it changed by
+    /// something else, set aside until the person trusts it again or lets it
+    /// go. Remote access stays off meanwhile.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub held: Option<HeldTrust>,
+}
+
+/// The devices and hosts a remote file named when it failed its check.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HeldTrust {
+    pub devices: Vec<DeviceInfo>,
+    /// What this host called each linked host.
+    pub hosts: Vec<String>,
+    /// Whether the file named the account this host belongs to.
+    pub signed_in: bool,
+    /// Milliseconds since the Unix epoch.
+    pub at: u64,
 }
 
 /// What a phone wants to hear about from this host. The phone owns these
