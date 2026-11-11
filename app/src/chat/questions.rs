@@ -6,6 +6,7 @@ use super::*;
 use std::future::Future;
 use std::pin::Pin;
 
+use gpui_kit::{img, ObjectFit, StyledImage};
 use sikemux_core::server::call;
 use sikemux_core::server::questions::AnswerParams;
 use sikemux_core::server::questions::AnswersParams;
@@ -490,12 +491,28 @@ pub(super) fn asking(
         Some(Answer::Choices(choices)) => choices.contains(&ix),
         _ => false,
     };
+    let pictured = current
+        .choices
+        .iter()
+        .any(|choice| choice.picture.is_some());
     let mut choices: Vec<AnyElement> = current
         .choices
         .iter()
         .enumerate()
         .map(|(ix, choice)| {
             let (agent, id) = (agent.to_owned(), current.id.clone());
+            if pictured {
+                return tile(
+                    &agent,
+                    current,
+                    ix,
+                    chosen(ix),
+                    cursor == Some(ix),
+                    chat,
+                    t,
+                    cx,
+                );
+            }
             let key = match current.multi {
                 true => tick(chosen(ix), t),
                 false => radio(chosen(ix), t),
@@ -585,13 +602,113 @@ pub(super) fn asking(
                     .pt(SPACE_1H)
                     .pb(SPACE_3)
                     .flex()
-                    .flex_col()
-                    .gap(SPACE_1)
+                    .when(pictured, |list| list.flex_wrap().gap(SPACE_2))
+                    .when(!pictured, |list| list.flex_col().gap(SPACE_1))
                     .children(choices),
             )
         })
         .children(secret)
 }
+
+/// A choice that shows a picture, drawn as a tile so the choices sit side by side. Clicking
+/// the chosen tile again opens its picture full size.
+#[allow(clippy::too_many_arguments)]
+fn tile(
+    agent: &str,
+    current: &Question,
+    ix: usize,
+    chosen: bool,
+    cursor: bool,
+    chat: &Chat,
+    t: &Tokens,
+    cx: &mut Context<Workbench>,
+) -> AnyElement {
+    let choice = &current.choices[ix];
+    let picture = choice
+        .picture
+        .as_deref()
+        .map(|path| Picture::File(std::path::PathBuf::from(path)));
+    let shot = div()
+        .h(px(TILE_PICTURE))
+        .w_full()
+        .rounded(theme::RADIUS_2)
+        .overflow_hidden()
+        .bg(t.surface_sunken)
+        .children(picture.clone().map(|picture| {
+            img(picture.source_at(px(TILE_PICTURE * 2.)))
+                .size_full()
+                .object_fit(ObjectFit::Cover)
+        }));
+    let label = div()
+        .flex()
+        .items_center()
+        .gap(SPACE_2)
+        .child(
+            div().flex_1().min_w_0().truncate().child(
+                ui::text(choice.label.clone(), TEXT_SM, FontWeight::MEDIUM)
+                    .line_height(crate::theme::ui_text(19.)),
+            ),
+        )
+        .child(ui::kbd((ix + 1).to_string(), cx).line_height(crate::theme::ui_text(19.)));
+    let note = match (choice.recommended, choice.detail.clone()) {
+        (true, Some(detail)) => Some(format!("recommended · {detail}")),
+        (true, None) => Some("recommended".to_owned()),
+        (false, detail) => detail,
+    };
+    let note = note.map(|note| {
+        div()
+            .text_size(crate::theme::ui_text(TEXT_XS))
+            .line_height(relative(1.45))
+            .text_color(t.text_tertiary)
+            .line_clamp(2)
+            .child(note)
+    });
+    let (agent, id, hover) = (agent.to_owned(), current.id.clone(), t.surface_hover);
+    BaseButton::new(SharedString::from(format!("question-{id}-{ix}")))
+        .flex_1()
+        .min_w(px(TILE_MIN))
+        .p(SPACE_1H)
+        .flex()
+        .flex_col()
+        .gap(SPACE_1H)
+        .rounded(theme::RADIUS_3)
+        .border_1()
+        .border_color(if chosen { t.border_selected } else { t.border })
+        .when(chosen, |tile| tile.bg(t.surface_chosen))
+        .when(!chosen && cursor, |tile| tile.bg(t.surface_hover))
+        .when(!chosen && !cursor, |tile| {
+            tile.hover(move |style| style.bg(hover))
+        })
+        .text_color(if chosen {
+            t.text_primary
+        } else {
+            t.text_secondary
+        })
+        .child(shot)
+        .child(div().px(SPACE_1).child(label).children(note))
+        .disabled(chat.sending_answers())
+        .on_click(cx.listener(move |bench, _, window, cx| {
+            let again = bench
+                .chats
+                .open
+                .get(&agent)
+                .and_then(|chat| chat.picks.get(&id))
+                .is_some_and(|pick| matches!(pick.answer, Answer::Choice(at) if at == ix));
+            match (again, picture.clone()) {
+                (true, Some(picture)) => bench.show_picture(picture, window, cx),
+                _ => bench.answer(
+                    &agent,
+                    |chat, open| chat.choose(&id, ix, open).map(Into::into),
+                    cx,
+                ),
+            }
+            cx.notify();
+        }))
+        .into_any_element()
+}
+
+const TILE_PICTURE: f32 = 120.;
+const TILE_MIN: f32 = 150.;
 
 pub(super) fn answer_row(
     id: SharedString,
