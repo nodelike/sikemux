@@ -442,21 +442,6 @@ pub fn unpin(bench: &Workbench, provider: &str, cx: &mut Context<Workbench>) {
     change::<call::UnpinAgentAccount>(bench, Unpinning { provider }, cx);
 }
 
-/// What the account is called: who it is signed in as while it still has its agent's own
-/// name, else the name the person gave it.
-pub fn name(bench: &Workbench, profile: &Profile, status: Option<&AccountStatus>) -> String {
-    let unnamed = profile.id.starts_with(BUILT_IN)
-        && bench
-            .reads
-            .catalog
-            .kind(&profile.provider)
-            .is_some_and(|kind| kind.label == profile.name);
-    status
-        .and_then(|status| status.name.clone())
-        .filter(|_| unnamed)
-        .unwrap_or_else(|| profile.name.clone())
-}
-
 /// The launcher that starts agents on the account: its own, or the agent's for a built-in
 /// account the core offers as the agent itself.
 fn launcher_of(bench: &Workbench, profile: &Profile) -> String {

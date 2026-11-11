@@ -42,6 +42,27 @@ pub struct Profile {
 }
 
 impl Profile {
+    /// What the account is called: who it is signed in as while a built-in one still has its
+    /// agent's own name, else the name the person gave it.
+    pub fn shown_name(&self, status: Option<&status::AccountStatus>) -> String {
+        let unnamed = self.id.starts_with(BUILT_IN)
+            && crate::agent_catalog::agent(&self.provider)
+                .is_some_and(|agent| agent.label == self.name);
+        status
+            .and_then(|status| status.name.clone())
+            .filter(|_| unnamed)
+            .unwrap_or_else(|| self.name.clone())
+    }
+
+    /// The name the account goes by, with who it was last heard signed in as.
+    pub fn known_name(&self) -> String {
+        let known = status::known(&self.provider, self.config_path.as_deref());
+        let account = known
+            .as_ref()
+            .and_then(|(checked, _)| checked.account.as_ref());
+        self.shown_name(account.and_then(|account| account.as_ref().ok()))
+    }
+
     pub fn spec(&self) -> AgentSpec {
         AgentSpec {
             provider: self.provider.clone(),
@@ -235,14 +256,7 @@ impl Book {
         let current = own
             .iter()
             .find(|profile| Some(profile.id.as_str()) == current);
-        let named = |profile: &Profile| {
-            chat_account(
-                provider,
-                &profile.id,
-                &profile.name,
-                profile.config_path.as_deref(),
-            )
-        };
+        let named = |profile: &Profile| chat_account(profile);
         let others: Vec<&&Profile> = (own.iter())
             .filter(|other| current.is_none_or(|current| current.id != other.id))
             .collect();
@@ -283,17 +297,12 @@ pub struct Takers {
     pub none_because: Option<String>,
 }
 
-/// The account in `config_path` as a chat names it.
-pub fn chat_account(
-    provider: &str,
-    id: &str,
-    label: &str,
-    config_path: Option<&str>,
-) -> ChatAccount {
+/// The account as a chat names it.
+pub fn chat_account(profile: &Profile) -> ChatAccount {
     ChatAccount {
-        id: id.to_owned(),
-        label: label.to_owned(),
-        env: account_environment(provider, config_path)
+        id: profile.id.clone(),
+        label: profile.known_name(),
+        env: account_environment(&profile.provider, profile.config_path.as_deref())
             .into_iter()
             .collect(),
     }

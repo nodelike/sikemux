@@ -146,12 +146,7 @@ fn signed_in(core: &Arc<Core>, account: &Account) {
         let Some(chats) = waiting().remove(&profile.id) else {
             continue;
         };
-        let target = crate::agent_accounts::chat_account(
-            &profile.provider,
-            &profile.id,
-            &profile.name,
-            profile.config_path.as_deref(),
-        );
+        let target = crate::agent_accounts::chat_account(&profile);
         for agent_id in chats {
             let (core, target) = (core.clone(), target.clone());
             tokio::spawn(async move {

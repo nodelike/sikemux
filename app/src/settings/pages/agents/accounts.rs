@@ -21,24 +21,12 @@ use crate::theme::{
 };
 use crate::ui::{self, dialog, sign_in};
 use crate::workbench::Workbench;
-use sikemux_core::agent_accounts::status::AccountStatus;
 use sikemux_core::agent_accounts::BUILT_IN;
 
 /// What a search finds on this page.
 pub(in crate::settings) const ENTRIES: &[crate::settings::index::Entry] = &[
     crate::settings::index::section(crate::settings::index::Page::Accounts, "Accounts", "profiles executable path sign in login logout email subscription max pro plus chatgpt switch rotate limit add second work personal claude codex"),
 ];
-
-/// What the account is called: a built-in one still under its agent's name goes by
-/// the name on the account instead.
-fn name(bench: &Workbench, profile: &Profile, status: Option<&AccountStatus>) -> String {
-    let unnamed =
-        profile.id.starts_with(BUILT_IN) && profile.name == bench.agent_name(&profile.provider);
-    status
-        .and_then(|status| status.name.clone())
-        .filter(|_| unnamed)
-        .unwrap_or_else(|| profile.name.clone())
-}
 
 fn plan(plan: &str) -> String {
     plan.split(['_', '-'])
@@ -158,7 +146,7 @@ fn account_row(
     let t = Tokens::get(cx).clone();
     let status = accounts::status(bench, profile);
     let known = status.and_then(|status| status.as_ref().ok());
-    let name = name(bench, profile, known);
+    let name = profile.shown_name(known);
     let signed_in = known.is_some_and(|status| status.signed_in);
     let who: SharedString = match status {
         None => "Checking…".into(),
@@ -613,7 +601,7 @@ fn signed_in(
     this: &Entity<Workbench>,
 ) -> sign_in::Screen {
     let status = accounts::status(bench, profile).and_then(|status| status.as_ref().ok());
-    let named = name(bench, profile, status);
+    let named = profile.shown_name(status);
     let lede = match status {
         None => "Checking who signed in…".to_owned(),
         Some(status) if !status.signed_in => "It is not signed in yet.".to_owned(),
@@ -654,7 +642,7 @@ fn signed_in(
                 .child(
                     ui::Button::new(
                         "account-dialog-keep",
-                        format!("Keep using {}", name(bench, current, current_status)),
+                        format!("Keep using {}", current.shown_name(current_status)),
                         ui::Variant::Outline,
                     )
                     .wide()

@@ -197,7 +197,7 @@ impl<'a> Agent<'a> {
                         .and_then(|status| status.as_ref().ok());
                     Shown {
                         profile: Some(profile),
-                        name: crate::accounts::name(bench, profile, status),
+                        name: profile.shown_name(status),
                         avatar: bench.accounts.avatar(profile),
                         usage: crate::accounts::usage(bench, profile),
                         signed_out: status.is_some_and(|status| !status.signed_in),

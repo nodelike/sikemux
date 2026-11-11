@@ -16,6 +16,7 @@ use crate::agent_accounts::allocate::{self, Aim, Candidate, Placement};
 use crate::agent_accounts::{chat_account, defaults, folders, status, usage, Book, Profile};
 use crate::agent_catalog::{AgentEntry, AGENTS};
 use crate::flights::{shared, Flights};
+use crate::launch::account_environment;
 use crate::launch::discovery;
 use sikemux_process::sync::Locked;
 use sikemux_wire::protocol::ChatAccount;
@@ -319,12 +320,7 @@ pub(super) async fn unpick(core: &Arc<Core>, undoing: Unpicking) -> CoreResult<B
         else {
             continue;
         };
-        let account = chat_account(
-            &undoing.provider,
-            &target.id,
-            &target.name,
-            target.config_path.as_deref(),
-        );
+        let account = chat_account(target);
         if let Err(error) = super::chat::move_chat(core, &moved.agent_id, account).await {
             eprintln!(
                 "sikemux core: {} stayed on its account: {error}",
@@ -390,7 +386,9 @@ fn candidates(book: &Book, provider: &str) -> Vec<(Profile, Option<usage::Readin
     let signed_in: Vec<Profile> = (book.clone().with_built_ins().profiles.into_iter())
         .filter(|profile| profile.provider == provider)
         .filter(|profile| {
-            let env = chat_account(provider, &profile.id, "", profile.config_path.as_deref()).env;
+            let env = account_environment(provider, profile.config_path.as_deref())
+                .into_iter()
+                .collect();
             matches!(
                 crate::agent_accounts::sign_in::signed_in(provider, &env),
                 Some(crate::agent_accounts::sign_in::SignIn::Account(_))

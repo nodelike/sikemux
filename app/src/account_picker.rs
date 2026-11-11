@@ -85,8 +85,7 @@ pub fn picker(
             )
         }
     };
-    let name =
-        |profile: &Profile, status: Option<&AccountStatus>| accounts::name(bench, profile, status);
+    let name = |profile: &Profile, status: Option<&AccountStatus>| profile.shown_name(status);
     let label = name(&current, signed_in(&current).as_ref());
     let about = match (&none_because, running) {
         (Some(why), _) => why.clone(),

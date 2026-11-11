@@ -602,7 +602,7 @@ fn account_ways(
             .filter_map(|other| bench.accounts.profile(&other.id).cloned())
             .map(|other| {
                 let status = crate::accounts::status(bench, &other).and_then(|s| s.as_ref().ok());
-                let name = crate::accounts::name(bench, &other, status);
+                let name = other.shown_name(status);
                 let (this, chat) = (this.clone(), agent.id.clone());
                 Button::new(
                     SharedString::from(format!("chat-continue-{}", other.id)),
