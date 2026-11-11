@@ -75,7 +75,7 @@ struct AttachSheet: ViewModifier {
 
     @ViewBuilder
     private var photos: some View {
-        let gallery = library.access != .denied
+        let gallery = library.sees
         VStack(spacing: 0) {
             if full {
                 HStack {
@@ -114,7 +114,7 @@ struct AttachSheet: ViewModifier {
                     Text("No photo access").font(Theme.ui(14, .medium)).foregroundStyle(palette.secondary)
                     Spacer()
                     if library.canAsk {
-                        Chip(title: "Allow access", primary: true) { library.open() }
+                        Chip(title: "Allow access", primary: true) { library.ask() }
                     } else {
                         Chip(title: "Open Settings") {
                             if let url = URL(string: UIApplication.openSettingsURLString) {
@@ -145,7 +145,7 @@ struct AttachSheet: ViewModifier {
                 if library.sees {
                     withAnimation(.snappy) { full = true }
                 } else if library.canAsk {
-                    library.open()
+                    library.ask()
                 } else {
                     let room = room
                     leave { try await Pick.photos(limit: room) }
