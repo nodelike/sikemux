@@ -13,6 +13,11 @@ fn main() {
     let first = std::env::args_os().nth(1);
     let core = first.as_ref().is_some_and(|arg| arg == "core");
     sikemux_host::panic_reports::record_panics(if core { "core" } else { "cli" });
+    #[cfg(unix)]
+    if core {
+        use sikemux_host::crash_reports::{self, Process};
+        crash_reports::start(Process::Core, core_mode::data_dir());
+    }
     sikemux_keychain::settle(core);
     #[cfg(unix)]
     if let Some(code) = sikemux_core::git_guard::shim::run_if_git() {
@@ -20,7 +25,9 @@ fn main() {
     }
     #[cfg(unix)]
     if core {
-        std::process::exit(core_mode::run());
+        let code = core_mode::run();
+        sikemux_host::crash_reports::stop();
+        std::process::exit(code);
     }
     let code = if first.is_some_and(|arg| arg == cli_client::TOOLS_MCP_FLAG) {
         tools_mcp::run()

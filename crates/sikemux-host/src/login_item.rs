@@ -70,24 +70,31 @@ pub fn core_args(data_dir: Option<PathBuf>) -> Vec<OsString> {
 /// folders the app would give it.
 pub fn headless_launch() -> Option<CoreLaunch> {
     let home = sikemux_process::paths::home()?;
-    let (data, logs) = if cfg!(target_os = "macos") {
-        (
-            home.join("Library/Application Support").join(IDENTIFIER),
-            home.join("Library/Logs").join(IDENTIFIER),
-        )
+    let data = data_dir()?;
+    let logs = if cfg!(target_os = "macos") {
+        home.join("Library/Logs").join(IDENTIFIER)
     } else {
-        let data = std::env::var_os("XDG_DATA_HOME")
-            .map(PathBuf::from)
-            .filter(|dir| dir.is_absolute())
-            .unwrap_or_else(|| home.join(".local/share"))
-            .join(IDENTIFIER);
-        (data.clone(), data.join("logs"))
+        data.join("logs")
     };
     Some(CoreLaunch {
         binary: std::env::current_exe().ok()?.canonicalize().ok()?,
         socket: sikemux_core::default_socket_path()?,
         log: logs.join("core.log"),
         args: core_args(Some(data)),
+    })
+}
+
+/// Where the app keeps its data, and the core its preferences.
+pub fn data_dir() -> Option<PathBuf> {
+    let home = sikemux_process::paths::home()?;
+    Some(if cfg!(target_os = "macos") {
+        home.join("Library/Application Support").join(IDENTIFIER)
+    } else {
+        std::env::var_os("XDG_DATA_HOME")
+            .map(PathBuf::from)
+            .filter(|dir| dir.is_absolute())
+            .unwrap_or_else(|| home.join(".local/share"))
+            .join(IDENTIFIER)
     })
 }
 

@@ -40,6 +40,12 @@ semver = "1"
 uuid = { version = "1", features = ["v4", "v7"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "process", "time", "sync", "io-util", "net"] }
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
+sentry = { version = "0.49", default-features = false, features = ["contexts", "debug-images", "minidump", "release-health", "reqwest", "rustls-no-provider"] }
+backtrace = "0.3"
+log = "0.4"
+reqwest = { version = "0.13", default-features = false }
+sha2 = "0.11"
+hex = "0.4"
 sikemux-core = { path = "../sikemux-core" }
 sikemux-view = { path = "../sikemux-view" }
 sikemux-wire = { path = "../sikemux-wire" }

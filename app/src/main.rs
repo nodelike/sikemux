@@ -3,9 +3,12 @@ use gpui_kit::{
     WindowOptions,
 };
 use sikemux_gpui::{console, core, icons, memory, theme, workbench, WINDOW_SIZE};
+use sikemux_host::crash_reports::{self, Process};
 
 fn main() {
+    let began = std::time::SystemTime::now();
     sikemux_host::panic_reports::record_panics("app");
+    crash_reports::start(Process::App, None);
     #[cfg(target_os = "linux")]
     {
         sikemux_browser::choose_page_rendering();
@@ -17,7 +20,9 @@ fn main() {
     if !sikemux_gpui::second_start::take_over(handed.clone()) {
         return;
     }
+    let linking = std::time::SystemTime::now();
     let link = core::start(core::Home::default());
+    let linked = std::time::SystemTime::now();
     let app = gpui_kit::application();
     #[cfg(target_os = "linux")]
     let app = app.with_windowing(gpui_kit::WindowingRequest::Windowed(x11_session()));
@@ -62,6 +67,14 @@ fn main() {
                 root.style().background = Some(gpui_kit::transparent_black().into());
             });
         }
+        crash_reports::started(
+            began,
+            vec![
+                ("start the core", linking, linked),
+                ("open the window", linked, std::time::SystemTime::now()),
+            ],
+        );
+        cx.on_app_quit(|_| async { crash_reports::stop() }).detach();
         sikemux_gpui::follow_opened(bench.clone(), opened, cx);
         #[cfg(feature = "drive")]
         sikemux_gpui::drive::listen(window, bench, cx);

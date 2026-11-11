@@ -102,7 +102,7 @@ pub mod triage;
 pub mod triggers;
 pub mod updates;
 mod upgrade;
-mod usage;
+pub mod usage;
 mod wait_for;
 mod wake;
 pub mod wallpaper;

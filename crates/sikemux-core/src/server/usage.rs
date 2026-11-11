@@ -180,7 +180,7 @@ pub(crate) async fn serve(core: Arc<Core>, data_dir: PathBuf) {
     else {
         return;
     };
-    if std::env::var_os("DO_NOT_TRACK").is_some_and(|value| !value.is_empty() && value != "0") {
+    if do_not_track() {
         return;
     }
     let host = super::host::info();
@@ -202,6 +202,12 @@ pub(crate) async fn serve(core: Arc<Core>, data_dir: PathBuf) {
             continue;
         };
         let account = core.remote.owner();
+        sentry_core::Hub::main().configure_scope(|scope| {
+            scope.set_user(account.as_deref().map(|account| sentry_core::User {
+                id: Some(account_hash(account)),
+                ..Default::default()
+            }))
+        });
         let active = Active {
             install,
             version: &host.version,
@@ -217,6 +223,11 @@ pub(crate) async fn serve(core: Arc<Core>, data_dir: PathBuf) {
             eprintln!("sikemux core: {error}");
         }
     }
+}
+
+/// `DO_NOT_TRACK` is set in the environment, which turns off everything that reports.
+pub fn do_not_track() -> bool {
+    std::env::var_os("DO_NOT_TRACK").is_some_and(|value| !value.is_empty() && value != "0")
 }
 
 /// The channel today's use counts under, or none when nothing may be sent: the person
