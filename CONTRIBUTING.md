@@ -51,7 +51,7 @@ cd mobile/ios && xcodegen generate            # Sikemux.xcodeproj from project.y
 xcodebuild -project Sikemux.xcodeproj -scheme Sikemux -sdk iphonesimulator -derivedDataPath build/derived build
 ```
 
-Run `build-core.sh` again after changing `sikemux-mobile`, `sikemux-client` or the protocol in `sikemux-wire`; without `--sim-only` it adds the device slice, and `--profile mobile` builds with the small profile releases use. The Debug configuration is Sikemux Dev, which installs beside the release app. Everything under `mobile/ios/build/` and the generated project are build output and are not committed.
+Run `build-core.sh` again after changing `sikemux-mobile`, `sikemux-client` or the protocol in `sikemux-wire`; without `--sim-only` it adds the device slice, and `--profile mobile` builds with the small profile releases use. The Debug configuration is Sikemux Dev, which installs beside the release app. CI and releases build with the newest Xcode 26 (`.github/actions/setup-xcode-ios`): Xcode 27 dithers the app icon's flattened renditions, so the same icon costs 2.5 MB more there, and an archive made with it locally is that much larger than a release. Everything under `mobile/ios/build/` and the generated project are build output and are not committed.
 
 For Android you need the NDK and `cargo-ndk`:
 
