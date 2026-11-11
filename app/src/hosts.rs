@@ -901,6 +901,16 @@ pub fn updates_items(
             .checked(on)
             .on_click(move |_, _, cx| set(!on, cx)),
     );
+    let restarting = updates.forced
+        && !updates.blockers.is_empty()
+        && matches!(updates.state, UpdateState::Ready | UpdateState::Installing);
+    if restarting {
+        let count = updates.blockers.len();
+        let chats = if count == 1 { "chat" } else { "chats" };
+        return popup.item(PopupMenuItem::label(format!(
+            "Restarting into the update now: {count} {chats} stop and pick up again after"
+        )));
+    }
     match failed_update(updates) {
         Some((UpdateOutcomeState::RolledBack, reason)) => {
             popup.item(PopupMenuItem::label(format!(

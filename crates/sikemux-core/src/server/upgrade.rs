@@ -244,12 +244,13 @@ async fn hand_over_when_ready(
 }
 
 /// Replaces this core with `binary` once every chat can hand its agent over,
-/// as an update the app asks for does. Returns only if that failed.
-pub(crate) async fn replace_with(core: &Arc<Core>, binary: PathBuf) -> String {
+/// as an update the app asks for does, or, when `force`d, once the chats have
+/// had a moment to settle. Returns only if that failed.
+pub(crate) async fn replace_with(core: &Arc<Core>, binary: PathBuf, force: bool) -> String {
     if let Err(error) = begin(core, &binary, Replacement::Update).await {
         return error;
     }
-    settle_chats(core, false).await;
+    settle_chats(core, force).await;
     core.updating.frozen.send_replace(true);
     finish(core, binary).await
 }

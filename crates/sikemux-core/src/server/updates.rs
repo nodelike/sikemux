@@ -325,7 +325,14 @@ async fn update_host_when_quiet(core: &Arc<Core>) {
             return;
         }
     }
-    let _ = install(core, UpdateInstallParams { force: false });
+    let force = core.remote.too_old();
+    if force {
+        let interrupted = core.chats.blockers().len();
+        eprintln!(
+            "sikemux core: this version is too old for the account, so it updates now, interrupting {interrupted} chats"
+        );
+    }
+    let _ = install(core, UpdateInstallParams { force });
 }
 
 /// Looks for a release newer than this one on the person's channel. One feed
@@ -500,7 +507,8 @@ fn refusal(steps: &[UpdateStep]) -> String {
 /// Hands this core over to the one root put in place, keeping its terminals
 /// and chats. Returns only if that failed.
 async fn restart_into_installed(core: &Arc<Core>) {
-    let error = upgrade::replace_with(core, PathBuf::from(INSTALLED_CORE)).await;
+    let force = core.updates.status().forced;
+    let error = upgrade::replace_with(core, PathBuf::from(INSTALLED_CORE), force).await;
     core.updates.edit(core, |held| {
         held.status.state = UpdateState::Failed;
         held.status.error = Some(format!("could not restart into it: {error}"));
@@ -649,6 +657,7 @@ pub(crate) async fn update_host(core: &Arc<Core>) -> CoreResult<HostUpdate> {
     }
     core.updates.edit(core, |held| {
         begin_update(held);
+        held.status.forced = false;
         held.status.state = UpdateState::Installing;
         held.status.error = None;
     });
@@ -797,21 +806,18 @@ async fn wait_for_chats(core: &Core) {
         if !matches!(status.state, UpdateState::Installing | UpdateState::Waiting) {
             return;
         }
-        let blockers: Vec<UpdateBlocker> = if status.forced {
-            Vec::new()
-        } else {
-            core.chats
-                .blockers()
-                .into_iter()
-                .map(|blocker| UpdateBlocker {
-                    agent_id: blocker.agent_id,
-                    provider: blocker.provider,
-                    title: blocker.title,
-                    reason: blocker.reason,
-                })
-                .collect()
-        };
-        let ready = blockers.is_empty();
+        let blockers: Vec<UpdateBlocker> = core
+            .chats
+            .blockers()
+            .into_iter()
+            .map(|blocker| UpdateBlocker {
+                agent_id: blocker.agent_id,
+                provider: blocker.provider,
+                title: blocker.title,
+                reason: blocker.reason,
+            })
+            .collect();
+        let ready = status.forced || blockers.is_empty();
         core.updates.edit(core, |held| {
             held.status.blockers = blockers;
             held.status.state = if ready {

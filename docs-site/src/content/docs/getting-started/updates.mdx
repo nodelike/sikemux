@@ -42,4 +42,4 @@ The server keeps the core it replaced until the new one has run for half a minut
 
 To keep a server on the release it has, turn off **Update automatically** in either **⋯**, or run `sudo sikemux update --off` on it; `--on` turns updates back on. Only you can change this, so an agent on the server cannot pin it or unpin it: plain `sikemux update --on` or `--off` only says how. While updates are off, nothing installs, not even with `sikemux update`.
 
-Once a server's release is too old for your account, the server stops reaching your devices and your account until it updates, and `sikemux status` says so. With updates on, it installs the newest release at once, without waiting for its chats.
+Once a server's release is too old for your account, the server stops reaching your devices and your account until it updates, and `sikemux status` says so. With updates on, it installs the newest release and restarts into it at once, without waiting for its chats: the chats in the middle of a request stop and pick up again on their sessions once it is back, and its **⋯** says how many while it restarts.
