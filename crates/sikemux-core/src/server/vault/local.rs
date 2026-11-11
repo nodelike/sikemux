@@ -83,3 +83,34 @@ pub(super) fn recovery(account: &str) -> Option<String> {
 pub(super) fn forget_recovery(account: &str) -> Result<(), String> {
     sikemux_keychain::delete(RECOVERY_SERVICE, account).map_err(|error| error.to_string())
 }
+
+fn uses_path(data_dir: &Path) -> PathBuf {
+    data_dir.join("vault-uses.json")
+}
+
+/// The uses not yet sent to the account, kept so a core that stops before sending them does
+/// not lose them.
+#[derive(Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct Unsent<T> {
+    pub account: String,
+    pub uses: Vec<T>,
+}
+
+pub(super) fn keep_uses<T: Serialize>(
+    data_dir: Option<&Path>,
+    unsent: &Unsent<T>,
+) -> Result<(), String> {
+    let Some(dir) = data_dir else { return Ok(()) };
+    let bytes = serde_json::to_vec(unsent).map_err(|error| error.to_string())?;
+    sikemux_process::files::write_atomic(&uses_path(dir), &bytes, true)
+        .map(drop)
+        .map_err(|error| error.to_string())
+}
+
+pub(super) fn kept_uses<T: serde::de::DeserializeOwned>(
+    data_dir: Option<&Path>,
+) -> Option<Unsent<T>> {
+    let bytes = std::fs::read(uses_path(data_dir?)).ok()?;
+    serde_json::from_slice(&bytes).ok()
+}
