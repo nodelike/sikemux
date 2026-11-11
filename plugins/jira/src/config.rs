@@ -111,6 +111,19 @@ pub fn load(data_dir: &Path) -> JiraResult<JiraConfig> {
     Ok(store::load(data_dir)?)
 }
 
+impl sikemux_plugin_api::vault::Listing for Site {
+    fn secret_account(&self) -> Option<String> {
+        Some(self.keychain_account())
+    }
+
+    fn label(&self) -> String {
+        match &self.display_name {
+            Some(name) => format!("{name} on {}", self.host),
+            None => self.host.clone(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -191,18 +204,5 @@ mod tests {
             config.site(Some("c.atlassian.net")),
             Err(JiraError::NotFound(_))
         ));
-    }
-}
-
-impl sikemux_plugin_api::vault::Listing for Site {
-    fn secret_account(&self) -> Option<String> {
-        Some(self.keychain_account())
-    }
-
-    fn label(&self) -> String {
-        match &self.display_name {
-            Some(name) => format!("{name} on {}", self.host),
-            None => self.host.clone(),
-        }
     }
 }

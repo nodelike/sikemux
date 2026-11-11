@@ -55,6 +55,25 @@ pub fn load(data_dir: &Path) -> SlackResult<SlackConfig> {
     Ok(store::load(data_dir)?)
 }
 
+impl sikemux_plugin_api::vault::Listing for Workspace {
+    fn secret_account(&self) -> Option<String> {
+        Some(self.id.clone())
+    }
+
+    fn label(&self) -> String {
+        format!("{} on {}", self.user, self.name)
+    }
+}
+
+pub static BOOK: sikemux_plugin_api::vault::Listed<Workspace> =
+    sikemux_plugin_api::vault::Listed::new(
+        "config.json",
+        "workspaces",
+        "id",
+        Some("default"),
+        KEYCHAIN,
+    );
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -84,22 +103,3 @@ mod tests {
         );
     }
 }
-
-impl sikemux_plugin_api::vault::Listing for Workspace {
-    fn secret_account(&self) -> Option<String> {
-        Some(self.id.clone())
-    }
-
-    fn label(&self) -> String {
-        format!("{} on {}", self.user, self.name)
-    }
-}
-
-pub static BOOK: sikemux_plugin_api::vault::Listed<Workspace> =
-    sikemux_plugin_api::vault::Listed::new(
-        "config.json",
-        "workspaces",
-        "id",
-        Some("default"),
-        KEYCHAIN,
-    );

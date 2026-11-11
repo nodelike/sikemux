@@ -95,6 +95,33 @@ pub fn env_api_key() -> Option<String> {
         .filter(|key| !key.is_empty())
 }
 
+impl sikemux_plugin_api::vault::Whole for SignozConfig {
+    fn identity(&self) -> Option<String> {
+        let shared_with_cli = self.auth == AuthMode::ApiKey && !self.owns_key;
+        (!self.url.is_empty() && !self.account.is_empty() && !shared_with_cli)
+            .then(|| format!("{}|{}", self.url, self.account))
+    }
+
+    fn label(&self) -> String {
+        if self.email.is_empty() {
+            self.url.clone()
+        } else {
+            format!("{} on {}", self.email, self.url)
+        }
+    }
+
+    fn secrets(&self) -> Vec<(Secrets, String)> {
+        let kept = match self.auth {
+            AuthMode::Session => SESSIONS,
+            AuthMode::ApiKey => API_KEYS,
+        };
+        vec![(kept, self.account.clone())]
+    }
+}
+
+pub static BOOK: sikemux_plugin_api::vault::Single<SignozConfig> =
+    sikemux_plugin_api::vault::Single::new("config.json");
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -137,30 +164,3 @@ mod tests {
         assert_eq!((refused.url.as_str(), refused.account.as_str()), ("", ""));
     }
 }
-
-impl sikemux_plugin_api::vault::Whole for SignozConfig {
-    fn identity(&self) -> Option<String> {
-        let shared_with_cli = self.auth == AuthMode::ApiKey && !self.owns_key;
-        (!self.url.is_empty() && !self.account.is_empty() && !shared_with_cli)
-            .then(|| format!("{}|{}", self.url, self.account))
-    }
-
-    fn label(&self) -> String {
-        if self.email.is_empty() {
-            self.url.clone()
-        } else {
-            format!("{} on {}", self.email, self.url)
-        }
-    }
-
-    fn secrets(&self) -> Vec<(Secrets, String)> {
-        let kept = match self.auth {
-            AuthMode::Session => SESSIONS,
-            AuthMode::ApiKey => API_KEYS,
-        };
-        vec![(kept, self.account.clone())]
-    }
-}
-
-pub static BOOK: sikemux_plugin_api::vault::Single<SignozConfig> =
-    sikemux_plugin_api::vault::Single::new("config.json");

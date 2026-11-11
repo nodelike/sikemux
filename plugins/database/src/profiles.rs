@@ -392,6 +392,19 @@ pub async fn blocking<T: Send + 'static>(
         .map_err(|error| DatabaseError::Storage(error.to_string()))?
 }
 
+impl sikemux_plugin_api::vault::Listing for Profile {
+    fn secret_account(&self) -> Option<String> {
+        self.has_password.then(|| split_id(&self.id).0.to_owned())
+    }
+
+    fn label(&self) -> String {
+        self.name.clone()
+    }
+}
+
+pub static BOOK: sikemux_plugin_api::vault::Listed<Profile> =
+    sikemux_plugin_api::vault::Listed::new("profiles.json", "profiles", "id", None, PASSWORDS);
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -552,16 +565,3 @@ mod tests {
         ));
     }
 }
-
-impl sikemux_plugin_api::vault::Listing for Profile {
-    fn secret_account(&self) -> Option<String> {
-        self.has_password.then(|| split_id(&self.id).0.to_owned())
-    }
-
-    fn label(&self) -> String {
-        self.name.clone()
-    }
-}
-
-pub static BOOK: sikemux_plugin_api::vault::Listed<Profile> =
-    sikemux_plugin_api::vault::Listed::new("profiles.json", "profiles", "id", None, PASSWORDS);
