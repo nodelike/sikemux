@@ -6,6 +6,10 @@ extension DeviceView {
         workspace.projects.first { $0.id == place || $0.path == place }
     }
 
+    func project(id: String?) -> ProjectInfo? {
+        workspace.projects.first { $0.id == id }
+    }
+
     /// The name of the project with this id or folder, else the last folder of `path`.
     func projectName(_ place: String, path: String? = nil) -> String {
         project(at: place)?.name ?? folderName(path ?? place)
