@@ -1213,6 +1213,16 @@ pub struct ToolRow {
     /// What it is doing while it runs, for a call whose action does not say.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub activity: Option<String>,
+    /// How many calls one after another this row stands for, when more than one:
+    /// an agent waiting on the same thing again and again shows as one row.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub times: Option<u32>,
+}
+
+impl ToolRow {
+    pub fn calls(&self) -> u64 {
+        self.times.map_or(1, u64::from)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

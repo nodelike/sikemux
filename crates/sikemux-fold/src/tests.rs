@@ -467,6 +467,35 @@ mod reducer {
     }
 
     #[test]
+    fn waits_on_the_same_thing_back_to_back_share_one_row() {
+        let wait = |id: &str, file: &str| {
+            json!({
+                "sessionUpdate": "tool_call",
+                "toolCallId": id,
+                "title": "mcp__sikemux-tools__events_wait",
+                "status": "in_progress",
+                "rawInput": { "file": file, "timeoutMs": 50000 },
+            })
+        };
+        let done = |id: &str| json!({ "sessionUpdate": "tool_call_update", "toolCallId": id, "status": "completed" });
+        let mut chat = Chat::new();
+        chat.at(1_000).update(wait("w1", "/tmp/a.output"));
+        chat.at(51_000).update(done("w1"));
+        chat.at(52_000).update(wait("w2", "/tmp/a.output"));
+        chat.at(102_000).update(done("w2"));
+        chat.at(103_000).update(wait("w3", "/tmp/b.output"));
+        let parts = chat.rows()[0].parts.clone();
+        assert_eq!(parts.len(), 2);
+        let joined = tool_of(&parts[0]);
+        assert_eq!(joined.tool.row.times, Some(2));
+        assert_eq!(
+            (joined.started_at, joined.ended_at),
+            (Some(1_000), Some(102_000))
+        );
+        assert_eq!(tool_of(&parts[1]).tool.row.times, None);
+    }
+
+    #[test]
     fn a_wait_on_a_background_commands_output_names_the_command() {
         let file = "/private/tmp/claude-501/project/417b64d8/tasks/bjpp32l6o.output";
         let mut chat = Chat::new();

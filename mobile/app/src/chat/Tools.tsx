@@ -316,6 +316,7 @@ const ToolRow = memo(function ToolRow({
               <Text style={{ color: colors.gitDeleted }}>−{part.diff.dels}</Text>
             </Text>
           ) : null}
+          {tool.row.times ? <Text style={styles.endText}>×{tool.row.times}</Text> : null}
           {running ? (
             <LiveSeconds since={part.startedAt} style={styles.endText} />
           ) : elapsed ? (
@@ -354,7 +355,8 @@ export const ToolGroup = memo(
     const summary = toolGroupSummary(parts);
     const { current, said, spent } = summary;
     const [open, setOpen] = useFold(id, live || current !== undefined);
-    const calls = callsLabel(parts.length);
+    const total = parts.reduce((sum, part) => sum + (part.tool.row.times ?? 1), 0);
+    const calls = callsLabel(total);
     const kindWidth = summary.kindWidth * KIND_CHAR + 1;
     return (
       <ImageViewerHost>
@@ -375,7 +377,7 @@ export const ToolGroup = memo(
                 {calls}
               </Text>
             )}
-            {said !== null && parts.length > 1 ? <Text style={styles.summaryTime}>{callCount(parts.length)}</Text> : null}
+            {said !== null && total > 1 ? <Text style={styles.summaryTime}>{callCount(total)}</Text> : null}
             {current ? (
               <LiveSeconds key={current.id} since={current.startedAt} spent={spent} style={styles.summaryTime} />
             ) : spent > 0 ? (

@@ -327,6 +327,15 @@ pub struct Fold {
     sent_bytes: RefCell<HashMap<String, (u64, usize)>>,
 }
 
+/// A call's row worked out afresh, still counting the calls it stands for.
+fn same_times(
+    held: &sikemux_view::chat::ToolCall,
+    mut call: sikemux_view::chat::ToolCall,
+) -> sikemux_view::chat::ToolCall {
+    call.row.times = held.row.times;
+    call
+}
+
 const TEXT_PART: &str = "text";
 const THOUGHT_PART: &str = "thought";
 
@@ -1564,7 +1573,7 @@ impl Fold {
                 let call = self.shown_call(&raw);
                 self.replace_tool(&within, &row, part, |part| {
                     if let ChatPart::Tool { tool, .. } = part {
-                        *tool = call;
+                        *tool = same_times(tool, call);
                     }
                 });
             } else {
@@ -1584,22 +1593,25 @@ impl Fold {
         // Reloading a session replays its whole history at once, so a call
         // already finished the first time this side sees it never ran here.
         let call = self.shown_call(update);
-        let Some((row, part)) = self.append_part(
-            index,
-            within,
-            |id| ChatPart::Tool {
-                id,
-                tool: call,
-                diff: None,
-                output: None,
-                page: None,
-                gif: None,
-                failure: None,
-                started_at: (!ended).then_some(at),
-                ended_at: None,
-            },
-            fresh,
-        ) else {
+        let joined = self.join_repeated_wait(within, &call, fresh);
+        let Some((row, part)) = joined.or_else(|| {
+            self.append_part(
+                index,
+                within,
+                |id| ChatPart::Tool {
+                    id,
+                    tool: call,
+                    diff: None,
+                    output: None,
+                    page: None,
+                    gif: None,
+                    failure: None,
+                    started_at: (!ended).then_some(at),
+                    ended_at: None,
+                },
+                fresh,
+            )
+        }) else {
             return false;
         };
         self.tools.insert(
@@ -1751,7 +1763,7 @@ impl Fold {
                 ..
             } = part
             {
-                *tool = call;
+                *tool = same_times(tool, call);
                 *diff = settled.diff.as_ref().map(tools::summary);
                 *output = settled.output.as_ref().map(tools::output_summary);
                 *page = settled.page;
@@ -1791,10 +1803,69 @@ impl Fold {
                 tool.raw_input = restated.raw_input;
                 tool.description = restated.description;
             }
+            let times = tool.row.times;
             let mut call = std::mem::take(tool).with_row();
             row::name_run(&mut call, &runs);
+            call.row.times = times;
             *tool = tools::root_call(folder.as_deref(), call);
         });
+    }
+
+    /// A wait on the same thing as the finished call just before it joins that call's row,
+    /// which counts it, rather than adding a row of its own.
+    fn join_repeated_wait(
+        &mut self,
+        within: &Within,
+        call: &sikemux_view::chat::ToolCall,
+        fresh: bool,
+    ) -> Option<(String, usize)> {
+        if fresh || call.row.verb.as_deref() != Some("wait") {
+            return None;
+        }
+        let last = self.transcript(within)?.rows.last()?;
+        if last.msg.role != ChatRole::Assistant || last.local {
+            return None;
+        }
+        let part = last.msg.parts.len().checked_sub(1)?;
+        let ChatPart::Tool {
+            tool: before,
+            failure: None,
+            gif: None,
+            ended_at: Some(_),
+            ..
+        } = &last.msg.parts[part]
+        else {
+            return None;
+        };
+        let repeats = before.status == Some(ToolStatus::Completed)
+            && before.title == call.title
+            && before.row.target == call.row.target
+            && before.row.detail == call.row.detail;
+        if !repeats {
+            return None;
+        }
+        let row = last.msg.id.clone();
+        let times = u32::try_from(before.row.calls() + 1).unwrap_or(u32::MAX);
+        let mut call = call.clone();
+        call.row.times = Some(times);
+        self.replace_tool(within, &row, part, |part| {
+            if let ChatPart::Tool {
+                tool,
+                diff,
+                output,
+                page,
+                ended_at,
+                ..
+            } = part
+            {
+                *tool = call;
+                *diff = None;
+                *output = None;
+                *page = None;
+                *ended_at = None;
+            }
+        });
+        Some((row, part))
     }
 
     fn shown_call(&self, raw: &Map<String, Value>) -> sikemux_view::chat::ToolCall {
@@ -1817,7 +1888,7 @@ impl Fold {
         for row in &sub.rows {
             for part in &row.msg.parts {
                 if let ChatPart::Tool { tool, .. } = part {
-                    calls += 1;
+                    calls += tool.row.calls();
                     last = Some(tool.clone());
                 }
             }

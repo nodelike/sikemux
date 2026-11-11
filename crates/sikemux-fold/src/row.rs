@@ -207,6 +207,7 @@ fn theirs(tool: &ToolCall, args: &Map<String, Value>) -> ToolRow {
         verb,
         target,
         plugin: None,
+        times: None,
     }
 }
 

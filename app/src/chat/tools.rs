@@ -362,7 +362,7 @@ pub fn run(
         .get(&key)
         .copied()
         .unwrap_or(live || current.is_some());
-    let count = calls.len();
+    let count: u64 = calls.iter().map(|call| call.tool.row.calls()).sum();
     let said = current.and_then(|call| call.tool.description.clone());
     let calls_said = format!("{count} tool {}", if count == 1 { "call" } else { "calls" });
     let label = match (&said, current.is_some()) {
@@ -452,7 +452,7 @@ pub fn run(
     );
     let body = (shown > 0.).then(|| {
         let rows = calls.iter().enumerate().map(|(ix, call)| {
-            let row = row(call, ix + 1 == count, kind, looks, window, cx);
+            let row = row(call, ix + 1 == calls.len(), kind, looks, window, cx);
             let id = &call.tool.tool_call_id;
             if !arriving.contains(id) {
                 return row;
@@ -537,6 +537,7 @@ fn row(
                         .child(format!("−{}", diff.dels)),
                 )
         }))
+        .children(row.times.map(|times| format!("×{times}")))
         .children(elapsed)
         .when(opens, |end| {
             let shown = div()

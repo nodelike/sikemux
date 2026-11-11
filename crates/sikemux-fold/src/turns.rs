@@ -155,8 +155,11 @@ fn work_fold(rows: &[Row], start: usize, end: usize) -> Option<TurnFold> {
         if index >= from && is_reply(part) {
             continue;
         }
-        if matches!(part, ChatPart::Tool { gif: None, .. }) {
-            calls += 1;
+        if let ChatPart::Tool {
+            tool, gif: None, ..
+        } = part
+        {
+            calls += tool.row.calls();
         }
         worked |= !is_reply(part);
         acted |= !is_reply(part) && !matches!(part, ChatPart::Thought { .. });

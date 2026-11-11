@@ -1591,6 +1591,11 @@ export interface ToolRow {
     icon?: string;
     /** What it is doing while it runs, for a call whose action does not say. */
     activity?: string;
+    /**
+     * How many calls one after another this row stands for, when more than one:
+     * an agent waiting on the same thing again and again shows as one row.
+     */
+    times?: number;
 }
 
 export type ToolAction = "read" | "edit" | "delete" | "move" | "search" | "execute" | "think" | "fetch" | "switch_mode" | "mcp" | "other";
