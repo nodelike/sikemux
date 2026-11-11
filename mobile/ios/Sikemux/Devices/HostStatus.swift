@@ -21,10 +21,13 @@ struct HostStatus: Equatable {
         outdated = nil
         problem = nil
         connecting = false
-        let offline = "Asleep or offline" + (device?.lastSeen.map { " · seen \(Format.ago(Format.date(millis: $0), now: now))" } ?? "")
+        let offline =
+            "Asleep or offline"
+            + (device?.lastSeen.map { " · seen \(Format.ago(Format.date(millis: $0), now: now))" } ?? "")
         switch live.status {
         case .open:
-            line = ["Online", device?.channelLabel, live.view.map(Self.summary)].compactMap { $0 }.joined(separator: " · ")
+            line = ["Online", device?.channelLabel, live.view.map(Self.summary)].compactMap { $0 }.joined(
+                separator: " · ")
         case .connecting(let failed):
             connecting = true
             problem = failed

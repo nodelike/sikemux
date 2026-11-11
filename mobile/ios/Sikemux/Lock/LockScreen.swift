@@ -35,7 +35,9 @@ struct LockRow: View {
     @State private var problem: String?
 
     var body: some View {
-        SwitchRow(icon: Icons.lock, title: "Lock Sikemux", isOn: Binding(get: { lock.on }, set: flip), disabled: lock.asking) {
+        SwitchRow(
+            icon: Icons.lock, title: "Lock Sikemux", isOn: Binding(get: { lock.on }, set: flip), disabled: lock.asking
+        ) {
             if let problem { Text(problem).metaStyle(palette) }
         }
     }

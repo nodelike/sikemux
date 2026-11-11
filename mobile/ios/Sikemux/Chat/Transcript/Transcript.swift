@@ -24,19 +24,26 @@ struct Transcript<Footer: View>: View {
         TranscriptList(
             order: shown.order, entries: shown.entries, drawn: drawn, touched: touched, scroll: scroll,
             hasEarlier: hasEarlier && earlier == .idle, loadEarlier: loadEarlier,
-            environment: { [palette, context] view in AnyView(view.environment(\.palette, palette).environment(context)) },
-            header: { TranscriptHeader(hasEarlier: hasEarlier, earlier: earlier, lost: rows.head.earlierLost, retry: loadEarlier) },
+            environment: { [palette, context] view in AnyView(view.environment(\.palette, palette).environment(context))
+            },
+            header: {
+                TranscriptHeader(
+                    hasEarlier: hasEarlier, earlier: earlier, lost: rows.head.earlierLost, retry: loadEarlier)
+            },
             footer: footer,
-            row: { entry in TranscriptRow(entry: entry) })
-            .environment(\.openURL, OpenURLAction { url in opened(url) })
-            .sheet(item: Bindable(context).picture) { picture in ImageViewer(image: picture.image, name: picture.name) }
+            row: { entry in TranscriptRow(entry: entry) }
+        )
+        .environment(\.openURL, OpenURLAction { url in opened(url) })
+        .sheet(item: Bindable(context).picture) { picture in ImageViewer(image: picture.image, name: picture.name) }
     }
 
     private func opened(_ url: URL) -> OpenURLAction.Result {
         guard let path = TranscriptLink.filePath(url) else { return .systemAction }
         if let image = HostFiles.imagePath(path), let core = context.core {
             Task {
-                guard let file = await HostFiles.shared.read(core: core, path: image), let picture = UIImage(contentsOfFile: file.path) else { return }
+                guard let file = await HostFiles.shared.read(core: core, path: image),
+                    let picture = UIImage(contentsOfFile: file.path)
+                else { return }
                 context.showImage(picture, (image as NSString).lastPathComponent)
             }
         }
@@ -105,7 +112,9 @@ struct JumpToLatest: View {
 
     var body: some View {
         if scroll.away {
-            Button { scroll.toEnd() } label: {
+            Button {
+                scroll.toEnd()
+            } label: {
                 IconView(icon: Icons.arrowDown, size: 16)
                     .foregroundStyle(palette.inkDim)
                     .frame(width: 34, height: 34)

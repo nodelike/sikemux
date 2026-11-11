@@ -54,7 +54,8 @@ enum Joining {
         case .refused(let reason):
             throw refusal(name, reason)
         case .allowed(let access):
-            await Hub.shared.remember(PairedDevice(core: core, access: access, pairedAt: Date().timeIntervalSince1970 * 1000, name: name))
+            await Hub.shared.remember(
+                PairedDevice(core: core, access: access, pairedAt: Date().timeIntervalSince1970 * 1000, name: name))
             Hub.shared.rejoined(core)
         }
     }
@@ -80,9 +81,12 @@ enum Joining {
             return JoinFailure(title: "Sikemux couldn't invite this phone", detail: Sikemux.problem(error))
         }
         if problem.status == 404 {
-            return JoinFailure(title: "\(host) is no longer on your account", detail: "Sign it in to this account, then try again.")
+            return JoinFailure(
+                title: "\(host) is no longer on your account", detail: "Sign it in to this account, then try again.")
         }
-        if problem.status == 429 { return JoinFailure(title: "Too many tries", detail: "Wait a minute, then try again.") }
+        if problem.status == 429 {
+            return JoinFailure(title: "Too many tries", detail: "Wait a minute, then try again.")
+        }
         if problem.unreachable {
             return JoinFailure(title: "Can't reach Sikemux", detail: "Check the phone is online, then try again.")
         }
@@ -92,7 +96,8 @@ enum Joining {
     private static func dialFailure(_ host: String, _ error: Error) -> JoinFailure {
         switch error as? MobileError {
         case .Connection:
-            return JoinFailure(title: "Can't reach \(host)", detail: "It may be asleep, offline, or have remote access turned off.")
+            return JoinFailure(
+                title: "Can't reach \(host)", detail: "It may be asleep, offline, or have remote access turned off.")
         case .Invalid(let message):
             return JoinFailure(title: "Sikemux's invitation didn't fit", detail: message)
         default:

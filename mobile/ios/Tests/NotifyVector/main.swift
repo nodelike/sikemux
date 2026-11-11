@@ -6,20 +6,23 @@ import Foundation
 var failures = 0
 
 func check(_ condition: Bool, _ what: String) {
-  if !condition {
-    failures += 1
-    print("not ok: \(what)")
-  }
+    if !condition {
+        failures += 1
+        print("not ok: \(what)")
+    }
 }
 
 func unhex(_ text: String) -> Data {
-  Data(stride(from: 0, to: text.count, by: 2).map {
-    let start = text.index(text.startIndex, offsetBy: $0)
-    return UInt8(text[start..<text.index(start, offsetBy: 2)], radix: 16)!
-  })
+    Data(
+        stride(from: 0, to: text.count, by: 2).map {
+            let start = text.index(text.startIndex, offsetBy: $0)
+            return UInt8(text[start..<text.index(start, offsetBy: 2)], radix: 16)!
+        })
 }
 
-let vector = try JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[1]))) as! [String: Any]
+let vector =
+    try JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[1])))
+    as! [String: Any]
 let text = { (name: String) in vector[name] as! String }
 let host = text("hostKey")
 let phone = text("phoneKey")
@@ -32,27 +35,28 @@ check(String(decoding: Envelope.aad(host: host, phone: phone, keyId: keyId), as:
 let opened = Envelope.open(blob, phone: phone, keys: [key])
 check(opened == .read(host: host, plaintext: text("plaintext")), "opens the vector")
 
-if case let .read(_, plaintext) = opened {
-  let notification = vector["notification"] as! [String: Any]
-  let card = Card.parse(plaintext, host: host)
-  check(card?.collapseId == notification["collapseId"] as? String, "collapse id")
-  check(card?.url == notification["url"] as? String, "url")
-  check(card?.detail == notification["detail"] as? String, "detail")
-  check(card?.answerable == true, "answerable")
-  check(card?.categoryIdentifier == "permission", "category")
-  var info: [AnyHashable: Any] = [:]
-  try card?.keep(in: &info)
-  check(Card.kept(in: info)?.requestId == notification["requestId"] as? String, "kept on the notification")
-  check(Card.parse(plaintext, host: phone) == nil, "a card from another host")
+if case .read(_, let plaintext) = opened {
+    let notification = vector["notification"] as! [String: Any]
+    let card = Card.parse(plaintext, host: host)
+    check(card?.collapseId == notification["collapseId"] as? String, "collapse id")
+    check(card?.url == notification["url"] as? String, "url")
+    check(card?.detail == notification["detail"] as? String, "detail")
+    check(card?.answerable == true, "answerable")
+    check(card?.categoryIdentifier == "permission", "category")
+    var info: [AnyHashable: Any] = [:]
+    try card?.keep(in: &info)
+    check(Card.kept(in: info)?.requestId == notification["requestId"] as? String, "kept on the notification")
+    check(Card.parse(plaintext, host: phone) == nil, "a card from another host")
 }
 
 check(Envelope.open(blob, phone: host, keys: [key]) == .unreadable(host: host), "another phone")
 check(
-  Envelope.open(blob, phone: phone, keys: [HostKey(host: host, keyId: keyId, key: Data(repeating: 9, count: 32))])
-    == .unreadable(host: host),
-  "another key"
+    Envelope.open(blob, phone: phone, keys: [HostKey(host: host, keyId: keyId, key: Data(repeating: 9, count: 32))])
+        == .unreadable(host: host),
+    "another key"
 )
-check(Envelope.open(blob, phone: phone, keys: [HostKey(host: host, keyId: keyId + 1, key: key.key)]) == .noKey, "no key")
+check(
+    Envelope.open(blob, phone: phone, keys: [HostKey(host: host, keyId: keyId + 1, key: key.key)]) == .noKey, "no key")
 check(Envelope.open("not base64", phone: phone, keys: [key]) == .unknown, "not a blob")
 
 let stored = Keys.entry(keyId: keyId, key: key.key)

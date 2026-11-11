@@ -1,6 +1,6 @@
 import Foundation
-import Observation
 import OSLog
+import Observation
 import SikemuxCore
 
 private let log = Logger(subsystem: "com.nodelike.sikemux", category: "draft")
@@ -33,7 +33,10 @@ final class ComposerDraft {
     /// How long typing rests before the draft is saved on the host.
     private static let rest: Duration = .milliseconds(600)
 
-    init(core: String, agentId: String, held: @escaping () -> ChatDraft?, live: @escaping () -> Connection?, emit: @escaping () -> Void) {
+    init(
+        core: String, agentId: String, held: @escaping () -> ChatDraft?, live: @escaping () -> Connection?,
+        emit: @escaping () -> Void
+    ) {
         self.agentId = agentId
         key = "\(core)-\(agentId)"
         self.held = held
@@ -41,7 +44,9 @@ final class ComposerDraft {
         self.emit = emit
         guard let unsaved = DraftStore.load(key, as: DraftStore.Unsaved.self) else { return }
         text = unsaved.text
-        attachments = unsaved.attachments.filter { $0.path != nil || FileManager.default.fileExists(atPath: $0.uri.path) }
+        attachments = unsaved.attachments.filter {
+            $0.path != nil || FileManager.default.fileExists(atPath: $0.uri.path)
+        }
         tokens = Mentions.tokens(unsaved.text, unsaved.tokens)
         tracked = unsaved.tracked
         chips = unsaved.chips
@@ -158,10 +163,12 @@ final class ComposerDraft {
     /// Writes down what is not saved on the host yet, so it outlives the app quitting.
     func keep() {
         guard edits > 0 else { return }
-        DraftStore.save(key, DraftStore.Unsaved(
-            text: text, attachments: attachments.filter { $0.upload == nil }, chips: chips,
-            tokens: Mentions.kept(text, tokens), tracked: liveTracked, rev: rev
-        ))
+        DraftStore.save(
+            key,
+            DraftStore.Unsaved(
+                text: text, attachments: attachments.filter { $0.upload == nil }, chips: chips,
+                tokens: Mentions.kept(text, tokens), tracked: liveTracked, rev: rev
+            ))
     }
 
     /// Saves the draft as the chat's own on the host, naming the revision last taken in, so the host keeps whatever it
@@ -199,7 +206,9 @@ final class ComposerDraft {
         let host = held()
         if let host, host.rev == rev { return }
         let extra = host?.extra
-        let kept = Dictionary(attachments.compactMap { attachment in attachment.path.map { ($0, attachment) } }, uniquingKeysWith: { a, _ in a })
+        let kept = Dictionary(
+            attachments.compactMap { attachment in attachment.path.map { ($0, attachment) } },
+            uniquingKeysWith: { a, _ in a })
         rev = host?.rev
         text = host?.text ?? ""
         tokens = Mentions.tokens(text, extra?.tokens)

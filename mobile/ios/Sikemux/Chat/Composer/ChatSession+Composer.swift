@@ -47,7 +47,9 @@ extension ChatSession {
     func stashPrompt() async throws -> String {
         let connection = try openConnection()
         if draft.attachments.contains(where: { $0.path == nil }) {
-            draft.attachments = try await outbox.put(connection, draft.attachments) { id, change in self.draft.patch(id, change) }
+            draft.attachments = try await outbox.put(connection, draft.attachments) { id, change in
+                self.draft.patch(id, change)
+            }
             draft.edited()
         }
         guard await draft.saveNow() else { throw OutboxError.failed("the draft did not reach the host") }
@@ -93,7 +95,9 @@ extension ChatSession {
         if !draft.attachments.isEmpty {
             guard !draft.uploading else { return false }
             do {
-                attachments = try await outbox.put(connection, draft.attachments) { id, change in self.draft.patch(id, change) }
+                attachments = try await outbox.put(connection, draft.attachments) { id, change in
+                    self.draft.patch(id, change)
+                }
             } catch {
                 notice = Sikemux.problem(error)
                 return false
@@ -135,11 +139,13 @@ extension ChatSession {
             let texts = chat.queued.map(\.text).filter { !$0.isEmpty }
             var seen = Set<String>()
             let paths = chat.queued.flatMap(\.paths).filter { seen.insert($0).inserted }
-            let sent = paths.compactMap { path in outbox.sentFiles[path].map { file -> Attachment in
-                var file = file
-                file.path = path
-                return file
-            } }
+            let sent = paths.compactMap { path in
+                outbox.sentFiles[path].map { file -> Attachment in
+                    var file = file
+                    file.path = path
+                    return file
+                }
+            }
             draft.putBack(texts, sent)
             draft.edited()
         }
@@ -158,9 +164,12 @@ extension ChatSession {
         answering.insert(requestId)
         notice = nil
         Task {
-            await ask("The answer did not reach the host", then: { _ in
-                self.feed.chat.permissions.removeAll { $0.requestId == requestId }
-            }) { connection in
+            await ask(
+                "The answer did not reach the host",
+                then: { _ in
+                    self.feed.chat.permissions.removeAll { $0.requestId == requestId }
+                }
+            ) { connection in
                 try await connection.answerPermission(agentId: self.agentId, requestId: requestId, optionId: optionId)
             }
             answering.remove(requestId)
@@ -175,7 +184,8 @@ extension ChatSession {
         self.mode = mode
         notice = nil
         Task {
-            await ask("Could not change permissions", undo: { if self.mode == mode { self.mode = before } }) { connection in
+            await ask("Could not change permissions", undo: { if self.mode == mode { self.mode = before } }) {
+                connection in
                 try await connection.setPermissionMode(agentId: self.agentId, mode: mode)
             }
         }
@@ -186,9 +196,12 @@ extension ChatSession {
         notice = nil
         chosen[configId] = value
         Task {
-            await ask("Could not change the setting", undo: {
-                if self.chosen[configId] == value { self.chosen[configId] = nil }
-            }) { connection in
+            await ask(
+                "Could not change the setting",
+                undo: {
+                    if self.chosen[configId] == value { self.chosen[configId] = nil }
+                }
+            ) { connection in
                 _ = try await connection.setChatConfig(agentId: self.agentId, configId: configId, value: value)
             }
         }

@@ -115,6 +115,12 @@ jobs:
       - name: Choose Xcode
         uses: ./.github/actions/setup-xcode-ios
 
+      - name: Check the Swift's format
+        working-directory: mobile/ios
+        run: |
+          find Sikemux Share Shared Notifications Tests -name '*.swift' ! -name '*.generated.swift' -print0 |
+            xargs -0 xcrun swift-format lint --strict --configuration .swift-format
+
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
         with:

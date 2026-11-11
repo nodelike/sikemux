@@ -57,10 +57,11 @@ final class ShareSession {
         if let title = chat?.title, !title.isEmpty { return title }
         if let title = rows.head.title, !title.isEmpty { return title }
         let first = rows.messages.first { $0.role == .user }
-        let words = (first?.parts.compactMap { part -> String? in
-            if case .text(let text) = part { return text.text }
-            return nil
-        }.first ?? "").split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        let words =
+            (first?.parts.compactMap { part -> String? in
+                if case .text(let text) = part { return text.text }
+                return nil
+            }.first ?? "").split(whereSeparator: \.isWhitespace).joined(separator: " ")
         if !words.isEmpty { return words.count > 80 ? "\(words.prefix(79))…" : words }
         return "\(Catalog.label(chat?.provider ?? "agent")) chat"
     }
@@ -183,7 +184,9 @@ final class ShareSession {
         case .challenge:
             let token: String
             do { token = try await Account.shared.token() } catch { return finish(.signedOut) }
-            send(socket, .hello(ShareHello(role: .viewer, token: token, share: link.id, proof: link.viewerProof, since: seq)))
+            send(
+                socket,
+                .hello(ShareHello(role: .viewer, token: token, share: link.id, proof: link.viewerProof, since: seq)))
         case .ready(let ready):
             failures = 0
             hostOnline = ready.hostOnline ?? false
@@ -256,7 +259,9 @@ final class ShareSession {
             touched.all = true
             drawn += 1
         case .event(let event):
-            guard case .chat(let changes) = event.event, changes.agentId == chat?.agentId, changes.seq > chatSeq else { return }
+            guard case .chat(let changes) = event.event, changes.agentId == chat?.agentId, changes.seq > chatSeq else {
+                return
+            }
             chatSeq = changes.seq
             rows.apply(changes.changes, touched: &touched)
             drawn += 1
@@ -272,14 +277,22 @@ final class ShareSession {
         let id = asked
         let numbered: ShareAsk
         switch question {
-        case .page(var page): page.id = id; numbered = .page(page)
-        case .toolDetail(var detail): detail.id = id; numbered = .toolDetail(detail)
-        case .file(var file): file.id = id; numbered = .file(file)
+        case .page(var page):
+            page.id = id
+            numbered = .page(page)
+        case .toolDetail(var detail):
+            detail.id = id
+            numbered = .toolDetail(detail)
+        case .file(var file):
+            file.id = id
+            numbered = .file(file)
         case .unknown: return nil
         }
         let sealed: String
         do {
-            guard let made = link.seal(String(decoding: try JSONEncoder().encode(numbered), as: UTF8.self)) else { return nil }
+            guard let made = link.seal(String(decoding: try JSONEncoder().encode(numbered), as: UTF8.self)) else {
+                return nil
+            }
             sealed = made
         } catch {
             print("sikemux: could not write a question for the sharer: \(error)")

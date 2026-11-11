@@ -70,13 +70,16 @@ enum ShareExtension {
                 let shown = view.inbox.agents.first { $0.agentId == chat.agentId }
                 let place = shown?.project ?? chat.cwd
                 let project = view.workspace.projects.first { $0.id == place || $0.path == place }
-                found.append((
-                    Chat(host: device.core, hostName: device.displayName, chatId: chat.agentId, provider: chat.provider,
-                         title: chat.title ?? shown?.title ?? "New chat", name: chat.name,
-                         project: project?.name ?? URL(fileURLWithPath: chat.cwd).lastPathComponent),
-                    project?.path ?? chat.cwd,
-                    shown?.activeAt ?? 0
-                ))
+                found.append(
+                    (
+                        Chat(
+                            host: device.core, hostName: device.displayName, chatId: chat.agentId,
+                            provider: chat.provider,
+                            title: chat.title ?? shown?.title ?? "New chat", name: chat.name,
+                            project: project?.name ?? URL(fileURLWithPath: chat.cwd).lastPathComponent),
+                        project?.path ?? chat.cwd,
+                        shown?.activeAt ?? 0
+                    ))
             }
         }
         found.sort { $0.at > $1.at }
@@ -85,7 +88,8 @@ enum ShareExtension {
         let newChat = found.first.map {
             NewChat(host: $0.chat.host, hostName: $0.chat.hostName, project: $0.chat.project, projectPath: $0.path)
         }
-        let next = Snapshot(apiUrl: Config.apiUrl.absoluteString, chats: found.prefix(shown).map(\.chat), newChat: newChat)
+        let next = Snapshot(
+            apiUrl: Config.apiUrl.absoluteString, chats: found.prefix(shown).map(\.chat), newChat: newChat)
         guard next != written else { return }
         do {
             StashShared.write(try JSONEncoder().encode(next))

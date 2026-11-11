@@ -81,7 +81,10 @@ struct ComposerInput: UIViewRepresentable {
         style.minimumLineHeight = Self.line
         style.maximumLineHeight = Self.line
         let font = UIFont(name: "Figtree-Regular", size: Self.size) ?? .systemFont(ofSize: Self.size)
-        return [.font: font, .foregroundColor: color, .paragraphStyle: style, .baselineOffset: (Self.line - font.lineHeight) / 4]
+        return [
+            .font: font, .foregroundColor: color, .paragraphStyle: style,
+            .baselineOffset: (Self.line - font.lineHeight) / 4,
+        ]
     }
 
     private func styled() -> NSAttributedString {
@@ -123,7 +126,9 @@ private final class PlaceholderTextView: UITextView {
     func placeholderHeight(width: CGFloat) -> CGFloat {
         guard let placeholder else { return 0 }
         let inner = width - textContainerInset.left - textContainerInset.right
-        let height = placeholder.boundingRect(with: CGSize(width: inner, height: .greatestFiniteMagnitude), options: .usesLineFragmentOrigin, context: nil).height
+        let height = placeholder.boundingRect(
+            with: CGSize(width: inner, height: .greatestFiniteMagnitude), options: .usesLineFragmentOrigin, context: nil
+        ).height
         return ceil(height) + textContainerInset.top + textContainerInset.bottom
     }
 

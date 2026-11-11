@@ -60,12 +60,13 @@ private struct ChatPane: View {
         let session = ChatSession.of(core: core, agentId: agentId)
         let info = Hub.shared.live(core).view?.chats.first { $0.agentId == agentId }
         _session = State(initialValue: session)
-        _context = State(initialValue: TranscriptContext(
-            provider: info?.provider ?? "agent", core: core, agentId: agentId, folds: session.folds,
-            toolDetail: { [weak session] id, done in
-                guard let session else { throw ChatProblem("the chat is closed") }
-                return try await session.toolDetail(id, done: done)
-            }))
+        _context = State(
+            initialValue: TranscriptContext(
+                provider: info?.provider ?? "agent", core: core, agentId: agentId, folds: session.folds,
+                toolDetail: { [weak session] id, done in
+                    guard let session else { throw ChatProblem("the chat is closed") }
+                    return try await session.toolDetail(id, done: done)
+                }))
     }
 
     private var live: HostLive { Hub.shared.live(core) }
@@ -83,16 +84,23 @@ private struct ChatPane: View {
             Nav(back: nil, onBack: nil) {
                 ChatTitle(agentId: agentId, group: info?.group, provider: provider, name: info?.name, title: title)
             } end: {
-                Button { menu = true } label: {
-                    IconView(icon: Icons.moreVertical, size: 16).foregroundStyle(palette.tertiary).frame(width: 40, height: 40)
-                        .contentShape(Circle())
+                Button {
+                    menu = true
+                } label: {
+                    IconView(icon: Icons.moreVertical, size: 16).foregroundStyle(palette.tertiary).frame(
+                        width: 40, height: 40
+                    )
+                    .contentShape(Circle())
                 }
                 .buttonStyle(ActiveFill(radius: 20))
                 .accessibilityLabel("Chat actions")
             }
             ZStack(alignment: .bottom) {
                 if session.attached != .live && rows.messages.isEmpty {
-                    VStack { Spacer(); status }.frame(maxWidth: .infinity)
+                    VStack {
+                        Spacer()
+                        status
+                    }.frame(maxWidth: .infinity)
                 } else {
                     transcript(rows)
                         .overlay(alignment: .top) { askedStrip(rows) }
@@ -111,10 +119,15 @@ private struct ChatPane: View {
             release = session.hold(live.connection)
         }
         .sheet(shown: $showLive) {
-            LiveSheet(work: LiveWork(rows), provider: provider, steerable: steerable(rows), canAct: !watchOnly, session: session) { scroll.toEnd() }
+            LiveSheet(
+                work: LiveWork(rows), provider: provider, steerable: steerable(rows), canAct: !watchOnly,
+                session: session
+            ) { scroll.toEnd() }
         }
         .sheet(shown: $away) {
-            if let listed { AwaySheet(core: core, shown: listed, onClose: { away = false }, onDone: { Router.shared.back() }) }
+            if let listed {
+                AwaySheet(core: core, shown: listed, onClose: { away = false }, onDone: { Router.shared.back() })
+            }
         }
         .sheet(shown: $menu) {
             ChatMenu(
@@ -229,7 +242,9 @@ private struct ChatPane: View {
     // MARK: The transcript
 
     private func transcript(_ rows: ChatRows) -> some View {
-        let canEdit = !watchOnly && rows.head.capabilities.editing == true && rows.head.connection == .ready && !rows.running && session.attached == .live
+        let canEdit =
+            !watchOnly && rows.head.capabilities.editing == true && rows.head.connection == .ready && !rows.running
+            && session.attached == .live
         let messages = rows.messages
         let unsent = session.unsent
         return Transcript(
@@ -240,16 +255,23 @@ private struct ChatPane: View {
                 look.lit = message.id == lit
                 look.unsent = unsent[message.id]
                 if message.id == open { look.strip = Strip.of(messages, message.id) }
-                look.editable = canEdit && message.role == .user && message.promptId != nil && (message.context ?? []).isEmpty && unsent[message.id] == nil
+                look.editable =
+                    canEdit && message.role == .user && message.promptId != nil && (message.context ?? []).isEmpty
+                    && unsent[message.id] == nil
                 look.editing = message.id == editing && canEdit
             },
-            footer: { TranscriptFooter(session: session, core: core, agentId: agentId, provider: provider, hostName: hostName, canAct: !watchOnly, focus: focus) })
+            footer: {
+                TranscriptFooter(
+                    session: session, core: core, agentId: agentId, provider: provider, hostName: hostName,
+                    canAct: !watchOnly, focus: focus)
+            })
     }
 
     @ViewBuilder private func askedStrip(_ rows: ChatRows) -> some View {
         if let asked = ShownRows.lastAsked(rows.messages), let top = scroll.topRow,
-           let askedAt = rows.messages.firstIndex(where: { $0.id == asked.id }),
-           let topAt = rows.messages.firstIndex(where: { $0.id == top }), topAt > askedAt {
+            let askedAt = rows.messages.firstIndex(where: { $0.id == asked.id }),
+            let topAt = rows.messages.firstIndex(where: { $0.id == top }), topAt > askedAt
+        {
             let text = ShownRows.askedText(asked)
             Button {
                 Haptics.select()
@@ -258,7 +280,8 @@ private struct ChatPane: View {
             } label: {
                 HStack(spacing: 8) {
                     Text("You asked").font(Theme.ui(12)).foregroundStyle(palette.inkDim)
-                    Text(text).font(Theme.ui(12)).foregroundStyle(palette.ink).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
+                    Text(text).font(Theme.ui(12)).foregroundStyle(palette.ink).lineLimit(1).frame(
+                        maxWidth: .infinity, alignment: .leading)
                 }
                 .padding(.horizontal, 18)
                 .frame(height: 32)
@@ -275,14 +298,22 @@ private struct ChatPane: View {
     @ViewBuilder private var status: some View {
         let unreachable = session.attached != .live && isClosed
         if unreachable {
-            ChatProblemView(text: "Can't reach \(hostName). \(capitalised(closedProblem))", action: "Try again") { Hub.shared.retry(core) }
+            ChatProblemView(text: "Can't reach \(hostName). \(capitalised(closedProblem))", action: "Try again") {
+                Hub.shared.retry(core)
+            }
         } else if session.attached == .missing {
-            ChatProblemView(text: session.problem.map(capitalised) ?? "This chat is no longer running on the host.", action: "Try again") { session.retry() }
+            ChatProblemView(
+                text: session.problem.map(capitalised) ?? "This chat is no longer running on the host.",
+                action: "Try again"
+            ) { session.retry() }
         } else if session.attached == .attaching {
             HStack(spacing: 10) {
                 Working()
-                Text(isConnecting ? "Reaching \(hostName)…" : info?.state == .asleep ? "Waking the chat…" : "Opening the chat…")
-                    .metaStyle(palette)
+                Text(
+                    isConnecting
+                        ? "Reaching \(hostName)…" : info?.state == .asleep ? "Waking the chat…" : "Opening the chat…"
+                )
+                .metaStyle(palette)
             }
             .padding(.vertical, 24)
             .accessibilityElement(children: .combine)
@@ -307,7 +338,11 @@ private struct ChatPane: View {
     @ViewBuilder private func bottom(_ rows: ChatRows) -> some View {
         if session.attached == .live {
             VStack(spacing: 0) {
-                if !live.isOpen { Reconnecting(closed: isClosed, problem: closedProblem, hostName: hostName) { Hub.shared.retry(core) } }
+                if !live.isOpen {
+                    Reconnecting(closed: isClosed, problem: closedProblem, hostName: hostName) {
+                        Hub.shared.retry(core)
+                    }
+                }
                 if let notice = session.notice { NoticeBar(text: notice) { session.dismissNotice() } }
                 if let find {
                     FindBar(find: find) { closeFind() }
@@ -324,10 +359,13 @@ private struct ChatPane: View {
 
     private func bottomContext(_ rows: ChatRows) -> ChatBottomContext {
         let work = LiveWork(rows)
-        let strip = work.any && session.attached == .live ? AnyView(LiveStrip(work: work, provider: provider) { showLive = true }) : nil
+        let strip =
+            work.any && session.attached == .live
+            ? AnyView(LiveStrip(work: work, provider: provider) { showLive = true }) : nil
         return ChatBottomContext(
             core: core, agentId: agentId, provider: provider, hostName: hostName, watchOnly: watchOnly,
-            offline: !live.isOpen, steers: steerable(rows), strip: strip, onSent: { scroll.toEnd() }, onRecent: nil, focus: focus)
+            offline: !live.isOpen, steers: steerable(rows), strip: strip, onSent: { scroll.toEnd() }, onRecent: nil,
+            focus: focus)
     }
 
     private func recalls(_ rows: ChatRows) -> Bool {
@@ -351,11 +389,15 @@ private struct TranscriptFooter: View {
 
     var body: some View {
         let rows = session.rows
-        let activity = session.stoppingTurn ? "Stopping…" : session.permissions.isEmpty ? ChatWords.activity(rows.head.activity) : nil
+        let activity =
+            session.stoppingTurn
+            ? "Stopping…" : session.permissions.isEmpty ? ChatWords.activity(rows.head.activity) : nil
         VStack(alignment: .leading, spacing: 0) {
             if !rows.queued.isEmpty { QueuedLines(held: rows.queued) }
             if let activity { ActivityLine(provider: provider, label: activity, since: session.turnSince) }
-            Trouble(session: session, provider: provider, hostName: hostName, canAct: canAct && session.attached == .live && Hub.shared.live(core).isOpen)
+            Trouble(
+                session: session, provider: provider, hostName: hostName,
+                canAct: canAct && session.attached == .live && Hub.shared.live(core).isOpen)
             ChatQuestionsFooter(core: core, agentId: agentId, session: session, canAnswer: canAct, focus: focus)
         }
         .padding(.bottom, 28)
@@ -418,7 +460,8 @@ private struct NoticeBar: View {
     var body: some View {
         HStack(spacing: 9) {
             IconView(icon: Icons.warning, size: 13).foregroundStyle(palette.danger)
-            Text(capitalised(text)).font(Theme.ui(13)).foregroundStyle(palette.secondary).frame(maxWidth: .infinity, alignment: .leading)
+            Text(capitalised(text)).font(Theme.ui(13)).foregroundStyle(palette.secondary).frame(
+                maxWidth: .infinity, alignment: .leading)
             Button(action: onDismiss) {
                 IconView(icon: Icons.close, size: 13).foregroundStyle(palette.inkDim)
             }

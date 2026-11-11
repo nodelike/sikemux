@@ -46,10 +46,12 @@ private struct Watching: View {
     }
 
     private static func context(_ session: ShareSession, provider: String) -> TranscriptContext {
-        TranscriptContext(provider: provider, core: nil, agentId: nil, folds: Folds(), toolDetail: { [weak session] id, _ in
-            guard let session else { throw CancellationError() }
-            return try await session.toolDetail(id)
-        })
+        TranscriptContext(
+            provider: provider, core: nil, agentId: nil, folds: Folds(),
+            toolDetail: { [weak session] id, _ in
+                guard let session else { throw CancellationError() }
+                return try await session.toolDetail(id)
+            })
     }
 
     private var provider: String { session.chat?.provider ?? "agent" }
@@ -57,11 +59,13 @@ private struct Watching: View {
     private var problem: (icon: IconDef, text: String)? {
         switch session.status {
         case .ended:
-            session.endedBecause == .expired ? (Icons.hourglass, "This share has expired.") : (Icons.stop, "Sharing this chat has stopped.")
+            session.endedBecause == .expired
+                ? (Icons.hourglass, "This share has expired.") : (Icons.stop, "Sharing this chat has stopped.")
         case .missing: (Icons.power, "This chat is not running on its host right now.")
         case .notFound: (Icons.unlink, "No chat is shared at this link.")
         case .signedOut: (Icons.user, "Sign in to Sikemux to watch shared chats.")
-        case .unreadable: (Icons.unlink, "This link does not open the chat it points at. Check that the whole link was copied.")
+        case .unreadable:
+            (Icons.unlink, "This link does not open the chat it points at. Check that the whole link was copied.")
         case .connecting, .live: nil
         }
     }
@@ -76,13 +80,16 @@ private struct Watching: View {
     var body: some View {
         let rows = session.rows
         Screen {
-            Nav(back: nil, onBack: nil, title: {
-                HStack(spacing: 8) {
-                    AgentMark(provider: provider, size: 17)
-                    Text(session.title).font(Theme.ui(16, .semibold)).tracking(-0.25).foregroundStyle(palette.ink).lineLimit(1)
-                        .accessibilityAddTraits(.isHeader)
-                }
-            }, end: { EmptyView() })
+            Nav(
+                back: nil, onBack: nil,
+                title: {
+                    HStack(spacing: 8) {
+                        AgentMark(provider: provider, size: 17)
+                        Text(session.title).font(Theme.ui(16, .semibold)).tracking(-0.25).foregroundStyle(palette.ink)
+                            .lineLimit(1)
+                            .accessibilityAddTraits(.isHeader)
+                    }
+                }, end: { EmptyView() })
             if rows.messages.isEmpty {
                 if let problem {
                     ShareProblem(icon: problem.icon, text: problem.text)
@@ -100,7 +107,8 @@ private struct Watching: View {
                 }
             } else {
                 Transcript(
-                    rows: rows, drawn: session.drawn, touched: { session.takeTouched() }, context: context, scroll: scroll,
+                    rows: rows, drawn: session.drawn, touched: { session.takeTouched() }, context: context,
+                    scroll: scroll,
                     hasEarlier: session.hasEarlier, earlier: session.earlier, loadEarlier: { session.loadEarlier() }
                 ) {
                     VStack(alignment: .leading, spacing: 0) {

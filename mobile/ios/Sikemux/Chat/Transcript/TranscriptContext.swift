@@ -20,7 +20,10 @@ final class TranscriptContext {
     @ObservationIgnored let actions = TranscriptActions()
     @ObservationIgnored let reveal = Reveal()
 
-    init(provider: String, core: String?, agentId: String?, folds: Folds, toolDetail: ((String, Bool) async throws -> ToolDetail)?) {
+    init(
+        provider: String, core: String?, agentId: String?, folds: Folds,
+        toolDetail: ((String, Bool) async throws -> ToolDetail)?
+    ) {
         self.provider = provider
         self.core = core
         self.agentId = agentId
@@ -69,9 +72,12 @@ struct Shimmer: View {
                 .overlay {
                     GeometryReader { size in
                         let band = max(48, size.size.width * 0.5)
-                        LinearGradient(colors: [.clear, palette.ink.opacity(0.9), .clear], startPoint: .leading, endPoint: .trailing)
-                            .frame(width: band)
-                            .offset(x: moving ? size.size.width : -band)
+                        LinearGradient(
+                            colors: [.clear, palette.ink.opacity(0.9), .clear], startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                        .frame(width: band)
+                        .offset(x: moving ? size.size.width : -band)
                     }
                     .mask(label)
                     .allowsHitTesting(false)

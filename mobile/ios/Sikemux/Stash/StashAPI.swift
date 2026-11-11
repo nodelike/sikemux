@@ -15,7 +15,9 @@ struct StashFile {
 enum StashAPI {
     static func list(cursor: String?) async throws -> StashList {
         var path = "/v1/stash?taken=false"
-        if let cursor { path += "&cursor=\(cursor.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? cursor)" }
+        if let cursor {
+            path += "&cursor=\(cursor.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? cursor)"
+        }
         return try await AccountAPI.send("GET", path)
     }
 
@@ -39,7 +41,9 @@ enum StashAPI {
         do {
             for file in files { _ = try await upload(file, prompt: item.id) }
         } catch {
-            do { try await delete(item.id) } catch { print("sikemux: could not take back a half-stashed prompt: \(error)") }
+            do { try await delete(item.id) } catch {
+                print("sikemux: could not take back a half-stashed prompt: \(error)")
+            }
             throw error
         }
         return item

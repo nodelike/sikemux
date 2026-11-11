@@ -21,7 +21,9 @@ struct ConfigSheet: View {
                 VStack(spacing: 0) {
                     ForEach(Array(model.choices.enumerated()), id: \.element.value) { index, option in
                         let on = option.value == model.current
-                        Button { onPick(model, option.value) } label: {
+                        Button {
+                            onPick(model, option.value)
+                        } label: {
                             HStack(spacing: 12) {
                                 AgentMark(provider: provider, size: 18)
                                 Text(option.label)
@@ -43,7 +45,9 @@ struct ConfigSheet: View {
                 }
                 .background(palette.raised)
                 .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: Radius.card, style: .continuous).strokeBorder(palette.border, lineWidth: 1))
+                .overlay(
+                    RoundedRectangle(cornerRadius: Radius.card, style: .continuous).strokeBorder(
+                        palette.border, lineWidth: 1))
             }
             if let effort {
                 label("Effort")
@@ -58,9 +62,11 @@ struct ConfigSheet: View {
                     HStack {
                         Text("Context").font(Theme.label).foregroundStyle(palette.tertiary)
                         Spacer()
-                        Text("\(Int((share * 100).rounded()))% · \(ContextFill.tokens(usage.used)) of \(ContextFill.tokens(usage.size))")
-                            .font(Theme.mono(12))
-                            .foregroundStyle(palette.tertiary)
+                        Text(
+                            "\(Int((share * 100).rounded()))% · \(ContextFill.tokens(usage.used)) of \(ContextFill.tokens(usage.size))"
+                        )
+                        .font(Theme.mono(12))
+                        .foregroundStyle(palette.tertiary)
                     }
                     GeometryReader { proxy in
                         ZStack(alignment: .leading) {
@@ -72,7 +78,9 @@ struct ConfigSheet: View {
                     .frame(height: 4)
                     .padding(.top, 8)
                     if let cost = usage.cost {
-                        Text("Session cost \(ContextFill.money(cost))").font(Theme.ui(12.5)).foregroundStyle(palette.tertiary).padding(.top, 8)
+                        Text("Session cost \(ContextFill.money(cost))").font(Theme.ui(12.5)).foregroundStyle(
+                            palette.tertiary
+                        ).padding(.top, 8)
                     }
                 }
                 .padding(.top, 20)
@@ -107,7 +115,9 @@ struct RecentSheet: View {
                 .padding(.bottom, 8)
                 .padding(.horizontal, 6)
             ForEach(Array(prompts.reversed().prefix(Self.shown).enumerated()), id: \.offset) { _, prompt in
-                Button { onPick(prompt) } label: {
+                Button {
+                    onPick(prompt)
+                } label: {
                     HStack(alignment: .top, spacing: 12) {
                         IconView(icon: Icons.clock, size: 15).foregroundStyle(palette.inkFaint).padding(.top, 2)
                         Text(prompt)
@@ -131,14 +141,16 @@ struct RecentSheet: View {
 
     /// What the person sent in this chat, oldest first, with a message repeated back to back kept once.
     static func sent(_ messages: [ChatMessage], queued: [String] = []) -> [String] {
-        let texts = messages
+        let texts =
+            messages
             .filter { $0.role == .user && ($0.letters ?? []).isEmpty }
             .map { message in
                 message.parts.map { part in if case .text(let text) = part { text.text } else { "" } }.joined()
                     .trimmingCharacters(in: .whitespacesAndNewlines)
             }
         var prompts: [String] = []
-        for text in texts + queued.map({ $0.trimmingCharacters(in: .whitespacesAndNewlines) }) where !text.isEmpty && prompts.last != text {
+        for text in texts + queued.map({ $0.trimmingCharacters(in: .whitespacesAndNewlines) })
+        where !text.isEmpty && prompts.last != text {
             prompts.append(text)
         }
         return prompts

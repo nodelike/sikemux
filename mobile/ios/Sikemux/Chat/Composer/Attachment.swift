@@ -45,7 +45,9 @@ struct Unsent: Hashable, Sendable {
 enum Uploads {
     /// What of `picked` the host would take beside the `held` files already picked, and why the rest were left out.
     static func fitting(held: Int, _ picked: [Attachment]) -> (fits: [Attachment], notice: String?) {
-        let sendable = { (attachment: Attachment) in attachment.path != nil || attachment.size <= WireLimits.maxAttachmentBytes }
+        let sendable = { (attachment: Attachment) in
+            attachment.path != nil || attachment.size <= WireLimits.maxAttachmentBytes
+        }
         let tooBig = picked.filter { !sendable($0) }
         let small = picked.filter(sendable)
         let room = max(0, WireLimits.maxAttachments - held)
@@ -73,7 +75,10 @@ enum Uploads {
     ) async -> (sent: [Attachment]?, problem: String?) {
         let waiting = attachments.filter { $0.path == nil }
         for attachment in waiting {
-            mark(attachment.id) { $0.upload = .sending; $0.problem = nil }
+            mark(attachment.id) {
+                $0.upload = .sending
+                $0.problem = nil
+            }
         }
         var sent = attachments
         var failure: String?
@@ -81,11 +86,17 @@ enum Uploads {
             do {
                 let path = try await put(attachment)
                 if let at = sent.firstIndex(where: { $0.id == attachment.id }) { sent[at].path = path }
-                mark(attachment.id) { $0.upload = nil; $0.path = path }
+                mark(attachment.id) {
+                    $0.upload = nil
+                    $0.path = path
+                }
             } catch {
                 let why = problem(error)
                 failure = failure ?? why
-                mark(attachment.id) { $0.upload = .failed; $0.problem = why }
+                mark(attachment.id) {
+                    $0.upload = .failed
+                    $0.problem = why
+                }
             }
         }
         return failure == nil ? (sent, nil) : (nil, failure)

@@ -50,7 +50,9 @@ struct SignInScreen: View {
             ActionButton(buttonTitle, kind: .primary, busy: busy, action: submit)
                 .disabled(step == .email ? email.trimmingCharacters(in: .whitespaces).isEmpty : password.isEmpty)
             if step == .password {
-                Button { run { try await flow.forgot() } } label: {
+                Button {
+                    run { try await flow.forgot() }
+                } label: {
                     Text("Forgot your password?")
                         .font(Theme.ui(15, .medium))
                         .foregroundStyle(palette.secondary)

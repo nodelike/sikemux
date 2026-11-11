@@ -107,7 +107,8 @@ private struct OneBoard: View {
                         SectionLabel(columnLabel(column), count: shown.count)
                         Rows {
                             ForEach(shown, id: \.id) { card in
-                                CardRow(core: core, card: card, cards: cards, byId: byId, view: view, questions: questions)
+                                CardRow(
+                                    core: core, card: card, cards: cards, byId: byId, view: view, questions: questions)
                             }
                         }
                     }
@@ -131,7 +132,8 @@ private struct Triggers: View {
         SectionLabel("Triggers", count: triggers.count)
         Rows {
             ForEach(triggers, id: \.id) { trigger in
-                Row(title: trigger.title, detail: Self.when(trigger),
+                Row(
+                    title: trigger.title, detail: Self.when(trigger),
                     mark: { IconView(icon: Icons.timer, size: 18).foregroundStyle(palette.cmd) }, end: { EmptyView() })
             }
         }
@@ -149,10 +151,13 @@ private struct Triggers: View {
         switch trigger.when {
         case .every(let every):
             let minutes = Int((Double(every.seconds) / 60).rounded(.up))
-            let span = minutes % 1440 == 0 ? "\(minutes / 1440) d" : minutes % 60 == 0 ? "\(minutes / 60) h" : "\(minutes) min"
+            let span =
+                minutes % 1440 == 0 ? "\(minutes / 1440) d" : minutes % 60 == 0 ? "\(minutes / 60) h" : "\(minutes) min"
             return "every \(span) · next \(next)"
         case .daily(let daily):
-            let days = daily.weekdays == [1, 2, 3, 4, 5] ? "weekdays"
+            let days =
+                daily.weekdays == [1, 2, 3, 4, 5]
+                ? "weekdays"
                 : daily.weekdays.isEmpty ? "daily" : daily.weekdays.map { weekdays[$0] }.joined(separator: " ")
             return "\(days) · next \(next)"
         default:
@@ -184,10 +189,16 @@ private struct BetweenAgents: View {
                         let cli = row.from.flatMap(cliOf)
                         Row(
                             title: "\(Self.who(row.from, row.fromName)) to \(Self.who(row.to, row.toName))",
-                            detailText: Text("\(Self.kind(row.kind)) · ") + Text(Self.outcome(row)).foregroundColor(
-                                row.tone == .held ? palette.warn : row.tone == .failed ? palette.danger : palette.tertiary),
+                            detailText: Text("\(Self.kind(row.kind)) · ")
+                                + Text(Self.outcome(row)).foregroundColor(
+                                    row.tone == .held
+                                        ? palette.warn : row.tone == .failed ? palette.danger : palette.tertiary),
                             mark: {
-                                if let cli { AgentMark(provider: cli, size: 20) } else { Dot(color: palette.rest, size: 9, hollow: true) }
+                                if let cli {
+                                    AgentMark(provider: cli, size: 20)
+                                } else {
+                                    Dot(color: palette.rest, size: 9, hollow: true)
+                                }
                             },
                             end: {
                                 Text(Format.age(Format.date(millis: row.sentAt)))
@@ -199,7 +210,9 @@ private struct BetweenAgents: View {
             }
         }
         .task(id: "\(project) \(latest)") {
-            await messages.read(live) { try await $0.call(PhoneCall.AgentMessageRows.self, AgentMessagesParams(project: project)) }
+            await messages.read(live) {
+                try await $0.call(PhoneCall.AgentMessageRows.self, AgentMessagesParams(project: project))
+            }
         }
     }
 
@@ -258,15 +271,22 @@ private struct CardRow: View {
         let handedBack = card.auto?.waitsOnPerson == true && card.status != .done ? card.auto?.note : nil
         let reviewing = card.auto?.stage == .reviewing ? card.auto?.note : nil
         let acceptance = !card.acceptance.isEmpty && card.status != .done ? "Done when: \(card.acceptance)" : nil
-        let detail: Text? = question.map {
-            Text("@\($0.name)").font(Theme.ui(12, .medium)).foregroundColor(palette.secondary) + Text(" asks: \($0.text)")
-        } ?? (handedBack ?? reviewing ?? acceptance).map { Text($0) }
+        let detail: Text? =
+            question.map {
+                Text("@\($0.name)").font(Theme.ui(12, .medium)).foregroundColor(palette.secondary)
+                    + Text(" asks: \($0.text)")
+            } ?? (handedBack ?? reviewing ?? acceptance).map { Text($0) }
 
         Row(
-            title: card.title, detailText: detail, underText: under(owner: owner), dim: card.status == .done, detailLines: 2,
+            title: card.title, detailText: detail, underText: under(owner: owner), dim: card.status == .done,
+            detailLines: 2,
             onPress: chat.map { chat in { Router.shared.push(.chat(core: core, agent: chat.agentId)) } },
             mark: {
-                if let cli { AgentMark(provider: cli, size: 20) } else { Dot(color: palette.rest, size: 9, hollow: true) }
+                if let cli {
+                    AgentMark(provider: cli, size: 20)
+                } else {
+                    Dot(color: palette.rest, size: 9, hollow: true)
+                }
             },
             end: {
                 if card.status == .done {
@@ -288,7 +308,10 @@ private struct CardRow: View {
         let waits = card.waitsOn.compactMap { byId[$0] }
         let after = waits.first ?? card.dependsOn.first.flatMap { byId[$0] }
         let parent = card.parent.flatMap { byId[$0] }
-        var parts: [Text] = [owner.map { Text("@\($0)").font(Theme.ui(12, .medium)).foregroundColor(palette.secondary) } ?? Text("Nobody yet")]
+        var parts: [Text] = [
+            owner.map { Text("@\($0)").font(Theme.ui(12, .medium)).foregroundColor(palette.secondary) }
+                ?? Text("Nobody yet")
+        ]
         if let ticket = card.ticket {
             parts.append(key(ticket.key) + Text(ticket.source.map { " \($0)" } ?? ""))
         } else if let filed = card.ticketAbove {

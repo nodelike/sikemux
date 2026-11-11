@@ -52,7 +52,9 @@ enum AccountAPI {
 
     /// Brings a file's bytes down to a temporary file, which the caller moves where it keeps it.
     static func download(_ path: String) async throws -> URL {
-        let (file, response) = try await reach { try await URLSession.shared.download(for: try await signedIn("GET", path)) }
+        let (file, response) = try await reach {
+            try await URLSession.shared.download(for: try await signedIn("GET", path))
+        }
         try check(response, Data())
         return file
     }
@@ -126,7 +128,9 @@ enum AccountCalls {
             _ = try await AccountAPI.send("POST", "/v1/devices", body: registration, as: WireDevice.self)
         } catch let problem as ApiProblem where problem.status == 401 {
             let account = try? await standing()
-            if account?.status == .deleting, let deletesAt = account?.deletesAt { throw AccountDeleting(deletesAt: deletesAt) }
+            if account?.status == .deleting, let deletesAt = account?.deletesAt {
+                throw AccountDeleting(deletesAt: deletesAt)
+            }
             throw problem
         }
     }
@@ -153,7 +157,8 @@ enum AccountCalls {
 
     static func joinTicket(host: String) async throws -> JoinTicket {
         let key = try Identity.shared.deviceIdentity().id()
-        return try await AccountAPI.send("POST", "/v1/devices/\(key)/join", body: JoinRequest(host: host), as: JoinTicket.self)
+        return try await AccountAPI.send(
+            "POST", "/v1/devices/\(key)/join", body: JoinRequest(host: host), as: JoinTicket.self)
     }
 
     static func standing() async throws -> WireAccount {
@@ -167,6 +172,7 @@ enum AccountCalls {
     /// Deletes the account and every device on it, with Apple's code for the server to revoke when it signs in
     /// with Apple.
     static func delete(appleAuthorizationCode: String?) async throws {
-        try await AccountAPI.send("DELETE", "/v1/account", body: AccountDeletionRequest(appleAuthorizationCode: appleAuthorizationCode))
+        try await AccountAPI.send(
+            "DELETE", "/v1/account", body: AccountDeletionRequest(appleAuthorizationCode: appleAuthorizationCode))
     }
 }

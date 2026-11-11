@@ -52,7 +52,8 @@ extension AttributedString {
         var out = self
         var cursor = out.endIndex
         for piece in fading.reversed() {
-            guard let start = out.characters.index(cursor, offsetBy: -piece.text.count, limitedBy: out.startIndex) else { break }
+            guard let start = out.characters.index(cursor, offsetBy: -piece.text.count, limitedBy: out.startIndex)
+            else { break }
             out[start..<cursor].foregroundColor = color.opacity(piece.opacity)
             cursor = start
         }

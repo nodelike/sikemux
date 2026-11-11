@@ -23,14 +23,16 @@ enum ProviderSignIn {
         let (started, _) = try await Clerk.call(
             "POST", "v1/client/sign_ins", ["strategy": strategy, "redirect_url": redirect], as: Clerk.SignIn.self
         )
-        guard let page = started.firstFactorVerification?.externalVerificationRedirectUrl.flatMap(URL.init(string:)) else {
+        guard let page = started.firstFactorVerification?.externalVerificationRedirectUrl.flatMap(URL.init(string:))
+        else {
             throw Clerk.Problem(code: nil, message: "Something went wrong; try again.")
         }
         let back = try await WebSheet.open(page, scheme: Config.urlScheme)
         let nonce = URLComponents(url: back, resolvingAgainstBaseURL: false)?
             .queryItems?.first { $0.name == "rotating_token_nonce" }?.value
         let (signIn, client) = try await Clerk.call(
-            "GET", "v1/client/sign_ins/\(started.id)", nonce.map { ["rotating_token_nonce": $0] } ?? [:], as: Clerk.SignIn.self
+            "GET", "v1/client/sign_ins/\(started.id)", nonce.map { ["rotating_token_nonce": $0] } ?? [:],
+            as: Clerk.SignIn.self
         )
         try await finish(signIn, client)
     }
@@ -53,21 +55,28 @@ enum ProviderSignIn {
             return try await Account.shared.activate(session: session, client: client)
         }
         guard signIn.firstFactorVerification?.status == .transferable else {
-            throw Clerk.Problem(code: nil, message: "This account needs a sign-in step the app does not do yet; sign in on the web first.")
+            throw Clerk.Problem(
+                code: nil,
+                message: "This account needs a sign-in step the app does not do yet; sign in on the web first.")
         }
-        let (signUp, made) = try await Clerk.call("POST", "v1/client/sign_ups", ["transfer": "true"], as: Clerk.SignUp.self)
+        let (signUp, made) = try await Clerk.call(
+            "POST", "v1/client/sign_ups", ["transfer": "true"], as: Clerk.SignUp.self)
         guard let session = signUp.createdSessionId else {
-            throw Clerk.Problem(code: nil, message: "The account needs more than this app asks for; finish signing up on the web.")
+            throw Clerk.Problem(
+                code: nil, message: "The account needs more than this app asks for; finish signing up on the web.")
         }
         try await Account.shared.activate(session: session, client: made)
     }
 
-    static let appleFailed = "Apple did not sign you in. Check this iPhone is signed in to an Apple Account in Settings, then try again."
+    static let appleFailed =
+        "Apple did not sign you in. Check this iPhone is signed in to an Apple Account in Settings, then try again."
 }
 
 /// Apple's own sign-in sheet.
 @MainActor
-final class AppleSheet: NSObject, ASAuthorizationControllerDelegate, ASAuthorizationControllerPresentationContextProviding {
+final class AppleSheet: NSObject, ASAuthorizationControllerDelegate,
+    ASAuthorizationControllerPresentationContextProviding
+{
     private var answer: CheckedContinuation<ASAuthorizationAppleIDCredential, Error>?
     private static var showing: AppleSheet?
 
@@ -91,7 +100,9 @@ final class AppleSheet: NSObject, ASAuthorizationControllerDelegate, ASAuthoriza
         keyWindow()
     }
 
-    func authorizationController(controller: ASAuthorizationController, didCompleteWithAuthorization authorization: ASAuthorization) {
+    func authorizationController(
+        controller: ASAuthorizationController, didCompleteWithAuthorization authorization: ASAuthorization
+    ) {
         if let credential = authorization.credential as? ASAuthorizationAppleIDCredential {
             answer?.resume(returning: credential)
         } else {
@@ -102,7 +113,9 @@ final class AppleSheet: NSObject, ASAuthorizationControllerDelegate, ASAuthoriza
 
     func authorizationController(controller: ASAuthorizationController, didCompleteWithError error: Error) {
         let cancelled = (error as? ASAuthorizationError)?.code == .canceled
-        answer?.resume(throwing: cancelled ? ProviderSignIn.Cancelled() : Clerk.Problem(code: nil, message: ProviderSignIn.appleFailed))
+        answer?.resume(
+            throwing: cancelled
+                ? ProviderSignIn.Cancelled() : Clerk.Problem(code: nil, message: ProviderSignIn.appleFailed))
         answer = nil
     }
 }

@@ -76,7 +76,9 @@ private struct PairingContent: View {
             if let device = pairing?.devices.first(where: { $0.id == editing }) {
                 DeviceSheet(device: device) { access in
                     if access == nil { editing = nil }
-                    change(device.id) { try await $0.call(PhoneCall.ChangeDevice.self, DeviceChange(id: device.id, access: access)) }
+                    change(device.id) {
+                        try await $0.call(PhoneCall.ChangeDevice.self, DeviceChange(id: device.id, access: access))
+                    }
                 }
             }
         }
@@ -91,12 +93,17 @@ private struct PairingContent: View {
             SectionLabel("Asking to connect")
             Rows {
                 ForEach(pending, id: \.id) { request in
-                    Row(title: request.name.isEmpty ? "A phone" : request.name, detail: "\(platformName(request.platform)) · from your account",
-                        mark: { IconView(icon: Icons.phone, size: 18).foregroundStyle(palette.ink) }, end: { EmptyView() })
+                    Row(
+                        title: request.name.isEmpty ? "A phone" : request.name,
+                        detail: "\(platformName(request.platform)) · from your account",
+                        mark: { IconView(icon: Icons.phone, size: 18).foregroundStyle(palette.ink) },
+                        end: { EmptyView() })
                     chips {
                         Chip(title: "Refuse", busy: busy == request.id) { answer(request.id, nil) }
                         Chip(title: "Watch only", busy: busy == request.id) { answer(request.id, .watch) }
-                        Chip(title: "Full control", primary: true, busy: busy == request.id) { answer(request.id, .full) }
+                        Chip(title: "Full control", primary: true, busy: busy == request.id) {
+                            answer(request.id, .full)
+                        }
                     }
                 }
             }
@@ -106,7 +113,9 @@ private struct PairingContent: View {
             Rows {
                 ForEach(pairing.devices, id: \.id) { paired in
                     let me = paired.id == phone
-                    let seen = paired.lastSeen.map(Format.date(millis:)).map { "seen \(Format.ago($0, now: now))" } ?? "never connected"
+                    let seen =
+                        paired.lastSeen.map(Format.date(millis:)).map { "seen \(Format.ago($0, now: now))" }
+                        ?? "never connected"
                     Row(
                         title: paired.name.isEmpty ? "Unnamed phone" : paired.name,
                         detail: "\(accessLabel(paired.access)) · \(me ? "this phone" : seen)",
@@ -120,8 +129,11 @@ private struct PairingContent: View {
             SectionLabel("Asking to link")
             Rows {
                 ForEach(asking, id: \.id) { request in
-                    Row(title: request.name.isEmpty ? "A host" : request.name, detail: "\(platformName(request.platform)) · from your account",
-                        mark: { IconView(icon: hostKind(request.platform), size: 18).foregroundStyle(palette.ink) }, end: { EmptyView() })
+                    Row(
+                        title: request.name.isEmpty ? "A host" : request.name,
+                        detail: "\(platformName(request.platform)) · from your account",
+                        mark: { IconView(icon: hostKind(request.platform), size: 18).foregroundStyle(palette.ink) },
+                        end: { EmptyView() })
                     chips {
                         Chip(title: "Decline", busy: busy == request.id) { answer(request.id, nil) }
                         Chip(title: "Allow", primary: true, busy: busy == request.id) { answer(request.id, .full) }
@@ -133,11 +145,20 @@ private struct PairingContent: View {
             SectionLabel("Linked hosts")
             Rows {
                 ForEach(links, id: \.id) { link in
-                    let reach = link.connected ? "connected" : link.lastSeen.map(Format.date(millis:)).map { "seen \(Format.ago($0, now: now))" } ?? "never connected"
-                    let detail = [platformName(link.platform), reach, link.agents > 0 ? "\(link.agents) \(Format.counted("agent", link.agents))" : nil]
-                        .compactMap { $0 }.joined(separator: " · ")
-                    Row(title: link.name, detail: detail,
-                        mark: { IconView(icon: hostKind(link.platform), size: 18).foregroundStyle(palette.secondary) }, end: { EmptyView() })
+                    let reach =
+                        link.connected
+                        ? "connected"
+                        : link.lastSeen.map(Format.date(millis:)).map { "seen \(Format.ago($0, now: now))" }
+                            ?? "never connected"
+                    let detail = [
+                        platformName(link.platform), reach,
+                        link.agents > 0 ? "\(link.agents) \(Format.counted("agent", link.agents))" : nil,
+                    ]
+                    .compactMap { $0 }.joined(separator: " · ")
+                    Row(
+                        title: link.name, detail: detail,
+                        mark: { IconView(icon: hostKind(link.platform), size: 18).foregroundStyle(palette.secondary) },
+                        end: { EmptyView() })
                 }
             }
         }
@@ -167,7 +188,10 @@ private struct PairingContent: View {
     }
 
     private func answer(_ id: String, _ access: DeviceAccess?) {
-        change(id) { try await $0.call(PhoneCall.AnswerPairing.self, PairingAnswer(id: id, allow: access != nil, access: access ?? .watch)) }
+        change(id) {
+            try await $0.call(
+                PhoneCall.AnswerPairing.self, PairingAnswer(id: id, allow: access != nil, access: access ?? .watch))
+        }
     }
 
     private func change(_ id: String, _ ask: @escaping (Connection) async throws -> RemotePairing) {
@@ -200,8 +224,9 @@ private struct DeviceSheet: View {
                 .tracking(-0.35)
                 .foregroundStyle(palette.ink)
                 .lineLimit(1)
-            Track(options: accessOptions.map { .init(value: $0.value, label: $0.label) },
-                  value: Binding(get: { device.access }, set: { onAccess($0) }))
+            Track(
+                options: accessOptions.map { .init(value: $0.value, label: $0.label) },
+                value: Binding(get: { device.access }, set: { onAccess($0) }))
             Text(accessOptions.first { $0.value == device.access }?.detail ?? "").metaStyle(palette)
             ActionButton("Remove from this host", kind: .danger) { onAccess(nil) }
                 .padding(.top, 8)

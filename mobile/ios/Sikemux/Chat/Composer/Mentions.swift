@@ -12,7 +12,12 @@ struct TextToken: Hashable, Sendable {
 
 /// A word that asks for something to name, and where it starts.
 struct Typed: Hashable {
-    enum Trigger: String, CaseIterable { case agents = "@", issues = "#", pulls = "!", files = "+" }
+    enum Trigger: String, CaseIterable {
+        case agents = "@"
+        case issues = "#"
+        case pulls = "!"
+        case files = "+"
+    }
     var trigger: Trigger
     var start: Int
     var needle: String
@@ -31,14 +36,18 @@ enum Mentions {
     static let earlier = "earlier:"
     static let tracked = "tracked:"
 
-    static func trackedId(_ kind: String, _ number: Int, _ url: String) -> String { "\(tracked)\(kind):\(number):\(url)" }
+    static func trackedId(_ kind: String, _ number: Int, _ url: String) -> String {
+        "\(tracked)\(kind):\(number):\(url)"
+    }
 
     private static let typedPattern = try! NSRegularExpression(pattern: "(^|\\s)([@+#!])(\\S*)$")
 
     /// The word at the end of `draft` that asks for something to name, unless it is a chip already.
     static func typed(_ draft: String, _ tokens: [TextToken]) -> Typed? {
         let text = draft as NSString
-        guard let found = typedPattern.firstMatch(in: draft, range: NSRange(location: 0, length: text.length)) else { return nil }
+        guard let found = typedPattern.firstMatch(in: draft, range: NSRange(location: 0, length: text.length)) else {
+            return nil
+        }
         let start = found.range(at: 2).location
         if tokens.contains(where: { $0.start == start }) { return nil }
         guard let trigger = Typed.Trigger(rawValue: text.substring(with: found.range(at: 2))) else { return nil }
@@ -53,7 +62,9 @@ enum Mentions {
         var start = 0
         while start < old.count && start < new.count && old[start] == new[start] { start += 1 }
         var tail = 0
-        while tail < old.count - start && tail < new.count - start && old[old.count - 1 - tail] == new[new.count - 1 - tail] {
+        while tail < old.count - start && tail < new.count - start
+            && old[old.count - 1 - tail] == new[new.count - 1 - tail]
+        {
             tail += 1
         }
         var removedEnd = old.count - tail
@@ -70,7 +81,9 @@ enum Mentions {
         let moved = length - old.count
         let tokens = tokens.compactMap { token -> TextToken? in
             if token.end <= start { return token }
-            if token.start >= removedEnd { return TextToken(start: token.start + moved, end: token.end + moved, id: token.id, label: token.label) }
+            if token.start >= removedEnd {
+                return TextToken(start: token.start + moved, end: token.end + moved, id: token.id, label: token.label)
+            }
             return nil
         }
         return (text, tokens)
@@ -115,9 +128,12 @@ enum Mentions {
         }
         let units = Array(text.utf16)
         for token in tokens {
-            let written = String(decoding: units[min(token.start, units.count)..<min(token.end, units.count)], as: UTF16.self)
+            let written = String(
+                decoding: units[min(token.start, units.count)..<min(token.end, units.count)], as: UTF16.self)
             let id = token.id
-            let path = id.hasPrefix(file) ? String(id.dropFirst(file.count)) : id.hasPrefix(folder) ? String(id.dropFirst(folder.count)) : nil
+            let path =
+                id.hasPrefix(file)
+                ? String(id.dropFirst(file.count)) : id.hasPrefix(folder) ? String(id.dropFirst(folder.count)) : nil
             if let item = tracked[id] {
                 add(item)
             } else if let path {

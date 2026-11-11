@@ -38,7 +38,10 @@ final class Outbox {
     @ObservationIgnored private let chat: () -> ChatRows
     @ObservationIgnored private let emit: () -> Void
 
-    init(agentId: String, connection: @escaping () -> Connection?, chat: @escaping () -> ChatRows, emit: @escaping () -> Void) {
+    init(
+        agentId: String, connection: @escaping () -> Connection?, chat: @escaping () -> ChatRows,
+        emit: @escaping () -> Void
+    ) {
         self.agentId = agentId
         self.connection = connection
         self.chat = chat
@@ -87,7 +90,10 @@ final class Outbox {
 
     func retry(_ messageId: String) {
         guard let entry = entries.first(where: { $0.messageId == messageId }), entry.state == .failed else { return }
-        update(messageId) { $0.state = .sending; $0.problem = nil }
+        update(messageId) {
+            $0.state = .sending
+            $0.problem = nil
+        }
         push(entry)
     }
 
@@ -126,14 +132,16 @@ final class Outbox {
                 if !steers { return try await self.prompt(connection, id, text, paths, named.context) }
                 let ids = self.onHostQueue(self.chat().queued.map(\.id))
                 let message = QueuedMessageParams(text: text, paths: paths, context: named.context)
-                _ = try await connection.call(PhoneCall.SteerQueued.self, QueuedParams(agentId: self.agentId, ids: ids, message: message))
+                _ = try await connection.call(
+                    PhoneCall.SteerQueued.self, QueuedParams(agentId: self.agentId, ids: ids, message: message))
             }
         } catch {
             holding.removeAll { $0.message.id == id }
             throw error
         }
         if let held = holding.first(where: { $0.message.id == id }),
-           steers || notQueued([held], chat().queued).isEmpty {
+            steers || notQueued([held], chat().queued).isEmpty
+        {
             holding.removeAll { $0.message.id == id }
         } else if let at = holding.firstIndex(where: { $0.message.id == id }) {
             holding[at].taken = true
@@ -163,21 +171,28 @@ final class Outbox {
         let chat = chat()
         let shown = Set(chat.messages.compactMap(\.promptId))
         let queued = Set(chat.queued.map(\.id))
-        let kept = entries.filter { $0.state != .sent || (!shown.contains($0.messageId) && !queued.contains($0.messageId)) }
+        let kept = entries.filter {
+            $0.state != .sent || (!shown.contains($0.messageId) && !queued.contains($0.messageId))
+        }
         if kept.count != entries.count { entries = kept }
     }
 
     /// Puts each of `files` the host does not have yet on it, answering them all with their paths or throwing why one
     /// did not get there.
-    func put(_ connection: Connection?, _ files: [Attachment], mark: (String, (inout Attachment) -> Void) -> Void) async throws -> [Attachment] {
+    func put(_ connection: Connection?, _ files: [Attachment], mark: (String, (inout Attachment) -> Void) -> Void)
+        async throws -> [Attachment]
+    {
         let agentId = agentId
-        let (sent, failure) = await Uploads.each(files, put: { attachment in
-            guard let connection, connection.isOpen() else { throw OutboxError.closed }
-            let bytes = try await Task.detached { try Data(contentsOf: attachment.uri) }.value
-            let path = try await connection.attachFile(agentId: agentId, name: attachment.name, mime: attachment.mime, bytes: bytes)
-            self.sentFiles[path] = attachment
-            return path
-        }, mark: mark)
+        let (sent, failure) = await Uploads.each(
+            files,
+            put: { attachment in
+                guard let connection, connection.isOpen() else { throw OutboxError.closed }
+                let bytes = try await Task.detached { try Data(contentsOf: attachment.uri) }.value
+                let path = try await connection.attachFile(
+                    agentId: agentId, name: attachment.name, mime: attachment.mime, bytes: bytes)
+                self.sentFiles[path] = attachment
+                return path
+            }, mark: mark)
         guard let sent else { throw OutboxError.failed(failure ?? "a file did not reach the host") }
         return sent
     }
@@ -188,7 +203,9 @@ final class Outbox {
 
     /// Sends a message; one that names agents, chats or issues goes as a call, since the phone's own request carries
     /// none.
-    private func prompt(_ connection: Connection, _ messageId: String, _ text: String, _ paths: [String], _ context: [ChatContext]) async throws {
+    private func prompt(
+        _ connection: Connection, _ messageId: String, _ text: String, _ paths: [String], _ context: [ChatContext]
+    ) async throws {
         if context.isEmpty {
             try await connection.prompt(agentId: agentId, messageId: messageId, text: text, paths: paths)
             return
@@ -219,16 +236,22 @@ final class Outbox {
                     let files = self.entries.first(where: { $0.messageId == id })?.files ?? entry.files
                     let sent = try await self.put(connection, files) { fileId, change in
                         self.update(id) { outgoing in
-                            if let at = outgoing.files.firstIndex(where: { $0.id == fileId }) { change(&outgoing.files[at]) }
+                            if let at = outgoing.files.firstIndex(where: { $0.id == fileId }) {
+                                change(&outgoing.files[at])
+                            }
                         }
                     }
-                    try await self.prompt(connection, id, entry.text, Uploads.paths(sent) + entry.named.paths, entry.named.context)
+                    try await self.prompt(
+                        connection, id, entry.text, Uploads.paths(sent) + entry.named.paths, entry.named.context)
                 }
                 update(id) { $0.state = .sent }
                 settle()
                 emit()
             } catch {
-                update(id) { $0.state = .failed; $0.problem = problem(error) }
+                update(id) {
+                    $0.state = .failed
+                    $0.problem = problem(error)
+                }
             }
         }
     }

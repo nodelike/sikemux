@@ -1,5 +1,5 @@
-import SwiftUI
 import SikemuxCore
+import SwiftUI
 
 /// One button of a dock: `go` is the one it leads with, `quiet` one that says no.
 struct DockAct: Identifiable {
@@ -49,7 +49,8 @@ struct Dock: View {
                         .lineSpacing(18 - 12.5 * 1.2)
                         .textSelection(.enabled)
                     if let diff {
-                        (Text("+\(diff.adds)").foregroundColor(palette.gitAdded) + Text(" ") + Text("−\(diff.dels)").foregroundColor(palette.gitDeleted))
+                        (Text("+\(diff.adds)").foregroundColor(palette.gitAdded) + Text(" ")
+                            + Text("−\(diff.dels)").foregroundColor(palette.gitDeleted))
                             .font(Theme.mono(12.5))
                     }
                 }
@@ -73,7 +74,9 @@ struct Dock: View {
         }
         .padding(12)
         .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(palette.overlay))
-        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(palette.borderStrong, lineWidth: 1))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(palette.borderStrong, lineWidth: 1)
+        )
         .padding(.bottom, 8)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("\(title) \(detail)")
@@ -91,7 +94,10 @@ struct Dock: View {
                 .padding(.horizontal, 6)
                 .frame(maxWidth: .infinity, minHeight: 38)
                 .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(act.go ? palette.ink : .clear))
-                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(act.go ? palette.ink : palette.borderStrong, lineWidth: 1))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(
+                        act.go ? palette.ink : palette.borderStrong, lineWidth: 1)
+                )
                 .contentShape(Rectangle())
         }
         .buttonStyle(PressFade())
@@ -101,18 +107,26 @@ struct Dock: View {
 
     private func pages(_ pager: Pager) -> some View {
         HStack(spacing: 2) {
-            pageButton(Icons.chevron, flipped: true, disabled: pager.index == 0, label: "Previous \(pager.noun)") { pager.onPage(pager.index - 1) }
+            pageButton(Icons.chevron, flipped: true, disabled: pager.index == 0, label: "Previous \(pager.noun)") {
+                pager.onPage(pager.index - 1)
+            }
             Text("\(pager.index + 1) of \(pager.count)")
                 .font(Theme.ui(12))
                 .monospacedDigit()
                 .foregroundStyle(palette.tertiary)
-                .accessibilityLabel("\(pager.noun.prefix(1).uppercased())\(pager.noun.dropFirst()) \(pager.index + 1) of \(pager.count)")
-            pageButton(Icons.chevron, flipped: false, disabled: pager.index == pager.count - 1, label: "Next \(pager.noun)") { pager.onPage(pager.index + 1) }
+                .accessibilityLabel(
+                    "\(pager.noun.prefix(1).uppercased())\(pager.noun.dropFirst()) \(pager.index + 1) of \(pager.count)"
+                )
+            pageButton(
+                Icons.chevron, flipped: false, disabled: pager.index == pager.count - 1, label: "Next \(pager.noun)"
+            ) { pager.onPage(pager.index + 1) }
         }
         .padding(.top, -2)
     }
 
-    private func pageButton(_ icon: IconDef, flipped: Bool, disabled: Bool, label: String, _ action: @escaping () -> Void) -> some View {
+    private func pageButton(
+        _ icon: IconDef, flipped: Bool, disabled: Bool, label: String, _ action: @escaping () -> Void
+    ) -> some View {
         Button(action: action) {
             IconView(icon: icon, size: 12)
                 .foregroundStyle(palette.secondary)
@@ -175,11 +189,15 @@ struct PermissionDock: View {
     /// All of what the agent asks to run or touch, since the end of a command can change what it does.
     static func asked(_ tool: ToolCall) -> String {
         if case .object(let input) = tool.rawInput {
-            if case .string(let command) = input["command"], !command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            if case .string(let command) = input["command"],
+                !command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            {
                 return command.trimmingCharacters(in: .whitespacesAndNewlines)
             }
             if case .array(let words) = input["command"] {
-                let strings = words.compactMap { word -> String? in if case .string(let text) = word { text } else { nil } }
+                let strings = words.compactMap { word -> String? in
+                    if case .string(let text) = word { text } else { nil }
+                }
                 if strings.count == words.count { return strings.joined(separator: " ") }
             }
         }
@@ -210,13 +228,15 @@ struct HoldDock: View {
         let hold = holds[index]
         var acts: [DockAct] = []
         if let letGo = hold.letGo {
-            acts.append(DockAct(
-                id: "always", label: "Always allow \(letGo)\(hold.letGoIn.map { " in \($0)" } ?? "")",
-                go: true, wide: true, onPress: { onAnswer(hold, .letGo) }
-            ))
+            acts.append(
+                DockAct(
+                    id: "always", label: "Always allow \(letGo)\(hold.letGoIn.map { " in \($0)" } ?? "")",
+                    go: true, wide: true, onPress: { onAnswer(hold, .letGo) }
+                ))
         }
         acts.append(DockAct(id: "refuse", label: "Refuse", quiet: true, onPress: { onAnswer(hold, .refuse) }))
-        acts.append(DockAct(id: "once", label: "Allow once", go: hold.letGo == nil, onPress: { onAnswer(hold, .allow) }))
+        acts.append(
+            DockAct(id: "once", label: "Allow once", go: hold.letGo == nil, onPress: { onAnswer(hold, .allow) }))
         return Dock(
             title: Self.titles[hold.kind] ?? "Allow this?",
             detail: hold.why ?? "Sikemux held this until you allow it",

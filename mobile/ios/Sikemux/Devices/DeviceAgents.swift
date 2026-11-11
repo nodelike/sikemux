@@ -23,9 +23,12 @@ struct DeviceAgents: View {
         let settled = agents.filter { $0.settledAt != nil }
         let workers = view.inbox.remoteAgents
         let leads = Set(open.map(\.agentId))
-        let strays = scope != nil ? [] : workers.filter { worker in
-            !(worker.lead.map(leads.contains) ?? false) && listed(nil, provider, project: nil, type: worker.cli)
-        }
+        let strays =
+            scope != nil
+            ? []
+            : workers.filter { worker in
+                !(worker.lead.map(leads.contains) ?? false) && listed(nil, provider, project: nil, type: worker.cli)
+            }
         let recent = view.recent.contains { scope == nil || $0.project == scope?.id }
 
         MinuteClock { now in
@@ -35,7 +38,9 @@ struct DeviceAgents: View {
                     Rows {
                         ForEach(open, id: \.agentId) { agent in
                             row(agent, now: now)
-                            ForEach(workers.filter { $0.lead == agent.agentId }, id: \.agentId) { WorkerRow(worker: $0, nested: true) }
+                            ForEach(workers.filter { $0.lead == agent.agentId }, id: \.agentId) {
+                                WorkerRow(worker: $0, nested: true)
+                            }
                         }
                         ForEach(strays, id: \.agentId) { WorkerRow(worker: $0) }
                     }
@@ -43,9 +48,11 @@ struct DeviceAgents: View {
                 }
                 AwayGroup(label: "Snoozed", fold: "snoozed", agents: snoozed) { row($0, now: now) }
                 AwayGroup(label: "Settled", fold: "settled", agents: settled) { row($0, now: now) }
-                Recent(core: core, view: view, scope: scope, provider: provider, full: full, hostName: hostName, now: now)
+                Recent(
+                    core: core, view: view, scope: scope, provider: provider, full: full, hostName: hostName, now: now)
                 if open.isEmpty && strays.isEmpty && snoozed.isEmpty && settled.isEmpty && !recent {
-                    EmptyState(icon: Icons.agentLine, text: scope.map { "No agents in \($0.name)." } ?? "No agents running.")
+                    EmptyState(
+                        icon: Icons.agentLine, text: scope.map { "No agents in \($0.name)." } ?? "No agents running.")
                 }
             }
         }
@@ -80,11 +87,14 @@ private struct ChatRow: View {
             onPress: { Router.shared.push(.chat(core: core, agent: shown.agentId)) },
             onLongPress: onHold,
             mark: {
-                AgentFaceView(agentId: shown.agentId, provider: shown.cli, group: shown.group, size: 20).opacity(away ? 0.55 : 1)
+                AgentFaceView(agentId: shown.agentId, provider: shown.cli, group: shown.group, size: 20).opacity(
+                    away ? 0.55 : 1)
             },
             end: {
                 if away {
-                    if shown.settledAt == nil, let until = shown.snoozedUntil.map(Format.date(millis:)) { WakeTime(at: until, now: now) }
+                    if shown.settledAt == nil, let until = shown.snoozedUntil.map(Format.date(millis:)) {
+                        WakeTime(at: until, now: now)
+                    }
                 } else {
                     if shown.subagents > 0 { SubagentCount(count: shown.subagents) }
                     if shown.tasks > 0 { ShellCount(count: shown.tasks) }
@@ -113,7 +123,8 @@ private struct TerminalAgentRow: View {
             title: shown.title, name: away ? nil : shown.name, place: place, dim: away,
             onPress: onOpen, onLongPress: onHold,
             mark: {
-                AgentFaceView(agentId: shown.agentId, provider: shown.cli, group: shown.group, size: 20).opacity(away ? 0.55 : 1)
+                AgentFaceView(agentId: shown.agentId, provider: shown.cli, group: shown.group, size: 20).opacity(
+                    away ? 0.55 : 1)
             },
             end: {
                 if snoozed, let until = shown.snoozedUntil.map(Format.date(millis:)) {
@@ -158,7 +169,9 @@ private struct RestoreButton: View {
                     .padding(.horizontal, 10)
                     .frame(height: 28)
                     .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(palette.raised))
-                    .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(palette.border, lineWidth: 1))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(palette.border, lineWidth: 1)
+                    )
             }
             .buttonStyle(PressFade())
             .padding(.leading, 6)
@@ -178,7 +191,9 @@ private struct AwayGroup<Content: View>: View {
     var body: some View {
         let folded = Folded.shared.shut.contains(fold)
         if !agents.isEmpty {
-            Button { Folded.shared.toggle(fold) } label: {
+            Button {
+                Folded.shared.toggle(fold)
+            } label: {
                 SectionLabel(text: label, count: agents.count) {
                     IconView(icon: Icons.chevron, size: 12)
                         .foregroundStyle(palette.tertiary)
@@ -204,7 +219,8 @@ struct WorkerRow: View {
 
     var body: some View {
         Row(
-            name: worker.name, host: worker.host, detail: worker.reachable ? worker.label : "Out of reach", place: worker.project,
+            name: worker.name, host: worker.host, detail: worker.reachable ? worker.label : "Out of reach",
+            place: worker.project,
             dim: !worker.reachable,
             mark: { AgentMark(provider: worker.cli, size: 16).opacity(worker.reachable ? 1 : 0.5) },
             end: {
@@ -213,8 +229,9 @@ struct WorkerRow: View {
                 } else {
                     Dot(color: palette.rest, hollow: true)
                 }
-            })
-            .padding(.leading, nested ? 30 : 0)
+            }
+        )
+        .padding(.leading, nested ? 30 : 0)
     }
 }
 
@@ -234,7 +251,9 @@ private struct Recent: View {
     private static let shownFirst = 10
 
     var body: some View {
-        let chats = view.recent.filter { $0.agentId == nil && listed(scope, provider, project: $0.project, type: $0.provider) }
+        let chats = view.recent.filter {
+            $0.agentId == nil && listed(scope, provider, project: $0.project, type: $0.provider)
+        }
         let shown = all ? chats : Array(chats.prefix(Self.shownFirst))
         if !chats.isEmpty {
             SectionLabel("Recent")
@@ -248,12 +267,15 @@ private struct Recent: View {
                             if resuming == chat.id {
                                 Working()
                             } else {
-                                Text(Format.age(Format.date(millis: chat.activeAt), now: now)).font(Theme.ui(12)).monospacedDigit().foregroundStyle(palette.tertiary)
+                                Text(Format.age(Format.date(millis: chat.activeAt), now: now)).font(Theme.ui(12))
+                                    .monospacedDigit().foregroundStyle(palette.tertiary)
                             }
                         })
                 }
                 if shown.count < chats.count {
-                    Button { all = true } label: {
+                    Button {
+                        all = true
+                    } label: {
                         Text("Show \(chats.count - shown.count) more")
                             .metaStyle(palette)
                             .padding(.leading, 38)
@@ -320,7 +342,8 @@ struct Terminals: View {
         }
         return VStack(spacing: 0) {
             if order.isEmpty {
-                EmptyState(icon: Icons.command, text: scope.map { "No terminals in \($0.name)." } ?? "No terminals open.")
+                EmptyState(
+                    icon: Icons.command, text: scope.map { "No terminals in \($0.name)." } ?? "No terminals open.")
             }
             ForEach(order, id: \.self) { project in
                 if scope == nil { SectionLabel(project) } else { Color.clear.frame(height: 8) }

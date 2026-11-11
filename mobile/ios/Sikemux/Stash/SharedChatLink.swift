@@ -9,7 +9,7 @@ struct SharedChatLink: Hashable {
 
     init?(id: String, key: String?) {
         guard let key, id.wholeMatch(of: /[A-Za-z0-9_-]{22}/) != nil, key.wholeMatch(of: /[A-Za-z0-9_-]{43}/) != nil,
-              let bytes = Data(base64URL: key)
+            let bytes = Data(base64URL: key)
         else { return nil }
         self.id = id
         self.key = key
@@ -27,7 +27,7 @@ struct SharedChatLink: Hashable {
     /// not seal it.
     func open(_ sealed: String) -> String? {
         guard let bytes = Data(base64URL: sealed), let box = try? AES.GCM.SealedBox(combined: bytes),
-              let plain = try? AES.GCM.open(box, using: secret, authenticating: aad)
+            let plain = try? AES.GCM.open(box, using: secret, authenticating: aad)
         else { return nil }
         return String(data: plain, encoding: .utf8)
     }

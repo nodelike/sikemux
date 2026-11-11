@@ -77,7 +77,7 @@ enum HostLook {
         let key = "\(core)/\(wanted)"
         latest[core] = wanted
         guard let connection = live.connection, !fetching.contains(core), !missing.contains(key),
-              Date().timeIntervalSince(failedAt[key] ?? .distantPast) > retryFailed
+            Date().timeIntervalSince(failedAt[key] ?? .distantPast) > retryFailed
         else { return }
         fetching.insert(core)
         Task {
@@ -94,7 +94,9 @@ enum HostLook {
                 }
                 failedAt[key] = nil
                 if let old = remembered?.image { delete(core, old) }
-                await Hub.shared.update(core) { $0.backdrop = .init(texture: texture, image: .init(id: wanted, uri: file.absoluteString)) }
+                await Hub.shared.update(core) {
+                    $0.backdrop = .init(texture: texture, image: .init(id: wanted, uri: file.absoluteString))
+                }
             } catch {
                 failedAt[key] = Date()
             }

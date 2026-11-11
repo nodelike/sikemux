@@ -35,7 +35,8 @@ enum FindText {
         case .pre(let pre): return pre.v.utf16.count
         case .br: return 1
         case .img, .hr, .fnref: return 0
-        case .table(let table): return ((table.head ?? []) + table.rows.flatMap { $0 }).flatMap { $0 }.map(length).reduce(0, +)
+        case .table(let table):
+            return ((table.head ?? []) + table.rows.flatMap { $0 }).flatMap { $0 }.map(length).reduce(0, +)
         default:
             let inner = element.children ?? []
             return inner.map(length).reduce(0, +) + (separates(element) ? max(inner.count - 1, 0) : 0)
@@ -69,7 +70,8 @@ enum FindText {
             case .pre(let pre): return pre.v
             case .br: return "\n"
             case .img, .hr, .fnref: return ""
-            case .table(let table): return ((table.head ?? []) + table.rows.flatMap { $0 }).flatMap { $0 }.map(words).joined()
+            case .table(let table):
+                return ((table.head ?? []) + table.rows.flatMap { $0 }).flatMap { $0 }.map(words).joined()
             default: return (element.children ?? []).map(words).joined(separator: separates(element) ? "\n" : "")
             }
         }
@@ -128,7 +130,9 @@ struct Finding: Equatable {
         for range in marks.ranges {
             let from = range.lowerBound < typed.count ? typed[range.lowerBound] : typedUnits.count
             let to = range.upperBound - 1 < typed.count ? typed[range.upperBound - 1] + 1 : typedUnits.count
-            guard from >= last, to > from, let found = Range(NSRange(location: from, length: to - from), in: out) else { continue }
+            guard from >= last, to > from, let found = Range(NSRange(location: from, length: to - from), in: out) else {
+                continue
+            }
             let current = marks.current == range.lowerBound
             out[found].backgroundColor = current ? palette.accent : palette.accent.opacity(0.34)
             out[found].foregroundColor = current ? palette.sunken : palette.ink

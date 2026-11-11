@@ -31,7 +31,8 @@ enum Route: Hashable {
             let core = words[1]
             switch words.count > 2 ? words[2] : nil {
             case nil: self = .device(core: core, tab: query["tab"].flatMap(DeviceTab.init))
-            case "chat" where words.count > 3: self = .chat(core: core, agent: words[3], started: query["started"] == "1")
+            case "chat" where words.count > 3:
+                self = .chat(core: core, agent: words[3], started: query["started"] == "1")
             case "new": self = .newChat(core: core, project: query["project"], launcher: query["launcher"])
             case "pairing": self = .pairing(core: core)
             default: return nil

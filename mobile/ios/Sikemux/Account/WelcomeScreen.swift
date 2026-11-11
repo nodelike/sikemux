@@ -88,19 +88,30 @@ private struct Reel: View {
     }
 
     private static let lines = [
-        Line(provider: "claude", title: "Tighten the rail spacing", place: "sikemux", doing: "Editing…", state: .working),
-        Line(provider: "codex", title: "Fix the flaky PTY replay test", place: "sikemux", doing: "Running a command…", state: .working),
+        Line(
+            provider: "claude", title: "Tighten the rail spacing", place: "sikemux", doing: "Editing…", state: .working),
+        Line(
+            provider: "codex", title: "Fix the flaky PTY replay test", place: "sikemux", doing: "Running a command…",
+            state: .working),
         Line(provider: "claude", title: "Remote pairing screen", place: "sikemux", doing: "Needs input", state: .needs),
-        Line(provider: "hermes", title: "Release notes for v0.4.3", place: "sikemux-front", doing: "Done", state: .done),
-        Line(provider: "opencode", title: "Why does the shader dim the rail", place: "sikemux", doing: "Thinking…", state: .working),
-        Line(provider: "codex", title: "Download size on the hero", place: "sikemux-front", doing: "Reading…", state: .working),
+        Line(
+            provider: "hermes", title: "Release notes for v0.4.3", place: "sikemux-front", doing: "Done", state: .done),
+        Line(
+            provider: "opencode", title: "Why does the shader dim the rail", place: "sikemux", doing: "Thinking…",
+            state: .working),
+        Line(
+            provider: "codex", title: "Download size on the hero", place: "sikemux-front", doing: "Reading…",
+            state: .working),
     ]
     private static let rowHeight: CGFloat = 56
     private static let period: TimeInterval = 26
 
     var body: some View {
         TimelineView(.animation(paused: still)) { context in
-            let progress = still ? 0 : context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: Self.period) / Self.period
+            let progress =
+                still
+                ? 0
+                : context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: Self.period) / Self.period
             VStack(spacing: 0) {
                 ForEach(0..<(Self.lines.count * 2), id: \.self) { index in
                     row(Self.lines[index % Self.lines.count])

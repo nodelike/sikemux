@@ -132,10 +132,12 @@ final class LiveAccount {
                 let token = try await Account.shared.token()
                 ownKey = me.id()
                 guard socket === task else { return }
-                send(task, LiveHello(
-                    role: .client, key: ownKey, signature: try me.signLive(nonce: challenge.nonce), token: token,
-                    app: LiveApp(platform: .ios, version: Config.version)
-                ))
+                send(
+                    task,
+                    LiveHello(
+                        role: .client, key: ownKey, signature: try me.signLive(nonce: challenge.nonce), token: token,
+                        app: LiveApp(platform: .ios, version: Config.version)
+                    ))
             } catch {
                 print("sikemux: could not answer the account connection's challenge: \(error)")
                 if !Account.shared.isSignedIn { stop() }
@@ -184,7 +186,7 @@ final class LiveAccount {
                 stash = true
             default:
                 if event.type == .deviceAdded, let key = event.key, key != ownKey,
-                   let at = Format.date(iso: event.at), Date().timeIntervalSince(at) < Self.newsFor
+                    let at = Format.date(iso: event.at), Date().timeIntervalSince(at) < Self.newsFor
                 {
                     added.append(key)
                 }

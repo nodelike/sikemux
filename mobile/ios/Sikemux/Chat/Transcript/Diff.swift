@@ -42,7 +42,9 @@ enum DiffText {
             var start = 0
             while start < a.count, start < b.count, a[start] == b[start] { start += 1 }
             var end = 0
-            while end < a.count - start, end < b.count - start, a[a.count - 1 - end] == b[b.count - 1 - end] { end += 1 }
+            while end < a.count - start, end < b.count - start, a[a.count - 1 - end] == b[b.count - 1 - end] {
+                end += 1
+            }
             let shared = start + end
             if shared < 3 || Double(shared) < Double(min(a.count, b.count)) * 0.25 { continue }
             lines[index].mark = [start, a.count - end]
@@ -95,7 +97,9 @@ struct DiffRows: View {
                     switch row {
                     case .line(let line): DiffRow(line: line, numbered: numbered)
                     case .gap(let count):
-                        Button { onGap?() } label: {
+                        Button {
+                            onGap?()
+                        } label: {
                             Text("\(count) unchanged \(Format.counted("line", count))")
                                 .font(Theme.mono(10.5))
                                 .foregroundStyle(palette.inkFaint)
@@ -110,7 +114,11 @@ struct DiffRows: View {
             .frame(minWidth: width, alignment: .leading)
             .padding(.vertical, 3)
         }
-        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+        .onGeometryChange(for: CGFloat.self) {
+            $0.size.width
+        } action: {
+            width = $0
+        }
     }
 }
 
@@ -132,7 +140,9 @@ struct DiffRow: View {
             }
             Text(line.sign)
                 .font(Theme.mono(11))
-                .foregroundStyle(added ? palette.gitAdded : deleted ? palette.gitDeleted : palette.inkFaint.opacity(0.7))
+                .foregroundStyle(
+                    added ? palette.gitAdded : deleted ? palette.gitDeleted : palette.inkFaint.opacity(0.7)
+                )
                 .frame(width: 12, alignment: .leading)
             Text(marked(added: added, deleted: deleted))
                 .font(Theme.mono(11))
@@ -148,7 +158,9 @@ struct DiffRow: View {
 
     private func marked(added: Bool, deleted: Bool) -> AttributedString {
         let units = Array(line.text.utf16)
-        guard let mark = line.mark, mark.count == 2, mark[0] <= mark[1], mark[1] <= units.count else { return AttributedString(line.text) }
+        guard let mark = line.mark, mark.count == 2, mark[0] <= mark[1], mark[1] <= units.count else {
+            return AttributedString(line.text)
+        }
         let piece = { (from: Int, to: Int) in String(decoding: units[from..<to], as: UTF16.self) }
         var middle = AttributedString(piece(mark[0], mark[1]))
         middle.backgroundColor = (deleted ? palette.gitDeleted : palette.gitAdded).opacity(0.26)
@@ -191,13 +203,16 @@ struct DiffBody: View {
             .frame(height: 24)
             .overlay(alignment: .bottom) { Rectangle().fill(palette.border).frame(height: 1) }
             if let waiting {
-                Text(waiting).font(Theme.mono(10.5)).foregroundStyle(palette.inkFaint).padding(.horizontal, 9).padding(.vertical, 6)
+                Text(waiting).font(Theme.mono(10.5)).foregroundStyle(palette.inkFaint).padding(.horizontal, 9).padding(
+                    .vertical, 6)
             }
             if !shown.isEmpty {
                 DiffRows(lines: [], numbered: true, onGap: { folds.set("\(fold)/context", true) }, rows: shown)
             }
             if more > 0 {
-                Button { folds.set("\(fold)/rows", true) } label: {
+                Button {
+                    folds.set("\(fold)/rows", true)
+                } label: {
                     Text("Show \(more) more lines")
                         .font(Theme.mono(10.5))
                         .foregroundStyle(palette.inkFaint)

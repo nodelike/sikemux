@@ -74,14 +74,18 @@ struct SheetModifier<SheetContent: View>: ViewModifier {
                 .frame(maxWidth: .infinity)
                 .frame(height: tall ? proxy.size.height * 0.82 : nil, alignment: .top)
                 .background(
-                    UnevenRoundedRectangle(topLeadingRadius: Radius.sheet, topTrailingRadius: Radius.sheet, style: .continuous)
-                        .fill(palette.overlay)
-                        .overlay(
-                            UnevenRoundedRectangle(topLeadingRadius: Radius.sheet, topTrailingRadius: Radius.sheet, style: .continuous)
-                                .stroke(palette.border, lineWidth: 1)
-                                .mask(Rectangle().padding(.bottom, -1))
+                    UnevenRoundedRectangle(
+                        topLeadingRadius: Radius.sheet, topTrailingRadius: Radius.sheet, style: .continuous
+                    )
+                    .fill(palette.overlay)
+                    .overlay(
+                        UnevenRoundedRectangle(
+                            topLeadingRadius: Radius.sheet, topTrailingRadius: Radius.sheet, style: .continuous
                         )
-                        .ignoresSafeArea(edges: .bottom)
+                        .stroke(palette.border, lineWidth: 1)
+                        .mask(Rectangle().padding(.bottom, -1))
+                    )
+                    .ignoresSafeArea(edges: .bottom)
                 )
                 .offset(y: max(0, drag))
                 .gesture(
@@ -153,10 +157,13 @@ private struct LiftedSheet<SheetContent: View>: ViewModifier {
             .fullScreenCover(isPresented: $covering) {
                 Color.clear
                     .ignoresSafeArea()
-                    .sheet(shown: $inner, tall: tall, onDismiss: {
-                        cover(false)
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { onDismiss?() }
-                    }) { sheet }
+                    .sheet(
+                        shown: $inner, tall: tall,
+                        onDismiss: {
+                            cover(false)
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { onDismiss?() }
+                        }
+                    ) { sheet }
                     .environment(\.palette, palette)
                     .presentationBackground(.clear)
                     .onAppear { inner = true }

@@ -41,13 +41,16 @@ private struct DeviceContent: View {
         }()
 
         Screen {
-            Nav(back: "Devices", title: {
-                if view != nil {
-                    NavTitle(text: hostName).opacity(titleShown)
-                }
-            }, end: {
-                if device != nil { IconButton(icon: Icons.more, label: "Options") { options = true } }
-            })
+            Nav(
+                back: "Devices",
+                title: {
+                    if view != nil {
+                        NavTitle(text: hostName).opacity(titleShown)
+                    }
+                },
+                end: {
+                    if device != nil { IconButton(icon: Icons.more, label: "Options") { options = true } }
+                })
             if view == nil || status.unpaired { HostHead(name: hostName, line: status.line, online: status.online) }
             if status.unpaired {
                 Unpaired(device: device)
@@ -76,12 +79,16 @@ private struct DeviceContent: View {
 
     @ViewBuilder
     private func unreachable(_ status: HostStatus, _ device: PairedDevice?) -> some View {
-        let words: (String, String?) = switch status.outdated {
-        case .host: ("This host needs a newer Sikemux", nil)
-        case .phone: ("Update this app", "This host runs a newer Sikemux.")
-        case nil: ("Can't reach this host", "It may be asleep, offline, or have remote access turned off.")
-        }
-        Prompt(icon: status.outdated != nil ? Icons.download : (device?.kind ?? .laptop).icon, title: words.0, detail: words.1, fill: true) {
+        let words: (String, String?) =
+            switch status.outdated {
+            case .host: ("This host needs a newer Sikemux", nil)
+            case .phone: ("Update this app", "This host runs a newer Sikemux.")
+            case nil: ("Can't reach this host", "It may be asleep, offline, or have remote access turned off.")
+            }
+        Prompt(
+            icon: status.outdated != nil ? Icons.download : (device?.kind ?? .laptop).icon, title: words.0,
+            detail: words.1, fill: true
+        ) {
             if status.outdated == nil {
                 HStack(spacing: 10) {
                     Working()
@@ -98,7 +105,9 @@ private struct DeviceContent: View {
     }
 
     @ViewBuilder
-    private func content(_ view: DeviceView, live: HostLive, device: PairedDevice?, status: HostStatus, hostName: String) -> some View {
+    private func content(
+        _ view: DeviceView, live: HostLive, device: PairedDevice?, status: HostStatus, hostName: String
+    ) -> some View {
         let scope = view.workspace.projects.first { $0.id == device?.project }
         let asking = scope.map { view.needs(in: $0) } ?? view.inbox.items.filter { $0.tier == .needs }.count
         let providers = Self.providers(view, scope)
@@ -112,17 +121,27 @@ private struct DeviceContent: View {
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 0) {
                     HostHead(name: hostName, line: status.line, online: status.online)
-                        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { headHeight = $0 }
-                        .onGeometryChange(for: CGFloat.self) { $0.frame(in: .named("list")).minY } action: { scrolled = -$0 }
+                        .onGeometryChange(for: CGFloat.self) {
+                            $0.size.height
+                        } action: {
+                            headHeight = $0
+                        }
+                        .onGeometryChange(for: CGFloat.self) {
+                            $0.frame(in: .named("list")).minY
+                        } action: {
+                            scrolled = -$0
+                        }
                     Color.clear.frame(height: barHeight)
                     Group {
                         switch tab {
                         case .terminals: Terminals(view: view, scope: scope)
                         case .board: BoardTab(core: core, live: live, view: view, scope: scope, onScope: scopeTo)
                         default:
-                            DeviceAgents(core: core, view: view, scope: scope, provider: provider, full: device?.access == "full",
-                                         hostName: hostName, onTab: { tab = $0 },
-                                         onHold: device?.access == "full" ? { held = $0 } : nil)
+                            DeviceAgents(
+                                core: core, view: view, scope: scope, provider: provider,
+                                full: device?.access == "full",
+                                hostName: hostName, onTab: { tab = $0 },
+                                onHold: device?.access == "full" ? { held = $0 } : nil)
                         }
                     }
                     .padding(.horizontal, 16)
@@ -137,14 +156,19 @@ private struct DeviceContent: View {
                 VStack(spacing: 0) {
                     if pinned {
                         Color.clear.frame(height: barHeight)
-                        LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom).frame(height: Self.fade)
+                        LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom).frame(
+                            height: Self.fade)
                     }
                     Color.black
                 }
             }
 
             bar(view: view, scope: scope, asking: asking, filtering: filtering, provider: provider)
-                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { barHeight = $0 }
+                .onGeometryChange(for: CGFloat.self) {
+                    $0.size.height
+                } action: {
+                    barHeight = $0
+                }
                 .offset(y: barTop)
         }
         .frame(maxHeight: .infinity)
@@ -184,7 +208,8 @@ private struct DeviceContent: View {
         }
     }
 
-    private func bar(view: DeviceView, scope: ProjectInfo?, asking: Int, filtering: Bool, provider: String) -> some View {
+    private func bar(view: DeviceView, scope: ProjectInfo?, asking: Int, filtering: Bool, provider: String) -> some View
+    {
         HStack(spacing: 12) {
             HStack(spacing: 20) {
                 HostTab(label: "Agents", count: asking, on: tab == .agents) { switchTo(.agents) }
@@ -193,7 +218,9 @@ private struct DeviceContent: View {
             }
             Spacer(minLength: 0)
             if !view.workspace.projects.isEmpty || filtering {
-                Button { picking = true } label: {
+                Button {
+                    picking = true
+                } label: {
                     HStack(spacing: 6) {
                         IconView(icon: Icons.folder, size: 14).foregroundStyle(palette.live)
                         Text(scope?.name ?? "All projects")
