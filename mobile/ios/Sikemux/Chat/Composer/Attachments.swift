@@ -145,7 +145,7 @@ struct FileChip: View {
             IconView(icon: image ? Icons.image : Icons.file, size: 16).foregroundStyle(palette.inkDim)
             VStack(alignment: .leading, spacing: 2) {
                 Text(name).font(Theme.mono(12)).foregroundStyle(palette.ink).lineLimit(1).truncationMode(.middle)
-                if let size { Text(Uploads.sizeLabel(size)).font(Theme.ui(11)).foregroundStyle(palette.inkFaint) }
+                if let size { Text(Format.bytes(size)).font(Theme.ui(11)).foregroundStyle(palette.inkFaint) }
             }
         }
         .padding(.vertical, 7)

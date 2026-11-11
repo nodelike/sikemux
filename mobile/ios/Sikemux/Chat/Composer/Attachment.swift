@@ -101,10 +101,4 @@ enum Uploads {
         }
         return failure == nil ? (sent, nil) : (nil, failure)
     }
-
-    static func sizeLabel(_ bytes: Int) -> String {
-        if bytes < 1024 { return "\(bytes) B" }
-        if bytes < 1024 * 1024 { return "\(Int((Double(bytes) / 1024).rounded())) KB" }
-        return String(format: "%.1f MB", Double(bytes) / (1024 * 1024))
-    }
 }

@@ -208,6 +208,7 @@ targets:
       - path: Shared/Keychain.swift
       - path: Shared/Thumbnail.swift
       - path: Sikemux/UI/Theme.swift
+      - path: Sikemux/UI/Format.swift
       - path: ../../helpers/notch/Sources/NotchKit/IconView.swift
         group: Sikemux/UI/Notch
       - path: ../../helpers/notch/Sources/NotchKit/Icons.generated.swift

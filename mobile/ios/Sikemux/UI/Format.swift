@@ -50,16 +50,26 @@ enum Format {
         count == 1 ? word : "\(word)s"
     }
 
-    /// A count of tokens as the Mac writes it: 950, 12.3k, 1.2M.
-    static func tokens(_ count: Int) -> String {
-        if count < 1000 { return "\(count)" }
-        if count < 1_000_000 {
-            let thousands = Double(count) / 1000
-            return thousands < 100
-                ? "\(String(format: "%.1f", thousands).replacingOccurrences(of: ".0", with: ""))k"
-                : "\(Int(thousands.rounded()))k"
+    /// A count of tokens, short: 950, 12.3K, 1.2M.
+    static func tokens(_ count: Double) -> String {
+        count.formatted(
+            .number.notation(.compactName).precision(.fractionLength(0...1)).locale(Locale(identifier: "en")))
+    }
+
+    static func tokens(_ count: Int) -> String { tokens(Double(count)) }
+
+    /// A size in 1024s: `512 B`, `2.0 KB`, `15 MB`.
+    static func bytes(_ count: Int) -> String {
+        if abs(count) < 1024 { return "\(count) B" }
+        let units = ["KB", "MB", "GB", "TB"]
+        var value = Double(count) / 1024
+        var unit = 0
+        while abs(value) >= 1024, unit < units.count - 1 {
+            value /= 1024
+            unit += 1
         }
-        return "\(String(format: "%.1f", Double(count) / 1_000_000).replacingOccurrences(of: ".0", with: ""))M"
+        let shown = abs(value) < 10 ? String(format: "%.1f", value) : String(Int(value.rounded()))
+        return "\(shown) \(units[unit])"
     }
 
     private static let isoFractional = Date.ISO8601FormatStyle(includingFractionalSeconds: true)

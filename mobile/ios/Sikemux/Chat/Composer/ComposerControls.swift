@@ -74,10 +74,6 @@ enum ContextFill {
         return palette.accent
     }
 
-    static func tokens(_ count: Double) -> String {
-        count.formatted(.number.notation(.compactName).precision(.fractionLength(0...1)))
-    }
-
     static func money(_ cost: UsageCost) -> String {
         cost.amount.formatted(.currency(code: cost.currency).precision(.fractionLength(0...2)))
     }
