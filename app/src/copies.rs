@@ -10,7 +10,7 @@ use gpui_kit::{
     ParentElement, SharedString, Styled, Transformation, Window,
 };
 use sikemux_core::server::call;
-use sikemux_core::server::hosts::chat_move::MoveChatParams;
+use sikemux_core::server::hosts::chat_move::MoveChatToHostParams;
 use sikemux_core::server::layout::ActivateProjectParams;
 use sikemux_view::layout::{At, OpenTab, PaneKind};
 use sikemux_view::prefs::PreferenceChange;
@@ -162,7 +162,7 @@ impl Workbench {
         self.keep_draft(agent, cx);
         let moving = self
             .chat_target(agent)
-            .request_typed::<call::MoveChatToHost>(MoveChatParams {
+            .request_typed::<call::MoveChatToHost>(MoveChatToHostParams {
                 agent_id: agent.to_owned(),
                 host,
                 project: copy.project.clone(),

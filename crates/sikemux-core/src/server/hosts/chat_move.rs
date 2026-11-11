@@ -21,7 +21,7 @@ const TAKE_WAIT: Duration = Duration::from_secs(30);
 
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct MoveChatParams {
+pub struct MoveChatToHostParams {
     pub agent_id: String,
     /// The host it goes to, by its core's key.
     pub host: String,
@@ -48,7 +48,10 @@ pub(super) struct TakeChat {
     extra: Option<DraftExtra>,
 }
 
-pub(crate) async fn move_chat(core: &Arc<Core>, params: MoveChatParams) -> CoreResult<ChatMoved> {
+pub(crate) async fn move_chat(
+    core: &Arc<Core>,
+    params: MoveChatToHostParams,
+) -> CoreResult<ChatMoved> {
     let agent = core.workspaces.agent_or_gone(&params.agent_id)?;
     if agent.terminal || agent.resume_id.is_some() || agent.worktree.is_some() {
         return Err("only a new chat moves to another host, before its first message".into());
