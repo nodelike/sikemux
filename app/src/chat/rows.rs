@@ -10,9 +10,6 @@ use crate::theme::{
     TEXT_3XS_H, TEXT_XS, TEXT_XS_H,
 };
 
-/// About 68 characters of a thought, so its lines stay short enough to read at a glance.
-const THOUGHT_MEASURE: f32 = 500.;
-
 /// The chat's looks with what the reader has open, for drawing its rows once.
 pub(super) struct Drawn<'a> {
     pub(super) looks: &'a Looks,
@@ -164,18 +161,12 @@ pub(super) fn row(
                 {
                     self::subagent(card, pen, looks, window, cx)
                 }
-                Shown::Part(part @ ChatPart::Thought { .. }) => div()
-                    .max_w(px(THOUGHT_MEASURE * looks.scale.get()))
-                    .child(self::part(row, part, user, pen, looks, window, cx))
-                    .into_any_element(),
                 Shown::Part(part @ ChatPart::Text { .. }) if at > 0 && !user => div()
                     .pt(SPACE_2H)
                     .child(self::part(row, part, user, pen, looks, window, cx))
                     .into_any_element(),
                 Shown::Part(part) => self::part(row, part, user, pen, looks, window, cx),
-                Shown::Run(calls) => {
-                    runs::strip(&calls, live && at + 1 == count, looks, window, cx)
-                }
+                Shown::Run(calls) => tools::run(&calls, live && at + 1 == count, looks, window, cx),
             });
         }
         if !tucked_away || whole_row_tucked {
@@ -1093,7 +1084,7 @@ pub(super) fn subagent(
             for (at, group) in groups.into_iter().enumerate() {
                 drawn.push(match group {
                     Shown::Part(part) => self::part(row, part, false, pen, looks, window, cx),
-                    Shown::Run(calls) => runs::strip(
+                    Shown::Run(calls) => tools::run(
                         &calls,
                         live && ix + 1 == rows.len() && at + 1 == count,
                         looks,
