@@ -30,9 +30,9 @@ func folderName(_ path: String) -> String {
     path.split(separator: "/").last.map(String.init) ?? path
 }
 
-/// Whether something on the host is in the project and for the agent the screen shows.
-func listed(_ scope: ProjectInfo?, _ provider: String, project: String?, type: String?) -> Bool {
-    (scope == nil || project == scope?.id) && (provider == "all" || type == provider)
+/// Whether something on the host is in the project and for the agent the screen shows; a nil provider shows all.
+func listed(_ scope: ProjectInfo?, _ provider: String?, project: String?, type: String?) -> Bool {
+    (scope == nil || project == scope?.id) && (provider == nil || type == provider)
 }
 
 /// The agent list's groups folded shut, by key, as the Mac's rail keeps its own.

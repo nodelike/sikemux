@@ -19,7 +19,7 @@ private struct DeviceContent: View {
     @State private var tab: Route.DeviceTab = .agents
     @State private var picking = false
     @State private var options = false
-    @State private var filter = "all"
+    @State private var filter: String?
     @State private var held: String?
     @State private var scrolled: CGFloat = 0
     @State private var headHeight: CGFloat = 0
@@ -111,7 +111,7 @@ private struct DeviceContent: View {
         let scope = view.project(id: device?.project)
         let asking = scope.map { view.needs(in: $0) } ?? view.inbox.items.filter { $0.tier == .needs }.count
         let providers = Self.providers(view, scope)
-        let provider = providers.contains(filter) ? filter : "all"
+        let provider = filter.flatMap { providers.contains($0) ? $0 : nil }
         let filtering = tab == .agents && providers.count > 1
         let starts = device?.access == .full && status.online && tab == .agents
         let pinned = headHeight > 0 && scrolled >= headHeight - barHeight - Self.fade
@@ -208,7 +208,8 @@ private struct DeviceContent: View {
         }
     }
 
-    private func bar(view: DeviceView, scope: ProjectInfo?, asking: Int, filtering: Bool, provider: String) -> some View
+    private func bar(view: DeviceView, scope: ProjectInfo?, asking: Int, filtering: Bool, provider: String?)
+        -> some View
     {
         HStack(spacing: 12) {
             HStack(spacing: 20) {
@@ -227,7 +228,7 @@ private struct DeviceContent: View {
                             .font(Theme.ui(13))
                             .foregroundStyle(palette.secondary)
                             .lineLimit(1)
-                        if filtering, provider != "all" { AgentMark(provider: provider, size: 14) }
+                        if filtering, let provider { AgentMark(provider: provider, size: 14) }
                         IconView(icon: Icons.chevron, size: 12)
                             .foregroundStyle(palette.inkFaint)
                             .rotationEffect(.degrees(90))
