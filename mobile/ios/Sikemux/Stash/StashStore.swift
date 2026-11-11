@@ -17,7 +17,6 @@ final class StashStore {
     /// When the person last looked at the stash on any device; nil before they ever have.
     private(set) var seenAt: String?
     private(set) var state = State.loading
-    private(set) var problem: String?
 
     @ObservationIgnored private var reading = 0
     @ObservationIgnored private var settling: Task<Void, Never>?
@@ -51,11 +50,10 @@ final class StashStore {
             items = found
             seenAt = seen
             state = .ready
-            problem = nil
         } catch {
             guard read == reading else { return }
             state = .offline
-            problem = Sikemux.problem(error)
+            print("sikemux: could not read the stash: \(error)")
         }
     }
 
