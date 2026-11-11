@@ -2,6 +2,8 @@ import { useEffect } from 'react';
 import { Platform } from 'react-native';
 import { JoinAnswer, MobileError } from '@sikemux/native';
 
+import { APPROVAL_TIMEOUT_SECONDS } from '@shared/wire.generated';
+
 import { problem } from '@/core/problem';
 import { ApiProblem, joinTicket, type TokenSource } from '@/account/api';
 import { whileJoining } from '@/phone/identity';
@@ -37,10 +39,10 @@ export class JoinFailed extends Error {
 }
 
 /** How long the host keeps a request open before it stops asking. */
-export const APPROVAL_SECONDS = 120;
+export const APPROVAL_SECONDS = APPROVAL_TIMEOUT_SECONDS;
 
 export function expired(host: string): JoinFailure {
-  return { title: `${host} did not answer`, detail: 'Nobody allowed this phone within two minutes.' };
+  return { title: `${host} did not answer`, detail: `Nobody allowed this phone within ${APPROVAL_SECONDS / 60} minutes.` };
 }
 
 /** Why the host refused a ticket, in the words sikemux_core::join::Refusal uses. */
