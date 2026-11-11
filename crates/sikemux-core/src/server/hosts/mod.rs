@@ -67,6 +67,8 @@ const RETRY_MS: u64 = 15_000;
 const BODY_WAIT: Duration = Duration::from_secs(15 * 60);
 /// How long a file being fetched may go without a byte before it is given up.
 const STALL: Duration = Duration::from_secs(60);
+/// The code a host closes a second connection to the same host with.
+const DUPLICATE: u32 = 3;
 /// How a host refuses an ask it does not know, as older hosts do.
 const UNKNOWN_ASK: &str = "this host does not know ";
 const REDIAL: Backoff = Backoff {
@@ -416,10 +418,7 @@ async fn connection(core: &Arc<Core>, host: &str) -> Result<Connection, Failed> 
         .link(host)
         .ok_or_else(|| Failed::Refused(format!("{} is no longer linked", name_of(core, host))))?;
     match dial(core, host, &link.addresses).await {
-        Ok(connection) => {
-            adopt(core, host, connection.clone());
-            Ok(connection)
-        }
+        Ok(connection) => Ok(adopt(core, host, connection)),
         Err(error) => {
             core.hosts.note_down(host);
             changed(core);
@@ -628,31 +627,66 @@ fn turned_away(core: &Core, host: &str, post: &outbox::Post, why: &str) {
 
 /// Takes `connection` as the one to `host`: answers what it asks over it,
 /// sends what waits for it, and notices when it closes.
-fn adopt(core: &Arc<Core>, host: &str, connection: Connection) {
+/// When both hosts dialed at once, each keeps the connection the host with the lower key
+/// dialed and closes the other, so they agree. Answers the connection kept.
+fn adopt(core: &Arc<Core>, host: &str, connection: Connection) -> Connection {
     core.boards.wake.now();
-    let was_down = {
+    let (was_down, replaced) = {
         let mut state = core.hosts.state.locked();
-        state
+        if let Some(kept) = state.connections.get(host).filter(|kept| {
+            kept.stable_id() != connection.stable_id()
+                && kept.close_reason().is_none()
+                && !replaces(core, host, kept, &connection)
+        }) {
+            let kept = kept.clone();
+            drop(state);
+            connection.close(DUPLICATE.into(), b"a connection is up already");
+            return kept;
+        }
+        let replaced = state
             .connections
-            .insert(host.to_owned(), connection.clone());
+            .insert(host.to_owned(), connection.clone())
+            .filter(|old| old.stable_id() != connection.stable_id());
         state.held.retain(|(held, _), _| held != host);
-        state.down.remove(host)
+        (state.down.remove(host), replaced)
     };
+    if let Some(replaced) = replaced {
+        replaced.close(DUPLICATE.into(), b"replaced by a newer connection");
+    }
     core.remote.link_seen(host, None);
     tokio::spawn(answer_asks(
         core.clone(),
         host.to_owned(),
         connection.clone(),
     ));
-    tokio::spawn(until_closed(core.clone(), host.to_owned(), connection));
+    tokio::spawn(until_closed(
+        core.clone(),
+        host.to_owned(),
+        connection.clone(),
+    ));
     flush(core, host);
     core.hosts.copies.reached(host);
     route::resync(core, host);
     spawn::settle_pending_on(core, host);
+    route::ask_after_workers(core, host);
     if was_down.is_some_and(|down| down.told) {
         route::back_in_reach(core, host);
     }
     changed(core);
+    connection
+}
+
+/// Whether `new` takes the place of `old`, a connection to `host` still up.
+fn replaces(core: &Core, host: &str, old: &Connection, new: &Connection) -> bool {
+    if old.side() == new.side() {
+        return true;
+    }
+    let own = core.remote.core_id().unwrap_or_default();
+    let dialer = |connection: &Connection| match connection.side() {
+        iroh::endpoint::Side::Client => own.as_str(),
+        iroh::endpoint::Side::Server => host,
+    };
+    dialer(new) < dialer(old)
 }
 
 async fn answer_asks(core: Arc<Core>, host: String, connection: Connection) {
@@ -785,6 +819,12 @@ pub(crate) fn settle(core: &Arc<Core>) {
     let links = core.remote.links();
     let linked: Vec<String> = links.iter().map(|link| link.id.clone()).collect();
     core.hosts.outbox.keep_only(&linked);
+    if core.remote.endpoint().is_none() {
+        let mut state = core.hosts.state.locked();
+        state.down.clear();
+        state.dialing.clear();
+        return;
+    }
     let now = epoch_ms();
     let mut next = None;
     let mut redial = Vec::new();
@@ -840,10 +880,6 @@ pub(crate) fn settle(core: &Arc<Core>) {
             }
         }
     }
-    if core.remote.endpoint().is_none() {
-        core.hosts.state.locked().dialing.clear();
-        redial.clear();
-    }
     for (link, backoff) in redial {
         let core = core.clone();
         tokio::spawn(async move {
@@ -860,7 +896,9 @@ pub(crate) fn settle(core: &Arc<Core>) {
                 }
             }
             match dialed {
-                Ok(connection) => adopt(&core, &link.id, connection),
+                Ok(connection) => {
+                    adopt(&core, &link.id, connection);
+                }
                 Err(_) => {
                     core.changed(What::Read(Topic::Hosts));
                     core.hosts.wake.now();

@@ -223,6 +223,7 @@ pub(crate) async fn hand_over(
         active_at: Some(epoch_ms()),
         repo: Some(packed.repo.clone()),
         landed: None,
+        landed_head: None,
         pending: Some(id.clone()),
     });
     pin(core);
@@ -485,6 +486,7 @@ pub(super) async fn start_here(
             active_at: Some(epoch_ms()),
             repo: None,
             landed: None,
+            landed_head: None,
             pending: None,
         });
         core.names.adopt(

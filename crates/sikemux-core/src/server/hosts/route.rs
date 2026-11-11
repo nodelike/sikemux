@@ -288,6 +288,76 @@ pub(crate) fn resync(core: &Arc<Core>, host: &str) {
     });
 }
 
+/// Back in reach of `host`, the workers this host started there are asked after, so commits
+/// they sent while this host was away and that never landed are sent again. A host too old to
+/// be asked only pushes them.
+pub(crate) fn ask_after_workers(core: &Arc<Core>, host: &str) {
+    let workers: Vec<Held> = (core.hosts.team.on(host).into_iter())
+        .filter(|foreign| foreign.role == Role::Worker && foreign.pending.is_none())
+        .map(|foreign| Held {
+            agent_id: foreign.agent_id,
+            landed: foreign.landed_head,
+        })
+        .collect();
+    if workers.is_empty() {
+        return;
+    }
+    let (core, host) = (core.clone(), host.to_owned());
+    tokio::spawn(async move {
+        let params = params_of::<asks::Workers>(&WorkersParams { workers });
+        if let Err(error) = ask(&core, &host, asks::Workers::METHOD, params, None, ASK_WAIT).await {
+            eprintln!(
+                "sikemux core: could not ask {} after its workers: {error}",
+                name_of(&core, &host)
+            );
+        }
+    });
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct Held {
+    agent_id: String,
+    landed: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub(super) struct WorkersParams {
+    workers: Vec<Held>,
+}
+
+/// The host that leads workers here says which of their commits it has: any it lacks, with
+/// none waiting to go, are sent again.
+pub(super) fn workers_here(
+    core: &Core,
+    host: &str,
+    params: WorkersParams,
+) -> Result<Value, String> {
+    let Some(core) = core.arc() else {
+        return Ok(Value::Null);
+    };
+    for held in params.workers {
+        if lead_host(&core, &held.agent_id).as_deref() != Some(host) {
+            continue;
+        }
+        let Some(tree) = core.hosts.team.tree(&held.agent_id) else {
+            continue;
+        };
+        let waiting = (core.hosts.outbox)
+            .pulled_body(host, |post| {
+                post.params["agentId"] == held.agent_id.as_str()
+            })
+            .is_some();
+        if waiting || tree.sent.is_none() || tree.sent == held.landed {
+            continue;
+        }
+        core.hosts.team.tree_unsent(&held.agent_id);
+        let core = core.clone();
+        tokio::spawn(async move { super::spawn::send_commits(&core, &held.agent_id).await });
+    }
+    Ok(Value::Null)
+}
+
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct Standing {
@@ -661,6 +731,7 @@ pub(super) fn hire_here(core: &Core, host: &str, params: HireParams) -> CoreResu
         active_at: Some(epoch_ms()),
         repo: lead.repo,
         landed: None,
+        landed_head: None,
         pending: None,
     });
     pin(core);

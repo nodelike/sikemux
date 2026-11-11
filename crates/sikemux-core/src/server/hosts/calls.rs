@@ -55,6 +55,7 @@ host_asks! {
     Copies "copies" copies::HeldParams;
     TakeChat "takeChat" chat_move::TakeChat;
     Receipt "receipt" ReceiptParams;
+    Workers "workers" route::WorkersParams;
 }
 
 /// Asks what became of the call `call`.
@@ -161,6 +162,7 @@ async fn dispatch(
         Forget::METHOD => answered(route::forget_here(core, host, read::<Forget>(params)?)),
         "deliver" => route::deliver_here(core, host, params).await,
         Read::METHOD => route::read_here(core, host, read::<Read>(params)?).await,
+        Workers::METHOD => route::workers_here(core, host, read::<Workers>(params)?),
         Happened::METHOD => answered(route::happened_here(core, host, read::<Happened>(params)?)),
         Team::METHOD => answered(route::team_here(core, host, read::<Team>(params)?)),
         Worked::METHOD => answered(route::worked_here(core, host, read::<Worked>(params)?)),

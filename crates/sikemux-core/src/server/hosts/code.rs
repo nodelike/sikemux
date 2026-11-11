@@ -781,6 +781,7 @@ pub(super) async fn land(
     let count = landing.count;
     core.hosts.team.update(&landing.agent_id, |worker| {
         worker.landed = Some((branch.clone(), count));
+        worker.landed_head = Some(landing.head.clone());
     });
     Ok(json!({ "branch": branch }))
 }

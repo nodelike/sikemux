@@ -46,6 +46,9 @@ pub(crate) struct Foreign {
     /// The branch its latest commits came back on and how many there are,
     /// until its next report says so.
     pub landed: Option<(String, usize)>,
+    /// The commit its commits last came back to this host at.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub landed_head: Option<String>,
     /// The call that starts it there, while whether it started is not known yet.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pending: Option<String>,
