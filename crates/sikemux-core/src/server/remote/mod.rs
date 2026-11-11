@@ -4,7 +4,7 @@
 //! that file trusts live in the person's secret store.
 
 use serde_json::{json, Value};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
@@ -109,6 +109,10 @@ struct Stored {
     /// in whatever their account signed in.
     #[serde(default)]
     require_approval: bool,
+    /// Hosts on the account whose person turned down linking with this one,
+    /// which it does not ask again until the person here links them.
+    #[serde(default)]
+    declined_links: BTreeSet<String>,
     /// Devices the person removed from this host, with the most each may do
     /// if let back in. Each waits for the person to let it in again, even
     /// with approval off.
@@ -409,6 +413,9 @@ struct Inner {
     pushed: HashMap<String, (NotificationState, u64)>,
     /// Phones the account will not pass notifications to.
     refused: HashSet<String>,
+    /// Each host on the account that failed to link lately: how many times
+    /// in a row, and not before when it is asked again.
+    relink_failures: HashMap<String, (u32, u64)>,
     #[cfg(test)]
     join_keys: Option<TrustedKeys>,
 }
@@ -1176,6 +1183,7 @@ mod tests {
             links: Vec::new(),
             require_approval: false,
             removed_here: BTreeMap::new(),
+            declined_links: BTreeSet::new(),
             devices: vec![DeviceInfo {
                 id: SecretKey::generate().public().to_string(),
                 name: "Phone".into(),

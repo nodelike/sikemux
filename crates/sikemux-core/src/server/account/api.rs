@@ -83,6 +83,22 @@ pub(crate) async fn host_send(
     path: &str,
     body: Option<Upload>,
 ) -> CoreResult<reqwest::Response> {
+    let response = host_send_any(core, method, path, body).await?;
+    if !response.status().is_success() {
+        let status = response.status();
+        let said = response.text().await.unwrap_or_default();
+        return Err(format!("the accounts server answered {status}: {said}").into());
+    }
+    Ok(response)
+}
+
+/// Like [`host_send`], answering with whatever the server answered.
+pub(crate) async fn host_send_any(
+    core: &Core,
+    method: Method,
+    path: &str,
+    body: Option<Upload>,
+) -> CoreResult<reqwest::Response> {
     let base = core
         .remote
         .signed_in_api()
@@ -116,14 +132,20 @@ pub(crate) async fn host_send(
         }
         sent = sent.body(body.bytes);
     }
-    let response = sent
-        .send()
+    sent.send()
         .await
-        .map_err(|error| CoreError::from(error.to_string()))?;
-    if !response.status().is_success() {
-        let status = response.status();
-        let said = response.text().await.unwrap_or_default();
-        return Err(format!("the accounts server answered {status}: {said}").into());
-    }
-    Ok(response)
+        .map_err(|error| CoreError::from(error.to_string()))
+}
+
+/// How long a refusal asks to wait before asking again, from its Retry-After.
+pub(crate) fn retry_after(response: &reqwest::Response) -> Option<std::time::Duration> {
+    let seconds = response
+        .headers()
+        .get(reqwest::header::RETRY_AFTER)?
+        .to_str()
+        .ok()?
+        .trim()
+        .parse()
+        .ok()?;
+    Some(std::time::Duration::from_secs(seconds))
 }

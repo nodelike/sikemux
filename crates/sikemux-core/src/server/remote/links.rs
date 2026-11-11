@@ -72,9 +72,57 @@ impl Remote {
     pub(crate) fn add_link(&self, link: StoredLink) -> CoreResult<()> {
         self.change(|stored| {
             stored.forget(&link.id);
+            stored.declined_links.remove(&link.id);
             stored.links.push(link);
             Ok(())
         })
+    }
+
+    /// The hosts on the account whose person turned down linking with this
+    /// one.
+    pub(crate) fn declined_links(&self) -> BTreeSet<String> {
+        self.inner.locked().stored.declined_links.clone()
+    }
+
+    /// Remembers that the person at `id` turned down linking, keeping only
+    /// the hosts still on the account, `account`.
+    pub(crate) fn decline_link(&self, id: &str, account: &[String]) -> CoreResult<()> {
+        self.change(|stored| {
+            stored.declined_links.insert(id.to_owned());
+            stored.declined_links.retain(|host| account.contains(host));
+            Ok(())
+        })
+    }
+
+    pub(crate) fn undecline_link(&self, id: &str) {
+        let undeclined = self.change(|stored| Ok(stored.declined_links.remove(id)));
+        if let Err(error) = undeclined {
+            eprintln!("sikemux core: could not save asking a host to link again: {error}");
+        }
+    }
+
+    /// When the host `id` may next be asked to link, after failing lately.
+    pub(crate) fn relink_due(&self, id: &str) -> Option<u64> {
+        let inner = self.inner.locked();
+        inner.relink_failures.get(id).map(|(_, due)| *due)
+    }
+
+    /// Notes that linking with `id` failed, and answers when to ask again,
+    /// waiting longer with each failure in a row, up to five minutes.
+    pub(crate) fn relink_failed(&self, id: &str) -> u64 {
+        const WAIT: crate::backoff::Backoff = crate::backoff::Backoff {
+            first: Duration::from_secs(30),
+            cap: Duration::from_secs(5 * 60),
+        };
+        let mut inner = self.inner.locked();
+        let (failures, due) = inner.relink_failures.entry(id.to_owned()).or_default();
+        *failures = failures.saturating_add(1);
+        *due = epoch_ms() + WAIT.after(*failures).as_millis() as u64;
+        *due
+    }
+
+    pub(crate) fn relink_succeeded(&self, id: &str) {
+        self.inner.locked().relink_failures.remove(id);
     }
 
     /// Forgets a linked host, and whether it was one.

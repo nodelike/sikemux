@@ -46,8 +46,19 @@ pub(crate) struct LinkParams {
 /// Links this host with the one `params` names, and answers with this host's
 /// devices and links.
 pub(crate) async fn link_host(core: &Arc<Core>, params: LinkParams) -> CoreResult<RemotePairing> {
-    link_with(core, params).await?;
+    let name = clean(&params.name, NAME_LIMIT);
+    core.remote.undecline_link(&params.ticket.host);
+    if let Linking::Declined = link_with(core, params).await? {
+        return Err(format!("{name} did not allow the link").into());
+    }
     Ok(remote::pairing(core))
+}
+
+/// How asking another host to link ended, short of failing.
+pub(super) enum Linking {
+    Linked,
+    /// The person there turned it down.
+    Declined,
 }
 
 #[derive(Deserialize)]
@@ -62,7 +73,7 @@ struct Hello {
     addresses: Value,
 }
 
-pub(super) async fn link_with(core: &Arc<Core>, params: LinkParams) -> CoreResult<()> {
+pub(super) async fn link_with(core: &Arc<Core>, params: LinkParams) -> CoreResult<Linking> {
     let own = core
         .remote
         .core_id()
@@ -93,6 +104,9 @@ pub(super) async fn link_with(core: &Arc<Core>, params: LinkParams) -> CoreResul
     .map_err(|error| CoreError::from(format!("{name} did not link: {error}")))?;
     match reply["result"].as_str() {
         Some("allowed") => {}
+        Some("denied") if reply["declined"].as_bool() == Some(true) => {
+            return Ok(Linking::Declined)
+        }
         Some("denied") => return Err(format!("{name} did not allow the link").into()),
         _ => {
             return Err(format!(
@@ -126,7 +140,7 @@ pub(super) async fn link_with(core: &Arc<Core>, params: LinkParams) -> CoreResul
     })?;
     adopt(core, &ticket.host, connection);
     remote::announce(core);
-    Ok(())
+    Ok(Linking::Linked)
 }
 
 async fn finish(incoming: link::Incoming, connection: &Connection, answer: Value) {
@@ -193,18 +207,21 @@ pub(super) async fn answer(core: Arc<Core>, connection: Connection) {
         core.notify.send(Signal::Pairing(request.clone()));
         // The person may answer after the other host gave up waiting; the
         // link is kept, and either host uses it the next time.
-        let allowed = tokio::time::timeout(APPROVAL_TIMEOUT, answered)
-            .await
-            .ok()
-            .and_then(Result::ok)
-            .flatten()
-            .is_some();
+        let answer = tokio::time::timeout(APPROVAL_TIMEOUT, answered).await;
         core.remote.forget_pending(&request.id);
         remote::announce(&core);
         core.notify.send(Signal::PairingSettled { id: request.id });
-        if !allowed {
-            finish(incoming, &connection, json!({ "result": "denied" })).await;
-            return;
+        match answer {
+            Ok(Ok(Some(_))) => {}
+            Ok(Ok(None)) => {
+                let declined = json!({ "result": "denied", "declined": true });
+                finish(incoming, &connection, declined).await;
+                return;
+            }
+            _ => {
+                finish(incoming, &connection, json!({ "result": "denied" })).await;
+                return;
+            }
         }
     } else {
         let linked = core.remote.add_link(StoredLink {
