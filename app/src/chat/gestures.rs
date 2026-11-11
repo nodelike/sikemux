@@ -2,8 +2,8 @@
 //! and GIFs where it sent them.
 
 use gpui_kit::{
-    div, img, px, AnyElement, App, FontWeight, InteractiveElement, IntoElement, ObjectFit,
-    ParentElement, SharedString, Styled, StyledImage,
+    div, img, prelude::FluentBuilder, px, AnyElement, App, FontWeight, InteractiveElement,
+    IntoElement, ObjectFit, ParentElement, SharedString, Styled, StyledImage,
 };
 use sikemux_view::chat::{ChatMessage, GifRef};
 
@@ -19,15 +19,19 @@ const OVERHANG: f32 = 9.;
 /// An emoji draws a little taller than its font size, so its chip leaves room around it.
 const CHIP_HEIGHT: f32 = 22.;
 
-/// The emoji the agent reacted with, hanging off the bottom of the message it answered.
-pub fn reactions(message: &ChatMessage, looks: &Drawn) -> Option<AnyElement> {
+/// The emoji the agent reacted with, hanging off the bottom of the message it answered,
+/// in from the bubble's right corner when `right`, else its left.
+pub fn reactions(message: &ChatMessage, right: bool, looks: &Drawn) -> Option<AnyElement> {
     if message.reactions.is_empty() {
         return None;
     }
     Some(
         div()
             .mt(px(-OVERHANG))
-            .mr(SPACE_2H)
+            .map(|chips| match right {
+                true => chips.mr(SPACE_2H),
+                false => chips.ml(SPACE_2H),
+            })
             .flex()
             .gap(SPACE_1)
             .children(message.reactions.iter().map(|emoji| {
