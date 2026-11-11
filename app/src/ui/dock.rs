@@ -217,7 +217,12 @@ impl RenderOnce for DockMenu {
                 .children(row.state)
                 .children(row.aside.map(|aside| {
                     div()
-                        .flex_none()
+                        .flex_shrink(1.)
+                        .min_w_0()
+                        .max_w(relative(0.4))
+                        .overflow_hidden()
+                        .text_ellipsis()
+                        .whitespace_nowrap()
                         .font_family(theme::MONO)
                         .text_size(crate::theme::ui_text(9.5))
                         .text_color(t.text_disabled)

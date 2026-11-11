@@ -47,6 +47,9 @@ const EARLIER_BUDGET_MS: u64 = 600;
 /// How long the person's typing must settle before the core searches earlier chats.
 const SETTLE: Duration = Duration::from_millis(150);
 
+/// The command the app answers itself, by opening the composer's model picker.
+const PICK_MODEL: &str = "model";
+
 /// A word the caret is at the end of that starts with one of the menu's triggers.
 #[derive(Clone, PartialEq)]
 struct Typed {
@@ -303,15 +306,27 @@ impl Workbench {
                 .get(agent)
                 .and_then(|chat| chat.state.as_ref())
                 .map_or(Vec::new(), |head| {
-                    head.commands
+                    let ours = head.model.is_some();
+                    let own = ours.then(|| Choice::Command {
+                        name: PICK_MODEL.to_owned(),
+                        description: "Pick the model".to_owned(),
+                        hint: None,
+                    });
+                    let theirs = head
+                        .commands
                         .iter()
-                        .filter(|command| command.name.to_lowercase().contains(&needle))
-                        .take(SHOWN)
+                        .filter(|command| !ours || command.name != PICK_MODEL)
                         .map(|command| Choice::Command {
                             name: command.name.clone(),
                             description: command.description.clone(),
                             hint: command.hint.clone(),
+                        });
+                    own.into_iter()
+                        .chain(theirs)
+                        .filter(|choice| {
+                            matches!(choice, Choice::Command { name, .. } if name.to_lowercase().contains(&needle))
                         })
+                        .take(SHOWN)
                         .collect()
                 })
                 .into(),
@@ -747,6 +762,9 @@ impl Workbench {
     ) {
         let project = self.project().map(|project| project.path.clone());
         let target = self.chat_target(agent);
+        let picks_model = (self.chats.open.get(agent))
+            .and_then(|chat| chat.state.as_ref())
+            .is_some_and(|head| head.model.is_some());
         let Some(composing) = self.composing_mut(agent) else {
             return;
         };
@@ -756,6 +774,15 @@ impl Workbench {
         let Some(choice) = menu.choices.get(index.unwrap_or(menu.selected)).cloned() else {
             return;
         };
+        if picks_model && matches!(&choice, Choice::Command { name, .. } if name == PICK_MODEL) {
+            composing.draft.update(cx, |draft, cx| {
+                let end = draft.cursor();
+                draft.set_selected_range(menu.typed.start..end, cx);
+                draft.replace("", window, cx);
+            });
+            composing.model_open = true;
+            return cx.notify();
+        }
         let stashed = match &choice {
             Choice::Stashed(shown) => Some(shown.item.id.clone()),
             _ => None,
@@ -941,7 +968,7 @@ pub fn dock(
     }
     let headed = |dock: DockMenu| {
         if trigger == '/' {
-            return dock.titled("Session commands", "ACP");
+            return dock.titled("Commands", "");
         }
         let scopes = SCOPES
             .iter()
@@ -1042,9 +1069,15 @@ pub fn dock(
                 name,
                 description,
                 hint,
-            } => DockRow::new(format!("/{name}"), choose)
-                .detail(description.clone())
-                .aside(hint.clone().map(SharedString::from)),
+            } => {
+                let row = DockRow::new(format!("/{name}"), choose);
+                match hint {
+                    Some(hint) if description.is_empty() => row.detail(hint.clone()),
+                    hint => row
+                        .detail(description.clone())
+                        .aside(hint.clone().map(SharedString::from)),
+                }
+            }
             Choice::Earlier {
                 cli,
                 name,

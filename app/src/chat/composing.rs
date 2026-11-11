@@ -104,6 +104,8 @@ pub struct Composing {
     pub attachments: Vec<PathBuf>,
     /// The agents, files or commands offered for the word at the caret.
     pub menu: Option<mention::Menu>,
+    /// Whether the model picker is open, so `/model` can open it.
+    pub model_open: bool,
     pub mic: Entity<crate::voice::MicButton>,
     /// What the message carries besides its files: earlier chats it names, and issues and
     /// pages put with it, such as a code host's issue to work on.
@@ -589,7 +591,25 @@ pub(super) fn composer(
             moving,
             target: bench.chat_target(&agent.id),
         };
-        composer = composer.model_menu(picked, cx.entity());
+        let open = chat
+            .composer
+            .as_ref()
+            .is_some_and(|composing| composing.model_open);
+        let opened: crate::chat::composer::Opened = {
+            let (this, agent) = (this.clone(), agent.id.clone());
+            Rc::new(move |open: bool, cx: &mut App| {
+                this.update(cx, |bench, cx| {
+                    if let Some(composing) = bench.composing_mut(&agent) {
+                        composing.model_open = open;
+                        cx.notify();
+                    }
+                })
+                .ok();
+            })
+        };
+        composer = composer
+            .model_menu(picked, cx.entity())
+            .model_open(open, opened);
     }
     let effort = head.and_then(|head| head.effort.clone()).or_else(|| {
         reads_models.then(|| ConfigPicker {
@@ -1117,6 +1137,7 @@ impl Workbench {
             hint: SharedString::default(),
             attachments: Vec::new(),
             menu: None,
+            model_open: false,
             context: Vec::new(),
             tracked: None,
             tracked_context: HashMap::new(),

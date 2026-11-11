@@ -75,6 +75,9 @@ pub struct Strip {
 
 /// A chat's composer: its draft, and the bar of what the chat lets the person change, as the
 /// chat says. It keeps no state of its own.
+/// Says the model menu opened or shut.
+pub type Opened = Rc<dyn Fn(bool, &mut App)>;
+
 #[derive(IntoElement)]
 pub struct Composer {
     draft: Entity<TextareaState>,
@@ -89,6 +92,7 @@ pub struct Composer {
     /// The model menu, which before the chat starts also moves it to another agent or paying
     /// provider; the strip picks the account.
     model_menu: Option<(Picked, Entity<Workbench>)>,
+    model_open: Option<(bool, Opened)>,
     usage: Option<ContextUsage>,
     compactions: Option<Compactions>,
     /// The files going with the message, the button that picks more, what a paste of
@@ -137,6 +141,7 @@ impl Composer {
             yolo: None,
             pickers: None,
             model_menu: None,
+            model_open: None,
             usage: None,
             compactions: None,
             attachments: None,
@@ -205,6 +210,12 @@ impl Composer {
 
     pub fn model_menu(mut self, picked: Picked, bench: Entity<Workbench>) -> Self {
         self.model_menu = Some((picked, bench));
+        self
+    }
+
+    /// Holds the model menu open or shut from outside, as `/model` opens it.
+    pub fn model_open(mut self, open: bool, opened: Opened) -> Self {
+        self.model_open = Some((open, opened));
         self
     }
 
@@ -358,9 +369,15 @@ impl RenderOnce for Composer {
                 room,
                 cx,
             );
-            crate::chat::model_picker::around(trigger, &self.provider, picked, &bench)
-                .min_w_0()
-                .flex()
+            let menu = crate::chat::model_picker::around(trigger, &self.provider, picked, &bench);
+            match self.model_open.clone() {
+                Some((open, opened)) => menu.open(open).on_open_change(
+                    move |open: &bool, _: &mut Window, cx: &mut App| opened(*open, cx),
+                ),
+                None => menu,
+            }
+            .min_w_0()
+            .flex()
         });
         let has_menu = model_menu.is_some();
         bar = bar.children(model_menu);
