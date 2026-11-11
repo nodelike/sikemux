@@ -107,9 +107,10 @@ pub fn listen(desks: &Entity<Desks>, window: &mut Window, cx: &mut Context<Workb
             }
         })
     });
-    let activation = cx.observe_window_activation(window, |bench, window, _| {
+    let activation = cx.observe_window_activation(window, |bench, window, cx| {
         if window.is_window_active() {
             let _ = bench.asks.send(Ask::RegisterWindow);
+            crate::agents::limits::window_came_forward(bench, cx);
         }
     });
     let engine = desks.read(cx).engine.clone();

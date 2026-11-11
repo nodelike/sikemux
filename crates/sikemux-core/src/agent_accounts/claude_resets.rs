@@ -14,7 +14,7 @@ use sikemux_process::sync::Locked;
 use tokio::process::Command;
 
 use super::folders;
-use super::usage::{ResetKind, ResetOutcome, Resets, UsageWindow};
+use super::usage::{ResetKind, ResetOutcome, Resets, Usage, UsageWindow};
 
 const API: &str = "https://api.anthropic.com";
 const PROGRAM: &str = "cedar_ember";
@@ -49,10 +49,16 @@ pub(crate) async fn spend(
         return Ok(ResetOutcome::NoReset);
     };
     let organization = organization(config_path).ok_or(SIGNED_OUT)?;
+    let attempt = format!("{}/{grant}", config_path.unwrap_or_default());
+    let request_id = attempts()
+        .locked()
+        .entry(attempt.clone())
+        .or_insert_with(|| uuid::Uuid::new_v4().simple().to_string())
+        .clone();
     let body = serde_json::json!({
         "program": PROGRAM,
         "grant_id": grant,
-        "request_id": uuid::Uuid::new_v4().simple().to_string(),
+        "request_id": request_id,
     });
     let path = format!("/api/organizations/{organization}/reset_rate_limits");
     let version = version(program).await;
@@ -62,6 +68,7 @@ pub(crate) async fn spend(
             .timeout(SPEND_TIMEOUT)
     })
     .await?;
+    attempts().locked().remove(&attempt);
     match answer.get("result").and_then(Value::as_str) {
         Some("reset" | "already_used") => Ok(ResetOutcome::Reset),
         Some("not_limited") => Ok(ResetOutcome::NothingToReset),
@@ -75,6 +82,13 @@ pub(crate) async fn spend(
 }
 
 const SIGNED_OUT: &str = "Sign in to Claude again to use resets";
+
+/// The request id of a spend that got no answer, by account and grant, sent again with a retry
+/// so Claude takes the two as one and never spends a second reset.
+fn attempts() -> &'static Mutex<HashMap<String, String>> {
+    static ATTEMPTS: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
+    ATTEMPTS.get_or_init(Default::default)
+}
 
 #[derive(Deserialize)]
 struct Grant {
@@ -216,9 +230,40 @@ fn refills(grant: &Live, windows: &[UsageWindow]) -> Option<String> {
         .map(|window| window.label.clone())
 }
 
-async fn grants(program: &Path, config_path: Option<&str>) -> Result<Option<Grants>, String> {
+/// The account's limits and resets in one request to Claude's usage endpoint, as claude.ai and
+/// Claude Code's /usage read them. None when Claude could not be asked, or answered in a shape
+/// with no limits in it, so the caller asks the CLI instead; an error when Claude refused, so
+/// nothing asks again for a while.
+pub(crate) async fn usage(
+    program: &Path,
+    config_path: Option<&str>,
+) -> Result<Option<Usage>, String> {
+    let answer = match usage_answer(program, config_path).await {
+        Ok(answer) => answer,
+        Err(error) if super::usage::refused(&error) => return Err(error),
+        Err(_) => return Ok(None),
+    };
+    let windows = super::usage::claude_windows(&answer);
+    if windows.is_empty() {
+        return Ok(None);
+    }
+    let now = sikemux_process::clock::epoch_ms();
+    let resets = (answer.get("cedar_ember"))
+        .and_then(|block| Grants::from(block, now))
+        .map(|grants| grants.resets(&windows));
+    Ok(Some(Usage {
+        provider: "claude".to_owned(),
+        plan: None,
+        tier: None,
+        windows,
+        unavailable_reason: None,
+        resets,
+    }))
+}
+
+async fn usage_answer(program: &Path, config_path: Option<&str>) -> Result<Value, String> {
     let version = version(program).await;
-    let answer = ask(program, config_path, |client, token| {
+    ask(program, config_path, |client, token| {
         signed(
             client.get(format!("{API}/api/oauth/usage")),
             token,
@@ -226,7 +271,11 @@ async fn grants(program: &Path, config_path: Option<&str>) -> Result<Option<Gran
         )
         .query(&[("cedar_ember", "1"), ("skip_spend", "1")])
     })
-    .await?;
+    .await
+}
+
+async fn grants(program: &Path, config_path: Option<&str>) -> Result<Option<Grants>, String> {
+    let answer = usage_answer(program, config_path).await?;
     let now = sikemux_process::clock::epoch_ms();
     Ok(answer
         .get("cedar_ember")
@@ -253,7 +302,7 @@ async fn ask(
             }
             StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => return Err(SIGNED_OUT.to_owned()),
             StatusCode::TOO_MANY_REQUESTS => {
-                return Err("Claude is turning away reset requests. Try again soon".to_owned())
+                return Err("Claude is rate limiting these requests. Try again soon".to_owned())
             }
             status if !status.is_success() => return Err(format!("Claude answered {status}")),
             _ => {

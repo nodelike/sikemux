@@ -166,10 +166,12 @@ impl Usage {
     }
 }
 
-/// Every lookup boots the provider's CLI and asks the provider's usage
-/// endpoint, which refuses callers that ask often. So an answer is kept for a
-/// while, a failed one too, and a refusal for longer.
+/// A lookup asks the provider's usage endpoint, which refuses callers that ask
+/// often, and Codex's boots its CLI. So an answer is kept for a while, a failed
+/// one too, and a refusal for longer. Claude's is one small request, the one
+/// claude.ai makes each time its page is looked at, so it is kept briefly.
 pub(crate) const USAGE_TTL: Duration = Duration::from_secs(120);
+const CLAUDE_USAGE_TTL: Duration = Duration::from_secs(20);
 const FAILED_TTL: Duration = Duration::from_secs(60);
 const REFUSED_TTL: Duration = Duration::from_secs(600);
 /// What a lookup fails with when the agent says its account is signed out.
@@ -197,7 +199,7 @@ fn remembered(key: &str) -> Option<Lookup> {
     cache.get(key).map(|(_, _, lookup)| lookup.clone())
 }
 
-fn refused(error: &str) -> bool {
+pub(super) fn refused(error: &str) -> bool {
     let error = error.to_ascii_lowercase();
     error.contains("429") || error.contains("rate limit") || error.contains("rate_limit")
 }
@@ -224,6 +226,7 @@ pub async fn usage(
         None => Err(format!("{provider} does not expose structured plan usage")),
     };
     let ttl = match &lookup {
+        Ok(_) if provider == "claude" => CLAUDE_USAGE_TTL,
         Ok(_) => USAGE_TTL,
         Err(error) if refused(error) => REFUSED_TTL,
         Err(_) => FAILED_TTL,
@@ -631,11 +634,17 @@ pub(crate) async fn claude_usage(
     executable: &Path,
     config_path: Option<&str>,
 ) -> Result<Usage, String> {
+    let tier = claude_plan_name(config_path);
+    if let Some(mut usage) = super::claude_resets::usage(executable, config_path).await? {
+        usage.plan = tier.as_deref().map(str::to_ascii_lowercase);
+        usage.tier = tier;
+        return Ok(usage);
+    }
     let mut usage = claude_plan_usage(executable, config_path).await?;
     if usage.unavailable_reason.is_none() {
         usage.resets = super::claude_resets::read(executable, config_path, &usage.windows).await;
     }
-    usage.tier = claude_plan_name(config_path);
+    usage.tier = tier;
     Ok(usage)
 }
 
@@ -871,8 +880,28 @@ fn parse_claude_usage(text: &str, request_id: &str) -> Option<Usage> {
         .get("subscription_type")
         .and_then(Value::as_str)
         .and_then(clean);
+    let windows = (payload.get("rate_limits"))
+        .filter(|value| value.is_object())
+        .map(claude_windows)
+        .unwrap_or_default();
+
+    Some(Usage {
+        provider: "claude".to_owned(),
+        plan,
+        tier: None,
+        windows,
+        unavailable_reason,
+        resets: None,
+    })
+}
+
+/// The windows in Claude's usage answer, as its usage endpoint sends them and its CLI repeats.
+pub(super) fn claude_windows(limits: &Value) -> Vec<UsageWindow> {
+    if let Some(rows) = limits.get("limits").and_then(Value::as_array) {
+        return rows.iter().filter_map(claude_limit_row).collect();
+    }
     let mut windows = Vec::new();
-    if let Some(limits) = payload.get("rate_limits").filter(|value| value.is_object()) {
+    {
         let windows_named = [
             ("five_hour", None, "5h", 300),
             ("seven_day", None, "7d", 10_080),
@@ -905,15 +934,40 @@ fn parse_claude_usage(text: &str, request_id: &str) -> Option<Usage> {
             }
         }
     }
+    windows
+}
 
-    Some(Usage {
-        provider: "claude".to_owned(),
-        plan,
-        tier: None,
-        windows,
-        unavailable_reason,
-        resets: None,
-    })
+/// One of the rows Claude's usage endpoint lists its meters in, by the kind the server gives it:
+/// the session, the whole week, or one model's or surface's share of the week.
+fn claude_limit_row(row: &Value) -> Option<UsageWindow> {
+    let percent = row.get("percent")?.as_f64()?;
+    let resets_at = row.get("resets_at").and_then(usage_reset_at);
+    let scope = |of: &str| {
+        row.pointer(&format!("/scope/{of}/display_name"))
+            .and_then(Value::as_str)
+            .and_then(clean)
+    };
+    match row.get("kind")?.as_str()? {
+        "session" => Some(UsageWindow::new(None, "5h", percent, resets_at, Some(300))),
+        "weekly_all" => Some(UsageWindow::new(
+            None,
+            "7d",
+            percent,
+            resets_at,
+            Some(10_080),
+        )),
+        "weekly_scoped" => {
+            let name = scope("model").or_else(|| scope("surface"))?;
+            Some(UsageWindow::new(
+                Some(&name),
+                "7d",
+                percent,
+                resets_at,
+                Some(10_080),
+            ))
+        }
+        _ => None,
+    }
 }
 
 fn usage_duration_label(minutes: Option<u64>, fallback: &str) -> String {

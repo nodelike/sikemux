@@ -36,6 +36,8 @@ const CLOSE_AFTER: Duration = Duration::from_millis(180);
 const UNDO_FOR: Duration = Duration::from_secs(6);
 /// A read that never answers, as when the core restarts, stops spinning after this.
 const READING_AT_MOST: Duration = Duration::from_secs(60);
+/// How old a reading may be when limits come into view, as claude.ai reads its own on every look.
+const FRESH_FOR: Duration = Duration::from_secs(20);
 
 const ROW: f32 = 30.;
 const ROW_COMPACT: f32 = 28.;
@@ -512,7 +514,7 @@ fn start_reading(bench: &mut Workbench, cx: &mut Context<Workbench>) {
 
 /// Whether a signed-in account's reading is older than the reads made while limits show.
 fn reading_is_old(bench: &Workbench, now: u64) -> bool {
-    let every = crate::workbench::LIMITS_EVERY.as_millis() as u64;
+    let every = FRESH_FOR.as_millis() as u64;
     (bench.reads.usage.iter())
         .filter(|account| account.signed_in)
         .any(|account| {
@@ -1417,6 +1419,9 @@ fn settle_hover(bench: &mut Workbench, cx: &mut Context<Workbench>) {
             if !wanted {
                 reveal.arming = None;
             }
+            if wanted && reading_is_old(bench, ui::time::now_ms()) {
+                start_reading(bench, cx);
+            }
             bench.parts.redraw(&bench.parts.tabs, cx);
         });
     }));
@@ -1442,6 +1447,14 @@ impl Reveal {
 pub(crate) fn redraw(bench: &Workbench, cx: &mut App) {
     bench.parts.redraw(&bench.parts.tabs, cx);
     bench.parts.redraw(&bench.parts.top, cx);
+}
+
+/// Reads the limits again when the window comes to the front with them on screen and the last
+/// reading is a little old, so they are current whenever the person looks.
+pub(crate) fn window_came_forward(bench: &mut Workbench, cx: &mut Context<Workbench>) {
+    if bench.limits_shown() && reading_is_old(bench, ui::time::now_ms()) {
+        start_reading(bench, cx);
+    }
 }
 
 /// Stops the refresh spinning: the core has answered, or never will.
