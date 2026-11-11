@@ -780,7 +780,7 @@ fn copy(id: String, what: &str, text: String) -> ui::IconButton {
 
 /// The run's spine down the left of a row, and the tick that joins the row to it;
 /// the last row's turns the corner instead.
-fn spine(last: bool, looks: &Drawn) -> Div {
+pub(super) fn spine(last: bool, looks: &Drawn) -> Div {
     let (spine, tick) = (looks.tints.spine, looks.tints.tick);
     if last {
         return div()

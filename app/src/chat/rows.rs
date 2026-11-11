@@ -2,7 +2,7 @@
 //! fired triggers, and subagents. Runs of messages between agents are in `team`.
 
 use super::*;
-use sikemux_view::chat::GoalMoment;
+use sikemux_view::chat::{GoalMoment, TaskNotice};
 use sikemux_view::slice::SliceState;
 
 use crate::theme::{
@@ -917,6 +917,67 @@ pub(super) fn card_of<'a>(rows: &'a [ChatRow], session: &str) -> Option<&'a Suba
     })
 }
 
+/// A background task that ended, drawn as the last row of a tool-call tree: what kind of task
+/// it was, its name's first line, and how it ended.
+fn task_ended(notice: &TaskNotice, looks: &Drawn, cx: &App) -> AnyElement {
+    let t = Tokens::get(cx);
+    let (icon, word, tint) = match notice.task_type.as_deref() {
+        Some("workflow") => (Icon::Workflow, "workflow", looks.tints.called),
+        Some("monitor") => (Icon::Timer, "watch", looks.tints.looked),
+        _ => (Icon::Run, "bg", looks.tints.ran),
+    };
+    let (mark, state, state_ink) = match notice.state {
+        NoticeState::Completed => (Some((Icon::Check, t.live)), "done", looks.quiet),
+        NoticeState::Failed => (Some((Icon::Close, t.danger)), "failed", t.danger),
+        NoticeState::Stopped => (None, "stopped", looks.quiet),
+    };
+    let name = notice
+        .name
+        .lines()
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .to_owned();
+    let summary = notice
+        .summary
+        .as_deref()
+        .and_then(|summary| summary.lines().next())
+        .map(|line| line.trim().to_owned())
+        .filter(|line| !line.is_empty() && *line != name);
+    div()
+        .relative()
+        .h(px(22.))
+        .pr(SPACE_1H)
+        .flex()
+        .items_center()
+        .gap(SPACE_2)
+        .min_w_0()
+        .font_family(theme::MONO)
+        .text_size(crate::theme::ui_text(crate::theme::TEXT_3XS))
+        .child(super::tools::spine(true, looks))
+        .child(div().w(px(9.)).flex_none())
+        .child(
+            div()
+                .w(px(16.))
+                .flex_none()
+                .flex()
+                .justify_center()
+                .child(ui::icon(icon, 11.).text_color(tint)),
+        )
+        .child(div().flex_none().text_color(tint).child(word))
+        .child(div().min_w_0().truncate().text_color(looks.ink).child(name))
+        .children(summary.map(|summary| {
+            div()
+                .min_w_0()
+                .truncate()
+                .text_color(looks.quiet)
+                .child(summary)
+        }))
+        .children(mark.map(|(icon, ink)| ui::icon(icon, 11.).flex_none().text_color(ink)))
+        .child(div().flex_none().text_color(state_ink).child(state))
+        .into_any_element()
+}
+
 /// The line something said beside the reply sits on: a background task that ended, a notice
 /// from the agent, or a move to another account.
 pub(super) fn notice_box(looks: &Drawn) -> Div {
@@ -1215,24 +1276,7 @@ pub(super) fn part(
             line(Icon::Run, tool.title.clone(), tint)
         }
         ChatPart::Subagent { subagent, .. } => self::subagent(subagent, pen, looks, window, cx),
-        ChatPart::Notice { notice, .. } => {
-            let t = Tokens::get(cx);
-            let icon = match notice.task_type.as_deref() {
-                Some("workflow") => Icon::Workflow,
-                _ => Icon::Timer,
-            };
-            let (state, tint) = match notice.state {
-                NoticeState::Completed => ("completed", looks.quiet),
-                NoticeState::Failed => ("failed", t.danger),
-                NoticeState::Stopped => ("stopped", looks.quiet),
-            };
-            notice_box(looks)
-                .child(ui::icon(icon, 12.).text_color(looks.quiet))
-                .child(notice_name(notice.name.clone(), true, looks))
-                .child(div().flex_none().text_color(tint).child(state))
-                .children(notice.summary.clone().map(notice_summary))
-                .into_any_element()
-        }
+        ChatPart::Notice { notice, .. } => task_ended(notice, looks, cx),
         ChatPart::AgentNotice { notice, .. } if notice.goal.is_some() => {
             goal_marker(notice, looks, cx)
         }
