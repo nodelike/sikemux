@@ -14,7 +14,8 @@ import { resourceCache } from '@clerk/expo/resource-cache';
 
 import { CLERK_PUBLISHABLE_KEY } from '@/account/config';
 import { tokenCache } from '@/account/tokenCache';
-import { useAccountHostsFeed, useAccountSequence, useConnectArrivals } from '@/account/session';
+import { useAccountHostsFeed, useAccountSequence } from '@/account/session';
+import { useHostJoins } from '@/devices/hostJoins';
 import { goOffline } from '@/phone/identity';
 import { useDevices } from '@/devices/hub';
 import { lockFor, useLock } from '@/lock/lock';
@@ -129,7 +130,6 @@ function Routes({ background }: { background: string }) {
             <SwipeStack.Protected guard={!!isSignedIn}>
               {/* A host's screen paints its own ground, which fades as the screen leaves. */}
               <SwipeStack.Screen name="device/[core]" options={{ cardStyle: { backgroundColor: 'transparent' } }} />
-              <SwipeStack.Screen name="join" />
               <SwipeStack.Screen name="host-sign-in" />
               <SwipeStack.Screen name="share/[id]" />
               <SwipeStack.Screen name="stash" />
@@ -147,7 +147,6 @@ function Routes({ background }: { background: string }) {
           <Stack.Screen name="index" />
           <Stack.Protected guard={!!isSignedIn}>
             <Stack.Screen name="device/[core]" />
-            <Stack.Screen name="join" />
             <Stack.Screen name="host-sign-in" />
             <Stack.Screen name="share/[id]" />
             <Stack.Screen name="stash" />
@@ -176,6 +175,6 @@ function PhoneOnAccount() {
   useAccountSequence();
   useAccountHostsFeed();
   useStashFeed();
-  useConnectArrivals();
+  useHostJoins();
   return null;
 }

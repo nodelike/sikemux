@@ -128,6 +128,7 @@ final class Hub {
         devices = await store.all()
         problem = await store.damaged ? Self.damagedProblem : nil
         loaded = true
+        HostJoins.shared.joinNew()
     }
 
     /// Reads the list of paired hosts from disk again, clearing the problem it showed if it now reads cleanly.

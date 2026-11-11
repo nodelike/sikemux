@@ -10,6 +10,7 @@ import { Avatar } from '@/account/Avatar';
 import { providerName } from '@/account/providers';
 import { retryHosts, useAccountHosts } from '@/account/session';
 import { reloadDevices, retry, useHostStatus, useLive } from '@/devices/hub';
+import { ASKING_AFTER_MS, retryJoin, useHostJoin } from '@/devices/hostJoins';
 import { channelLabel, deviceKind, deviceName, type PairedDevice } from '@/devices/paired';
 import { summary } from '@/devices/status';
 import { haptics } from '@/ui/haptics';
@@ -85,37 +86,45 @@ function DeviceCard({ device, onAccount, offAccount }: { device: PairedDevice; o
   );
 }
 
-/** A host signed in to the same account that this phone has not paired with: it asks that host to let this phone in. */
+/** A host signed in to the same account that this phone has not paired with yet: joining it, or why that stopped. */
 function AccountHostCard({ host }: { host: Device }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
+  const join = useHostJoin(host.key);
+  const failure = join && 'stopped' in join ? join.stopped : undefined;
+  const since = join && 'joining' in join ? join.joining : undefined;
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    if (since === undefined) return;
+    const timer = setTimeout(() => setNow(Date.now()), Math.max(0, since + ASKING_AFTER_MS - Date.now()));
+    return () => clearTimeout(timer);
+  }, [since]);
+  const asking = since !== undefined && now - since >= ASKING_AFTER_MS;
   const channel = channelLabel(host.channel);
+  const line = failure?.title ?? (asking ? `Waiting for ${host.name} to allow this phone` : 'Connecting…');
   return (
-    <Pressable
-      onPress={() => {
-        haptics.tap();
-        router.push({ pathname: '/join', params: { core: host.key, name: host.name } });
-      }}
-      accessibilityRole="button"
-      accessibilityLabel={`Connect to ${host.name}`}
-      style={({ pressed }) => [styles.card, styles.away, pressed && { opacity: 0.85 }]}>
+    <View style={[styles.card, failure && styles.away]}>
       <View style={styles.head}>
         <View style={styles.glyph}>
-          <DeviceIcon kind="laptop" color={colors.tertiary} />
+          <DeviceIcon kind="laptop" color={failure ? colors.tertiary : colors.ink} />
+          <View style={[styles.presence, failure ? styles.presenceOff : styles.presenceOn]} />
         </View>
         <View style={{ flex: 1 }}>
-          <Text style={[styles.name, { color: colors.tertiary }]} numberOfLines={1}>
+          <Text style={[styles.name, failure && { color: colors.tertiary }]} numberOfLines={1}>
             {host.name}
           </Text>
           <Text style={styles.meta} numberOfLines={1}>
-            {channel ? `${channel} · ` : ''}On your account
+            {channel ? `${channel} · ${line}` : line}
           </Text>
         </View>
-        <View style={styles.connect}>
-          <Text style={styles.connectText}>Connect</Text>
-        </View>
+        {failure ? <Button title="Try again" onPress={() => retryJoin(host)} /> : <Working />}
       </View>
-    </Pressable>
+      {failure ? (
+        <Text style={styles.why} numberOfLines={2}>
+          {failure.detail}
+        </Text>
+      ) : null}
+    </View>
   );
 }
 
@@ -181,7 +190,7 @@ function Chip({ title, primary, onPress }: { title: string; primary?: boolean; o
   );
 }
 
-/** How to bring a host in: install Sikemux there and sign in to this account; it then asks to let this phone in. */
+/** How to bring a host in: install Sikemux there and sign in to this account; the phone then connects by itself. */
 function BringItIn() {
   const styles = useStyles(makeStyles);
   const { user } = useUser();
@@ -213,9 +222,7 @@ function BringItIn() {
         <Step number={2}>
           Sign in with <Text style={styles.strong}>{account || 'this account'}</Text>
         </Step>
-        <Step number={3}>
-          Click <Text style={styles.strong}>Allow</Text> when it asks
-        </Step>
+        <Step number={3}>It shows up here and connects by itself</Step>
       </View>
       <View style={styles.chips}>
         <Chip primary title="Send me the link" onPress={send} />
@@ -314,16 +321,7 @@ const makeStyles = (colors: Palette) => {
     presenceOff: { backgroundColor: colors.ground, borderColor: colors.rest },
     name: { ...type.heading },
     meta: { ...type.meta, marginTop: 2 },
-    connect: {
-      minHeight: 32,
-      paddingHorizontal: 13,
-      justifyContent: 'center',
-      borderRadius: radius.control,
-      borderWidth: 1,
-      borderColor: colors.borderStrong,
-      backgroundColor: colors.raised,
-    },
-    connectText: { fontFamily: fonts.uiSemibold, fontSize: 14, color: colors.ink },
+    why: { ...type.meta, marginTop: -6, paddingLeft: 64, paddingRight: 14, paddingBottom: 14 },
     work: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 14 },
     faces: { flexDirection: 'row' },
     face: { width: 18, height: 18, alignItems: 'center', justifyContent: 'center' },

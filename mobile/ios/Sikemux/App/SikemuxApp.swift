@@ -127,7 +127,6 @@ struct ScreenFor: View {
         case .newChat(let core, let project, let launcher):
             HostScoped(core: core) { NewChatScreen(core: core, project: project, launcher: launcher) }
         case .pairing(let core): HostScoped(core: core) { PairingScreen(core: core) }
-        case .join(let core, let name, let arrived): JoinScreen(core: core, name: name ?? "your host", arrived: arrived)
         case .hostSignIn: HostSignInScreen()
         case .deleteAccount: DeleteAccountScreen()
         case .share(let id, let key): ShareScreen(id: id, key: key)

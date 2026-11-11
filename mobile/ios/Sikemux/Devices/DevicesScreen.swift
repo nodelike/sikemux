@@ -184,44 +184,61 @@ private struct CardPress: ButtonStyle {
     }
 }
 
-/// A host signed in to the same account that this phone has not paired with: it asks that host to let this phone in.
+/// A host signed in to the same account that this phone has not paired with yet: joining it, or why that stopped.
 private struct AccountHostCard: View {
     @Environment(\.palette) private var palette
     let host: WireDevice
+    @State private var asking = false
 
     var body: some View {
+        let state = HostJoins.shared.states[host.key]
+        let failure: JoinFailure? = if case .stopped(let failure) = state { failure } else { nil }
+        let since: Date? = if case .joining(let since) = state { since } else { nil }
         let channel = host.channel.flatMap { BuildChannel(rawValue: $0.rawValue) }?.label
-        Button {
-            Haptics.tap()
-            Router.shared.push(.join(core: host.key, name: host.name))
-        } label: {
+        let line = failure?.title ?? (asking ? "Waiting for \(host.name) to allow this phone" : "Connecting…")
+        VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 14) {
                 IconView(icon: Icons.laptop, size: 26)
-                    .foregroundStyle(palette.tertiary)
+                    .foregroundStyle(failure == nil ? palette.ink : palette.tertiary)
                     .frame(width: 34, height: 34)
+                    .overlay(alignment: .bottomTrailing) {
+                        Circle()
+                            .fill(failure == nil ? palette.live : palette.ground)
+                            .overlay(
+                                Circle().strokeBorder(failure == nil ? palette.raised : palette.rest, lineWidth: 2.5)
+                            )
+                            .frame(width: 10, height: 10)
+                            .offset(x: 1, y: -3)
+                    }
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(host.name).headingStyle(palette).foregroundStyle(palette.tertiary).lineLimit(1)
-                    Text((channel.map { "\($0) · " } ?? "") + "On your account").metaStyle(palette).lineLimit(1)
+                    Text(host.name).headingStyle(palette)
+                        .foregroundStyle(failure == nil ? palette.ink : palette.tertiary).lineLimit(1)
+                    Text(channel.map { "\($0) · \(line)" } ?? line).metaStyle(palette).lineLimit(1)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                Text("Connect")
-                    .font(Theme.ui(14, .semibold))
-                    .foregroundStyle(palette.ink)
-                    .padding(.horizontal, 13)
-                    .frame(minHeight: 32)
-                    .background(RoundedRectangle(cornerRadius: Radius.control, style: .continuous).fill(palette.raised))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: Radius.control, style: .continuous).strokeBorder(
-                            palette.borderStrong, lineWidth: 1))
+                if failure != nil {
+                    Chip(title: "Try again") { HostJoins.shared.retry(host) }
+                } else {
+                    Working()
+                }
             }
-            .padding(.vertical, 14)
-            .padding(.leading, 16)
-            .padding(.trailing, 14)
-            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(palette.border, lineWidth: 1))
-            .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            if let failure {
+                Text(failure.detail).metaStyle(palette).lineLimit(2).padding(.top, 8).padding(.leading, 48)
+            }
         }
-        .buttonStyle(CardPress())
-        .accessibilityLabel("Connect to \(host.name)")
+        .padding(.vertical, 14)
+        .padding(.leading, 16)
+        .padding(.trailing, 14)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous).fill(failure == nil ? palette.raised : .clear)
+        )
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(palette.border, lineWidth: 1))
+        .task(id: since) {
+            asking = false
+            guard let since else { return }
+            try? await Task.sleep(for: .seconds(max(0, HostJoins.askingAfter + since.timeIntervalSinceNow)))
+            if !Task.isCancelled { asking = true }
+        }
     }
 }
 
@@ -273,7 +290,7 @@ private struct AccountNote: View {
     }
 }
 
-/// How to bring a host in: install Sikemux there and sign in to this account; it then asks to let this phone in.
+/// How to bring a host in: install Sikemux there and sign in to this account; the phone then connects by itself.
 private struct BringItIn: View {
     @Environment(\.palette) private var palette
     @State private var copied = false
@@ -287,7 +304,7 @@ private struct BringItIn: View {
             VStack(alignment: .leading, spacing: 9) {
                 step(1, Text("Get Sikemux from \(strong("sikemux.com"))"))
                 step(2, Text("Sign in with \(strong(account.isEmpty ? "this account" : account))"))
-                step(3, Text("Click \(strong("Allow")) when it asks"))
+                step(3, Text("It shows up here and connects by itself"))
             }
             .padding(.top, 10)
             Wrap {

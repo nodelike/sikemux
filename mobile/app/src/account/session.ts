@@ -1,6 +1,5 @@
-import { useEffect, useEffectEvent, useRef, useState } from 'react';
+import { useEffect, useEffectEvent, useRef } from 'react';
 import { Alert, AppState } from 'react-native';
-import { router } from 'expo-router';
 import { useAuth } from '@clerk/expo';
 import { nativeApplicationVersion } from 'expo-application';
 import * as Notifications from 'expo-notifications';
@@ -13,9 +12,6 @@ import { problem as problemOf } from '@/core/problem';
 import { alertFailure } from '@/ui/prompt';
 import { notifier } from '../../modules/notify';
 import { deviceIdentity } from '@/phone/identity';
-import { hostsArrived } from '@/devices/arrivals';
-import { joinShowing } from '@/devices/joining';
-import { pairedDevices } from '@/devices/paired';
 import { onNetworkChange } from '@/network/connectivity';
 import { phoneAdded, syncPushToken } from '@/notify/token';
 import { stashChanged } from '@/stash/store';
@@ -73,33 +69,6 @@ export function retryHosts() {
 
 export function useAccountHosts(): AccountHosts {
   return useExternalValue(accountHostsNow);
-}
-
-/** A host that arrives while the phone is in the background stays new until the phone is in front, so it still connects then. */
-async function connectArrival(account: string, hosts: Device[]) {
-  if (joinShowing() || AppState.currentState !== 'active') return;
-  const arrived = await hostsArrived(account, hosts);
-  const paired = await pairedDevices();
-  const host = arrived.find((found) => !paired.some((device) => device.core === found.key));
-  if (!host) return;
-  router.push({ pathname: '/join', params: { core: host.key, name: host.name, arrived: '1' } });
-}
-
-/** Starts connecting to a host that signs in to the account after this phone did; the host may have let this phone in already. */
-export function useConnectArrivals() {
-  const { userId } = useAuth();
-  const { hosts, loaded } = useAccountHosts();
-  const [inFront, setInFront] = useState(0);
-  useEffect(() => {
-    const back = AppState.addEventListener('change', (state) => {
-      if (state === 'active') setInFront((count) => count + 1);
-    });
-    return () => back.remove();
-  }, []);
-  useEffect(() => {
-    if (!userId || !loaded) return;
-    connectArrival(userId, hosts).catch((error: unknown) => console.warn('sikemux: could not connect to a new host', error));
-  }, [userId, loaded, hosts, inFront]);
 }
 
 const statusNow = externalValue<AccountStatus | undefined>(undefined);

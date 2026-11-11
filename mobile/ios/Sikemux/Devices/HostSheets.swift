@@ -9,6 +9,7 @@ final class Forgetting {
     func leave(_ device: PairedDevice, done: (() -> Void)? = nil) async {
         guard !busy else { return }
         busy = true
+        HostJoins.shared.forgot(device.core)
         await Hub.shared.forget(device.core)
         HostLook.forget(device)
         Haptics.success()

@@ -2,7 +2,7 @@ import Foundation
 import Observation
 
 /// Every screen the app opens, named as the Android app's routes are. Links and notifications name them by path:
-/// `/device/<core>?tab=terminals`, `/device/<core>/chat/<agent>`, `/device/<core>/new?project=…`, `/join?core=…`.
+/// `/device/<core>?tab=terminals`, `/device/<core>/chat/<agent>`, `/device/<core>/new?project=…`.
 enum Route: Hashable {
     enum DeviceTab: String {
         case agents, terminals, recent, board
@@ -12,7 +12,6 @@ enum Route: Hashable {
     case chat(core: String, agent: String)
     case newChat(core: String, project: String? = nil, launcher: String? = nil)
     case pairing(core: String)
-    case join(core: String, name: String?, arrived: Bool = false)
     case hostSignIn
     case deleteAccount
     case share(id: String, key: String?)
@@ -37,9 +36,6 @@ enum Route: Hashable {
             case "pairing": self = .pairing(core: core)
             default: return nil
             }
-        case "join":
-            guard let core = query["core"] else { return nil }
-            self = .join(core: core, name: query["name"], arrived: query["arrived"] == "1")
         case "host-sign-in": self = .hostSignIn
         case "delete-account": self = .deleteAccount
         case "share":

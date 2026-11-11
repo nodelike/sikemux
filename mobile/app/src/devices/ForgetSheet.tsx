@@ -11,6 +11,7 @@ import { Sheet } from '@/ui/Sheet';
 import { fonts, type Palette, useStyles } from '@/ui/theme';
 import { forgetBackdrop } from './backdrop';
 import { forget } from './hub';
+import { forgotHost } from './hostJoins';
 import { deviceKind, deviceName, type PairedDevice } from './paired';
 
 /** Forgets a host and goes back to Devices; a failure stays to be shown. */
@@ -26,6 +27,7 @@ export function useForget(device: PairedDevice | undefined, done?: () => void) {
     setForgetting(true);
     setProblem(undefined);
     try {
+      forgotHost(device.core);
       await forget(device.core);
     } catch (error) {
       busy.current = false;
