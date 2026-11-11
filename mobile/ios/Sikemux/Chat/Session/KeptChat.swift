@@ -2,7 +2,7 @@ import Foundation
 
 /// A chat as this phone last drew it, so opening it again draws at once and asks the host only for what came after.
 struct KeptChat: Sendable {
-    struct Kept: Codable {
+    struct Kept: Codable, Sendable {
         var chat: ChatRows
         var feed: String
         var seq: UInt64
@@ -28,15 +28,20 @@ struct KeptChat: Sendable {
         file = Self.folder.appendingPathComponent("\(name).json")
     }
 
-    func load() -> Kept? {
-        guard FileManager.default.fileExists(atPath: file.path) else { return nil }
-        do {
-            let kept = try JSONDecoder().decode(Kept.self, from: Data(contentsOf: file))
-            return kept.build == Self.build ? kept : nil
-        } catch {
-            print("sikemux: could not read the chat kept on this phone: \(error)")
-            return nil
-        }
+    /// Off the main thread, as a kept chat can be megabytes of JSON.
+    func load() async -> Kept? {
+        let file = file
+        let build = Self.build
+        return await Task.detached(priority: .userInitiated) { () -> Kept? in
+            guard FileManager.default.fileExists(atPath: file.path) else { return nil }
+            do {
+                let kept = try JSONDecoder().decode(Kept.self, from: Data(contentsOf: file))
+                return kept.build == build ? kept : nil
+            } catch {
+                print("sikemux: could not read the chat kept on this phone: \(error)")
+                return nil
+            }
+        }.value
     }
 
     /// Off the main thread, so leaving a chat never waits on writing it down.

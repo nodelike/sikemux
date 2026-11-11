@@ -56,8 +56,8 @@ final class Feed {
     }
 
     /// Draws the chat as this phone last kept it; the first attach asks only for what came after.
-    func restore() -> Bool {
-        guard let kept = store.load() else { return false }
+    func restore() async -> Bool {
+        guard let kept = await store.load(), mark == nil else { return false }
         chat = kept.chat
         keptChat = kept.chat
         mark = ChatMark(feed: kept.feed, seq: kept.seq)
