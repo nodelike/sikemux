@@ -61,7 +61,8 @@ enum FindText {
         }
     }
 
-    private static func words(_ node: MdNode) -> String {
+    /// The words a node shows; `separated` puts a line between the items of a list, quote or details, as find does.
+    static func words(_ node: MdNode, separated: Bool = true) -> String {
         switch node {
         case .text(let text): return text
         case .element(let element):
@@ -71,8 +72,12 @@ enum FindText {
             case .br: return "\n"
             case .img, .hr, .fnref: return ""
             case .table(let table):
-                return ((table.head ?? []) + table.rows.flatMap { $0 }).flatMap { $0 }.map(words).joined()
-            default: return (element.children ?? []).map(words).joined(separator: separates(element) ? "\n" : "")
+                return ((table.head ?? []) + table.rows.flatMap { $0 }).flatMap { $0 }.map {
+                    words($0, separated: separated)
+                }.joined()
+            default:
+                return (element.children ?? []).map { words($0, separated: separated) }.joined(
+                    separator: separated && separates(element) ? "\n" : "")
             }
         }
     }
