@@ -2,7 +2,7 @@ use crate::workbench::actions;
 use sikemux_view::layout::At;
 use sikemux_view::layout::OpenTab;
 use sikemux_view::prefs::PreferenceChange;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::time::Duration;
 
@@ -85,6 +85,7 @@ impl Rails {
             unpeek: None,
             page: TabRailPage::Agents,
             copy_leaves_uncommitted: false,
+            copy_notes: HashMap::new(),
             keeping: None,
             all_projects: false,
             goal_focus: None,
@@ -143,6 +144,8 @@ pub struct Rails {
     /// A new copy of a project leaves the uncommitted changes where they are, as the person
     /// chose in the copy switch.
     pub(crate) copy_leaves_uncommitted: bool,
+    /// How each copy the person asked for went, by its project's identity, until dismissed.
+    pub(crate) copy_notes: HashMap<String, crate::copies::CopyNote>,
     /// The rails' state waiting to be kept in the core's preferences, once a drag settles.
     pub(crate) keeping: Option<gpui_kit::Task<()>>,
     pub(crate) all_projects: bool,
@@ -1019,6 +1022,7 @@ fn project_tree(
     .when(close.is_some(), |row| row.hover_padding(PROJECT_ROW, 28.))
     .on_click(go)
     .child(faces(&agents, cx))
+    .children(crate::copies::copy_note(bench, folded, cx))
     .children(crate::copies::where_held(folded, cx))
     .status(rollup(bench, folded, cx))
     .into_any_element();

@@ -7,7 +7,7 @@ use gpui_kit::component::menu::PopupMenu;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     div, px, radians, Anchor, AnyElement, App, Context, InteractiveElement, IntoElement,
-    ParentElement, SharedString, Styled, Transformation, Window,
+    ParentElement, SharedString, StatefulInteractiveElement, Styled, Transformation, Window,
 };
 use sikemux_core::server::call;
 use sikemux_core::server::hosts::chat_move::MoveChatToHostParams;
@@ -115,15 +115,20 @@ impl Workbench {
     }
 
     /// The copy of `folded` the person works on: the one in front, else the one they last
-    /// chose, else this host's, else the first.
+    /// chose, else this host's, else the first; one on a host out of reach only when no copy
+    /// is in reach.
     pub fn front_copy<'a>(&self, folded: &'a Folded) -> Option<&'a HostCopy> {
         let chosen = (folded.identity.as_ref())
             .and_then(|identity| self.preferences().front_copies.get(identity));
+        let reached = |copy: &&HostCopy| !copy.away;
         self.copy_in_front(folded)
             .or_else(|| {
                 let chosen = chosen?;
-                (folded.copies.iter()).find(|copy| copy.choice().key().as_ref() == chosen.as_str())
+                (folded.copies.iter())
+                    .filter(reached)
+                    .find(|copy| copy.choice().key().as_ref() == chosen.as_str())
             })
+            .or_else(|| folded.copies.iter().find(reached))
             .or_else(|| folded.copies.first())
     }
 
@@ -205,13 +210,22 @@ impl Workbench {
         ));
     }
 
-    /// The account's hosts that hold no copy of `folded`: each one's key, its name, and whether
-    /// this app reaches it.
+    /// The account's hosts that hold no copy of `folded`, this one too: each one's key, its
+    /// name, and whether this app reaches it.
     pub fn copy_targets(&self, folded: &Folded) -> Vec<(String, SharedString, bool)> {
         if folded.identity.is_none() {
             return Vec::new();
         }
-        (self.host_choices().into_iter())
+        let this = (self.remote.as_ref())
+            .filter(|_| !(folded.copies.iter()).any(|copy| copy.place == Place::This))
+            .map(|remote| {
+                (
+                    remote.core_id.clone(),
+                    SharedString::from("This host"),
+                    true,
+                )
+            });
+        let others = (self.host_choices().into_iter())
             .filter_map(|option| match option.choice {
                 HostChoice::Account(key) => Some((key, option.label)),
                 _ => None,
@@ -222,8 +236,17 @@ impl Workbench {
             .map(|(key, label)| {
                 let reached = self.feeds.host(&key).is_some_and(|feed| feed.reached);
                 (key, label, reached)
-            })
-            .collect()
+            });
+        this.into_iter().chain(others).collect()
+    }
+
+    /// Where the host `key` is, as this app reaches it: this host by its own key, else that
+    /// account host.
+    pub fn place_of(&self, key: &str) -> Place {
+        match &self.remote {
+            Some(remote) if remote.core_id == key => Place::This,
+            _ => Place::Account(key.to_owned()),
+        }
     }
 
     /// A project of the host at `place`, by its id there.
@@ -437,6 +460,105 @@ pub fn copy_row(bench: &Workbench, folded: &Folded, cx: &Context<Workbench>) -> 
                 row,
                 copy_menu(bench, folded, cx),
             ))
+            .into_any_element(),
+    )
+}
+
+/// How a copy the person asked for goes, kept on its project's row until they dismiss it.
+#[derive(Clone)]
+pub struct CopyNote {
+    pub host: SharedString,
+    pub state: CopyState,
+    /// What happened, in full, for the note's tooltip.
+    pub said: SharedString,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum CopyState {
+    Going,
+    Done,
+    Failed,
+}
+
+impl Workbench {
+    /// Notes on `identity`'s row how its copy to `host` goes.
+    pub fn note_copy(
+        &mut self,
+        identity: Option<&str>,
+        host: SharedString,
+        state: CopyState,
+        said: impl Into<SharedString>,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(identity) = identity else {
+            return;
+        };
+        let note = CopyNote {
+            host,
+            state,
+            said: said.into(),
+        };
+        self.rails.copy_notes.insert(identity.to_owned(), note);
+        cx.notify();
+    }
+}
+
+/// How the copy of `folded` the person asked for goes: a spinner while it runs, then whether
+/// it was made, which a click dismisses.
+pub fn copy_note(
+    bench: &Workbench,
+    folded: &Folded,
+    cx: &Context<Workbench>,
+) -> Option<AnyElement> {
+    let identity = folded.identity.clone()?;
+    let note = bench.rails.copy_notes.get(&identity)?.clone();
+    let t = Tokens::get(cx).clone();
+    let (mark, word, tone) = match note.state {
+        CopyState::Going => (
+            crate::ui::sign_in::spinner("copy-note", cx),
+            format!("to {}", note.host),
+            t.text_secondary,
+        ),
+        CopyState::Done => (
+            ui::icon(Icon::Check, 11.)
+                .text_color(t.live)
+                .into_any_element(),
+            format!("on {}", note.host),
+            t.live,
+        ),
+        CopyState::Failed => (
+            ui::icon(Icon::Warning, 11.)
+                .text_color(t.danger)
+                .into_any_element(),
+            "copy failed".to_owned(),
+            t.danger,
+        ),
+    };
+    let settled = note.state != CopyState::Going;
+    let this = cx.weak_entity();
+    Some(
+        div()
+            .id(SharedString::from(format!("copy-note-{identity}")))
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap(px(3.))
+            .text_color(tone)
+            .child(mark)
+            .child(ui::text(word, TEXT_2XS, gpui_kit::FontWeight::MEDIUM))
+            .tooltip(ui::tooltip(match settled {
+                true => format!("{} Click to dismiss.", note.said),
+                false => note.said.to_string(),
+            }))
+            .when(settled, |chip| {
+                chip.cursor_pointer().on_click(move |_, _, cx| {
+                    cx.stop_propagation();
+                    let _ = this.update(cx, |bench, cx| {
+                        bench.rails.copy_notes.remove(&identity);
+                        cx.notify();
+                    });
+                })
+            })
             .into_any_element(),
     )
 }

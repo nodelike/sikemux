@@ -26,6 +26,7 @@ use sikemux_view::device::DeviceView;
 use sikemux_view::host_stats::{AlertLevel, HostAlert, HostAlertKind};
 
 use crate::chat::Question;
+use crate::copies::CopyState;
 use crate::core;
 use crate::core::Target;
 use crate::hosts::install_pane::Words;
@@ -316,36 +317,66 @@ impl Workbench {
         let opening = core::Target::new(&self.asks, copying.from.place.clone())
             .request_typed::<call::OpenOnHost>(params);
         let (name, label) = (copying.name(), copying.label.clone());
-        self.notify(toast::info(format!("Copying {name} to {label}…")), cx);
-        let (host, identity, chat) = (
-            copying.host.clone(),
-            copying.identity.clone(),
-            copying.chat.clone(),
+        let identity = copying.identity.clone();
+        self.note_copy(
+            identity.as_deref(),
+            label.clone(),
+            CopyState::Going,
+            format!("Copying {name} to {label}…"),
+            cx,
         );
+        let (place, chat) = (self.place_of(&copying.host), copying.chat.clone());
         cx.spawn(async move |bench, cx| {
             let opened = opening.await;
-            let _ = bench.update(cx, |bench, cx| match opened {
-                Ok(opened) => {
-                    let Some(project) = opened["project"].as_str() else {
+            let _ = bench.update(cx, |bench, cx| {
+                let opened = opened.and_then(|opened| match opened["project"].as_str() {
+                    Some(_) => Ok(opened),
+                    None => Err(format!("{label} did not add the project")),
+                });
+                let opened = match opened {
+                    Ok(opened) => opened,
+                    Err(error) => {
+                        let said = format!("{name} did not copy to {label}: {error}");
+                        bench.note_copy(
+                            identity.as_deref(),
+                            label,
+                            CopyState::Failed,
+                            said.clone(),
+                            cx,
+                        );
+                        bench.notify(toast::error(said), cx);
                         return;
-                    };
-                    let copy = crate::copies::HostCopy {
-                        place: Place::Account(host.clone()),
-                        project: project.to_owned(),
-                        host: label.clone(),
-                        path: opened["path"].as_str().unwrap_or_default().into(),
-                        git: None,
-                        away: false,
-                    };
-                    match &chat {
-                        Some(chat) => bench.move_chat_to_copy(chat, &copy, identity.as_deref(), cx),
-                        None => bench.go_to_copy(&copy, identity.as_deref(), cx),
                     }
-                }
-                Err(error) => bench.notify(
-                    toast::error(format!("It did not copy to {label}: {error}")),
+                };
+                let said = match opened["uncommitted"].as_str() {
+                    Some("applied") => format!(
+                        "Copied {name} to {label}, with the uncommitted changes as a commit on top."
+                    ),
+                    Some(error) => format!(
+                        "Copied {name} to {label}. Its uncommitted changes did not go: {error}."
+                    ),
+                    None => format!("Copied {name} to {label}."),
+                };
+                bench.note_copy(
+                    identity.as_deref(),
+                    label.clone(),
+                    CopyState::Done,
+                    said.clone(),
                     cx,
-                ),
+                );
+                bench.notify(toast::success(said), cx);
+                let copy = crate::copies::HostCopy {
+                    place,
+                    project: opened["project"].as_str().unwrap_or_default().to_owned(),
+                    host: label.clone(),
+                    path: opened["path"].as_str().unwrap_or_default().into(),
+                    git: None,
+                    away: false,
+                };
+                match &chat {
+                    Some(chat) => bench.move_chat_to_copy(chat, &copy, identity.as_deref(), cx),
+                    None => bench.go_to_copy(&copy, identity.as_deref(), cx),
+                }
             });
         })
         .detach();
