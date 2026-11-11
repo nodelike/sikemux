@@ -99,13 +99,13 @@ pub fn unanswered_says(unanswered: &Unanswered, alias: &str) -> String {
     }
 }
 
-/// The short words a rail row says of it.
+/// The short words a rail row says of it: of Sikemux's check, not of the terminal, which may
+/// well be connected.
 pub fn unanswered_detail(unanswered: &Unanswered) -> &'static str {
     match unanswered {
         Unanswered::Checking => "checking",
-        Unanswered::Unreachable { .. } => "can't be reached",
-        Unanswered::SshSignIn { .. } => "ssh needs signing in",
-        Unanswered::Failed { .. } => "couldn't check",
+        Unanswered::Unreachable { .. } | Unanswered::Failed { .. } => "can't check",
+        Unanswered::SshSignIn { .. } => "needs ssh key",
     }
 }
 

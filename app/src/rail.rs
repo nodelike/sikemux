@@ -471,6 +471,17 @@ fn hosts(bench: &Workbench, cx: &mut Context<Workbench>) -> Vec<AnyElement> {
                     crate::hosts::install_pane::unanswered_detail(unanswered).to_owned()
                 }),
             };
+            let tip = match (
+                host.setup.as_ref().and_then(|setup| setup.problem.as_ref()),
+                &host.unanswered,
+                &host.ssh,
+            ) {
+                (Some(problem), _, _) => Some(format!("Not set up: {problem}")),
+                (None, Some(unanswered), Some(alias)) => Some(
+                    crate::hosts::install_pane::unanswered_says(unanswered, alias),
+                ),
+                _ => None,
+            };
             let setup = host.setup.as_ref();
             let detail = match setup.map(|setup| (setup.work, setup.problem.as_deref())) {
                 Some((_, Some(problem))) => Some(format!("not set up: {problem}")),
@@ -520,7 +531,8 @@ fn hosts(bench: &Workbench, cx: &mut Context<Workbench>) -> Vec<AnyElement> {
                         (!parts.is_empty()).then(|| parts.join(" · "))
                     },
                     |row, detail| row.detail(detail),
-                );
+                )
+                .when_some(tip, |row, tip| row.detail_tip(tip));
             let alert = (host.id.as_deref())
                 .and_then(|key| bench.host_alert(Some(key), connected))
                 .cloned();

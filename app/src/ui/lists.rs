@@ -63,6 +63,7 @@ pub struct Row {
     height: Option<f32>,
     subtitle: Option<AnyElement>,
     detail: Option<SharedString>,
+    detail_tip: Option<SharedString>,
     status: Option<AnyElement>,
     right: f32,
     /// The trailing room the row keeps while the pointer is over the hover group named, for
@@ -89,6 +90,7 @@ impl Row {
             height: None,
             subtitle: None,
             detail: None,
+            detail_tip: None,
             status: None,
             right: 8.,
             hover_right: None,
@@ -108,6 +110,12 @@ impl Row {
     /// A note after the title that gives way first when the row is narrow.
     pub fn detail(mut self, detail: impl Into<SharedString>) -> Self {
         self.detail = Some(detail.into());
+        self
+    }
+
+    /// The whole of what the detail says in short, shown when the pointer rests on it.
+    pub fn detail_tip(mut self, tip: impl Into<SharedString>) -> Self {
+        self.detail_tip = Some(tip.into());
         self
     }
 
@@ -229,6 +237,8 @@ impl RenderOnce for Row {
             self.right
         };
         let on_click = self.on_click;
+        let detail_id = ElementId::NamedChild(Arc::new(self.id.clone()), "detail".into());
+        let detail_tip = self.detail_tip;
         BaseButton::new(self.id)
             .group(ROW)
             .selected(self.chosen)
@@ -305,7 +315,13 @@ impl RenderOnce for Row {
                     .whitespace_nowrap()
                     .text_ellipsis();
                 detail.style().flex_shrink = Some(100.);
-                detail
+                match detail_tip {
+                    Some(tip) => detail
+                        .id(detail_id)
+                        .tooltip(super::tooltip(tip))
+                        .into_any_element(),
+                    None => detail.into_any_element(),
+                }
             }))
             .children(self.trailing)
             .children(self.status.map(|status| {
