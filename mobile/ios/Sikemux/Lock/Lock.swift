@@ -31,7 +31,12 @@ final class Lock {
     @ObservationIgnored private var leftAt: Date?
 
     private init() {
-        on = (try? Keychain.read(Self.item)) == "on"
+        do {
+            on = try Keychain.read(Self.item) == "on"
+        } catch {
+            print("sikemux: could not read whether the lock is on, so the app stays locked: \(error)")
+            on = true
+        }
         phase = UIApplication.shared.applicationState == .active ? .locked : .covered
         Router.shared.holding = true
         let center = NotificationCenter.default
