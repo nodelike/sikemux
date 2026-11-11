@@ -34,9 +34,12 @@ const FADE_HEIGHT: f32 = 72.;
 /// On X11 a page is a window of its own, and anything drawn over it reshapes that window on
 /// every frame, which froze the app; there Open in tab sits under the page instead.
 const DRAWS_OVER_PAGES: bool = cfg!(target_os = "macos");
-const THUMB_SIZE: (f32, f32) = (60., 40.);
-/// How wide the picture a card shows is kept.
-const THUMB_KEPT_WIDTH: u32 = 240;
+const CARD_HEIGHT: f32 = 300.;
+const CARD_BARE_HEIGHT: f32 = 64.;
+/// How wide the picture a card shows is kept, sharp on a Retina reply column.
+const THUMB_KEPT_WIDTH: u32 = 1280;
+/// The picture keeps only the top of the page, as wide as this is to its height.
+const THUMB_KEPT_SHAPE: f32 = 2.4;
 
 /// Every page the window has drawn, by id, so a chat drawn again keeps each one's view and height.
 #[derive(Default)]
@@ -171,76 +174,117 @@ pub(super) fn page(page: &PageRef, looks: &Looks, window: &mut Window, cx: &mut 
         .into_any_element()
 }
 
-/// A page shown in a tab on the desk: a picture of it, its title, and Show to bring the tab
-/// forward.
+/// A page shown in a tab on the desk: the top of it fading out under its title, opening the tab
+/// when clicked.
 fn card(page: &PageRef, picture: Option<Arc<Image>>, looks: &Looks, cx: &App) -> AnyElement {
     let t = Tokens::get(cx);
-    let (width, height) = THUMB_SIZE;
-    let thumb = div()
-        .flex_none()
-        .w(px(width))
-        .h(px(height))
-        .rounded(px(4.))
-        .overflow_hidden()
-        .bg(t.surface_hover)
-        .children(picture.map(|picture| {
-            img(picture)
-                .w(px(width))
-                .h(px(height))
-                .object_fit(ObjectFit::Cover)
-        }));
+    let height = if picture.is_some() {
+        CARD_HEIGHT
+    } else {
+        CARD_BARE_HEIGHT
+    };
+    let fade = gpui_kit::Hsla {
+        a: 0.,
+        ..t.surface_raised
+    };
     div()
-        .flex()
-        .items_center()
-        .gap(px(10.))
+        .id(SharedString::from(format!("page-card-{}", page.id)))
+        .relative()
         .w_full()
-        .p(px(8.))
-        .rounded(px(8.))
+        .h(px(height))
+        .rounded(px(10.))
+        .overflow_hidden()
         .border_1()
         .border_color(t.border)
         .bg(t.surface_raised)
-        .child(thumb)
+        .cursor_pointer()
+        .hover(|card| card.border_color(t.border_strong))
+        .on_click(opens_tab(page, looks))
+        .children(picture.map(|picture| {
+            img(picture)
+                .absolute()
+                .size_full()
+                .object_fit(ObjectFit::Cover)
+        }))
+        .child(div().absolute().size_full().bg(linear_gradient(
+            180.,
+            linear_color_stop(fade, 0.3),
+            linear_color_stop(t.surface_raised, 0.8),
+        )))
         .child(
             div()
-                .flex_1()
-                .min_w_0()
+                .absolute()
+                .left_0()
+                .right_0()
+                .bottom_0()
                 .flex()
-                .flex_col()
-                .child(ui::text(page.title.clone(), 13., FontWeight::MEDIUM).truncate())
-                .child(ui::meta("Open in a tab on the desk", cx)),
+                .items_end()
+                .gap(px(10.))
+                .px(px(14.))
+                .pb(px(12.))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .flex()
+                        .flex_col()
+                        .child(ui::text(page.title.clone(), 14., FontWeight::MEDIUM).truncate())
+                        .child(ui::meta("In a tab on the desk", cx)),
+                )
+                .child(
+                    ui::Button::new(
+                        SharedString::from(format!("page-card-open-{}", page.id)),
+                        "Open",
+                        ui::Variant::Outline,
+                    )
+                    .icon(Icon::Tabs)
+                    .sized(24., 10., 11.5),
+                ),
         )
-        .child(show_button(page, looks, "page-card", "Show"))
         .into_any_element()
 }
 
 fn open_in_tab(page: &PageRef, looks: &Looks, key: &str, cx: &App) -> AnyElement {
     let t = Tokens::get(cx);
-    show_button(page, looks, key, "Open in tab")
-        .solid(t.surface_raised, t.surface_hover)
-        .into_any_element()
-}
-
-fn show_button(page: &PageRef, looks: &Looks, key: &str, label: &'static str) -> ui::Button {
-    let (id, agent, bench) = (page.id.clone(), looks.agent.clone(), looks.bench.clone());
     ui::Button::new(
         SharedString::from(format!("{key}-{}", page.id)),
-        label,
+        "Open in tab",
         ui::Variant::Outline,
     )
     .icon(Icon::Tabs)
     .sized(22., 8., 11.5)
-    .on_click(move |_, _, cx| {
-        let _ = bench.update(cx, |bench, cx| bench.open_page_in_tab(&agent, &id, cx));
-    })
+    .solid(t.surface_raised, t.surface_hover)
+    .on_click(opens_tab(page, looks))
+    .into_any_element()
 }
 
-/// A small copy of a desk tab's picture, as a card shows it, in base64.
+fn opens_tab(
+    page: &PageRef,
+    looks: &Looks,
+) -> impl Fn(&gpui_kit::ClickEvent, &mut Window, &mut App) + 'static {
+    let (id, agent, bench) = (page.id.clone(), looks.agent.clone(), looks.bench.clone());
+    move |_, _, cx| {
+        let _ = bench.update(cx, |bench, cx| bench.open_page_in_tab(&agent, &id, cx));
+    }
+}
+
+/// The top of a desk tab's picture, as a card shows it, in base64.
 pub(crate) fn thumbnail(jpeg: &[u8]) -> Option<String> {
     use base64::Engine as _;
     let decoded = image::load_from_memory_with_format(jpeg, image::ImageFormat::Jpeg).ok()?;
-    let small = decoded
-        .thumbnail(THUMB_KEPT_WIDTH, THUMB_KEPT_WIDTH)
-        .into_rgb8();
+    let width = decoded.width();
+    let top = (width as f32 / THUMB_KEPT_SHAPE) as u32;
+    let kept = decoded.crop_imm(0, 0, width, top.min(decoded.height()));
+    let small = if width > THUMB_KEPT_WIDTH {
+        kept.resize(
+            THUMB_KEPT_WIDTH,
+            u32::MAX,
+            image::imageops::FilterType::Triangle,
+        )
+    } else {
+        kept
+    }
+    .into_rgb8();
     let mut bytes = Vec::new();
     image::codecs::jpeg::JpegEncoder::new_with_quality(&mut bytes, 80)
         .encode_image(&small)
