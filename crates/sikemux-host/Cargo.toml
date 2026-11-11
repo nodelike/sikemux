@@ -41,7 +41,6 @@ uuid = { version = "1", features = ["v4", "v7"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "process", "time", "sync", "io-util", "net"] }
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
 sentry = { version = "0.49", default-features = false, features = ["contexts", "debug-images", "minidump", "release-health", "reqwest", "rustls-no-provider"] }
-backtrace = "0.3"
 log = "0.4"
 sha2 = "0.11"
 sikemux-core = { path = "../sikemux-core" }
@@ -68,6 +67,9 @@ sikemux-plugin-vercel = { path = "../../plugins/vercel", optional = true }
 [target.'cfg(unix)'.dependencies]
 sikemux-client = { path = "../sikemux-client" }
 libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+backtrace = "0.3"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 workspace-hack = { version = "0.1", path = "../workspace-hack" }

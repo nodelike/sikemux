@@ -18,6 +18,9 @@ enum CrashReports {
             options.beforeSend = { event in
                 guard allowed() else { return nil }
                 event.serverName = nil
+                let user = event.user ?? User()
+                user.ipAddress = "0.0.0.0"
+                event.user = user
                 event.tags = (event.tags ?? [:]).merging(
                     ["process": "notch", "channel": version.contains("-nightly.") ? "nightly" : "stable"]
                 ) { kept, _ in kept }

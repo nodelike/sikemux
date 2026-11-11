@@ -3,6 +3,7 @@
 //! person shares usage data and `DO_NOT_TRACK` is unset. Nothing a person wrote or opened goes
 //! along, and their home folder is written `~`.
 
+use std::net::Ipv4Addr;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -11,7 +12,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use sentry::integrations::contexts::ContextIntegration;
 use sentry::integrations::minidump::MinidumpIntegration;
 use sentry::protocol::{
-    Breadcrumb, DebugMeta, Event, Exception, Frame, Mechanism, SessionStatus, SpanId, Stacktrace,
+    Breadcrumb, DebugMeta, Event, Exception, Frame, IpAddress, Mechanism, SessionStatus, SpanId,
+    Stacktrace,
 };
 use sentry::transports::ReqwestHttpTransportOptions;
 use sentry::types::Uuid;
@@ -251,6 +253,9 @@ fn before_send(mut event: Event<'static>, process: Process) -> Option<Event<'sta
         return None;
     }
     event.server_name = None;
+    // An address of its own stops Sentry placing the person by the one the report came from.
+    event.user.get_or_insert_with(Default::default).ip_address =
+        Some(IpAddress::Exact(Ipv4Addr::UNSPECIFIED.into()));
     let channel = channel(event.release.as_deref().unwrap_or_default());
     for (tag, value) in [
         ("process", process.name()),
@@ -455,6 +460,8 @@ fn event(report: &PanicReport) -> Event<'static> {
         .extra
         .insert("thread".into(), report.thread.clone().into());
     event.release = Some(release.into());
+    event.fingerprint = vec!["panic".into(), report.location.clone().into()].into();
+    event.transaction = Some(report.location.clone());
     event
 }
 

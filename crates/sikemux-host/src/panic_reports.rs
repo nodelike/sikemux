@@ -117,6 +117,19 @@ fn message(info: &PanicHookInfo<'_>) -> String {
         .unwrap_or_else(|| "a panic with no message".to_owned())
 }
 
+#[cfg(unix)]
+fn frames() -> Vec<String> {
+    let mut addresses = [std::ptr::null_mut(); MAX_FRAMES];
+    // SAFETY: backtrace writes at most the given count of pointers into the buffer.
+    let count = unsafe { libc::backtrace(addresses.as_mut_ptr(), addresses.len() as libc::c_int) };
+    addresses
+        .iter()
+        .take(count.max(0) as usize)
+        .map(|address| format!("{:#x}", *address as usize))
+        .collect()
+}
+
+#[cfg(not(unix))]
 fn frames() -> Vec<String> {
     let mut frames = Vec::new();
     backtrace::trace(|frame| {
