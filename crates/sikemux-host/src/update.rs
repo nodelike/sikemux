@@ -60,7 +60,7 @@ pub(crate) fn as_person_of_sudo() -> bool {
     true
 }
 
-fn sudo_uid() -> Option<u32> {
+pub(crate) fn sudo_uid() -> Option<u32> {
     std::env::var("SUDO_UID").ok()?.parse().ok()
 }
 

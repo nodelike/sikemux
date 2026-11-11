@@ -265,6 +265,11 @@ fn with_core(work: Work) -> Result<(), String> {
                 "no core runs for you; run `sikemux start` without sudo, then try again".into(),
             );
         }
+        if let Some(uid) = crate::update::sudo_uid() {
+            if socket_owner(&socket) != Some(uid) {
+                return Err(format!("the core at {} is not yours", socket.display()));
+            }
+        }
         socket
     } else {
         running_telling(!matches!(work, Work::Login { json: true }))?
@@ -293,6 +298,41 @@ fn with_core(work: Work) -> Result<(), String> {
             }
         }
     })
+}
+
+/// The user whose process answers at `socket`, as the kernel says.
+fn socket_owner(socket: &Path) -> Option<u32> {
+    use std::os::fd::AsRawFd;
+    let stream = std::os::unix::net::UnixStream::connect(socket).ok()?;
+    let fd = stream.as_raw_fd();
+    #[cfg(target_os = "macos")]
+    {
+        let (mut uid, mut gid) = (0, 0);
+        // SAFETY: fd is a connected socket and both outputs are writable.
+        let read = unsafe { libc::getpeereid(fd, &mut uid, &mut gid) } == 0;
+        read.then_some(uid)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let mut credentials = libc::ucred {
+            pid: 0,
+            uid: 0,
+            gid: 0,
+        };
+        let mut length = std::mem::size_of::<libc::ucred>() as libc::socklen_t;
+        // SAFETY: credentials and length are valid for the size given, which is
+        // what SO_PEERCRED writes.
+        let read = unsafe {
+            libc::getsockopt(
+                fd,
+                libc::SOL_SOCKET,
+                libc::SO_PEERCRED,
+                (&raw mut credentials).cast(),
+                &mut length,
+            )
+        } == 0;
+        read.then_some(credentials.uid)
+    }
 }
 
 async fn login(core: &CoreClient) -> Result<(), String> {
