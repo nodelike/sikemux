@@ -1511,7 +1511,7 @@
     },
     {
       "name": "events_wait",
-      "row": {"verb": "wait", "kind": "think", "icon": "clock", "target": ["for {executionId}", "for {file}", "for pid {pid}", "for events"], "detail": ["until {until}"]},
+      "row": {"verb": "wait", "kind": "think", "icon": "clock", "target": ["for {executionId}", "for {file}", "for pid {pid}", "for process or page events"], "detail": ["until {until}"]},
       "method": "events.wait",
       "description": "Wait for process or UI events, a file or a pid.",
       "properties": {

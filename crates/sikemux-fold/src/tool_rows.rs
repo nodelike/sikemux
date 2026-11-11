@@ -552,7 +552,7 @@ pub(super) const SPECS: &[(&str, Spec)] = &[
                 "for {executionId}",
                 "for {file}",
                 "for pid {pid}",
-                "for events",
+                "for process or page events",
             ],
             detail: &["until {until}"],
             plugin: None,

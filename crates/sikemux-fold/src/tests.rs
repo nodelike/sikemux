@@ -467,6 +467,31 @@ mod reducer {
     }
 
     #[test]
+    fn a_wait_on_a_background_commands_output_names_the_command() {
+        let file = "/private/tmp/claude-501/project/417b64d8/tasks/bjpp32l6o.output";
+        let mut chat = Chat::new();
+        chat.update(json!({
+            "sessionUpdate": "tool_call",
+            "toolCallId": "check",
+            "title": "Terminal",
+            "kind": "execute",
+            "status": "completed",
+            "rawInput": { "command": "pnpm check", "description": "Run server checks", "run_in_background": true },
+            "rawOutput": format!("Command running in background with ID: bjpp32l6o. Output is being written to: {file}. You will be notified when it completes."),
+        }))
+        .update(json!({
+            "sessionUpdate": "tool_call",
+            "toolCallId": "wait",
+            "title": "mcp__sikemux-tools__events_wait",
+            "status": "in_progress",
+            "rawInput": { "file": file, "timeoutMs": 50000 },
+        }));
+        let wait = tool_of(&chat.rows()[0].parts[1]).tool.row;
+        assert_eq!(wait.target, "for Run server checks");
+        assert_eq!(wait.detail.as_deref(), Some("until it stops changing"));
+    }
+
+    #[test]
     fn reads_a_finished_call_once_and_keeps_only_what_the_transcript_shows() {
         let mut chat = Chat::new();
         chat.update(json!({

@@ -67,31 +67,39 @@ fn activity(verb: &str, target: &str) -> String {
     }
 }
 
-/// A process run by the label it was started under rather than its id, and a
-/// wait on one by what it waits to see.
+/// A process run or a background command's output file by what started it rather than
+/// its id or path, and a wait on one by what it waits to see.
 pub(super) fn name_run(tool: &mut ToolCall, runs: &HashMap<String, String>) {
     let args = arguments(tool.raw_input.as_ref());
-    let Some(id) = args.get("executionId").and_then(Value::as_str) else {
-        return;
-    };
+    let text = |key: &str| args.get(key).and_then(Value::as_str);
     let row = &mut tool.row;
-    if row.target.contains(id) {
-        let name = runs.get(id).map_or("a process", String::as_str);
+    let named = match (text("executionId"), text("file")) {
+        (Some(id), _) => Some((id, runs.get(id).map_or("a process", String::as_str))),
+        (None, Some(file)) => Some((
+            file,
+            runs.get(file)
+                .map_or_else(|| basename(file), String::as_str),
+        )),
+        (None, None) => None,
+    };
+    if let Some((id, name)) = named.filter(|(id, _)| row.target.contains(id)) {
         row.target = row.target.replace(id, name);
         if let Some(verb) = &row.verb {
             row.activity = Some(activity(verb, &row.target));
         }
     }
-    if sikemux_tool_name(&tool.title) == "events_wait" {
-        row.detail = args
-            .get("until")
-            .and_then(Value::as_str)
-            .map(|until| match until {
-                "exit" => "until it exits".to_owned(),
-                "ready" => "until it is ready".to_owned(),
-                text => format!("until it prints “{text}”"),
-            });
+    if sikemux_tool_name(&tool.title) != "events_wait" {
+        return;
     }
+    row.detail = match (text("until"), text("file"), text("text")) {
+        (Some("exit"), ..) => Some("until it exits".to_owned()),
+        (Some("ready"), ..) => Some("until it is ready".to_owned()),
+        (Some(printed), ..) | (None, Some(_), Some(printed)) => {
+            Some(format!("until it prints “{printed}”"))
+        }
+        (None, Some(_), None) => Some("until it stops changing".to_owned()),
+        _ => None,
+    };
 }
 
 fn theirs(tool: &ToolCall, args: &Map<String, Value>) -> ToolRow {

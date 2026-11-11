@@ -425,27 +425,50 @@ pub(super) fn tool_failure(status: Option<&str>, raw_output: Option<&Value>) -> 
 
 /// The JSON one of our tools answered with.
 fn printed(raw_output: Option<&Value>, content: Option<&Value>) -> Option<Value> {
-    let printed = raw_output.and_then(output_text).or_else(|| {
+    serde_json::from_str(&said(raw_output, content)?).ok()
+}
+
+fn said(raw_output: Option<&Value>, content: Option<&Value>) -> Option<String> {
+    raw_output.and_then(output_text).or_else(|| {
         let inner: Vec<Value> = content?
             .as_array()?
             .iter()
             .map(|entry| entry.get("content").cloned().unwrap_or(Value::Null))
             .collect();
         output_text(&Value::Array(inner))
-    })?;
-    serde_json::from_str(&printed).ok()
+    })
 }
 
-/// The run a finished `process_start` began: its id, and the label it shows by.
+/// What a finished call started running, by the id or output file later calls name it
+/// by, with the words a row shows for it: a process's label, or a background command's
+/// description.
 pub(super) fn started_run(raw: &Map<String, Value>) -> Option<(String, String)> {
-    let tool = sikemux_tool_name(text(raw.get("title"))?);
-    if !matches!(tool, "process_start" | "process_restart") {
-        return None;
+    let title = text(raw.get("title"))?;
+    if matches!(
+        sikemux_tool_name(title),
+        "process_start" | "process_restart"
+    ) {
+        let run = printed(raw.get("rawOutput"), raw.get("content"))?;
+        let id = text(run.get("executionId"))?;
+        let label = text(run.get("label")).or_else(|| text(run.get("processId")))?;
+        return Some((id.to_owned(), label.to_owned()));
     }
-    let run = printed(raw.get("rawOutput"), raw.get("content"))?;
-    let id = text(run.get("executionId"))?;
-    let label = text(run.get("label")).or_else(|| text(run.get("processId")))?;
-    Some((id.to_owned(), label.to_owned()))
+    let output = said(raw.get("rawOutput"), raw.get("content"))?;
+    let file = output
+        .split_once("Output is being written to: ")?
+        .1
+        .split_whitespace()
+        .next()?
+        .trim_end_matches('.');
+    let input = raw.get("rawInput");
+    let name = text(input.and_then(|input| input.get("description")))
+        .or_else(|| {
+            text(input.and_then(|input| input.get("command")))?
+                .lines()
+                .next()
+        })?
+        .trim();
+    (!name.is_empty()).then(|| (file.to_owned(), name.to_owned()))
 }
 
 /// One of our tools the chat never draws as a row, such as a reaction.
