@@ -204,6 +204,7 @@ targets:
         excludes: [Info.plist, SikemuxShare.entitlements]
       - path: Shared/Stash
       - path: Shared/Bytes.swift
+      - path: Shared/Thumbnail.swift
       - path: Sikemux/UI/Theme.swift
       - path: ../../helpers/notch/Sources/NotchKit/IconView.swift
         group: Sikemux/UI/Notch

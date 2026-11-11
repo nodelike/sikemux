@@ -40,7 +40,7 @@ struct StashFace: View {
             guard item.kind == .image, photo == nil else { return }
             do {
                 let file = try await StashAPI.download(item)
-                photo = await Task.detached { Self.thumbnail(file, pixels: 160) }.value
+                photo = await Task.detached { UIImage.thumbnail(of: file, pixels: 160) }.value
             } catch {
                 print("sikemux: could not bring a stashed photo down: \(error)")
             }
@@ -51,15 +51,6 @@ struct StashFace: View {
         IconView(icon: icon, size: (size * 0.39).rounded()).foregroundStyle(palette.secondary)
     }
 
-    nonisolated private static func thumbnail(_ url: URL, pixels: CGFloat) -> UIImage? {
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
-        let options: [CFString: Any] = [
-            kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceThumbnailMaxPixelSize: pixels,
-        ]
-        return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary).map { UIImage(cgImage: $0) }
-    }
 }
 
 /// The composer's way into the stash, counting what came in since the person last looked.

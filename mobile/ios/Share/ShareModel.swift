@@ -215,7 +215,9 @@ final class ShareModel: ObservableObject {
             }
         }
         guard let (url, name, mime, size) = copied else { return nil }
-        if mime.hasPrefix("image/"), thumbnails.count < picturesShown, let small = Self.thumbnail(url) {
+        if mime.hasPrefix("image/"), thumbnails.count < picturesShown,
+            let small = UIImage.thumbnail(of: url, pixels: thumbnailPixels)
+        {
             thumbnails.append(small)
         }
         return .file(url: url, name: name, mime: mime, size: size)
@@ -248,16 +250,6 @@ final class ShareModel: ObservableObject {
             images.loadObject(ofClass: UIImage.self) { object, _ in done.resume(returning: object as? UIImage) }
         }
         if let image { picture = Self.scaled(image, width: 720) }
-    }
-
-    private static func thumbnail(_ url: URL) -> UIImage? {
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
-        let options: [CFString: Any] = [
-            kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceThumbnailMaxPixelSize: thumbnailPixels,
-        ]
-        return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary).map { UIImage(cgImage: $0) }
     }
 
     private static func scaled(_ image: UIImage, width: CGFloat) -> UIImage {

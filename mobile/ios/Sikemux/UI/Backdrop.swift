@@ -116,19 +116,9 @@ struct PaneBackdrop: View {
         Color.clear.frame(width: 0, height: 0)
             .task(id: image) {
                 guard let image, picture?.file != image else { return }
-                let made = await Task.detached { Self.downscaled(image) }.value
+                let made = await Task.detached { UIImage.thumbnail(of: image, pixels: Self.widest) }.value
                 picture = made.map { Picture(file: image, image: $0, aspect: Float($0.size.width / $0.size.height)) }
             }
-    }
-
-    nonisolated private static func downscaled(_ file: URL) -> UIImage? {
-        guard let source = CGImageSourceCreateWithURL(file as CFURL, nil) else { return nil }
-        let options: [CFString: Any] = [
-            kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceThumbnailMaxPixelSize: widest,
-        ]
-        return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary).map { UIImage(cgImage: $0) }
     }
 
     @ViewBuilder private func field(size: CGSize, picture: Picture?) -> some View {
