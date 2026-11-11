@@ -122,7 +122,7 @@ struct LiveWork: Equatable {
 
 private func taskIcon(_ kind: String) -> IconDef {
     switch kind {
-    case "shell": Icons.named("IconCommand") ?? Icons.terminal
+    case "shell": Icons.command
     case "workflow": Icons.workflow
     default: Icons.timer
     }
