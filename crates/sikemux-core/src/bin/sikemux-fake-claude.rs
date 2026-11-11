@@ -17,7 +17,8 @@
 //! `{ "when": "words in the prompt", "steps": [...] }`, a step being
 //! `{ "think": "..." }`, `{ "say": "..." }` or `{ "say_file": "reply.md" }`
 //! (beside the script), streamed a word at a time at `perSecond` (30), or
-//! `{ "tool": "Read", "input": {...}, "result": "...", "ms": 600 }`. A tool step
+//! `{ "tool": "Read", "input": {...}, "result": "...", "ms": 600 }`, failing with
+//! `"error": true`. A tool step
 //! with `"call": "browser.navigate"` makes that call to Sikemux's own tools with
 //! its input, as the agent's tools server would, and answers with what they said. While
 //! `FAKE_CLAUDE_CLOCK` names a file holding a time in milliseconds, those
@@ -416,7 +417,7 @@ impl Claude {
                 self.send(json!({
                     "type": "user", "uuid": uuid::Uuid::new_v4().to_string(), "parent_tool_use_id": null,
                     "message": { "role": "user", "content": [{ "type": "tool_result", "tool_use_id": tool_id,
-                        "content": result }] },
+                        "content": result, "is_error": step["error"].as_bool().unwrap_or(false) }] },
                 }));
                 continue;
             }

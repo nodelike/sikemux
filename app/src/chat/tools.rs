@@ -46,9 +46,9 @@ const MONO_CHAR: f32 = 6.6;
 #[derive(Default)]
 pub struct Opened {
     /// Runs the reader opened or closed, by their first call's part.
-    runs: HashMap<String, bool>,
+    pub(super) runs: HashMap<String, bool>,
     /// Calls the reader opened, by call.
-    calls: HashSet<String>,
+    pub(super) calls: HashSet<String>,
     /// Outputs shown whole and diffs shown with every unchanged line, by call.
     whole: HashSet<String>,
     /// Diffs the reader folded under their file's head, by call.
@@ -122,17 +122,17 @@ impl Opened {
 }
 
 /// A tool part's fields, as a row draws them.
-struct Call<'a> {
-    tool: &'a ToolCall,
-    diff: Option<&'a DiffSummary>,
+pub(super) struct Call<'a> {
+    pub(super) tool: &'a ToolCall,
+    pub(super) diff: Option<&'a DiffSummary>,
     output: Option<&'a OutputSummary>,
-    failure: Option<&'a str>,
-    started: Option<u64>,
+    pub(super) failure: Option<&'a str>,
+    pub(super) started: Option<u64>,
     ended: Option<u64>,
 }
 
 impl<'a> Call<'a> {
-    fn of(part: &'a ChatPart) -> Option<Call<'a>> {
+    pub(super) fn of(part: &'a ChatPart) -> Option<Call<'a>> {
         let ChatPart::Tool {
             tool,
             diff,
@@ -159,23 +159,27 @@ impl<'a> Call<'a> {
         self.tool.status.unwrap_or(ToolStatus::Pending)
     }
 
-    fn running(&self) -> bool {
+    pub(super) fn running(&self) -> bool {
         self.status().running()
     }
 
-    fn took(&self) -> u64 {
+    pub(super) fn failed(&self) -> bool {
+        self.status() == ToolStatus::Failed || self.failure.is_some()
+    }
+
+    pub(super) fn took(&self) -> u64 {
         self.ended
             .zip(self.started)
             .map_or(0, |(ended, started)| ended.saturating_sub(started))
     }
 
     /// The command a call ran, as it was typed.
-    fn command(&self) -> Option<&str> {
+    pub(super) fn command(&self) -> Option<&str> {
         (self.tool.kind.as_deref() == Some("execute")).then(|| self.tool.title.trim())
     }
 
     /// Whether the row has more to show: a change, what it printed, why it failed, or a command longer than its line.
-    fn opens(&self) -> bool {
+    pub(super) fn opens(&self) -> bool {
         let cut_off = self
             .command()
             .is_some_and(|command| self.running() || command != self.tool.row.target);
@@ -185,7 +189,7 @@ impl<'a> Call<'a> {
 
 /// The seconds since `started`, after `before` already spent, which the clock counts on in
 /// place without drawing the transcript again.
-fn running_for(key: String, started: u64, before: u64) -> AnyElement {
+pub(super) fn running_for(key: String, started: u64, before: u64) -> AnyElement {
     Slot::new(key, RunningFor { started, before }).into_any_element()
 }
 
@@ -202,7 +206,7 @@ impl Render for RunningFor {
 }
 
 /// A clock's time fading in as it settles on how long its call or run took.
-fn settled(id: String, running: bool, time: AnyElement) -> AnyElement {
+pub(super) fn settled(id: String, running: bool, time: AnyElement) -> AnyElement {
     motion::replay(
         ElementId::Name(id.into()),
         running,
@@ -237,7 +241,7 @@ pub(super) fn word(row: &ToolRow) -> &str {
     }
 }
 
-fn plugin_mark(row: &ToolRow) -> Option<Icon> {
+pub(super) fn plugin_mark(row: &ToolRow) -> Option<Icon> {
     let plugin = row.plugin.as_deref()?;
     Icon::named(plugin.strip_prefix("sikemux.").unwrap_or(plugin))
 }
@@ -282,7 +286,7 @@ fn tint(call: &Call, looks: &Drawn) -> Hsla {
     }
 }
 
-fn chevron(id: impl Into<SharedString>, open: bool, tint: Hsla) -> impl IntoElement {
+pub(super) fn chevron(id: impl Into<SharedString>, open: bool, tint: Hsla) -> impl IntoElement {
     motion::turn(
         id,
         motion::fold_angle(open),
@@ -301,7 +305,7 @@ struct Arrivals {
 
 /// Whether the run `key` is still coming into the chat, and which of its calls are still
 /// coming into it. A run drawn again, as when scrolled back to, only shows.
-fn arrivals(
+pub(super) fn arrivals(
     key: &str,
     calls: &[Call],
     live: bool,
@@ -338,152 +342,86 @@ fn arrivals(
     (run, calls)
 }
 
-/// A run of calls: a line counting them and how long they took, and while the
-/// agent is still adding to it, or the reader opened it, each call's row.
-pub fn run(
-    parts: &[&ChatPart],
-    live: bool,
-    looks: &Drawn,
-    window: &mut Window,
-    cx: &mut App,
-) -> AnyElement {
-    let calls: Vec<Call> = parts.iter().filter_map(|part| Call::of(part)).collect();
-    let Some(first) = parts.first() else {
-        return div().into_any_element();
-    };
-    let current = calls.iter().find(|call| call.running());
-    let key = first.id().to_owned();
-    let (run_arrives, arriving) = arrivals(&key, &calls, live, window, cx);
-    let spent: u64 = calls.iter().map(Call::took).sum();
-    let open = looks
-        .reading
-        .tools
-        .runs
-        .get(&key)
-        .copied()
-        .unwrap_or(live || current.is_some());
-    let count: u64 = calls.iter().map(|call| call.tool.row.calls()).sum();
-    let said = current.and_then(|call| call.tool.description.clone());
-    let calls_said = format!("{count} tool {}", if count == 1 { "call" } else { "calls" });
-    let label = match (&said, current.is_some()) {
-        (Some(said), _) => div()
-            .min_w_0()
-            .text_size(crate::theme::ui_text(TEXT_XS))
-            .child(shimmer(format!("run:{key}:said"), said.clone())),
-        (None, true) => div()
-            .min_w_0()
-            .child(shimmer(format!("run:{key}:calls"), calls_said)),
-        (None, false) => div()
-            .min_w_0()
-            .truncate()
-            .text_color(looks.quiet)
-            .child(calls_said),
-    };
-    let time = match current {
-        Some(call) => Some(running_for(
-            format!("run-seconds:{key}"),
-            call.started.unwrap_or_else(time::now_ms),
-            spent,
-        )),
-        None => (spent > 0).then(|| time::took(spent).into_any_element()),
-    };
-    let time = time.map(|time| settled(format!("run-time:{key}"), current.is_some(), time));
-    let (reader, hover, ink) = (looks.reader.clone(), looks.hover, looks.ink);
-    let sum = div()
-        .id(SharedString::from(format!("run:{key}")))
-        .h(px(22.))
-        .ml(px(-6.))
-        .px(SPACE_1H)
-        .flex()
-        .items_center()
-        .gap(SPACE_2)
-        .max_w_full()
-        .font_family(theme::UI)
-        .rounded(theme::RADIUS_2)
-        .cursor_pointer()
-        .hover(move |sum| sum.bg(hover).text_color(ink))
-        .child(label)
-        .when(said.is_some() && count > 1, |sum| {
-            sum.child(
-                div()
-                    .flex_none()
-                    .text_color(looks.faint)
-                    .child(format!("{count} calls")),
-            )
-        })
-        .children(time.map(|time| {
-            div()
-                .flex_none()
-                .font_family(theme::MONO)
-                .text_color(looks.quiet)
-                .child(time)
-        }))
-        .child(div().flex_none().opacity(0.7).child(chevron(
-            format!("run-chevron:{key}"),
-            open,
-            looks.quiet,
-        )))
-        .on_click({
-            let key = key.clone();
-            move |_, _, cx| {
-                reader.update(cx, |reading, cx| {
-                    reading.tools.runs.insert(key.clone(), !open);
-                    cx.notify();
-                })
-            }
-        });
+/// Every call of a run, each on its own row off the run's spine.
+pub(super) fn rows(calls: &[Call], looks: &Drawn, window: &mut Window, cx: &mut App) -> AnyElement {
     let kind = calls
         .iter()
         .map(|call| word(&call.tool.row).chars().count())
         .max()
         .unwrap_or(4)
         .clamp(4, 16);
-    let ease = if open {
-        motion::UNFOLD
-    } else {
-        motion::FOLD_AWAY
-    };
+    let rows = calls
+        .iter()
+        .enumerate()
+        .map(|(ix, call)| row(call, ix + 1 == calls.len(), kind, looks, window, cx));
+    div()
+        .py(SPACE_0)
+        .flex()
+        .flex_col()
+        .font_family(theme::MONO)
+        .text_size(crate::theme::ui_text(TEXT_2XS))
+        .children(rows)
+        .into_any_element()
+}
+
+/// Opens a call's detail or closes it, asking the core for it the first time.
+pub(super) fn toggle_detail(
+    call: &Call,
+    looks: &Drawn,
+) -> impl Fn(&gpui_kit::ClickEvent, &mut Window, &mut App) + 'static {
+    let id = call.tool.tool_call_id.clone();
+    let reader = looks.reader.clone();
+    let (bench, agent, ended) = (looks.bench.clone(), looks.agent.clone(), call.ended);
+    move |_, _, cx| {
+        let ask = reader.update(cx, |reading, cx| {
+            cx.notify();
+            reading.tools.toggle(&id, ended)
+        });
+        if ask {
+            let tool = id.clone();
+            bench
+                .update(cx, |bench, _| {
+                    bench.ask_chat(ChatAsk::Detail {
+                        agent: agent.clone(),
+                        tool,
+                    })
+                })
+                .ok();
+        }
+    }
+}
+
+/// A call's detail unfolding under its line while the reader has it open.
+pub(super) fn opened_detail(
+    call: &Call,
+    open: bool,
+    looks: &Drawn,
+    window: &mut Window,
+    cx: &mut App,
+) -> Option<AnyElement> {
+    let id = &call.tool.tool_call_id;
     let shown = motion::follow(
-        ElementId::Name(format!("run-fold:{key}").into()),
+        ElementId::Name(format!("call-fold:{id}").into()),
         if open { 1. } else { 0. },
-        ease,
+        if open {
+            motion::UNFOLD
+        } else {
+            motion::FOLD_AWAY
+        },
         window,
         cx,
     );
-    let body = (shown > 0.).then(|| {
-        let rows = calls.iter().enumerate().map(|(ix, call)| {
-            let row = row(call, ix + 1 == calls.len(), kind, looks, window, cx);
-            let id = &call.tool.tool_call_id;
-            if !arriving.contains(id) {
-                return row;
-            }
-            let key = SharedString::from(format!("call-arrive:{id}"));
-            motion::arriving(key, motion::ROW_ARRIVAL, row).into_any_element()
-        });
-        let rows = div()
-            .ml(SPACE_1H)
-            .py(SPACE_0)
-            .flex()
-            .flex_col()
-            .children(rows);
+    (shown > 0.).then(|| {
+        let detail = detail(call, looks, cx);
         motion::folded(
-            ElementId::Name(format!("run-body:{key}").into()),
+            ElementId::Name(format!("call-body:{id}").into()),
             shown,
-            rows,
+            detail,
             window,
             cx,
         )
-    });
-    let run = div()
-        .font_family(theme::MONO)
-        .text_size(crate::theme::ui_text(TEXT_2XS))
-        .child(div().flex().child(sum))
-        .children(body);
-    if !run_arrives {
-        return run.into_any_element();
-    }
-    let key = SharedString::from(format!("run-arrive:{key}"));
-    motion::arriving(key, motion::ROW_ARRIVAL, run).into_any_element()
+        .into_any_element()
+    })
 }
 
 /// One call: a tick off the run's spine, its icon and word in the colour of what
@@ -590,25 +528,7 @@ fn row(
         )
         .children(target)
         .child(end);
-    let reader = looks.reader.clone();
-    let (bench, agent, ended) = (looks.bench.clone(), looks.agent.clone(), call.ended);
-    let toggle = move |_: &gpui_kit::ClickEvent, _: &mut gpui_kit::Window, cx: &mut App| {
-        let ask = reader.update(cx, |reading, cx| {
-            cx.notify();
-            reading.tools.toggle(&id, ended)
-        });
-        if ask {
-            let tool = id.clone();
-            bench
-                .update(cx, |bench, _| {
-                    bench.ask_chat(ChatAsk::Detail {
-                        agent: agent.clone(),
-                        tool,
-                    })
-                })
-                .ok();
-        }
-    };
+    let toggle = toggle_detail(call, looks);
     let node = div()
         .id(group.clone())
         .group(group)
@@ -618,27 +538,7 @@ fn row(
         .child(spine(last, looks))
         .child(line)
         .when(opens, |node| node.cursor_pointer().on_click(toggle));
-    let shown = motion::follow(
-        ElementId::Name(format!("call-fold:{}", call.tool.tool_call_id).into()),
-        if open { 1. } else { 0. },
-        if open {
-            motion::UNFOLD
-        } else {
-            motion::FOLD_AWAY
-        },
-        window,
-        cx,
-    );
-    let node = node.when(shown > 0., |node| {
-        let detail = detail(call, looks, cx);
-        node.child(motion::folded(
-            ElementId::Name(format!("call-body:{}", call.tool.tool_call_id).into()),
-            shown,
-            detail,
-            window,
-            cx,
-        ))
-    });
+    let node = node.children(opened_detail(call, open, looks, window, cx));
     node.into_any_element()
 }
 

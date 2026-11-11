@@ -141,7 +141,9 @@ pub(super) fn row(
                     self::subagent(card, pen, looks, window, cx)
                 }
                 Shown::Part(part) => self::part(row, part, user, pen, looks, window, cx),
-                Shown::Run(calls) => tools::run(&calls, live && at + 1 == count, looks, window, cx),
+                Shown::Run(calls) => {
+                    runs::strip(&calls, live && at + 1 == count, looks, window, cx)
+                }
             });
         }
         if !tucked_away || whole_row_tucked {
@@ -948,7 +950,7 @@ pub(super) fn subagent(
             for (at, group) in groups.into_iter().enumerate() {
                 drawn.push(match group {
                     Shown::Part(part) => self::part(row, part, false, pen, looks, window, cx),
-                    Shown::Run(calls) => tools::run(
+                    Shown::Run(calls) => runs::strip(
                         &calls,
                         live && ix + 1 == rows.len() && at + 1 == count,
                         looks,
