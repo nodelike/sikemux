@@ -75,7 +75,7 @@ const DIALED_AT_ONCE_MS: u64 = 10_000;
 const UNKNOWN_ASK: &str = "this host does not know ";
 const REDIAL: Backoff = Backoff {
     first: Duration::from_secs(2),
-    cap: Duration::from_secs(60),
+    cap: Duration::from_secs(15),
 };
 /// How a linked host is tried again when only its projects are wanted, while the window is open.
 const REDIAL_FOR_COPIES: Backoff = Backoff {
@@ -237,6 +237,19 @@ impl Hosts {
         let until = epoch_ms() + for_ms;
         (self.state.locked().held).insert((host.to_owned(), lane.to_owned()), until);
         self.wake.at(until);
+    }
+
+    /// The network came back: dials every host out of reach and sends what waits now,
+    /// rather than after the backoff its failures while offline built up.
+    pub(crate) fn retry_now(&self) {
+        let mut state = self.state.locked();
+        for down in state.down.values_mut() {
+            down.retry_at = 0;
+            down.failures = 0;
+        }
+        state.held.clear();
+        drop(state);
+        self.wake.now();
     }
 
     fn note_down(&self, host: &str) {
