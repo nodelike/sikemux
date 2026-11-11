@@ -245,15 +245,25 @@ pub fn welcome(
         .flex_col()
         .gap(SPACE_4)
         .child(bench.parts.activity.clone())
-        .children(placed.map(|placed| smart_pick(placed, provider, cx)));
+        .children(placed.map(|placed| smart_pick(bench, placed, provider, cx)));
     welcome_over(mark, project.unwrap_or_default(), under, cx)
         .max_w(px(sikemux_browser::REPLY_COLUMN_WIDTH))
         .mx(px(22.))
 }
 
 /// The account smart accounts picked for a new chat, and why, in one quiet line.
-fn smart_pick(placed: &AccountMove, provider: &str, cx: &App) -> impl IntoElement {
+fn smart_pick(
+    bench: &Workbench,
+    placed: &AccountMove,
+    provider: &str,
+    cx: &App,
+) -> impl IntoElement {
     let t = Tokens::get(cx).clone();
+    let face = match crate::accounts::named(bench, provider, &placed.label) {
+        Some(profile) => crate::accounts::face(bench.accounts.avatar(profile), provider, 14., cx)
+            .into_any_element(),
+        None => ui::mark(provider, 12.).into_any_element(),
+    };
     let dot = || div().flex_none().child("·");
     div()
         .min_w_0()
@@ -263,7 +273,7 @@ fn smart_pick(placed: &AccountMove, provider: &str, cx: &App) -> impl IntoElemen
         .gap(SPACE_2)
         .text_size(theme::ui_text(TEXT_2XS))
         .text_color(t.text_tertiary)
-        .child(ui::mark(provider, 12.))
+        .child(face)
         .child(
             div()
                 .flex_none()

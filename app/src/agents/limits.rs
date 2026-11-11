@@ -596,29 +596,6 @@ fn rest_rows(view: &View, agents: &[Agent], cx: &App) -> Vec<AnyElement> {
         .collect()
 }
 
-/// An account's avatar with its agent's mark on its corner.
-fn face(provider: &str, shown: &Shown, cx: &App) -> Div {
-    let t = Tokens::get(cx);
-    div()
-        .relative()
-        .flex_none()
-        .size(px(16.))
-        .child(crate::accounts::avatar(shown.avatar.clone(), 16.))
-        .child(
-            div()
-                .absolute()
-                .right(px(-3.))
-                .bottom(px(-3.))
-                .size(px(11.))
-                .rounded_full()
-                .bg(t.surface)
-                .flex()
-                .items_center()
-                .justify_center()
-                .child(ui::mark(provider, 8.)),
-        )
-}
-
 /// How low a limit is, in the colour of its number: quiet until it nears its end.
 fn left_ink(used: f64, t: &Tokens, quiet: Hsla) -> Hsla {
     match used {
@@ -653,7 +630,12 @@ fn rest_row(view: &View, agent: &Agent, place: usize, numbers: f32, cx: &App) ->
         .gap(SPACE_2)
         .rounded(RADIUS_2)
         .when(in_use, |row| row.bg(t.surface_chosen))
-        .child(face(agent.provider, shown, cx))
+        .child(crate::accounts::face(
+            shown.avatar.clone(),
+            agent.provider,
+            16.,
+            cx,
+        ))
         .child(name);
     if shown.signed_out {
         return row

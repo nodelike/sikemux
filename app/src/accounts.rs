@@ -89,6 +89,38 @@ pub fn avatar(picture: Arc<Image>, size: f32) -> impl IntoElement {
     img(picture).size(px(size)).flex_none()
 }
 
+/// An account's avatar with its agent's mark on its corner, as the limits list draws it.
+pub fn face(picture: Arc<Image>, provider: &str, size: f32, cx: &gpui_kit::App) -> gpui_kit::Div {
+    let t = crate::theme::Tokens::get(cx);
+    let badge = (size * 0.7).round();
+    div()
+        .relative()
+        .flex_none()
+        .size(px(size))
+        .child(avatar(picture, size))
+        .child(
+            div()
+                .absolute()
+                .right(px(-size * 0.19))
+                .bottom(px(-size * 0.19))
+                .size(px(badge))
+                .rounded_full()
+                .bg(t.surface)
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(crate::ui::mark(provider, (badge * 0.72).round())),
+        )
+}
+
+/// The account of `provider` a chat names by `label`, the name it is shown by.
+pub fn named<'a>(bench: &'a Workbench, provider: &str, label: &str) -> Option<&'a Profile> {
+    bench.accounts.of(provider).into_iter().find(|profile| {
+        let shown = status(bench, profile).and_then(|status| status.as_ref().ok());
+        profile.shown_name(shown) == label
+    })
+}
+
 /// An account as a row of a menu, as the Mac draws one: its letter, its name with a tick on the
 /// one in use, what it is signed in as under that, and how much of its plan it has used.
 pub fn popup_item(

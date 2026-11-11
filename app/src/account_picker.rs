@@ -104,7 +104,12 @@ pub fn picker(
         .text_size(crate::theme::ui_text(TEXT_2XS))
         .text_color(t.text_secondary)
         .tooltip(about)
-        .child(accounts::avatar(bench.accounts.avatar(&current), 16.))
+        .child(accounts::face(
+            bench.accounts.avatar(&current),
+            provider,
+            16.,
+            cx,
+        ))
         .child(
             div()
                 .min_w_0()
