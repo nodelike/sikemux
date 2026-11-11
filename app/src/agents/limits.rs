@@ -3,13 +3,14 @@
 
 use std::cell::Cell;
 use std::f32::consts::TAU;
+use std::sync::Arc;
 use std::time::Duration;
 
 use gpui_kit::base::Popover;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    anchored, canvas, deferred, div, fill, img, point, px, size, Anchor, AnchoredPositionMode,
-    Animation, AnimationExt, AnyElement, App, Bounds, Context, Div, FontWeight, Hsla,
+    anchored, canvas, deferred, div, fill, point, px, size, Anchor, AnchoredPositionMode,
+    Animation, AnimationExt, AnyElement, App, Bounds, Context, Div, FontWeight, Hsla, Image,
     InteractiveElement, IntoElement, ParentElement, SharedString, Stateful,
     StatefulInteractiveElement, Styled, Task, Transformation, WeakEntity, Window,
 };
@@ -92,6 +93,7 @@ struct Shown<'a> {
     /// The account, or none for an agent the person never added an account to.
     profile: Option<&'a Profile>,
     name: String,
+    avatar: Arc<Image>,
     usage: Option<&'a AccountUsage>,
     signed_out: bool,
 }
@@ -184,6 +186,7 @@ impl<'a> Agent<'a> {
             vec![Shown {
                 profile: None,
                 name: name.to_owned(),
+                avatar: super::marble::avatar(provider, 0),
                 usage: bench.usage_of(&launcher.id),
                 signed_out: launcher.status.as_deref() == Some("signedOut"),
             }]
@@ -195,6 +198,7 @@ impl<'a> Agent<'a> {
                     Shown {
                         profile: Some(profile),
                         name: crate::accounts::name(bench, profile, status),
+                        avatar: bench.accounts.avatar(profile),
                         usage: crate::accounts::usage(bench, profile),
                         signed_out: status.is_some_and(|status| !status.signed_in),
                     }
@@ -593,13 +597,13 @@ fn rest_rows(view: &View, agents: &[Agent], cx: &App) -> Vec<AnyElement> {
 }
 
 /// An account's avatar with its agent's mark on its corner.
-fn face(provider: &str, name: &str, place: usize, cx: &App) -> Div {
+fn face(provider: &str, shown: &Shown, cx: &App) -> Div {
     let t = Tokens::get(cx);
     div()
         .relative()
         .flex_none()
         .size(px(16.))
-        .child(img(super::marble::avatar(name, place)).size(px(16.)))
+        .child(crate::accounts::avatar(shown.avatar.clone(), 16.))
         .child(
             div()
                 .absolute()
@@ -649,7 +653,7 @@ fn rest_row(view: &View, agent: &Agent, place: usize, numbers: f32, cx: &App) ->
         .gap(SPACE_2)
         .rounded(RADIUS_2)
         .when(in_use, |row| row.bg(t.surface_chosen))
-        .child(face(agent.provider, &shown.name, place, cx))
+        .child(face(agent.provider, shown, cx))
         .child(name);
     if shown.signed_out {
         return row
@@ -1037,11 +1041,7 @@ fn account_line(
     let provider = agent.provider.to_owned();
     let names = line(NAME_LINE)
         .mb(px(NAME_GAP))
-        .child(
-            img(super::marble::avatar(&shown.name, place))
-                .size(px(AVATAR))
-                .flex_none(),
-        )
+        .child(crate::accounts::avatar(shown.avatar.clone(), AVATAR))
         .child(
             div()
                 .flex_1()

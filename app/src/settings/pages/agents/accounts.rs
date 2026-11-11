@@ -294,7 +294,7 @@ fn account_row(
         .py(SPACE_2H)
         .border_b_1()
         .border_color(t.line_soft)
-        .child(accounts::avatar(profile, &name, 24.))
+        .child(accounts::avatar(bench.accounts.avatar(profile), 24.))
         .child(
             div()
                 .flex_1()
@@ -468,7 +468,7 @@ pub fn dialog(
                         .child(
                             sign_in::choice(
                                 SharedString::from(format!("sign-in-again-{id}")),
-                                accounts::avatar(profile, &profile.name, 18.),
+                                accounts::avatar(bench.accounts.avatar(profile), 18.),
                                 profile.name.clone(),
                                 "Signed out",
                                 cx,

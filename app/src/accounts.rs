@@ -3,6 +3,7 @@
 //! opens the browser on this host.
 
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use gpui_kit::component::input::InputState;
@@ -10,7 +11,7 @@ use gpui_kit::component::menu::PopupMenuItem;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::TestSupportExt as _;
 use gpui_kit::{
-    div, px, AppContext, Context, Entity, FontWeight, Hsla, InteractiveElement, IntoElement,
+    div, img, px, AppContext, Context, Entity, Hsla, Image, InteractiveElement, IntoElement,
     ParentElement, SharedString, StatefulInteractiveElement, Styled, Window,
 };
 use sikemux_core::agent_accounts::status::AccountStatus;
@@ -83,26 +84,9 @@ pub fn accent(profile: &Profile) -> Hsla {
         .unwrap_or_else(|| theme::brand(&profile.provider))
 }
 
-/// The account's first letter on its colour.
-pub fn avatar(profile: &Profile, name: &str, size: f32) -> impl IntoElement {
-    div()
-        .size(px(size))
-        .flex_none()
-        .rounded_full()
-        .bg(accent(profile))
-        .flex()
-        .items_center()
-        .justify_center()
-        .text_size(px(size * 0.5))
-        .font_weight(FontWeight::SEMIBOLD)
-        .text_color(gpui_kit::white())
-        .child(
-            name.trim()
-                .chars()
-                .next()
-                .map(|letter| letter.to_uppercase().to_string())
-                .unwrap_or_else(|| "?".into()),
-        )
+/// An account's avatar picture at `size`, as every list of accounts draws it.
+pub fn avatar(picture: Arc<Image>, size: f32) -> impl IntoElement {
+    img(picture).size(px(size)).flex_none()
 }
 
 /// An account as a row of a menu, as the Mac draws one: its letter, its name with a tick on the
@@ -110,6 +94,7 @@ pub fn avatar(profile: &Profile, name: &str, size: f32) -> impl IntoElement {
 pub fn popup_item(
     profile: &Profile,
     name: &str,
+    picture: Arc<Image>,
     detail: Option<String>,
     used: Option<f64>,
     current: bool,
@@ -125,7 +110,7 @@ pub fn popup_item(
             .flex()
             .items_center()
             .gap(SPACE_2)
-            .child(avatar(&profile, &name, 16.))
+            .child(avatar(picture.clone(), 16.))
             .child(
                 div()
                     .flex_1()
@@ -181,6 +166,15 @@ impl Accounts {
             .profiles
             .iter()
             .find(|profile| profile.id == id)
+    }
+
+    /// The account's avatar: drawn from its id, so a rename keeps it, in the palette for its
+    /// place among its agent's accounts, so accounts listed together never share one.
+    pub fn avatar(&self, profile: &Profile) -> Arc<Image> {
+        let place = (self.of(&profile.provider).iter())
+            .position(|account| account.id == profile.id)
+            .unwrap_or_default();
+        crate::agents::marble::avatar(&profile.id, place)
     }
 
     /// The accounts `provider` has, in the order they were added.

@@ -2,11 +2,13 @@
 //! there, even in the middle of a turn, to the accounts the core says can take it; one that has
 //! not simply starts there, on any signed in.
 
+use std::sync::Arc;
+
 use gpui_kit::component::button::{Button as KitButton, ButtonVariants};
 use gpui_kit::component::menu::DropdownMenu;
 use gpui_kit::component::Disableable;
 use gpui_kit::{
-    div, img, px, Anchor, AnyElement, App, Context, IntoElement, ParentElement, SharedString,
+    div, px, Anchor, AnyElement, App, Context, Image, IntoElement, ParentElement, SharedString,
     Styled,
 };
 use sikemux_core::agent_accounts::status::AccountStatus;
@@ -86,9 +88,6 @@ pub fn picker(
     let name =
         |profile: &Profile, status: Option<&AccountStatus>| accounts::name(bench, profile, status);
     let label = name(&current, signed_in(&current).as_ref());
-    let place = (bench.accounts.of(provider).iter())
-        .position(|profile| profile.id == current.id)
-        .unwrap_or_default();
     let about = match (&none_because, running) {
         (Some(why), _) => why.clone(),
         (None, true) => "Moving stops this turn and carries it on in the other account".to_owned(),
@@ -106,11 +105,7 @@ pub fn picker(
         .text_size(crate::theme::ui_text(TEXT_2XS))
         .text_color(t.text_secondary)
         .tooltip(about)
-        .child(
-            img(crate::agents::marble::avatar(&label, place))
-                .size(px(16.))
-                .flex_none(),
-        )
+        .child(accounts::avatar(bench.accounts.avatar(&current), 16.))
         .child(
             div()
                 .min_w_0()
@@ -123,13 +118,14 @@ pub fn picker(
     if disabled {
         return Some(trigger.opacity(0.45).into_any_element());
     }
-    let rows: Vec<(Profile, String, Option<String>, Option<f64>)> = movable
+    let rows: Vec<(Profile, String, Arc<Image>, Option<String>, Option<f64>)> = movable
         .iter()
         .map(|(profile, status)| {
             let detail = status.email.clone().or_else(|| status.organization.clone());
             (
                 profile.clone(),
                 name(profile, Some(status)),
+                bench.accounts.avatar(profile),
                 detail,
                 accounts::used(bench, profile),
             )
@@ -142,9 +138,16 @@ pub fn picker(
                 Anchor::BottomRight,
                 ui::menu(move |mut popup, _, _| {
                     popup = popup.min_w(px(280.));
-                    for (profile, name, detail, used) in &rows {
+                    for (profile, name, picture, detail, used) in &rows {
                         let here = profile.id == on;
-                        let item = accounts::popup_item(profile, name, detail.clone(), *used, here);
+                        let item = accounts::popup_item(
+                            profile,
+                            name,
+                            picture.clone(),
+                            detail.clone(),
+                            *used,
+                            here,
+                        );
                         if here {
                             popup = popup.item(item);
                             continue;
