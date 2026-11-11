@@ -272,7 +272,10 @@ pub fn dock(
                 );
             }
             words.extend(group.words);
-            action = action.or(group.action);
+            action = match group.key {
+                QUEUED => group.action.or(action),
+                _ => action.or(group.action),
+            };
         }
         parts.push(header(
             &agent.id,
