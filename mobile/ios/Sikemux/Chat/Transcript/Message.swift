@@ -346,12 +346,11 @@ struct LongText: View {
         let whole = context.folds.isOpen("whole/\(id)", false)
         let cut = whole || found != nil || watched ? nil : Self.cut(blocks)
         let plain = Array(blocks.map { visibleText($0) }.joined().utf16)
-        let streaming = cut == nil && found == nil && context.reveal.moving(id, total: plain.count, live: live)
         VStack(alignment: .leading, spacing: 0) {
-            if streaming {
-                TimelineView(.animation(minimumInterval: 1.0 / 60)) { timeline in
-                    let shown = context.reveal.step(id, text: plain, live: live, now: timeline.date)
-                    MarkdownView(blocks: shown.length < plain.count ? revealBlocks(blocks, shown.length) : blocks, style: style, fading: shown.fading)
+            if live && cut == nil && found == nil {
+                let newest = context.reveal.newest(id, text: plain, live: live)
+                TimelineView(.explicit([newest.until])) { timeline in
+                    MarkdownView(blocks: blocks, style: style, fading: timeline.date < newest.until ? newest.fading : [])
                 }
             } else {
                 MarkdownView(blocks: cut?.blocks ?? blocks, style: style, marks: found)
