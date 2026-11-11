@@ -90,6 +90,7 @@ pub struct Desks {
 pub struct DeskEars {
     _hearing: Option<gpui_kit::Task<()>>,
     _activation: Subscription,
+    _visibility: Subscription,
 }
 
 /// Hears what the desks' engine tells the window, and registers the window with the core
@@ -111,9 +112,19 @@ pub fn listen(desks: &Entity<Desks>, window: &mut Window, cx: &mut Context<Workb
             let _ = bench.asks.send(Ask::RegisterWindow);
         }
     });
+    let engine = desks.read(cx).engine.clone();
+    if let Some(engine) = &engine {
+        engine.set_window_draws(window.is_visible());
+    }
+    let visibility = window.observe_window_visibility(move |visibility, _, _| {
+        if let Some(engine) = &engine {
+            engine.set_window_draws(visibility.is_visible());
+        }
+    });
     DeskEars {
         _hearing: task,
         _activation: activation,
+        _visibility: visibility,
     }
 }
 

@@ -42,8 +42,12 @@ pub(crate) const DOWNLOAD_WINDOW: Duration = Duration::from_secs(30);
 const HELD_DOWNLOAD_LIFETIME: Duration = Duration::from_secs(7 * 24 * 3600);
 /// What a parked page lays out at before its pane has ever shown one.
 const PARKED_SIZE: (f64, f64) = (1200.0, 800.0);
-/// The longest a new tab waits for the app to bring its agent's desk on screen.
-const DESK_WAIT: std::time::Duration = std::time::Duration::from_millis(300);
+/// The longest a new tab waits for the app to bring its agent's desk on screen while the window
+/// draws no frames, so the desk cannot be placed until it is seen again.
+const DESK_WAIT: Duration = Duration::from_millis(300);
+/// A window that draws places its desk within a frame or two, however slow those are, so a
+/// wait this long means the desk was lost.
+const DESK_GUARD: Duration = Duration::from_secs(10);
 
 /// How many of its own tabs an agent keeps before opening one closes its longest unused.
 pub(crate) const AGENT_TAB_LIMIT: usize = 6;
@@ -132,6 +136,8 @@ pub struct BrowserManager {
     pub(crate) relieving: AtomicBool,
     /// Rung whenever the app says where an agent's desk shows, or that it does not.
     pub(crate) desk_answers: tokio::sync::Notify,
+    /// Whether the window's frames are seen, so a desk it brings out gets placed.
+    window_draws: AtomicBool,
     pub(crate) host: Arc<dyn Host>,
     pub(crate) me: Weak<BrowserManager>,
 }
@@ -155,6 +161,7 @@ impl BrowserManager {
             gone: Mutex::default(),
             relieving: AtomicBool::default(),
             desk_answers: tokio::sync::Notify::new(),
+            window_draws: AtomicBool::default(),
             host,
             me: me.clone(),
         });
@@ -255,10 +262,17 @@ impl BrowserManager {
         Ok((tab_id, webview))
     }
 
-    /// While the app brings the agent's desk on screen, a new tab waits a moment to be laid
-    /// out in it, so what the agent reads first is the page at the pane's size.
+    /// Tells the engine whether the window's frames are seen. A window that is covered,
+    /// minimized or on a sleeping display draws none, so its desks are not placed meanwhile.
+    pub fn set_window_draws(&self, draws: bool) {
+        self.window_draws.store(draws, Ordering::Release);
+        self.desk_answers.notify_waiters();
+    }
+
+    /// While the app brings the agent's desk on screen, a new tab waits to be laid out in it, so
+    /// what the agent reads first is the page at the pane's size.
     async fn until_desk_answers(&self, agent_id: &str) {
-        let deadline = tokio::time::Instant::now() + DESK_WAIT;
+        let started = tokio::time::Instant::now();
         loop {
             let answered = self.desk_answers.notified();
             tokio::pin!(answered);
@@ -268,7 +282,19 @@ impl BrowserManager {
                 .locked()
                 .get(agent_id)
                 .is_some_and(|agent| agent.desk_coming);
-            if !coming || tokio::time::timeout_at(deadline, answered).await.is_err() {
+            if !coming {
+                return;
+            }
+            let draws = self.window_draws.load(Ordering::Acquire);
+            let limit = if draws { DESK_GUARD } else { DESK_WAIT };
+            let in_time = tokio::time::timeout_at(started + limit, answered).await;
+            if in_time.is_err() {
+                if draws {
+                    eprintln!(
+                        "sikemux: {agent_id}'s desk was not placed within {} s, so its new page waits off screen",
+                        DESK_GUARD.as_secs()
+                    );
+                }
                 return;
             }
         }
