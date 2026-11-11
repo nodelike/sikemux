@@ -4,7 +4,7 @@
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     div, px, AnyElement, App, ElementId, Hsla, InteractiveElement, IntoElement, ParentElement,
-    SharedString, StatefulInteractiveElement, Styled, Window,
+    SharedString, StatefulInteractiveElement, Styled, StyledImage, Window,
 };
 use sikemux_view::chat::{ChatPart, RunClause, RunLine, ToolFamily, ToolIntent, ToolRun};
 
@@ -13,16 +13,20 @@ use super::Drawn;
 use crate::icons::Icon;
 use crate::motion;
 use crate::theme::{
-    self, Tokens, SPACE_0, SPACE_1, SPACE_2, SPACE_2H, SPACE_3, TEXT_XS, TEXT_XS_H,
+    self, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, TEXT_2XS, TEXT_XS,
+    TEXT_XS_H,
 };
 use crate::ui;
 use crate::ui::shimmer::shimmer;
 use crate::ui::time;
+use gpui_transcript::{FileKind, FilePress};
 
 /// The most things a merged line names before it counts the rest.
 const LINE_NAMES: usize = 4;
 /// The most clauses a strip's sentence says before it counts the rest.
 const SENTENCE_CLAUSES: usize = 4;
+/// The most pictures a line shows of those its calls looked at.
+const LINE_PICTURES: usize = 6;
 
 pub fn strip(
     parts: &[&ChatPart],
@@ -334,11 +338,11 @@ fn run_line(
                 typed.into_any_element()
             })
     } else {
-        let mut names: Vec<String> = Vec::new();
+        let mut names: Vec<(String, Option<&str>)> = Vec::new();
         for call in &calls {
             let name = named(call);
-            if !name.is_empty() && !names.contains(&name) {
-                names.push(name);
+            if !name.is_empty() && !names.iter().any(|(held, _)| *held == name) {
+                names.push((name, call.tool.row.path.as_deref()));
             }
         }
         let more = names.len().saturating_sub(LINE_NAMES);
@@ -350,27 +354,33 @@ fn run_line(
             names: Vec::new(),
             took: None,
         });
-        div()
-            .min_w_0()
-            .truncate()
-            .flex()
-            .items_center()
-            .gap(SPACE_1)
-            .child(div().flex_none().text_color(t.text_secondary).child(
-                if line.intent == ToolIntent::Wait && !names.is_empty() {
-                    "Waited for"
-                } else {
-                    verb
-                },
-            ))
-            .children(names.into_iter().map(|name| {
-                div()
+        let waited = line.intent == ToolIntent::Wait && !names.is_empty();
+        let chips: Vec<AnyElement> = names
+            .into_iter()
+            .map(|(name, path)| match path {
+                Some(path) => chip(&name, path, line.intent != ToolIntent::View, looks, cx),
+                None => div()
                     .flex_none()
                     .font_family(theme::MONO)
                     .text_size(theme::ui_text(TEXT_XS))
                     .text_color(looks.ink)
                     .child(name)
-            }))
+                    .into_any_element(),
+            })
+            .collect();
+        div()
+            .min_w_0()
+            .overflow_hidden()
+            .flex()
+            .items_center()
+            .gap(SPACE_1H)
+            .child(
+                div()
+                    .flex_none()
+                    .text_color(t.text_secondary)
+                    .child(if waited { "Waited for" } else { verb }),
+            )
+            .children(chips)
             .when(more > 0, |main| {
                 main.child(
                     div()
@@ -468,6 +478,24 @@ fn run_line(
                 .line_clamp(3)
                 .child(failure.to_owned())
         });
+    let pictures: Vec<AnyElement> = calls
+        .iter()
+        .filter(|call| call.tool.row.intent == ToolIntent::View)
+        .filter_map(|call| call.tool.row.path.as_deref())
+        .map(without_lines)
+        .filter(|path| std::path::Path::new(path).is_file())
+        .take(LINE_PICTURES)
+        .map(|path| thumbnail(path, looks))
+        .collect();
+    let pictures = (!pictures.is_empty()).then(|| {
+        div()
+            .ml(px(24.))
+            .mb(SPACE_1)
+            .flex()
+            .flex_wrap()
+            .gap(SPACE_2H)
+            .children(pictures)
+    });
     let detail = lone
         .filter(|_| opens)
         .and_then(|call| tools::opened_detail(call, open, looks, window, cx));
@@ -477,8 +505,118 @@ fn run_line(
         .gap(SPACE_0)
         .child(head)
         .children(failure)
+        .children(pictures)
         .children(detail)
         .into_any_element()
+}
+
+/// A file a line names: its icon, its name and the lines it touched, opening the file.
+fn chip(name: &str, path: &str, with_lines: bool, looks: &Drawn, cx: &App) -> AnyElement {
+    let lines = path
+        .rsplit_once(':')
+        .filter(|_| with_lines)
+        .map(|(_, lines)| lines)
+        .filter(|lines| !lines.is_empty() && lines.bytes().all(|b| b.is_ascii_digit() || b == b'-'))
+        .map(|lines| lines.replace('-', "–"));
+    let file = without_lines(path).to_owned();
+    let (agent, files, bench) = (
+        looks.agent.clone(),
+        looks.files.clone(),
+        looks.bench.clone(),
+    );
+    let t = Tokens::get(cx);
+    div()
+        .id(SharedString::from(format!("chip:{path}")))
+        .flex_none()
+        .h(px(22.))
+        .px(SPACE_2)
+        .flex()
+        .items_center()
+        .gap(SPACE_1H)
+        .rounded(theme::RADIUS_2)
+        .bg(Hsla {
+            a: 0.06,
+            ..t.text_primary
+        })
+        .cursor_pointer()
+        .hover(|chip| {
+            chip.bg(Hsla {
+                a: 0.1,
+                ..t.text_primary
+            })
+        })
+        .child(crate::file_icons::glyph(name, 12., cx))
+        .child(
+            div()
+                .font_family(theme::MONO)
+                .text_size(theme::ui_text(TEXT_XS))
+                .text_color(looks.ink)
+                .child(name.to_owned()),
+        )
+        .children(lines.map(|lines| {
+            div()
+                .text_size(theme::ui_text(TEXT_2XS))
+                .text_color(looks.quiet)
+                .child(lines)
+        }))
+        .on_click(move |event, window, cx| {
+            cx.stop_propagation();
+            let press = if event.click_count() > 1 {
+                FilePress::OpenTwice
+            } else {
+                FilePress::Open
+            };
+            super::files::pressed(
+                &agent,
+                &files,
+                &bench,
+                (&file, FileKind::File, press),
+                window,
+                cx,
+            );
+        })
+        .into_any_element()
+}
+
+/// A picture the agent looked at, small, on this host's disk.
+fn thumbnail(path: &str, looks: &Drawn) -> AnyElement {
+    let name = std::path::Path::new(path)
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    div()
+        .flex()
+        .flex_col()
+        .gap(SPACE_1)
+        .child(
+            gpui_kit::img(std::path::PathBuf::from(path))
+                .w(px(104.))
+                .h(px(70.))
+                .rounded(theme::RADIUS_2)
+                .object_fit(gpui_kit::ObjectFit::Cover),
+        )
+        .child(
+            div()
+                .w(px(104.))
+                .truncate()
+                .font_family(theme::MONO)
+                .text_size(theme::ui_text(TEXT_2XS))
+                .text_color(looks.quiet)
+                .child(name),
+        )
+        .into_any_element()
+}
+
+/// `path` without the `:line` or `:first-last` a call's place adds.
+fn without_lines(path: &str) -> &str {
+    match path.rsplit_once(':') {
+        Some((file, lines))
+            if !lines.is_empty() && lines.bytes().all(|b| b.is_ascii_digit() || b == b'-') =>
+        {
+            file
+        }
+        _ => path,
+    }
 }
 
 /// What a line names a call by: the file or pattern it touched, else its target.
