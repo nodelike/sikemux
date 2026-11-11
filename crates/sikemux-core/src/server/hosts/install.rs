@@ -12,7 +12,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sikemux_process::sync::Locked;
-use tokio::sync::{mpsc, watch};
+use tokio::sync::{mpsc, oneshot, watch};
 
 use super::super::account::devices::{approve_host_sign_in, SignInCodeParams};
 use super::super::changed::Topic;
@@ -25,6 +25,8 @@ const UPDATE_WAIT: Duration = Duration::from_secs(10 * 60);
 /// Long enough to sign in once the code is approved.
 const SIGN_IN_WAIT: Duration = Duration::from_secs(3 * 60);
 const START_WAIT: Duration = Duration::from_secs(60);
+/// Printed before `login --json`, so what a shell's startup files print is not read as its answer.
+const LOGIN_MARK: &str = "sikemux-login";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -299,41 +301,81 @@ struct LoginLine {
     account: Option<String>,
 }
 
-/// Runs `login --json` on `alias`, approving the code it prints for this host's account.
+/// Runs `login --json` on `alias`, approving the code it prints for this host's account. The
+/// run ends at once when the approval fails, or when the first line is not one a `login --json`
+/// prints, as from a release before it, which polls for a code nobody here approves.
 async fn sign_in(core: &Arc<Core>, alias: &str) -> Result<(), String> {
     let (lines, mut said) = mpsc::unbounded_channel::<String>();
-    let script = probe::core_command("$core login --json");
-    let running = probe::run(alias, &script, SIGN_IN_WAIT, move |line| {
-        let _ = lines.send(line.to_owned());
-    });
+    let (stop, stopped) = oneshot::channel::<()>();
+    let script = probe::core_command(&format!("echo {LOGIN_MARK}; $core login --json"));
+    let running = probe::run_until(
+        alias,
+        &script,
+        SIGN_IN_WAIT,
+        move |line| {
+            let _ = lines.send(line.to_owned());
+        },
+        async {
+            let _ = stopped.await;
+        },
+    );
     let reading = async {
-        let mut outcome: Result<(), String> = Err("it ended without saying it signed in".into());
+        let mut stop = Some(stop);
+        let mut outcome: Option<Result<(), String>> = None;
+        let mut marked = false;
         while let Some(line) = said.recv().await {
-            let Some(read) = line
-                .find('{')
-                .and_then(|start| serde_json::from_str::<LoginLine>(&line[start..]).ok())
-            else {
+            if !marked || line.trim().is_empty() {
+                marked = marked || line.trim() == LOGIN_MARK;
                 continue;
-            };
-            if let Some(code) = read.code {
-                match approve_host_sign_in(core, SignInCodeParams::new(code)).await {
-                    Ok(host) => super::listed::note_installed(core, host.key, alias.to_owned()),
-                    Err(error) => outcome = Err(error.to_string()),
-                }
             }
-            if read.signed_in == Some(true) {
-                outcome = match read.account {
-                    Some(account) if Some(&account) != core.remote.owner().as_ref() => {
-                        Err(format!("{alias} is signed in to another Sikemux account"))
+            let read = line
+                .trim()
+                .strip_prefix('{')
+                .and_then(|_| serde_json::from_str::<LoginLine>(line.trim()).ok());
+            let failed = match read {
+                None => Some(format!(
+                    "the Sikemux on {alias} is too old to be signed in from here; update it, then sign in"
+                )),
+                Some(LoginLine {
+                    code: Some(code), ..
+                }) => match approve_host_sign_in(core, SignInCodeParams::new(code)).await {
+                    Ok(host) => {
+                        super::listed::note_installed(core, host.key, alias.to_owned());
+                        None
                     }
-                    _ => Ok(()),
-                };
+                    Err(error) => Some(error.to_string()),
+                },
+                Some(LoginLine {
+                    signed_in: Some(true),
+                    account,
+                    ..
+                }) => {
+                    outcome = Some(match account {
+                        Some(account) if Some(&account) != core.remote.owner().as_ref() => {
+                            Err(format!("{alias} is signed in to another Sikemux account"))
+                        }
+                        _ => Ok(()),
+                    });
+                    None
+                }
+                Some(_) => None,
+            };
+            if let Some(failed) = failed {
+                outcome = Some(Err(failed));
+                if let Some(stop) = stop.take() {
+                    let _ = stop.send(());
+                }
+                break;
             }
         }
         outcome
     };
     let (ran, outcome) = tokio::join!(running, reading);
-    ended(&ran).and(outcome)
+    match outcome {
+        Some(Err(failed)) => Err(failed),
+        Some(Ok(())) => ended(&ran),
+        None => ended(&ran).and(Err("it ended without saying it signed in".into())),
+    }
 }
 
 /// The installer for this core's channel, as an SSH host runs it. It leaves signing in to the

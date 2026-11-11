@@ -44,7 +44,7 @@ fn probe_script() -> String {
     format!(
         r#"r="$HOME/.config/sikemux/core.sock.runtime.json"
 if [ -r "$r" ]; then
-  pid=$(sed -n 's/.*"pid":\([0-9][0-9]*\).*/\1/p' "$r")
+  pid=$(sed -n 's/.*"pid"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' "$r" | head -n 1)
   if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
     case "$(ps -o stat= -p "$pid" 2>/dev/null)" in
       Z*) ;;
@@ -81,7 +81,7 @@ pub enum Found {
     SignedOut,
     Other,
     Stopped,
-    /// A release too old to say which host it is.
+    /// A release too old to say which host it is, or to be signed in from here.
     Outdated,
 }
 
@@ -267,7 +267,18 @@ pub(crate) async fn run(
     alias: &str,
     script: &str,
     timeout: Duration,
+    line: impl FnMut(&str),
+) -> Ran {
+    run_until(alias, script, timeout, line, std::future::pending()).await
+}
+
+/// [`run`], ended early once `stop` resolves.
+pub(crate) async fn run_until(
+    alias: &str,
+    script: &str,
+    timeout: Duration,
     mut line: impl FnMut(&str),
+    stop: impl std::future::Future<Output = ()>,
 ) -> Ran {
     let mut ssh = tokio::process::Command::from(sikemux_process::user_environment::command("ssh"));
     ssh.args([
@@ -322,7 +333,10 @@ pub(crate) async fn run(
         }
         child.wait().await.ok().and_then(|status| status.code())
     };
-    let code = tokio::time::timeout(timeout, reading).await.ok().flatten();
+    let code = tokio::select! {
+        ended = tokio::time::timeout(timeout, reading) => ended.ok().flatten(),
+        () = stop => None,
+    };
     let _ = child.start_kill();
     let stderr = tokio::time::timeout(Duration::from_secs(1), stderr)
         .await
@@ -368,9 +382,9 @@ fn read(ran: &Ran, owner: Option<&str>) -> (Answer, Option<Reached>) {
     if marked(NONE_MARK).is_some() {
         return (Answer::Found(Found::Nothing), None);
     }
-    let said = marked(RUNTIME_MARK)
-        .or_else(|| marked(STATUS_MARK))
-        .and_then(|after| first_object(&after));
+    let runtime = marked(RUNTIME_MARK).and_then(|after| first_object(&after));
+    let from_runtime = runtime.is_some();
+    let said = runtime.or_else(|| marked(STATUS_MARK).and_then(|after| first_object(&after)));
     let Some(said) = said else {
         return (
             Answer::Unanswered(Unanswered::Failed {
@@ -389,6 +403,9 @@ fn read(ran: &Ran, owner: Option<&str>) -> (Answer, Option<Reached>) {
         return (Answer::Found(Found::Outdated), None);
     };
     let found = match said.account {
+        // A running core that keeps no runtime file predates `login --json`, so signing it in
+        // from here takes an update first.
+        None if !from_runtime => Found::Outdated,
         None => Found::SignedOut,
         Some(account) if Some(account.as_str()) == owner => Found::Same,
         Some(_) => Found::Other,
@@ -467,9 +484,15 @@ mod tests {
                 Some(Reached { key: "abc".into() })
             )
         );
+        let older = ran(
+            Some(0),
+            "\nsikemux-status\n{\"running\": true, \"coreId\": \"abc\", \"account\": null}\n",
+            "",
+        );
+        assert_eq!(read(&older, Some("me")).0, Answer::Found(Found::Outdated));
         let runtime = ran(
             Some(0),
-            "\nsikemux-runtime\n{\"pid\":7,\"coreId\":\"abc\",\"protocol\":99,\"account\":null}\n",
+            "\nsikemux-runtime\n{\"pid\": 7,\"coreId\":\"abc\",\"protocol\":99,\"account\":null}\n",
             "",
         );
         assert_eq!(
