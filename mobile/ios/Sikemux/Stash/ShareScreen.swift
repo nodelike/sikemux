@@ -117,8 +117,8 @@ private struct Watching: View {
                             Text("Waiting for permission: \(request.toolCall.title)")
                                 .font(Theme.ui(13.5)).foregroundStyle(palette.tertiary).padding(.top, 10)
                         }
-                        if session.status == .live, let activity = ChatWords.activity(rows.head.activity) {
-                            ActivityLine(provider: provider, label: activity, since: since)
+                        if session.status == .live, let activity = ChatWords.doing(rows.head.activity) {
+                            ActivityLine(provider: provider, doing: activity, since: since)
                         }
                         if let error = rows.head.error {
                             Text(error).font(Theme.ui(13.5)).foregroundStyle(palette.danger).padding(.top, 10)

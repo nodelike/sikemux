@@ -45,12 +45,12 @@ struct MessageEditor: View {
                 .opacity(words.isEmpty ? 0.6 : 1)
             }
         }
-        .padding(.top, 9)
+        .padding(.top, 10)
         .padding(.bottom, 8)
-        .padding(.horizontal, 13)
-        .background(RoundedRectangle(cornerRadius: 12).fill(palette.raised))
-        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(palette.borderSelected, lineWidth: 1))
-        .containerRelativeFrame(.horizontal, alignment: .trailing) { width, _ in width * 0.84 }
+        .padding(.horizontal, 14)
+        .background(Bubble.mine.fill(palette.bubbleFill))
+        .overlay(Bubble.mine.strokeBorder(palette.borderSelected, lineWidth: 1))
+        .sentWidth()
         .onAppear { focused = true }
     }
 }

@@ -141,12 +141,10 @@ private struct UserMessage: View {
                 Text(words(text: text, spans: spans, typed: typed))
                     .sentWords(palette)
                     .textSelection(.enabled)
-                    .sentBubble(
-                        fill: palette.raised,
-                        border: failed ? palette.danger : palette.border
-                    )
+                    .mineBubble(palette, failed: failed)
                     .opacity(look.unsent?.state == .sending ? 0.7 : 1)
                     .fixedSize(horizontal: false, vertical: true)
+                    .sentWidth()
                     .onTapGesture { tap() }
                     .accessibilityHint("Tap for copy and the time it was sent")
             }
@@ -170,11 +168,14 @@ private struct UserMessage: View {
             } else if let strip = look.strip, !look.editing {
                 StripView(
                     strip: strip, mine: true, onEdit: look.editable ? { self.context.actions.edit(message) } : nil)
+            } else if !look.followedByOwn, !look.editing, let sentAt = message.sentAt {
+                Text(ChatWords.clock(sentAt)).font(Theme.ui(11)).monospacedDigit().foregroundStyle(palette.inkFaint)
+                    .frame(height: 24)
             }
         }
         .frame(maxWidth: .infinity, alignment: .trailing)
-        .padding(.top, 14)
-        .padding(.bottom, 6)
+        .padding(.top, look.followsOwn ? 4 : 20)
+        .padding(.bottom, look.followedByOwn ? 0 : 10)
     }
 
     private func words(text: String, spans: [SentSpan], typed: [ChatPart.Text]) -> AttributedString {
@@ -244,30 +245,31 @@ private struct Letters: View {
     let strip: Strip?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(Array(letters.enumerated()), id: \.offset) { index, letter in
-                if let trigger = letter.trigger {
-                    FiredTrigger(id: "\(message.id)/letter/\(index)", fired: trigger)
-                } else if letter.kind == .answer {
-                    VStack(alignment: .leading, spacing: 0) {
-                        AnsweredQuestion(
-                            own: letter.agentId == context.agentId, asker: letter.name, cli: letter.cli,
-                            question: letter.question ?? "", answer: letter.text, secret: letter.secret ?? false)
-                        if let attachments = letter.attachments, !attachments.isEmpty {
-                            SentAttachments(paths: attachments)
-                        }
-                    }
-                } else {
-                    VStack(alignment: .leading, spacing: 0) {
-                        HStack(spacing: 8) {
-                            Hairline(color: palette.border)
-                            AgentFaceView(agentId: letter.agentId, provider: letter.cli, size: 13)
-                            let name = Text("@\(letter.name)").font(Theme.ui(11.5, .semibold)).foregroundStyle(
-                                palette.ink)
-                            Text("\(Text("Message from ").foregroundStyle(palette.inkDim))\(name)")
-                                .font(Theme.ui(11.5))
-                                .fixedSize()
-                            Hairline(color: palette.border)
+        VStack(alignment: .leading, spacing: 14) {
+            ForEach(LetterGroup.of(letters), id: \.at) { group in
+                switch group.kind {
+                case .answers(let answers):
+                    let first = answers[0]
+                    AnsweredQuestions(
+                        agentId: first.agentId ?? "", cli: first.cli,
+                        asker: first.agentId == context.agentId ? nil : first.name,
+                        answers: answers.map {
+                            Answered(
+                                question: $0.question ?? "", answer: $0.text, secret: $0.secret ?? false,
+                                files: $0.attachments ?? [])
+                        })
+                case .letter(let letter):
+                    if let trigger = letter.trigger {
+                        FiredTrigger(id: "\(message.id)/letter/\(group.at)", fired: trigger, at: message.sentAt)
+                    } else {
+                        From(at: message.sentAt) {
+                            AgentFaceView(agentId: letter.agentId, provider: letter.cli, size: 17)
+                            Text("@\(letter.name)").font(Theme.ui(12.5, .semibold)).foregroundStyle(palette.ink)
+                                .lineLimit(1)
+                        } content: {
+                            LongText(
+                                id: "\(message.id)/letter/\(group.at)", text: letter.text, md: letter.tree, live: false,
+                                style: ProseStyle(size: 14, lineHeight: 22, color: palette.ink))
                         }
                         .padding(.top, 16)
                         .padding(.bottom, 2)
@@ -284,29 +286,103 @@ private struct Letters: View {
                         text: letters.map(\.text).joined(separator: "\n\n")), mine: false)
             }
         }
+        .padding(.top, 14)
+        .padding(.bottom, 6)
     }
 }
 
-/// The parts of an agent's reply, calls gathered into runs.
+/// A message's letters, with each run of answers to one agent's questions together as one thread.
+private struct LetterGroup {
+    enum Kind {
+        case answers([AgentLetter])
+        case letter(AgentLetter)
+    }
+
+    let at: Int
+    var kind: Kind
+
+    static func of(_ letters: [AgentLetter]) -> [LetterGroup] {
+        var groups: [LetterGroup] = []
+        for (at, letter) in letters.enumerated() {
+            if letter.kind != .answer {
+                groups.append(LetterGroup(at: at, kind: .letter(letter)))
+            } else if case .answers(var answers) = groups.last?.kind, answers[0].agentId == letter.agentId {
+                answers.append(letter)
+                groups[groups.count - 1].kind = .answers(answers)
+            } else {
+                groups.append(LetterGroup(at: at, kind: .answers([letter])))
+            }
+        }
+        return groups
+    }
+}
+
+/// The parts of an agent's reply, calls gathered into runs. A streaming turn's older thoughts fold behind one line.
 struct Parts: View {
     @Environment(\.palette) private var palette
+    @Environment(TranscriptContext.self) private var context
     let id: String
     let parts: [ChatPart]
     let live: Bool
 
     var body: some View {
         let groups = PartGroup.of(parts)
+        let thinks = parts.contains { if case .thought = $0 { true } else { false } }
+        let earlier = thinks ? context.earlierThoughts : .none
+        let earlierOpen = !earlier.ids.isEmpty && context.folds.isOpen(earlier.key, false)
         VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(groups.enumerated()), id: \.element.id) { index, group in
                 let last = live && index == groups.count - 1
                 switch group {
                 case .tools(let first, let tools):
                     ToolGroup(id: "\(id)/\(first)", parts: tools, live: last)
+                case .part(.thought(let thought)):
+                    let place = earlier.ids.firstIndex(of: thought.id)
+                    if place == 0 {
+                        EarlierThinking(count: earlier.ids.count, open: earlierOpen) {
+                            context.folds.set(earlier.key, !earlierOpen)
+                        }
+                    }
+                    if place == nil || earlierOpen {
+                        PartView(part: .thought(thought), last: last)
+                    }
                 case .part(let part):
-                    PartView(part: part, last: last)
+                    PartView(part: part, last: last).padding(.top, index > 0 && part.isText ? 10 : 0)
                 }
             }
         }
+    }
+}
+
+/// The line a streaming turn's older thoughts fold behind, which opens them in place.
+private struct EarlierThinking: View {
+    @Environment(\.palette) private var palette
+    let count: Int
+    let open: Bool
+    let toggle: () -> Void
+
+    var body: some View {
+        let thoughts = "\(count) \(count == 1 ? "thought" : "thoughts")"
+        Button(action: toggle) {
+            HStack(spacing: 8) {
+                IconView(icon: Icons.chevron, size: 11).foregroundStyle(palette.inkDim)
+                    .rotationEffect(.degrees(open ? 90 : 0))
+                Text("Earlier thinking").font(Theme.ui(12.5)).foregroundStyle(palette.inkDim)
+                Text(thoughts).font(Theme.ui(12.5)).foregroundStyle(palette.inkFaint)
+            }
+            .frame(height: 26)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Earlier thinking, \(thoughts)")
+        .accessibilityValue(open ? "expanded" : "collapsed")
+    }
+}
+
+extension ChatPart {
+    fileprivate var isText: Bool {
+        guard case .text(let text) = self else { return false }
+        return !text.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 }
 
@@ -319,13 +395,13 @@ private struct PartView: View {
         switch part {
         case .text(let text):
             if !text.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                LongText(id: text.id, text: text.text, md: text.md, live: last, style: .prose(palette))
+                LongText(id: text.id, text: text.text, md: text.md, live: last, style: .reply(palette))
             }
         case .thought(let thought):
             let words = thought.text.trimmingCharacters(in: .whitespacesAndNewlines)
             if !words.isEmpty {
-                LongText(id: thought.id, text: words, md: thought.md, live: last, style: .thought(palette)).padding(
-                    .vertical, 8)
+                LongText(id: thought.id, text: words, md: thought.md, live: last, style: .thought(palette))
+                    .padding(.vertical, 6)
             }
         case .subagent(let subagent):
             SubagentRow(subagent: subagent.subagent)
@@ -539,20 +615,5 @@ struct TeamFoldLine: View {
         if ms < 60_000 { return ChatWords.duration(ms: Double(ms)) }
         let minutes = Int((Double(ms) / 60_000).rounded())
         return minutes < 60 ? "\(minutes)m" : "\(minutes / 60)h \(minutes % 60)m"
-    }
-}
-
-extension View {
-    /// The words of a message the person sent, as its bubble sets them.
-    func sentWords(_ palette: Palette) -> some View {
-        font(Theme.ui(14)).lineSpacing(22 - 14 * 1.22).foregroundStyle(palette.ink)
-    }
-
-    /// The bubble a message the person sent sits in, at the right of the transcript.
-    func sentBubble(fill: Color, border: Color) -> some View {
-        padding(.vertical, 9).padding(.horizontal, 13)
-            .background(RoundedRectangle(cornerRadius: 12).fill(fill))
-            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(border, lineWidth: 1))
-            .containerRelativeFrame(.horizontal, alignment: .trailing) { width, _ in width * 0.84 }
     }
 }
