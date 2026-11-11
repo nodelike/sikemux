@@ -11,15 +11,14 @@ config.watchFolders = [...config.watchFolders, path.resolve(__dirname, '../../sh
 // The accounts API's types, client and close codes come from the server's protocol (@sikemux/protocol).
 config.watchFolders.push(path.resolve(__dirname, '../../server/protocol/generated'), path.resolve(__dirname, '../../server/protocol/src'));
 
-// The pretend Mac's answers are read by the core's Rust parser, as a real host reads them.
+// The pretend Mac's answers are read by the core's Rust parser, as a real host reads them; the
+// showcase builds it before starting this server and names it in SIKEMUX_SHOWCASE_MARKDOWN.
 let parser;
 function readMarkdown(texts) {
   if (!parser) {
-    const child = require('node:child_process').spawn(
-      'cargo',
-      ['run', '--quiet', '--manifest-path', path.resolve(__dirname, '../../Cargo.toml'), '-p', 'sikemux-markdown', '--example', 'stdio'],
-      { stdio: ['pipe', 'pipe', 'inherit'] },
-    );
+    const child = require('node:child_process').spawn(process.env.SIKEMUX_SHOWCASE_MARKDOWN, [], {
+      stdio: ['pipe', 'pipe', 'inherit'],
+    });
     const waiting = [];
     require('node:readline')
       .createInterface({ input: child.stdout })

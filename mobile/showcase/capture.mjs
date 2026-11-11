@@ -58,6 +58,20 @@ const SCENES = [
   },
 ].filter((scene) => only.length === 0 || only.includes(scene.name));
 
+const root = resolve(here, '../..');
+execFileSync('node', ['scripts/generate.mjs'], { cwd: app, stdio: 'inherit' });
+// The chats' markdown is read by the core's parser; built here, a chat would wait minutes on its first compile.
+const markdownParser = execFileSync(
+  join(root, 'scripts/bin/cargo'),
+  ['build', '--quiet', '-p', 'sikemux-markdown', '--example', 'stdio', '--message-format=json'],
+  { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'], maxBuffer: 1 << 28 },
+)
+  .split('\n')
+  .filter(Boolean)
+  .map((line) => JSON.parse(line))
+  .find((message) => message.reason === 'compiler-artifact' && message.target?.name === 'stdio' && message.executable)?.executable;
+if (!markdownParser) throw new Error('cargo built no markdown parser');
+
 if (existsSync(PANE_IMAGE_FILE)) execFileSync('sips', ['-Z', '1600', PANE_IMAGE_FILE, '--out', PANE], { stdio: 'ignore' });
 
 /** The status bar, Dynamic Island and home indicator iOS draws over an app. */
@@ -106,8 +120,8 @@ function separateGradients() {
 const origin = `http://localhost:${options.port}`;
 const server = spawn('npx', ['expo', 'start', '--web', '--port', options.port, '--clear'], {
   cwd: app,
-  env: { ...process.env, CI: '1', SIKEMUX_SHOWCASE: '1', SIKEMUX_SHOWCASE_PANE: PANE },
-  stdio: 'ignore',
+  env: { ...process.env, CI: '1', SIKEMUX_SHOWCASE: '1', SIKEMUX_SHOWCASE_PANE: PANE, SIKEMUX_SHOWCASE_MARKDOWN: markdownParser },
+  stdio: ['ignore', 'ignore', 'inherit'],
   detached: true,
 });
 const stop = () => {
@@ -149,6 +163,10 @@ page.on('pageerror', (error) => problems.push(error.message.split('\n')[0]));
 for (const scene of SCENES) {
   await page.goto(origin + scene.route, { timeout: 180_000 });
   await page.waitForTimeout(3000);
+  // On a cold server a chat can take longer than that pause to open.
+  await page
+    .waitForFunction(() => !document.body.innerText.includes('Opening the chat'), null, { timeout: 120_000 })
+    .catch(() => problems.push(`${scene.name} never opened its chat`));
   if (scene.tap) {
     await page.getByText(scene.tap, { exact: true }).first().click();
     await page.waitForTimeout(800);
