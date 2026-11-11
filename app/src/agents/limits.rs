@@ -862,18 +862,6 @@ fn agent_head(view: &View, agent: &Agent, cx: &App) -> Div {
         .child(add_button(view, agent))
 }
 
-/// What an account's name line says about how far to trust its numbers.
-fn status(view: &View, shown: &Shown) -> Option<String> {
-    let usage = shown.usage?;
-    let age = shown.age(view.now);
-    match (&usage.problem, age) {
-        (Some(_), Some(age)) => Some(format!("Could not read, from {age}")),
-        (Some(_), None) => Some("Could not read".into()),
-        (None, Some(age)) => Some(format!("Read {age}")),
-        (None, None) => None,
-    }
-}
-
 /// Whether an account draws as one short line rather than its name over its windows.
 fn one_line(view: &View, shown: &Shown) -> bool {
     shown.signed_out || (shown.id().is_some() && view.undo.as_deref() == shown.id())
@@ -969,21 +957,7 @@ fn account_line(
             .into_any_element();
     }
     let windows = shown.windows();
-    let stale = shown.stale(view.now);
     let age = shown.age(view.now);
-    let tip = match windows.is_empty() {
-        true => shown.no_limits_reason(),
-        false => Some(
-            (windows.iter())
-                .map(|(_, window)| tip(window, view.now, stale))
-                .collect::<Vec<_>>()
-                .join(" "),
-        ),
-    };
-    let tip = match (status(view, shown).filter(|_| !windows.is_empty()), tip) {
-        (Some(status), Some(tip)) => Some(format!("{status}. {tip}")),
-        (status, tip) => tip.or(status),
-    };
     let window_line = |label: Option<&str>, window: Option<&UsageWindow>| {
         line(WINDOW_LINE)
             .font_features(theme::tabular())
@@ -1019,11 +993,6 @@ fn account_line(
     };
     let smart = view.smart && agent.accounts.len() > 1;
     let pinned = shown.usage.is_some_and(|usage| usage.pinned);
-    let tip = match (smart && in_use, tip) {
-        (true, Some(tip)) => Some(format!("New chats start here. {tip}")),
-        (true, None) => Some("New chats start here".to_owned()),
-        (false, tip) => tip,
-    };
     let target = shown.profile.filter(|_| smart || !in_use).cloned();
     let pickable = target.is_some();
     let offer = match (smart, pinned) {
@@ -1060,7 +1029,6 @@ fn account_line(
         .when(in_use && agent.accounts.len() > 1, |account| {
             account.bg(t.surface_chosen)
         })
-        .when_some(tip, |account, tip| account.tooltip(ui::tooltip(tip)))
         .when_some(target, |account, target| {
             account
                 .cursor_pointer()
@@ -1626,30 +1594,6 @@ fn ruler(used: Option<f64>, t: &Tokens) -> gpui_kit::Canvas<()> {
             }
         },
     )
-}
-
-/// How far through its window the clock is, as a share: nothing when a stale reading would
-/// make the mark drift, or the window never said how long it is or when it resets.
-fn time_gone(window: &UsageWindow, now: u64, stale: bool) -> Option<f32> {
-    if stale || window.is_past_reset(now) {
-        return None;
-    }
-    let length = window.window_minutes.filter(|minutes| *minutes > 0)?;
-    let reset = window.resets_at.as_ref()?.unix_ms()?;
-    let left = reset.saturating_sub(now) as f64 / 60_000.;
-    Some(((length as f64 - left) / length as f64).clamp(0., 1.) as f32)
-}
-
-fn tip(window: &UsageWindow, now: u64, stale: bool) -> String {
-    let mut parts = vec![format!("{}: {}.", window.label, left(window.used_at(now)))];
-    if let Some(gone) = time_gone(window, now, stale) {
-        parts.push(format!("{}% of the time has gone.", (gone * 100.).round()));
-    }
-    parts.push(match reset_at(window) {
-        Some(reset) => format!("Resets {}.", time_of_day(reset)),
-        None => "Reset time unavailable.".to_owned(),
-    });
-    parts.join(" ")
 }
 
 /// A reset as the panel says it: the time today, else the day and the time.
