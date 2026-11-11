@@ -1130,9 +1130,6 @@ pub enum ChatPart {
         started_at: Option<u64>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         ended_at: Option<u64>,
-        /// On a run's first call, what the run did.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        run: Option<Box<ToolRun>>,
     },
     Subagent {
         id: String,
@@ -1328,57 +1325,6 @@ pub enum ToolIntent {
     Mode,
     #[default]
     Use,
-}
-
-/// A run of calls, on its first call: what the run did, counted, which a client words as one
-/// sentence, and the lines it opens onto.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ToolRun {
-    /// Each thing the run did, in the order it first did it.
-    pub said: Vec<RunClause>,
-    /// It only looked: read, searched and listed, more than one way.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub explored: bool,
-    #[serde(default, skip_serializing_if = "is_zero")]
-    pub failed: u64,
-    /// Housekeeping calls it holds, which are left out of it.
-    #[serde(default, skip_serializing_if = "is_zero")]
-    pub hidden: u64,
-    /// What it opens onto: failed calls first, then neighbours that did the same thing,
-    /// each as one line.
-    pub lines: Vec<RunLine>,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RunClause {
-    pub intent: ToolIntent,
-    pub family: ToolFamily,
-    /// How many: files read, distinct when the calls name them, else calls.
-    pub count: u64,
-    /// Who or what it was done with, first ones first: the agents messaged or waited
-    /// on, the services asked.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub names: Vec<String>,
-    /// How long its calls took together, in milliseconds.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub took: Option<u64>,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RunLine {
-    pub intent: ToolIntent,
-    pub family: ToolFamily,
-    /// The calls it stands for, by their place in the run, its first call 0.
-    pub calls: Vec<u32>,
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub failed: bool,
-}
-
-fn is_zero(count: &u64) -> bool {
-    *count == 0
 }
 
 fn is_default<T: Default + PartialEq>(value: &T) -> bool {

@@ -1922,8 +1922,6 @@ export type ChatPart =
           failure?: string;
           startedAt?: number;
           endedAt?: number;
-          /** On a run's first call, what the run did. */
-          run?: ToolRun;
       }
     | {
           kind: "subagent";
@@ -2137,47 +2135,6 @@ export interface GifRef {
     width: number;
     height: number;
     title: string;
-}
-
-/**
- * A run of calls, on its first call: what the run did, counted, which a client words as one
- * sentence, and the lines it opens onto.
- */
-export interface ToolRun {
-    /** Each thing the run did, in the order it first did it. */
-    said: RunClause[];
-    /** It only looked: read, searched and listed, more than one way. */
-    explored?: boolean;
-    failed?: number;
-    /** Housekeeping calls it holds, which are left out of it. */
-    hidden?: number;
-    /**
-     * What it opens onto: failed calls first, then neighbours that did the same thing,
-     * each as one line.
-     */
-    lines: RunLine[];
-}
-
-export interface RunClause {
-    intent: ToolIntent;
-    family: ToolFamily;
-    /** How many: files read, distinct when the calls name them, else calls. */
-    count: number;
-    /**
-     * Who or what it was done with, first ones first: the agents messaged or waited
-     * on, the services asked.
-     */
-    names?: string[];
-    /** How long its calls took together, in milliseconds. */
-    took?: number;
-}
-
-export interface RunLine {
-    intent: ToolIntent;
-    family: ToolFamily;
-    /** The calls it stands for, by their place in the run, its first call 0. */
-    calls: number[];
-    failed?: boolean;
 }
 
 /** What a background task left behind once it ended. */
