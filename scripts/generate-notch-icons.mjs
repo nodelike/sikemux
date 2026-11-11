@@ -113,6 +113,7 @@ function shapes(markup) {
       else if (!tag.endsWith("/>")) groups.push(attributes(rest));
       continue;
     }
+    if (closing) continue;
     const own = attributes(rest);
     const inherited = Object.assign({}, ...groups);
     const all = { ...inherited, ...own };
@@ -135,6 +136,7 @@ function shapes(markup) {
             : circlePath(all);
     found.push({
       d,
+      transform: own.transform,
       fill: all.fill,
       stroke: all.stroke,
       opacity: all.opacity ? number(all.opacity, 1) : 1,
@@ -214,7 +216,12 @@ function gradients(svg) {
     const turned = own.gradientTransform?.startsWith("matrix(0");
     const start = turned ? [0.5, 0] : [fraction(own.x1), fraction(own.y1)];
     const end = turned ? [0.5, 1] : [fraction(own.x2, 1), fraction(own.y2)];
-    found[own.id] = { stops, start, end };
+    found[own.id] = {
+      stops,
+      start,
+      end,
+      userSpace: own.gradientUnits === "userSpaceOnUse",
+    };
   }
   return found;
 }
@@ -676,8 +683,145 @@ for (const [name, markup] of Object.entries(DRAWN_ICONS)) {
   named.push(`        case ${swiftString(name)}: return ${name}`);
 }
 
+/** The marks the Mac puts before a link to these services, from its own icons. */
+const SERVICE_FILES = {
+  IconGithub: "github.svg",
+  IconBitbucket: "bitbucket.svg",
+  IconJira: "jira.svg",
+  IconGitlab: "gitlab.svg",
+  IconLinear: "linear.svg",
+  IconVercel: "vercel.svg",
+  IconSlack: "slack.svg",
+  IconApple: "apple.svg",
+  IconGoogleplay: "googleplay.svg",
+};
+const serviceDir = resolve(root, "app/assets/icons");
+
+/** A shape's own `translate(..)scale(..)` as x and y scales and offsets. */
+function scaling(transform) {
+  let [sx, sy, tx, ty] = [1, 1, 0, 0];
+  for (const [, kind, args] of (transform ?? "").matchAll(
+    /(translate|scale)\(([^)]*)\)/g,
+  )) {
+    const [a, b] = args
+      .trim()
+      .split(/[\s,]+/)
+      .map(Number);
+    if (kind === "translate") {
+      tx += sx * a;
+      ty += sy * (b ?? 0);
+    } else {
+      sx *= a;
+      sy *= b ?? a;
+    }
+  }
+  return { sx, sy, tx, ty };
+}
+
+const PATH_ARGS = {
+  m: 2,
+  l: 2,
+  h: 1,
+  v: 1,
+  c: 6,
+  s: 4,
+  q: 4,
+  t: 2,
+  a: 7,
+  z: 0,
+};
+
+/** A path's data with a scaling baked into its numbers, since the phone's shapes only translate. */
+function scaledPath(d, { sx, sy, tx, ty }) {
+  const tokens = d.match(/[a-zA-Z]|[-+]?(?:\d*\.\d+|\d+\.?)(?:e[-+]?\d+)?/gi);
+  const out = [];
+  let command = "";
+  let index = 0;
+  for (const token of tokens) {
+    if (/[a-z]/i.test(token)) {
+      command = token;
+      index = 0;
+      out.push(token);
+      continue;
+    }
+    const lower = command.toLowerCase();
+    const relative = command === lower;
+    const count = PATH_ARGS[lower];
+    const at = index % count;
+    index += 1;
+    const value = Number(token);
+    let axis = null;
+    if (lower === "h") axis = "x";
+    else if (lower === "v") axis = "y";
+    else if (lower === "a")
+      axis =
+        at === 0
+          ? "rx"
+          : at === 1
+            ? "ry"
+            : at === 5
+              ? "x"
+              : at === 6
+                ? "y"
+                : null;
+    else axis = at % 2 === 0 ? "x" : "y";
+    const scaled =
+      axis === "x"
+        ? value * sx + (relative ? 0 : tx)
+        : axis === "y"
+          ? value * sy + (relative ? 0 : ty)
+          : axis === "rx"
+            ? value * sx
+            : axis === "ry"
+              ? value * sy
+              : value;
+    out.push(String(fixed(scaled)));
+  }
+  return out.join(" ");
+}
+
+const serviceLines = [];
+for (const [name, file] of Object.entries(SERVICE_FILES)) {
+  const svg = await readFile(resolve(serviceDir, file), "utf8");
+  const box = svg.match(/viewBox="([^"]+)"/)?.[1];
+  const [, , width, height] = box.split(/[\s,]+/).map(Number);
+  const svgGradients = gradients(svg);
+  const body = shapes(svg.replace(/<defs>[\s\S]*?<\/defs>/, "")).map(
+    (shape) => {
+      const scale = scaling(shape.transform);
+      const id = shape.fill?.startsWith("url(#")
+        ? shape.fill.slice(5, -1)
+        : null;
+      const gradient = id ? svgGradients[id] : null;
+      const own = { ...svgGradients };
+      if (gradient?.userSpace) {
+        const place = ([x, y]) => [
+          fixed((x * scale.sx + scale.tx) / width),
+          fixed((y * scale.sy + scale.ty) / height),
+        ];
+        own[id] = {
+          ...gradient,
+          start: place(gradient.start),
+          end: place(gradient.end),
+        };
+      }
+      const baked = {
+        ...shape,
+        d: shape.transform ? scaledPath(shape.d, scale) : shape.d,
+      };
+      return `        ${shapeLiteral(baked, "fill", null, own)},`;
+    },
+  );
+  const key = swiftName(name);
+  phoneLines.push(
+    `    static let ${key} = IconDef(viewBox: ${viewBox(box)}, shapes: [\n${body.join("\n")}\n    ])`,
+  );
+  named.push(`        case ${swiftString(name)}: return ${key}`);
+}
+
 const phoneSwift = `// Generated by scripts/generate-notch-icons.mjs from shared/ui/Icons.tsx and
-// shared/ui/drawnIcons.ts. Do not edit by hand.
+// shared/ui/drawnIcons.ts, and app/assets/icons for the services' marks. Do not
+// edit by hand.
 
 extension Icons {
 ${phoneLines.join("\n")}

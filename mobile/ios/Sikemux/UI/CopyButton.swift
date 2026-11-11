@@ -7,6 +7,8 @@ struct CopyButton: View {
     let value: String
     let label: String
     var size: CGFloat = 13
+    /// Says Copy beside the icon, and Copied once it has copied, as a code block's pill does.
+    var worded = false
     @State private var copied = false
 
     var body: some View {
@@ -19,12 +21,24 @@ struct CopyButton: View {
                 copied = false
             }
         } label: {
-            IconView(icon: copied ? Icons.check : Icons.copy, size: size)
-                .foregroundStyle(copied ? palette.ink : palette.inkFaint)
-                .frame(width: 26, height: 26)
+            if worded {
+                HStack(spacing: 6) {
+                    IconView(icon: copied ? Icons.check : Icons.copy, size: size)
+                    Text(copied ? "Copied" : "Copy").font(Theme.ui(11.5, .medium))
+                }
+                .foregroundStyle(copied ? palette.ink : palette.secondary)
+                .padding(.horizontal, 9)
+                .frame(height: 26)
+                .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(palette.border, lineWidth: 1))
                 .contentShape(Rectangle())
+            } else {
+                IconView(icon: copied ? Icons.check : Icons.copy, size: size)
+                    .foregroundStyle(copied ? palette.ink : palette.inkFaint)
+                    .frame(width: 26, height: 26)
+                    .contentShape(Rectangle())
+            }
         }
-        .buttonStyle(ActiveFill(radius: 7))
+        .buttonStyle(ActiveFill(radius: 7, rest: worded ? palette.overlay : .clear))
         .accessibilityLabel(copied ? "Copied" : "Copy \(label)")
     }
 }
@@ -33,9 +47,11 @@ struct CopyButton: View {
 struct ActiveFill: ButtonStyle {
     @Environment(\.palette) private var palette
     var radius: CGFloat = 6
+    /// The fill while it is not pressed.
+    var rest: Color = .clear
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .background(RoundedRectangle(cornerRadius: radius).fill(configuration.isPressed ? palette.active : .clear))
+            .background(RoundedRectangle(cornerRadius: radius).fill(configuration.isPressed ? palette.active : rest))
     }
 }

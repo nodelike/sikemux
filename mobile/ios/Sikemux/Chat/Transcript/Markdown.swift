@@ -12,8 +12,10 @@ struct ProseStyle: Equatable {
     var spacing: CGFloat { max(0, lineHeight - size * 1.22) }
 
     static func prose(_ palette: Palette) -> ProseStyle { ProseStyle(color: palette.ink) }
+    /// An agent's reply, set a touch looser than other prose.
+    static func reply(_ palette: Palette) -> ProseStyle { ProseStyle(lineHeight: 24.5, color: palette.ink) }
     static func thought(_ palette: Palette) -> ProseStyle {
-        ProseStyle(size: 12.5, lineHeight: 19.5, color: palette.inkFaint, italic: true)
+        ProseStyle(size: 14.5, lineHeight: 24.5, color: palette.secondary)
     }
 }
 
@@ -133,10 +135,7 @@ struct Inline {
             return run
         case .img(let image):
             if let url = TranscriptLink.openable(image.src) {
-                var run = plain(image.alt.isEmpty ? image.src : image.alt, counts: false)
-                run.link = url
-                run.foregroundColor = palette.accent
-                return run
+                return linked(plain(image.alt.isEmpty ? image.src : image.alt, counts: false), url)
             }
             if paths, let url = TranscriptLink.file(image.src) {
                 var run = plain(image.alt.isEmpty ? image.src : image.alt, counts: false)
@@ -148,8 +147,7 @@ struct Inline {
         case .a(let link):
             var label = inner(false).string(link.c)
             if let url = TranscriptLink.openable(link.href) {
-                label.link = url
-                label.foregroundColor = palette.accent
+                return linked(label, url)
             } else if link.file == true, paths {
                 label = FileGlyph.mark(size: 12) + AttributedString(" ") + label
                 label.link = TranscriptLink.file(link.href)
@@ -159,6 +157,19 @@ struct Inline {
         default:
             return element.children.map(string) ?? AttributedString()
         }
+    }
+
+    /// A web link as the Mac's reply draws it: lavender and underlined, after the mark of the service it leads to.
+    private func linked(_ label: AttributedString, _ url: URL) -> AttributedString {
+        let ink = palette.accent.mixed(with: palette.ink, 0.5)
+        var words = label
+        words.foregroundColor = ink
+        words.underlineStyle = Text.LineStyle(pattern: .solid, color: ink.opacity(0.4))
+        if let mark = ServiceMark.of(url) {
+            words = FileGlyph.mark(icon: mark, size: 12, tint: ink) + AttributedString(" ") + words
+        }
+        words.link = url
+        return words
     }
 
     private func chip(_ text: String) -> AttributedString {
@@ -198,19 +209,31 @@ struct MarkdownView: View {
 
     var body: some View {
         let starts = marks.map { _ in FindText.starts(blocks.map(MdNode.element), separated: true, top: true) }
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
             ForEach(Array(blocks.enumerated()), id: \.offset) { index, block in
                 BlockView(
                     block: block, style: style, palette: palette, marks: marks?.from(starts![index]),
-                    fading: index == blocks.count - 1 ? fading : []
+                    fading: index == blocks.count - 1 ? fading : [], first: index == 0,
+                    lead: index > 0 && Self.isTitle(blocks[index - 1]) && Self.isParagraph(block)
                 ).equatable()
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
+
+    private static func isTitle(_ block: MdElement) -> Bool {
+        if case .h(let heading) = block { heading.l == 1 } else { false }
+    }
+
+    private static func isParagraph(_ block: MdElement) -> Bool {
+        if case .p = block { true } else { false }
+    }
 }
 
-private let headingSizes: [CGFloat] = [20, 18, 16.5]
+/// Headings as the Mac's editorial reply sets them, against the text's size: ### reads as a spaced-capital label.
+private let headingScales: [CGFloat] = [1.52, 1.24, 0.72]
+/// The room above a heading that follows other blocks, against the text's size.
+private let headingRoom: [CGFloat] = [0.61, 1.5, 0.4]
 
 struct BlockView: View, Equatable {
     let block: MdElement
@@ -218,10 +241,17 @@ struct BlockView: View, Equatable {
     let palette: Palette
     var marks: Marks?
     var fading: Fading = []
+    /// Nothing stands above it, so a heading needs no room over it.
+    var first = true
+    /// The paragraph straight under the text's title, set a touch larger.
+    var lead = false
+    /// How deep a list sits inside other lists; only the outermost one's bullets take the accent.
+    var depth = 0
 
     nonisolated static func == (a: BlockView, b: BlockView) -> Bool {
         a.block == b.block && a.style == b.style && a.palette == b.palette && a.marks == b.marks
             && a.fading.map(\.text) == b.fading.map(\.text) && a.fading.map(\.opacity) == b.fading.map(\.opacity)
+            && a.first == b.first && a.lead == b.lead && a.depth == b.depth
     }
 
     private var inline: Inline {
@@ -231,24 +261,18 @@ struct BlockView: View, Equatable {
     var body: some View {
         switch block {
         case .pre(let pre):
-            CodeBlock(lang: pre.lang ?? "", text: pre.v)
+            CodeBlock(lang: pre.lang ?? "", name: pre.name, text: pre.v)
         case .h(let heading):
-            let size = heading.l <= headingSizes.count ? headingSizes[heading.l - 1] : style.size
-            let set = ProseStyle(size: size, lineHeight: size * 1.35, color: palette.ink)
-            let text = Inline(palette: palette, style: set, marks: marks, cursor: marks.map { FindCursor($0.base) })
-                .string(heading.c)
-                .settingAttributes(AttributeContainer().font(Theme.ui(size, .semibold)))
-            Prose(text: text.fading(fading, color: set.color), style: set).accessibilityAddTraits(.isHeader)
+            HeadingBlock(heading: heading, style: style, palette: palette, marks: marks, fading: fading, first: first)
         case .ul(let list):
-            ListBlock(items: list.c, first: nil, style: style, palette: palette, marks: marks)
+            ListBlock(items: list.c, first: nil, style: style, palette: palette, marks: marks, depth: depth)
         case .ol(let list):
-            ListBlock(items: list.c, first: list.start ?? 1, style: style, palette: palette, marks: marks)
+            ListBlock(items: list.c, first: list.start ?? 1, style: style, palette: palette, marks: marks, depth: depth)
         case .quote(let quote):
-            let quoted = ProseStyle(
-                size: style.size, lineHeight: style.lineHeight, color: palette.secondary, italic: style.italic)
-            Contents(nodes: quote.c, style: quoted, palette: palette, marks: marks, separated: true)
-                .padding(.leading, 12)
-                .overlay(alignment: .leading) { Rectangle().fill(palette.borderStrong).frame(width: 2) }
+            let quoted = ProseStyle(size: style.size, lineHeight: style.lineHeight, color: style.color, italic: true)
+            Contents(nodes: quote.c, style: quoted, palette: palette, marks: marks, separated: true, depth: depth)
+                .padding(.leading, 16)
+                .overlay(alignment: .leading) { Rectangle().fill(palette.accent).frame(width: 2) }
         case .hr:
             Hairline(color: palette.borderStrong).padding(.vertical, 4)
         case .table(let table):
@@ -266,10 +290,46 @@ struct BlockView: View, Equatable {
         case .details(let details):
             DetailsBlock(details: details, style: style, marks: marks)
         case .p(let paragraph):
-            Prose(text: inline.string(paragraph.c).fading(fading, color: style.color), style: style)
+            let set =
+                lead ? ProseStyle(size: style.size * 1.07, lineHeight: style.lineHeight, color: style.color) : style
+            Prose(
+                text: Inline(palette: palette, style: set, marks: marks, cursor: marks.map { FindCursor($0.base) })
+                    .string(paragraph.c).fading(fading, color: set.color), style: set)
         default:
             Prose(text: inline.string(block), style: style)
         }
+    }
+}
+
+/// A heading at its level's size against the text's: ## stands larger with room above, ### is a spaced-capital label.
+private struct HeadingBlock: View {
+    let heading: MdElement.H
+    let style: ProseStyle
+    let palette: Palette
+    var marks: Marks?
+    var fading: Fading
+    let first: Bool
+
+    var body: some View {
+        let level = heading.l
+        let label = level == 3
+        let scale = headingScales[safe: level - 1]
+        let size = scale.map { style.size * $0 } ?? style.size
+        let set = ProseStyle(
+            size: size, lineHeight: scale.map { _ in size * (label ? 1.6 : 1.3) } ?? style.lineHeight,
+            color: label ? palette.inkDim : palette.ink)
+        let tracking: CGFloat = level == 1 ? -0.33 : level == 2 ? -0.18 : label ? 1.67 : 0
+        let words =
+            label
+            ? AttributedString(visibleText(heading.c).uppercased())
+            : Inline(palette: palette, style: set, marks: marks, cursor: marks.map { FindCursor($0.base) })
+                .string(heading.c).fading(fading, color: set.color)
+        Prose(
+            text: words.settingAttributes(AttributeContainer().font(Theme.ui(size, .semibold)).tracking(tracking)),
+            style: set
+        )
+        .padding(.top, first ? 0 : style.size * (headingRoom[safe: level - 1] ?? 0.4))
+        .accessibilityAddTraits(.isHeader)
     }
 }
 
@@ -306,6 +366,7 @@ struct Contents: View {
     var marks: Marks?
     /// The find bar counts a line between each of these nodes, as between a quote's blocks.
     var separated = false
+    var depth = 0
 
     private enum Group {
         case words([MdNode], Int)
@@ -340,7 +401,7 @@ struct Contents: View {
                             cursor: marks.map { _ in FindCursor(start) }
                         ).string(run), style: style)
                 case .block(let block, let start):
-                    BlockView(block: block, style: style, palette: palette, marks: marks?.from(start))
+                    BlockView(block: block, style: style, palette: palette, marks: marks?.from(start), depth: depth)
                 }
             }
         }
@@ -354,10 +415,11 @@ private struct ListBlock: View {
     let style: ProseStyle
     let palette: Palette
     var marks: Marks?
+    let depth: Int
 
     var body: some View {
         let starts = marks.map { FindText.starts(items, separated: true, top: false, at: $0.base) } ?? []
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 6) {
             ForEach(Array(items.enumerated()), id: \.offset) { index, node in
                 if case .element(.li(let item)) = node {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -371,10 +433,16 @@ private struct ListBlock: View {
                             .frame(width: 15, height: 15)
                             .alignmentGuide(.firstTextBaseline) { $0.height - 3 }
                             .accessibilityLabel(checked ? "done" : "not done")
+                        } else if let first {
+                            Text(String(format: "%02d", first + index))
+                                .font(Theme.mono(11))
+                                .foregroundStyle(palette.accent)
+                                .frame(minWidth: 20, alignment: .leading)
                         } else {
-                            Text(first.map { "\($0 + index)." } ?? "•")
+                            Text("•")
                                 .font(style.font)
-                                .foregroundStyle(palette.tertiary)
+                                .foregroundStyle(depth > 0 ? palette.inkDim : palette.accent)
+                                .padding(.leading, 4)
                                 .frame(minWidth: 14, alignment: .leading)
                         }
                         Contents(
@@ -383,7 +451,7 @@ private struct ListBlock: View {
                                 ? ProseStyle(
                                     size: style.size, lineHeight: style.lineHeight, color: palette.tertiary,
                                     italic: style.italic) : style, palette: palette,
-                            marks: starts.isEmpty ? nil : marks?.from(starts[index]))
+                            marks: starts.isEmpty ? nil : marks?.from(starts[index]), depth: depth + 1)
                     }
                     .padding(.leading, 2)
                 }
@@ -423,45 +491,105 @@ private struct DetailsBlock: View {
     }
 }
 
-/// A fence as the Mac draws it: a title bar with the file it quotes and its copy button, then the code, or a patch's
-/// rows tinted by sign with the changed words marked.
+/// A fence as the Mac draws it: one card headed by the file it shows, its folder quiet beside it, and a Copy pill,
+/// then the code with its lines numbered, or a patch's rows tinted by sign with the changed words marked.
 struct CodeBlock: View, Equatable {
     @Environment(\.palette) private var palette
     let lang: String
+    /// The file the block shows, when its fence names one.
+    let name: String?
     let text: String
 
-    nonisolated static func == (a: CodeBlock, b: CodeBlock) -> Bool { a.lang == b.lang && a.text == b.text }
+    nonisolated static func == (a: CodeBlock, b: CodeBlock) -> Bool {
+        a.lang == b.lang && a.name == b.name && a.text == b.text
+    }
+
+    private static let shells: Set = [
+        "console", "terminal", "shell-session", "shellsession", "sh-session", "fish", "nu", "ksh", "csh", "tcsh",
+    ]
+    private static let commands: Set = ["sh", "bash", "zsh", "shell"]
+
+    /// What a block without a file name is called, and whether its lines are numbered: commands to type are a Terminal.
+    private static func title(_ lang: String, _ code: String) -> (title: String, numbered: Bool) {
+        let lower = lang.lowercased()
+        let typed = lang.isEmpty ? code.hasPrefix("$ ") : shells.contains(lower) || commands.contains(lower)
+        return typed ? ("Terminal", false) : (lang.isEmpty ? "Code" : lang, true)
+    }
 
     var body: some View {
-        let name = lang.removingPercentEncoding ?? lang
+        let code = text.hasSuffix("\n") ? String(text.dropLast()) : text
+        let named =
+            name.map { (title: $0, numbered: true) } ?? Self.title(lang.removingPercentEncoding ?? lang, code)
+        let cut = name?.lastIndex(of: "/").flatMap { $0 > named.title.startIndex ? $0 : nil }
+        let folder = cut.map { String(named.title[..<$0]) }
+        let file = cut.map { String(named.title[named.title.index(after: $0)...]) } ?? named.title
+        let lines =
+            named.numbered && code.contains("\n")
+            ? code.split(separator: "\n", omittingEmptySubsequences: false).count : 0
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 6) {
-                if !name.isEmpty { IconView(icon: Icons.file, size: 11).foregroundStyle(palette.inkFaint) }
-                Text(name).font(Theme.mono(10.5)).foregroundStyle(palette.inkFaint).lineLimit(1)
+            HStack(spacing: 8) {
+                IconView(icon: named.numbered ? Icons.file : Icons.terminal, size: 13).foregroundStyle(palette.inkFaint)
+                Text(file).font(Theme.ui(12, .medium)).foregroundStyle(palette.ink).lineLimit(1)
+                    .layoutPriority(1)
+                if let folder {
+                    Text(folder).font(Theme.ui(11.5)).foregroundStyle(palette.inkFaint).lineLimit(1)
+                        .truncationMode(.head)
+                }
                 Spacer(minLength: 0)
-                CopyButton(value: text.hasSuffix("\n") ? String(text.dropLast()) : text, label: "code", size: 12)
+                CopyButton(value: code, label: "code", worded: true)
             }
-            .padding(.leading, 10)
-            .padding(.trailing, 1)
-            .frame(height: 26)
-            .overlay(alignment: .bottom) { Rectangle().fill(palette.border).frame(height: 1) }
+            .padding(.leading, 14)
+            .padding(.trailing, 8)
+            .frame(height: 38)
             if let patch = DiffText.fenced(text, lang.isEmpty ? nil : lang) {
                 DiffRows(lines: patch, numbered: false)
             } else {
                 ScrollView(.horizontal, showsIndicators: false) {
-                    Text(text)
-                        .font(Theme.mono(11.5))
-                        .lineSpacing(17 - 11.5 * 1.32)
-                        .foregroundStyle(palette.ink)
-                        .fixedSize()
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 9)
+                    HStack(alignment: .top, spacing: 16) {
+                        if lines > 0 {
+                            Text((1...lines).map { String($0) }.joined(separator: "\n"))
+                                .multilineTextAlignment(.trailing)
+                                .foregroundStyle(palette.inkFaint.mixed(with: palette.raised, 0.5))
+                                .frame(width: 24, alignment: .trailing)
+                        }
+                        Text(code).foregroundStyle(palette.ink).fixedSize()
+                    }
+                    .font(Theme.mono(12))
+                    .lineSpacing(20 - 12 * 1.32)
+                    .padding(.leading, lines > 0 ? 0 : 16)
+                    .padding(.trailing, 16)
+                    .padding(.bottom, 14)
                 }
             }
         }
-        .background(palette.sunken)
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(palette.border, lineWidth: 1))
+        .background(palette.raised)
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(palette.border, lineWidth: 1))
+    }
+}
+
+/// The marks the Mac puts before a link to these services, from its own icons.
+enum ServiceMark {
+    private static let services: [([String], String)] = [
+        (["github.com"], "IconGithub"),
+        (["bitbucket.org"], "IconBitbucket"),
+        (["atlassian.net"], "IconJira"),
+        (["gitlab.com"], "IconGitlab"),
+        (["linear.app"], "IconLinear"),
+        (["vercel.com", "vercel.app"], "IconVercel"),
+        (["slack.com"], "IconSlack"),
+        (["aws.amazon.com", "amazonaws.com"], "IconAws"),
+        (["grok.com"], "IconGrok"),
+        (["apple.com"], "IconApple"),
+        (["play.google.com"], "IconGoogleplay"),
+    ]
+
+    /// The name of the mark of the service a web link leads to.
+    static func of(_ url: URL) -> String? {
+        guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https",
+            let host = url.host?.lowercased()
+        else { return nil }
+        return services.first { service in service.0.contains { host == $0 || host.hasSuffix(".\($0)") } }?.1
     }
 }
 
@@ -595,27 +723,42 @@ extension Array {
     subscript(safe index: Int) -> Element? { indices.contains(index) ? self[index] : nil }
 }
 
-/// The file glyph a file the transcript names wears before its words, as the Mac's file refs do.
+/// The glyph a file or a service the transcript names wears before its words, as the Mac's file refs and links do.
 enum FileGlyph: AttributedStringKey {
-    typealias Value = CGFloat
+    struct Glyph: Hashable, Sendable {
+        /// An icon's name, as `Icons.named` takes it.
+        let icon: String
+        let size: CGFloat
+        /// The colour drawn into a mark that keeps its own; nil takes the line's ink.
+        let tint: Color?
+    }
+
+    typealias Value = Glyph
     static let name = "sikemux.fileGlyph"
 
-    /// A place for the glyph inside a run of words, drawn by `text`.
+    /// A place for the file glyph inside a run of words, drawn by `text`.
     static func mark(size: CGFloat) -> AttributedString {
+        mark(icon: "IconFile", size: size, tint: nil)
+    }
+
+    /// A place for the icon `icon` inside a run of words, drawn in its own colours with `tint` for the rest.
+    static func mark(icon: String, size: CGFloat, tint: Color?) -> AttributedString {
         var mark = AttributedString("\u{FFFC}")
-        mark[FileGlyph.self] = size
+        mark[FileGlyph.self] = Glyph(icon: icon, size: size, tint: tint)
         return mark
     }
 
-    /// The words as one `Text`, with each glyph's place drawn as the file icon.
+    /// The words as one `Text`, with each glyph's place drawn as its icon.
     @MainActor static func text(_ words: AttributedString, ink: Color, scale: CGFloat) -> Text {
         guard words.runs.contains(where: { $0[FileGlyph.self] != nil }) else { return Text(words) }
         var out = Text("")
         for run in words.runs {
-            if let size = run[FileGlyph.self], let image = image(size, scale: scale) {
-                let glyph = Text(Image(uiImage: image).renderingMode(.template)).foregroundStyle(ink).baselineOffset(
-                    -1.5)
-                out = Text("\(out)\(glyph)")
+            if let glyph = run[FileGlyph.self], let image = image(glyph, scale: scale) {
+                let drawn =
+                    glyph.tint == nil
+                    ? Text(Image(uiImage: image).renderingMode(.template)).foregroundStyle(ink)
+                    : Text(Image(uiImage: image).renderingMode(.original))
+                out = Text("\(out)\(drawn.baselineOffset(-1.5))")
             } else {
                 out = Text("\(out)\(Text(AttributedString(words[run.range])))")
             }
@@ -623,14 +766,23 @@ enum FileGlyph: AttributedStringKey {
         return out
     }
 
-    @MainActor private static var drawn: [[CGFloat]: UIImage] = [:]
+    private struct Drawn: Hashable {
+        let glyph: Glyph
+        let scale: CGFloat
+    }
 
-    @MainActor private static func image(_ size: CGFloat, scale: CGFloat) -> UIImage? {
-        if let found = drawn[[size, scale]] { return found }
-        let renderer = ImageRenderer(content: IconView(icon: Icons.file, size: size).foregroundStyle(.black))
+    @MainActor private static var drawn: [Drawn: UIImage] = [:]
+
+    @MainActor private static func image(_ glyph: Glyph, scale: CGFloat) -> UIImage? {
+        let key = Drawn(glyph: glyph, scale: scale)
+        if let found = drawn[key] { return found }
+        guard let icon = Icons.named(glyph.icon) else { return nil }
+        let renderer = ImageRenderer(
+            content: IconView(icon: icon, size: glyph.size).foregroundStyle(glyph.tint ?? .black))
         renderer.scale = scale
-        guard let image = renderer.uiImage?.withRenderingMode(.alwaysTemplate) else { return nil }
-        drawn[[size, scale]] = image
-        return image
+        guard let image = renderer.uiImage else { return nil }
+        let shown = glyph.tint == nil ? image.withRenderingMode(.alwaysTemplate) : image
+        drawn[key] = shown
+        return shown
     }
 }
