@@ -490,6 +490,7 @@ pub(crate) fn follow_projects(core: &Core) {
         read_chips(&core, projects.to_vec());
         if state_moved {
             refresh_hosts(&core, projects);
+            refresh_identities(&core, projects.iter().map(PathBuf::from).collect());
         }
         for project in projects {
             super::project_files::moved(project, paths.as_deref());
@@ -503,15 +504,31 @@ pub(crate) fn follow_projects(core: &Core) {
         core.git
             .watches
             .follow(|| core.workspaces.project_paths(), &changed);
-        let identities = core
-            .workspaces
-            .project_paths()
+        core.workspaces
+            .set_identities(identities_of(core.workspaces.project_paths()));
+    });
+}
+
+/// What each of `paths` is known by on every host (ADR 0023).
+fn identities_of(paths: Vec<PathBuf>) -> Vec<(PathBuf, Option<String>)> {
+    (paths.into_iter())
+        .map(|path| {
+            let identity = crate::git::remote::project_identity(&path.to_string_lossy());
+            (path, identity)
+        })
+        .collect()
+}
+
+/// Works out again what the projects at `paths` are known by, as a remote added, renamed or
+/// pointed elsewhere changes it.
+fn refresh_identities(core: &Arc<Core>, paths: Vec<PathBuf>) {
+    let core = core.clone();
+    tokio::task::spawn_blocking(move || {
+        let known = core.workspaces.project_paths();
+        let paths = paths
             .into_iter()
-            .map(|path| {
-                let identity = crate::git::remote::project_identity(&path.to_string_lossy());
-                (path, identity)
-            })
+            .filter(|path| known.contains(path))
             .collect();
-        core.workspaces.set_identities(identities);
+        core.workspaces.set_identities(identities_of(paths));
     });
 }

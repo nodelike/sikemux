@@ -34,7 +34,7 @@ const OPENING: &str = "sikemux.opening";
 pub(crate) struct Code {
     /// What the project is called, for a host that keeps a copy of its own.
     pub project: String,
-    /// Its `origin`, which a host that has the project finds it by.
+    /// The remote it is known by, which a host that has the project finds it by.
     pub remote: Option<String>,
     pub commit: String,
     pub branch: Option<String>,
@@ -106,10 +106,7 @@ pub(crate) fn package_for(cwd: &Path, uncommitted: bool) -> Result<Packed, Strin
         .unwrap_or_else(|| "project".to_owned());
     let code = Code {
         project,
-        remote: Git::quick(&repo)
-            .trimmed(&["remote", "get-url", "origin"])
-            .ok()
-            .filter(|url| !url.is_empty()),
+        remote: crate::git::remote::identity_url(&repo.to_string_lossy()),
         branch: Git::quick(&repo)
             .trimmed(&["symbolic-ref", "--quiet", "--short", "HEAD"])
             .ok(),
@@ -264,22 +261,22 @@ fn watched(git: Git, args: &[&str], dir: &Path) -> Result<String, String> {
     }
 }
 
-/// The checkout of a project here whose `origin` is `remote`.
-fn project_with(core: &Core, remote: &str) -> Option<PathBuf> {
-    let wanted = crate::git::remote::normalized_remote(remote);
-    core.workspaces
-        .project_paths()
-        .into_iter()
-        .find_map(|project| {
+/// The checkouts of this host's projects that have `remote` among their remotes.
+fn projects_with(core: &Core, remote: &str) -> Vec<PathBuf> {
+    let mut repos: Vec<PathBuf> = (core.workspaces.project_paths().into_iter())
+        .filter_map(|project| {
             let repo = Git::quick(&project)
                 .trimmed(&["rev-parse", "--path-format=absolute", "--show-toplevel"])
                 .ok()?;
-            let repo = PathBuf::from(repo);
-            let origin = Git::quick(&repo)
-                .trimmed(&["remote", "get-url", "origin"])
-                .ok()?;
-            (crate::git::remote::normalized_remote(&origin) == wanted).then_some(repo)
+            crate::git::remote::has_remote(&repo, remote).then(|| PathBuf::from(repo))
         })
+        .collect();
+    repos.dedup();
+    repos
+}
+
+fn project_with(core: &Core, remote: &str) -> Option<PathBuf> {
+    projects_with(core, remote).into_iter().next()
 }
 
 /// Where this host keeps its own copy of a lead's project it has no checkout
@@ -555,7 +552,14 @@ pub(crate) fn open_project(
         Some(dir) if is_project_repo(core, dir) => Some(dir.to_owned()),
         Some(_) => return Err("the folder begun for this project is gone".into()),
         None if copy => None,
-        None => (code.remote.as_deref()).and_then(|remote| project_with(core, remote)),
+        None => {
+            let repos = (code.remote.as_deref())
+                .map(|remote| projects_with(core, remote))
+                .unwrap_or_default();
+            let standing =
+                |repo: &&PathBuf| has_commit(repo, &code.commit) && differs(repo, code).is_none();
+            repos.iter().find(standing).or(repos.first()).cloned()
+        }
     };
     if let Some(repo) = existing {
         if !has_commit(&repo, &code.commit) {
@@ -600,7 +604,7 @@ pub(crate) enum Checked {
     Needs(Vec<String>),
 }
 
-fn relative(inside: &str) -> Result<PathBuf, String> {
+pub(crate) fn relative(inside: &str) -> Result<PathBuf, String> {
     let path = PathBuf::from(inside);
     if path
         .components()

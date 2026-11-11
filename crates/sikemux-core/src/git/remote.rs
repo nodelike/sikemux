@@ -5,27 +5,101 @@ use serde::{Deserialize, Serialize};
 
 use super::{default_remote, git_ok, open_repo, run_blocking, run_git};
 
-/// A remote's address with its scheme, user and `.git` left out, so the same
-/// repository reads the same however it was cloned.
+/// A remote's address with its scheme, user, port and `.git` left out, and an SSH host alias
+/// read as the host it stands for, so the same repository reads the same however it was
+/// cloned.
 pub fn normalized_remote(url: &str) -> String {
     let url = url.trim().trim_end_matches('/');
     let url = url.strip_suffix(".git").unwrap_or(url);
-    let rest = url.split_once("://").map_or(url, |(_, rest)| rest);
+    let (scheme, rest) = match url.split_once("://") {
+        Some((scheme, rest)) => (Some(scheme.to_lowercase()), rest),
+        None => (None, url),
+    };
     let rest = match rest.split_once('@') {
         Some((user, host)) if !user.contains('/') => host,
         _ => rest,
     };
-    let rest = match rest.split_once(':') {
-        Some((host, path)) if !path.starts_with(|c: char| c.is_ascii_digit()) => {
-            format!("{host}/{path}")
-        }
-        _ => rest.to_owned(),
+    let (host, path) = match scheme {
+        Some(_) => rest.split_once('/').unwrap_or((rest, "")),
+        None => match rest.split_once(':') {
+            Some((host, path)) if !host.contains('/') => (host, path),
+            _ => return rest.to_lowercase(),
+        },
     };
-    let rest = rest.to_lowercase();
+    let host = host.split_once(':').map_or(host, |(host, _port)| host);
+    let path = path.trim_start_matches('/');
+    let ssh = scheme
+        .as_deref()
+        .is_none_or(|scheme| scheme.contains("ssh"));
+    let host = match ssh {
+        true => ssh_host(host),
+        false => host.to_lowercase(),
+    };
+    let rest = format!("{host}/{path}").to_lowercase();
     match rest.strip_prefix("ssh.bitbucket.org/") {
         Some(path) => format!("bitbucket.org/{path}"),
         None => rest,
     }
+}
+
+/// The host an SSH host name stands for in this host's ssh settings, worked out once per name.
+fn ssh_host(alias: &str) -> String {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+    static KNOWN: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
+    let known = KNOWN.get_or_init(Mutex::default);
+    let alias = alias.to_lowercase();
+    if let Some(host) = known
+        .lock()
+        .ok()
+        .and_then(|known| known.get(&alias).cloned())
+    {
+        return host;
+    }
+    let host = ssh_hostname(&alias)
+        .map(|host| host.trim().to_lowercase())
+        .filter(|host| !host.is_empty())
+        .unwrap_or_else(|| alias.clone());
+    if let Ok(mut known) = known.lock() {
+        known.insert(alias, host.clone());
+    }
+    host
+}
+
+/// The address of the remote a repository is known by.
+pub(crate) fn identity_url(path: &str) -> Option<String> {
+    identity_remote(path)
+        .and_then(|remote| git_ok(path, &["remote", "get-url", &remote]).ok())
+        .filter(|url| !url.trim().is_empty())
+}
+
+/// Whether any remote of the repository at `path` is `wanted`, as [`normalized_remote`] reads
+/// both.
+pub(crate) fn has_remote(path: &str, wanted: &str) -> bool {
+    let wanted = normalized_remote(wanted);
+    git_ok(path, &["remote", "-v"]).is_ok_and(|listed| {
+        listed
+            .lines()
+            .filter_map(|line| line.split_whitespace().nth(1))
+            .any(|url| normalized_remote(url) == wanted)
+    })
+}
+
+/// The remote a repository is known by: `upstream`, else `origin`, else the first by name.
+fn identity_remote(path: &str) -> Option<String> {
+    let mut names: Vec<String> = git_ok(path, &["remote"])
+        .ok()?
+        .lines()
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(str::to_owned)
+        .collect();
+    names.sort();
+    ["upstream", "origin"]
+        .into_iter()
+        .find(|wanted| names.iter().any(|name| name == wanted))
+        .map(str::to_owned)
+        .or_else(|| names.into_iter().next())
 }
 
 /// The URL of the repository's `origin`, or of the only remote it has.
@@ -37,16 +111,13 @@ pub(crate) fn main_remote(path: &str) -> Option<String> {
     git_ok(path, &["remote", "get-url", &remote]).ok()
 }
 
-/// What a project is known by on every host (ADR 0023): its remote,
-/// normalised, else its repository's first commit, which every copy shares,
+/// What a project is known by on every host (ADR 0023): its `upstream`, else
+/// `origin`, else first remote, normalised, else its repository's first commit, which every copy shares,
 /// then its folder within the repository when it is not the top, so one
 /// package of a monorepo stays a project of its own. A folder outside git has
 /// none.
 pub fn project_identity(path: &str) -> Option<String> {
-    let remote = default_remote(path)
-        .and_then(|remote| git_ok(path, &["remote", "get-url", &remote]))
-        .ok()
-        .filter(|url| !url.trim().is_empty());
+    let remote = identity_url(path);
     let repository = match remote {
         Some(url) => normalized_remote(&url),
         None => git_ok(path, &["rev-list", "--max-parents=0", "HEAD"])

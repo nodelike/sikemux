@@ -180,9 +180,11 @@ pub(super) async fn open_here(
         }
         Opened::Differs(why) => Ok(json!({ "differs": why })),
         Opened::Ready { repo, work } => {
+            let inside = code::relative(&code.inside)?;
+            let (folder, root, work) = (repo.join(&inside), work.clone(), work.join(&inside));
             let laid = match &code.patch {
                 Some(patch) => {
-                    let (path, patch) = (work.clone(), patch.clone());
+                    let (path, patch) = (root, patch.clone());
                     let laid = blocking(move || {
                         match copy {
                             true => code::commit_over(&path, &patch),
@@ -197,9 +199,10 @@ pub(super) async fn open_here(
                 }
                 None => None,
             };
-            let project = workspace::add_project(core, AddProjectParams::named(repo, code.project))
-                .await
-                .map_err(|error| error.to_string())?;
+            let project =
+                workspace::add_project(core, AddProjectParams::named(folder, code.project))
+                    .await
+                    .map_err(|error| error.to_string())?;
             Ok(json!({
                 "path": project.path,
                 "project": project.id,

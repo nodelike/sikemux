@@ -377,6 +377,7 @@ fn is_git_signal(path: &Path) -> bool {
         return matches!(
             name,
             "HEAD"
+                | "config"
                 | "index"
                 | "packed-refs"
                 | "MERGE_HEAD"
