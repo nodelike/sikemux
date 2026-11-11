@@ -49,7 +49,6 @@ pub fn file_head(
         .child(div().text_color(t.text_primary).child(base.clone()))
         .when_some(open_file, |name, open_file| {
             name.hover(|name| name.underline())
-                .tooltip(super::tooltip("Open in editor"))
                 .on_click(move |_, window, cx| {
                     cx.stop_propagation();
                     open_file(window, cx);

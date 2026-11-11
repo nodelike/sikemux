@@ -87,7 +87,6 @@ pub(super) fn in_dock(goal: &ChatGoal, cx: &mut Context<Workbench>) -> AnyElemen
         .rounded(theme::RADIUS_2)
         .cursor_pointer()
         .hover(move |style| style.bg(t.surface_hover))
-        .tooltip(ui::tooltip("Open goal"))
         .on_click(cx.listener(move |bench, _, _, cx| bench.open_goal(&opens, cx)))
         .child(crate::goals::state_mark(goal.state, cx))
         .child(

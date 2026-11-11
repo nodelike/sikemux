@@ -157,7 +157,6 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
                 index == color,
                 26.,
             )
-            .tooltip(ui::tooltip(format!("Colour {}", index + 1)))
             .child(drawn(pack, &head_shape, index, 20.))
             .on_click(cx.listener(move |bench, _, _, _| {
                 let buddy = match &own_pack {

@@ -1463,18 +1463,6 @@ pub(crate) fn chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<imp
     let pairs: Vec<(String, Option<Total>)> = (agents.iter())
         .map(|agent| (agent.provider.to_owned(), Total::of(agent, now, week)))
         .collect();
-    let spoken: Vec<String> = (agents.iter().zip(&pairs))
-        .map(|(agent, (_, week))| match week {
-            Some(week) => format!(
-                "{} 7d {}% of {}% left",
-                agent.name,
-                week.left.round(),
-                week.accounts * 100
-            ),
-            None => agent.name.to_owned(),
-        })
-        .collect();
-    let tip = format!("Plan limits: {}", spoken.join(", "));
     drop(agents);
     Some(
         Popover::new("limits-chip")
@@ -1517,7 +1505,6 @@ pub(crate) fn chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<imp
                     .cursor_pointer()
                     .when(open, |chip| chip.bg(t.surface_chosen))
                     .when(!open, |chip| chip.hover(|chip| chip.bg(t.surface_hover)))
-                    .when(!open, |chip| chip.tooltip(ui::tooltip(tip)))
                     .children(pairs)
                     .into_any_element()
             })

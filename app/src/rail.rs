@@ -1825,7 +1825,6 @@ impl Workbench {
             .cursor_col_resize()
             .key_context("RailResizer")
             .track_focus(&self.rails.resizers[edge as usize])
-            .tooltip(crate::ui::tooltip("Drag or use arrow keys to resize"))
             .on_click(cx.listener(move |bench, _, window, cx| {
                 bench.rails.resizers[edge as usize].focus(window, cx)
             }))

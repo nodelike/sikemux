@@ -448,12 +448,9 @@ pub fn row(
                 .text_right()
                 .text_color(tint.unwrap_or(look.number))
                 .when_some(open, |gutter, open| {
-                    gutter
-                        .cursor_pointer()
-                        .tooltip(ui::tooltip(format!("Open at line {}", open.line + 1)))
-                        .on_click(move |_, window, cx| {
-                            window.dispatch_action(open.boxed_clone(), cx)
-                        })
+                    gutter.cursor_pointer().on_click(move |_, window, cx| {
+                        window.dispatch_action(open.boxed_clone(), cx)
+                    })
                 })
                 .child(number.to_string()),
         )
