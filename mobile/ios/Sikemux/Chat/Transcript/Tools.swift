@@ -309,8 +309,8 @@ private struct Spine: View {
     }
 }
 
-/// What an opened row shows beyond its summary, read from the host when the row opens and again as a running call
-/// goes on.
+/// What an opened call did: its change, what it printed, or why it failed. It is read from the host when the row opens
+/// and again as a running call goes on.
 private struct ToolDetailView: View {
     @Environment(\.palette) private var palette
     @Environment(TranscriptContext.self) private var context
@@ -323,19 +323,19 @@ private struct ToolDetailView: View {
     var body: some View {
         let waiting = detail != nil ? nil : problem.map { "Could not load it: \($0)" } ?? "Loading…"
         Group {
-            if let diff = part.diff {
+            if part.diff != nil {
                 DiffBody(
-                    path: detail?.diff?.path ?? diff.path, adds: detail?.diff?.adds ?? diff.adds,
-                    dels: detail?.diff?.dels ?? diff.dels,
                     lines: detail?.diff?.lines ?? [], fold: "\(group)/\(part.id)/diff",
                     waiting: detail?.diff != nil ? nil : waiting, folds: context.folds)
             } else if command != nil || part.output != nil {
                 Terminal(
-                    part: part, command: command, group: group, output: detail?.output,
-                    waiting: part.output != nil ? waiting : nil)
+                    part: part, command: command.flatMap { $0 != part.tool.row.target ? $0 : nil }, group: group,
+                    output: detail?.output, waiting: part.output != nil ? waiting : nil)
             } else {
-                Text(part.failure ?? "").font(Theme.mono(11)).lineSpacing(5).foregroundStyle(palette.danger)
-                    .textSelection(.enabled)
+                Text(part.failure ?? "").font(Theme.mono(11)).lineSpacing(17 - 11 * 1.32).foregroundStyle(
+                    palette.danger
+                )
+                .textSelection(.enabled)
             }
         }
         .task(id: "\(part.tool.toolCallId)|\(part.tool.running)|\(part.output?.lines ?? -1)") {
@@ -352,112 +352,136 @@ private struct ToolDetailView: View {
     }
 }
 
+/// What a command printed: its exit code and size, then its last lines, the rest a tap away.
 private struct Terminal: View {
     @Environment(\.palette) private var palette
     @Environment(TranscriptContext.self) private var context
     let part: ToolPart
+    /// The whole command, when its line had to cut it short.
     let command: String?
     let group: String
     let output: ToolOutput?
     /// Stands in for the output until the host has sent it.
     let waiting: String?
 
-    /// Lines of a call's output shown before "Show all".
-    private static let foldLines = 12
+    /// Lines of what a command printed shown before "Show all": its last ones, as on the Mac.
+    private static let tailLines = 8
 
     var body: some View {
-        let text = output?.text ?? ""
+        let text = Self.trimmed(output?.text ?? "")
         let lines = text.isEmpty ? [] : text.components(separatedBy: "\n")
-        let folds = lines.count > Self.foldLines
+        let folds = lines.count > Self.tailLines
         let whole = context.folds.isOpen("\(group)/\(part.id)/whole", false)
-        let folded = folds && !whole
+        let shown = folds && !whole ? lines.suffix(Self.tailLines).joined(separator: "\n") : text
+        let exit =
+            part.tool.status == .failed ? (part.output?.exitCode.map { "exit \($0)" } ?? "failed") : nil
         VStack(alignment: .leading, spacing: 0) {
             if let command {
                 HStack(alignment: .top, spacing: 7) {
                     Text("$").font(Theme.mono(11.5)).foregroundStyle(palette.toolRun).padding(.vertical, 4)
-                    Text(command).font(Theme.mono(11.5)).lineSpacing(3).foregroundStyle(palette.ink).textSelection(
-                        .enabled
-                    )
-                    .padding(.vertical, 4).frame(maxWidth: .infinity, alignment: .leading)
+                    Text(command).font(Theme.mono(11.5)).lineSpacing(17 - 11.5 * 1.32).foregroundStyle(palette.ink)
+                        .textSelection(.enabled)
+                        .padding(.vertical, 4).frame(maxWidth: .infinity, alignment: .leading)
                     CopyButton(value: command, label: "command", size: 12)
                 }
-                .padding(.leading, 9)
+                .padding(.leading, 12)
                 .padding(.trailing, 3)
                 .padding(.vertical, 3)
+                .background(palette.sunken, in: RoundedRectangle(cornerRadius: 8))
+                .padding(.bottom, 4)
+            }
+            if exit != nil || !lines.isEmpty {
+                HStack(spacing: 10) {
+                    if let exit {
+                        Text(exit).font(Theme.mono(11)).foregroundStyle(palette.danger.mixed(with: palette.ink, 0.7))
+                            .padding(.horizontal, 7).padding(.vertical, 1)
+                            .background(palette.danger.opacity(0.12), in: Capsule())
+                    }
+                    if !lines.isEmpty {
+                        Text("\(lines.count) \(Format.counted("line", lines.count))").font(Theme.ui(12))
+                            .foregroundStyle(palette.inkFaint)
+                    }
+                    Spacer(minLength: 0)
+                    if folds {
+                        Button {
+                            context.folds.set("\(group)/\(part.id)/whole", !whole)
+                        } label: {
+                            HStack(spacing: 5) {
+                                IconView(icon: Icons.chevron, size: 9).foregroundStyle(palette.inkDim)
+                                    .rotationEffect(.degrees(whole ? 90 : 0))
+                                Text(whole ? "Show less" : "Show all").font(Theme.ui(12)).foregroundStyle(
+                                    palette.inkDim)
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .frame(height: 26)
             }
             if let image = output?.image, let picture = DataPicture(base64: image.data) {
                 Button {
                     context.showImage(picture.image, "attachment")
                 } label: {
                     Image(uiImage: picture.image).resizable().scaledToFit().frame(maxWidth: .infinity)
+                        .background(palette.sunken)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
                 }
                 .buttonStyle(.plain)
+                .padding(.top, 4)
                 .accessibilityLabel("Picture the call returned, open")
             }
-            if !text.isEmpty {
+            if !shown.isEmpty {
                 ZStack(alignment: .topTrailing) {
-                    if folded {
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            outputText(lines.prefix(Self.foldLines).joined(separator: "\n"))
-                        }
-                    } else {
+                    if whole {
                         ScrollView([.vertical, .horizontal], showsIndicators: false) {
-                            outputText(text).textSelection(.enabled)
+                            printed(shown).textSelection(.enabled)
                         }
                         .frame(maxHeight: 320)
+                    } else {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            printed(shown)
+                        }
                     }
-                    CopyButton(value: text, label: "output", size: 12).padding(3)
+                    CopyButton(value: text, label: "output", size: 12).padding(4)
                 }
-                .overlay(alignment: .top) { if command != nil { Rectangle().fill(palette.border).frame(height: 1) } }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(palette.sunken)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
             } else if let waiting {
-                note(waiting, ruled: command != nil)
+                note(waiting)
             } else if part.output != nil, output?.image == nil {
-                note("No output", ruled: command != nil)
-            }
-            if folds {
-                Button {
-                    context.folds.set("\(group)/\(part.id)/whole", !whole)
-                } label: {
-                    Text(folded ? "Show all \(lines.count) lines" : "Show fewer lines")
-                        .font(Theme.mono(10.5)).foregroundStyle(palette.inkFaint)
-                        .padding(.horizontal, 9).padding(.vertical, 7)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .buttonStyle(.plain)
-                .overlay(alignment: .top) { Rectangle().fill(palette.border).frame(height: 1) }
+                note("No output")
             }
             if (output?.cut ?? part.output?.cut) == true, !folds || whole {
-                note("The rest of the output was not kept", ruled: true)
-            }
-            if part.tool.status == .failed, let code = part.output?.exitCode {
-                Text("exit \(code)").font(Theme.mono(10.5)).foregroundStyle(palette.danger).padding(.horizontal, 9)
-                    .padding(.bottom, 7)
+                note("The rest of the output was not kept")
             }
         }
-        .background(palette.sunken)
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(palette.border, lineWidth: 1))
     }
 
-    private func outputText(_ text: String) -> some View {
+    private static func trimmed(_ text: String) -> String {
+        var text = Substring(text)
+        while text.last == "\n" { text.removeLast() }
+        return String(text)
+    }
+
+    private func printed(_ text: String) -> some View {
         Text(text)
-            .font(Theme.mono(11))
-            .lineSpacing(16 - 11 * 1.32)
-            .foregroundStyle(palette.inkDim)
+            .font(Theme.mono(11.5))
+            .lineSpacing(19.5 - 11.5 * 1.32)
+            .foregroundStyle(palette.secondary)
             .fixedSize()
-            .padding(.leading, 9)
-            .padding(.trailing, 33)
-            .padding(.vertical, 7)
+            .padding(.leading, 12)
+            .padding(.trailing, 30)
+            .padding(.vertical, 10)
     }
 
-    private func note(_ text: String, ruled: Bool) -> some View {
+    private func note(_ text: String) -> some View {
         Text(text)
-            .font(Theme.mono(10.5))
+            .font(Theme.ui(10.5))
             .foregroundStyle(palette.inkFaint)
-            .padding(.horizontal, 9)
-            .padding(.vertical, 6)
+            .padding(.top, 4)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .overlay(alignment: .top) { if ruled { Rectangle().fill(palette.border).frame(height: 1) } }
     }
 }
 

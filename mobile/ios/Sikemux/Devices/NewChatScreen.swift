@@ -103,7 +103,7 @@ private struct NewChatContent: View {
                 VStack(alignment: .leading, spacing: 12) {
                     Spacer()
                     TranscriptMessage(message: sending.message, look: RowLook(unsent: Unsent(state: .sending)))
-                    ActivityLine(provider: launcher.provider, label: step ?? "Starting", since: sending.since)
+                    ActivityLine(provider: launcher.provider, doing: Doing(step ?? "Starting"), since: sending.since)
                 }
                 .environment(context)
                 .padding(.horizontal, 18)

@@ -86,6 +86,27 @@ enum DiffText {
     }
 }
 
+/// The two number columns and the sign's, before a diff line's text, as on the Mac but narrower.
+private let numberWidth: CGFloat = 28
+private let signWidth: CGFloat = 14
+
+/// A patch's inks, mixed once per box rather than once per line.
+struct DiffInks {
+    let number: Color
+    let addedNumber: Color
+    let deletedNumber: Color
+    let addedText: Color
+    let deletedText: Color
+
+    init(_ palette: Palette) {
+        number = palette.inkFaint.mixed(with: palette.sunken, 0.5)
+        addedNumber = palette.gitAdded.mixed(with: palette.sunken, 0.38)
+        deletedNumber = palette.gitDeleted.mixed(with: palette.sunken, 0.38)
+        addedText = palette.gitAdded.mixed(with: palette.ink, 0.22)
+        deletedText = palette.gitDeleted.mixed(with: palette.ink, 0.25)
+    }
+}
+
 /// Rows of a patch scrolling sideways together, so long lines keep to the screen's width and each row's tint spans
 /// the longest.
 struct DiffRows: View {
@@ -98,28 +119,33 @@ struct DiffRows: View {
     @State private var width: CGFloat = 0
 
     var body: some View {
+        let inks = DiffInks(palette)
         ScrollView(.horizontal, showsIndicators: false) {
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(Array((rows ?? lines.map(DiffText.Row.line)).enumerated()), id: \.offset) { _, row in
                     switch row {
-                    case .line(let line): DiffRow(line: line, numbered: numbered)
+                    case .line(let line): DiffRow(line: line, numbered: numbered, inks: inks)
                     case .gap(let count):
                         Button {
                             onGap?()
                         } label: {
-                            Text("\(count) unchanged \(Format.counted("line", count))")
-                                .font(Theme.mono(10.5))
-                                .foregroundStyle(palette.inkFaint)
-                                .frame(height: 20)
-                                .padding(.leading, 42)
-                                .frame(maxWidth: .infinity, alignment: .leading)
+                            HStack(spacing: 6) {
+                                IconView(icon: Icons.chevron, size: 9).foregroundStyle(palette.inkDim)
+                                Text("\(count) more \(Format.counted("line", count))")
+                                    .font(Theme.ui(11))
+                                    .foregroundStyle(palette.inkDim)
+                            }
+                            .frame(height: 26)
+                            .padding(.leading, numberWidth * 2 + signWidth)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
                     }
                 }
             }
             .frame(minWidth: width, alignment: .leading)
-            .padding(.vertical, 3)
+            .padding(.vertical, 4)
         }
         .onGeometryChange(for: CGFloat.self) {
             $0.size.width
@@ -129,38 +155,44 @@ struct DiffRows: View {
     }
 }
 
+/// One line of a patch: old and new numbers, a +/− gutter and the text tinted by what happened to it.
 struct DiffRow: View {
     @Environment(\.palette) private var palette
     let line: DiffLine
     let numbered: Bool
+    let inks: DiffInks
 
     var body: some View {
         let added = line.sign == "+"
         let deleted = line.sign == "-"
+        let numberInk = added ? inks.addedNumber : deleted ? inks.deletedNumber : inks.number
         HStack(alignment: .top, spacing: 0) {
             if numbered {
-                Text((added ? line.newLine : line.oldLine).map(String.init) ?? "")
-                    .font(Theme.mono(10))
-                    .foregroundStyle(palette.inkFaint.opacity(0.58))
-                    .frame(width: 23, alignment: .trailing)
-                    .padding(.trailing, 7)
+                number(line.oldLine, numberInk)
+                number(line.newLine, numberInk)
             }
-            Text(line.sign)
+            Text(added ? "+" : deleted ? "−" : "")
                 .font(Theme.mono(11))
-                .foregroundStyle(
-                    added ? palette.gitAdded : deleted ? palette.gitDeleted : palette.inkFaint.opacity(0.7)
-                )
-                .frame(width: 12, alignment: .leading)
+                .foregroundStyle(added ? palette.gitAdded : deleted ? palette.gitDeleted : palette.inkFaint)
+                .frame(width: signWidth, alignment: .center)
             Text(marked(added: added, deleted: deleted))
                 .font(Theme.mono(11))
-                .foregroundStyle(palette.ink)
+                .foregroundStyle(added ? inks.addedText : deleted ? inks.deletedText : palette.inkDim)
                 .fixedSize()
         }
-        .lineSpacing(17 - 11 * 1.32)
-        .padding(.leading, numbered ? 0 : 10)
-        .padding(.trailing, 12)
+        .lineSpacing(20 - 11 * 1.32)
+        .padding(.leading, numbered ? 0 : 4)
+        .padding(.trailing, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(added ? palette.gitAdded.opacity(0.09) : deleted ? palette.gitDeleted.opacity(0.09) : .clear)
+    }
+
+    private func number(_ value: Int?, _ ink: Color) -> some View {
+        Text(value.map(String.init) ?? "")
+            .font(Theme.mono(10))
+            .foregroundStyle(ink)
+            .frame(width: numberWidth - 6, alignment: .trailing)
+            .padding(.trailing, 6)
     }
 
     private func marked(added: Bool, deleted: Bool) -> AttributedString {
@@ -175,13 +207,10 @@ struct DiffRow: View {
     }
 }
 
-/// What an edit changed, as the Mac draws it under the call: the file, its counts, numbered lines and the unchanged
-/// runs folded. `waiting` stands in for the lines until the host has sent them.
+/// What an edit changed, as the Mac draws it under the call: old and new line numbers, a +/− gutter, tinted text and
+/// the unchanged runs folded. `waiting` stands in for the lines until the host has sent them.
 struct DiffBody: View {
     @Environment(\.palette) private var palette
-    let path: String
-    let adds: Int
-    let dels: Int
     let lines: [DiffLine]
     let fold: String
     var waiting: String?
@@ -199,19 +228,9 @@ struct DiffBody: View {
         let shown = whole ? rows : Array(rows.prefix(Self.firstRows))
         let more = rows.count - shown.count
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 7) {
-                IconView(icon: Icons.file, size: 11).foregroundStyle(palette.inkFaint)
-                Text(path).font(Theme.mono(10.5)).foregroundStyle(palette.inkDim).lineLimit(1).truncationMode(.head)
-                Spacer(minLength: 0)
-                Text("+\(adds)").font(Theme.mono(10.5)).foregroundStyle(palette.gitAdded)
-                Text("−\(dels)").font(Theme.mono(10.5)).foregroundStyle(palette.gitDeleted)
-            }
-            .padding(.horizontal, 9)
-            .frame(height: 24)
-            .overlay(alignment: .bottom) { Rectangle().fill(palette.border).frame(height: 1) }
             if let waiting {
-                Text(waiting).font(Theme.mono(10.5)).foregroundStyle(palette.inkFaint).padding(.horizontal, 9).padding(
-                    .vertical, 6)
+                Text(waiting).font(Theme.mono(10.5)).foregroundStyle(palette.inkFaint).padding(.horizontal, 10)
+                    .padding(.vertical, 7)
             }
             if !shown.isEmpty {
                 DiffRows(lines: [], numbered: true, onGap: { folds.set("\(fold)/context", true) }, rows: shown)
@@ -220,19 +239,19 @@ struct DiffBody: View {
                 Button {
                     folds.set("\(fold)/rows", true)
                 } label: {
-                    Text("Show \(more) more \(Format.counted("line", more))")
-                        .font(Theme.mono(10.5))
-                        .foregroundStyle(palette.inkFaint)
-                        .padding(.horizontal, 9)
+                    Text("Show \(more) more lines")
+                        .font(Theme.ui(11))
+                        .foregroundStyle(palette.inkDim)
+                        .padding(.horizontal, 10)
                         .padding(.vertical, 7)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .overlay(alignment: .top) { Rectangle().fill(palette.border).frame(height: 1) }
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(palette.sunken)
         .clipShape(RoundedRectangle(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(palette.border, lineWidth: 1))
     }
 }

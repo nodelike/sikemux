@@ -1,16 +1,21 @@
 import SwiftUI
 
-private struct NoticeBox<Content: View>: View {
-    @Environment(\.palette) private var palette
+/// A notice as a plain line: its icon, then its words, at the transcript's left with a little room around.
+private struct NoticeLine<Content: View>: View {
     @ViewBuilder let content: Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) { content }
-            .padding(.vertical, 6)
-            .padding(.horizontal, 10)
-            .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(palette.border, lineWidth: 1))
-            .padding(.vertical, 5)
+        VStack(alignment: .leading, spacing: 2) { content }
+            .padding(.vertical, 4)
+            .padding(.leading, 12)
+            .padding(.vertical, 2)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
+}
+
+/// A notice's words after its name, kept to one line.
+private func inline(_ text: String, _ palette: Palette) -> some View {
+    Text(text).font(Theme.ui(12.5)).foregroundStyle(palette.inkDim).lineLimit(1).layoutPriority(-1)
 }
 
 /// A background task that reached its end, and what it said of how it went.
@@ -27,24 +32,31 @@ struct TaskNoticeView: View {
         Button {
             context.folds.set("notice/\(id)", !open)
         } label: {
-            NoticeBox {
-                HStack(spacing: 7) {
+            NoticeLine {
+                HStack(spacing: 8) {
                     IconView(icon: notice.taskType == "workflow" ? Icons.workflow : Icons.timer, size: 12)
-                        .foregroundStyle(failed ? palette.danger : palette.inkFaint)
-                    Text(notice.name).font(Theme.mono(11.5)).foregroundStyle(palette.ink).lineLimit(1)
-                    Text(notice.state.rawValue).font(Theme.ui(12)).foregroundStyle(
-                        failed ? palette.danger : palette.inkFaint)
+                        .foregroundStyle(palette.inkDim)
+                    Text(notice.name).font(Theme.mono(12)).foregroundStyle(palette.ink).lineLimit(1)
+                    Text(notice.state.rawValue).font(Theme.ui(12.5)).foregroundStyle(
+                        failed ? palette.danger : palette.inkDim
+                    )
+                    .fixedSize()
+                    if let summary, !open { inline(summary, palette) }
                 }
-                if let summary {
-                    Text(summary).font(Theme.ui(12)).lineSpacing(3).foregroundStyle(palette.inkFaint)
-                        .lineLimit(open ? nil : 1)
+                .frame(minHeight: 18)
+                if let summary, open {
+                    Text(summary).font(Theme.ui(12.5)).lineSpacing(18 - 12.5 * 1.32).foregroundStyle(palette.inkDim)
                         .multilineTextAlignment(.leading)
+                        .padding(.leading, 20)
+                        .textSelection(.enabled)
                 }
             }
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(summary == nil)
         .accessibilityLabel("\(notice.name) \(notice.state.rawValue)\(summary.map { ". \($0)" } ?? "")")
+        .accessibilityValue(summary == nil ? "" : open ? "expanded" : "collapsed")
     }
 }
 
@@ -68,20 +80,26 @@ struct AgentNoticeLine: View {
     let notice: AgentNotice
 
     var body: some View {
-        let tint =
-            notice.severity == .error ? palette.danger : notice.severity == .warning ? palette.warn : palette.inkFaint
-        NoticeBox {
-            HStack(spacing: 7) {
-                IconView(icon: notice.severity == .info ? Icons.info : Icons.warning, size: 12).foregroundStyle(tint)
-                Text(notice.title).font(Theme.ui(12)).foregroundStyle(
-                    notice.severity == .info ? palette.inkFaint : tint)
+        if let goal = notice.goal {
+            GoalLine(notice: notice, goal: goal)
+        } else {
+            let tint =
+                notice.severity == .error ? palette.danger : notice.severity == .warning ? palette.warn : palette.inkDim
+            NoticeLine {
+                HStack(spacing: 8) {
+                    IconView(icon: notice.severity == .info ? Icons.inbox : Icons.warning, size: 12)
+                        .foregroundStyle(tint)
+                    Text(notice.title).font(Theme.ui(12.5)).foregroundStyle(
+                        notice.severity == .error ? tint : palette.inkDim
+                    )
+                    .fixedSize()
+                    if let description = notice.description { inline(description, palette) }
+                }
+                .frame(minHeight: 18)
             }
-            if let description = notice.description {
-                Text(description).font(Theme.ui(12)).lineSpacing(3).foregroundStyle(palette.inkFaint).textSelection(
-                    .enabled)
-            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("\(notice.title)\(notice.description.map { ". \($0)" } ?? "")")
         }
-        .accessibilityElement(children: .combine)
     }
 }
 
@@ -91,15 +109,17 @@ struct AccountLine: View {
 
     var body: some View {
         let why = move.reason == .limit ? move.from.map { "\($0) reached its usage limit" } : nil
-        NoticeBox {
-            HStack(spacing: 7) {
-                IconView(icon: Icons.user, size: 12).foregroundStyle(palette.inkFaint)
-                Text("Moved to").font(Theme.ui(12)).foregroundStyle(palette.inkFaint)
-                Text(move.label).font(Theme.mono(11.5)).foregroundStyle(palette.ink).lineLimit(1)
+        NoticeLine {
+            HStack(spacing: 8) {
+                IconView(icon: Icons.user, size: 12).foregroundStyle(palette.inkDim)
+                Text("Moved to").font(Theme.ui(12.5)).foregroundStyle(palette.inkDim).fixedSize()
+                Text(move.label).font(Theme.ui(12.5)).foregroundStyle(palette.ink).lineLimit(1)
+                if let why { inline(why, palette) }
             }
-            if let why { Text(why).font(Theme.ui(12)).lineSpacing(3).foregroundStyle(palette.inkFaint) }
+            .frame(minHeight: 18)
         }
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Moved to \(move.label)\(why.map { ". \($0)" } ?? "")")
     }
 }
 
@@ -279,7 +299,7 @@ private let subagentWords: [SubagentState: String] = [
     .running: "working", .completed: "done", .failed: "failed", .cancelled: "stopped", .disconnected: "lost",
 ]
 
-/// What a subagent did, kept to one line until it is opened; what it is doing now is over the composer.
+/// A subagent as a strip: who, its task, what it is doing now or how it ended, and what it cost; it opens onto its work.
 struct SubagentRow: View {
     @Environment(\.palette) private var palette
     @Environment(TranscriptContext.self) private var context
@@ -287,70 +307,52 @@ struct SubagentRow: View {
 
     var body: some View {
         let open = context.folds.isOpen("subagent/\(subagent.sessionId)", false)
-        let rows = context.subagentRows[subagent.sessionId] ?? []
-        let parts = rows.flatMap(\.parts)
         let cost = Self.cost(subagent)
         let running = subagent.state == .running
-        let task = subagent.headline
+        let row = subagent.lastTool?.row
+        let doing = running ? row.map { $0.activity ?? $0.subject ?? $0.target } : nil
         VStack(alignment: .leading, spacing: 0) {
             Button {
                 context.folds.set("subagent/\(subagent.sessionId)", !open)
             } label: {
                 HStack(spacing: 8) {
-                    IconView(icon: Icons.chevron, size: 10).foregroundStyle(palette.inkDim).opacity(0.7).rotationEffect(
-                        .degrees(open ? 90 : 0))
-                    AgentMark(provider: context.provider, size: 15)
-                    Text(subagent.name).font(Theme.mono(11.5)).foregroundStyle(palette.ink).lineLimit(1)
-                        .frame(maxWidth: 140, alignment: .leading).fixedSize()
-                    Group {
-                        if running {
-                            Shimmer(text: task, font: Theme.ui(12), color: palette.inkFaint)
-                        } else {
-                            Text(task).font(Theme.ui(12)).foregroundStyle(palette.inkFaint).lineLimit(1)
-                        }
+                    AgentMark(provider: context.provider, size: 16)
+                    Text(subagent.name).font(Theme.ui(12.5, .semibold)).foregroundStyle(palette.ink).lineLimit(1)
+                        .frame(maxWidth: 120, alignment: .leading).fixedSize()
+                    Text(subagent.headline).font(Theme.ui(12.5)).foregroundStyle(palette.inkDim).lineLimit(1)
+                        .layoutPriority(-1)
+                    if let doing {
+                        Shimmer(text: doing, font: Theme.ui(12.5), color: palette.secondary).layoutPriority(-1)
+                    } else {
+                        SubagentEnd(state: subagent.state).fixedSize()
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    Spacer(minLength: 0)
                     if let cost {
-                        Text(cost).font(Theme.mono(10.5)).foregroundStyle(palette.inkFaint).lineLimit(1).fixedSize()
+                        Text(cost).font(Theme.ui(12)).monospacedDigit().foregroundStyle(palette.inkFaint).lineLimit(1)
+                            .fixedSize()
                     }
-                    mark.frame(width: 14)
+                    IconView(icon: Icons.chevron, size: 11).foregroundStyle(palette.inkDim)
+                        .rotationEffect(.degrees(open ? 90 : 0))
                 }
-                .padding(.leading, 10)
-                .padding(.trailing, 11)
-                .frame(minHeight: 36)
-                .background(RoundedRectangle(cornerRadius: 10).fill(palette.raised.opacity(0.6)))
-                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(palette.border, lineWidth: 1))
+                .padding(.horizontal, 12)
+                .frame(height: 34)
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(ActiveFill(radius: 10))
             .accessibilityLabel(
-                "Subagent \(subagent.name), \(subagentWords[subagent.state] ?? "")\(cost.map { ", \($0)" } ?? "")"
+                "Subagent \(subagent.name), \(doing ?? subagentWords[subagent.state] ?? "")\(cost.map { ", \($0)" } ?? "")"
             )
             .accessibilityValue(open ? "expanded" : "collapsed")
             if open {
-                Group {
-                    if parts.isEmpty {
-                        Text("No output yet.").font(Theme.ui(12.5)).foregroundStyle(palette.inkFaint).padding(
-                            .vertical, 6)
-                    } else {
-                        Parts(id: "subagent/\(subagent.sessionId)", parts: parts, live: running)
-                    }
-                }
-                .padding(.leading, 14)
-                .padding(.top, 4)
+                SubagentWork(subagent: subagent, running: running)
+                    .padding(.leading, 25)
+                    .padding(.trailing, 10)
+                    .padding(.top, 2)
+                    .padding(.bottom, 8)
             }
         }
-        .padding(.vertical, 6)
-    }
-
-    @ViewBuilder private var mark: some View {
-        switch subagent.state {
-        case .running: Working()
-        case .completed: IconView(icon: Icons.check, size: 13).foregroundStyle(palette.live)
-        case .failed: IconView(icon: Icons.warning, size: 12).foregroundStyle(palette.danger)
-        case .disconnected: IconView(icon: Icons.plug, size: 12).foregroundStyle(palette.danger)
-        default: IconView(icon: Icons.close, size: 11).foregroundStyle(palette.inkFaint)
-        }
+        .background(palette.raised.opacity(0.55), in: RoundedRectangle(cornerRadius: 10))
+        .padding(.vertical, 4)
     }
 
     static func cost(_ subagent: SubagentCard) -> String? {
@@ -358,6 +360,52 @@ struct SubagentRow: View {
         if let tokens = subagent.tokens, tokens > 0 { pieces.append("\(Format.tokens(tokens)) tokens") }
         if subagent.calls > 0 { pieces.append(ChatWords.callCount(subagent.calls)) }
         return pieces.isEmpty ? nil : pieces.joined(separator: " · ")
+    }
+}
+
+/// What an opened subagent strip holds: the subagent's own rows, read only while it is open.
+private struct SubagentWork: View {
+    @Environment(\.palette) private var palette
+    @Environment(TranscriptContext.self) private var context
+    let subagent: SubagentCard
+    let running: Bool
+
+    var body: some View {
+        let parts = (context.subagentRows[subagent.sessionId] ?? []).flatMap(\.parts)
+        if parts.isEmpty {
+            Text("No output yet.").font(Theme.ui(12.5)).foregroundStyle(palette.inkFaint).padding(.vertical, 6)
+        } else {
+            Parts(id: "subagent/\(subagent.sessionId)", parts: parts, live: running)
+        }
+    }
+}
+
+/// A subagent's mark and word once it is not doing anything: done, failed, lost or stopped.
+private struct SubagentEnd: View {
+    @Environment(\.palette) private var palette
+    let state: SubagentState
+
+    var body: some View {
+        let loud = state == .failed || state == .disconnected
+        let tint =
+            switch state {
+            case .completed: palette.live.mixed(with: palette.inkFaint, 0.58)
+            case .failed, .disconnected: palette.danger
+            case .running: palette.accent.mixed(with: palette.inkFaint, 0.62)
+            default: palette.inkFaint
+            }
+        let icon =
+            switch state {
+            case .running: Icons.hourglass
+            case .completed: Icons.check
+            case .failed: Icons.warning
+            case .disconnected: Icons.plug
+            default: Icons.close
+            }
+        HStack(spacing: 6) {
+            IconView(icon: icon, size: 12).foregroundStyle(tint)
+            Text(subagentWords[state] ?? "").font(Theme.ui(12.5)).foregroundStyle(loud ? tint : palette.inkDim)
+        }
     }
 }
 
@@ -388,27 +436,26 @@ struct WorktreeLine: View {
     }
 }
 
-/// A trigger's prompt where the person's own messages sit, under a line naming the trigger, with the webhook request
-/// that fired it folded beneath.
+/// A trigger's prompt in a bubble at the left under the trigger's name, with the webhook request that fired it folded
+/// beneath.
 struct FiredTrigger: View {
     @Environment(\.palette) private var palette
     @Environment(\.displayScale) private var scale
     @Environment(TranscriptContext.self) private var context
     let id: String
     let fired: TriggerFired
+    var at: Int?
 
     var body: some View {
         let open = context.folds.isOpen("\(id)/request", false)
-        VStack(alignment: .trailing, spacing: 0) {
-            HStack(spacing: 5) {
-                IconView(icon: Icons.timer, size: 12).foregroundStyle(palette.cmd)
-                Text("Trigger · \(Text(fired.title).font(Theme.ui(11.5, .medium)).foregroundStyle(palette.ink))")
-                    .font(Theme.ui(11.5)).foregroundStyle(palette.inkDim).lineLimit(1)
+        VStack(alignment: .leading, spacing: 0) {
+            From(at: at) {
+                IconView(icon: Icons.timer, size: 13).foregroundStyle(palette.cmd)
+                Text(fired.title).font(Theme.ui(12.5, .semibold)).foregroundStyle(palette.ink).lineLimit(1)
+            } content: {
+                Text(fired.prompt).sentWords(palette).textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            .padding(.bottom, 6)
-            Text(fired.prompt)
-                .sentWords(palette).textSelection(.enabled)
-                .sentBubble(fill: palette.raised, border: palette.border)
             if let request = fired.request {
                 Button {
                     context.folds.set("\(id)/request", !open)
@@ -448,9 +495,7 @@ struct FiredTrigger: View {
                 }
             }
         }
-        .frame(maxWidth: .infinity, alignment: .trailing)
-        .padding(.top, 14)
-        .padding(.bottom, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     static func summary(_ request: FiredRequest) -> String {
@@ -463,36 +508,44 @@ struct FiredTrigger: View {
     }
 }
 
-/// The line under the last row while the agent works: its mark breathing, what it is doing, and for how long.
+/// The line under the last row: the agent's mark breathing, a sweep on what it is doing, then what it is on and for
+/// how long.
 struct ActivityLine: View {
     @Environment(\.palette) private var palette
     @Environment(\.accessibilityReduceMotion) private var still
     let provider: String
-    let label: String
+    let doing: Doing
     let since: Date
     @State private var breath = false
 
     var body: some View {
-        HStack(spacing: 9) {
+        HStack(spacing: 8) {
             AgentMark(provider: provider, size: 20)
                 .opacity(breath ? 0.5 : 1)
                 .onAppear {
                     guard !still else { return }
                     withAnimation(.easeInOut(duration: 0.75).repeatForever()) { breath = true }
                 }
-            Shimmer(text: label, font: Theme.ui(12.5), color: palette.inkFaint)
+            Shimmer(text: doing.verb, font: Theme.ui(13, .medium), color: palette.inkDim).fixedSize()
+            if let what = doing.what {
+                Text(what).font(doing.typed ? Theme.mono(12) : Theme.ui(12.5)).foregroundStyle(palette.secondary)
+                    .lineLimit(1)
+                    .layoutPriority(-1)
+            }
             TimelineView(.periodic(from: since, by: 1)) { timeline in
                 let seconds = Int(timeline.date.timeIntervalSince(since).rounded())
                 if seconds > 0 {
-                    Text(ChatWords.duration(ms: Double(seconds) * 1000)).font(Theme.mono(10)).foregroundStyle(
-                        palette.inkFaint)
+                    Text(ChatWords.duration(ms: Double(seconds) * 1000)).font(Theme.mono(10.5)).foregroundStyle(
+                        palette.inkFaint
+                    )
+                    .fixedSize()
                 }
             }
         }
         .padding(.top, 14)
         .padding(.bottom, 6)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(label)
+        .accessibilityLabel(doing.what.map { "\(doing.verb) \($0)" } ?? doing.verb)
     }
 }
 
@@ -541,17 +594,18 @@ struct QueuedLines: View {
                     if !message.text.isEmpty {
                         Text(message.text)
                             .sentWords(palette)
-                            .sentBubble(fill: palette.raised, border: palette.border)
+                            .mineBubble(palette)
+                            .sentWidth()
                     }
                 }
                 .opacity(0.55)
-                .padding(.bottom, 6)
+                .padding(.bottom, 4)
             }
             Text("Sends when this turn ends").font(Theme.ui(11)).foregroundStyle(palette.inkFaint).padding(.top, 4)
         }
         .frame(maxWidth: .infinity, alignment: .trailing)
-        .padding(.top, 14)
-        .padding(.bottom, 6)
+        .padding(.top, 20)
+        .padding(.bottom, 10)
     }
 }
 

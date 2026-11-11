@@ -39,7 +39,8 @@ struct ChatBottom: View {
                     onAnswer: { written in questions.hold(asked, written) { session.setDraft(written.answer) } }
                 )
             },
-            focus: focus
+            focus: focus,
+            place: context.place
         )
         .liftedSheet(shown: $focus.recent) {
             RecentSheet(prompts: focus.recent ? RecentSheet.sent(rows.messages, queued: rows.queued.map(\.text)) : []) {

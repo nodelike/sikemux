@@ -63,18 +63,26 @@ enum ChatWords {
         return "\((sameYear ? day : dayAndYear).string(from: date)), \(clock)"
     }
 
+    /// When a message came, as the line over someone else's bubble says it: today only the time.
+    static func clock(_ at: Int, now: Date = Date()) -> String {
+        let said = sent(at, now: now)
+        return said.hasPrefix("Today, ") ? String(said.dropFirst("Today, ".count)) : said
+    }
+
     static let earlierLost = "Earlier messages are no longer kept."
 
     /// What the line under the last row says the chat is doing, from what the core says it is doing.
-    static func activity(_ activity: ChatActivity?) -> String? {
+    static func doing(_ activity: ChatActivity?) -> Doing? {
         switch activity {
         case .retrying(let retrying):
-            return (retrying.connection ? "Reconnecting…" : "Retrying…")
-                + (retrying.attempt.map { " (attempt \($0))" } ?? "")
-        case .call(let call): return activityLabel(call.row)
-        case .thinking: return "Thinking…"
-        case .starting: return "Starting agent…"
-        case .connecting: return "Connecting to agent session…"
+            let verb =
+                retrying.connection
+                ? "Reconnecting" : retrying.attempt.map { "Retrying, attempt \($0)" } ?? "Retrying"
+            return Doing(verb, retrying.reason)
+        case .call(let call): return doing(call.row)
+        case .thinking: return Doing("Thinking")
+        case .starting: return Doing("Starting agent")
+        case .connecting: return Doing("Connecting to agent session")
         default: return nil
         }
     }
@@ -84,18 +92,63 @@ enum ChatWords {
         .think: "think", .fetch: "fetch", .switchMode: "mode", .mcp: "mcp", .other: "tool",
     ]
 
-    private static let actionSentences: [ToolAction: String] = [
-        .read: "Reading…", .edit: "Editing…", .delete: "Deleting…", .move: "Moving…", .search: "Searching…",
-        .execute: "Running a command…", .think: "Thinking…", .fetch: "Fetching…", .switchMode: "Switching mode…",
+    private static let actionDoing: [ToolAction: String] = [
+        .read: "Reading", .edit: "Editing", .delete: "Deleting", .move: "Moving", .search: "Searching",
+        .execute: "Running a command", .think: "Thinking", .fetch: "Fetching", .switchMode: "Switching mode",
+        .mcp: "Working", .other: "Working",
     ]
 
-    /// The running row is one line, so it says what the agent is doing rather than quote the call back.
-    static func activityLabel(_ row: ToolRow) -> String {
-        row.activity ?? actionSentences[row.action] ?? "Working…"
+    /// What a running call is doing: its verb, and what it is on in its row's words.
+    private static func doing(_ row: ToolRow) -> Doing {
+        let target = row.target
+        let subject = row.subject ?? target
+        let agent = { (name: String) in name.isEmpty || name.hasPrefix("@") ? name : "@\(name)" }
+        let family = row.family
+        switch row.intent {
+        case .run, .test, .build, .git, .commit:
+            if family == .shell { return Doing("Running", target, typed: true) }
+            if row.intent == .commit { return Doing("Committing", target) }
+        case .wait:
+            return family == .waiting && row.subject != nil
+                ? Doing("Waiting for", agent(subject)) : Doing("Waiting", target)
+        case .message: return Doing("Messaging", agent(subject))
+        case .start: return family == .agents ? Doing("Starting", agent(subject)) : Doing("Starting", subject)
+        case .read:
+            if family == .files || family == .shell { return Doing("Reading", subject) }
+        case .view: return Doing("Reading", subject)
+        case .search:
+            return family == .web
+                ? Doing("Searching the web for", subject) : Doing("Searching for", subject, typed: true)
+        case .list: return Doing("Listing", subject)
+        case .edit: return Doing("Editing", target)
+        case .write: return Doing("Writing", target)
+        case .open: return Doing("Opening", target)
+        case .click: return Doing(family == .simulator ? "Tapping" : "Clicking", target)
+        case .type: return Doing("Typing", target)
+        case .look: return Doing("Taking a screenshot")
+        case .fetch: return Doing("Reading", target)
+        default: break
+        }
+        return Doing(row.activity ?? actionDoing[row.action] ?? "Working")
     }
 
     static func toolKind(_ tool: ToolCall) -> String {
         tool.row.verb ?? tool.row.server ?? actionWords[tool.row.action] ?? "tool"
+    }
+}
+
+/// What the agent is doing, as a verb and what it is on: the command it runs, the agent it waits for, why it retries.
+struct Doing: Equatable {
+    let verb: String
+    let what: String?
+    /// `what` is a command, set as typed.
+    let typed: Bool
+
+    init(_ verb: String, _ what: String? = nil, typed: Bool = false) {
+        let said = what?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        self.verb = verb
+        self.what = said ? what : nil
+        self.typed = said && typed
     }
 }
 

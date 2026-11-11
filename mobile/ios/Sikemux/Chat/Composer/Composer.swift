@@ -34,6 +34,8 @@ struct Composer: View {
     var onRecent: (() -> Void)?
     var question: ComposerQuestion?
     let focus: ComposerFocus
+    /// Where the chat runs, said quietly under the box.
+    var place: ChatPlaceInfo?
 
     @State private var adding: Adding?
     @State private var configuring = false
@@ -64,6 +66,7 @@ struct Composer: View {
             } else {
                 writing
             }
+            if let place { ChatPlace(place: place) }
         }
         .padding(.horizontal, 10)
         .padding(.top, 8)

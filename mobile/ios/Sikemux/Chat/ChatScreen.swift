@@ -16,6 +16,8 @@ struct ChatBottomContext {
     /// Scrolls the transcript to its end, once a message is sent.
     var onSent: () -> Void
     var focus: ComposerFocus
+    /// Where the chat runs, said quietly under the composer.
+    var place: ChatPlaceInfo?
 }
 
 struct ChatScreen: View {
@@ -255,7 +257,11 @@ private struct ChatPane: View {
                 TranscriptFooter(
                     session: session, core: core, agentId: agentId, provider: provider, hostName: hostName,
                     canAct: !watchOnly, focus: focus)
-            })
+            }
+        )
+        .onChange(of: EarlierThoughts.of(messages, running: rows.running), initial: true) { _, earlier in
+            context.earlierThoughts = earlier
+        }
     }
 
     // MARK: Around the transcript
@@ -330,7 +336,23 @@ private struct ChatPane: View {
         return ChatBottomContext(
             core: core, agentId: agentId, provider: provider, hostName: hostName, watchOnly: watchOnly,
             offline: !live.isOpen, steers: steerable(rows), strip: strip, onSent: { scroll.toEnd() },
-            focus: focus)
+            focus: focus, place: place(rows))
+    }
+
+    private func place(_ rows: ChatRows) -> ChatPlaceInfo {
+        let workspace = live.view?.workspace
+        let saved = workspace?.agents?.first { $0.id == agentId }
+        let project = workspace?.projects.first { $0.id == saved?.project }
+        let accounts = workspace?.launchers.filter { $0.provider == provider } ?? []
+        let branch = saved?.worktree?.branch.nilIfEmpty ?? project?.git?.branch
+        return ChatPlaceInfo(
+            host: Hub.shared.devices.count > 1 ? hostName : nil,
+            project: project?.name,
+            branch: branch,
+            goal: rows.head.goal,
+            account: accounts.count > 1
+                ? saved?.profileId.flatMap { profile in accounts.first { $0.id.hasSuffix(":\(profile)") }?.label } : nil
+        )
     }
 
     private func steerable(_ rows: ChatRows) -> Bool {
@@ -352,10 +374,10 @@ private struct TranscriptFooter: View {
         let rows = session.rows
         let activity =
             session.stoppingTurn
-            ? "Stopping…" : session.permissions.isEmpty ? ChatWords.activity(rows.head.activity) : nil
+            ? Doing("Stopping") : session.permissions.isEmpty ? ChatWords.doing(rows.head.activity) : nil
         VStack(alignment: .leading, spacing: 0) {
             if !rows.queued.isEmpty { QueuedLines(held: rows.queued) }
-            if let activity { ActivityLine(provider: provider, label: activity, since: session.turnSince) }
+            if let activity { ActivityLine(provider: provider, doing: activity, since: session.turnSince) }
             Trouble(
                 session: session, provider: provider, hostName: hostName,
                 canAct: canAct && session.attached == .live && Hub.shared.live(core).isOpen)

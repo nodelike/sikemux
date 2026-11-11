@@ -23,6 +23,9 @@ struct RowLook: Equatable {
     var strip: Strip?
     var editable = false
     var editing = false
+    /// The messages before and after this one are the person's own too, so they stack together.
+    var followsOwn = false
+    var followedByOwn = false
 }
 
 struct RowEntry: Equatable {

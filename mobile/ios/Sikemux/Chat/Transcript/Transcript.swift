@@ -72,6 +72,10 @@ struct Transcript<Footer: View>: View {
                 look.teamAll = folds.isOpen(Folds.teamAll(run.id), false)
             }
             if index == 0, !hasEarlier { look.worktree = worktree }
+            if message.plainlySent {
+                look.followsOwn = index > 0 && messages[index - 1].plainlySent
+                look.followedByOwn = index + 1 < messages.count && messages[index + 1].plainlySent
+            }
             self.look(message, &look)
             order.append(message.id)
             entries[message.id] = RowEntry(message: message, look: look)
@@ -122,4 +126,9 @@ struct JumpToLatest: View {
             .accessibilityLabel("Jump to latest message")
         }
     }
+}
+
+extension ChatMessage {
+    /// A message the person sent themselves, as opposed to letters or a trigger's prompt.
+    var plainlySent: Bool { role == .user && (letters ?? []).isEmpty }
 }
