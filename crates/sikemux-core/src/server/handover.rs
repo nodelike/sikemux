@@ -341,6 +341,8 @@ pub(crate) fn replace_process(core: &Core, binary: &Path, handed: &mut [HandOver
         command.arg("--chat-fd").arg(fd.to_string());
         keep.push(fd);
     }
+    let stamping = super::log_times::hand_over(&mut command);
+    keep.extend(stamping.iter().flat_map(|(_, fds)| *fds));
     for fd in &keep {
         set_close_on_exec(*fd, false);
     }
@@ -354,6 +356,7 @@ pub(crate) fn replace_process(core: &Core, binary: &Path, handed: &mut [HandOver
     for fd in &keep {
         set_close_on_exec(*fd, true);
     }
+    drop(stamping);
     let _ = std::fs::remove_dir_all(&directory);
     drop(held);
     CoreError::from(format!("could not start {}: {error}", binary.display()))

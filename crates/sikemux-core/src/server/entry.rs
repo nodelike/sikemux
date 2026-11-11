@@ -165,12 +165,15 @@ pub fn main(
             .into_iter()
             .filter_map(|fd| Some((fd, handover::file_type(fd)?)))
             .collect();
+        super::log_times::start();
+        super::reaper::watch(super::reaper::children_now());
         std::thread::spawn(sikemux_pty::user_shell::warm_login_shell_environment);
         sikemux_process::jobs::own();
         let exit = exit_code(super::on_runtime(handover::resume(recovery, build)));
         sikemux_process::jobs::leave();
         return exit;
     }
+    super::log_times::start();
     let Some(socket) = args.socket.or(default_socket) else {
         eprintln!("sikemux core: HOME is not set, so pass --socket");
         return 2;
