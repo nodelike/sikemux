@@ -118,17 +118,14 @@ pub fn picker(
     if disabled {
         return Some(trigger.opacity(0.45).into_any_element());
     }
-    let rows: Vec<(Profile, String, Arc<Image>, Option<String>, Option<f64>)> = movable
+    let rows: Vec<Row> = movable
         .iter()
-        .map(|(profile, status)| {
-            let detail = status.email.clone().or_else(|| status.organization.clone());
-            (
-                profile.clone(),
-                name(profile, Some(status)),
-                bench.accounts.avatar(profile),
-                detail,
-                accounts::used(bench, profile),
-            )
+        .map(|(profile, status)| Row {
+            profile: profile.clone(),
+            name: name(profile, Some(status)),
+            picture: bench.accounts.avatar(profile),
+            detail: status.email.clone().or_else(|| status.organization.clone()),
+            used: accounts::used(bench, profile),
         })
         .collect();
     let on = current.id.clone();
@@ -138,7 +135,14 @@ pub fn picker(
                 Anchor::BottomRight,
                 ui::menu(move |mut popup, _, _| {
                     popup = popup.min_w(px(280.));
-                    for (profile, name, picture, detail, used) in &rows {
+                    for Row {
+                        profile,
+                        name,
+                        picture,
+                        detail,
+                        used,
+                    } in &rows
+                    {
                         let here = profile.id == on;
                         let item = accounts::popup_item(
                             profile,
@@ -163,4 +167,13 @@ pub fn picker(
             )
             .into_any_element(),
     )
+}
+
+/// An account the menu offers to move to.
+struct Row {
+    profile: Profile,
+    name: String,
+    picture: Arc<Image>,
+    detail: Option<String>,
+    used: Option<f64>,
 }

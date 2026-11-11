@@ -1155,8 +1155,8 @@ fn short_kind(kind: &ResetKind) -> &str {
 fn expiry_ink(use_by: u64, now: u64, t: &Tokens) -> Hsla {
     const DAY: u64 = 86_400_000;
     match use_by.saturating_sub(now) / DAY {
-        ..7 => t.danger,
-        ..31 => t.warn,
+        0..7 => t.danger,
+        7..31 => t.warn,
         _ => t.text_tertiary,
     }
 }
