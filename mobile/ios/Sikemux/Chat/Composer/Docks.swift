@@ -44,13 +44,14 @@ struct Dock: View {
             }
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 4) {
-                    (Text(run ? "$ " : "").foregroundColor(palette.toolRun) + Text(command).foregroundColor(palette.ink))
-                        .font(Theme.mono(12.5))
-                        .lineSpacing(18 - 12.5 * 1.2)
-                        .textSelection(.enabled)
+                    Text(
+                        "\(Text(run ? "$ " : "").foregroundStyle(palette.toolRun))\(Text(command).foregroundStyle(palette.ink))"
+                    )
+                    .font(Theme.mono(12.5))
+                    .lineSpacing(18 - 12.5 * 1.2)
+                    .textSelection(.enabled)
                     if let diff {
-                        (Text("+\(diff.adds)").foregroundColor(palette.gitAdded) + Text(" ")
-                            + Text("−\(diff.dels)").foregroundColor(palette.gitDeleted))
+                        DiffText.counts(adds: diff.adds, dels: diff.dels, palette)
                             .font(Theme.mono(12.5))
                     }
                 }

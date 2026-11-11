@@ -262,8 +262,9 @@ private struct Letters: View {
                         HStack(spacing: 8) {
                             Hairline(color: palette.border)
                             AgentFaceView(agentId: letter.agentId, provider: letter.cli, size: 13)
-                            (Text("Message from ").foregroundColor(palette.inkDim)
-                                + Text("@\(letter.name)").font(Theme.ui(11.5, .semibold)).foregroundColor(palette.ink))
+                            let name = Text("@\(letter.name)").font(Theme.ui(11.5, .semibold)).foregroundStyle(
+                                palette.ink)
+                            Text("\(Text("Message from ").foregroundStyle(palette.inkDim))\(name)")
                                 .font(Theme.ui(11.5))
                                 .fixedSize()
                             Hairline(color: palette.border)

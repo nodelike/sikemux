@@ -44,9 +44,8 @@ struct HostSignInScreen: View {
                         Text("Add a host with a code")
                             .font(Theme.ui(22, .semibold)).tracking(-0.7).foregroundStyle(palette.ink)
                             .padding(.top, 20)
-                        (Text("Enter the code ")
-                            + Text("sikemux login").font(Theme.monoText).foregroundStyle(palette.ink)
-                            + Text(" shows on the computer."))
+                        let command = Text("sikemux login").font(Theme.monoText).foregroundStyle(palette.ink)
+                        Text("Enter the code \(command) shows on the computer.")
                             .font(Theme.body).lineSpacing(7).foregroundStyle(palette.secondary)
                             .multilineTextAlignment(.center).padding(.top, 8)
                     }

@@ -42,8 +42,7 @@ struct DeleteAccountScreen: View {
                                 .padding(.trailing, 8)
                             }
                         }
-                        (Text("Type ") + Text(Self.word).font(Theme.monoText).foregroundStyle(palette.ink)
-                            + Text(" to confirm"))
+                        Text("Type \(Text(Self.word).font(Theme.monoText).foregroundStyle(palette.ink)) to confirm")
                             .metaStyle(palette)
                             .padding(.top, 8)
                             .padding(.bottom, -4)
@@ -73,9 +72,8 @@ struct DeleteAccountScreen: View {
             Text("Delete your account")
                 .font(Theme.ui(22, .semibold)).tracking(-0.7).foregroundStyle(palette.ink)
                 .padding(.top, 20)
-            (Text("This deletes ")
-                + (Account.shared.user?.email.map { Text($0).foregroundStyle(palette.ink) } ?? Text("your account"))
-                + Text(". You can restore it within \(Config.restorableDays) days."))
+            let whose = Account.shared.user?.email.map { Text($0).foregroundStyle(palette.ink) } ?? Text("your account")
+            Text("This deletes \(whose). You can restore it within \(Config.restorableDays) days.")
                 .font(Theme.body).lineSpacing(7).foregroundStyle(palette.secondary)
                 .multilineTextAlignment(.center).padding(.top, 8)
         }

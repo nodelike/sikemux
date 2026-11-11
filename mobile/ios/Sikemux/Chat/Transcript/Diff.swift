@@ -2,6 +2,13 @@ import SwiftUI
 
 /// Patches as the transcript draws them.
 enum DiffText {
+    /// The lines a change added and removed, as "+3 −1" in the git colours.
+    static func counts(adds: Int, dels: Int, _ palette: Palette) -> Text {
+        let added = Text("+\(adds)").foregroundStyle(palette.gitAdded)
+        let deleted = Text("−\(dels)").foregroundStyle(palette.gitDeleted)
+        return Text("\(added) \(deleted)")
+    }
+
     private static func lines(_ text: String) -> [String] {
         guard !text.isEmpty else { return [] }
         var lines = text.components(separatedBy: "\n")

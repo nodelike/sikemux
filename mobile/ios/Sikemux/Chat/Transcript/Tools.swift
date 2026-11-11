@@ -222,8 +222,7 @@ private struct ToolRowView: View {
                     }
                     HStack(spacing: 6) {
                         if let diff = part.diff {
-                            (Text("+\(diff.adds)").foregroundColor(palette.gitAdded) + Text(" ")
-                                + Text("−\(diff.dels)").foregroundColor(palette.gitDeleted))
+                            DiffText.counts(adds: diff.adds, dels: diff.dels, palette)
                                 .font(Theme.mono(10.5))
                         }
                         if running {
@@ -278,7 +277,7 @@ private struct ToolRowView: View {
             }
         }
         var text = FileGlyph.text(words, ink: palette.inkDim, scale: scale)
-        if let detail = tool.row.detail { text = text + Text(" \(detail)").foregroundColor(palette.inkDim) }
+        if let detail = tool.row.detail { text = Text("\(text)\(Text(" \(detail)").foregroundStyle(palette.inkDim))") }
         return text
     }
 }

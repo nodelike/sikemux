@@ -349,9 +349,10 @@ struct WorktreeLine: View {
                 .frame(width: 30, height: 30)
                 .background(RoundedRectangle(cornerRadius: 7).fill(palette.accent.opacity(0.16)))
             VStack(alignment: .leading, spacing: 2) {
-                (Text("Working in a worktree on ")
-                    + Text(worktree.branch).font(Theme.mono(12)).foregroundColor(palette.ink))
-                    .font(Theme.ui(12)).foregroundStyle(palette.tertiary).lineLimit(1)
+                Text(
+                    "Working in a worktree on \(Text(worktree.branch).font(Theme.mono(12)).foregroundStyle(palette.ink))"
+                )
+                .font(Theme.ui(12)).foregroundStyle(palette.tertiary).lineLimit(1)
                 Text(worktree.path).font(Theme.mono(11.5)).foregroundStyle(palette.inkFaint).lineLimit(1)
                     .truncationMode(.head)
             }
@@ -377,7 +378,7 @@ struct FiredTrigger: View {
         VStack(alignment: .trailing, spacing: 0) {
             HStack(spacing: 5) {
                 IconView(icon: Icons.timer, size: 12).foregroundStyle(palette.cmd)
-                (Text("Trigger · ") + Text(fired.title).font(Theme.ui(11.5, .medium)).foregroundColor(palette.ink))
+                Text("Trigger · \(Text(fired.title).font(Theme.ui(11.5, .medium)).foregroundStyle(palette.ink))")
                     .font(Theme.ui(11.5)).foregroundStyle(palette.inkDim).lineLimit(1)
             }
             .padding(.bottom, 6)
@@ -402,7 +403,7 @@ struct FiredTrigger: View {
                     VStack(alignment: .leading, spacing: 8) {
                         VStack(alignment: .leading, spacing: 0) {
                             ForEach(request.headers, id: \.name) { header in
-                                (Text(header.name).foregroundColor(palette.inkFaint) + Text(" \(header.value)"))
+                                Text("\(Text(header.name).foregroundStyle(palette.inkFaint)) \(header.value)")
                                     .font(Theme.mono(11)).foregroundStyle(palette.ink).textSelection(.enabled)
                             }
                         }
@@ -478,8 +479,9 @@ struct EarlierLine: View {
         Group {
             if failed {
                 Button(action: onRetry) {
-                    (Text("Couldn't load earlier messages ·")
-                        + Text(" Retry").font(Theme.ui(12.5, .medium)).foregroundColor(palette.ink))
+                    Text(
+                        "Couldn't load earlier messages ·\(Text(" Retry").font(Theme.ui(12.5, .medium)).foregroundStyle(palette.ink))"
+                    )
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Couldn't load earlier messages. Retry")
