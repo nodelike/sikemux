@@ -145,37 +145,6 @@ struct WorktreeSwitch: View {
     }
 }
 
-/// The line above a chat's first message saying which worktree it works in: its branch, then its folder more quietly.
-struct WorktreeNote: View {
-    @Environment(\.palette) private var palette
-    let branch: String
-    let path: String
-
-    var body: some View {
-        HStack(spacing: 10) {
-            IconView(icon: Icons.git, size: 14)
-                .foregroundStyle(palette.accent)
-                .frame(width: 30, height: 30)
-                .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(palette.accent.opacity(0.16)))
-            VStack(alignment: .leading, spacing: 2) {
-                (Text("Working in a worktree on ").font(Theme.ui(12)).foregroundColor(palette.tertiary)
-                    + Text(branch).font(Theme.mono(12)).foregroundColor(palette.ink))
-                    .lineLimit(1)
-                Text(path)
-                    .font(Theme.mono(11.5))
-                    .foregroundStyle(palette.inkFaint)
-                    .lineLimit(1)
-                    .truncationMode(.head)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(.top, 12)
-        .padding(.bottom, 4)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Working in a worktree on \(branch), at \(path)")
-    }
-}
-
 /// An issue, pull request or other item handed over with a message, by its number and title rather than its whole
 /// text.
 struct ContextChips: View {
