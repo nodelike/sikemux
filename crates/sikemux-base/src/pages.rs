@@ -15,7 +15,8 @@ pub const FOLDER: &str = "pages";
 const MIB: u64 = 1024 * 1024;
 const MAX_SOURCE_BYTES: u64 = 2 * MIB;
 const MAX_IMAGE_BYTES: u64 = 10 * MIB;
-const MAX_PAGE_BYTES: usize = 25 * MIB as usize;
+/// Under the 16 MiB a connection to the core carries, so a reply can always fetch the page.
+const MAX_PAGE_BYTES: usize = 15 * MIB as usize;
 const MAX_TITLE_CHARS: usize = 120;
 /// The most of a page a reply draws, in points.
 pub const MAX_HEIGHT: u32 = 4000;
@@ -120,7 +121,7 @@ pub fn build(source: &Path) -> Result<String, String> {
     }
     if page.len() > MAX_PAGE_BYTES {
         return Err(format!(
-            "with its pictures and fonts inlined the page is {:.1} MiB; the limit is 25 MiB",
+            "with its pictures and fonts inlined the page is {:.1} MiB; the limit is 15 MiB. Each mention of a file inlines it again, so name a big picture once, and use smaller pictures and fonts",
             page.len() as f64 / MIB as f64
         ));
     }

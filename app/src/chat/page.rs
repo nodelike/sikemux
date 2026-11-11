@@ -72,6 +72,7 @@ struct Shown {
     surface: Option<NativeSurface>,
     picture: Option<Arc<Image>>,
     pointer: Pointer,
+    failed: Option<SharedString>,
 }
 
 pub(super) fn page(page: &PageRef, looks: &Looks, window: &mut Window, cx: &mut App) -> AnyElement {
@@ -87,6 +88,7 @@ pub(super) fn page(page: &PageRef, looks: &Looks, window: &mut Window, cx: &mut 
                 surface: None,
                 picture: None,
                 pointer: Pointer::default(),
+                failed: None,
             },
         );
         fetch(page, looks, window, cx);
@@ -98,6 +100,9 @@ pub(super) fn page(page: &PageRef, looks: &Looks, window: &mut Window, cx: &mut 
         shown.picture.clone(),
         shown.pointer.clone(),
     );
+    if let Some(failed) = shown.failed.clone() {
+        return ui::meta(format!("Could not show {}: {failed}", page.title), cx).into_any_element();
+    }
     if page.tab {
         return card(page, picture, looks, cx);
     }
@@ -310,8 +315,17 @@ fn fetch(page: &PageRef, looks: &Looks, window: &mut Window, cx: &mut App) {
     let (bench, agent) = (looks.bench.clone(), looks.agent.clone());
     window
         .spawn(cx, async move |cx| {
-            let Ok(answer) = answer.await else {
-                return;
+            let answer = match answer.await {
+                Ok(answer) => answer,
+                Err(error) => {
+                    let _ = cx.update(|_, cx| {
+                        if let Some(shown) = cx.global_mut::<Pages>().shown.get_mut(&id) {
+                            shown.failed = Some(error.into());
+                        }
+                        reader.update(cx, |_, cx| cx.notify());
+                    });
+                    return;
+                }
             };
             if tab {
                 let picture = answer
