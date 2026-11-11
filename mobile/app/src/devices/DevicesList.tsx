@@ -1,10 +1,9 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Pressable, RefreshControl, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import { router, useIsFocused } from 'expo-router';
 import { useUser } from '@clerk/expo';
 import * as Clipboard from 'expo-clipboard';
 import type { Device } from '@sikemux/protocol';
-import { agentLabel } from '@shared/agents/catalog';
 
 import { AccountSheet } from '@/account/AccountSheet';
 import { Avatar } from '@/account/Avatar';
@@ -14,10 +13,11 @@ import { reloadDevices, retry, useHostStatus, useLive } from '@/devices/hub';
 import { channelLabel, deviceKind, deviceName, type PairedDevice } from '@/devices/paired';
 import { summary } from '@/devices/status';
 import { haptics } from '@/ui/haptics';
-import { AgentIcon, DeviceIcon, Icon } from '@/ui/Icon';
+import { DeviceIcon, Icon } from '@/ui/Icon';
 import { Button, IconButton } from '@/ui/controls';
 import { Screen, useBottomGap } from '@/ui/screen';
-import { NeedsYou, Working } from '@/devices/AgentMarks';
+import { Working } from '@/devices/AgentMarks';
+import { AgentFace, FacesContext } from '@/devices/Buddy';
 import { fonts, type Palette, radius, typeFor, useColors, useStyles } from '@/ui/theme';
 
 /** `onAccount` is the host as the account lists it; `offAccount` says the account no longer lists it, as after a reinstall. */
@@ -31,7 +31,6 @@ function DeviceCard({ device, onAccount, offAccount }: { device: PairedDevice; o
   // A host being reached again keeps its card lit until a try fails, so cards don't flicker on every retry.
   const away = !status.online && !(status.connecting && !status.problem);
   const snapshot = status.online ? live.snapshot : undefined;
-  const needs = snapshot?.inbox.items[0]?.tier === 'needs' ? snapshot.inbox.items[0] : undefined;
   const working = snapshot?.inbox.working ?? 0;
   const rollup = snapshot?.inbox.rollup;
   const background = (rollup?.subagents ?? 0) + (rollup?.tasks ?? 0);
@@ -40,55 +39,49 @@ function DeviceCard({ device, onAccount, offAccount }: { device: PairedDevice; o
   const channel = channelLabel(device.channel);
   const state = offAccount ? 'Not on your account' : snapshot ? summary(snapshot) : status.online ? 'Connecting…' : status.line;
   const meta = device.access === 'watch' ? `Watch only · ${state}` : state;
+  const agents = snapshot?.workspace.agents;
+  const style = snapshot?.faceStyle;
+  const faces = useMemo(
+    () => (agents && style ? { faces: Object.fromEntries(agents.map((agent) => [agent.id, agent.face ?? null])), style } : undefined),
+    [agents, style],
+  );
 
   return (
-    <Pressable
-      onPress={() => router.push(`/device/${device.core}`)}
-      accessibilityRole="button"
-      style={({ pressed }) => [styles.card, away && styles.away, pressed && { opacity: 0.85 }]}>
-      <View style={styles.head}>
-        <View style={styles.glyph}>
-          <DeviceIcon kind={deviceKind(device.model)} color={away ? colors.tertiary : colors.ink} />
-          <View style={[styles.presence, away ? styles.presenceOff : styles.presenceOn]} />
-        </View>
-        <View style={{ flex: 1 }}>
-          <Text style={[styles.name, away && { color: colors.tertiary }]} numberOfLines={1}>
-            {onAccount?.name || deviceName(device)}
-          </Text>
-          <Text style={styles.meta} numberOfLines={1}>
-            {channel ? `${channel} · ${meta}` : meta}
-          </Text>
-        </View>
-        <Icon name="IconChevron" size={14} color={colors.rest} />
-      </View>
-      {needs ? (
-        <View style={[styles.ask, !busy.length && styles.askLast]}>
-          <AgentIcon provider={needs.cli ?? ''} size={16} />
+    <FacesContext.Provider value={faces}>
+      <Pressable
+        onPress={() => router.push(`/device/${device.core}`)}
+        accessibilityRole="button"
+        style={({ pressed }) => [styles.card, away && styles.away, pressed && { opacity: 0.85 }]}>
+        <View style={styles.head}>
+          <View style={styles.glyph}>
+            <DeviceIcon kind={deviceKind(device.model)} color={away ? colors.tertiary : colors.ink} />
+            <View style={[styles.presence, away ? styles.presenceOff : styles.presenceOn]} />
+          </View>
           <View style={{ flex: 1 }}>
-            <Text style={styles.askTitle} numberOfLines={1}>
-              {needs.title ?? needs.card?.title ?? needs.name ?? agentLabel(needs.cli ?? 'agent')}
+            <Text style={[styles.name, away && { color: colors.tertiary }]} numberOfLines={1}>
+              {onAccount?.name || deviceName(device)}
             </Text>
-            <Text style={styles.askDetail} numberOfLines={1}>
-              {needs.detail ? `${needs.what} · ${needs.detail}` : needs.what}
+            <Text style={styles.meta} numberOfLines={1}>
+              {channel ? `${channel} · ${meta}` : meta}
             </Text>
           </View>
-          <NeedsYou />
+          <Icon name="IconChevron" size={14} color={colors.rest} />
         </View>
-      ) : null}
-      {busy.length ? (
-        <View style={styles.work}>
-          <View style={styles.faces}>
-            {busy.slice(0, 4).map((agent, index) => (
-              <View key={agent.agentId} style={[styles.face, index > 0 && styles.faceAfter]}>
-                <AgentIcon provider={agent.cli} size={18} />
-              </View>
-            ))}
+        {busy.length ? (
+          <View style={styles.work}>
+            <View style={styles.faces}>
+              {busy.slice(0, 4).map((agent, index) => (
+                <View key={agent.agentId} style={[styles.face, index > 0 && styles.faceAfter]}>
+                  <AgentFace agentId={agent.agentId} provider={agent.cli} group={agent.group} size={18} />
+                </View>
+              ))}
+            </View>
+            <Text style={styles.workText}>{work}</Text>
+            {working ? <Working /> : null}
           </View>
-          <Text style={styles.workText}>{work}</Text>
-          {working ? <Working /> : null}
-        </View>
-      ) : null}
-    </Pressable>
+        ) : null}
+      </Pressable>
+    </FacesContext.Provider>
   );
 }
 
@@ -331,21 +324,6 @@ const makeStyles = (colors: Palette) => {
       backgroundColor: colors.raised,
     },
     connectText: { fontFamily: fonts.uiSemibold, fontSize: 14, color: colors.ink },
-    ask: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 10,
-      marginHorizontal: 8,
-      paddingVertical: 10,
-      paddingHorizontal: 12,
-      borderRadius: 10,
-      borderWidth: 1,
-      borderColor: colors.borderStrong,
-      backgroundColor: colors.overlay,
-    },
-    askLast: { marginBottom: 8 },
-    askTitle: { fontFamily: fonts.uiMedium, fontSize: 13.5, color: colors.ink },
-    askDetail: { ...type.meta, fontSize: 12.5, marginTop: 1 },
     work: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 14 },
     faces: { flexDirection: 'row' },
     face: { width: 18, height: 18, alignItems: 'center', justifyContent: 'center' },

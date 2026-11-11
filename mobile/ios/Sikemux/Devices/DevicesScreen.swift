@@ -107,7 +107,6 @@ private struct DeviceCard: View {
         // A host being reached again keeps its card lit until a try fails, so cards don't flicker on every retry.
         let away = !status.online && !(status.connecting && status.problem == nil)
         let view = status.online ? live.view : nil
-        let needs = view?.inbox.items.first.flatMap { $0.tier == .needs ? $0 : nil }
         let working = view?.inbox.working ?? 0
         let background = (view?.inbox.rollup?.subagents ?? 0) + (view?.inbox.rollup?.tasks ?? 0)
         let busy = (view?.inbox.agents ?? []).filter { $0.group == .working || $0.background }
@@ -149,40 +148,12 @@ private struct DeviceCard: View {
                 .padding(.vertical, 14)
                 .padding(.leading, 16)
                 .padding(.trailing, 14)
-                if let needs {
-                    HStack(spacing: 10) {
-                        AgentMark(provider: needs.cli ?? "", size: 16)
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(
-                                needs.title ?? needs.card?.title ?? needs.name.map { "@\($0)" }
-                                    ?? Catalog.label(needs.cli ?? "agent", core: device.core)
-                            )
-                            .font(Theme.ui(13.5, .medium))
-                            .foregroundStyle(palette.ink)
-                            .lineLimit(1)
-                            Text(needs.detail.map { "\(needs.what) · \($0)" } ?? needs.what)
-                                .font(Theme.ui(12.5))
-                                .foregroundStyle(palette.tertiary)
-                                .lineLimit(1)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        NeedsYou()
-                    }
-                    .padding(.vertical, 10)
-                    .padding(.horizontal, 12)
-                    .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(palette.overlay))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(
-                            palette.borderStrong, lineWidth: 1)
-                    )
-                    .padding(.horizontal, 8)
-                    .padding(.bottom, busy.isEmpty ? 8 : 0)
-                }
                 if !busy.isEmpty {
                     HStack(spacing: 10) {
                         HStack(spacing: -5) {
                             ForEach(busy.prefix(4), id: \.agentId) { agent in
-                                AgentMark(provider: agent.cli, size: 18).frame(width: 18, height: 18)
+                                AgentFaceView(agentId: agent.agentId, provider: agent.cli, group: agent.group, size: 18)
+                                    .frame(width: 18, height: 18)
                             }
                         }
                         Text(work)
@@ -201,6 +172,7 @@ private struct DeviceCard: View {
             .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
         .buttonStyle(CardPress())
+        .environment(\.faces, Faces(view))
         .watching(device.core)
     }
 }
