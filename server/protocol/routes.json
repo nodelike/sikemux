@@ -858,6 +858,9 @@
       "operationId": "listVaultUses",
       "summary": "Which agents on which hosts used the vault's entries in the last 30 days",
       "auth": "sessionDeviceOrMac",
+      "query": {
+        "entry": "VaultEntryId"
+      },
       "responses": {
         "200": {
           "description": "Up to 500 uses, the most recent first.",

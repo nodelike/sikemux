@@ -406,12 +406,16 @@ impl sikemux_plugin_api::vault::Listing for Profile {
     }
 
     /// The login, which every database on its server shares, since one password covers them.
+    /// A server on this machine has none, since each host's is a different one.
     fn identity(&self) -> Option<String> {
         let (engine, server, port) = match &self.target {
             Target::Postgres(server) => ("postgres", server, POSTGRES_PORT),
             Target::Mysql(server) => ("mysql", server, crate::engines::mysql::MYSQL_PORT),
             Target::Sqlite { .. } => return None,
         };
+        if is_loopback(&server.host) {
+            return None;
+        }
         Some(format!(
             "{engine}:{}@{}:{}",
             server.user,
@@ -419,6 +423,15 @@ impl sikemux_plugin_api::vault::Listing for Profile {
             server.port.unwrap_or(port)
         ))
     }
+}
+
+fn is_loopback(host: &str) -> bool {
+    host.eq_ignore_ascii_case("localhost")
+        || host
+            .trim_start_matches('[')
+            .trim_end_matches(']')
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|ip| ip.is_loopback())
 }
 
 pub static BOOK: sikemux_plugin_api::vault::Listed<Profile> =

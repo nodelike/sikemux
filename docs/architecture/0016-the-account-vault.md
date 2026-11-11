@@ -5,7 +5,8 @@
 - Amended: 2026-10-19, to say which credentials are shared and how a per-host agent login stays
   within the vendors' terms, and that agents from a linked host use none of them until allowed;
   2026-11-11, to say how sign-ins a host already has move in, and what the server sees, how a
-  host gets the key and how a shared sign-in is refreshed
+  host gets the key and how a shared sign-in is refreshed, and what holds against a server
+  that turns hostile
 
 ## Context
 
@@ -77,6 +78,14 @@ when its home goes away.
   entry until they allow it. The vault key is wrapped with each host's Ed25519 key taken as its
   X25519 key, and the recovery key is an X25519 key the hosts know only the public half of, so a
   host that replaces the vault key wraps the new one for it as well.
+- **What holds against a server that turns hostile.** Someone who reads the server's data, or
+  takes a copy of it, gets nothing of the vault: it keeps only sealed entries and wrapped keys.
+  Each host keeps the recovery key it first saw the vault with and refuses a vault that names
+  another, so the server cannot swap in a recovery key of its own. A server that lies in what it
+  answers can still list a host key of its own among the hosts waiting to join: the hosts wrap the
+  vault key for every host the account lists, since nothing yet lets them tell a real one apart,
+  so such a server could read the vault from then on. Wrapping the key only for hosts whose join
+  another host saw would close that.
 - **The host that refreshes a shared sign-in renews it ahead of time.** It seals each new access
   token into the entry before the old one runs out, and the other hosts use that token rather than
   refreshing. Whichever host writes a newer token for the same identity becomes the one that

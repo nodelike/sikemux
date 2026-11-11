@@ -26,7 +26,7 @@ An agent that finds a connector signed out asks you to sign in here. It can't si
 
 ## Account vault
 
-Once your computer is signed in to your Sikemux account, its connector sign-ins and saved database logins move into the account's vault. Each one is sealed with a key the accounts server never sees, so the server keeps them for you but can't read them. The computer keeps its own copy in the Keychain, and Sikemux updates that copy whenever a sign-in changes.
+Once your computer is signed in to your Sikemux account, its connector sign-ins and saved database logins move into the account's vault. Each one is sealed with a key the accounts server is never sent, so the server keeps them for you but can't read them. Your computers trust the server's list of which computers are on your account, though: a server that lied about that list could be handed the key. The computer keeps its own copy in the Keychain, and Sikemux updates that copy whenever a sign-in changes.
 
 The first computer on your account makes the vault and shows **Account vault** at the top of **Settings → Connectors**, with a recovery key. It's shown once. Save it somewhere only you can reach: if every computer that holds the vault is lost, it's the only way back in. **I saved it** hides it. A computer that joins later gets the vault's key from one that already holds it. Until then it says it's waiting and offers a box for the recovery key.
 

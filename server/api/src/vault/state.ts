@@ -86,12 +86,13 @@ export async function vaultState(
   return { vault: state };
 }
 
-/** Uses of the account's entries in the last 30 days, most recent first. */
+/** Uses of the account's entries, or of the one entry asked for, in the last 30 days, most recent first. */
 export async function vaultUses(
   db: Kysely<Tables>,
   userId: string,
+  entry?: string,
 ): Promise<VaultUses> {
-  const rows = await db
+  let query = db
     .selectFrom("vault_uses")
     .leftJoin("devices", (join) =>
       join
@@ -109,7 +110,10 @@ export async function vaultUses(
       "vault_uses.last_at",
     ])
     .where("vault_uses.user_id", "=", userId)
-    .where("vault_uses.last_at", ">", sql<Date>`now() - interval '30 days'`)
+    .where("vault_uses.last_at", ">", sql<Date>`now() - interval '30 days'`);
+  if (entry !== undefined)
+    query = query.where("vault_uses.entry_id", "=", entry);
+  const rows = await query
     .orderBy("vault_uses.last_at", "desc")
     .orderBy("vault_uses.id", "desc")
     .limit(500)

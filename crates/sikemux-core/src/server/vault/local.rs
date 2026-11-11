@@ -8,6 +8,8 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sikemux_plugin_api::vault::SignIn;
 
+use super::Scope;
+
 const RECOVERY_SERVICE: &str = if cfg!(debug_assertions) {
     "sikemux-vault-recovery-dev"
 } else {
@@ -25,6 +27,21 @@ pub(super) struct Local {
     /// This host's sign-ins went into the vault once, as it made or joined it.
     pub moved_in: bool,
     pub applied: BTreeMap<String, Applied>,
+    /// This host's key on the account, and who may use each entry it holds, so a core that
+    /// has not reached the account since it started still keeps to them.
+    pub host: String,
+    pub rules: BTreeMap<String, Rule>,
+}
+
+/// Who may use an entry and who refreshes it, without its secrets.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct Rule {
+    pub label: String,
+    /// The secrets it holds, by service and account.
+    pub secrets: Vec<(String, String)>,
+    pub refresher: String,
+    pub access: BTreeMap<String, Scope>,
 }
 
 /// An entry as this host's secret store holds it.
@@ -48,11 +65,13 @@ fn path(data_dir: &Path) -> PathBuf {
     data_dir.join("vault.json")
 }
 
+pub(super) fn read(data_dir: Option<&Path>) -> Option<Local> {
+    let bytes = std::fs::read(path(data_dir?)).ok()?;
+    serde_json::from_slice(&bytes).ok()
+}
+
 pub(super) fn load(data_dir: Option<&Path>, account: &str, vault: &str) -> Local {
-    let read = data_dir
-        .and_then(|dir| std::fs::read(path(dir)).ok())
-        .and_then(|bytes| serde_json::from_slice::<Local>(&bytes).ok())
-        .filter(|local| local.account == account && local.vault == vault);
+    let read = read(data_dir).filter(|local| local.account == account && local.vault == vault);
     read.unwrap_or_else(|| Local {
         account: account.to_owned(),
         vault: vault.to_owned(),

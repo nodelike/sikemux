@@ -466,17 +466,22 @@ pub(crate) async fn call_agent_tool(
             "{name} did nothing: leave out the line crediting Claude, such as \"Generated with Claude Code\" or a Co-Authored-By trailer."
         ));
     }
-    let deploy = super::ship::check_tool(core, request, name, &arguments).await?;
-    if let Some(gated) = plugins.gated(name) {
-        return super::approvals::propose(core, request, gated, arguments).await;
-    }
     let caller = caller_of(core, request);
-    sikemux_plugin_api::vault::as_caller(caller, run_agent_tool(core, name, arguments, deploy))
-        .await
+    sikemux_plugin_api::vault::as_caller(caller.clone(), async move {
+        let deploy = super::ship::check_tool(core, request, name, &arguments).await?;
+        if let Some(gated) = plugins.gated(name) {
+            return super::approvals::propose(core, request, gated, arguments, caller).await;
+        }
+        run_agent_tool(core, name, arguments, deploy).await
+    })
+    .await
 }
 
 /// The agent a tool call is for, as the account vault checks and logs it.
-fn caller_of(core: &Core, request: &HarnessRequest) -> sikemux_plugin_api::vault::Caller {
+pub(crate) fn caller_of(
+    core: &Core,
+    request: &HarnessRequest,
+) -> sikemux_plugin_api::vault::Caller {
     let named = request
         .agent_id
         .as_deref()

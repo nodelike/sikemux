@@ -42,6 +42,9 @@ pub(super) async fn run(core: Weak<Core>) {
     let Some(wake) = core.upgrade().map(|core| core.vault.wake.clone()) else {
         return;
     };
+    if let Some(core) = core.upgrade() {
+        keep_to_rules(&core).await;
+    }
     loop {
         if tokio::time::timeout(TICK, wake.notified()).await.is_ok() {
             tokio::time::sleep(SETTLE).await;
@@ -104,17 +107,22 @@ async fn round(core: &Arc<Core>) -> CoreResult<()> {
     if moved {
         let reading = account.clone();
         let data_dir = core.config.data_dir.clone();
-        let (recovery_text, kept) = blocking(move || {
+        let (recovery_text, kept, rules) = blocking(move || {
             let kept = local::kept_uses::<KeptUse>(data_dir.as_deref())
                 .filter(|kept| kept.account == reading)
                 .map(|kept| kept.uses)
                 .unwrap_or_default();
-            Ok((local::recovery(&reading), kept))
+            let rules = local::read(data_dir.as_deref())
+                .filter(|local| local.account == reading)
+                .map(|local| local.rules)
+                .unwrap_or_default();
+            Ok((local::recovery(&reading), kept, rules))
         })
         .await?;
         *core.vault.state.locked() = State {
             account: Some(account.clone()),
             me: Some(me.clone()),
+            rules,
             recovery_text,
             opened_at: epoch_ms(),
             uses: kept
@@ -152,6 +160,7 @@ async fn open(
                 .ok_or_else(|| CoreError::from("the account has no vault after making one"))?
         }
     };
+    check_recovery_key(core, account, &vault.recovery_key).await?;
     let listed: DeviceList = as_host(core, Method::GET, "/v1/devices?role=host", None).await?;
     let context = seal::wrap_context(account, vault.generation, me);
     let key = vault
@@ -201,6 +210,40 @@ async fn open(
         add_keys(core, account, &vault, &key).await?;
     }
     Ok(Some((key, vault)))
+}
+
+/// Holds the server to the recovery key this host first saw the vault with, since it wraps the
+/// vault key for that key whenever it replaces it. Also drops a kept recovery key that is not
+/// this vault's, as a host that lost the race to make the vault keeps.
+async fn check_recovery_key(core: &Core, account: &str, recovery_key: &str) -> CoreResult<()> {
+    let data_dir = core.config.data_dir.clone();
+    let pinned = blocking(move || Ok(local::read(data_dir.as_deref())))
+        .await?
+        .filter(|local| local.account == account && !local.vault.is_empty())
+        .map(|local| local.vault);
+    if pinned.is_some_and(|pinned| pinned != recovery_key) {
+        return Err(CoreError::from(
+            "the accounts server sent a vault recovery key this host has not seen before, so it does not trust it",
+        ));
+    }
+    let stale = core
+        .vault
+        .state
+        .locked()
+        .recovery_text
+        .as_deref()
+        .is_some_and(|text| {
+            seal::recovery_secret(text).is_none_or(|secret| {
+                hex::encode(seal::public_of(&secret).as_bytes()) != recovery_key
+            })
+        });
+    if stale {
+        core.vault.state.locked().recovery_text = None;
+        let account = account.to_owned();
+        blocking(move || local::forget_recovery(&account).map_err(CoreError::from)).await?;
+        super::inbox_changed(core);
+    }
+    Ok(())
 }
 
 async fn create(core: &Arc<Core>, account: &str, me: &str, secret: &Key) -> CoreResult<()> {
@@ -296,7 +339,7 @@ async fn rotate(
         }
         entries.push(VaultEntryReseal {
             id: entry.id.clone(),
-            sealed: seal_body(&next, &entry.id, generation, &body)?,
+            sealed: seal_body(&next, &entry.id, generation, entry.revision, &body)?,
             revision: entry.revision,
         });
     }
@@ -311,13 +354,30 @@ async fn rotate(
 }
 
 fn open_body(key: &Key, entry: &VaultEntry) -> Option<Body> {
-    let plain = seal::open_entry(key, &entry.id, entry.generation, &entry.sealed)?;
+    let place = seal::Place {
+        id: &entry.id,
+        generation: entry.generation,
+        revision: entry.revision,
+    };
+    let plain = seal::open_entry(key, place, &entry.sealed)?;
     serde_json::from_slice(&plain).ok()
 }
 
-fn seal_body(key: &Key, id: &str, generation: i64, body: &Body) -> CoreResult<String> {
+/// Seals a body for the write made at `read_at`, which the server stores one revision on.
+fn seal_body(
+    key: &Key,
+    id: &str,
+    generation: i64,
+    read_at: i64,
+    body: &Body,
+) -> CoreResult<String> {
     let plain = serde_json::to_vec(body)?;
-    seal::seal_entry(key, id, generation, &plain)
+    let place = seal::Place {
+        id,
+        generation,
+        revision: read_at + 1,
+    };
+    seal::seal_entry(key, place, &plain)
         .ok_or_else(|| CoreError::from("a vault entry could not be sealed"))
 }
 
@@ -390,6 +450,7 @@ fn plan(
             match found {
                 Some((id, entry)) => match local.applied.get(id) {
                     Some(applied) if applied.digest == digest => {}
+                    Some(_) if !entry.body.access.contains_key(me) => {}
                     Some(_) => writes.push(Write {
                         id: id.clone(),
                         body: owned_body(&entry.body, sign_in.clone(), me, now),
@@ -634,6 +695,7 @@ async fn reconcile(
             })
             .collect();
         state.entries = entries.clone();
+        state.rules.clear();
         state.reindex();
         pending
     };
@@ -668,7 +730,10 @@ async fn reconcile(
     })
     .await?;
     for (id, body) in pending {
-        if plan.writes.iter().any(|write| write.id == id) {
+        if let Some(write) = plan.writes.iter_mut().find(|write| write.id == id) {
+            if write.body.refresher == me {
+                write.body.shared = body.shared;
+            }
             continue;
         }
         let revision = entries.get(&id).map_or(0, |entry| entry.revision);
@@ -684,7 +749,13 @@ async fn reconcile(
         let put = VaultEntryPut {
             plugin: write.body.plugin.clone(),
             generation: vault.generation,
-            sealed: seal_body(&key, &write.id, vault.generation, &write.body)?,
+            sealed: seal_body(
+                &key,
+                &write.id,
+                vault.generation,
+                write.revision,
+                &write.body,
+            )?,
             revision: write.revision,
         };
         let path = format!("/v1/vault/entries/{}", write.id);
@@ -729,6 +800,8 @@ async fn reconcile(
     let mut local = plan.local;
     blocking(move || {
         apply(&books, &entries, &mut local, &me);
+        local.rules = rules_of(&entries, &local);
+        local.host = me;
         local::save(data_dir.as_deref(), &local).map_err(CoreError::from)
     })
     .await?;
@@ -739,7 +812,44 @@ async fn reconcile(
     Ok(())
 }
 
-/// Sends the uses logged since the last time, keeping them for next time if it fails.
+/// Until this host reaches the account, its keeper holds to the rules it kept when it last did.
+async fn keep_to_rules(core: &Core) {
+    let data_dir = core.config.data_dir.clone();
+    let Ok(Some(local)) = blocking(move || Ok(local::read(data_dir.as_deref()))).await else {
+        return;
+    };
+    if core.remote.owner().as_deref() != Some(local.account.as_str()) {
+        return;
+    }
+    let mut state = core.vault.state.locked();
+    if state.account.is_none() && !local.host.is_empty() {
+        state.me = Some(local.host);
+        state.rules = local.rules;
+    }
+}
+
+fn rules_of(entries: &BTreeMap<String, Entry>, local: &Local) -> BTreeMap<String, local::Rule> {
+    local
+        .applied
+        .keys()
+        .filter_map(|id| {
+            let body = &entries.get(id)?.body;
+            let rule = local::Rule {
+                label: body.sign_in.label.clone(),
+                secrets: body
+                    .sign_in
+                    .secrets
+                    .iter()
+                    .map(|kept| (kept.service.clone(), kept.account.clone()))
+                    .collect(),
+                refresher: body.refresher.clone(),
+                access: body.access.clone(),
+            };
+            Some((id.clone(), rule))
+        })
+        .collect()
+}
+
 /// One entry's unsent uses by one actor, as the disk keeps them.
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -790,6 +900,7 @@ async fn save_uses(core: &Core) {
     }
 }
 
+/// Sends the uses logged since the last time, keeping them for next time if it fails.
 async fn send_uses(core: &Arc<Core>) {
     let (taken, uses) = {
         let mut state = core.vault.state.locked();
@@ -812,6 +923,7 @@ async fn send_uses(core: &Arc<Core>) {
     if uses.is_empty() {
         return;
     }
+    let mut taken = taken;
     let mut sent = true;
     for chunk in uses.chunks(200) {
         let add = VaultUsesAdd {
@@ -823,6 +935,9 @@ async fn send_uses(core: &Arc<Core>) {
             eprintln!("sikemux core: the account vault's uses were not sent: {error}");
             sent = false;
             break;
+        }
+        for each in chunk {
+            taken.remove(&(each.entry_id.clone(), each.actor.clone()));
         }
     }
     if !sent {
@@ -947,7 +1062,7 @@ pub(super) async fn set_access(
         let put = VaultEntryPut {
             plugin: entry.body.plugin.clone(),
             generation,
-            sealed: seal_body(&key, id, generation, &entry.body)?,
+            sealed: seal_body(&key, id, generation, entry.revision, &entry.body)?,
             revision: entry.revision,
         };
         host_request(core, Method::PUT, &path, Some(json!(put))).await?;
