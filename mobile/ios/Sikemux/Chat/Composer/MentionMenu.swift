@@ -63,7 +63,7 @@ final class MentionSearch {
     private var live: HostLive { Hub.shared.live(core) }
     private var view: DeviceView? { live.view }
     private var own: WorkspaceAgent? { view?.workspace.agents?.first { $0.id == session.agentId } }
-    private var project: ProjectInfo? { view?.workspace.projects.first { $0.id == own?.project } }
+    private var project: ProjectInfo? { view?.project(id: own?.project) }
 
     /// Asks the host for what `typed` names, once for each word typed.
     func ask(_ typed: Typed?) {
@@ -177,7 +177,7 @@ final class MentionSearch {
                 return MentionRow(
                     id: "\(Mentions.agent)\(agent.id)", title: "@\(name)", detail: agent.title,
                     group: agent.project == project?.id
-                        ? nil : view.workspace.projects.first { $0.id == agent.project }?.name,
+                        ? nil : view.project(id: agent.project)?.name,
                     mark: .agent(id: agent.id, provider: agent.provider), state: groups[agent.id] ?? nil,
                     take: { write("@\(name)", "\(Mentions.agent)\(agent.id)", nil, nil) }
                 )

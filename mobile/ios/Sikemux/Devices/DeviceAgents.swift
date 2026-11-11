@@ -336,7 +336,7 @@ struct Terminals: View {
         var order: [String] = []
         var groups: [String: [SessionInfo]] = [:]
         for session in view.sessions where scope == nil || session.project == scope?.id {
-            let project = view.workspace.projects.first { $0.id == session.project }?.name ?? "Other"
+            let project = view.project(id: session.project)?.name ?? "Other"
             if groups[project] == nil { order.append(project) }
             groups[project, default: []].append(session)
         }
