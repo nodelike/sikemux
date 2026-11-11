@@ -170,7 +170,7 @@ pub(crate) fn vault(core: &Core) -> ShownVault {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AllowParams {
     pub entry: String,
@@ -191,7 +191,7 @@ pub(crate) async fn allow(core: &Arc<Core>, params: AllowParams) -> CoreResult<(
     .await
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RevokeParams {
     pub entry: String,
@@ -223,7 +223,7 @@ pub(crate) async fn recovery_saved(core: &Arc<Core>) -> CoreResult<()> {
     Ok(())
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub struct RecoverParams {
     pub key: String,
 }
@@ -232,7 +232,7 @@ pub(crate) async fn recover(core: &Arc<Core>, params: RecoverParams) -> CoreResu
     sync::recover(core, &params.key).await
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub struct UsesParams {
     pub entry: String,
 }
