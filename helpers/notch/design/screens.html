@@ -697,6 +697,7 @@ class Island {
         this.channel = opts.channel || "prod";
         this.agents = opts.agents || freshAgents();
         this.alerts = opts.alerts || [];
+        this.busy = opts.busy || null;
         this.mode = opts.mode || "closed";
         this.tab = opts.tab || "agents";
         this.peekAgent = opts.peekAgent || null;
@@ -897,7 +898,12 @@ class Island {
                     <div style="margin-top:14px"><button class="btn primary" data-tab="new">${GLYPH.plus.replace("<svg", '<svg width="12" height="12"')} New agent</button></div></div>`;
             } else {
                 const items = listed(this.agents);
-                body = this.alerts.map((h) => `
+                body = (this.busy ? `
+                    <div class="row">
+                        <span class="mark host">${GLYPH.server}</span>
+                        <span class="head"><span class="title">Mac busy</span></span>
+                        <span class="proj">${this.busy}</span>
+                    </div>` : "") + this.alerts.map((h) => `
                     <div class="row">
                         <span class="mark host${h.level === "danger" ? " danger" : ""}">${GLYPH.server}</span>
                         <span class="head"><span class="title">${h.what}</span><span class="time">${h.time}</span></span>
@@ -1211,6 +1217,9 @@ const SECTIONS = [
             { id: "O6", name: "A host in trouble", when: "Opened while a host on the account is short of memory or disk, busy on every core, or out of reach.",
               shows: "Above the agents, a row for each alert: the server in amber, or red once it is serious, what is wrong with how long ago, then the host's name. Clicking it opens the Hosts page in Sikemux on that host.",
               opts: { agents: () => only(["a2", "a4", "a11"]), alerts: [{ host: "mini", what: "Memory 92% used", time: "2:04", level: "danger" }, { host: "forge", what: "CPU 97% busy", time: "20:31", level: "warn" }], mode: "open" } },
+            { id: "O7", name: "Mac busy", when: "Opened while this Mac is overloaded: more threads want to run than its cores take, so agents' simulators and builds wait their turn.",
+              shows: "At the top, one amber row: the server, Mac busy, then the load against the cores and how many of agents' builds run or wait. Clicking it brings Sikemux forward, whose title bar lists them with Stop on each.",
+              opts: { agents: () => only(["a2", "a4", "a11"]), busy: "load 180 on 10 cores · 3 builds", mode: "open" } },
         ],
     },
     {

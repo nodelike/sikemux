@@ -97,7 +97,7 @@ struct AgentList: View {
     let marks: Namespace.ID
 
     var body: some View {
-        if store.entries.isEmpty && store.view.hostAlerts.isEmpty {
+        if store.entries.isEmpty && store.view.hostAlerts.isEmpty && store.view.busy == nil {
             VStack(spacing: 14) {
                 Text("No agents open").font(Theme.ui(13)).foregroundStyle(Theme.inkDim)
                 Button {
@@ -121,6 +121,9 @@ struct AgentList: View {
         } else {
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 0) {
+                    if let busy = store.view.busy {
+                        BusyRow(store: store, busy: busy)
+                    }
                     ForEach(store.view.hostAlerts) { alert in
                         HostAlertRow(store: store, entry: alert)
                     }
@@ -186,6 +189,34 @@ struct HostAlertRow: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 Text(entry.title).font(Theme.ui(11.5)).foregroundStyle(Theme.inkDim).lineLimit(1)
                     .frame(maxWidth: 150, alignment: .trailing).fixedSize()
+            }
+            .padding(.horizontal, 12)
+            .frame(height: 36)
+            .background(RoundedRectangle(cornerRadius: 12).fill(hovering ? Theme.hover : .clear))
+            .contentShape(RoundedRectangle(cornerRadius: 12))
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+    }
+}
+
+/// This Mac overloaded by agents' work: the server in amber, Mac busy, then the load and the builds.
+struct BusyRow: View {
+    let store: NotchStore
+    let busy: String
+    @State private var hovering = false
+
+    var body: some View {
+        Button {
+            store.openApp()
+        } label: {
+            HStack(spacing: 10) {
+                IconView(icon: Icons.server, size: 16)
+                    .foregroundStyle(Theme.warn)
+                    .frame(width: 20, height: 20)
+                Text("Mac busy").font(Theme.ui(13, .medium)).foregroundStyle(Theme.ink).lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Text(busy).font(Theme.ui(11.5)).foregroundStyle(Theme.inkDim).lineLimit(1).fixedSize()
             }
             .padding(.horizontal, 12)
             .frame(height: 36)
