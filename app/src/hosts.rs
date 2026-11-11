@@ -672,14 +672,6 @@ pub fn reach(bench: &Workbench, row: &HostRow) -> HostReach {
     }
 }
 
-/// How busy a host is, as its row shows it, from what its core sends in its view.
-pub fn load_label(load: &sikemux_view::device::HostLoad) -> String {
-    match load.memory_used {
-        Some(bytes) => format!("{}% · {:.1} GB", load.cpu, bytes as f64 / 1024f64.powi(3)),
-        None => format!("{}%", load.cpu),
-    }
-}
-
 /// A new copy of a project, as the person asked for it.
 pub struct Copying {
     /// The copy it is made from.
@@ -816,16 +808,16 @@ pub fn host_updates(view: &sikemux_view::device::DeviceView) -> Option<UpdateSta
     (view.updates.clone()).filter(|updates| updates.automatic.is_some())
 }
 
-/// How a host's row sums up its updates: under way, failed, else the version it runs.
+/// What a host's row says of its updates while one is under way or has failed.
 pub fn updates_label(updates: &UpdateStatus) -> Option<String> {
-    Some(match updates.state {
-        UpdateState::Failed => "update failed".to_owned(),
+    match updates.state {
+        UpdateState::Failed => Some("update failed".to_owned()),
         UpdateState::Downloading
         | UpdateState::Installing
         | UpdateState::Waiting
-        | UpdateState::Ready => "updating".to_owned(),
-        UpdateState::Idle => updates.current.clone(),
-    })
+        | UpdateState::Ready => Some("updating".to_owned()),
+        UpdateState::Idle => None,
+    }
 }
 
 /// "Update automatically" on a host that updates itself, ticked while it does, and why its

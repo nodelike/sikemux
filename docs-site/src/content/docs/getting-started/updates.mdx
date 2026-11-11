@@ -36,7 +36,7 @@ A server running just the core keeps itself up to date too, on the channel it wa
 
 `sikemux update` installs the newest release now, waiting only for chats in the middle of a request. `sikemux status` shows the version, whether the server updates itself, and when it last looked.
 
-The server's row under **Hosts** shows the version it runs, or **update failed** when the last try did not work; its **⋯**, or the **⋯** on its detail on the **Devices** page, says why.
+The server's row under **Hosts** says **updating** while an update is under way, or **update failed** when the last try did not work; its **⋯**, or the **⋯** on its detail on the **Devices** page, says why.
 
 To keep a server on the release it has, turn off **Update automatically** in either **⋯**, or run `sudo sikemux update --off` on it; `--on` turns updates back on. Only you can change this, so an agent on the server cannot pin it or unpin it: plain `sikemux update --on` or `--off` only says how. While updates are off, nothing installs, not even with `sikemux update`.
 

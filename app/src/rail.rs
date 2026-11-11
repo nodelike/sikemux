@@ -448,10 +448,6 @@ fn hosts(bench: &Workbench, cx: &mut Context<Workbench>) -> Vec<AnyElement> {
             let view = (host.id.as_ref()).and_then(|id| bench.feeds.host(id)?.view.as_ref());
             let agents = view.map_or(0, |view| view.workspace.agents.len());
             let connected = reach == HostReach::Connected;
-            let load = view
-                .and_then(|view| view.load.as_ref())
-                .filter(|_| connected)
-                .map(crate::hosts::load_label);
             let updates = view
                 .and_then(crate::hosts::host_updates)
                 .filter(|_| connected);
@@ -511,7 +507,6 @@ fn hosts(bench: &Workbench, cx: &mut Context<Workbench>) -> Vec<AnyElement> {
                 .when_some(
                     {
                         let parts: Vec<String> = [
-                            load.map(|load| load.to_string()),
                             detail,
                             updates.as_ref().and_then(crate::hosts::updates_label),
                         ]
