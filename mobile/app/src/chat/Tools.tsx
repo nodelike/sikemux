@@ -367,93 +367,82 @@ const ToolRow = memo(function ToolRow({
   );
 });
 
-/** The icon of a line or a strip, by what it did and the kind of tool it is, as the Mac's `line_icon`. */
+/** The icon of what a call did, as the Mac's `line_icon`; a few depend on the kind of tool too. */
+const INTENT_ICONS: Record<ToolIntent, IconName> = {
+  read: 'IconFile',
+  fetch: 'IconGlobe',
+  view: 'IconImage',
+  search: 'IconSearch',
+  list: 'IconFolder',
+  edit: 'IconPencil',
+  write: 'IconPencil',
+  move: 'IconMove',
+  delete: 'IconTrash',
+  run: 'IconCommand',
+  test: 'IconCommand',
+  build: 'IconCommand',
+  git: 'IconGit',
+  commit: 'IconGit',
+  open: 'IconGlobe',
+  click: 'IconClick',
+  type: 'IconKeyboard',
+  look: 'IconCamera',
+  message: 'IconMessage',
+  start: 'IconAgent',
+  stop: 'IconStop',
+  wait: 'IconClock',
+  mode: 'IconSettings',
+  query: 'IconPlug',
+  use: 'IconPlug',
+};
+
+/** The icon of a line or a strip, by what it did and the kind of tool it is. */
 function lineIcon(intent: ToolIntent, family: ToolFamily, call?: ToolPart): IconName {
   const plugin = call?.tool.row.plugin;
   if (plugin && PLUGIN_MARKS[plugin]) return PLUGIN_MARKS[plugin];
-  const simulator = family === 'simulator';
-  switch (intent) {
-    case 'read':
-      return family === 'browser' ? 'IconEye' : family === 'web' ? 'IconGlobe' : 'IconFile';
-    case 'fetch':
-      return 'IconGlobe';
-    case 'view':
-      return 'IconImage';
-    case 'search':
-      return family === 'web' ? 'IconGlobe' : 'IconSearch';
-    case 'list':
-      return 'IconFolder';
-    case 'edit':
-    case 'write':
-      return 'IconPencil';
-    case 'move':
-      return 'IconMove';
-    case 'delete':
-      return 'IconTrash';
-    case 'run':
-    case 'test':
-    case 'build':
-      return 'IconCommand';
-    case 'git':
-    case 'commit':
-      return 'IconGit';
-    case 'open':
-      return simulator ? 'IconPhone' : 'IconGlobe';
-    case 'click':
-      return simulator ? 'IconTap' : 'IconClick';
-    case 'type':
-      return 'IconKeyboard';
-    case 'look':
-      return 'IconCamera';
-    case 'message':
-      return 'IconMessage';
-    case 'start':
-      return family === 'shell' ? 'IconRun' : 'IconAgent';
-    case 'stop':
-      return 'IconStop';
-    case 'wait':
-      return 'IconClock';
-    case 'mode':
-      return 'IconSettings';
-    case 'query':
-    case 'use':
-      return 'IconPlug';
-  }
+  if (intent === 'read' && family === 'browser') return 'IconEye';
+  if ((intent === 'read' || intent === 'search') && family === 'web') return 'IconGlobe';
+  if (intent === 'open' && family === 'simulator') return 'IconPhone';
+  if (intent === 'click' && family === 'simulator') return 'IconTap';
+  if (intent === 'start' && family === 'shell') return 'IconRun';
+  return INTENT_ICONS[intent];
 }
 
-/** The colour of what a line did: looking, changing, removing, running or calling an agent. */
+type Tint = 'looked' | 'changed' | 'deleted' | 'ran' | 'called';
+
+/** Which colour a line takes for what it did: looking, changing, removing, running or calling an agent. */
+const INTENT_TINTS: Partial<Record<ToolIntent, Tint>> = {
+  read: 'looked',
+  view: 'looked',
+  search: 'looked',
+  list: 'looked',
+  fetch: 'looked',
+  open: 'looked',
+  look: 'looked',
+  click: 'looked',
+  type: 'looked',
+  edit: 'changed',
+  write: 'changed',
+  move: 'changed',
+  commit: 'changed',
+  delete: 'deleted',
+  run: 'ran',
+  test: 'ran',
+  build: 'ran',
+  git: 'ran',
+  start: 'ran',
+  stop: 'ran',
+  message: 'called',
+};
+
 function intentTint(intent: ToolIntent, colors: Palette): string {
-  const dim = colors.inkDim;
-  switch (intent) {
-    case 'read':
-    case 'view':
-    case 'search':
-    case 'list':
-    case 'fetch':
-    case 'open':
-    case 'look':
-    case 'click':
-    case 'type':
-      return mixed(colors.gitRenamed, dim, 0.76);
-    case 'edit':
-    case 'write':
-    case 'move':
-    case 'commit':
-      return mixed(colors.gitModified, dim, 0.76);
-    case 'delete':
-      return mixed(colors.gitDeleted, dim, 0.76);
-    case 'run':
-    case 'test':
-    case 'build':
-    case 'git':
-    case 'start':
-    case 'stop':
-      return mixed(colors.cmd, dim, 0.7);
-    case 'message':
-      return mixed(colors.live, dim, 0.66);
-    default:
-      return dim;
-  }
+  const tint = INTENT_TINTS[intent];
+  if (tint === 'looked') return mixed(colors.gitRenamed, colors.inkDim, 0.76);
+  if (tint === 'changed') return mixed(colors.gitModified, colors.inkDim, 0.76);
+  if (tint === 'deleted') return mixed(colors.gitDeleted, colors.inkDim, 0.76);
+  if (tint === 'ran') return mixed(colors.cmd, colors.inkDim, 0.7);
+  if (tint === 'called') return mixed(colors.live, colors.inkDim, 0.66);
+  return colors.inkDim;
 }
 
 function Chevron({ open, size = 11 }: { open: boolean; size?: number }) {

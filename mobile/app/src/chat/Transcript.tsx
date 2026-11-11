@@ -155,9 +155,6 @@ function EarlierThinking({ count, open, onToggle }: { count: number; open: boole
   );
 }
 
-/** About 68 characters of a thought, so its lines stay short enough to read at a glance. */
-const THOUGHT_MEASURE = 500;
-
 function Parts({ id, parts, live }: { id: string; parts: ChatPart[]; live: boolean }) {
   const styles = useStyles(makeStyles);
   const groups = groupParts(parts);
@@ -731,8 +728,8 @@ const makeStyles = (colors: Palette) => {
     earlier: { flexDirection: 'row', alignItems: 'center', gap: 8, alignSelf: 'flex-start', height: 26 },
     earlierText: { fontFamily: fonts.ui, fontSize: 12.5, color: colors.inkDim },
     earlierCount: { fontFamily: fonts.ui, fontSize: 12.5, color: colors.inkFaint },
-    thought: { maxWidth: THOUGHT_MEASURE, marginVertical: 6 },
-    thoughtText: { fontFamily: fonts.ui, fontSize: 13.5, lineHeight: 21.5, color: colors.secondary },
+    thought: { marginVertical: 6 },
+    thoughtText: { fontFamily: fonts.ui, fontSize: 14.5, lineHeight: 24.5, color: colors.secondary },
     subagent: { marginVertical: 4, borderRadius: 10, backgroundColor: translucent(colors.raised, 0.55) },
     subagentHead: { flexDirection: 'row', alignItems: 'center', gap: 8, height: 34, paddingHorizontal: 12, borderRadius: 10 },
     subagentPressed: { backgroundColor: colors.active },
