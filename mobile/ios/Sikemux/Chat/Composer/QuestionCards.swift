@@ -127,33 +127,26 @@ private struct SecretAnswer: View {
     let question: AgentQuestion
     let onKeep: (String) -> Bool
     @State private var text = ""
-    @FocusState private var focused: Bool
+    @State private var focused = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .top, spacing: 8) {
-                TextField(
-                    "", text: $text, prompt: Text("Type or paste the answer").foregroundStyle(palette.tertiary),
-                    axis: .vertical
-                )
-                .font(Theme.ui(16))
-                .foregroundStyle(.clear)
-                // A caret after hidden characters would float mid-field; the size under the field shows the typing.
-                .tint(text.isEmpty ? palette.accent : .clear)
-                .focused($focused)
-                .autocorrectionDisabled()
-                .textInputAutocapitalization(.never)
-                .textContentType(.oneTimeCode)
-                .lineLimit(1...5)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 10)
-                .frame(minHeight: 40)
-                .background(RoundedRectangle(cornerRadius: Radius.row, style: .continuous).fill(palette.sunken))
-                .overlay(
-                    RoundedRectangle(cornerRadius: Radius.row, style: .continuous).strokeBorder(
-                        focused ? palette.borderSelected : palette.border, lineWidth: 1)
-                )
-                .accessibilityLabel("Private answer to @\(question.name)")
+                SecretField(text: $text, focused: $focused, accent: UIColor(palette.accent), dark: !palette.isLight)
+                    .overlay(alignment: .leading) {
+                        if text.isEmpty {
+                            Text("Type or paste the answer").font(Theme.ui(16)).foregroundStyle(palette.tertiary)
+                                .allowsHitTesting(false)
+                        }
+                    }
+                    .padding(.horizontal, 14)
+                    .frame(height: 40)
+                    .background(RoundedRectangle(cornerRadius: Radius.row, style: .continuous).fill(palette.sunken))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: Radius.row, style: .continuous).strokeBorder(
+                            focused ? palette.borderSelected : palette.border, lineWidth: 1)
+                    )
+                    .accessibilityLabel("Private answer to @\(question.name)")
                 Chip(title: "Send", primary: true) {
                     if !text.isEmpty, onKeep(text) { text = "" }
                 }
@@ -174,6 +167,53 @@ private struct SecretAnswer: View {
             ? String(text.dropLast()).components(separatedBy: "\n").count : text.components(separatedBy: "\n").count
         let characters = "\(text.count) character\(text.count == 1 ? "" : "s") hidden"
         return lines > 1 ? "\(lines) lines, \(characters)" : characters
+    }
+}
+
+/// The field a secret is typed into: its words never show, and the keyboard neither suggests nor remembers them,
+/// which SwiftUI's text field cannot promise.
+private struct SecretField: UIViewRepresentable {
+    @Binding var text: String
+    @Binding var focused: Bool
+    let accent: UIColor
+    let dark: Bool
+
+    func makeUIView(context: Context) -> UITextView {
+        let field = UITextView()
+        field.delegate = context.coordinator
+        field.backgroundColor = .clear
+        field.textColor = .clear
+        field.font = UIFont(name: "Figtree-Regular", size: 16) ?? .systemFont(ofSize: 16)
+        field.textContainerInset = UIEdgeInsets(top: 10, left: 0, bottom: 10, right: 0)
+        field.textContainer.lineFragmentPadding = 0
+        field.autocorrectionType = .no
+        field.spellCheckingType = .no
+        field.autocapitalizationType = .none
+        field.smartQuotesType = .no
+        field.smartDashesType = .no
+        field.smartInsertDeleteType = .no
+        field.inlinePredictionType = .no
+        field.textContentType = nil
+        return field
+    }
+
+    func updateUIView(_ field: UITextView, context: Context) {
+        context.coordinator.parent = self
+        if field.text != text { field.text = text }
+        // A caret after hidden characters would float mid-field; the size under the field shows the typing.
+        field.tintColor = text.isEmpty ? accent : .clear
+        field.keyboardAppearance = dark ? .dark : .light
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
+
+    final class Coordinator: NSObject, UITextViewDelegate {
+        var parent: SecretField
+        init(parent: SecretField) { self.parent = parent }
+
+        func textViewDidChange(_ field: UITextView) { parent.text = field.text }
+        func textViewDidBeginEditing(_ field: UITextView) { parent.focused = true }
+        func textViewDidEndEditing(_ field: UITextView) { parent.focused = false }
     }
 }
 
