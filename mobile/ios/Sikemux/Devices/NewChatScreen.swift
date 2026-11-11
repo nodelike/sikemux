@@ -65,6 +65,8 @@ private struct NewChatContent: View {
     @State private var inWorktree = false
     /// What the person flipped the worktree switch to for a project, until the host's own view says so.
     @State private var flipped: (project: String, on: Bool)?
+    /// The account smart accounts will start the chat on, as the host answers for this launcher and project.
+    @State private var smartPick: AccountMove?
 
     var body: some View {
         let live = Hub.shared.live(core)
@@ -123,6 +125,8 @@ private struct NewChatContent: View {
                             .center)
                     } else if let blocked {
                         Text(blocked).metaStyle(palette).multilineTextAlignment(.center)
+                    } else if let smartPick, let launcher {
+                        SmartPick(move: smartPick, provider: launcher.provider)
                     }
                 }
                 .padding(.horizontal, 28)
@@ -146,6 +150,16 @@ private struct NewChatContent: View {
             }
         }
         .onAppear(perform: restore)
+        .task(id: [launcher?.id, project?.id, live.isOpen ? "open" : nil]) {
+            smartPick = nil
+            guard let launcher, let project, let connection = live.connection else { return }
+            do {
+                smartPick = try await connection.call(
+                    PhoneCall.SmartPick.self, SmartPickParams(launcher: launcher.id, project: project.id))
+            } catch {
+                print("sikemux: could not read the smart pick: \(Sikemux.problem(error))")
+            }
+        }
         .task(id: keptPrint) {
             do {
                 try await Task.sleep(for: Self.keepAfter)

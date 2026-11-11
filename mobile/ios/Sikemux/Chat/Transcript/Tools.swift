@@ -130,7 +130,8 @@ struct ToolGroup: View {
         }
         let kindWidth = CGFloat(min(16, max(4, parts.map { ChatWords.toolKind($0.tool).count }.max() ?? 4))) * 6.9 + 1
         let open = context.folds.isOpen(id, live || current != nil)
-        let calls = ChatWords.calls(parts.count)
+        let total = parts.reduce(0) { $0 + ($1.tool.row.times ?? 1) }
+        let calls = ChatWords.calls(total)
         VStack(alignment: .leading, spacing: 0) {
             Button {
                 context.folds.set(id, !open)
@@ -143,8 +144,8 @@ struct ToolGroup: View {
                     } else {
                         Text(calls).font(Theme.ui(12.5)).foregroundStyle(palette.inkDim).lineLimit(1)
                     }
-                    if said != nil, parts.count > 1 {
-                        Text(ChatWords.callCount(parts.count)).font(Theme.mono(11)).foregroundStyle(palette.inkDim)
+                    if said != nil, total > 1 {
+                        Text(ChatWords.callCount(total)).font(Theme.mono(11)).foregroundStyle(palette.inkDim)
                     }
                     if let current {
                         LiveSeconds(
@@ -224,6 +225,9 @@ private struct ToolRowView: View {
                         if let diff = part.diff {
                             DiffText.counts(adds: diff.adds, dels: diff.dels, palette)
                                 .font(Theme.mono(10.5))
+                        }
+                        if let times = part.tool.row.times {
+                            Text("×\(times)").font(Theme.mono(10.5)).foregroundStyle(palette.inkDim)
                         }
                         if running {
                             LiveSeconds(since: part.startDate ?? Date(), font: Theme.mono(10.5), color: palette.inkDim)

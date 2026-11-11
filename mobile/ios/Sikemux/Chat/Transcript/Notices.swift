@@ -90,17 +90,41 @@ struct AccountLine: View {
     let move: AccountMove
 
     var body: some View {
-        let why = move.reason == .limit && move.from != nil ? "\(move.from!) reached its usage limit" : move.placed
+        let why = move.reason == .limit ? move.from.map { "\($0) reached its usage limit" } : nil
         NoticeBox {
             HStack(spacing: 7) {
                 IconView(icon: Icons.user, size: 12).foregroundStyle(palette.inkFaint)
-                Text(move.placed != nil ? "Started on" : "Moved to").font(Theme.ui(12)).foregroundStyle(
-                    palette.inkFaint)
+                Text("Moved to").font(Theme.ui(12)).foregroundStyle(palette.inkFaint)
                 Text(move.label).font(Theme.mono(11.5)).foregroundStyle(palette.ink).lineLimit(1)
             }
             if let why { Text(why).font(Theme.ui(12)).lineSpacing(3).foregroundStyle(palette.inkFaint) }
         }
         .accessibilityElement(children: .combine)
+    }
+}
+
+/// The account smart accounts picked for a chat about to start, and why, in one quiet centred line.
+struct SmartPick: View {
+    @Environment(\.palette) private var palette
+    let move: AccountMove
+    let provider: String
+
+    var body: some View {
+        VStack(spacing: 4) {
+            HStack(spacing: 7) {
+                AgentMark(provider: provider, size: 12)
+                Text(move.label).font(Theme.ui(12.5, .medium)).foregroundStyle(palette.ink).lineLimit(1)
+                Text("SMART PICK").font(Theme.ui(10, .medium)).tracking(1.6).foregroundStyle(palette.tertiary)
+            }
+            if let placed = move.placed {
+                Text(placed).font(Theme.ui(12)).foregroundStyle(palette.inkFaint).multilineTextAlignment(.center)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 40)
+        .padding(.horizontal, 16)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Smart pick: \(move.label)\(move.placed.map { ". \($0)" } ?? "")")
     }
 }
 
