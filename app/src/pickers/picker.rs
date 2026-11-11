@@ -204,10 +204,10 @@ impl Workbench {
             (_, ThenPicked::MoveAgent) => {
                 format!("move {} to…", moved.unwrap_or_default())
             }
-            (_, ThenPicked::StartChat) => "start a chat in a project…".to_owned(),
-            (Picking::Projects, _) => "open a project…".to_owned(),
+            (_, ThenPicked::StartChat) => "start a chat in a project or type a path…".to_owned(),
+            (Picking::Projects, _) => "open a project or type a path…".to_owned(),
             (Picking::Hosts, _) => "connect to a host…".to_owned(),
-            (Picking::Both, _) => "open a project or host…".to_owned(),
+            (Picking::Both, _) => "open a project or host, or type a path…".to_owned(),
         };
         let spec = Spec::new(
             picking.id(),
