@@ -1,0 +1,24 @@
+name: Choose the iPhone app's Xcode
+description: Selects the newest Xcode of the major version the iPhone app builds with, leaving betas out, and installs its Metal toolchain.
+inputs:
+  metal:
+    description: Install the Metal toolchain, which compiling the app's shaders needs
+    default: "true"
+runs:
+  using: composite
+  steps:
+    - name: Choose Xcode
+      shell: bash
+      env:
+        # Xcode 27 dithers the app icon's flattened renditions, which grew the asset catalog 2.5 MB for no visible change.
+        XCODE_MAJOR: "26"
+      run: |
+        xcode="$(printf '%s\n' /Applications/Xcode_"$XCODE_MAJOR"*.app | grep -vi beta | sort -V | tail -n 1)"
+        [[ -d "$xcode" ]] || { echo "::error::The runner has no Xcode $XCODE_MAJOR"; exit 1; }
+        sudo xcode-select -s "$xcode"
+        xcodebuild -version | head -n 1 >>"$GITHUB_STEP_SUMMARY"
+
+    - name: Install the Metal toolchain
+      if: inputs.metal == 'true'
+      shell: bash
+      run: xcodebuild -downloadComponent MetalToolchain

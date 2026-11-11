@@ -112,16 +112,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      # The newest Xcode on the image, leaving betas out.
       - name: Choose Xcode
-        run: |
-          xcode="$(printf '%s\n' /Applications/Xcode_*.app | grep -vi beta | sort -V | tail -n 1)"
-          sudo xcode-select -s "$xcode"
-          xcodebuild -version | head -n 1 >>"$GITHUB_STEP_SUMMARY"
-
-      # Xcode leaves out the compiler for the app's Metal shaders until asked for it.
-      - name: Install the Metal toolchain
-        run: xcodebuild -downloadComponent MetalToolchain
+        uses: ./.github/actions/setup-xcode-ios
 
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
