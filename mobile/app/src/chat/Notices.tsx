@@ -20,18 +20,19 @@ export function TaskNotice({ id, notice }: { id: string; notice: Notice }) {
       accessibilityLabel={`${notice.name} ${notice.state}${summary ? `. ${summary}` : ''}`}
       accessibilityState={summary ? { expanded: open } : undefined}>
       <View style={styles.noticeHead}>
-        <Icon
-          name={notice.taskType === 'workflow' ? 'IconWorkflow' : 'IconTimer'}
-          size={12}
-          color={notice.state === 'failed' ? colors.danger : colors.inkFaint}
-        />
+        <Icon name={notice.taskType === 'workflow' ? 'IconWorkflow' : 'IconTimer'} size={12} color={colors.inkDim} />
         <Text style={styles.noticeName} numberOfLines={1}>
           {notice.name}
         </Text>
         <Text style={[styles.noticeState, notice.state === 'failed' && { color: colors.danger }]}>{notice.state}</Text>
+        {summary && !open ? (
+          <Text style={styles.noticeInline} numberOfLines={1}>
+            {summary}
+          </Text>
+        ) : null}
       </View>
-      {summary ? (
-        <Text style={styles.noticeSummary} numberOfLines={open ? undefined : 1} selectable={open}>
+      {summary && open ? (
+        <Text style={styles.noticeSummary} selectable>
           {summary}
         </Text>
       ) : null}
@@ -43,18 +44,18 @@ export function AgentNoticeLine({ notice }: { notice: AgentNotice }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
   if (notice.goal) return <GoalLine notice={notice} goal={notice.goal} />;
-  const tint = notice.severity === 'error' ? colors.danger : notice.severity === 'warning' ? colors.warn : colors.inkFaint;
+  const tint = notice.severity === 'error' ? colors.danger : notice.severity === 'warning' ? colors.warn : colors.inkDim;
   return (
     <View style={styles.notice} accessible accessibilityLabel={`${notice.title}${notice.description ? `. ${notice.description}` : ''}`}>
       <View style={styles.noticeHead}>
-        <Icon name={notice.severity === 'info' ? 'IconInfo' : 'IconWarning'} size={12} color={tint} />
-        <Text style={[styles.noticeState, notice.severity !== 'info' && { color: tint }]}>{notice.title}</Text>
+        <Icon name={notice.severity === 'info' ? 'IconInbox' : 'IconWarning'} size={12} color={tint} />
+        <Text style={[styles.noticeState, notice.severity === 'error' && { color: tint }]}>{notice.title}</Text>
+        {notice.description ? (
+          <Text style={styles.noticeInline} numberOfLines={1}>
+            {notice.description}
+          </Text>
+        ) : null}
       </View>
-      {notice.description ? (
-        <Text style={styles.noticeSummary} selectable>
-          {notice.description}
-        </Text>
-      ) : null}
     </View>
   );
 }
@@ -67,13 +68,17 @@ export function AccountLine({ move }: { move: AccountMove }) {
   return (
     <View style={styles.notice} accessible accessibilityLabel={`${said} ${move.label}${why ? `. ${why}` : ''}`}>
       <View style={styles.noticeHead}>
-        <Icon name="IconUser" size={12} color={colors.inkFaint} />
+        <Icon name="IconUser" size={12} color={colors.inkDim} />
         <Text style={styles.noticeState}>{said}</Text>
-        <Text style={styles.noticeName} numberOfLines={1}>
+        <Text style={[styles.noticeName, styles.noticeWords]} numberOfLines={1}>
           {move.label}
         </Text>
+        {why ? (
+          <Text style={styles.noticeInline} numberOfLines={1}>
+            {why}
+          </Text>
+        ) : null}
       </View>
-      {why ? <Text style={styles.noticeSummary}>{why}</Text> : null}
     </View>
   );
 }
@@ -130,25 +135,17 @@ const makeStyles = (colors: Palette) => {
     },
     pageTitle: { flexShrink: 1, fontFamily: fonts.uiMedium, fontSize: 13, color: colors.ink },
     pageWhere: { fontFamily: fonts.ui, fontSize: 12, color: colors.inkFaint },
-    notice: {
-      alignSelf: 'flex-start',
-      maxWidth: '100%',
-      gap: 3,
-      marginVertical: 5,
-      paddingVertical: 6,
-      paddingHorizontal: 10,
-      borderRadius: 9,
-      borderWidth: 1,
-      borderColor: colors.border,
-    },
-    noticeHead: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+    notice: { gap: 2, marginVertical: 2, paddingVertical: 4, paddingLeft: 12 },
+    noticeHead: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 18 },
     pick: { alignItems: 'center', gap: 4, paddingTop: 40, paddingHorizontal: 16 },
     pickHead: { flexDirection: 'row', alignItems: 'center', gap: 7 },
     pickName: { flexShrink: 1, fontFamily: fonts.uiMedium, fontSize: 12.5, color: colors.ink },
     pickCaps: { fontFamily: fonts.uiMedium, fontSize: 10, letterSpacing: 1.6, textTransform: 'uppercase', color: colors.tertiary },
     pickWhy: { fontFamily: fonts.ui, fontSize: 12, color: colors.inkFaint, textAlign: 'center' },
-    noticeName: { flexShrink: 1, fontFamily: fonts.mono, fontSize: 11.5, color: colors.ink },
-    noticeState: { fontFamily: fonts.ui, fontSize: 12, color: colors.inkFaint },
-    noticeSummary: { fontFamily: fonts.ui, fontSize: 12, lineHeight: 17, color: colors.inkFaint },
+    noticeName: { flexShrink: 1, fontFamily: fonts.mono, fontSize: 12, color: colors.ink },
+    noticeWords: { fontFamily: fonts.ui, fontSize: 12.5 },
+    noticeState: { flexShrink: 0, fontFamily: fonts.ui, fontSize: 12.5, color: colors.inkDim },
+    noticeInline: { flexShrink: 1, minWidth: 0, fontFamily: fonts.ui, fontSize: 12.5, color: colors.inkDim },
+    noticeSummary: { paddingLeft: 20, fontFamily: fonts.ui, fontSize: 12.5, lineHeight: 18, color: colors.inkDim },
   });
 };

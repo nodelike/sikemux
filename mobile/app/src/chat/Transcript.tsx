@@ -22,8 +22,7 @@ import { CopyButton } from '@/ui/CopyButton';
 import { haptics } from '@/ui/haptics';
 import { AgentFace } from '@/devices/Buddy';
 import { AgentIcon, Icon } from '@/ui/Icon';
-import { Working } from '@/devices/AgentMarks';
-import { fonts, italic, mixed, type Palette, translucent, useColors, useStyles } from '@/ui/theme';
+import { fonts, mixed, type Palette, translucent, useColors, useStyles } from '@/ui/theme';
 import { useStill } from '@/ui/motion';
 import { Shimmer } from '@/ui/Shimmer';
 import { useFold } from './folds';
@@ -36,27 +35,42 @@ import { ImageViewer } from './ImageViewer';
 import type { Strip as StripMeta } from './messageMeta';
 import type { Unsent } from './outbox';
 import type { Attachment } from './uploads';
-import { ToolGroup } from './Tools';
+import { RunStrip } from './Tools';
 import { AnsweredQuestions } from './Question';
 import { Bubble, From, makeBubbleStyles } from './Bubble';
-import { AgentContext, ProviderContext, SubagentsContext } from '@/chat/transcriptContext';
+import { AgentContext, EarlierThoughtsContext, ProviderContext, SubagentsContext } from '@/chat/transcriptContext';
 import { AccountLine, AgentNoticeLine, PageCard, TaskNotice } from '@/chat/Notices';
 import { ContextChips } from '@/chat/ContextChips';
 import { Editing, MessageEditor } from '@/chat/MessageEditor';
 import { FiredTrigger } from '@/chat/FiredTrigger';
 import { LongText } from '@/chat/LongText';
 
-function SubagentMarkView({ state }: { state: SubagentCard['state'] }) {
+/** A subagent's mark and word once it is not doing anything: done, failed, lost or stopped. */
+function SubagentEnd({ state }: { state: SubagentCard['state'] }) {
   const colors = useColors();
+  const styles = useStyles(makeStyles);
   const mark: SubagentMark = SUBAGENT_MARKS[state];
-  if (mark === 'spinner') return <Working />;
-  if (mark === 'check') return <Icon name="IconCheck" size={13} color={colors.live} />;
-  if (mark === 'warning') return <Icon name="IconWarning" size={12} color={colors.danger} />;
-  if (mark === 'plug') return <Icon name="IconPlug" size={12} color={colors.danger} />;
-  return <Icon name="IconClose" size={11} color={colors.inkFaint} />;
+  const tint =
+    mark === 'check'
+      ? mixed(colors.live, colors.inkFaint, 0.58)
+      : mark === 'warning' || mark === 'plug'
+        ? colors.danger
+        : mark === 'spinner'
+          ? mixed(colors.accent, colors.inkFaint, 0.62)
+          : colors.inkFaint;
+  const icon = ({ spinner: 'IconHourglass', check: 'IconCheck', warning: 'IconWarning', plug: 'IconPlug', close: 'IconClose' } as const)[
+    mark
+  ];
+  const loud = mark === 'warning' || mark === 'plug';
+  return (
+    <View style={styles.subagentEnd}>
+      <Icon name={icon} size={12} color={tint} />
+      <Text style={[styles.subagentWord, loud && { color: tint }]}>{SUBAGENT_WORDS[state]}</Text>
+    </View>
+  );
 }
 
-/** What a subagent did, kept to one line until it is opened; what it is doing now is over the composer. */
+/** A subagent as a strip: who, its task, what it is doing now or how it ended, and what it cost; it opens onto its work. */
 function Subagent({ subagent }: { subagent: SubagentCard }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
@@ -66,37 +80,38 @@ function Subagent({ subagent }: { subagent: SubagentCard }) {
   const parts = useMemo(() => (rows ?? []).flatMap((message) => message.parts), [rows]);
   const cost = subagentCost(subagent);
   const running = subagent.state === 'running';
+  const row = subagent.lastTool?.row;
+  const doing = running ? (row?.activity ?? row?.subject ?? row?.target) : undefined;
   return (
     <View style={styles.subagent}>
       <Pressable
         onPress={() => setOpen(!open)}
-        style={({ pressed }) => [styles.subagentHead, pressed && { backgroundColor: colors.active }]}
+        style={({ pressed }) => [styles.subagentHead, pressed && styles.subagentPressed]}
         accessibilityRole="button"
-        accessibilityLabel={`Subagent ${subagent.name}, ${SUBAGENT_WORDS[subagent.state]}${cost ? `, ${cost}` : ''}`}
+        accessibilityLabel={`Subagent ${subagent.name}, ${doing ?? SUBAGENT_WORDS[subagent.state]}${cost ? `, ${cost}` : ''}`}
         accessibilityState={{ expanded: open }}>
-        <View style={[styles.chevron, open && { transform: [{ rotate: '90deg' }] }]}>
-          <Icon name="IconChevron" size={10} color={colors.inkDim} />
-        </View>
-        <AgentIcon provider={provider} size={15} />
+        <AgentIcon provider={provider} size={16} />
         <Text style={styles.subagentName} numberOfLines={1}>
           {subagent.name}
         </Text>
-        {running ? (
-          <Shimmer style={styles.subagentTask} layout={styles.subagentTaskLayout}>
-            {subagentTask(subagent.task)}
+        <Text style={styles.subagentTask} numberOfLines={1}>
+          {subagentTask(subagent.task)}
+        </Text>
+        {doing ? (
+          <Shimmer style={styles.subagentDoing} layout={styles.subagentDoingLayout}>
+            {doing}
           </Shimmer>
         ) : (
-          <Text style={[styles.subagentTask, styles.subagentTaskLayout]} numberOfLines={1}>
-            {subagentTask(subagent.task)}
-          </Text>
+          <SubagentEnd state={subagent.state} />
         )}
+        <View style={styles.subagentSpacer} />
         {cost ? (
           <Text style={styles.subagentCalls} numberOfLines={1}>
             {cost}
           </Text>
         ) : null}
-        <View style={styles.subagentMark}>
-          <SubagentMarkView state={subagent.state} />
+        <View style={open && styles.turned}>
+          <Icon name="IconChevron" size={11} color={colors.inkDim} />
         </View>
       </Pressable>
       {open ? (
@@ -119,26 +134,74 @@ function TaskNoticeOrCard({ id, notice }: { id: string; notice: Notice }) {
   return <TaskNotice id={id} notice={notice} />;
 }
 
+/** The line a streaming turn's older thoughts fold behind, which opens them in place. */
+function EarlierThinking({ count, open, onToggle }: { count: number; open: boolean; onToggle: () => void }) {
+  const colors = useColors();
+  const styles = useStyles(makeStyles);
+  return (
+    <Pressable
+      onPress={onToggle}
+      style={styles.earlier}
+      hitSlop={6}
+      accessibilityRole="button"
+      accessibilityLabel={`Earlier thinking, ${count} ${count === 1 ? 'thought' : 'thoughts'}`}
+      accessibilityState={{ expanded: open }}>
+      <View style={open && styles.turned}>
+        <Icon name="IconChevron" size={11} color={colors.inkDim} />
+      </View>
+      <Text style={styles.earlierText}>Earlier thinking</Text>
+      <Text style={styles.earlierCount}>{`${count} ${count === 1 ? 'thought' : 'thoughts'}`}</Text>
+    </Pressable>
+  );
+}
+
+/** About 68 characters of a thought, so its lines stay short enough to read at a glance. */
+const THOUGHT_MEASURE = 500;
+
 function Parts({ id, parts, live }: { id: string; parts: ChatPart[]; live: boolean }) {
   const styles = useStyles(makeStyles);
   const groups = groupParts(parts);
+  const earlier = useContext(EarlierThoughtsContext);
+  const [earlierOpen, setEarlierOpen] = useFold(earlier.key, false);
   return (
     <>
       {groups.map((group, index) => {
         const last = live && index === groups.length - 1;
-        if ('tools' in group) return <ToolGroup key={group.id} id={`${id}/${group.id}`} parts={group.tools} live={last} />;
+        if ('tools' in group) return <RunStrip key={group.id} id={`${id}/${group.id}`} parts={group.tools} live={last} />;
         const run = group.part;
         switch (run.kind) {
           case 'text':
             return run.text.trim() ? (
-              <LongText key={run.id} id={run.id} text={run.text} md={run.md} live={last} style={styles.prose} />
+              <View key={run.id} style={index > 0 && styles.said}>
+                <LongText id={run.id} text={run.text} md={run.md} live={last} style={styles.prose} />
+              </View>
             ) : null;
-          case 'thought':
-            return run.text.trim() ? (
+          case 'thought': {
+            const place = earlier.ids.indexOf(run.id);
+            const line =
+              place === 0 ? (
+                <EarlierThinking
+                  key={`${run.id}/earlier`}
+                  count={earlier.ids.length}
+                  open={earlierOpen}
+                  onToggle={() => setEarlierOpen(!earlierOpen)}
+                />
+              ) : null;
+            if (place >= 0 && !earlierOpen) return line;
+            const thought = run.text.trim() ? (
               <View key={run.id} style={styles.thought}>
                 <LongText id={run.id} text={run.text.trim()} md={run.md} live={last} style={styles.thoughtText} />
               </View>
             ) : null;
+            return line ? (
+              <Fragment key={run.id}>
+                {line}
+                {thought}
+              </Fragment>
+            ) : (
+              thought
+            );
+          }
           case 'subagent':
             return <Subagent key={run.id} subagent={run.subagent} />;
           case 'notice':
@@ -664,28 +727,25 @@ const makeStyles = (colors: Palette) => {
     stripRate: { marginLeft: 'auto', fontFamily: fonts.mono, fontSize: 11, fontStyle: 'italic', color: colors.inkDim },
     prose: { fontFamily: fonts.ui, fontSize: 14.5, lineHeight: 24.5, color: colors.ink },
     letterName: { flexShrink: 1, fontFamily: fonts.uiSemibold, fontSize: 12.5, color: colors.ink },
-    thought: { marginVertical: 8 },
-    thoughtText: { ...italic, fontSize: 12.5, lineHeight: 19.5, color: colors.inkFaint },
-    subagent: { marginVertical: 6 },
-    subagentHead: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 8,
-      minHeight: 36,
-      paddingLeft: 10,
-      paddingRight: 11,
-      borderRadius: 10,
-      borderWidth: 1,
-      borderColor: colors.border,
-      backgroundColor: translucent(colors.raised, 0.6),
-    },
-    chevron: { opacity: 0.7 },
-    subagentName: { flexShrink: 1, maxWidth: '45%', fontFamily: fonts.mono, fontSize: 11.5, color: colors.ink },
-    subagentTask: { fontFamily: fonts.ui, fontSize: 12, color: colors.inkFaint },
-    subagentTaskLayout: { flex: 1, minWidth: 0 },
-    subagentCalls: { flexShrink: 0, fontFamily: fonts.mono, fontSize: 10.5, color: colors.inkFaint },
-    subagentMark: { width: 14, alignItems: 'center' },
-    subagentBody: { paddingLeft: 14, paddingTop: 4 },
+    said: { paddingTop: 10 },
+    earlier: { flexDirection: 'row', alignItems: 'center', gap: 8, alignSelf: 'flex-start', height: 26 },
+    earlierText: { fontFamily: fonts.ui, fontSize: 12.5, color: colors.inkDim },
+    earlierCount: { fontFamily: fonts.ui, fontSize: 12.5, color: colors.inkFaint },
+    thought: { maxWidth: THOUGHT_MEASURE, marginVertical: 6 },
+    thoughtText: { fontFamily: fonts.ui, fontSize: 13.5, lineHeight: 21.5, color: colors.secondary },
+    subagent: { marginVertical: 4, borderRadius: 10, backgroundColor: translucent(colors.raised, 0.55) },
+    subagentHead: { flexDirection: 'row', alignItems: 'center', gap: 8, height: 34, paddingHorizontal: 12, borderRadius: 10 },
+    subagentPressed: { backgroundColor: colors.active },
+    turned: { transform: [{ rotate: '90deg' }] },
+    subagentName: { flexShrink: 0, maxWidth: '35%', fontFamily: fonts.uiSemibold, fontSize: 12.5, color: colors.ink },
+    subagentTask: { flexShrink: 1, minWidth: 0, fontFamily: fonts.ui, fontSize: 12.5, color: colors.inkDim },
+    subagentDoing: { fontFamily: fonts.ui, fontSize: 12.5, color: colors.secondary },
+    subagentDoingLayout: { flexShrink: 1, minWidth: 0 },
+    subagentEnd: { flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 0 },
+    subagentWord: { fontFamily: fonts.ui, fontSize: 12.5, color: colors.inkDim },
+    subagentSpacer: { flex: 1 },
+    subagentCalls: { flexShrink: 0, fontFamily: fonts.ui, fontSize: 12, fontVariant: ['tabular-nums'], color: colors.inkFaint },
+    subagentBody: { paddingLeft: 25, paddingRight: 10, paddingTop: 2, paddingBottom: 8, gap: 2 },
     empty: { fontFamily: fonts.ui, fontSize: 12.5, color: colors.inkFaint, paddingVertical: 6 },
   });
 };

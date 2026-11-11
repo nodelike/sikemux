@@ -375,7 +375,7 @@ export default function NewChat() {
         {sending ? (
           <View style={styles.sending}>
             <Message message={sending.message} unsent={{ state: 'sending' }} sentFiles={sending.files} />
-            {launcher ? <Activity provider={launcher.provider} label={step ?? 'Starting'} since={sending.since} /> : null}
+            {launcher ? <Activity provider={launcher.provider} doing={{ verb: step ?? 'Starting' }} since={sending.since} /> : null}
           </View>
         ) : (
           <View style={styles.welcome}>

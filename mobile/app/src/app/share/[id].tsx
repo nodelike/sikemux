@@ -6,7 +6,7 @@ import { getClerkInstance } from '@clerk/expo';
 import { FlashList, type FlashListRef } from '@shopify/flash-list';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { activityText } from '@shared/chat/chatStatus';
+import { activityDoing } from '@shared/chat/chatStatus';
 import { subagentsOf } from '@shared/chat/subagents';
 import type { ChatMessage } from '@shared/wire.generated';
 import { shareUrl } from '@shared/account/live';
@@ -135,7 +135,7 @@ function SharedChat({ session }: { session: ShareSession }) {
   const [since] = useState(Date.now);
   const now = useMinute() * 60_000;
   const live = snapshot.status === 'live';
-  const activity = live ? activityText(state.activity) : null;
+  const activity = live ? activityDoing(state.activity) : null;
   const problem = problemOf(snapshot);
   const list = useRef<FlashListRef<ChatMessage>>(null);
   const scroll = useTranscriptScroll(list, {
@@ -252,7 +252,7 @@ function SharedChat({ session }: { session: ShareSession }) {
                               Waiting for permission: {request.toolCall.title}
                             </Text>
                           ))}
-                          {activity ? <Activity provider={provider} label={activity} since={since} /> : null}
+                          {activity ? <Activity provider={provider} doing={activity} since={since} /> : null}
                           {state.error ? <Text style={styles.error}>{state.error}</Text> : null}
                         </>
                       }

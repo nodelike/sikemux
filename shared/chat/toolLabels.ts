@@ -1,5 +1,5 @@
 import { safeWebUrl } from "../lib/urls";
-import type { ToolRow, ToolAction, ToolCall } from "../wire.generated";
+import type { ToolAction, ToolCall } from "../wire.generated";
 
 /* The core works out what each call did and to what; these are only the words the app says it in. */
 const ACTION_WORDS: Record<ToolAction, string> = {
@@ -15,23 +15,6 @@ const ACTION_WORDS: Record<ToolAction, string> = {
     mcp: "mcp",
     other: "tool",
 };
-
-const ACTION_SENTENCES: Partial<Record<ToolAction, string>> = {
-    read: "Reading…",
-    edit: "Editing…",
-    delete: "Deleting…",
-    move: "Moving…",
-    search: "Searching…",
-    execute: "Running a command…",
-    think: "Thinking…",
-    fetch: "Fetching…",
-    switch_mode: "Switching mode…",
-};
-
-/* The running row is one line, so it says what the agent is doing rather than quote the call back. */
-export function activityLabel(row: ToolRow): string {
-    return row.activity ?? ACTION_SENTENCES[row.action] ?? "Working…";
-}
 
 export function toolKind(tool: ToolCall): string {
     return tool.row.verb ?? tool.row.server ?? ACTION_WORDS[tool.row.action];

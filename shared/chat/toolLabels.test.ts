@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activityLabel, toolKind, toolUrl } from "./toolLabels";
+import { toolKind, toolUrl } from "./toolLabels";
 import type { ToolCall } from "../wire.generated";
 
 const call = (title: string, extra: Partial<ToolCall> = {}): ToolCall => ({
@@ -14,12 +14,6 @@ describe("a row's words", () => {
         expect(toolKind(call("x", { row: { action: "fetch", target: "x", verb: "open" } }))).toBe("open");
         expect(toolKind(call("x", { row: { action: "mcp", target: "x", server: "github" } }))).toBe("github");
         expect(toolKind(call("x", { row: { action: "execute", target: "x" } }))).toBe("run");
-    });
-
-    it("say what a running call is doing, in the core's words when it sends some", () => {
-        expect(activityLabel({ action: "fetch", target: "x", activity: "open https://a.dev" })).toBe("open https://a.dev");
-        expect(activityLabel({ action: "execute", target: "x" })).toBe("Running a command…");
-        expect(activityLabel({ action: "other", target: "x" })).toBe("Working…");
     });
 });
 

@@ -5,28 +5,34 @@ import { durationLabel } from '@shared/chat/durationLabel';
 import { useToolDetail } from '@shared/chat/useToolDetail';
 import { toolKind, toolRunning, toolUrl } from '@shared/chat/toolLabels';
 import { attachmentName } from '@shared/chat/transcript';
+import { basename } from '@shared/lib/paths';
 import {
-  callCount,
-  callsLabel,
-  OUTPUT_FOLD_LINES,
-  secondsSince,
-  toolElapsed,
-  toolGroupSummary,
-  toolIconName,
-  type ToolIconName,
-} from '@shared/chat/toolView';
-import type { ChatPart, ToolCall, ToolDetail as Detail, ToolOutput } from '@shared/wire.generated';
+  callCommand,
+  callFailed,
+  callOpens,
+  callTook,
+  lineNames,
+  linesSayAll,
+  lineVerb,
+  placeOf,
+  runCalls,
+  runOf,
+  sentence,
+} from '@shared/chat/runs';
+import { secondsSince, toolElapsed, toolIconName, type ToolIconName } from '@shared/chat/toolView';
+import type { ChatPart, RunLine as Line, ToolCall, ToolDetail as Detail, ToolFamily, ToolIntent, ToolOutput } from '@shared/wire.generated';
 import { problem as problemOf } from '@/core/problem';
 import { CopyButton } from '@/ui/CopyButton';
 import { Icon } from '@/ui/Icon';
 import type { IconName } from '@/ui/icons.generated';
 import { openLink } from '@/ui/prompt';
-import { fonts, type Palette, useColors, useStyles } from '@/ui/theme';
+import { fonts, mixed, type Palette, translucent, useColors, useStyles } from '@/ui/theme';
 import { Shimmer } from '@/ui/Shimmer';
 import { useSecond } from '@/ui/motion';
 import { Sideways } from '@/ui/Sideways';
 import { DiffBody } from './Diff';
-import { FileRef } from './FileRef';
+import { FileRef, hostImagePath } from './FileRef';
+import { useHostFile } from './hostFiles';
 import { useFold } from './folds';
 import { ImageViewerHost, useShowImage } from './ImageViewer';
 
@@ -141,6 +147,10 @@ export function LiveSeconds({ since, spent = 0, style }: { since?: number; spent
   return <Text style={style}>{secondsSince(started, useSecond() * 1000, spent)}</Text>;
 }
 
+/** Lines of what a command printed shown before "Show all": its last ones, as on the Mac. */
+const OUTPUT_TAIL_LINES = 8;
+
+/** What a command printed: its exit code and size, then its last lines, the rest a tap away. */
 function Terminal({
   part,
   command,
@@ -149,6 +159,7 @@ function Terminal({
   waiting,
 }: {
   part: ToolPart;
+  /** The whole command, when its line had to cut it short. */
   command: string | null;
   group: string;
   output: ToolOutput | undefined;
@@ -163,14 +174,15 @@ function Terminal({
     ? { uri: `data:${output.image.mimeType};base64,${output.image.data}`, name: attachmentName(output.image.mimeType) }
     : null;
   const [whole, setWhole] = useFold(`${group}/${part.id}/whole`, false);
-  const lines = output?.text ? output.text.split('\n') : [];
-  const folds = lines.length > OUTPUT_FOLD_LINES;
-  const folded = folds && !whole;
-  const failed = part.tool.status === 'failed';
+  const text = output?.text?.replace(/\n+$/, '') ?? '';
+  const lines = text ? text.split('\n') : [];
+  const folds = lines.length > OUTPUT_TAIL_LINES;
+  const shown = folds && !whole ? lines.slice(-OUTPUT_TAIL_LINES).join('\n') : text;
+  const exit = part.tool.status === 'failed' ? (summary?.exitCode !== undefined ? `exit ${summary.exitCode}` : 'failed') : null;
   return (
-    <View style={styles.box}>
+    <View>
       {command !== null ? (
-        <View style={styles.command}>
+        <View style={[styles.well, styles.command]}>
           <Text style={[styles.mono, { color: colors.toolRun }]}>$</Text>
           <Text style={[styles.mono, styles.commandText]} selectable>
             {command}
@@ -178,60 +190,74 @@ function Terminal({
           <CopyButton value={command} label="command" size={12} />
         </View>
       ) : null}
+      {exit || lines.length > 0 || folds ? (
+        <View style={styles.outputHead}>
+          {exit ? <Text style={styles.exit}>{exit}</Text> : null}
+          {lines.length > 0 ? <Text style={styles.faint}>{`${lines.length} ${lines.length === 1 ? 'line' : 'lines'}`}</Text> : null}
+          {folds ? (
+            <Pressable onPress={() => setWhole(!whole)} style={styles.showAll} hitSlop={8} accessibilityRole="button">
+              <View style={whole && styles.turned}>
+                <Icon name="IconChevron" size={9} color={colors.inkDim} />
+              </View>
+              <Text style={styles.quiet}>{whole ? 'Show less' : 'Show all'}</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      ) : null}
       {picture ? (
         <Pressable onPress={() => show(picture)} accessibilityRole="imagebutton" accessibilityLabel="Picture the call returned, open">
           <Image source={{ uri: picture.uri }} style={styles.image} resizeMode="contain" accessibilityIgnoresInvertColors />
         </Pressable>
       ) : null}
-      {output?.text ? (
-        <View style={[styles.output, command !== null && styles.ruled]}>
-          {folded ? (
-            <Sideways contentStyle={styles.pad}>
-              <Text style={[styles.mono, styles.outputText]}>{lines.slice(0, OUTPUT_FOLD_LINES).join('\n')}</Text>
-            </Sideways>
-          ) : (
+      {shown ? (
+        <View style={styles.well}>
+          {whole ? (
             <ScrollView style={styles.whole} nestedScrollEnabled showsVerticalScrollIndicator={false}>
-              <Sideways contentStyle={styles.pad}>
-                <Text style={[styles.mono, styles.outputText]} selectable>
-                  {output.text}
+              <Sideways contentStyle={styles.printedPad}>
+                <Text style={[styles.mono, styles.printed]} selectable>
+                  {shown}
                 </Text>
               </Sideways>
             </ScrollView>
+          ) : (
+            <Sideways contentStyle={styles.printedPad}>
+              <Text style={[styles.mono, styles.printed]}>{shown}</Text>
+            </Sideways>
           )}
-          <CopyButton value={output.text} label="output" size={12} style={styles.copyOutput} />
+          <CopyButton value={text} label="output" size={12} style={styles.copyOutput} />
         </View>
       ) : waiting ? (
-        <Text style={[styles.note, command !== null && styles.ruled]}>{waiting}</Text>
+        <Text style={styles.note}>{waiting}</Text>
       ) : summary && !output?.image ? (
-        <Text style={[styles.note, command !== null && styles.ruled]}>No output</Text>
+        <Text style={styles.note}>No output</Text>
       ) : null}
-      {folds ? (
-        <Pressable onPress={() => setWhole(!whole)} style={[styles.more, styles.ruled]} hitSlop={4} accessibilityRole="button">
-          <Text style={styles.moreText}>{folded ? `Show all ${lines.length} lines` : 'Show fewer lines'}</Text>
-        </Pressable>
-      ) : null}
-      {(output ?? summary)?.cut && (!folds || whole) ? (
-        <Text style={[styles.note, styles.ruled]}>The rest of the output was not kept</Text>
-      ) : null}
-      {failed && summary?.exitCode !== undefined ? <Text style={styles.exit}>exit {summary.exitCode}</Text> : null}
+      {(output ?? summary)?.cut && (!folds || whole) ? <Text style={styles.note}>The rest of the output was not kept</Text> : null}
     </View>
   );
 }
 
-function ToolDetail({ part, command, group }: { part: ToolPart; command: string | null; group: string }) {
+/** What an opened call did: its change, what it printed, or why it failed. */
+function ToolDetail({ part, group }: { part: ToolPart; group: string }) {
   const styles = useStyles(makeStyles);
   const { detail, problem } = useToolFetch(part);
   const waiting = detail ? null : problem ? `Could not load it: ${problem}` : 'Loading…';
+  const command = callCommand(part);
   return (
     <View style={styles.detail}>
       {part.diff ? (
         <DiffBody
-          diff={detail?.diff ?? part.diff}
+          lines={detail?.diff?.lines}
           fold={`${group}/${part.id}/diff`}
           waiting={detail?.diff ? undefined : (waiting ?? undefined)}
         />
       ) : command !== null || part.output ? (
-        <Terminal part={part} command={command} group={group} output={detail?.output} waiting={part.output ? waiting : null} />
+        <Terminal
+          part={part}
+          command={command !== null && command !== part.tool.row.target ? command : null}
+          group={group}
+          output={detail?.output}
+          waiting={part.output ? waiting : null}
+        />
       ) : (
         <Text style={styles.failure} selectable>
           {part.failure}
@@ -332,66 +358,364 @@ const ToolRow = memo(function ToolRow({
       {open ? (
         <View style={styles.detailRow}>
           {last ? null : <View style={styles.spine} />}
-          <ToolDetail part={part} command={command} group={group} />
+          <View style={styles.rowDetail}>
+            <ToolDetail part={part} group={group} />
+          </View>
         </View>
       ) : null}
     </View>
   );
 });
 
-/* A message's runs of calls are gathered afresh on each update, so a group compares its calls rather than its array:
-   while a reply streams, a group whose calls did not change is not drawn again. */
+/** The icon of a line or a strip, by what it did and the kind of tool it is, as the Mac's `line_icon`. */
+function lineIcon(intent: ToolIntent, family: ToolFamily, call?: ToolPart): IconName {
+  const plugin = call?.tool.row.plugin;
+  if (plugin && PLUGIN_MARKS[plugin]) return PLUGIN_MARKS[plugin];
+  const simulator = family === 'simulator';
+  switch (intent) {
+    case 'read':
+      return family === 'browser' ? 'IconEye' : family === 'web' ? 'IconGlobe' : 'IconFile';
+    case 'fetch':
+      return 'IconGlobe';
+    case 'view':
+      return 'IconImage';
+    case 'search':
+      return family === 'web' ? 'IconGlobe' : 'IconSearch';
+    case 'list':
+      return 'IconFolder';
+    case 'edit':
+    case 'write':
+      return 'IconPencil';
+    case 'move':
+      return 'IconMove';
+    case 'delete':
+      return 'IconTrash';
+    case 'run':
+    case 'test':
+    case 'build':
+      return 'IconCommand';
+    case 'git':
+    case 'commit':
+      return 'IconGit';
+    case 'open':
+      return simulator ? 'IconPhone' : 'IconGlobe';
+    case 'click':
+      return simulator ? 'IconTap' : 'IconClick';
+    case 'type':
+      return 'IconKeyboard';
+    case 'look':
+      return 'IconCamera';
+    case 'message':
+      return 'IconMessage';
+    case 'start':
+      return family === 'shell' ? 'IconRun' : 'IconAgent';
+    case 'stop':
+      return 'IconStop';
+    case 'wait':
+      return 'IconClock';
+    case 'mode':
+      return 'IconSettings';
+    case 'query':
+    case 'use':
+      return 'IconPlug';
+  }
+}
+
+/** The colour of what a line did: looking, changing, removing, running or calling an agent. */
+function intentTint(intent: ToolIntent, colors: Palette): string {
+  const dim = colors.inkDim;
+  switch (intent) {
+    case 'read':
+    case 'view':
+    case 'search':
+    case 'list':
+    case 'fetch':
+    case 'open':
+    case 'look':
+    case 'click':
+    case 'type':
+      return mixed(colors.gitRenamed, dim, 0.76);
+    case 'edit':
+    case 'write':
+    case 'move':
+    case 'commit':
+      return mixed(colors.gitModified, dim, 0.76);
+    case 'delete':
+      return mixed(colors.gitDeleted, dim, 0.76);
+    case 'run':
+    case 'test':
+    case 'build':
+    case 'git':
+    case 'start':
+    case 'stop':
+      return mixed(colors.cmd, dim, 0.7);
+    case 'message':
+      return mixed(colors.live, dim, 0.66);
+    default:
+      return dim;
+  }
+}
+
+function Chevron({ open, size = 11 }: { open: boolean; size?: number }) {
+  const colors = useColors();
+  const styles = useStyles(makeStyles);
+  return (
+    <View style={open && styles.turned}>
+      <Icon name="IconChevron" size={size} color={colors.inkDim} />
+    </View>
+  );
+}
+
+/**
+ * One thing the run did: a command, a change, or neighbours that did the same thing named
+ * together. A line of one call opens onto what it changed or printed.
+ */
+const RunLine = memo(function RunLine({ line, run, group }: { line: Line; run: ToolPart[]; group: string }) {
+  const colors = useColors();
+  const styles = useStyles(makeStyles);
+  const calls = line.calls.flatMap((at) => run[at] ?? []);
+  const first = calls[0];
+  const lone = calls.length === 1 ? first : undefined;
+  const opens = lone !== undefined && callOpens(lone);
+  const [open, setOpen] = useFold(`${group}/${first?.id}`, false);
+  if (!first) return null;
+  const running = calls.some((call) => toolRunning(call.tool));
+  const tint = line.failed ? colors.danger : intentTint(line.intent, colors);
+  const saidByIntent = ['read', 'view', 'search', 'list'].includes(line.intent) && first.tool.row.subject !== undefined;
+  const command = lone && callCommand(lone) !== null && !saidByIntent ? lone.tool.row.target : null;
+  const within = first.tool.row.within;
+  const { names, more } = lineNames(calls);
+  const took = calls.reduce((sum, call) => sum + callTook(call), 0);
+  const diff = lone?.diff;
+  const label = command ?? `${lineVerb(line, names.length > 0)} ${names.map(({ name }) => name).join(', ')}`;
+  return (
+    <View>
+      <Pressable
+        onPress={opens ? () => setOpen(!open) : undefined}
+        disabled={!opens}
+        style={styles.line}
+        accessibilityRole={opens ? 'button' : undefined}
+        accessibilityLabel={`${label}${line.failed ? ', failed' : running ? ', running' : ''}`}
+        accessibilityState={opens ? { expanded: open } : undefined}>
+        <View style={styles.lineIcon}>
+          <Icon name={lineIcon(line.intent, line.family, first)} size={12} color={tint} />
+        </View>
+        {command !== null ? (
+          running ? (
+            <Shimmer style={[styles.mono, styles.typed]} layout={styles.lineMain}>
+              {command}
+            </Shimmer>
+          ) : (
+            <Text style={[styles.mono, styles.typed, styles.lineMain, line.failed && { color: colors.danger }]} numberOfLines={1}>
+              {command}
+            </Text>
+          )
+        ) : (
+          <View style={[styles.lineNamed, styles.lineMain]}>
+            <Text style={styles.lineWords}>{lineVerb(line, names.length > 0)}</Text>
+            {names.map(({ name, path }) =>
+              path ? (
+                <FileChip key={name} name={name} path={path} withLines={line.intent !== 'view'} />
+              ) : (
+                <Text key={name} style={styles.name} numberOfLines={1}>
+                  {name}
+                </Text>
+              ),
+            )}
+            {more > 0 ? <Text style={styles.lineWords}>{`+${more}`}</Text> : null}
+            {within ? (
+              <Text style={styles.lineWithin} numberOfLines={1}>
+                <Text style={styles.lineWords}>in </Text>
+                {within}
+              </Text>
+            ) : null}
+          </View>
+        )}
+        <View style={styles.lineEnd}>
+          {diff ? (
+            <>
+              <Text style={[styles.endText, { color: colors.gitAdded }]}>+{diff.adds}</Text>
+              <Text style={[styles.endText, { color: colors.gitDeleted }]}>−{diff.dels}</Text>
+            </>
+          ) : null}
+          {calls.length > 1 ? <Text style={styles.endText}>{`${calls.length} calls`}</Text> : null}
+          {command !== null && !running ? (
+            <Icon name={line.failed ? 'IconClose' : 'IconCheck'} size={11} color={line.failed ? colors.danger : colors.gitAdded} />
+          ) : null}
+          {running ? (
+            <LiveSeconds since={first.startedAt} style={styles.endText} />
+          ) : took > 0 ? (
+            <Text style={styles.endText}>{durationLabel(took)}</Text>
+          ) : null}
+        </View>
+      </Pressable>
+      {line.failed && first.failure && !open ? (
+        <Text style={styles.lineFailure} numberOfLines={3}>
+          {first.failure}
+        </Text>
+      ) : null}
+      {line.intent === 'view' ? <Pictures calls={calls} /> : null}
+      {open && lone ? (
+        <View style={styles.lineDetail}>
+          <ToolDetail part={lone} group={group} />
+        </View>
+      ) : null}
+    </View>
+  );
+});
+
+/** A file a line names: its glyph, its name and the lines it touched. Only a picture opens; the phone has no editor. */
+function FileChip({ name, path, withLines }: { name: string; path: string; withLines: boolean }) {
+  const colors = useColors();
+  const styles = useStyles(makeStyles);
+  const show = useShowImage();
+  const { file, lines } = placeOf(path);
+  const image = hostImagePath(file);
+  return (
+    <Pressable
+      onPress={image ? () => show({ path: image, name: basename(image) }) : undefined}
+      disabled={!image}
+      style={styles.chip}
+      accessibilityRole={image ? 'imagebutton' : undefined}
+      accessibilityLabel={`${name}${withLines && lines ? `, lines ${lines}` : ''}`}>
+      <Icon name="IconFile" size={11} color={colors.inkDim} />
+      <Text style={styles.chipName} numberOfLines={1}>
+        {name}
+      </Text>
+      {withLines && lines ? <Text style={styles.chipLines}>{lines}</Text> : null}
+    </Pressable>
+  );
+}
+
+/** The most pictures a line shows of those its calls looked at. */
+const LINE_PICTURES = 6;
+
+/** The pictures a line's calls looked at on the host, small, with their names. */
+function Pictures({ calls }: { calls: ToolPart[] }) {
+  const styles = useStyles(makeStyles);
+  const paths = calls
+    .flatMap((call) => (call.tool.row.path ? [hostImagePath(placeOf(call.tool.row.path).file)] : []))
+    .filter((path): path is string => path !== null)
+    .slice(0, LINE_PICTURES);
+  if (!paths.length) return null;
+  return (
+    <View style={styles.pictures}>
+      {paths.map((path) => (
+        <Thumbnail key={path} path={path} />
+      ))}
+    </View>
+  );
+}
+
+function Thumbnail({ path }: { path: string }) {
+  const styles = useStyles(makeStyles);
+  const show = useShowImage();
+  const uri = useHostFile(path, true, THUMB_EDGE);
+  const name = basename(path);
+  return (
+    <Pressable
+      onPress={() => show({ path, name })}
+      style={styles.thumb}
+      accessibilityRole="imagebutton"
+      accessibilityLabel={`${name}, open`}>
+      {uri ? (
+        <Image source={{ uri }} style={styles.thumbImage} resizeMode="cover" accessibilityIgnoresInvertColors />
+      ) : (
+        <View style={styles.thumbImage} />
+      )}
+      <Text style={styles.thumbName} numberOfLines={1}>
+        {name}
+      </Text>
+    </Pressable>
+  );
+}
+
+/** The longest edge a thumbnail asks the host for, at the phone's 3× scale. */
+const THUMB_EDGE = 312;
+
+/* A message's runs of calls are gathered afresh on each update, so a strip compares its calls rather than its array:
+   while a reply streams, a strip whose calls did not change is not drawn again. */
 const sameCalls = (a: ToolPart[], b: ToolPart[]) => a.length === b.length && a.every((part, index) => part === b[index]);
 
 /**
- * A run of calls stays open while the agent is still adding to it, as on the Mac, and folds once
- * something follows it or the turn ends; watching each call instead shuts it in the gaps between them.
- * While a call runs, the header says what the agent said it is for.
+ * A run of tool calls as one flat strip: a sentence saying what the run did, as the core counted
+ * it, opening onto a line for each thing it did and, behind that, every call. Only the live run
+ * is open until the person opens another.
  */
-export const ToolGroup = memo(
-  function ToolGroup({ id, parts, live }: { id: string; parts: ToolPart[]; live: boolean }) {
+export const RunStrip = memo(
+  function RunStrip({ id, parts, live }: { id: string; parts: ToolPart[]; live: boolean }) {
     const colors = useColors();
     const styles = useStyles(makeStyles);
-    const summary = toolGroupSummary(parts);
-    const { current, said, spent } = summary;
+    const run = runOf(parts);
+    const current = parts.find((part) => toolRunning(part.tool));
     const [open, setOpen] = useFold(id, live || current !== undefined);
-    const total = parts.reduce((sum, part) => sum + (part.tool.row.times ?? 1), 0);
-    const calls = callsLabel(total);
-    const kindWidth = summary.kindWidth * KIND_CHAR + 1;
+    const [raw, setRaw] = useFold(`${id}/raw`, false);
+    if (run.said.length === 0 && !current) return null;
+    const spent = parts.reduce((sum, part) => sum + callTook(part), 0);
+    const said = sentence(run, current?.tool.row);
+    const lead = run.lines[0] && parts[run.lines[0].calls[0]];
+    const clause = run.said[0];
+    const icon =
+      lead && !callFailed(lead)
+        ? lineIcon(lead.tool.row.intent ?? 'use', lead.tool.row.family ?? 'other', lead)
+        : clause
+          ? lineIcon(clause.intent, clause.family)
+          : 'IconCommand';
+    const [adds, dels] = parts.reduce(([adds, dels], part) => [adds + (part.diff?.adds ?? 0), dels + (part.diff?.dels ?? 0)], [0, 0]);
+    const failed = run.failed ?? 0;
+    const total = runCalls(parts);
     return (
       <ImageViewerHost>
-        <View style={styles.group}>
+        <View style={styles.strip}>
           <Pressable
             onPress={() => setOpen(!open)}
-            style={styles.summary}
-            hitSlop={6}
+            style={({ pressed }) => [styles.head, pressed && styles.pressed]}
             accessibilityRole="button"
-            accessibilityLabel={`${said ?? calls}${current ? ', running' : ''}`}
+            accessibilityLabel={`${said}${failed ? `, ${failed} failed` : ''}${current ? ', running' : ''}`}
             accessibilityState={{ expanded: open }}>
+            <Icon name={icon} size={13} color={clause ? intentTint(clause.intent, colors) : colors.inkDim} />
             {current ? (
-              <Shimmer style={[styles.summaryText, said !== null && { color: colors.secondary }]} layout={styles.summaryLabel}>
-                {said ?? calls}
+              <Shimmer style={styles.said} layout={styles.saidLayout}>
+                {said}
               </Shimmer>
             ) : (
-              <Text style={styles.summaryText} numberOfLines={1}>
-                {calls}
+              <Text style={[styles.said, styles.saidLayout]} numberOfLines={1}>
+                {said}
               </Text>
             )}
-            {said !== null && total > 1 ? <Text style={styles.summaryTime}>{callCount(total)}</Text> : null}
-            {current ? (
-              <LiveSeconds key={current.id} since={current.startedAt} spent={spent} style={styles.summaryTime} />
-            ) : spent > 0 ? (
-              <Text style={styles.summaryTime}>{durationLabel(spent)}</Text>
+            {adds + dels > 0 ? (
+              <Text style={styles.headCount}>
+                <Text style={{ color: colors.gitAdded }}>+{adds}</Text> <Text style={{ color: colors.gitDeleted }}>−{dels}</Text>
+              </Text>
             ) : null}
-            <View style={[styles.chevron, open && { transform: [{ rotate: '90deg' }] }]}>
-              <Icon name="IconChevron" size={11} color={colors.inkDim} />
-            </View>
+            {failed > 0 ? <Text style={[styles.headCount, { color: colors.danger }]}>{`${failed} failed`}</Text> : null}
+            <View style={styles.spacer} />
+            {current ? (
+              <LiveSeconds key={current.id} since={current.startedAt} spent={spent} style={styles.headTime} />
+            ) : spent > 0 ? (
+              <Text style={styles.headTime}>{durationLabel(spent)}</Text>
+            ) : null}
+            <Chevron open={open} />
           </Pressable>
           {open ? (
             <View style={styles.body}>
-              {parts.map((part, index) => (
-                <ToolRow key={part.id} part={part} last={index === parts.length - 1} group={id} kindWidth={kindWidth} />
+              {run.lines.map((line) => (
+                <RunLine key={line.calls.join(',')} line={line} run={parts} group={id} />
               ))}
+              {linesSayAll(run, parts) ? null : (
+                <Pressable onPress={() => setRaw(!raw)} style={styles.rawToggle} hitSlop={6} accessibilityRole="button">
+                  <Text style={styles.quietSmall}>{`All ${total} ${total === 1 ? 'call' : 'calls'}`}</Text>
+                  <Chevron open={raw} size={9} />
+                  {run.hidden ? <Text style={styles.housekeeping}>{`+${run.hidden} housekeeping`}</Text> : null}
+                </Pressable>
+              )}
+              {raw ? (
+                <View style={styles.raw}>
+                  {parts.map((part, index) => (
+                    <ToolRow key={part.id} part={part} last={index === parts.length - 1} group={id} kindWidth={kindWidth(parts)} />
+                  ))}
+                </View>
+              ) : null}
             </View>
           ) : null}
         </View>
@@ -401,15 +725,66 @@ export const ToolGroup = memo(
   (before, after) => before.id === after.id && before.live === after.live && sameCalls(before.parts, after.parts),
 );
 
+/** The widest call name in a run, so the raw rows line their names up in one column. */
+const kindWidth = (parts: ToolPart[]) => Math.min(16, Math.max(4, ...parts.map((part) => toolKind(part.tool).length))) * KIND_CHAR + 1;
+
 const makeStyles = (colors: Palette) => {
   return StyleSheet.create({
-    group: { marginVertical: 6 },
-    summary: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 24, alignSelf: 'flex-start', maxWidth: '100%' },
-    summaryText: { flexShrink: 1, fontFamily: fonts.ui, fontSize: 12.5, color: colors.inkDim },
-    summaryLabel: { flexShrink: 1 },
-    summaryTime: { fontFamily: fonts.mono, fontSize: 11, color: colors.inkDim },
-    chevron: { opacity: 0.7 },
-    body: { marginLeft: 6 },
+    strip: { marginVertical: 4, borderRadius: 10, backgroundColor: translucent(colors.raised, 0.55) },
+    head: { flexDirection: 'row', alignItems: 'center', gap: 8, height: 34, paddingHorizontal: 12, borderRadius: 10 },
+    pressed: { backgroundColor: colors.active },
+    said: { fontFamily: fonts.ui, fontSize: 12.5, color: colors.secondary },
+    saidLayout: { flexShrink: 1, minWidth: 0 },
+    headCount: { flexShrink: 0, fontFamily: fonts.ui, fontSize: 12.5 },
+    headTime: { flexShrink: 0, fontFamily: fonts.ui, fontSize: 12, fontVariant: ['tabular-nums'], color: colors.inkFaint },
+    spacer: { flex: 1 },
+    turned: { transform: [{ rotate: '90deg' }] },
+    body: { paddingHorizontal: 12, paddingBottom: 10 },
+    line: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 28 },
+    lineIcon: { width: 14, alignItems: 'center' },
+    lineMain: { flex: 1, minWidth: 0 },
+    lineWords: { fontFamily: fonts.ui, fontSize: 12.5, color: colors.secondary },
+    typed: { fontSize: 12, color: colors.secondary },
+    name: { flexShrink: 0, fontFamily: fonts.mono, fontSize: 12, color: colors.ink },
+    lineNamed: { flexDirection: 'row', alignItems: 'center', gap: 6, overflow: 'hidden' },
+    chip: {
+      flexShrink: 0,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      height: 22,
+      paddingHorizontal: 8,
+      borderRadius: 5,
+      backgroundColor: translucent(colors.ink, 0.06),
+    },
+    lineWithin: { flexShrink: 1, fontFamily: fonts.mono, fontSize: 12, color: colors.secondary },
+    chipName: { fontFamily: fonts.mono, fontSize: 12, color: colors.ink },
+    chipLines: { fontFamily: fonts.ui, fontSize: 11, color: colors.inkDim },
+    pictures: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginLeft: 24, marginBottom: 4 },
+    thumb: { width: 104, gap: 4 },
+    thumbImage: { width: 104, height: 70, borderRadius: 5, backgroundColor: colors.sunken },
+    thumbName: { fontFamily: fonts.mono, fontSize: 11, color: colors.inkDim },
+    lineEnd: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    endText: { fontFamily: fonts.ui, fontSize: 12, fontVariant: ['tabular-nums'], color: colors.inkFaint },
+    lineFailure: {
+      marginLeft: 24,
+      marginBottom: 4,
+      paddingHorizontal: 10,
+      paddingVertical: 4,
+      borderRadius: 5,
+      overflow: 'hidden',
+      backgroundColor: translucent(colors.danger, 0.08),
+      fontFamily: fonts.mono,
+      fontSize: 11.5,
+      lineHeight: 17,
+      color: colors.danger,
+    },
+    lineDetail: { marginLeft: 24, marginTop: 1, marginBottom: 6 },
+    rawToggle: { flexDirection: 'row', alignItems: 'center', gap: 4, alignSelf: 'flex-start', height: 26, marginTop: 4 },
+    quiet: { color: colors.inkDim },
+    quietSmall: { fontFamily: fonts.ui, fontSize: 12, color: colors.inkDim },
+    housekeeping: { marginLeft: 8, fontFamily: fonts.ui, fontSize: 12, color: colors.inkFaint },
+    raw: { marginTop: 2, marginLeft: 6 },
     row: { flexDirection: 'row', alignItems: 'center', minHeight: 22, gap: 8 },
     cancelled: { opacity: 0.6 },
     spine: { position: 'absolute', left: 0, top: 0, bottom: 0, width: 1, backgroundColor: colors.treeSpine },
@@ -435,23 +810,39 @@ const makeStyles = (colors: Palette) => {
     link: { color: colors.accent },
     rowChevron: { opacity: 0.55 },
     rowChevronOpen: { opacity: 1, transform: [{ rotate: '90deg' }] },
-    endText: { fontFamily: fonts.mono, fontSize: 10.5, color: colors.inkDim },
+    rowDetail: { flex: 1, marginLeft: 18, marginTop: 2, marginBottom: 6 },
     detailRow: { flexDirection: 'row' },
-    detail: { flex: 1, marginLeft: 18, marginTop: 2, marginBottom: 6 },
-    failure: { fontFamily: fonts.mono, fontSize: 11, lineHeight: 16, color: colors.danger },
-    box: { borderRadius: 8, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.sunken, overflow: 'hidden' },
-    whole: { maxHeight: 320 },
-    pad: { paddingHorizontal: 9, paddingVertical: 7 },
-    command: { flexDirection: 'row', alignItems: 'flex-start', gap: 7, paddingLeft: 9, paddingRight: 3, paddingVertical: 3 },
+    detail: { flex: 1 },
+    failure: { fontFamily: fonts.mono, fontSize: 11, lineHeight: 17, color: colors.danger },
+    well: { borderRadius: 8, backgroundColor: colors.sunken, overflow: 'hidden' },
+    command: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: 7,
+      paddingLeft: 12,
+      paddingRight: 3,
+      paddingVertical: 3,
+      marginBottom: 4,
+    },
     commandText: { flex: 1, paddingVertical: 4, lineHeight: 17, color: colors.ink },
-    output: { position: 'relative' },
-    ruled: { borderTopWidth: 1, borderTopColor: colors.border },
-    outputText: { fontSize: 11, lineHeight: 16, color: colors.inkDim, paddingRight: 24 },
-    copyOutput: { position: 'absolute', top: 3, right: 3 },
-    note: { paddingHorizontal: 9, paddingVertical: 6, fontFamily: fonts.mono, fontSize: 10.5, color: colors.inkFaint },
-    more: { paddingHorizontal: 9, paddingVertical: 7 },
-    moreText: { fontFamily: fonts.mono, fontSize: 10.5, color: colors.inkFaint },
-    exit: { paddingHorizontal: 9, paddingBottom: 7, fontFamily: fonts.mono, fontSize: 10.5, color: colors.danger },
-    image: { width: '100%', aspectRatio: 4 / 3, backgroundColor: colors.sunken },
+    outputHead: { flexDirection: 'row', alignItems: 'center', gap: 10, height: 26 },
+    exit: {
+      paddingHorizontal: 7,
+      paddingVertical: 1,
+      borderRadius: 10,
+      overflow: 'hidden',
+      backgroundColor: translucent(colors.danger, 0.12),
+      fontFamily: fonts.mono,
+      fontSize: 11,
+      color: mixed(colors.danger, colors.ink, 0.7),
+    },
+    faint: { fontFamily: fonts.ui, fontSize: 12, color: colors.inkFaint },
+    showAll: { flexDirection: 'row', alignItems: 'center', gap: 5, marginLeft: 'auto' },
+    whole: { maxHeight: 320 },
+    printedPad: { paddingLeft: 12, paddingRight: 30, paddingVertical: 10 },
+    printed: { fontSize: 11.5, lineHeight: 19.5, color: colors.secondary },
+    copyOutput: { position: 'absolute', top: 4, right: 4 },
+    note: { paddingTop: 4, fontFamily: fonts.ui, fontSize: 10.5, color: colors.inkFaint },
+    image: { width: '100%', aspectRatio: 4 / 3, marginTop: 4, borderRadius: 8, backgroundColor: colors.sunken },
   });
 };
