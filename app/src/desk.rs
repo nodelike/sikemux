@@ -819,7 +819,7 @@ impl Workbench {
             return;
         }
         if let Some((strip, tab, desk)) = self.desk_place(agent) {
-            if !self.panes.desk_shutting(&desk) {
+            if !self.panes.shutting(&desk) {
                 self.shut_desk(Target::here(&self.asks), strip, tab, desk, cx);
             }
         }
@@ -1075,8 +1075,8 @@ impl Workbench {
             return;
         };
         match self.desk_of(tab, agent) {
-            Some(desk) if self.panes.desk_shutting(&desk) => {
-                self.panes.slide_desk(&desk, true);
+            Some(desk) if self.panes.shutting(&desk) => {
+                self.panes.slide_view(&desk, true);
                 self.parts.redraw_stage(cx);
             }
             Some(desk) => self.shut_desk(self.target(), strip, tab.to_owned(), desk, cx),
@@ -1099,12 +1099,12 @@ impl Workbench {
         if cx.reduce_motion() {
             return self.close_pane(&to, &strip, &tab, &desk);
         }
-        let lasts = self.panes.slide_desk(&desk, false);
+        let lasts = self.panes.slide_view(&desk, false);
         self.parts.redraw_stage(cx);
         cx.spawn(async move |this, cx| {
             cx.background_executor().timer(lasts).await;
             let _ = this.update(cx, |bench, _| {
-                if bench.panes.desk_shutting(&desk) {
+                if bench.panes.shutting(&desk) {
                     bench.close_pane(&to, &strip, &tab, &desk);
                 }
             });
@@ -1186,13 +1186,17 @@ impl Workbench {
             return;
         };
         match self.desk_of(&tab, &agent) {
-            Some(desk) if self.panes.zoomed.as_ref() == Some(&desk) => self.panes.zoomed = None,
-            Some(desk) => {
-                if self.panes.desk_shutting(&desk) {
-                    self.panes.slide_desk(&desk, true);
+            Some(desk) if self.panes.zoomed.as_ref() == Some(&desk) => {
+                self.panes.zoomed = None;
+                if !cx.reduce_motion() {
+                    self.panes.slide_view(&view, true);
                 }
-                self.panes.zoomed = Some(desk);
             }
+            Some(desk) if self.panes.widening.as_ref() == Some(&desk) => {
+                self.panes.widening = None;
+                self.panes.slide_view(&view, true);
+            }
+            Some(desk) => self.widen_desk(desk, view, cx),
             None => {
                 let Some(strip) = self.strip() else {
                     return;
@@ -1202,6 +1206,31 @@ impl Workbench {
             }
         }
         self.parts.redraw_stage(cx);
+    }
+
+    /// Slides the view `beside` shut until `desk` has its tab, then lets the desk fill it.
+    pub fn widen_desk(&mut self, desk: String, beside: String, cx: &mut Context<Self>) {
+        self.panes.forget_slide(&desk);
+        if cx.reduce_motion() {
+            self.panes.zoomed = Some(desk);
+            return self.parts.redraw_stage(cx);
+        }
+        let lasts = self.panes.slide_view(&beside, false);
+        self.panes.widening = Some(desk.clone());
+        self.parts.redraw_stage(cx);
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(lasts).await;
+            let _ = this.update(cx, |bench, cx| {
+                if bench.panes.widening.as_ref() != Some(&desk) {
+                    return;
+                }
+                bench.panes.widening = None;
+                bench.panes.zoomed = Some(desk);
+                bench.panes.forget_slide(&beside);
+                bench.parts.redraw_stage(cx);
+            });
+        })
+        .detach();
     }
 
     /// The nearest agent's desk, turned to its simulator.

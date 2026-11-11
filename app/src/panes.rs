@@ -52,10 +52,12 @@ pub struct Panes {
     aimed: Option<Aimed>,
     /// The view that fills its tab for now, by id.
     pub zoomed: Option<String>,
+    /// The desk on its way to filling its tab while the agent beside it slides shut.
+    pub widening: Option<String>,
     /// Where each view of the tab in front was last drawn, by id.
     drawn: Rc<RefCell<HashMap<String, Bounds<Pixels>>>>,
-    /// Desks sliding open or shut, by view id.
-    desk_slides: RefCell<HashMap<String, DeskSlide>>,
+    /// Views sliding open or shut, by id: a desk, or the agent beside a desk filling its tab.
+    slides: RefCell<HashMap<String, DeskSlide>>,
     /// The desks each tab held when last drawn, so a desk new to its tab slides open.
     desks_seen: RefCell<HashMap<String, Vec<String>>>,
     /// The tab drawn last, so only a desk opening on the tab already in sight slides open.
@@ -158,11 +160,10 @@ struct Divider {
 }
 
 impl Panes {
-    /// Slides the desk `view` open or shut from wherever it shows now, answering how long that
-    /// takes.
-    pub(crate) fn slide_desk(&self, view: &str, open: bool) -> Duration {
+    /// Slides `view` open or shut from wherever it shows now, answering how long that takes.
+    pub(crate) fn slide_view(&self, view: &str, open: bool) -> Duration {
         let now = Instant::now();
-        let mut slides = self.desk_slides.borrow_mut();
+        let mut slides = self.slides.borrow_mut();
         let from = match slides.get(view) {
             Some(slide) => slide.at(now),
             None if open => 0.,
@@ -185,17 +186,17 @@ impl Panes {
         over
     }
 
-    pub(crate) fn desk_shutting(&self, view: &str) -> bool {
-        self.desk_slides
+    pub(crate) fn shutting(&self, view: &str) -> bool {
+        self.slides
             .borrow()
             .get(view)
             .is_some_and(|slide| !slide.open)
     }
 
     /// How far out the view `id` is drawn: below 1 only for a desk sliding open or shut.
-    fn desk_shown(&self, id: &str, window: &Window) -> f32 {
+    fn shown(&self, id: &str, window: &Window) -> f32 {
         let now = Instant::now();
-        let mut slides = self.desk_slides.borrow_mut();
+        let mut slides = self.slides.borrow_mut();
         let Some(slide) = slides.get(id).copied() else {
             return 1.;
         };
@@ -221,14 +222,21 @@ impl Panes {
             .borrow_mut()
             .insert(tab.id.clone(), desks.clone());
         if let Some(before) = before.filter(|_| !still) {
-            for desk in desks.iter().filter(|desk| !before.contains(desk)) {
-                self.slide_desk(desk, true);
+            let new =
+                |desk: &&String| !before.contains(desk) && self.widening.as_ref() != Some(desk);
+            for desk in desks.iter().filter(new) {
+                self.slide_view(desk, true);
             }
         }
         let now = Instant::now();
-        self.desk_slides
+        let held: Vec<&str> = views(&tab.pane).map(|view| view.id.as_str()).collect();
+        self.slides
             .borrow_mut()
-            .retain(|id, slide| desks.contains(id) || !slide.done(now));
+            .retain(|id, slide| held.contains(&id.as_str()) || !slide.done(now));
+    }
+
+    pub(crate) fn forget_slide(&self, view: &str) {
+        self.slides.borrow_mut().remove(view);
     }
 
     /// The sizes to draw `split` at: the core's, or a drag's while the core has not answered it.
@@ -563,7 +571,7 @@ fn split(
     let shown: Vec<f32> = panes
         .iter()
         .map(|child| match child {
-            Pane::View { id, .. } => bench.panes.desk_shown(id, window),
+            Pane::View { id, .. } => bench.panes.shown(id, window),
             Pane::Split { .. } => 1.,
         })
         .collect();
@@ -951,14 +959,12 @@ impl Workbench {
     ) {
         let core = self.target();
         let split = desk_split(strip, tab, pane, agent, false);
+        let beside = pane.to_owned();
         cx.spawn(async move |bench, cx| {
             let Ok(desk) = core.request_typed::<call::SplitPane>(split).await else {
                 return;
             };
-            let _ = bench.update(cx, |bench, cx| {
-                bench.panes.zoomed = Some(desk);
-                bench.parts.redraw_stage(cx);
-            });
+            let _ = bench.update(cx, |bench, cx| bench.widen_desk(desk, beside, cx));
         })
         .detach();
     }
