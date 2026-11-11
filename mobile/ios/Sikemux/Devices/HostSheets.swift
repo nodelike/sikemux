@@ -55,8 +55,8 @@ struct ForgetSheet: View {
 /// The agents a host's list can be narrowed to, as the provider tiles head the Mac's rail; `all` shows every one.
 struct ProviderFilter {
     let offered: [String]
-    let chosen: String
-    let onChoose: (String) -> Void
+    let chosen: String?
+    let onChoose: (String?) -> Void
 }
 
 /// The host's project switcher: the projects open in its app, searched by name or path.
@@ -173,18 +173,18 @@ struct ProjectSheet<Tail: View>: View {
 
     private func tiles(_ filter: ProviderFilter) -> some View {
         HStack(spacing: 6) {
-            ForEach(["all"] + filter.offered, id: \.self) { provider in
+            ForEach([nil] + filter.offered, id: \.self) { (provider: String?) in
                 let on = provider == filter.chosen
                 Button {
                     Haptics.select()
                     filter.onChoose(provider)
                 } label: {
                     Group {
-                        if provider == "all" {
+                        if let provider {
+                            AgentMark(provider: provider, size: 20)
+                        } else {
                             Text("All").font(Theme.ui(13.5, .medium)).foregroundStyle(
                                 on ? palette.ink : palette.secondary)
-                        } else {
-                            AgentMark(provider: provider, size: 20)
                         }
                     }
                     .frame(maxWidth: .infinity, minHeight: 44)
@@ -197,7 +197,7 @@ struct ProjectSheet<Tail: View>: View {
                             on ? palette.borderStrong : palette.border, lineWidth: 1))
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(provider == "all" ? "All agents" : agentLabel(provider, core: core))
+                .accessibilityLabel(provider.map { agentLabel($0, core: core) } ?? "All agents")
                 .accessibilityAddTraits(on ? [.isSelected] : [])
             }
         }

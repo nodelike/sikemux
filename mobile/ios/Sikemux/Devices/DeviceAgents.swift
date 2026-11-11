@@ -7,7 +7,7 @@ struct DeviceAgents: View {
     let core: String
     let view: DeviceView
     let scope: ProjectInfo?
-    let provider: String
+    let provider: String?
     let full: Bool
     let hostName: String
     let onTab: (Route.DeviceTab) -> Void
@@ -241,7 +241,7 @@ private struct Recent: View {
     let core: String
     let view: DeviceView
     let scope: ProjectInfo?
-    let provider: String
+    let provider: String?
     let full: Bool
     let hostName: String
     let now: Date
