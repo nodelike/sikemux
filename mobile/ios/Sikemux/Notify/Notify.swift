@@ -163,8 +163,8 @@ final class Notify {
         }
         let identity = try Identity.shared.deviceIdentity()
         Keys().phone = identity.id()
-        let pushToken = try await deviceToken().map { String(format: "%02x", $0) }.joined()
-        let tokenSha256 = SHA256.hash(data: Data(pushToken.utf8)).map { String(format: "%02x", $0) }.joined()
+        let pushToken = try await deviceToken().hex
+        let tokenSha256 = SHA256.hash(data: Data(pushToken.utf8)).hex
         var next = SentToken(
             device: identity.id(), tokenSha256: tokenSha256, app: Config.isDev ? .dev : .production,
             apnsEnvironment: Self.apnsEnvironment)
