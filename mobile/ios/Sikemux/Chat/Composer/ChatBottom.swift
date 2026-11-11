@@ -17,7 +17,6 @@ struct ChatBottom: View {
         let questions = ChatQuestions.of(context.core, context.agentId)
         let composing = context.watchOnly ? nil : questions.composing
         let info = Hub.shared.live(context.core).view?.chats.first { $0.agentId == context.agentId }
-        let recalls = !context.watchOnly && (!rows.queued.isEmpty || rows.messages.contains { $0.role == .user })
         Composer(
             session: session,
             core: context.core,
@@ -32,7 +31,7 @@ struct ChatBottom: View {
             hostName: context.hostName,
             onSent: context.onSent,
             strip: context.strip,
-            onRecent: recalls ? { focus.recent = true } : nil,
+            onRecent: !context.watchOnly && RecentSheet.offered(rows) ? { focus.recent = true } : nil,
             question: composing.map { asked in
                 ComposerQuestion(
                     name: asked.name, cli: asked.cli, text: asked.text,

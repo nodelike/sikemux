@@ -132,7 +132,7 @@ private struct ChatPane: View {
                 core: core, agentId: agentId, agentName: info?.name.map { "@\($0)" } ?? provider, hostName: hostName,
                 onClose: { menu = false },
                 onFind: session.attached == .live ? { openFind() } : nil,
-                onRecent: recalls(rows) ? { focus.recent = true } : nil,
+                onRecent: !watchOnly && RecentSheet.offered(rows) ? { focus.recent = true } : nil,
                 onAway: watchOnly || listed == nil ? nil : { away = true },
                 onStop: watchOnly || session.attached != .live ? nil : { await session.stopChat() })
         }
@@ -364,10 +364,6 @@ private struct ChatPane: View {
             core: core, agentId: agentId, provider: provider, hostName: hostName, watchOnly: watchOnly,
             offline: !live.isOpen, steers: steerable(rows), strip: strip, onSent: { scroll.toEnd() },
             focus: focus)
-    }
-
-    private func recalls(_ rows: ChatRows) -> Bool {
-        !watchOnly && (!rows.queued.isEmpty || rows.messages.contains { $0.role == .user })
     }
 
     private func steerable(_ rows: ChatRows) -> Bool {
