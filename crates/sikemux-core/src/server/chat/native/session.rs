@@ -672,6 +672,18 @@ pub(crate) async fn run<B: Backend>(
     let (failed_tx, mut failed_rx) = mpsc::unbounded_channel::<Failed>();
     let (broken_tx, mut broken_rx) = mpsc::unbounded_channel::<String>();
     let (settled_tx, mut settled_rx) = mpsc::unbounded_channel::<u64>();
+    // A chat started from an account's launcher names no account, yet runs in that account's
+    // folder; its live limits belong to the account whose folder that is.
+    let account = (launch.account.as_ref().map(|account| account.id.clone())).or_else(|| {
+        let folder = crate::launch::named_account(&provider, &launch.env);
+        let book = chat
+            .core
+            .upgrade()?
+            .workspaces
+            .accounts()
+            .unwrap_or_default();
+        Some(book.account_in(&provider, folder)?.id)
+    });
     let sink = |quiet: bool| Sink {
         telling: Telling {
             chat: chat.clone(),
@@ -680,7 +692,7 @@ pub(crate) async fn run<B: Backend>(
         failed: failed_tx.clone(),
         broken: broken_tx.clone(),
         settled: settled_tx.clone(),
-        account: launch.account.as_ref().map(|account| account.id.clone()),
+        account: account.clone(),
     };
     let (backend, state, replay) = match opening {
         Begin::Start { rebind, notice } => {
