@@ -55,7 +55,7 @@ public enum AccessibilityError: LocalizedError, Sendable {
     case .dispatcherUnavailable:
       return "Accessibility translation dispatcher is unavailable"
     case .noTranslationObject:
-      return "No translation object returned for simulator. This means you have likely specified a point onscreen that is invalid or invisible due to a fullscreen dialog"
+      return "No translation object returned for simulator: its accessibility answered nothing, as while an app opens or leaves, or at a point with nothing on it"
     case .springBoardRemediationFailed(let serviceName):
       return "SpringBoard has crashed; could not restart \(serviceName) to recover the frontmost application's accessibility hierarchy."
     }

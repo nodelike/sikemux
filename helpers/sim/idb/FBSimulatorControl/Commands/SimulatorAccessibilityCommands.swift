@@ -46,6 +46,7 @@ extension Simulator {
 final class SimulatorAccessibilityCommands: AccessibilityOperations {
 
   private static let coreSimulatorBridgeServiceName = "com.apple.CoreSimulator.bridge"
+  private static let emptyReads = EmptyReads()
 
   private weak var simulator: Simulator?
 
@@ -145,10 +146,20 @@ final class SimulatorAccessibilityCommands: AccessibilityOperations {
     guard let dispatcher = resolvedDispatcher else {
       throw AccessibilityError.dispatcherUnavailable
     }
-    let element = try await dispatcher.platformElement(withRequest: request, simulator: simulator)
+    let element: AXWritableElement
+    do {
+      element = try await dispatcher.platformElement(withRequest: request, simulator: simulator)
+    } catch AccessibilityError.noTranslationObject where remediationPermitted {
+      if Self.emptyReads.bridgeLooksStuck(simulator.udid) {
+        simulator.logger.log("Frontmost accessibility reads have come back empty for \(EmptyReads.stuckAfter) seconds; restarting \(Self.coreSimulatorBridgeServiceName) to recover.")
+        try await remediateSpringBoard(forSimulator: simulator)
+      }
+      throw AccessibilityError.noTranslationObject
+    }
     if !remediationPermitted {
       return AccessibilityElement(element: element, request: request, dispatcher: dispatcher, simulator: simulator)
     }
+    Self.emptyReads.answered(simulator.udid)
     let requiresRemediation = try await remediationRequired(forSimulator: simulator, element: element, dispatcher: dispatcher)
     if !requiresRemediation {
       return AccessibilityElement(element: element, request: request, dispatcher: dispatcher, simulator: simulator)
@@ -184,5 +195,36 @@ final class SimulatorAccessibilityCommands: AccessibilityOperations {
     } catch {
       throw AccessibilityError.springBoardRemediationFailed(serviceName: Self.coreSimulatorBridgeServiceName)
     }
+  }
+}
+
+/// The simulator's accessibility bridge can stop answering for good, seen after a read made while the
+/// device was still booting: every frontmost read then comes back empty until the bridge restarts.
+private final class EmptyReads: @unchecked Sendable {
+  static let stuckAfter: TimeInterval = 5
+  private static let restartEvery: TimeInterval = 60
+
+  private let lock = NSLock()
+  private var emptySince: [String: Date] = [:]
+  private var lastRestart: [String: Date] = [:]
+
+  /// Notes an empty read, and says whether reads have been empty long enough to restart the bridge.
+  func bridgeLooksStuck(_ udid: String) -> Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    let now = Date()
+    let since = emptySince[udid] ?? now
+    emptySince[udid] = since
+    guard now.timeIntervalSince(since) >= Self.stuckAfter else { return false }
+    if let last = lastRestart[udid], now.timeIntervalSince(last) < Self.restartEvery { return false }
+    lastRestart[udid] = now
+    emptySince[udid] = nil
+    return true
+  }
+
+  func answered(_ udid: String) {
+    lock.lock()
+    defer { lock.unlock() }
+    emptySince[udid] = nil
   }
 }
