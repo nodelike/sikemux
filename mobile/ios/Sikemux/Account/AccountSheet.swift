@@ -257,7 +257,7 @@ struct RestoreAccountScreen: View {
 
 /// The only screen while the installed app is older than the accounts server works with.
 struct UpdateRequiredScreen: View {
-    let required: Network.UpdateRequired
+    let required: UpdateRequired
 
     var body: some View {
         PromptScreen(

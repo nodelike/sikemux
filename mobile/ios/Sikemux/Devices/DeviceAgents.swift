@@ -375,7 +375,7 @@ private struct TerminalRow: View {
 
     private var title: String {
         if let task = session.task { return task.label }
-        if session.agentName != nil { return session.title ?? agentLabel(session.agentType ?? "agent", core: core) }
+        if session.agentName != nil { return session.title ?? Catalog.label(session.agentType ?? "agent", core: core) }
         return session.agentType ?? "Terminal"
     }
 
