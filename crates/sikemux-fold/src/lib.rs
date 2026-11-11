@@ -8,7 +8,9 @@ mod find;
 pub mod pickers;
 mod prompt;
 pub use prompt::{sent_spans, SentNames};
+mod kinds;
 mod row;
+mod runs;
 mod send;
 mod team;
 #[cfg(test)]
@@ -162,6 +164,13 @@ impl Row {
         }
         if let Some(side) = self.sides.get_mut(at) {
             side.doc = None;
+        }
+    }
+
+    /// Counts the runs of tool calls again after one of its calls changed.
+    fn restate_runs(&mut self) {
+        for at in runs::restate(&mut self.msg.parts) {
+            self.touch_part(at);
         }
     }
 
@@ -429,6 +438,10 @@ fn retry_of(update: &Value) -> Option<Retrying> {
             .and_then(Value::as_u64)
             .filter(|attempt| *attempt > 0),
         connection: text_of(notice.get("category")) == Some("connection"),
+        reason: text_of(notice.get("title"))
+            .map(str::trim)
+            .filter(|title| !title.is_empty())
+            .map(str::to_owned),
     })
 }
 
@@ -1520,6 +1533,7 @@ impl Fold {
         let row = &mut transcript.rows[position];
         let id = row.next_part_id();
         row.push_part(part(id));
+        row.restate_runs();
         let place = (row.msg.id.clone(), row.msg.parts.len() - 1);
         transcript.touch(position);
         self.note_main_change(within, position);
@@ -1608,6 +1622,7 @@ impl Fold {
                     failure: None,
                     started_at: (!ended).then_some(at),
                     ended_at: None,
+                    run: None,
                 },
                 fresh,
             )
@@ -1670,6 +1685,7 @@ impl Fold {
                     failure: None,
                     started_at: None,
                     ended_at: None,
+                    run: None,
                 };
                 self.append_part(index, within, part, false).is_some()
             }
@@ -1716,6 +1732,7 @@ impl Fold {
         if let Some(found) = held.msg.parts.get_mut(part) {
             change(found);
             held.touch_part(part);
+            held.restate_runs();
         }
         transcript.touch(position);
         self.note_main_change(within, position);

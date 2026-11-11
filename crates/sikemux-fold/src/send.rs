@@ -506,6 +506,7 @@ impl Fold {
             return Some(ChatActivity::Retrying {
                 attempt: retrying.attempt,
                 connection: retrying.connection,
+                reason: retrying.reason.clone(),
             });
         }
         let waits = (self.main.rows.last()).is_some_and(|row| row.msg.role == ChatRole::User);

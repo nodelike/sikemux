@@ -119,6 +119,9 @@ pub enum ChatActivity {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         attempt: Option<u64>,
         connection: bool,
+        /// What went wrong, in the agent's words.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reason: Option<String>,
     },
     /// Running the call this row draws.
     Call {
@@ -415,6 +418,8 @@ pub struct Retrying {
     pub attempt: Option<u64>,
     /// The connection was lost, rather than the service answering with an error.
     pub connection: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -1125,6 +1130,9 @@ pub enum ChatPart {
         started_at: Option<u64>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         ended_at: Option<u64>,
+        /// On a run's first call, what the run did.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<Box<ToolRun>>,
     },
     Subagent {
         id: String,
@@ -1180,6 +1188,9 @@ pub struct ToolCall {
     /// What the agent said a command is for.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// The tool's own name, when the agent gives it, which the core reads the row by.
+    #[serde(skip)]
+    pub name: Option<String>,
     /// What its row shows, worked out from the rest.
     pub row: Box<ToolRow>,
 }
@@ -1217,6 +1228,15 @@ pub struct ToolRow {
     /// an agent waiting on the same thing again and again shows as one row.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub times: Option<u32>,
+    /// The kind of tool it is, which a run of calls is read by.
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub family: ToolFamily,
+    /// What the call did, as its run counts it: a command by what it does.
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub intent: ToolIntent,
+    /// What a command read, searched or listed, when `target` is the command as typed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subject: Option<String>,
 }
 
 impl ToolRow {
@@ -1240,6 +1260,126 @@ pub enum ToolAction {
     Mcp,
     #[default]
     Other,
+}
+
+/// The kind of tool a call is.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolFamily {
+    Shell,
+    Browser,
+    Files,
+    Agents,
+    Waiting,
+    /// Commits and code hosts.
+    Git,
+    /// Logs, metrics, deploys and databases.
+    Ops,
+    Trackers,
+    Simulator,
+    Web,
+    /// Calls that already show as themselves or say nothing to the reader, such as loading a
+    /// tool or a skill. A run leaves them out and only counts them.
+    Housekeeping,
+    #[default]
+    Other,
+}
+
+/// What a call did, as its run counts it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolIntent {
+    Read,
+    /// Looked at a picture.
+    View,
+    Search,
+    List,
+    Edit,
+    Write,
+    Move,
+    Delete,
+    Run,
+    Test,
+    /// Built, checked, linted or type-checked.
+    Build,
+    /// Any other git command.
+    Git,
+    Commit,
+    /// Opened a page or an app.
+    Open,
+    /// Clicked or tapped.
+    Click,
+    Type,
+    /// Took a screenshot.
+    Look,
+    Message,
+    /// Started an agent or a process.
+    Start,
+    Stop,
+    Wait,
+    /// Asked a service: logs, issues, pipelines.
+    Query,
+    /// Read a web page.
+    Fetch,
+    /// Switched the agent's mode.
+    Mode,
+    #[default]
+    Use,
+}
+
+/// A run of calls, on its first call: what the run did, counted, which a client words as one
+/// sentence, and the lines it opens onto.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolRun {
+    /// Each thing the run did, in the order it first did it.
+    pub said: Vec<RunClause>,
+    /// It only looked: read, searched and listed, more than one way.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub explored: bool,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub failed: u64,
+    /// Housekeeping calls it holds, which are left out of it.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub hidden: u64,
+    /// What it opens onto: failed calls first, then neighbours that did the same thing,
+    /// each as one line.
+    pub lines: Vec<RunLine>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunClause {
+    pub intent: ToolIntent,
+    pub family: ToolFamily,
+    /// How many: files read, distinct when the calls name them, else calls.
+    pub count: u64,
+    /// Who or what it was done with, first ones first: the agents messaged or waited
+    /// on, the services asked.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub names: Vec<String>,
+    /// How long its calls took together, in milliseconds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub took: Option<u64>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunLine {
+    pub intent: ToolIntent,
+    pub family: ToolFamily,
+    /// The calls it stands for, by `toolCallId`.
+    pub calls: Vec<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub failed: bool,
+}
+
+fn is_zero(count: &u64) -> bool {
+    *count == 0
+}
+
+fn is_default<T: Default + PartialEq>(value: &T) -> bool {
+    *value == T::default()
 }
 
 /// The change a call made, counted. `chatToolDetail` sends its lines.

@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use serde_json::{Map, Value};
 use sikemux_view::chat::{ToolAction, ToolCall, ToolRow};
 
+use super::kinds;
 use super::tool_rows::SPECS;
 use super::tools::sikemux_tool_name;
 
@@ -29,10 +30,15 @@ const MAX_VERB_CHARS: usize = 12;
 
 pub(super) fn row(tool: &ToolCall) -> ToolRow {
     let args = arguments(tool.raw_input.as_ref());
-    match spec(&tool.title) {
+    let mut row = match spec(&tool.title) {
         Some(spec) => ours(spec, &args),
         None => theirs(tool, &args),
-    }
+    };
+    let kind = kinds::kind(tool, &args, row.action, row.server.as_deref());
+    row.family = kind.family;
+    row.intent = kind.intent;
+    row.subject = kind.subject.filter(|subject| *subject != row.target);
+    row
 }
 
 fn spec(title: &str) -> Option<&'static Spec> {
@@ -207,7 +213,7 @@ fn theirs(tool: &ToolCall, args: &Map<String, Value>) -> ToolRow {
         verb,
         target,
         plugin: None,
-        times: None,
+        ..ToolRow::default()
     }
 }
 

@@ -623,6 +623,7 @@ pub(super) fn call(raw: &Map<String, Value>) -> ToolCall {
         path: location(raw.get("locations")),
         description: description(kind.as_deref(), raw.get("rawInput")),
         kind,
+        name: text(raw.get("name")).map(str::to_owned),
         row: Default::default(),
     }
     .with_row()

@@ -149,6 +149,7 @@ impl Chat {
             ChatActivity::Retrying {
                 attempt,
                 connection,
+                ..
             } => {
                 let what = if *connection {
                     "Reconnecting…"

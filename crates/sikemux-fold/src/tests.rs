@@ -240,6 +240,7 @@ mod reducer {
             Some(Retrying {
                 attempt,
                 connection,
+                reason: Some("x".to_owned()),
             })
         };
         assert_eq!(
@@ -3044,4 +3045,126 @@ fn the_change_vector_is_current() {
         vector,
         "write it again with SIKEMUX_WRITE_VECTORS"
     );
+}
+
+#[test]
+fn a_command_is_counted_by_what_it_does() {
+    use sikemux_view::chat::ToolIntent;
+    let intent = |command: &str| kinds::command_intent(command);
+    assert_eq!(
+        intent("sed -n 1,80p crates/a/lib.rs"),
+        (ToolIntent::Read, Some("lib.rs".into()))
+    );
+    assert_eq!(
+        intent("cd app && cat src/main.rs | head"),
+        (ToolIntent::Read, Some("main.rs".into()))
+    );
+    assert_eq!(
+        intent("rg -n 'rows.len()' tests/"),
+        (ToolIntent::Search, Some("rows.len()".into()))
+    );
+    assert_eq!(
+        intent("find . -name '*.rs'"),
+        (ToolIntent::Search, Some("*.rs".into()))
+    );
+    assert_eq!(
+        intent("ls mobile/app/test/"),
+        (ToolIntent::List, Some("mobile/app/test/".into()))
+    );
+    assert_eq!(
+        intent("RUST_LOG=1 cargo test -p sikemux-core").0,
+        ToolIntent::Test
+    );
+    assert_eq!(intent("pnpm typecheck:android").0, ToolIntent::Build);
+    assert_eq!(intent("git status --short").0, ToolIntent::Git);
+    assert_eq!(intent("python page.py").0, ToolIntent::Run);
+}
+
+#[test]
+fn a_run_counts_what_it_did_failures_first_and_leaves_housekeeping_out() {
+    use sikemux_view::chat::{ToolFamily, ToolIntent};
+    let mut chat = Chat::running();
+    let call = |id: &str, title: &str, kind: &str, command: Option<&str>, status: &str| {
+        let mut raw = json!({
+            "sessionUpdate": "tool_call",
+            "toolCallId": id,
+            "title": title,
+            "kind": kind,
+            "status": status,
+        });
+        if let Some(command) = command {
+            raw["rawInput"] = json!({ "command": command });
+        }
+        raw
+    };
+    chat.update(call(
+        "a",
+        "mcp__sikemux-tools__guide",
+        "read",
+        None,
+        "completed",
+    ));
+    chat.update(call(
+        "b",
+        "sed -n 1,9p a.rs",
+        "execute",
+        Some("sed -n 1,9p a.rs"),
+        "completed",
+    ));
+    chat.update(call(
+        "c",
+        "cat b.rs",
+        "execute",
+        Some("cat b.rs"),
+        "completed",
+    ));
+    chat.update(call(
+        "d",
+        "rg times",
+        "execute",
+        Some("rg times"),
+        "completed",
+    ));
+    chat.update(call(
+        "e",
+        "cargo test",
+        "execute",
+        Some("cargo test"),
+        "failed",
+    ));
+    let rows = chat.rows();
+    let ChatPart::Tool { run: Some(run), .. } = &rows.last().unwrap().parts[0] else {
+        panic!("the run is counted on its first call");
+    };
+    let said: Vec<_> = run
+        .said
+        .iter()
+        .map(|clause| (clause.intent, clause.count))
+        .collect();
+    assert_eq!(
+        said,
+        [
+            (ToolIntent::Read, 2),
+            (ToolIntent::Search, 1),
+            (ToolIntent::Test, 1)
+        ]
+    );
+    assert_eq!((run.failed, run.hidden, run.explored), (1, 1, false));
+    let lines: Vec<_> = run
+        .lines
+        .iter()
+        .map(|line| (line.calls.join(","), line.failed))
+        .collect();
+    assert_eq!(
+        lines,
+        [
+            ("e".into(), true),
+            ("b,c".into(), false),
+            ("d".into(), false)
+        ]
+    );
+    assert!(run
+        .said
+        .iter()
+        .all(|clause| clause.family == ToolFamily::Shell));
 }

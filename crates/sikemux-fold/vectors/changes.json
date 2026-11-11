@@ -153,7 +153,9 @@
             "kind": "call",
             "row": {
               "action": "execute",
-              "target": "cargo test"
+              "target": "cargo test",
+              "family": "shell",
+              "intent": "test"
             }
           }
         }
@@ -174,10 +176,30 @@
             },
             "row": {
               "action": "execute",
-              "target": "cargo test"
+              "target": "cargo test",
+              "family": "shell",
+              "intent": "test"
             }
           },
-          "startedAt": 1000
+          "startedAt": 1000,
+          "run": {
+            "said": [
+              {
+                "intent": "test",
+                "family": "shell",
+                "count": 1
+              }
+            ],
+            "lines": [
+              {
+                "intent": "test",
+                "family": "shell",
+                "calls": [
+                  "t1"
+                ]
+              }
+            ]
+          }
         }
       }
     ],
@@ -207,11 +229,32 @@
             },
             "row": {
               "action": "execute",
-              "target": "cargo test"
+              "target": "cargo test",
+              "family": "shell",
+              "intent": "test"
             }
           },
           "startedAt": 1000,
-          "endedAt": 1000
+          "endedAt": 1000,
+          "run": {
+            "said": [
+              {
+                "intent": "test",
+                "family": "shell",
+                "count": 1,
+                "took": 0
+              }
+            ],
+            "lines": [
+              {
+                "intent": "test",
+                "family": "shell",
+                "calls": [
+                  "t1"
+                ]
+              }
+            ]
+          }
         }
       }
     ],
@@ -370,11 +413,32 @@
               },
               "row": {
                 "action": "execute",
-                "target": "cargo test"
+                "target": "cargo test",
+                "family": "shell",
+                "intent": "test"
               }
             },
             "startedAt": 1000,
-            "endedAt": 1000
+            "endedAt": 1000,
+            "run": {
+              "said": [
+                {
+                  "intent": "test",
+                  "family": "shell",
+                  "count": 1,
+                  "took": 0
+                }
+              ],
+              "lines": [
+                {
+                  "intent": "test",
+                  "family": "shell",
+                  "calls": [
+                    "t1"
+                  ]
+                }
+              ]
+            }
           },
           {
             "kind": "text",
