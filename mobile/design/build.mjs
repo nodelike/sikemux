@@ -22,7 +22,7 @@ const text = readFileSync(resolve(app, 'src/ui/icons.generated.ts'), 'utf8');
 const icons = JSON.parse(text.slice(text.indexOf('{'), text.lastIndexOf('} as const') + 1));
 
 const { build: bundle, buildSync } = createRequire(resolve(app, 'package.json'))('esbuild');
-const drawnModule = await bundle({ entryPoints: [resolve(app, 'src/ui/drawnIcons.ts')], format: 'esm', write: false });
+const drawnModule = await bundle({ entryPoints: [resolve(repo, 'shared/ui/drawnIcons.ts')], format: 'esm', write: false });
 const { DRAWN_ICONS } = await import(`data:text/javascript,${encodeURIComponent(drawnModule.outputFiles[0].text)}`);
 for (const [name, paths] of Object.entries(DRAWN_ICONS)) {
   icons[`Icon${name[0].toUpperCase()}${name.slice(1)}`] =

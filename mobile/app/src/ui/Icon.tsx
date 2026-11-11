@@ -1,6 +1,6 @@
 import { parse, SvgAst, type JsxAST } from 'react-native-svg';
 
-import { DRAWN_ICONS } from './drawnIcons';
+import { DRAWN_ICONS } from '@shared/ui/drawnIcons';
 import { ICONS, type IconName } from './icons.generated';
 import { useAgentBrand } from '@shared/agents/catalog';
 
