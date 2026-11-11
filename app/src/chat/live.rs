@@ -31,43 +31,6 @@ use crate::ui;
 use crate::ui::shimmer::shimmer;
 use crate::workbench::Workbench;
 
-/// The groups, one above another, ending on the composer's top border in its fill, or closed
-/// off above the dock when there is one.
-pub fn stack(groups: Vec<AnyElement>, over_dock: bool, t: &Tokens) -> Option<AnyElement> {
-    if groups.is_empty() {
-        return None;
-    }
-    let ruled = groups.into_iter().enumerate().map(|(ix, group)| {
-        div()
-            .when(ix > 0, |group| group.border_t_1().border_color(t.border))
-            .child(group)
-    });
-    let docked = div()
-        .w_full()
-        .max_w(px(780.))
-        .flex()
-        .flex_col()
-        .border_t_1()
-        .border_l_1()
-        .border_r_1()
-        .border_color(t.border)
-        .rounded_t(theme::RADIUS_3)
-        .when(over_dock, |docked| {
-            docked.border_b_1().rounded_b(theme::RADIUS_3).mb(SPACE_2)
-        })
-        .bg(t.surface_composer)
-        .children(ruled);
-    Some(
-        div()
-            .w_full()
-            .px(px(36.))
-            .flex()
-            .justify_center()
-            .child(docked)
-            .into_any_element(),
-    )
-}
-
 /// The line that says what kind of work a group is and how much of it, which
 /// folds the group away; folded, it peeks at what the group holds.
 pub struct Label {
@@ -255,73 +218,87 @@ fn elapsed(task: &AsyncTask) -> Option<String> {
     })
 }
 
-const DOCK_KEY: &str = "dock";
+const RUNNING: &str = "dock";
+const QUEUED: &str = "queued";
+const TRIGGERS: &str = "triggers";
 
-/// The sheet tucked under the composer's top edge: the chat's goal, then what is running for
-/// it — its subagents and background tasks — which folds down to a count of each kind.
-pub fn dock(agent: &AgentRow, chat: &Chat, cx: &mut Context<Workbench>) -> Option<AnyElement> {
-    let head = chat.state.as_ref();
-    let subagents: &[SubagentCard] = head.map_or(&[], |head| head.running_subagents.as_slice());
-    let tasks: &[AsyncTask] = head.map_or(&[], |head| head.tasks.as_slice());
-    let goal = head
+/// A group of the dock: what its header says, on its own or within the line the folded dock
+/// draws, the button it offers, and its rows.
+struct Group {
+    key: &'static str,
+    words: Vec<AnyElement>,
+    action: Option<AnyElement>,
+    rows: Vec<AnyElement>,
+}
+
+/// The sheet tucked under the composer's top edge, holding all that sits on the composer, a
+/// hairline between each part: what the agent asks of the person, the messages waiting their
+/// turn, the chat's goal, what is running for it, and its triggers. Each group folds on its
+/// own; once all are folded they share one line under the goal.
+pub fn dock(
+    agent: &AgentRow,
+    chat: &Chat,
+    asks: Vec<AnyElement>,
+    cx: &mut Context<Workbench>,
+) -> Option<AnyElement> {
+    let goal = (chat.state.as_ref())
         .and_then(|head| head.goal.as_ref())
         .map(|goal| super::goal_line::in_dock(goal, cx));
-    let running = subagents.len() + tasks.len();
-    if goal.is_none() && running == 0 {
+    let queued = queued(&agent.id, chat, cx);
+    let running = running(agent, chat, cx);
+    let triggers = triggers(&agent.id, chat, cx);
+    let groups: Vec<Group> = [queued, running, triggers].into_iter().flatten().collect();
+    if asks.is_empty() && goal.is_none() && groups.is_empty() {
         return None;
     }
     let t = Tokens::get(cx).clone();
-    let tints = Tints::new(&t);
-    let folded = chat.groups_folded.contains(DOCK_KEY);
-    let mut kinds: Vec<(&str, Vec<&AsyncTask>)> = Vec::new();
-    for task in tasks {
-        let kind = task_kind(task);
-        match kinds.iter_mut().find(|(held, _)| *held == kind) {
-            Some((_, group)) => group.push(task),
-            None => kinds.push((kind, vec![task])),
-        }
-    }
-    let work = (running > 0).then(|| {
-        let marks = folded.then(|| {
-            let subagent = (!subagents.is_empty())
-                .then(|| kind_count(ui::mark(&agent.provider, 13.), subagents.len(), &t));
-            let tasks = kinds.iter().map(|(kind, group)| {
-                let icon = ui::icon(task_icon(kind), 12.)
-                    .text_color(tints.task)
-                    .into_any_element();
-                kind_count(icon, group.len(), &t)
-            });
-            subagent.into_iter().chain(tasks).collect::<Vec<_>>()
-        });
-        let stoppable: Vec<&AsyncTask> = (tasks.iter())
-            .filter(|task| task.can_stop && !chat.stopping.contains(&task.async_task_id))
-            .collect();
-        let stop_all = (stoppable.len() > 1).then(|| stop_all(&agent.id, &stoppable, &t, cx));
-        let header = header(&agent.id, running, marks, stop_all, folded, &t, cx);
-        let mut rows: Vec<AnyElement> = Vec::new();
-        rows.extend(
-            subagents
-                .iter()
-                .map(|card| subagent_row(agent, card, &t, &tints)),
-        );
-        for (kind, group) in &kinds {
-            for task in group {
-                rows.push(task_row_of(agent, kind, task, chat, &t, &tints, cx));
-                rows.extend(
-                    task.agents
-                        .iter()
-                        .map(|worker| workflow_agent(agent, worker, &t, &tints)),
+    let folded = |group: &Group| chat.groups_folded.contains(group.key);
+    let all_folded = !groups.is_empty() && groups.iter().all(folded);
+    let mut parts: Vec<AnyElement> = asks;
+    if all_folded {
+        parts.extend(goal);
+        let keys: Vec<&'static str> = groups.iter().map(|group| group.key).collect();
+        let mut words: Vec<AnyElement> = Vec::new();
+        let mut action = None;
+        let mut groups = groups;
+        groups.sort_by_key(|group| group.key != RUNNING);
+        for (at, group) in groups.into_iter().enumerate() {
+            if at > 0 {
+                words.push(
+                    div()
+                        .text_color(t.text_disabled)
+                        .child("·")
+                        .into_any_element(),
                 );
             }
+            words.extend(group.words);
+            action = action.or(group.action);
         }
+        parts.push(header(
+            &agent.id,
+            "dock-folded",
+            Fold::Open(keys),
+            words,
+            action,
+            true,
+            &t,
+            cx,
+        ));
+    } else {
+        let mut groups = groups.into_iter().peekable();
+        if let Some(group) = groups.next_if(|group| group.key == QUEUED) {
+            parts.push(draw_group(&agent.id, group, chat, &t, cx));
+        }
+        parts.extend(goal);
+        parts.extend(groups.map(|group| draw_group(&agent.id, group, chat, &t, cx)));
+    }
+    let ruled = parts.into_iter().enumerate().map(|(at, part)| {
         div()
-            .flex()
-            .flex_col()
-            .child(header)
-            .child(folding(DOCK_KEY, folded, rows))
+            .when(at > 0, |part| {
+                part.child(div().h(px(1.)).mx(SPACE_2).my(SPACE_0).bg(t.line))
+            })
+            .child(part)
     });
-    let rule = (goal.is_some() && work.is_some())
-        .then(|| div().h(px(1.)).mx(SPACE_2).my(SPACE_0).bg(t.line));
     let sheet = div()
         .w_full()
         .pt(SPACE_0)
@@ -339,9 +316,7 @@ pub fn dock(agent: &AgentRow, chat: &Chat, cx: &mut Context<Workbench>) -> Optio
             linear_color_stop(t.surface_composer, 0.),
             linear_color_stop(t.surface_sunken, 1.),
         ))
-        .children(goal)
-        .children(rule)
-        .children(work);
+        .children(ruled);
     Some(
         div()
             .w_full()
@@ -360,6 +335,179 @@ pub fn dock(agent: &AgentRow, chat: &Chat, cx: &mut Context<Workbench>) -> Optio
     )
 }
 
+fn draw_group(
+    agent: &str,
+    group: Group,
+    chat: &Chat,
+    t: &Tokens,
+    cx: &mut Context<Workbench>,
+) -> AnyElement {
+    let folded = chat.groups_folded.contains(group.key);
+    let id = format!("dock-{}", group.key);
+    let head = header(
+        agent,
+        &id,
+        Fold::One(group.key),
+        group.words,
+        group.action,
+        folded,
+        t,
+        cx,
+    );
+    div()
+        .flex()
+        .flex_col()
+        .child(head)
+        .child(folding(group.key, folded, group.rows))
+        .into_any_element()
+}
+
+/// What pressing a header does: fold or unfold its own group, or open every group at once.
+enum Fold {
+    One(&'static str),
+    Open(Vec<&'static str>),
+}
+
+/// A group's header, or the folded dock's one line: its words, its button, and the chevron.
+#[allow(clippy::too_many_arguments)]
+fn header(
+    agent: &str,
+    id: &str,
+    fold: Fold,
+    words: Vec<AnyElement>,
+    action: Option<AnyElement>,
+    folded: bool,
+    t: &Tokens,
+    cx: &mut Context<Workbench>,
+) -> AnyElement {
+    let agent = agent.to_owned();
+    let chevron = motion::turn(
+        SharedString::from(format!("{id}-chevron")),
+        motion::fold_angle(true) * if folded { -1. } else { 1. },
+        motion::DETAIL_FOLD,
+        ui::icon(Icon::Chevron, 10.).text_color(t.text_tertiary),
+    );
+    div()
+        .id(SharedString::from(id.to_owned()))
+        .h(px(30.))
+        .pl(SPACE_2H)
+        .pr(SPACE_2)
+        .flex()
+        .items_center()
+        .gap(SPACE_2)
+        .rounded(theme::RADIUS_2)
+        .cursor_pointer()
+        .text_size(theme::ui_text(TEXT_XS))
+        .text_color(t.text_tertiary)
+        .on_click(cx.listener(move |bench, _, _, cx| {
+            if let Some(chat) = bench.chats.open.get_mut(&agent) {
+                match &fold {
+                    Fold::One(key) => chat.toggle_group(key),
+                    Fold::Open(keys) => keys.iter().for_each(|key| {
+                        chat.groups_folded.remove(*key);
+                    }),
+                }
+            }
+            cx.notify();
+        }))
+        .children(words)
+        .child(div().flex_1())
+        .children(action)
+        .child(
+            div()
+                .w(px(18.))
+                .flex_none()
+                .flex()
+                .justify_center()
+                .child(chevron),
+        )
+        .into_any_element()
+}
+
+/// A group's count beside its icon, as its header says it.
+fn counted(icon: AnyElement, words: String, t: &Tokens) -> AnyElement {
+    div()
+        .flex()
+        .items_center()
+        .gap(SPACE_1H)
+        .child(icon)
+        .child(ui::text(words, TEXT_XS, FontWeight::MEDIUM).text_color(t.text_secondary))
+        .into_any_element()
+}
+
+/// The subagents and background tasks running for the chat, which fold down to a count of
+/// each kind.
+fn running(agent: &AgentRow, chat: &Chat, cx: &mut Context<Workbench>) -> Option<Group> {
+    let head = chat.state.as_ref()?;
+    let subagents: &[SubagentCard] = &head.running_subagents;
+    let tasks: &[AsyncTask] = &head.tasks;
+    let count = subagents.len() + tasks.len();
+    if count == 0 {
+        return None;
+    }
+    let t = Tokens::get(cx).clone();
+    let tints = Tints::new(&t);
+    let mut kinds: Vec<(&str, Vec<&AsyncTask>)> = Vec::new();
+    for task in tasks {
+        let kind = task_kind(task);
+        match kinds.iter_mut().find(|(held, _)| *held == kind) {
+            Some((_, group)) => group.push(task),
+            None => kinds.push((kind, vec![task])),
+        }
+    }
+    let live = div().size(px(6.)).flex_none().rounded_full().bg(t.live);
+    let mut words = vec![counted(
+        live.into_any_element(),
+        format!("{count} running"),
+        &t,
+    )];
+    if chat.groups_folded.contains(RUNNING) {
+        let subagent = (!subagents.is_empty())
+            .then(|| kind_count(ui::mark(&agent.provider, 13.), subagents.len(), &t));
+        let tasks = kinds.iter().map(|(kind, group)| {
+            let icon = ui::icon(task_icon(kind), 12.)
+                .text_color(tints.task)
+                .into_any_element();
+            kind_count(icon, group.len(), &t)
+        });
+        words.push(
+            div()
+                .ml(SPACE_1)
+                .flex()
+                .items_center()
+                .gap(SPACE_3)
+                .children(subagent.into_iter().chain(tasks))
+                .into_any_element(),
+        );
+    }
+    let stoppable: Vec<&AsyncTask> = (tasks.iter())
+        .filter(|task| task.can_stop && !chat.stopping.contains(&task.async_task_id))
+        .collect();
+    let action = (stoppable.len() > 1).then(|| stop_all(&agent.id, &stoppable, &t, cx));
+    let mut rows: Vec<AnyElement> = Vec::new();
+    rows.extend(
+        subagents
+            .iter()
+            .map(|card| subagent_row(agent, card, &t, &tints)),
+    );
+    for (kind, group) in &kinds {
+        for task in group {
+            rows.push(task_row_of(agent, kind, task, chat, &t, &tints, cx));
+            rows.extend(
+                task.agents
+                    .iter()
+                    .map(|worker| workflow_agent(agent, worker, &t, &tints)),
+            );
+        }
+    }
+    Some(Group {
+        key: RUNNING,
+        words,
+        action,
+        rows,
+    })
+}
+
 /// How far the dock runs on under the composer's top edge.
 const DOCK_TUCK: gpui_kit::Pixels = SPACE_3H;
 
@@ -375,68 +523,6 @@ fn kind_count(mark: AnyElement, count: usize, t: &Tokens) -> AnyElement {
                 .font_features(theme::tabular())
                 .text_color(t.text_tertiary)
                 .child(count.to_string()),
-        )
-        .into_any_element()
-}
-
-/// The dock's header: a live dot and how much is running, each kind's count while folded,
-/// Stop all, and the chevron that folds the rows away.
-fn header(
-    agent: &str,
-    running: usize,
-    marks: Option<Vec<AnyElement>>,
-    stop_all: Option<AnyElement>,
-    folded: bool,
-    t: &Tokens,
-    cx: &mut Context<Workbench>,
-) -> AnyElement {
-    let agent = agent.to_owned();
-    let chevron = motion::turn(
-        "dock-chevron",
-        motion::fold_angle(true) * if folded { -1. } else { 1. },
-        motion::DETAIL_FOLD,
-        ui::icon(Icon::Chevron, 10.).text_color(t.text_tertiary),
-    );
-    div()
-        .id("dock-header")
-        .h(px(30.))
-        .pl(SPACE_2H)
-        .pr(SPACE_2)
-        .flex()
-        .items_center()
-        .gap(SPACE_2)
-        .rounded(theme::RADIUS_2)
-        .cursor_pointer()
-        .text_size(theme::ui_text(TEXT_XS))
-        .text_color(t.text_tertiary)
-        .on_click(cx.listener(move |bench, _, _, cx| {
-            if let Some(chat) = bench.chats.open.get_mut(&agent) {
-                chat.toggle_group(DOCK_KEY);
-            }
-            cx.notify();
-        }))
-        .child(div().size(px(6.)).flex_none().rounded_full().bg(t.live))
-        .child(
-            ui::text(format!("{running} running"), TEXT_XS, FontWeight::MEDIUM)
-                .text_color(t.text_secondary),
-        )
-        .children(marks.map(|marks| {
-            div()
-                .ml(SPACE_1H)
-                .flex()
-                .items_center()
-                .gap(SPACE_3)
-                .children(marks)
-        }))
-        .child(div().flex_1())
-        .children(stop_all)
-        .child(
-            div()
-                .w(px(18.))
-                .flex_none()
-                .flex()
-                .justify_center()
-                .child(chevron),
         )
         .into_any_element()
 }
@@ -503,12 +589,14 @@ fn work_row(
         .child(
             ui::text(name, TEXT_XS_H, FontWeight::MEDIUM)
                 .min_w_0()
-                .flex_shrink_0()
-                .max_w(gpui_kit::relative(0.5))
                 .truncate()
-                .text_color(t.text_primary),
+                .text_color(t.text_primary)
+                .map(|name| match detail.is_some() {
+                    true => name.flex_shrink_0().max_w(gpui_kit::relative(0.5)),
+                    false => name.flex_1(),
+                }),
         )
-        .child(
+        .children(detail.is_some().then(|| {
             div()
                 .flex_1()
                 .min_w_0()
@@ -520,8 +608,8 @@ fn work_row(
                         .truncate()
                         .when(command, |detail| detail.font_family(theme::MONO))
                         .child(detail)
-                })),
-        )
+                }))
+        }))
         .children(meta.map(|meta| {
             div()
                 .flex_none()
@@ -532,10 +620,12 @@ fn work_row(
         }))
         .child(
             div()
-                .w(px(18.))
+                .min_w(px(18.))
                 .flex_none()
                 .flex()
+                .items_center()
                 .justify_center()
+                .gap(SPACE_1H)
                 .children(end),
         )
 }
@@ -732,7 +822,7 @@ fn queued_label(message: &QueuedMessage) -> String {
 
 /// Messages the person sent while a turn runs, waiting for it to end; while it
 /// takes words mid-turn, each can go into it now, or all at once.
-pub fn queued(agent: &str, chat: &Chat, cx: &mut Context<Workbench>) -> Option<AnyElement> {
+fn queued(agent: &str, chat: &Chat, cx: &mut Context<Workbench>) -> Option<Group> {
     let head = chat.state.as_ref()?;
     let waiting = &head.queued;
     if waiting.is_empty() {
@@ -778,23 +868,11 @@ pub fn queued(agent: &str, chat: &Chat, cx: &mut Context<Workbench>) -> Option<A
             .into_any_element()
     };
     let all = waiting.iter().map(|message| message.id.clone()).collect();
-    let action = (steerable && waiting.len() > 1).then(|| {
-        div()
-            .ml_auto()
-            .child(steer(all, "Steer all", true, cx))
-            .into_any_element()
-    });
-    let label = Label {
-        key: "queued".into(),
-        word: "queued".into(),
-        count: waiting.len(),
-        folds: false,
-        folded: false,
-        icon: div().into_any_element(),
-        peek: Vec::new(),
-        action,
-    };
-    let label = label.draw(agent, cx);
+    let action = (steerable && waiting.len() > 1).then(|| steer(all, "Steer all", true, cx));
+    let arrow = ui::icon(Icon::ArrowUp, 11.)
+        .text_color(t.text_tertiary)
+        .into_any_element();
+    let words = vec![counted(arrow, format!("{} queued", waiting.len()), &t)];
     let rows: Vec<AnyElement> = waiting
         .iter()
         .map(|message| {
@@ -819,44 +897,39 @@ pub fn queued(agent: &str, chat: &Chat, cx: &mut Context<Workbench>) -> Option<A
                             message: None,
                         });
                 }))
-                .child(ui::icon(Icon::Close, 10.).text_color(t.text_disabled));
-            div()
-                .min_w_0()
-                .py(SPACE_1)
-                .pl(px(11.))
-                .pr(SPACE_2)
+                .child(ui::icon(Icon::Close, 10.).text_color(t.text_disabled))
+                .into_any_element();
+            let icon = match message.text.is_empty() && !message.paths.is_empty() {
+                true => Icon::Image,
+                false => Icon::Message,
+            };
+            let mark = ui::icon(icon, 12.)
+                .text_color(t.text_tertiary)
+                .into_any_element();
+            let end = div()
                 .flex()
                 .items_center()
-                .gap(px(7.))
-                .text_color(t.text_tertiary)
-                .child(
-                    ui::icon(Icon::Clock, 12.)
-                        .flex_none()
-                        .text_color(t.text_tertiary),
-                )
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .truncate()
-                        .text_size(crate::theme::ui_text(TEXT_XS))
-                        .text_color(t.text_secondary)
-                        .child(queued_label(message)),
-                )
+                .gap(SPACE_1H)
                 .children(steer_one)
                 .child(drop)
-                .into_any_element()
+                .into_any_element();
+            work_row(
+                &t,
+                mark,
+                one_line(&queued_label(message)),
+                None,
+                None,
+                Some(end),
+            )
+            .into_any_element()
         })
         .collect();
-    Some(
-        div()
-            .pb(px(7.))
-            .flex()
-            .flex_col()
-            .child(label)
-            .children(rows)
-            .into_any_element(),
-    )
+    Some(Group {
+        key: QUEUED,
+        words,
+        action,
+        rows,
+    })
 }
 
 const WEEKDAYS: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -908,31 +981,27 @@ fn fires(trigger: &ChatTrigger) -> String {
 
 /// The triggers the agent set on its chat, each with when it next sends the chat its
 /// prompt, which the person can remove.
-pub fn triggers(agent: &str, chat: &Chat, cx: &mut Context<Workbench>) -> Option<AnyElement> {
+fn triggers(agent: &str, chat: &Chat, cx: &mut Context<Workbench>) -> Option<Group> {
     let set = &chat.state.as_ref()?.triggers;
     if set.is_empty() {
         return None;
     }
     let t = Tokens::get(cx).clone();
-    let folded = chat.groups_folded.contains("triggers");
-    let label = Label {
-        key: "triggers".into(),
-        word: plural("trigger", set.len()),
-        count: set.len(),
-        folds: true,
-        folded,
-        icon: ui::icon(Icon::Timer, 11.)
-            .text_color(t.cmd)
-            .into_any_element(),
-        peek: set.iter().map(fires).take(1).collect(),
-        action: None,
-    }
-    .draw(agent, cx);
+    let clock = |size: f32| {
+        ui::icon(Icon::Timer, size)
+            .text_color(t.warn)
+            .into_any_element()
+    };
+    let words = vec![counted(
+        clock(11.),
+        format!("{} {}", set.len(), plural("trigger", set.len())),
+        &t,
+    )];
     let rows: Vec<AnyElement> = set
         .iter()
         .map(|trigger| {
             let (agent, id) = (agent.to_owned(), trigger.id);
-            trigger_row(
+            let (copy, remove) = trigger_buttons(
                 trigger,
                 &t,
                 cx.listener(move |bench, _, _, _| {
@@ -940,26 +1009,39 @@ pub fn triggers(agent: &str, chat: &Chat, cx: &mut Context<Workbench>) -> Option
                         .chat_target(&agent)
                         .call_typed::<call::RemoveTrigger>(TriggerParams { trigger: id });
                 }),
+            );
+            let end = div()
+                .flex()
+                .items_center()
+                .gap(SPACE_1H)
+                .children(copy)
+                .child(remove)
+                .into_any_element();
+            work_row(
+                &t,
+                clock(12.),
+                trigger.title.clone(),
+                None,
+                Some(fires(trigger)),
+                Some(end),
             )
+            .into_any_element()
         })
         .collect();
-    Some(
-        div()
-            .pb(px(7.))
-            .flex()
-            .flex_col()
-            .child(label)
-            .child(folding("triggers", folded, rows))
-            .into_any_element(),
-    )
+    Some(Group {
+        key: TRIGGERS,
+        words,
+        action: None,
+        rows,
+    })
 }
 
-/// One trigger: what it is for, when it next fires, and a button that removes it.
-pub fn trigger_row(
+/// A trigger's buttons: one that copies a webhook's address, and one that removes it.
+fn trigger_buttons(
     trigger: &ChatTrigger,
     t: &Tokens,
     remove: impl Fn(&gpui_kit::ClickEvent, &mut gpui_kit::Window, &mut gpui_kit::App) + 'static,
-) -> AnyElement {
+) -> (Option<BaseButton>, BaseButton) {
     let danger = t.danger;
     let remove = BaseButton::new(SharedString::from(format!("trigger-remove:{}", trigger.id)))
         .accessibility_label(format!("Remove trigger {}", trigger.title))
@@ -992,6 +1074,16 @@ pub fn trigger_row(
         }
         _ => None,
     };
+    (copy, remove)
+}
+
+/// One trigger: what it is for, when it next fires, and a button that removes it.
+pub fn trigger_row(
+    trigger: &ChatTrigger,
+    t: &Tokens,
+    remove: impl Fn(&gpui_kit::ClickEvent, &mut gpui_kit::Window, &mut gpui_kit::App) + 'static,
+) -> AnyElement {
+    let (copy, remove) = trigger_buttons(trigger, t, remove);
     div()
         .min_w_0()
         .py(SPACE_1)

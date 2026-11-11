@@ -1667,13 +1667,18 @@ pub fn pane(
         }
     }
     drop(seen);
-    let mut groups: Vec<AnyElement> = approving;
-    groups.extend(asking);
-    groups.extend(sending);
-    groups.extend(live::queued(&agent.id, chat, cx));
-    groups.extend(live::triggers(&agent.id, chat, cx));
-    let dock = live::dock(agent, chat, cx);
-    let stack = live::stack(groups, dock.is_some(), Tokens::get(cx));
+    let mut asks: Vec<AnyElement> = approving;
+    asks.extend(asking);
+    asks.extend(sending);
+    let dock = live::dock(agent, chat, asks, cx);
+    let notice = composing::notice(bench, &agent.id, cx).map(|notice| {
+        div()
+            .w_full()
+            .px(theme::SPACE_4)
+            .flex()
+            .justify_center()
+            .child(composer::notice_line(notice, cx))
+    });
     let empty = chat
         .composer
         .as_ref()
@@ -1705,7 +1710,7 @@ pub fn pane(
         .children(status::plan(agent, chat, cx))
         .children(status::trouble(bench, agent, chat, cx))
         .children(permissions)
-        .children(stack)
+        .children(notice)
         .children(dock)
         .children(chat.composer.as_ref().map(|composing| {
             composing.view.update(cx, |view, _| {

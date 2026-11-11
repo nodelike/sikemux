@@ -365,6 +365,35 @@ pub fn mounted(
         )
 }
 
+/// Why the core turned the last message down, or that it was just stashed, with Undo.
+fn sent_notice(composing: &Composing, owner: &str, this: &WeakEntity<Workbench>) -> Option<Notice> {
+    composing
+        .refusal
+        .clone()
+        .map(|refusal| Notice::Refused(refusal, None))
+        .or_else(|| {
+            let id = composing.stashed.clone()?;
+            let (this, owner) = (this.clone(), owner.to_owned());
+            let undo: Act = Rc::new(move |_: &mut Window, cx: &mut App| {
+                this.update(cx, |bench, cx| bench.unstash_prompt(&owner, &id, cx))
+                    .ok();
+            });
+            Some(Notice::Done("Stashed".into(), ("Undo".into(), undo)))
+        })
+}
+
+/// The chat's one-line notice, which its pane draws above the dock and the box: the agent
+/// being installed, else what became of the last message.
+pub(super) fn notice(
+    bench: &Workbench,
+    agent: &str,
+    cx: &mut Context<Workbench>,
+) -> Option<Notice> {
+    let composing = bench.composing(agent)?;
+    let this = cx.weak_entity();
+    installing::notice(bench, composing, &this).or_else(|| sent_notice(composing, agent, &this))
+}
+
 /// What every composer offers, whatever it sends to: the files and chips going with the
 /// message, the menu over the word at the caret, dictation, and why the core turned the last
 /// message down or that it was just stashed; and whether the menu is open over it.
@@ -427,19 +456,7 @@ pub fn drafting(
         cx,
     )
     .map(IntoElement::into_any_element);
-    let notice = composing
-        .refusal
-        .clone()
-        .map(|refusal| Notice::Refused(refusal, None))
-        .or_else(|| {
-            let id = composing.stashed.clone()?;
-            let (this, owner) = (this.clone(), owner.to_owned());
-            let undo: Act = Rc::new(move |_: &mut Window, cx: &mut App| {
-                this.update(cx, |bench, cx| bench.unstash_prompt(&owner, &id, cx))
-                    .ok();
-            });
-            Some(Notice::Done("Stashed".into(), ("Undo".into(), undo)))
-        });
+    let notice = sent_notice(composing, owner, &this);
     let composer = Composer::new(&composing.draft, provider, label, on_send, on_stop)
         .notice(notice)
         .attachments(
@@ -483,7 +500,7 @@ pub(super) fn composer(
     chat: &Chat,
     cx: &mut Context<Workbench>,
 ) -> Option<(Composer, bool)> {
-    let composing = chat.composer.as_ref()?;
+    chat.composer.as_ref()?;
     let head = chat.state.as_ref();
     let kind = bench.reads.catalog.kind(&agent.provider);
     let label = bench.agent_name(&agent.provider).to_owned();
@@ -524,9 +541,7 @@ pub(super) fn composer(
     let fresh = chat.is_empty(cx)
         && saved.is_some_and(|saved| saved.resume_id.is_none() && saved.worktree.is_none());
     let strip = saved.map(|saved| strip(bench, agent, saved, fresh, head, cx));
-    if let Some(installing) = installing::notice(bench, composing, &this) {
-        composer = composer.notice(Some(installing));
-    }
+    composer = composer.notice(None);
     composer = composer
         .text_scale(chat.scale)
         .strip(strip)

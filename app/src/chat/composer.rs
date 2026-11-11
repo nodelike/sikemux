@@ -443,6 +443,7 @@ impl RenderOnce for Composer {
                     strip: if has_strip { drawn.strip } else { 0. },
                 });
             })
+            .children(self.notice.map(|notice| notice_line(notice, cx)))
             .child(
                 div()
                     .relative()
@@ -503,38 +504,43 @@ impl RenderOnce for Composer {
                     ),
             )
             .children(context)
-            .children(self.notice.map(|notice| {
-                let line = div()
-                    .w_full()
-                    .max_w(px(WIDTH))
-                    .pt(SPACE_1H)
-                    .px(SPACE_1)
-                    .flex()
-                    .items_center()
-                    .gap(SPACE_2)
-                    .text_size(crate::theme::ui_text(TEXT_XS));
-                match notice {
-                    Notice::Refused(words, action) => line
-                        .text_color(t.danger)
-                        .child(words)
-                        .children(action.map(|(label, act)| {
-                            ui::sign_in::link("composer-notice-action", label, cx)
-                                .on_click(move |_, window, cx| act(window, cx))
-                        })),
-                    Notice::Waiting(words) => {
-                        line.child(ui::shimmer::shimmer("composer-notice-waiting", words))
-                    }
-                    Notice::Done(words, (label, act)) => line
-                        .text_color(t.text_secondary)
-                        .child(ui::icon(Icon::Check, 12.).text_color(t.live))
-                        .child(words)
-                        .child(div().text_color(t.text_disabled).child("·"))
-                        .child(
-                            ui::sign_in::link("composer-notice-undo", label, cx)
-                                .on_click(move |_, window, cx| act(window, cx)),
-                        ),
-                }
-            }))
+    }
+}
+
+/// A one-line notice just above the box: a send refused, something waited on, or something
+/// just done with how to take it back.
+pub fn notice_line(notice: Notice, cx: &App) -> gpui_kit::Div {
+    let t = Tokens::get(cx).clone();
+    let line = div()
+        .w_full()
+        .max_w(px(WIDTH))
+        .pb(SPACE_1H)
+        .px(SPACE_2H)
+        .flex()
+        .items_center()
+        .gap(SPACE_2)
+        .text_size(crate::theme::ui_text(TEXT_XS));
+    match notice {
+        Notice::Refused(words, action) => {
+            line.text_color(t.danger)
+                .child(words)
+                .children(action.map(|(label, act)| {
+                    ui::sign_in::link("composer-notice-action", label, cx)
+                        .on_click(move |_, window, cx| act(window, cx))
+                }))
+        }
+        Notice::Waiting(words) => {
+            line.child(ui::shimmer::shimmer("composer-notice-waiting", words))
+        }
+        Notice::Done(words, (label, act)) => line
+            .text_color(t.text_secondary)
+            .child(ui::icon(Icon::Check, 12.).text_color(t.live))
+            .child(words)
+            .child(div().text_color(t.text_disabled).child("·"))
+            .child(
+                ui::sign_in::link("composer-notice-undo", label, cx)
+                    .on_click(move |_, window, cx| act(window, cx)),
+            ),
     }
 }
 
