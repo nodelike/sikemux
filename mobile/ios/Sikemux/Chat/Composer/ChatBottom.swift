@@ -85,7 +85,7 @@ struct SentAttachments: View {
                 }
             }
         }
-        .frame(maxWidth: UIScreen.main.bounds.width * 0.84, alignment: .trailing)
+        .containerRelativeFrame(.horizontal, alignment: .trailing) { width, _ in width * 0.84 }
         .padding(.bottom, 6)
     }
 }
