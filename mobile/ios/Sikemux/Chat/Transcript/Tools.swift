@@ -181,6 +181,7 @@ struct ToolGroup: View {
 
 private struct ToolRowView: View {
     @Environment(\.palette) private var palette
+    @Environment(\.displayScale) private var scale
     @Environment(TranscriptContext.self) private var context
     let part: ToolPart
     let last: Bool
@@ -276,7 +277,7 @@ private struct ToolRowView: View {
                 words[found].foregroundColor = palette.accent
             }
         }
-        var text = FileGlyph.text(words, ink: palette.inkDim)
+        var text = FileGlyph.text(words, ink: palette.inkDim, scale: scale)
         if let detail = tool.row.detail { text = text + Text(" \(detail)").foregroundColor(palette.inkDim) }
         return text
     }

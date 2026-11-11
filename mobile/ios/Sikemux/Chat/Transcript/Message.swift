@@ -260,13 +260,13 @@ private struct Letters: View {
                 } else {
                     VStack(alignment: .leading, spacing: 0) {
                         HStack(spacing: 8) {
-                            Rectangle().fill(palette.border).frame(height: 1 / UIScreen.main.scale)
+                            Hairline(color: palette.border)
                             AgentFaceView(agentId: letter.agentId, provider: letter.cli, size: 13)
                             (Text("Message from ").foregroundColor(palette.inkDim)
                                 + Text("@\(letter.name)").font(Theme.ui(11.5, .semibold)).foregroundColor(palette.ink))
                                 .font(Theme.ui(11.5))
                                 .fixedSize()
-                            Rectangle().fill(palette.border).frame(height: 1 / UIScreen.main.scale)
+                            Hairline(color: palette.border)
                         }
                         .padding(.top, 16)
                         .padding(.bottom, 2)
