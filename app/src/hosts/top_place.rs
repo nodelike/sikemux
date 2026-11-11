@@ -22,6 +22,7 @@ use crate::theme::{Tokens, SPACE_0, SPACE_1H, SPACE_2, SPACE_2H, TEXT_XS};
 use crate::ui;
 use crate::workbench::actions;
 use crate::workbench::{Strip, Workbench};
+use sikemux_core::server::hosts::HostUnanswered;
 
 #[derive(Clone)]
 struct Choice {
@@ -57,7 +58,10 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
         .map_or_else(
             || Choice {
                 key: chosen.key(),
-                label: "This host".into(),
+                label: match &chosen {
+                    HostChoice::Ssh(alias) => alias.clone().into(),
+                    _ => "This host".into(),
+                },
                 mark: host_mark(&chosen),
             },
             |(_, shown)| shown.clone(),
@@ -105,7 +109,11 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
             .iter()
             .find(|host| host.id.as_ref() == Some(key))
             .and_then(|host| host.ssh.clone())
-            .filter(|alias| bench.set_up_of(alias).is_some()),
+            .filter(|alias| {
+                bench.set_up_of(alias).is_some()
+                    || bench.setting_up(alias).is_some()
+                    || bench.set_up_problem(alias).is_some()
+            }),
         HostChoice::This => None,
     };
     let project = set_up_alias.and_then(|alias| set_up_offer(bench, &alias, cx));
@@ -152,11 +160,33 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
 /// The button that sets Sikemux up on the SSH host `alias` as it needs, saying so while it runs.
 fn set_up_offer(bench: &Workbench, alias: &str, cx: &mut Context<Workbench>) -> Option<AnyElement> {
     let t = Tokens::get(cx).clone();
-    let set_up = bench.set_up_of(alias)?;
     let running = bench.setting_up(alias);
-    let label = match running {
-        Some(running) => running.running(alias),
-        None => set_up.offer(alias),
+    let problem = bench.set_up_problem(alias);
+    let checking = bench
+        .ssh_row(alias)
+        .and_then(|row| row.unanswered.as_ref())
+        .is_some_and(|unanswered| *unanswered == HostUnanswered::Checking);
+    let (set_up, label) = match (running, problem, bench.set_up_of(alias)) {
+        (Some(running), _, _) => (running, running.running(alias)),
+        (None, Some((work, problem)), _) => (
+            work,
+            format!("{} stopped short: {problem}", work.menu_label()),
+        ),
+        (None, None, Some(set_up)) => (set_up, set_up.offer(alias)),
+        (None, None, None) if checking => {
+            return Some(
+                div()
+                    .h(px(26.))
+                    .px(SPACE_2H)
+                    .flex()
+                    .items_center()
+                    .text_size(crate::theme::ui_text(TEXT_XS))
+                    .text_color(t.text_tertiary)
+                    .child(format!("Checking {alias}…"))
+                    .into_any_element(),
+            )
+        }
+        (None, None, None) => return None,
     };
     let alias = alias.to_owned();
     Some(

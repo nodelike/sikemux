@@ -1,10 +1,11 @@
 //! The Install Sikemux pane of an SSH host (ADR 0019): what setting Sikemux up there adds,
 //! and the one action that does it, as the core says the host needs.
 
+use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     div, px, AnyElement, Context, FontWeight, IntoElement, ParentElement, SharedString, Styled,
 };
-use sikemux_core::server::hosts::HostRow;
+use sikemux_core::server::hosts::{HostRow, HostUnanswered as Unanswered};
 use sikemux_view::layout::At;
 use sikemux_view::layout::OpenTab;
 use sikemux_view::layout::PaneKind;
@@ -70,21 +71,47 @@ impl Words for SetUp {
                 "With Sikemux, {alias} runs agents that keep working while you are away, your phone reaches it, and its projects, chats and files open here without SSH. The installer runs over your SSH in a new tab, where you type sudo's password if it asks."
             ),
             Self::SignIn => format!(
-                "Sikemux is on {alias} but not signed in. Signing in runs sikemux login there, in a new tab, and adds it to your account."
+                "Sikemux is on {alias} but not signed in. Signing in runs sikemux login there over your SSH and adds it to your account."
             ),
             Self::Start => {
                 format!("Sikemux is on {alias} but its core is stopped. Starting runs sikemux start there.")
             }
             Self::Update => format!(
-                "{alias} runs a release of Sikemux too old for this app. Updating runs the installer over your SSH in a new tab, then restarts its core."
+                "{alias} runs a release of Sikemux too old for this app. Updating runs its own update over your SSH, on the channel it follows, and restarts its core."
             ),
         }
     }
 }
 
+/// What the window says of an SSH host the core has no answer from yet.
+pub fn unanswered_says(unanswered: &Unanswered, alias: &str) -> String {
+    match unanswered {
+        Unanswered::Checking => format!("Checking what runs on {alias}…"),
+        Unanswered::Unreachable { detail } => {
+            format!("{alias} can't be reached over SSH: {detail}")
+        }
+        Unanswered::SshSignIn { detail } => format!(
+            "SSH needs a password or key to reach {alias}, so Sikemux can't check it: {detail}"
+        ),
+        Unanswered::Failed { detail } => {
+            format!("Sikemux couldn't tell what runs on {alias}: {detail}")
+        }
+    }
+}
+
+/// The short words a rail row says of it.
+pub fn unanswered_detail(unanswered: &Unanswered) -> &'static str {
+    match unanswered {
+        Unanswered::Checking => "checking",
+        Unanswered::Unreachable { .. } => "can't be reached",
+        Unanswered::SshSignIn { .. } => "ssh needs signing in",
+        Unanswered::Failed { .. } => "couldn't check",
+    }
+}
+
 impl Workbench {
     /// The SSH host `alias`'s row, as the core lists it.
-    fn ssh_row(&self, alias: &str) -> Option<&HostRow> {
+    pub(crate) fn ssh_row(&self, alias: &str) -> Option<&HostRow> {
         self.reads
             .hosts
             .iter()
@@ -100,6 +127,20 @@ impl Workbench {
     pub fn setting_up(&self, alias: &str) -> Option<SetUp> {
         let setup = self.ssh_row(alias)?.setup.as_ref()?;
         setup.problem.is_none().then_some(setup.work)
+    }
+
+    /// Why the last set-up of `alias` stopped short, and what it was, until it is dismissed.
+    pub fn set_up_problem(&self, alias: &str) -> Option<(SetUp, String)> {
+        let setup = self.ssh_row(alias)?.setup.as_ref()?;
+        Some((setup.work, setup.problem.clone()?))
+    }
+
+    /// What the tab rail and the new-tab list call the pane, as `alias` needs.
+    pub fn set_up_label(&self, alias: &str) -> (Icon, &'static str) {
+        match self.setting_up(alias).or_else(|| self.set_up_of(alias)) {
+            Some(set_up) => (set_up.icon(), set_up.menu_label()),
+            None => (Icon::Server, "Sikemux here"),
+        }
     }
 
     /// Opens the Install Sikemux pane in the SSH host's strip, or brings it forward.
@@ -136,39 +177,67 @@ pub fn pane(bench: &Workbench, alias: &str, cx: &mut Context<Workbench>) -> AnyE
                     .child(message),
             )
     };
-    let Some(set_up) = bench.set_up_of(alias) else {
+    let row = bench.ssh_row(alias);
+    let problem = bench.set_up_problem(alias);
+    let Some(set_up) = (bench.setting_up(alias))
+        .or(problem.as_ref().map(|(work, _)| *work))
+        .or(bench.set_up_of(alias))
+    else {
+        let says = match row.and_then(|row| row.unanswered.as_ref()) {
+            Some(unanswered) => unanswered_says(unanswered, alias),
+            None => format!("{alias} runs Sikemux, on your account or another one."),
+        };
         return ui::pane(cx)
-            .child(note(
-                Icon::Download,
-                None,
-                format!("{alias} runs Sikemux, on your account or another one."),
-            ))
+            .child(note(Icon::Server, None, says))
             .into_any_element();
     };
     let shown = note(
         set_up.icon(),
         Some(set_up.offer(alias)),
-        match bench.setting_up(alias) {
-            Some(running) => format!(
+        match (bench.setting_up(alias), &problem) {
+            (Some(SetUp::Install), _) => format!(
                 "{} A password, if {alias} asks for one, goes in the tab beside this one.",
-                running.running(alias)
+                SetUp::Install.running(alias)
             ),
-            None => set_up.says(alias),
+            (Some(running), _) => running.running(alias),
+            (None, Some((work, problem))) => {
+                format!("{} stopped short: {problem}", work.menu_label())
+            }
+            (None, None) => set_up.says(alias),
         },
     );
     let shown = match bench.setting_up(alias) {
         Some(_) => shown,
         None => {
-            let alias = alias.to_owned();
+            let (retry, dismiss) = (alias.to_owned(), alias.to_owned());
             shown.child(
-                ui::Button::new(
-                    SharedString::from(format!("set-up-{alias}")),
-                    set_up.offer(&alias),
-                    ui::Variant::Primary,
-                )
-                .on_click(
-                    cx.listener(move |bench, _, _, cx| bench.set_up_host(&alias, set_up, cx)),
-                ),
+                div()
+                    .flex()
+                    .gap(SPACE_2H)
+                    .child(
+                        ui::Button::new(
+                            SharedString::from(format!("set-up-{alias}")),
+                            set_up.offer(alias),
+                            ui::Variant::Primary,
+                        )
+                        .on_click(
+                            cx.listener(move |bench, _, _, cx| {
+                                bench.set_up_host(&retry, set_up, cx)
+                            }),
+                        ),
+                    )
+                    .when(problem.is_some(), |buttons| {
+                        buttons.child(
+                            ui::Button::new(
+                                SharedString::from(format!("dismiss-set-up-{alias}")),
+                                "Dismiss",
+                                ui::Variant::Ghost,
+                            )
+                            .on_click(
+                                cx.listener(move |bench, _, _, _| bench.dismiss_set_up(&dismiss)),
+                            ),
+                        )
+                    }),
             )
         }
     };

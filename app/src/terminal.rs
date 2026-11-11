@@ -2120,12 +2120,12 @@ impl Workbench {
             .call_typed::<call::NewTerminal>(NewTerminal::loose());
     }
 
+    /// SSH hosts are this host's, read from its own ~/.ssh/config, whichever host is chosen.
     pub fn open_ssh_terminal(&self, alias: &str, cx: &mut App) {
         self.take_keys_when_shown(TakesKeys::Terminal, cx);
-        self.target()
-            .call_typed::<call::OpenSshTerminal>(SshParams {
-                host: alias.to_owned(),
-            });
+        crate::core::Target::here(&self.asks).call_typed::<call::OpenSshTerminal>(SshParams {
+            host: alias.to_owned(),
+        });
     }
 
     pub fn session(&self, id: &str) -> Option<&SessionInfo> {

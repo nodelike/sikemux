@@ -145,15 +145,16 @@ impl Workbench {
     }
 
     fn toggle_ssh_new_tab(&mut self, alias: String, window: &mut Window, cx: &mut Context<Self>) {
+        let (set_up_icon, set_up_label) = self.set_up_label(&alias);
         let rows = vec![
             Row::new(actions::NewTerminal::ID.name(), "SSH terminal")
                 .meta(format!("A new login on {alias}"))
                 .keys(keymap::hint(actions::NewTerminal::ID, cx))
                 .mark(Mark::Icon(Icon::Terminal)),
-            Row::new(INSTALL, "Install Sikemux")
-                .meta(format!("What Sikemux adds on {alias}, and the installer"))
+            Row::new(INSTALL, set_up_label)
+                .meta(format!("What Sikemux is on {alias}, and what sets it up"))
                 .keys(keymap::hint(actions::NewChat::ID, cx))
-                .mark(Mark::Icon(Icon::Download)),
+                .mark(Mark::Icon(set_up_icon)),
         ];
         let spec = Spec::new(
             "palette.newTab",

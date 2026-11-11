@@ -144,6 +144,7 @@ pub(crate) fn ssh_page(
     cx: &mut Context<Workbench>,
 ) -> AnyElement {
     let rows = terminal_rows(bench, &[Strip::Host(alias.clone())], cx);
+    let (set_up_icon, set_up_label) = bench.set_up_label(&alias);
     let empty = rows.is_empty().then(|| {
         rail_empty(
             Icon::Terminal,
@@ -172,8 +173,8 @@ pub(crate) fn ssh_page(
                 .child(
                     new_row(
                         "install-sikemux",
-                        Icon::Download,
-                        "Install Sikemux",
+                        set_up_icon,
+                        set_up_label,
                         actions::NewChat::ID,
                         cx,
                     )

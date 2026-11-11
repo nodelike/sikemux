@@ -293,6 +293,7 @@ impl Workbench {
                     return;
                 }
                 self.feeds.keep_linked(&self.reads.hosts);
+                self.follow_folded(cx);
                 self.watch_hosts_page();
             }
             Read::SkillsAdded => {

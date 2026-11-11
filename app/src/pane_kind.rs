@@ -52,7 +52,7 @@ pub fn of(kind: PaneKind) -> Kind {
         PaneKind::Board => kind_of(Icon::Board, "Agent board", Never, true),
         PaneKind::Desk => kind_of(Icon::PanelRight, "Desk", Never, false),
         PaneKind::ProjectSettings => kind_of(Icon::Settings, "Project settings", Never, true),
-        PaneKind::InstallSikemux => kind_of(Icon::Download, "Install Sikemux", Never, true),
+        PaneKind::InstallSikemux => kind_of(Icon::Server, "Sikemux", Never, true),
         PaneKind::Stash => kind_of(Icon::Stack, "Stash", Never, true),
         PaneKind::Hosts => kind_of(Icon::Gauge, "Devices", Never, true),
         PaneKind::Mod => kind_of(Icon::Dashboard, "Mod", Always, false),

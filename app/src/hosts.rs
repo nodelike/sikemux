@@ -15,7 +15,7 @@ use sikemux_core::git::status::ProjectRepo;
 use sikemux_core::server::activity_log::ActivitySummary;
 use sikemux_core::server::call;
 use sikemux_core::server::calls::NoParams;
-use sikemux_core::server::hosts::{HostReach, HostRow};
+use sikemux_core::server::hosts::{HostAliasParams, HostReach, HostRow};
 use sikemux_core::server::mods::ModList;
 use sikemux_core::server::ports::ProjectPort;
 use sikemux_core::server::remote::ApprovalSetting;
@@ -130,6 +130,8 @@ pub struct Feeds {
     front: Option<String>,
     /// Why this app reaches none of the account's other hosts, when it cannot.
     pub unavailable: Option<String>,
+    /// An SSH host just set up, whose terminals follow it onto its linked host once it is one.
+    following: Option<String>,
 }
 
 impl Feeds {
@@ -445,9 +447,9 @@ impl Workbench {
         self.notify(note, cx);
     }
 
-    /// Sets Sikemux up on the SSH host `alias` as `set_up` says, over the person's own ssh in a
-    /// terminal of its strip, signing it in to the account where that takes a code; its row
-    /// says how it goes.
+    /// Sets Sikemux up on the SSH host `alias` as `set_up` says, over the person's own ssh;
+    /// its row says how it goes. When it ends short a toast says why, and when it brings the
+    /// alias onto a linked host with its terminals in front, the window moves to that host.
     pub fn set_up_host(
         &mut self,
         alias: &str,
@@ -460,17 +462,53 @@ impl Workbench {
             work: set_up,
         };
         cx.spawn(async move |bench, cx| {
-            let asked = core::Target::here(&asks).request_typed::<call::InstallHost>(params);
-            if let Err(error) = asked.await {
-                let _ = bench.update(cx, |bench, cx| {
-                    bench.notify(
-                        toast::error(format!("{}: {error}", set_up.offer(&alias))),
-                        cx,
-                    )
-                });
-            }
+            let here = core::Target::here(&asks);
+            let failed = match here.request_typed::<call::InstallHost>(params).await {
+                Err(error) => Some(error.to_string()),
+                Ok(_) => here
+                    .request_typed::<call::HostSetup>(HostAliasParams {
+                        alias: alias.clone(),
+                    })
+                    .await
+                    .map_or_else(|error| Some(error.to_string()), |ended| ended.problem),
+            };
+            let _ = bench.update(cx, |bench, cx| match failed {
+                Some(problem) => bench.notify(
+                    toast::error(format!("{}: {problem}", set_up.offer(&alias))),
+                    cx,
+                ),
+                None => {
+                    bench.feeds.following = Some(alias.clone());
+                    bench.follow_folded(cx);
+                }
+            });
         })
         .detach();
+    }
+
+    /// Moves the window to the linked host the SSH host just set up became, once the core lists
+    /// it as one, when that SSH host's terminals are in front.
+    pub(crate) fn follow_folded(&mut self, cx: &mut Context<Self>) {
+        let Some(alias) = self.feeds.following.clone() else {
+            return;
+        };
+        let linked = (self.reads.hosts.iter())
+            .find(|host| host.id.is_some() && host.ssh.as_deref() == Some(alias.as_str()))
+            .and_then(|host| host.id.clone());
+        let Some(key) = linked else {
+            return;
+        };
+        self.feeds.following = None;
+        if self.strip() == Some(Strip::Host(alias)) {
+            self.choose_host(HostChoice::Account(key), cx);
+        }
+    }
+
+    /// Takes a set-up that stopped short off `alias`'s row.
+    pub fn dismiss_set_up(&self, alias: &str) {
+        Target::here(&self.asks).call_typed::<call::DismissHostSetup>(HostAliasParams {
+            alias: alias.to_owned(),
+        });
     }
 
     /// Reads whether `host`, this one when none, asks the person before a new device joins.

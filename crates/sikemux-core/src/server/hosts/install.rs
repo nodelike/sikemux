@@ -71,9 +71,15 @@ pub struct InstallParams {
     pub work: SetUpWork,
 }
 
-#[derive(Deserialize)]
-pub(crate) struct AliasParams {
-    alias: String,
+#[derive(Deserialize, Serialize)]
+pub struct AliasParams {
+    pub alias: String,
+}
+
+/// How a set-up ended: why it stopped short, if it did.
+#[derive(Deserialize, Serialize)]
+pub struct SetupEnded {
+    pub problem: Option<String>,
 }
 
 /// An alias from ~/.ssh/config, never something ssh would read as an option.
@@ -156,7 +162,7 @@ pub(crate) async fn install_host(core: &Arc<Core>, params: InstallParams) -> Cor
     })
 }
 
-pub(crate) async fn host_setup(core: &Arc<Core>, params: AliasParams) -> CoreResult<Value> {
+pub(crate) async fn host_setup(core: &Arc<Core>, params: AliasParams) -> CoreResult<SetupEnded> {
     let mut ended = core
         .hosts
         .setups
@@ -169,9 +175,11 @@ pub(crate) async fn host_setup(core: &Arc<Core>, params: AliasParams) -> CoreRes
         .await
         .map_err(|_| "the set-up was dropped")?
         .clone();
-    Ok(match ended {
-        Some(Err(problem)) => json!({ "problem": problem }),
-        _ => json!({ "problem": null }),
+    Ok(SetupEnded {
+        problem: match ended {
+            Some(Err(problem)) => Some(problem),
+            _ => None,
+        },
     })
 }
 

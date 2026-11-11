@@ -50,7 +50,7 @@ use super::{Core, CoreError, CoreResult};
 use crate::backoff::Backoff;
 use calls::HostAsk;
 
-pub use install::{SetUpWork, SetupRow};
+pub use install::{AliasParams as HostAliasParams, SetUpWork, SetupEnded, SetupRow};
 pub(crate) use join::link_host;
 pub(crate) use link::{Failed, LINK_ALPN};
 pub(crate) use listed::{installed_from, rows};

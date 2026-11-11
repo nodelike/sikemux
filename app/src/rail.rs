@@ -468,7 +468,9 @@ fn hosts(bench: &Workbench, cx: &mut Context<Workbench>) -> Vec<AnyElement> {
                 Some(HostFound::Other) => Some("on another account".to_owned()),
                 Some(HostFound::Stopped) => Some("stopped".to_owned()),
                 Some(HostFound::Outdated) => Some("older release".to_owned()),
-                _ => None,
+                _ => (host.unanswered.as_ref()).map(|unanswered| {
+                    crate::hosts::install_pane::unanswered_detail(unanswered).to_owned()
+                }),
             };
             let setup = host.setup.as_ref();
             let detail = match setup.map(|setup| (setup.work, setup.problem.as_deref())) {
@@ -480,14 +482,17 @@ fn hosts(bench: &Workbench, cx: &mut Context<Workbench>) -> Vec<AnyElement> {
                 None => found.or(detail),
             };
             let alias = host.ssh.clone().filter(|_| !linked);
-            let front = alias.is_some() && bench.strip() == alias.clone().map(Strip::Host);
+            let front = host.ssh.is_some() && bench.strip() == host.ssh.clone().map(Strip::Host);
             let key = host.id.clone();
             let chosen = !bench.settings.read(cx).is_open()
                 && (front
                     || key.as_ref().is_some_and(|key| {
                         bench.chosen_host() == crate::hosts::HostChoice::Account(key.clone())
                     }));
-            let row = Row::new(SharedString::from(format!("host-{name}")), name.clone())
+            let row_key = (host.id.clone())
+                .or_else(|| host.ssh.as_ref().map(|alias| format!("ssh:{alias}")))
+                .unwrap_or_else(|| name.to_string());
+            let row = Row::new(SharedString::from(format!("host-{row_key}")), name.clone())
                 .chosen(chosen)
                 .when_some(alias.clone(), |row, alias| {
                     row.on_click(cx.listener(move |bench, _, _, cx| {
@@ -526,7 +531,7 @@ fn hosts(bench: &Workbench, cx: &mut Context<Workbench>) -> Vec<AnyElement> {
             };
             let row = row.status(Some(ui::dot(tone, cx)));
             let bench_entity = cx.weak_entity();
-            let menu_id = SharedString::from(format!("host-menu-{name}"));
+            let menu_id = SharedString::from(format!("host-menu-{row_key}"));
             if let Some(menu) = account_host_menu(bench, host, true, cx) {
                 return with_menu(menu_id, menu, row, cx);
             }
@@ -534,6 +539,7 @@ fn hosts(bench: &Workbench, cx: &mut Context<Workbench>) -> Vec<AnyElement> {
                 return row.into_any_element();
             };
             let set_up_item = set_up_offer(bench, host);
+            let dismiss_item = dismiss_offer(host);
             with_menu(
                 menu_id,
                 move |popup, _, _| {
@@ -550,6 +556,10 @@ fn hosts(bench: &Workbench, cx: &mut Context<Workbench>) -> Vec<AnyElement> {
                             }),
                     );
                     let popup = match set_up_item(bench_entity.clone(), true) {
+                        Some(item) => popup.item(item),
+                        None => popup,
+                    };
+                    let popup = match dismiss_item(bench_entity.clone()) {
                         Some(item) => popup.item(item),
                         None => popup,
                     };
@@ -578,8 +588,11 @@ fn set_up_offer(
     host: &HostRow,
 ) -> impl Fn(WeakEntity<Workbench>, bool) -> Option<PopupMenuItem> + Clone + 'static {
     let setting_up = (host.setup.as_ref()).is_some_and(|setup| setup.problem.is_none());
+    let stopped_short = (host.setup.as_ref())
+        .filter(|setup| setup.problem.is_some())
+        .map(|setup| setup.work);
     let set_up = (host.ssh.as_deref())
-        .and_then(|alias| bench.set_up_of(alias))
+        .and_then(|alias| bench.set_up_of(alias).or(stopped_short))
         .zip(host.ssh.clone());
     move |bench: WeakEntity<Workbench>, here: bool| {
         set_up.clone().map(|(set_up, alias)| {
@@ -592,6 +605,23 @@ fn set_up_offer(
                 .disabled(setting_up)
                 .on_click(move |_, _, cx| {
                     let _ = bench.update(cx, |bench, cx| bench.set_up_host(&alias, set_up, cx));
+                })
+        })
+    }
+}
+
+/// The item that takes a set-up that stopped short off the host's row.
+fn dismiss_offer(
+    host: &HostRow,
+) -> impl Fn(WeakEntity<Workbench>) -> Option<PopupMenuItem> + Clone + 'static {
+    let alias = (host.ssh.clone())
+        .filter(|_| (host.setup.as_ref()).is_some_and(|setup| setup.problem.is_some()));
+    move |bench: WeakEntity<Workbench>| {
+        alias.clone().map(|alias| {
+            PopupMenuItem::new("Dismiss the failed set-up")
+                .icon(Icon::Close)
+                .on_click(move |_, _, cx| {
+                    let _ = bench.update(cx, |bench, _| bench.dismiss_set_up(&alias));
                 })
         })
     }
@@ -614,6 +644,8 @@ pub(crate) fn account_host_menu(
         .filter(|_| crate::hosts::reach(bench, host) == HostReach::Connected);
     let approval = bench.feeds.host(&key).and_then(|feed| feed.approval);
     let set_up_item = set_up_offer(bench, host);
+    let dismiss_item = dismiss_offer(host);
+    let ssh = host.ssh.clone();
     let bench_entity = cx.weak_entity();
     Some(
         move |popup: PopupMenu, _: &mut Window, cx: &mut Context<PopupMenu>| {
@@ -624,8 +656,29 @@ pub(crate) fn account_host_menu(
                     .item(details_item(bench.clone(), key.clone()))
                     .separator();
             }
+            if let Some(alias) = ssh.clone() {
+                popup = popup.item(
+                    PopupMenuItem::new("New SSH terminal")
+                        .icon(Icon::Terminal)
+                        .on_click({
+                            let bench = bench.clone();
+                            move |_, _, cx| {
+                                let _ = bench.update(cx, |bench, cx| {
+                                    bench.show_workbench(cx);
+                                    bench.open_ssh_terminal(&alias, cx)
+                                });
+                            }
+                        }),
+                );
+            }
             if let Some(item) = set_up_item(bench.clone(), false) {
-                popup = popup.item(item).separator();
+                popup = popup.item(item);
+            }
+            if let Some(item) = dismiss_item(bench.clone()) {
+                popup = popup.item(item);
+            }
+            if ssh.is_some() {
+                popup = popup.separator();
             }
             let on = |run: fn(&mut Workbench, &str, &mut Context<Workbench>)| {
                 let (bench, key) = (bench.clone(), key.clone());
