@@ -63,7 +63,7 @@ struct ConfigSheet: View {
                         Text("Context").font(Theme.label).foregroundStyle(palette.tertiary)
                         Spacer()
                         Text(
-                            "\(Int((share * 100).rounded()))% · \(ContextFill.tokens(usage.used)) of \(ContextFill.tokens(usage.size))"
+                            "\(Int((share * 100).rounded()))% · \(Format.tokens(usage.used)) of \(Format.tokens(usage.size))"
                         )
                         .font(Theme.mono(12))
                         .foregroundStyle(palette.tertiary)
