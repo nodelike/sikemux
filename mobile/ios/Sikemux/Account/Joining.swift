@@ -15,14 +15,13 @@ enum Joining {
         case asking, waiting
     }
 
-    /// How long the host keeps a request open before it stops asking.
-    static let approvalSeconds = 120
-
     /// Join screens showing, so a host arriving meanwhile waits in Devices rather than taking over.
     static var screens = 0
 
     static func expired(_ host: String) -> JoinFailure {
-        JoinFailure(title: "\(host) did not answer", detail: "Nobody allowed this phone within two minutes.")
+        JoinFailure(
+            title: "\(host) did not answer",
+            detail: "Nobody allowed this phone within \(WireWaits.approvalTimeoutSeconds / 60) minutes.")
     }
 
     /// Joins the account's host `core`; an allowed phone keeps the host as paired.

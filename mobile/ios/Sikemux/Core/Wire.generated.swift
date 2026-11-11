@@ -16,6 +16,11 @@ enum WireLimits {
     static let maxAttachments = 32
 }
 
+/// How long the host waits on the phone, in seconds, so the phone waits as long.
+enum WireWaits {
+    static let approvalTimeoutSeconds = 600
+}
+
 /// Addresses the phone writes into what it sends, as the core reads them.
 enum WireURIs {
     static let agentURI = "sikemux://agent/"

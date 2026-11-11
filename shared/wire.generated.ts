@@ -2,6 +2,7 @@
 
 export const MAX_ATTACHMENT_BYTES = 10485760;
 export const MAX_ATTACHMENTS = 32;
+export const APPROVAL_TIMEOUT_SECONDS = 600;
 export const AGENT_URI = "sikemux://agent/";
 export const EARLIER_URI = "sikemux://earlier/";
 export const STASH_URI = "sikemux://stash/";

@@ -95,6 +95,9 @@ const LIMITS = [
   [`${CORE}/server/chat/prompt.rs`, "MAX_ATTACHMENTS"],
 ];
 
+/** How long the host waits on a client, in seconds, read from where the host waits. */
+const WAITS = [["crates/sikemux-client/src/join.rs", "APPROVAL_TIMEOUT"]];
+
 /** Addresses clients write into what they send, read from the core's own. */
 const URIS = ["AGENT_URI", "EARLIER_URI", "STASH_URI", "CHAT_DRAFT"];
 
@@ -293,6 +296,21 @@ const limitValues = await Promise.all(
 );
 const limits = limitValues
   .map(([name, product]) => `export const ${name} = ${product};`)
+  .join("\n");
+
+const waitValues = await Promise.all(
+  WAITS.map(async ([file, name]) => {
+    const text = await readFile(resolve(root, file), "utf8");
+    const value = new RegExp(
+      `^(?:pub )?const ${name}: Duration = Duration::from_secs\\((\\d+)\\);$`,
+      "m",
+    ).exec(text)?.[1];
+    if (!value) fail(`${file} has no Duration::from_secs constant ${name}`);
+    return [`${name}_SECONDS`, Number(value)];
+  }),
+);
+const waits = waitValues
+  .map(([name, seconds]) => `export const ${name} = ${seconds};`)
   .join("\n");
 
 const importsOf = new Map();
@@ -1672,6 +1690,11 @@ enum WireLimits {
 ${limitValues.map(([name, value]) => `    static let ${constantName(name)} = ${value}`).join("\n")}
 }
 
+/// How long the host waits on the phone, in seconds, so the phone waits as long.
+enum WireWaits {
+${waitValues.map(([name, value]) => `    static let ${constantName(name)} = ${value}`).join("\n")}
+}
+
 /// Addresses the phone writes into what it sends, as the core reads them.
 enum WireURIs {
 ${(await uriValues()).map(([name, value]) => `    static let ${constantName(name)} = ${value}`).join("\n")}
@@ -1853,7 +1876,7 @@ for (const [, variant, key] of gateKeys) {
 
 await emit(
   OUTPUTS.ts,
-  `${typescript(TS_ROOTS, `${limits}\n${await uris()}\n${await extensionless()}\n\n`)}\n`,
+  `${typescript(TS_ROOTS, `${limits}\n${waits}\n${await uris()}\n${await extensionless()}\n\n`)}\n`,
 );
 await emit(OUTPUTS.phone, await phoneSwift());
 await emit(OUTPUTS.notch, swift());
