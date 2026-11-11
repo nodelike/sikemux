@@ -2,6 +2,8 @@
 //! the same row: what the call did, to what, and the file it opens. Clients
 //! keep only their own words, icons and colours for each action.
 
+use std::collections::HashMap;
+
 use serde_json::{Map, Value};
 use sikemux_view::chat::{ToolAction, ToolCall, ToolRow};
 
@@ -44,20 +46,51 @@ fn spec(title: &str) -> Option<&'static Spec> {
 fn ours(spec: &Spec, args: &Map<String, Value>) -> ToolRow {
     let target = fill(spec.target, args).unwrap_or_default();
     let detail = fill(spec.detail, args).filter(|detail| !detail.is_empty() && *detail != target);
-    let said = format!("{} {target}", spec.verb).trim().to_owned();
     ToolRow {
         action: action(spec.kind),
-        activity: Some(if fits(&said, MAX_ACTIVITY_CHARS) {
-            said
-        } else {
-            spec.verb.to_owned()
-        }),
+        activity: Some(activity(spec.verb, &target)),
         target,
         detail,
         plugin: spec.plugin.map(str::to_owned),
         verb: Some(spec.verb.to_owned()),
         icon: Some(spec.icon.to_owned()),
         ..ToolRow::default()
+    }
+}
+
+fn activity(verb: &str, target: &str) -> String {
+    let said = format!("{verb} {target}").trim().to_owned();
+    if fits(&said, MAX_ACTIVITY_CHARS) {
+        said
+    } else {
+        verb.to_owned()
+    }
+}
+
+/// A process run by the label it was started under rather than its id, and a
+/// wait on one by what it waits to see.
+pub(super) fn name_run(tool: &mut ToolCall, runs: &HashMap<String, String>) {
+    let args = arguments(tool.raw_input.as_ref());
+    let Some(id) = args.get("executionId").and_then(Value::as_str) else {
+        return;
+    };
+    let row = &mut tool.row;
+    if row.target.contains(id) {
+        let name = runs.get(id).map_or("a process", String::as_str);
+        row.target = row.target.replace(id, name);
+        if let Some(verb) = &row.verb {
+            row.activity = Some(activity(verb, &row.target));
+        }
+    }
+    if sikemux_tool_name(&tool.title) == "events_wait" {
+        row.detail = args
+            .get("until")
+            .and_then(Value::as_str)
+            .map(|until| match until {
+                "exit" => "until it exits".to_owned(),
+                "ready" => "until it is ready".to_owned(),
+                text => format!("until it prints “{text}”"),
+            });
     }
 }
 

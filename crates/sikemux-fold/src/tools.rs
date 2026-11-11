@@ -436,6 +436,18 @@ fn printed(raw_output: Option<&Value>, content: Option<&Value>) -> Option<Value>
     serde_json::from_str(&printed).ok()
 }
 
+/// The run a finished `process_start` began: its id, and the label it shows by.
+pub(super) fn started_run(raw: &Map<String, Value>) -> Option<(String, String)> {
+    let tool = sikemux_tool_name(text(raw.get("title"))?);
+    if !matches!(tool, "process_start" | "process_restart") {
+        return None;
+    }
+    let run = printed(raw.get("rawOutput"), raw.get("content"))?;
+    let id = text(run.get("executionId"))?;
+    let label = text(run.get("label")).or_else(|| text(run.get("processId")))?;
+    Some((id.to_owned(), label.to_owned()))
+}
+
 /// One of our tools the chat never draws as a row, such as a reaction.
 pub(super) fn is_gesture(title: &str) -> bool {
     let title = title.replace("sikemux_tools", "sikemux-tools");

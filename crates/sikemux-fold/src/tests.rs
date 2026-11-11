@@ -443,6 +443,30 @@ mod reducer {
     }
 
     #[test]
+    fn a_wait_on_a_run_names_it_by_its_label_not_its_id() {
+        let id = "96542aa9-2f45-43ec-975c-fb7684434812";
+        let mut chat = Chat::new();
+        chat.update(json!({
+            "sessionUpdate": "tool_call",
+            "toolCallId": "start",
+            "title": "mcp__sikemux-tools__process_start",
+            "status": "completed",
+            "rawInput": { "command": "cargo build -p sikemux-core", "label": "core build" },
+            "rawOutput": [{ "type": "text", "text": json!({ "executionId": id, "label": "core build" }).to_string() }],
+        }))
+        .update(json!({
+            "sessionUpdate": "tool_call",
+            "toolCallId": "wait",
+            "title": "mcp__sikemux-tools__events_wait",
+            "status": "in_progress",
+            "rawInput": { "executionId": id, "until": "Finished" },
+        }));
+        let wait = tool_of(&chat.rows()[0].parts[1]).tool.row;
+        assert_eq!(wait.target, "for core build");
+        assert_eq!(wait.detail.as_deref(), Some("until it prints “Finished”"));
+    }
+
+    #[test]
     fn reads_a_finished_call_once_and_keeps_only_what_the_transcript_shows() {
         let mut chat = Chat::new();
         chat.update(json!({

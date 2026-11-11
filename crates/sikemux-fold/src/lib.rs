@@ -320,6 +320,8 @@ pub struct Fold {
     folder: Option<PathBuf>,
     /// Where a finished edit's lines sit in its file, so they carry the file's numbers.
     place: Option<Place>,
+    /// The label each process run was started under, by its id, so a row names a run by it.
+    runs: HashMap<String, String>,
     /// How many bytes each row's JSON is as a client opening the chat is sent it, by row id,
     /// with the change it was measured at.
     sent_bytes: RefCell<HashMap<String, (u64, usize)>>,
@@ -585,6 +587,7 @@ impl Fold {
             offers_effort: false,
             folder: None,
             place: None,
+            runs: HashMap::new(),
             sent_bytes: RefCell::default(),
         }
     }
@@ -1558,7 +1561,7 @@ impl Fold {
             let running = tools::running(text_of(raw.get("status")));
             if running {
                 self.tools.get_mut(&key).expect("held").raw = Some(raw.clone());
-                let call = tools::root_call(self.folder.as_deref(), tools::call(&raw));
+                let call = self.shown_call(&raw);
                 self.replace_tool(&within, &row, part, |part| {
                     if let ChatPart::Tool { tool, .. } = part {
                         *tool = call;
@@ -1580,7 +1583,7 @@ impl Fold {
         let ended = !tools::running(text_of(update.get("status")));
         // Reloading a session replays its whole history at once, so a call
         // already finished the first time this side sees it never ran here.
-        let call = tools::root_call(self.folder.as_deref(), tools::call(update));
+        let call = self.shown_call(update);
         let Some((row, part)) = self.append_part(
             index,
             within,
@@ -1725,7 +1728,10 @@ impl Fold {
             }
             diff.path = tools::rooted(self.folder.as_deref(), std::mem::take(&mut diff.path));
         }
-        let call = tools::root_call(self.folder.as_deref(), tools::call(raw));
+        if let Some((id, label)) = tools::started_run(raw) {
+            self.runs.insert(id, label);
+        }
+        let call = self.shown_call(raw);
         let detail = tools::detail(&settled);
         let id = call.tool_call_id.clone();
         if detail.diff.is_some() || detail.output.is_some() {
@@ -1763,6 +1769,7 @@ impl Fold {
         patch: &Map<String, Value>,
     ) {
         let folder = self.folder.clone();
+        let runs = self.runs.clone();
         self.replace_tool(within, row, part, |part| {
             let ChatPart::Tool { tool, .. } = part else {
                 return;
@@ -1784,8 +1791,16 @@ impl Fold {
                 tool.raw_input = restated.raw_input;
                 tool.description = restated.description;
             }
-            *tool = tools::root_call(folder.as_deref(), std::mem::take(tool).with_row());
+            let mut call = std::mem::take(tool).with_row();
+            row::name_run(&mut call, &runs);
+            *tool = tools::root_call(folder.as_deref(), call);
         });
+    }
+
+    fn shown_call(&self, raw: &Map<String, Value>) -> sikemux_view::chat::ToolCall {
+        let mut call = tools::call(raw);
+        row::name_run(&mut call, &self.runs);
+        tools::root_call(self.folder.as_deref(), call)
     }
 
     /// A subagent's card counts its calls and names the last one; a change to
