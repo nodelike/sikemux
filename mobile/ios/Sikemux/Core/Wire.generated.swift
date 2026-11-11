@@ -2999,8 +2999,6 @@ enum ChatPart: Codable, Hashable, Sendable {
         var failure: String?
         var startedAt: Int?
         var endedAt: Int?
-        /// On a run's first call, what the run did.
-        var run: ToolRun?
     }
 
     struct Subagent: Codable, Hashable, Sendable {
@@ -3513,41 +3511,6 @@ struct GifRef: Codable, Hashable, Sendable {
     var width: Int
     var height: Int
     var title: String
-}
-
-/// A run of calls, on its first call: what the run did, counted, which a client words as one
-/// sentence, and the lines it opens onto.
-struct ToolRun: Codable, Hashable, Sendable {
-    /// Each thing the run did, in the order it first did it.
-    var said: [RunClause]
-    /// It only looked: read, searched and listed, more than one way.
-    var explored: Bool?
-    var failed: Int?
-    /// Housekeeping calls it holds, which are left out of it.
-    var hidden: Int?
-    /// What it opens onto: failed calls first, then neighbours that did the same thing,
-    /// each as one line.
-    var lines: [RunLine]
-}
-
-struct RunClause: Codable, Hashable, Sendable {
-    var intent: ToolIntent
-    var family: ToolFamily
-    /// How many: files read, distinct when the calls name them, else calls.
-    var count: Int
-    /// Who or what it was done with, first ones first: the agents messaged or waited
-    /// on, the services asked.
-    var names: [String]?
-    /// How long its calls took together, in milliseconds.
-    var took: Int?
-}
-
-struct RunLine: Codable, Hashable, Sendable {
-    var intent: ToolIntent
-    var family: ToolFamily
-    /// The calls it stands for, by their place in the run, its first call 0.
-    var calls: [Int]
-    var failed: Bool?
 }
 
 /// What a background task left behind once it ended.
