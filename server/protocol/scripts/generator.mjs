@@ -634,7 +634,7 @@ function refsOf(type) {
 }
 
 /** `roots` and every definition they refer to, so a chosen type always compiles on its own. */
-function reachable(definitions, roots) {
+export function reachable(definitions, roots) {
   const found = new Set();
   const visit = (name) => {
     if (found.has(name)) return;

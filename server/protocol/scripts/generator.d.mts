@@ -26,6 +26,10 @@ export function rust(
     imports?: string;
   },
 ): string;
+export function reachable(
+  definitions: Definitions,
+  roots: string[],
+): Set<string>;
 export function swift(
   definitions: Definitions,
   options: { roots: string[]; renamed?: Set<string>; provided?: Set<string> },
