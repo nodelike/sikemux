@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 
 import { formatAgo } from '@shared/lib/format';
-import type { AgentShown, ProjectInfo } from '@shared/wire.generated';
+import type { AgentShown, ProjectInfo, TeamLink } from '@shared/wire.generated';
 import type { Snapshot } from '@/core/protocol';
 import { WorkerRow, workersOf } from '@/devices/RemoteWorker';
 import { useMinute } from '@/ui/motion';
@@ -60,23 +60,17 @@ export function Agents({
   const heldShown = held ? snapshot.inbox.agents.find((agent) => agent.agentId === held) : undefined;
   const awayRow = (agent: AgentShown) =>
     agent.session == null ? (
-      <ChatRow key={agent.agentId} core={core} shown={agent} place={placeOf(agent)} minute={minute} onHold={onHold} />
+      <ChatRow key={agent.agentId} core={core} shown={agent} minute={minute} onHold={onHold} />
     ) : (
-      <TerminalAgentRow
-        key={agent.agentId}
-        shown={agent}
-        place={placeOf(agent)}
-        minute={minute}
-        onOpen={() => onTab('terminals')}
-        onHold={onHold}
-      />
+      <TerminalAgentRow key={agent.agentId} shown={agent} minute={minute} onOpen={() => onTab('terminals')} onHold={onHold} />
     );
   const workers = snapshot.inbox.remoteAgents;
   const leads = new Set(open.map((agent) => agent.agentId));
   const strays = scope
     ? []
     : workers.filter((worker) => !(worker.lead && leads.has(worker.lead)) && listed(undefined, provider, undefined, worker.cli));
-  const placeOf = (agent: AgentShown) => (scope ? undefined : (agent.projectName ?? undefined));
+  // A filtered list may have left a teammate's lead out, so it would hang from nothing.
+  const teamOf = (agent: AgentShown) => (provider === 'all' ? agent.team : undefined);
 
   return (
     <>
@@ -85,17 +79,18 @@ export function Agents({
         <Rows style={styles.open}>
           {open.map((agent) => (
             <Fragment key={agent.agentId}>
-              {agent.session == null ? (
-                <ChatRow core={core} shown={agent} place={placeOf(agent)} minute={agent.nextTrigger == null ? 0 : minute} onHold={onHold} />
-              ) : (
-                <TerminalAgentRow
-                  shown={agent}
-                  place={placeOf(agent)}
-                  minute={agent.nextTrigger == null ? 0 : minute}
-                  onOpen={() => onTab('terminals')}
-                  onHold={onHold}
-                />
-              )}
+              <TeamLines team={teamOf(agent)}>
+                {agent.session == null ? (
+                  <ChatRow core={core} shown={agent} minute={agent.nextTrigger == null ? 0 : minute} onHold={onHold} />
+                ) : (
+                  <TerminalAgentRow
+                    shown={agent}
+                    minute={agent.nextTrigger == null ? 0 : minute}
+                    onOpen={() => onTab('terminals')}
+                    onHold={onHold}
+                  />
+                )}
+              </TeamLines>
               {workersOf(workers, agent.agentId).map((worker) => (
                 <WorkerRow key={worker.agentId} worker={worker} nested />
               ))}
@@ -121,18 +116,39 @@ export function Agents({
   );
 }
 
+/** Down the middle of a lead's mark, which sits 8 into its row, and half a row, where a teammate's mark is centred. */
+const SPINE = 18;
+const MIDDLE = 24;
+
+/** The spine and tick that hang a teammate's row under its lead, as the Mac's rail draws them. */
+function TeamLines({ team, children }: { team?: TeamLink; children: ReactNode }) {
+  const styles = useStyles(makeStyles);
+  const member = team === 'member' || team === 'last';
+  return (
+    <View style={member ? styles.member : undefined}>
+      {team === 'head' ? <View style={[styles.spine, { top: MIDDLE + 12, bottom: -2 }]} /> : null}
+      {team === 'member' ? (
+        <>
+          <View style={[styles.spine, { top: -2, bottom: -2 }]} />
+          <View style={styles.tick} />
+        </>
+      ) : null}
+      {team === 'last' ? <View style={styles.corner} /> : null}
+      {children}
+    </View>
+  );
+}
+
 /* A host sends its whole view several times a second while an agent works; each row redraws only when its own
    item changed, which the hub keeps as the same object otherwise. */
 const ChatRow = memo(function ChatRow({
   core,
   shown,
-  place,
   minute,
   onHold,
 }: {
   core: string;
   shown: AgentShown;
-  place?: string;
   /** Counts down a trigger's time once a minute; 0 for a row without one, so the others keep still. */
   minute: number;
   /** Opens its snooze sheet; absent for a phone that can only watch. */
@@ -148,7 +164,6 @@ const ChatRow = memo(function ChatRow({
       }
       name={away ? undefined : shown.name}
       title={shown.title}
-      place={place}
       detail={shown.settledAt != null ? formatAgo(Number(shown.settledAt), minute * 60_000) : undefined}
       dim={away}
       end={
@@ -234,13 +249,11 @@ function AwayGroup({
 /** An agent running in a terminal, listed with the chats as the host's rail lists it. */
 const TerminalAgentRow = memo(function TerminalAgentRow({
   shown,
-  place,
   minute,
   onOpen,
   onHold,
 }: {
   shown: AgentShown;
-  place?: string;
   minute: number;
   onOpen: () => void;
   onHold?: (shown: AgentShown) => void;
@@ -257,7 +270,6 @@ const TerminalAgentRow = memo(function TerminalAgentRow({
       }
       name={away ? undefined : shown.name}
       title={shown.title}
-      place={place}
       dim={away}
       end={
         snoozed ? (
@@ -284,6 +296,20 @@ function Trigger({ shown, minute }: { shown: AgentShown; minute: number }) {
 const makeStyles = (colors: Palette) => {
   return StyleSheet.create({
     open: { marginTop: 10 },
+    member: { paddingLeft: 22 },
+    spine: { position: 'absolute', left: SPINE, width: 1, backgroundColor: colors.treeSpine },
+    tick: { position: 'absolute', top: MIDDLE, left: SPINE, width: 8, height: 1, backgroundColor: colors.treeSpine },
+    corner: {
+      position: 'absolute',
+      top: -2,
+      left: SPINE,
+      width: 8,
+      height: MIDDLE + 3,
+      borderLeftWidth: 1,
+      borderBottomWidth: 1,
+      borderColor: colors.treeSpine,
+      borderBottomLeftRadius: 4,
+    },
     restore: {
       height: 28,
       marginLeft: 6,

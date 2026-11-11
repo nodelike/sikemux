@@ -25,9 +25,6 @@ import { fonts, isLight, type Palette, typeFor, useColors, useStyles, useType, t
 import { Agents, type Tab } from '@/devices/DeviceAgents';
 import { Terminals } from '@/devices/DeviceTerminals';
 
-/** The New chat pill's height, which the list leaves room for below its last row. */
-const NEW_CHAT_HEIGHT = 52;
-
 /** What runs in a project, as its row in the project sheet shows it. */
 function ProjectTail({ snapshot, project }: { snapshot: Snapshot; project: ProjectInfo }) {
   const colors = useColors();
@@ -110,20 +107,43 @@ function UnderBar({ height, open, bottom }: { height: number; open: Animated.Ani
   );
 }
 
-function HostTab({ label, count, on, onPress }: { label: string; count?: number; on: boolean; onPress: () => void }) {
+const TABS: { tab: Tab; label: string; icon: 'IconAgent' | 'IconTerminal' | 'IconBoard'; tint: keyof Palette }[] = [
+  { tab: 'agents', label: 'Agents', icon: 'IconAgent', tint: 'accent' },
+  { tab: 'terminals', label: 'Terminals', icon: 'IconTerminal', tint: 'warn' },
+  { tab: 'board', label: 'Board', icon: 'IconBoard', tint: 'live' },
+];
+
+/** Agents, Terminals and Board as one segmented control, each with its icon in its own colour. */
+function HostTabs({ tab, asking, onSwitch }: { tab: Tab; asking: number; onSwitch: (tab: Tab) => void }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
   return (
-    <Pressable onPress={onPress} hitSlop={12} style={styles.tab} accessibilityRole="tab" accessibilityState={{ selected: on }}>
-      <Text style={[styles.tabText, on && { color: colors.ink }]}>{label}</Text>
-      {count ? (
-        <View style={styles.count}>
-          <Text style={styles.countText} maxFontSizeMultiplier={1.3}>
-            {count}
-          </Text>
-        </View>
-      ) : null}
-    </Pressable>
+    <View style={styles.tabs} accessibilityRole="tablist">
+      {TABS.map((item) => {
+        const on = item.tab === tab;
+        return (
+          <Pressable
+            key={item.tab}
+            onPress={() => onSwitch(item.tab)}
+            style={[styles.tab, on && styles.tabOn]}
+            accessibilityRole="tab"
+            accessibilityLabel={item.label}
+            accessibilityState={{ selected: on }}>
+            <Icon name={item.icon} size={15} color={colors[item.tint] as string} />
+            <Text style={[styles.tabText, on && { color: colors.ink }]} numberOfLines={1}>
+              {item.label}
+            </Text>
+            {item.tab === 'agents' && asking ? (
+              <View style={styles.count}>
+                <Text style={styles.countText} maxFontSizeMultiplier={1.3}>
+                  {asking}
+                </Text>
+              </View>
+            ) : null}
+          </Pressable>
+        );
+      })}
+    </View>
   );
 }
 
@@ -175,7 +195,7 @@ export default function Device() {
   const snapshot = live.snapshot;
   const [picking, setPicking] = useState(false);
   const [options, setOptions] = useState(false);
-  const starts = device?.access === 'full' && status.online && tab === 'agents';
+  const starts = device?.access === 'full' && status.online;
   const bottom = useBottomGap();
   const scope = snapshot?.workspace.projects.find((project) => project.id === device?.project);
   const asking = !snapshot ? 0 : scope ? needsIn(snapshot, scope) : snapshot.inbox.items.filter((item) => item.tier === 'needs').length;
@@ -227,7 +247,42 @@ export default function Device() {
             </Animated.Text>
           ) : undefined
         }
-        end={device ? <IconButton name="IconMore" label="Options" onPress={() => setOptions(true)} /> : null}
+        end={
+          device ? (
+            <View style={styles.navEnd}>
+              {snapshot && !status.unpaired && (snapshot.workspace.projects.length || filtering) ? (
+                <Pressable
+                  onPress={() => setPicking(true)}
+                  hitSlop={6}
+                  style={styles.picker}
+                  accessibilityRole="button"
+                  accessibilityLabel={scope ? `Project, ${scope.name}` : 'Project, all'}>
+                  <Icon name="IconFolder" size={18} color={colors.live} />
+                  {scope ? (
+                    <Text style={styles.pickerText} numberOfLines={1}>
+                      {scope.name}
+                    </Text>
+                  ) : null}
+                  {filtering && provider !== 'all' ? <AgentIcon provider={provider} size={14} /> : null}
+                </Pressable>
+              ) : null}
+              {snapshot && starts ? (
+                <Pressable
+                  onPress={() => {
+                    haptics.tap();
+                    router.push(scope ? `/device/${core}/new?project=${encodeURIComponent(scope.id)}` : `/device/${core}/new`);
+                  }}
+                  hitSlop={6}
+                  style={({ pressed }) => [styles.navButton, pressed && { opacity: 0.6 }]}
+                  accessibilityRole="button"
+                  accessibilityLabel="New chat">
+                  <Icon name="IconPlus" size={20} color={colors.ink} />
+                </Pressable>
+              ) : null}
+              <IconButton name="IconMore" label="Options" onPress={() => setOptions(true)} />
+            </View>
+          ) : null
+        }
       />
       {device ? <ForgetSheet device={device} visible={options} onClose={() => setOptions(false)} /> : null}
       {snapshot && !status.unpaired ? null : <HostHead name={hostName} line={status.line} online={status.online} />}
@@ -261,9 +316,7 @@ export default function Device() {
       ) : (
         <>
           <View style={styles.list}>
-            <MaskedView
-              style={styles.list}
-              maskElement={<UnderBar height={barHeight} open={unpinned} bottom={bottom + NEW_CHAT_HEIGHT + 24} />}>
+            <MaskedView style={styles.list} maskElement={<UnderBar height={barHeight} open={unpinned} bottom={bottom + 24} />}>
               <Animated.ScrollView
                 {...scrollPause}
                 showsVerticalScrollIndicator={false}
@@ -271,7 +324,7 @@ export default function Device() {
                 scrollEventThrottle={16}
                 style={status.online ? undefined : styles.stale}
                 accessibilityHint={status.online ? undefined : 'Out of date until the host answers again'}
-                contentContainerStyle={{ paddingBottom: bottom + (starts ? NEW_CHAT_HEIGHT + 24 : 24) }}>
+                contentContainerStyle={{ paddingBottom: bottom + 24 }}>
                 <View onLayout={(event) => setHeadHeight(event.nativeEvent.layout.height)}>
                   <HostHead name={hostName} line={status.line} online={status.online} />
                 </View>
@@ -301,41 +354,10 @@ export default function Device() {
               onLayout={(event) => setBarHeight(event.nativeEvent.layout.height)}
               style={[styles.barFloat, { transform: [{ translateY: barTop }] }]}>
               <View style={styles.bar}>
-                <View style={styles.tabs} accessibilityRole="tablist">
-                  <HostTab label="Agents" count={asking} on={tab === 'agents'} onPress={() => switchTo('agents')} />
-                  <HostTab label="Terminals" on={tab === 'terminals'} onPress={() => switchTo('terminals')} />
-                  <HostTab label="Board" on={tab === 'board'} onPress={() => switchTo('board')} />
-                </View>
-                {snapshot.workspace.projects.length || filtering ? (
-                  <Pressable
-                    onPress={() => setPicking(true)}
-                    hitSlop={12}
-                    style={styles.picker}
-                    accessibilityRole="button"
-                    accessibilityLabel="Project">
-                    <Icon name="IconFolder" size={14} color={colors.live} />
-                    <Text style={styles.pickerText} numberOfLines={1}>
-                      {scope?.name ?? 'All projects'}
-                    </Text>
-                    {filtering && provider !== 'all' ? <AgentIcon provider={provider} size={14} /> : null}
-                    <View style={{ transform: [{ rotate: '90deg' }] }}>
-                      <Icon name="IconChevron" size={12} color={colors.inkFaint} />
-                    </View>
-                  </Pressable>
-                ) : null}
+                <HostTabs tab={tab} asking={asking} onSwitch={switchTo} />
               </View>
             </Animated.View>
           </View>
-          {starts ? (
-            <Pressable
-              onPress={() => router.push(scope ? `/device/${core}/new?project=${encodeURIComponent(scope.id)}` : `/device/${core}/new`)}
-              style={({ pressed }) => [styles.newChat, { bottom }, pressed && { opacity: 0.85 }]}
-              accessibilityRole="button"
-              accessibilityLabel="New chat">
-              <Icon name="IconPlus" size={18} color={colors.ground} />
-              <Text style={styles.newChatText}>New chat</Text>
-            </Pressable>
-          ) : null}
           {snapshot ? (
             <ProjectSheet
               visible={picking}
@@ -382,21 +404,22 @@ const makeStyles = (colors: Palette) => {
       textShadowOffset: { width: 0, height: 2 },
       textShadowRadius: 18,
     },
-    bar: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      gap: 12,
-      paddingHorizontal: 18,
-      paddingTop: 6,
-      paddingBottom: 8,
-    },
+    bar: { paddingHorizontal: 16, paddingTop: 4, paddingBottom: 10 },
     list: { flex: 1 },
     barFloat: { position: 'absolute', top: 0, left: 0, right: 0 },
     navName: { fontFamily: fonts.uiSemibold, fontSize: 16, letterSpacing: -0.25, color: colors.ink },
-    tabs: { flexDirection: 'row', alignItems: 'center', gap: 20 },
-    tab: { flexDirection: 'row', alignItems: 'center', gap: 7 },
-    tabText: { fontFamily: fonts.uiSemibold, fontSize: 15, letterSpacing: -0.15, color: colors.tertiary },
+    tabs: {
+      flexDirection: 'row',
+      gap: 2,
+      padding: 3,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: translucent(colors.raised, 0.86),
+    },
+    tab: { flex: 1, minHeight: 34, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, borderRadius: 9 },
+    tabOn: { backgroundColor: colors.active },
+    tabText: { fontFamily: fonts.uiSemibold, fontSize: 14, letterSpacing: -0.15, color: colors.secondary },
     count: {
       minWidth: 16,
       minHeight: 16,
@@ -407,27 +430,11 @@ const makeStyles = (colors: Palette) => {
       justifyContent: 'center',
     },
     countText: { fontFamily: fonts.uiSemibold, fontSize: 11, color: colors.ground },
-    picker: { flexShrink: 1, flexDirection: 'row', alignItems: 'center', gap: 6 },
-    pickerText: { flexShrink: 1, fontFamily: fonts.ui, fontSize: 13, color: colors.secondary },
+    navEnd: { flexDirection: 'row', alignItems: 'center' },
+    navButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
+    picker: { minWidth: 44, height: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5 },
+    pickerText: { maxWidth: 110, fontFamily: fonts.uiMedium, fontSize: 13, color: colors.secondary },
     body: { paddingHorizontal: 16 },
-    newChat: {
-      position: 'absolute',
-      right: 16,
-      height: NEW_CHAT_HEIGHT,
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 8,
-      paddingLeft: 16,
-      paddingRight: 20,
-      borderRadius: NEW_CHAT_HEIGHT / 2,
-      backgroundColor: colors.ink,
-      shadowColor: '#000',
-      shadowOpacity: 0.45,
-      shadowRadius: 18,
-      shadowOffset: { width: 0, height: 8 },
-      elevation: 8,
-    },
-    newChatText: { fontFamily: fonts.uiSemibold, fontSize: 15, color: colors.ground },
     tail: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     faces: { flexDirection: 'row' },
     face: { width: 16, height: 16, alignItems: 'center', justifyContent: 'center' },

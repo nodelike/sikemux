@@ -60,13 +60,17 @@ struct DeviceAgents: View {
 
     @ViewBuilder
     private func row(_ agent: AgentShown, now: Date) -> some View {
-        let place = scope == nil ? agent.projectName : nil
         let onHold = onHold.map { hold in { hold(agent.agentId) } }
-        if agent.session == nil {
-            ChatRow(core: core, shown: agent, place: place, now: now, onHold: onHold)
-        } else {
-            TerminalAgentRow(shown: agent, place: place, now: now, onOpen: { onTab(.terminals) }, onHold: onHold)
+        // A filtered list may have left a teammate's lead out, so it hangs from nothing.
+        let team = provider == nil && agent.snoozedUntil == nil && agent.settledAt == nil ? agent.team : nil
+        Group {
+            if agent.session == nil {
+                ChatRow(core: core, shown: agent, now: now, onHold: onHold)
+            } else {
+                TerminalAgentRow(shown: agent, now: now, onOpen: { onTab(.terminals) }, onHold: onHold)
+            }
         }
+        .modifier(TeamLines(team: team))
     }
 }
 
@@ -74,7 +78,6 @@ private struct ChatRow: View {
     @Environment(\.palette) private var palette
     let core: String
     let shown: AgentShown
-    let place: String?
     let now: Date
     let onHold: (() -> Void)?
 
@@ -83,7 +86,7 @@ private struct ChatRow: View {
         Row(
             title: shown.title, name: away ? nil : shown.name,
             detail: shown.settledAt.map { Format.ago(Format.date(millis: $0), now: now) },
-            place: place, dim: away,
+            dim: away,
             onPress: { Router.shared.push(.chat(core: core, agent: shown.agentId)) },
             onLongPress: onHold,
             mark: {
@@ -111,7 +114,6 @@ private struct ChatRow: View {
 /// An agent running in a terminal, listed with the chats as the host's rail lists it.
 private struct TerminalAgentRow: View {
     let shown: AgentShown
-    let place: String?
     let now: Date
     let onOpen: () -> Void
     let onHold: (() -> Void)?
@@ -120,7 +122,7 @@ private struct TerminalAgentRow: View {
         let snoozed = shown.snoozedUntil != nil && shown.settledAt == nil
         let away = snoozed || shown.settledAt != nil
         Row(
-            title: shown.title, name: away ? nil : shown.name, place: place, dim: away,
+            title: shown.title, name: away ? nil : shown.name, dim: away,
             onPress: onOpen, onLongPress: onHold,
             mark: {
                 AgentFaceView(agentId: shown.agentId, provider: shown.cli, group: shown.group, size: 20).opacity(
@@ -134,6 +136,52 @@ private struct TerminalAgentRow: View {
                     AgentStateMark(group: shown.group)
                 }
             })
+    }
+}
+
+/// The spine and tick that hang a teammate's row under its lead, as the Mac's rail draws them.
+private struct TeamLines: ViewModifier {
+    @Environment(\.palette) private var palette
+    let team: TeamLink?
+
+    func body(content: Content) -> some View {
+        let member = team == .member || team == .last
+        content
+            .padding(.leading, member ? 22 : 0)
+            .background(alignment: .topLeading) {
+                if let team { TeamPath(team: team).stroke(palette.treeSpine, lineWidth: 1) }
+            }
+    }
+}
+
+private struct TeamPath: Shape {
+    let team: TeamLink
+    /// Down the middle of the lead's mark, which sits 8pt into its row.
+    private let spine: CGFloat = 18.5
+    /// Half a row, where a teammate's mark is centred, and the gap between rows.
+    private let middle: CGFloat = 24
+    private let gap: CGFloat = 2
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        switch team {
+        case .head:
+            path.move(to: CGPoint(x: spine, y: middle + 12))
+            path.addLine(to: CGPoint(x: spine, y: rect.maxY + gap))
+        case .member:
+            path.move(to: CGPoint(x: spine, y: -gap))
+            path.addLine(to: CGPoint(x: spine, y: rect.maxY + gap))
+            path.move(to: CGPoint(x: spine, y: middle))
+            path.addLine(to: CGPoint(x: spine + 8, y: middle))
+        case .last:
+            path.move(to: CGPoint(x: spine, y: -gap))
+            path.addLine(to: CGPoint(x: spine, y: middle - 4))
+            path.addQuadCurve(to: CGPoint(x: spine + 4, y: middle), control: CGPoint(x: spine, y: middle))
+            path.addLine(to: CGPoint(x: spine + 8, y: middle))
+        case .unknown:
+            break
+        }
+        return path
     }
 }
 
@@ -267,7 +315,7 @@ private struct Recent: View {
             Rows {
                 ForEach(shown, id: \.id) { chat in
                     Row(
-                        title: chat.title, place: scope == nil ? view.projectName(chat.project, path: chat.cwd) : nil,
+                        title: chat.title,
                         onPress: { resume(chat) },
                         mark: { AgentMark(provider: chat.provider, size: 20) },
                         end: {

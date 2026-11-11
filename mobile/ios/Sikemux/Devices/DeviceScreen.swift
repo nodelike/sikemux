@@ -26,7 +26,6 @@ private struct DeviceContent: View {
     @State private var headHeight: CGFloat = 0
     @State private var barHeight: CGFloat = 34
 
-    private static let newChatHeight: CGFloat = 52
     /// How far rows take to fade out as they reach the tabs pinned at the top.
     private static let fade: CGFloat = 22
 
@@ -50,6 +49,7 @@ private struct DeviceContent: View {
                     }
                 },
                 end: {
+                    if let view, !status.unpaired { navActions(view, device: device, status: status) }
                     if device != nil { IconButton(icon: Icons.more, label: "Options") { options = true } }
                 })
             if view == nil || status.unpaired { HostHead(name: hostName, line: status.line, online: status.online) }
@@ -119,7 +119,6 @@ private struct DeviceContent: View {
         let providers = Self.providers(view, scope)
         let provider = filter.flatMap { providers.contains($0) ? $0 : nil }
         let filtering = tab == .agents && providers.count > 1
-        let starts = device?.access == .full && status.online && tab == .agents
         let pinned = headHeight > 0 && scrolled >= headHeight - barHeight - Self.fade
         let barTop = max(0, headHeight - scrolled)
 
@@ -152,7 +151,7 @@ private struct DeviceContent: View {
                     }
                     .padding(.horizontal, 16)
                 }
-                .padding(.bottom, bottomGap + (starts ? Self.newChatHeight + 24 : 24))
+                .padding(.bottom, bottomGap + 24)
             }
             .coordinateSpace(.named("list"))
             .pausesBackdrop()
@@ -169,7 +168,7 @@ private struct DeviceContent: View {
                 }
             }
 
-            bar(view: view, scope: scope, asking: asking, filtering: filtering, provider: provider)
+            HostTabs(tab: tab, asking: asking, onSwitch: switchTo)
                 .onGeometryChange(for: CGFloat.self) {
                     $0.size.height
                 } action: {
@@ -178,27 +177,6 @@ private struct DeviceContent: View {
                 .offset(y: barTop)
         }
         .frame(maxHeight: .infinity)
-        .overlay(alignment: .bottomTrailing) {
-            if starts {
-                Button {
-                    Router.shared.push(.newChat(core: core, project: scope?.id))
-                } label: {
-                    HStack(spacing: 8) {
-                        IconView(icon: Icons.plus, size: 18)
-                        Text("New chat").font(Theme.ui(15, .semibold))
-                    }
-                    .foregroundStyle(palette.ground)
-                    .padding(.leading, 16)
-                    .padding(.trailing, 20)
-                    .frame(height: Self.newChatHeight)
-                    .background(Capsule().fill(palette.ink).shadow(color: .black.opacity(0.45), radius: 18, y: 8))
-                }
-                .buttonStyle(PressFade())
-                .padding(.trailing, 16)
-                .padding(.bottom, bottomGap)
-                .accessibilityLabel("New chat")
-            }
-        }
         .sheet(shown: Binding(get: { held != nil }, set: { if !$0 { held = nil } })) {
             if let shown = view.inbox.agents.first(where: { $0.agentId == held }) {
                 AwaySheet(core: core, shown: shown) { held = nil }
@@ -214,40 +192,48 @@ private struct DeviceContent: View {
         }
     }
 
-    private func bar(view: DeviceView, scope: ProjectInfo?, asking: Int, filtering: Bool, provider: String?)
-        -> some View
-    {
-        HStack(spacing: 12) {
-            HStack(spacing: 20) {
-                HostTab(label: "Agents", count: asking, on: tab == .agents) { switchTo(.agents) }
-                HostTab(label: "Terminals", on: tab == .terminals) { switchTo(.terminals) }
-                HostTab(label: "Board", on: tab == .board) { switchTo(.board) }
-            }
-            Spacer(minLength: 0)
-            if !view.workspace.projects.isEmpty || filtering {
-                Button {
-                    picking = true
-                } label: {
-                    HStack(spacing: 6) {
-                        IconView(icon: Icons.folder, size: 14).foregroundStyle(palette.live)
-                        Text(scope?.name ?? "All projects")
-                            .font(Theme.ui(13))
+    /// The project filter and New chat, in the bar beside Options.
+    @ViewBuilder
+    private func navActions(_ view: DeviceView, device: PairedDevice?, status: HostStatus) -> some View {
+        let scope = view.project(id: device?.project)
+        let providers = Self.providers(view, scope)
+        let filtering = tab == .agents && providers.count > 1
+        if !view.workspace.projects.isEmpty || filtering {
+            Button {
+                picking = true
+            } label: {
+                HStack(spacing: 5) {
+                    IconView(icon: Icons.folder, size: 18).foregroundStyle(palette.live)
+                    if let scope {
+                        Text(scope.name)
+                            .font(Theme.ui(13, .medium))
                             .foregroundStyle(palette.secondary)
                             .lineLimit(1)
-                        if filtering, let provider { AgentMark(provider: provider, size: 14) }
-                        IconView(icon: Icons.chevron, size: 12)
-                            .foregroundStyle(palette.inkFaint)
-                            .rotationEffect(.degrees(90))
+                            .frame(maxWidth: 110)
                     }
-                    .contentShape(Rectangle())
+                    if filtering, let provider = filter.flatMap({ providers.contains($0) ? $0 : nil }) {
+                        AgentMark(provider: provider, size: 14)
+                    }
                 }
-                .buttonStyle(PressFade())
-                .accessibilityLabel("Project")
+                .frame(minWidth: 44, minHeight: 44)
+                .contentShape(Rectangle())
             }
+            .buttonStyle(PressFade())
+            .accessibilityLabel(scope.map { "Project, \($0.name)" } ?? "Project, all")
         }
-        .padding(.horizontal, 18)
-        .padding(.top, 6)
-        .padding(.bottom, 8)
+        if device?.access == .full && status.online {
+            Button {
+                Haptics.tap()
+                Router.shared.push(.newChat(core: core, project: scope?.id))
+            } label: {
+                IconView(icon: Icons.plus, size: 20)
+                    .foregroundStyle(palette.ink)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Circle())
+            }
+            .buttonStyle(PressFade())
+            .accessibilityLabel("New chat")
+        }
     }
 
     private func switchTo(_ next: Route.DeviceTab) {
@@ -300,33 +286,63 @@ private struct HostHead: View {
     }
 }
 
-private struct HostTab: View {
+/// Agents, Terminals and Board as one segmented control, each with its icon in its own colour.
+private struct HostTabs: View {
     @Environment(\.palette) private var palette
-    let label: String
-    var count = 0
-    let on: Bool
-    let action: () -> Void
+    let tab: Route.DeviceTab
+    let asking: Int
+    let onSwitch: (Route.DeviceTab) -> Void
 
     var body: some View {
-        Button(action: action) {
-            HStack(spacing: 7) {
+        HStack(spacing: 2) {
+            segment(.agents, "Agents", Icons.agent, palette.accent, count: asking)
+            segment(.terminals, "Terminals", Icons.terminal, palette.warn)
+            segment(.board, "Board", Icons.board, palette.live)
+        }
+        .padding(3)
+        .background {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(.ultraThinMaterial)
+                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(palette.raised.opacity(0.6)))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(palette.border, lineWidth: 1))
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 4)
+        .padding(.bottom, 10)
+    }
+
+    private func segment(
+        _ which: Route.DeviceTab, _ label: String, _ icon: IconDef, _ tint: Color, count: Int = 0
+    ) -> some View {
+        let on = tab == which
+        return Button {
+            onSwitch(which)
+        } label: {
+            HStack(spacing: 6) {
+                IconView(icon: icon, size: 15).foregroundStyle(tint)
                 Text(label)
-                    .font(Theme.ui(15, .semibold))
+                    .font(Theme.ui(14, .semibold))
                     .tracking(-0.15)
-                    .foregroundStyle(on ? palette.ink : palette.tertiary)
+                    .foregroundStyle(on ? palette.ink : palette.secondary)
+                    .lineLimit(1)
                 if count > 0 {
                     Text("\(count)")
                         .font(Theme.ui(11, .semibold))
                         .foregroundStyle(palette.ground)
-                        .padding(.horizontal, 6)
+                        .padding(.horizontal, 5)
                         .frame(minWidth: 16, minHeight: 16)
                         .background(Capsule().fill(palette.ink))
                 }
             }
-            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity, minHeight: 34)
+            .background(
+                RoundedRectangle(cornerRadius: 9, style: .continuous).fill(on ? palette.active : .clear)
+            )
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(label)
         .accessibilityAddTraits(on ? [.isSelected, .isButton] : .isButton)
     }
 }

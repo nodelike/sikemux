@@ -616,15 +616,25 @@
   .host-head .where .live { background: var(--live); box-shadow: 0 0 10px var(--live); }
   .host-head .where .off { border: 1.5px solid var(--gray-700); }
   .host-head h1 { margin-top: 4px; font-size: 32px; font-weight: 600; letter-spacing: -0.035em; color: var(--text-primary); text-shadow: 0 2px 18px rgba(0,0,0,.65); }
-  .host-bar { display: flex; align-items: center; justify-content: space-between; padding: 4px 18px 0; }
-  .host-tabs { display: flex; align-items: center; gap: 20px; }
-  .host-tabs span { display: inline-flex; align-items: center; gap: 7px; font-size: 15px; font-weight: 600; letter-spacing: -0.01em; color: var(--text-tertiary); }
-  .host-tabs span.on { color: var(--text-primary); }
-  .host-tabs .count { font-style: normal; font-size: 11px; font-weight: 600; color: var(--bg); background: var(--ink); border-radius: 999px; padding: 0 6px; line-height: 16px; }
-  .host-project { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-secondary); }
-  .host-project > span { display: grid; }
-  .host-project .folder { color: var(--live); }
-  .host-project .ch .ico { transform: rotate(90deg); color: var(--ink-faint); }
+  .host-bar { padding: 4px 16px 10px; }
+  .host-tabs { display: flex; gap: 2px; padding: 3px; border-radius: 12px; border: 1px solid var(--border); background: color-mix(in oklab, var(--surface-raised) 72%, transparent); backdrop-filter: blur(18px); }
+  .host-tabs > span { flex: 1; min-height: 34px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; border-radius: 9px; font-size: 14px; font-weight: 600; letter-spacing: -0.01em; color: var(--text-secondary); }
+  .host-tabs > span.on { color: var(--text-primary); background: var(--surface-active); }
+  .host-tabs .tab-ico { display: grid; }
+  .host-tabs .tab-ico.agents { color: var(--acc); } .host-tabs .tab-ico.terminals { color: var(--warn); } .host-tabs .tab-ico.board { color: var(--live); }
+  .host-tabs .count { font-style: normal; font-size: 11px; font-weight: 600; color: var(--bg); background: var(--ink); border-radius: 999px; padding: 0 5px; line-height: 16px; }
+  /* the project filter and New chat sit in the bar beside ⋯ */
+  .nav .host-project { display: inline-flex; align-items: center; gap: 5px; min-width: 44px; height: 44px; justify-content: center; font-size: 13px; font-weight: 500; color: var(--text-secondary); }
+  .nav .host-project > span { display: grid; }
+  .nav .host-project .folder { color: var(--live); }
+  .nav .new-chat { width: 44px; height: 44px; display: grid; place-items: center; color: var(--text-primary); }
+  /* a teammate hangs under its lead on the rail's spine and tick */
+  .rows .row.lead, .rows .row.member, .rows .row.last { position: relative; }
+  .rows .row.member, .rows .row.last { padding-left: 30px; }
+  .rows .row.lead::before { content: ""; position: absolute; left: 18px; top: 36px; bottom: -2px; width: 1px; background: var(--tree-spine); }
+  .rows .row.member::before { content: ""; position: absolute; left: 18px; top: -2px; bottom: -2px; width: 1px; background: var(--tree-spine); }
+  .rows .row.member::after { content: ""; position: absolute; left: 18px; top: 24px; width: 8px; height: 1px; background: var(--tree-spine); }
+  .rows .row.last::before { content: ""; position: absolute; left: 18px; top: -2px; width: 8px; height: 27px; border-left: 1px solid var(--tree-spine); border-bottom: 1px solid var(--tree-spine); border-bottom-left-radius: 4px; }
   /* the provider filter heading the project sheet, as the provider tiles head the Mac's rail */
   .sheet-tiles { display: flex; gap: 6px; padding: 4px 0 14px; }
   .sheet-tiles > span { flex: 1; height: 44px; border-radius: 10px; display: grid; place-items: center; border: 1px solid var(--border); background: var(--surface-raised); font-size: 13.5px; font-weight: 500; color: var(--text-secondary); }
@@ -683,7 +693,6 @@
   .scope-sheet .tail .faces > span:last-child { margin-right: 0; }
   .scope-sheet .tail .tcount { color: var(--text-tertiary); display: inline-flex; align-items: center; gap: 4px; font-size: 13px; }
   .scope-sheet .check { color: var(--text-primary); display: grid; }
-  .fab { position: absolute; right: 16px; bottom: 34px; height: 52px; padding: 0 20px 0 16px; border-radius: 999px; background: var(--ink); color: var(--bg); display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 600; box-shadow: 0 10px 30px -8px rgba(0,0,0,.7); }
   .group { border-radius: 14px; border: 1px solid var(--border); background: var(--surface-raised); overflow: hidden; }
   .group .row { position: relative; border-radius: 0; border: 0; min-height: 56px; padding: 8px 14px; }
   .group .row + .row::before { content: ""; position: absolute; left: 50px; right: 0; top: 0; height: 1px; background: var(--border); }
@@ -1661,60 +1670,58 @@
 <!-- ================================================================ -->
 <section class="flow on-host">
   <h2>A device</h2>
-  <p>A device opens on its host's name, set large over the host's backdrop, with a line above it saying it is online and what runs on it. Under the name, Agents, Terminals and Board as words to switch between, and the project picker at the right. Then the host's open agents in one list, straight on the ground, ranked by the host's core the same way the Mac's rail and the notch list them, and its recent chats under them. Running agents keep the rail's green squares.</p>
+  <p>A device opens on its host's name, set large over the host's backdrop, with a line above it saying it is online and what runs on it. Under the name, Agents, Terminals and Board as one segmented control, each with its icon in its own colour: the agent mark in the accent, the terminal in amber, the board in green. The project picker and New chat sit in the top bar beside ⋯. Then the host's open agents in one list, straight on the ground, ranked by the host's core the same way the Mac's rail and the notch list them, and its recent chats under them. Running agents keep the rail's green squares.</p>
   <div class="phones">
     <figure><div class="phone"><div class="island"></div>
       <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
       <div class="screen">
-        <div class="nav"><span class="back">{{IconChevron:18}}Devices</span><span style="flex:1"></span><span class="icon-btn">{{IconMore:18}}</span></div>
+        <div class="nav"><span class="back">{{IconChevron:18}}Devices</span><span style="flex:1"></span><span class="host-project"><span class="folder">{{IconFolder:18}}</span></span><span class="new-chat">{{IconPlus:20}}</span><span class="icon-btn">{{IconMore:18}}</span></div>
         <div class="host-head"><div class="where"><i class="live"></i>Online · 5 agents · 2 terminals</div><h1>MacBook Pro</h1></div>
-        <div class="host-bar"><div class="host-tabs"><span class="on">Agents <i class="count">2</i></span><span>Terminals</span><span>Board</span></div><span class="host-project"><span class="folder">{{IconFolder:14}}</span>All projects<span class="ch">{{IconChevron:12}}</span></span></div>
+        <div class="host-bar"><div class="host-tabs"><span class="on"><span class="tab-ico agents">{{IconAgent:15}}</span>Agents <i class="count">2</i></span><span><span class="tab-ico terminals">{{IconTerminal:15}}</span>Terminals</span><span><span class="tab-ico board">{{IconBoard:15}}</span>Board</span></div></div>
         <div class="pad grow">
           <div class="rows">
-            <div class="row"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Remote pairing screen</div><div class="s"><span class="place">{{IconFolder:11}}</span>sikemux</div></div><span class="row-name">@Otter</span><span class="status-slot"><span class="dot warn"></span></span></div>
-            <div class="row"><span class="mark codex">{{IconCodex:20}}</span><div class="body"><div class="t">Move the ledger import</div><div class="s"><span class="place">{{IconFolder:11}}</span>ledger</div></div><span class="row-name">@Maple</span><span class="status-slot"><span class="dot warn"></span></span></div>
-            <div class="row"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Download size on the hero</div><div class="s"><span class="place">{{IconFolder:11}}</span>sikemux-front</div></div><span class="row-name">@Birch</span><span class="trigger">{{IconTimer:11}}18m</span><span class="status-slot"><span class="dot acc"></span></span></div>
-            <div class="row"><span class="mark codex">{{IconCodex:20}}</span><div class="body"><div class="t">Fix the flaky PTY replay test</div><div class="s"><span class="place">{{IconFolder:11}}</span>sikemux</div></div><span class="row-name">@Flint</span><span class="collided">{{IconMerge:11}}</span><span class="status-slot"><span class="loader"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></span></div>
-            <div class="row"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Tighten the rail spacing</div><div class="s"><span class="place">{{IconFolder:11}}</span>sikemux</div></div><span class="row-name">@Cedar</span><span class="collided">{{IconMerge:11}}</span><span class="status-slot"><span class="loader"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></span></div>
-            <div class="row"><span class="mark codex">{{IconCodex:20}}</span><div class="body"><div class="t">Regenerate the API reference</div><div class="s"><span class="place">{{IconFolder:11}}</span>api-docs</div></div><span class="row-name">@Pike</span><span class="status-slot"><span class="loader"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></span></div>
-            <div class="row"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Watch the release build</div><div class="s"><span class="place">{{IconFolder:11}}</span>sikemux</div></div><span class="row-name">@Heron</span><span class="shells">{{IconCommand:11}}2</span><span class="collided claim">{{IconMerge:11}}</span><span class="status-slot"></span></div>
+            <div class="row"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Remote pairing screen</div></div><span class="row-name">@Otter</span><span class="status-slot"><span class="dot warn"></span></span></div>
+            <div class="row"><span class="mark codex">{{IconCodex:20}}</span><div class="body"><div class="t">Move the ledger import</div></div><span class="row-name">@Maple</span><span class="status-slot"><span class="dot warn"></span></span></div>
+            <div class="row"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Download size on the hero</div></div><span class="row-name">@Birch</span><span class="trigger">{{IconTimer:11}}18m</span><span class="status-slot"><span class="dot acc"></span></span></div>
+            <div class="row lead"><span class="mark codex">{{IconCodex:20}}</span><div class="body"><div class="t">Fix the flaky PTY replay test</div></div><span class="row-name">@Flint</span><span class="collided">{{IconMerge:11}}</span><span class="status-slot"><span class="loader"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></span></div>
+            <div class="row last"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Tighten the rail spacing</div></div><span class="row-name">@Cedar</span><span class="collided">{{IconMerge:11}}</span><span class="status-slot"><span class="loader"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></span></div>
+            <div class="row"><span class="mark codex">{{IconCodex:20}}</span><div class="body"><div class="t">Regenerate the API reference</div></div><span class="row-name">@Pike</span><span class="status-slot"><span class="loader"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></span></div>
+            <div class="row"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Watch the release build</div></div><span class="row-name">@Heron</span><span class="shells">{{IconCommand:11}}2</span><span class="collided claim">{{IconMerge:11}}</span><span class="status-slot"></span></div>
           </div>
           <div class="glabel">Recent</div>
           <div class="rows">
-            <div class="row"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Split the Rundeck matrix into jobs</div><div class="s"><span class="place">{{IconFolder:11}}</span>sikemux</div></div><span class="ago">3h</span></div>
+            <div class="row"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Split the Rundeck matrix into jobs</div></div><span class="ago">3h</span></div>
             <div class="row more"><div class="body"><div class="t">Show 12 more</div></div></div>
           </div>
         </div>
-        <div class="fab">{{IconPlus:18}}New chat</div>
       </div>
       <div class="home-bar"></div></div>
-      <figcaption><b>Agents</b><div class="note">The host's open agents in one list, with no labels, in the order its core ranks them for the Mac's rail: what wants you first, then what finished and you have not seen, then what is working, then the rest. The phone draws them as they come and never sorts them itself. A row reads as the Mac's rail does: the agent's mark, its title, the name Sikemux gave it small and dim at the row's end, and while all projects are shown a second line with the folder and the project's name. The list starts a little below the tabs. The end shows how many subagents and shells it still has running, and, while it is not working or waiting on you, how long until a trigger it set wakes it (⏱ 18m beside the pink timer, counting down each minute), then its state: the rail's squares while it works, an amber dot when it needs you, an accent dot when it finished and you have not looked, and nothing when it is idle. Nothing is answered on the row; tapping it opens the chat, where permissions and questions wait. Agents running in terminals sit in the same list and open Terminals. An agent that just changed lines another agent had uncommitted carries the Mac rail's red merge mark beside its counts, and so does the other; a lockfile, migration or generated file two agents edited at once marks both in amber instead. The mark says with whom and in which file to a screen reader, and goes after ten minutes or once the agent commits that file. Under the open agents, Recent lists the saved chats the host's rail lists as recent: the first ten, Show more for the rest; tapping one resumes it on the host and opens it, and a phone that can only watch is told so under the list. The tab's count is what needs you. The project picker and the agent filter narrow both lists. The header scrolls with the list: once the name passes under the top bar, the bar takes it as its title and the Agents / Terminals / Board row stays pinned beneath it, floating on the backdrop, and rows fade out as they slide under it and into the home bar.</div></figcaption>
+      <figcaption><b>Agents</b><div class="note">The host's open agents in one list, with no labels, in the order its core ranks them for the Mac's rail: what wants you first, then what finished and you have not seen, then what is working, then the rest. The phone draws them as they come and never sorts them itself. A row is one line, as the Mac's rail draws it: the agent's mark, its title, the name Sikemux gave it small and dim at the row's end, then its counts and state. An agent's teammates sit under it on the rail's spine, each turning off it on a tick, the last one on a corner, as the core orders them. The list starts a little below the tabs. The end shows how many subagents and shells it still has running, and, while it is not working or waiting on you, how long until a trigger it set wakes it (⏱ 18m beside the pink timer, counting down each minute), then its state: the rail's squares while it works, an amber dot when it needs you, an accent dot when it finished and you have not looked, and nothing when it is idle. Nothing is answered on the row; tapping it opens the chat, where permissions and questions wait. Agents running in terminals sit in the same list and open Terminals. An agent that just changed lines another agent had uncommitted carries the Mac rail's red merge mark beside its counts, and so does the other; a lockfile, migration or generated file two agents edited at once marks both in amber instead. The mark says with whom and in which file to a screen reader, and goes after ten minutes or once the agent commits that file. Under the open agents, Recent lists the saved chats the host's rail lists as recent: the first ten, Show more for the rest; tapping one resumes it on the host and opens it, and a phone that can only watch is told so under the list. The tab's count is what needs you. The project picker and the agent filter narrow both lists. The header scrolls with the list: once the name passes under the top bar, the bar takes it as its title and the Agents / Terminals / Board control stays pinned beneath it, floating on the backdrop, and rows fade out as they slide under it and into the home bar.</div></figcaption>
     </figure>
 
     <figure><div class="phone"><div class="island"></div>
       <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
       <div class="screen">
-        <div class="nav"><span class="back">{{IconChevron:18}}Devices</span><span style="flex:1"></span><span class="icon-btn">{{IconMore:18}}</span></div>
+        <div class="nav"><span class="back">{{IconChevron:18}}Devices</span><span style="flex:1"></span><span class="host-project"><span class="folder">{{IconFolder:18}}</span></span><span class="new-chat">{{IconPlus:20}}</span><span class="icon-btn">{{IconMore:18}}</span></div>
         <div class="host-head"><div class="where"><i class="live"></i>Online · 7 agents</div><h1>MacBook Pro</h1></div>
-        <div class="host-bar"><div class="host-tabs"><span class="on">Agents <i class="count">1</i></span><span>Terminals</span><span>Board</span></div><span class="host-project"><span class="folder">{{IconFolder:14}}</span>All projects<span class="ch">{{IconChevron:12}}</span></span></div>
+        <div class="host-bar"><div class="host-tabs"><span class="on"><span class="tab-ico agents">{{IconAgent:15}}</span>Agents <i class="count">1</i></span><span><span class="tab-ico terminals">{{IconTerminal:15}}</span>Terminals</span><span><span class="tab-ico board">{{IconBoard:15}}</span>Board</span></div></div>
         <div class="pad grow">
           <div class="rows">
-            <div class="row"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Remote pairing screen</div><div class="s"><span class="place">{{IconFolder:11}}</span>sikemux</div></div><span class="row-name">@Otter</span><span class="status-slot"><span class="dot warn"></span></span></div>
-            <div class="row"><span class="mark codex">{{IconCodex:20}}</span><div class="body"><div class="t">Fix the flaky PTY replay test</div><div class="s"><span class="place">{{IconFolder:11}}</span>sikemux</div></div><span class="row-name">@Flint</span><span class="status-slot"><span class="loader"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></span></div>
-            <div class="row"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Tighten the rail spacing</div><div class="s"><span class="place">{{IconFolder:11}}</span>sikemux</div></div><span class="row-name">@Cedar</span><span class="status-slot"></span></div>
+            <div class="row"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Remote pairing screen</div></div><span class="row-name">@Otter</span><span class="status-slot"><span class="dot warn"></span></span></div>
+            <div class="row"><span class="mark codex">{{IconCodex:20}}</span><div class="body"><div class="t">Fix the flaky PTY replay test</div></div><span class="row-name">@Flint</span><span class="status-slot"><span class="loader"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></span></div>
+            <div class="row"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Tighten the rail spacing</div></div><span class="row-name">@Cedar</span><span class="status-slot"></span></div>
           </div>
           <div class="glabel">Snoozed <span class="n">2</span><span class="fold open">{{IconChevron:12}}</span></div>
           <div class="rows">
-            <div class="row away"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Release notes draft</div><div class="s"><span class="place">{{IconFolder:11}}</span>sikemux</div></div><span class="wake">{{IconClock:11}}2h</span><span class="status-slot"></span></div>
-            <div class="row away"><span class="mark codex">{{IconCodex:20}}</span><div class="body"><div class="t">Look into the DMG size</div><div class="s"><span class="place">{{IconFolder:11}}</span>sikemux</div></div><span class="wake">{{IconClock:11}}Mon</span><span class="status-slot"></span></div>
+            <div class="row away"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Release notes draft</div></div><span class="wake">{{IconClock:11}}2h</span><span class="status-slot"></span></div>
+            <div class="row away"><span class="mark codex">{{IconCodex:20}}</span><div class="body"><div class="t">Look into the DMG size</div></div><span class="wake">{{IconClock:11}}Mon</span><span class="status-slot"></span></div>
           </div>
           <div class="glabel">Settled <span class="n">14</span><span class="fold">{{IconChevron:12}}</span></div>
           <div class="glabel">Recent</div>
           <div class="rows">
-            <div class="row"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Split the Rundeck matrix into jobs</div><div class="s"><span class="place">{{IconFolder:11}}</span>sikemux</div></div><span class="ago">3h</span></div>
+            <div class="row"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Split the Rundeck matrix into jobs</div></div><span class="ago">3h</span></div>
           </div>
         </div>
-        <div class="fab">{{IconPlus:18}}New chat</div>
       </div>
       <div class="home-bar"></div></div>
       <figcaption><b>Snoozed and settled</b><div class="note">As on the Mac's rail, the host's core sends some agents out of the main list. Snoozed ones sit under Snoozed, faded, with the clock and how soon each wakes (minutes, hours, then the weekday); settled ones under Settled, folded until its label is tapped, as on the Mac. Either label folds and unfolds on a tap, and the phone keeps which are folded. A snoozed agent comes back to the main list at its time, or as soon as it asks you something; a settled one when you write to it or it asks you something. Holding any agent's row opens its snooze sheet; tapping it still opens the chat.</div></figcaption>
@@ -1727,7 +1734,7 @@
         <div class="host-head"><div class="where"><i class="live"></i>Online · 7 agents</div><h1>MacBook Pro</h1></div>
         <div class="pad grow">
           <div class="rows">
-            <div class="row"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Tighten the rail spacing</div><div class="s"><span class="place">{{IconFolder:11}}</span>sikemux</div></div><span class="row-name">@Cedar</span><span class="status-slot"></span></div>
+            <div class="row"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Tighten the rail spacing</div></div><span class="row-name">@Cedar</span><span class="status-slot"></span></div>
           </div>
         </div>
         <div class="scrim"></div>
@@ -1750,22 +1757,21 @@
     <figure><div class="phone"><div class="island"></div>
       <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
       <div class="screen">
-        <div class="nav"><span class="back">{{IconChevron:18}}Devices</span><span style="flex:1"></span><span class="icon-btn">{{IconMore:18}}</span></div>
+        <div class="nav"><span class="back">{{IconChevron:18}}Devices</span><span style="flex:1"></span><span class="host-project"><span class="folder">{{IconFolder:18}}</span></span><span class="new-chat">{{IconPlus:20}}</span><span class="icon-btn">{{IconMore:18}}</span></div>
         <div class="host-head"><div class="where"><i class="live"></i>Online · 7 agents</div><h1>MacBook Pro</h1></div>
-        <div class="host-bar"><div class="host-tabs"><span class="on">Agents</span><span>Terminals</span><span>Board</span></div><span class="host-project"><span class="folder">{{IconFolder:14}}</span>All projects<span class="ch">{{IconChevron:12}}</span></span></div>
+        <div class="host-bar"><div class="host-tabs"><span class="on"><span class="tab-ico agents">{{IconAgent:15}}</span>Agents</span><span><span class="tab-ico terminals">{{IconTerminal:15}}</span>Terminals</span><span><span class="tab-ico board">{{IconBoard:15}}</span>Board</span></div></div>
         <div class="pad grow">
           <div class="rows">
-            <div class="row"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Tighten the rail spacing</div><div class="s"><span class="place">{{IconFolder:11}}</span>sikemux</div></div><span class="row-name">@Cedar</span><span class="status-slot"></span></div>
+            <div class="row"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Tighten the rail spacing</div></div><span class="row-name">@Cedar</span><span class="status-slot"></span></div>
           </div>
           <div class="glabel">Snoozed <span class="n">2</span><span class="fold">{{IconChevron:12}}</span></div>
           <div class="glabel">Settled <span class="n">14</span><span class="fold open">{{IconChevron:12}}</span></div>
           <div class="rows">
-            <div class="row away"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Trim the wire protocol docs</div><div class="s"><span class="place">{{IconFolder:11}}</span>sikemux · 2h ago</div></div><span class="restore">Restore</span></div>
-            <div class="row away"><span class="mark codex">{{IconCodex:20}}</span><div class="body"><div class="t">Fix the iOS share sheet crash</div><div class="s"><span class="place">{{IconFolder:11}}</span>sikemux · yesterday</div></div><span class="restore">Restore</span></div>
-            <div class="row away"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Hero copy pass</div><div class="s"><span class="place">{{IconFolder:11}}</span>sikemux-front · 5d ago</div></div><span class="restore">Restore</span></div>
+            <div class="row away"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Trim the wire protocol docs</div></div><span class="restore">Restore</span></div>
+            <div class="row away"><span class="mark codex">{{IconCodex:20}}</span><div class="body"><div class="t">Fix the iOS share sheet crash</div></div><span class="restore">Restore</span></div>
+            <div class="row away"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Hero copy pass</div></div><span class="restore">Restore</span></div>
           </div>
         </div>
-        <div class="fab">{{IconPlus:18}}New chat</div>
       </div>
       <div class="home-bar"></div></div>
       <figcaption><b>Settled, open</b><div class="note">Opening Settled lists every settled agent, most recently settled first, the line under each saying when, and Restore at its end, which puts it back in the main list. Tapping a settled row opens its chat as any row does; writing to it brings it back. A phone that can only watch shows the rows without Restore.</div></figcaption>
@@ -1774,18 +1780,17 @@
     <figure><div class="phone"><div class="island"></div>
       <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
       <div class="screen">
-        <div class="nav"><span class="back">{{IconChevron:18}}Devices</span><span style="flex:1"></span><span class="icon-btn">{{IconMore:18}}</span></div>
+        <div class="nav"><span class="back">{{IconChevron:18}}Devices</span><span style="flex:1"></span><span class="host-project"><span class="folder">{{IconFolder:18}}</span></span><span class="new-chat">{{IconPlus:20}}</span><span class="icon-btn">{{IconMore:18}}</span></div>
         <div class="host-head"><div class="where"><i class="live"></i>Online · 4 agents</div><h1>MacBook Pro</h1></div>
-        <div class="host-bar"><div class="host-tabs"><span class="on">Agents <i class="count">1</i></span><span>Terminals</span><span>Board</span></div><span class="host-project"><span class="folder">{{IconFolder:14}}</span>All projects<span class="ch">{{IconChevron:12}}</span></span></div>
+        <div class="host-bar"><div class="host-tabs"><span class="on"><span class="tab-ico agents">{{IconAgent:15}}</span>Agents <i class="count">1</i></span><span><span class="tab-ico terminals">{{IconTerminal:15}}</span>Terminals</span><span><span class="tab-ico board">{{IconBoard:15}}</span>Board</span></div></div>
         <div class="pad grow">
           <div class="rows">
-            <div class="row"><span class="mark" data-buddy="buddies mochi 0 waiting"></span><div class="body"><div class="t">Remote pairing screen</div><div class="s"><span class="place">{{IconFolder:11}}</span>sikemux</div></div><span class="row-name">@Otter</span><span class="status-slot"><span class="dot warn"></span></span></div>
-            <div class="row"><span class="mark" data-buddy="buddies bean 1 done"></span><div class="body"><div class="t">Download size on the hero</div><div class="s"><span class="place">{{IconFolder:11}}</span>sikemux-front</div></div><span class="row-name">@Birch</span><span class="status-slot"><span class="dot acc"></span></span></div>
-            <div class="row"><span class="mark" data-buddy="buddies ghostie 2 working"></span><div class="body"><div class="t">Fix the flaky PTY replay test</div><div class="s"><span class="place">{{IconFolder:11}}</span>sikemux</div></div><span class="row-name">@Flint</span><span class="status-slot"><span class="loader"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></span></div>
-            <div class="row"><span class="mark" data-buddy="buddies blob 4 idle"></span><div class="body"><div class="t">Watch the release build</div><div class="s"><span class="place">{{IconFolder:11}}</span>sikemux</div></div><span class="row-name">@Heron</span><span class="status-slot"></span></div>
+            <div class="row"><span class="mark" data-buddy="buddies mochi 0 waiting"></span><div class="body"><div class="t">Remote pairing screen</div></div><span class="row-name">@Otter</span><span class="status-slot"><span class="dot warn"></span></span></div>
+            <div class="row"><span class="mark" data-buddy="buddies bean 1 done"></span><div class="body"><div class="t">Download size on the hero</div></div><span class="row-name">@Birch</span><span class="status-slot"><span class="dot acc"></span></span></div>
+            <div class="row"><span class="mark" data-buddy="buddies ghostie 2 working"></span><div class="body"><div class="t">Fix the flaky PTY replay test</div></div><span class="row-name">@Flint</span><span class="status-slot"><span class="loader"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></span></div>
+            <div class="row"><span class="mark" data-buddy="buddies blob 4 idle"></span><div class="body"><div class="t">Watch the release build</div></div><span class="row-name">@Heron</span><span class="status-slot"></span></div>
           </div>
         </div>
-        <div class="fab">{{IconPlus:18}}New chat</div>
       </div>
       <div class="home-bar"></div></div>
       <figcaption><b>Buddies</b><div class="note">While buddies are on in the host's app, every place the Mac puts an agent's buddy shows it here too, in place of the agent's logo: these rows, the project sheet's faces, the chat's header, the new chat's welcome and a message from another agent in the transcript. Each wears the pack, shape and colour the Mac gave it, and its face follows its state: wide-eyed and hopping when it needs you, smiling with a sparkle when it finished, bobbing while it works, calm when idle. The phone moves the whole buddy as the Mac does while the Mac's buddy motion is on, holds it still when the phone asks for less motion or the screen is not showing, and leaves out the Mac's blinking and glancing eyes. A new chat's welcome shows the buddy the chosen pack gives the project. With buddies off on the host, every mark is the agent's logo, as above. Buddies are chosen on the host; the phone has no picker.</div></figcaption>
@@ -1794,18 +1799,17 @@
     <figure><div class="phone"><div class="island"></div>
       <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
       <div class="screen">
-        <div class="nav"><span class="back">{{IconChevron:18}}Devices</span><span style="flex:1"></span><span class="icon-btn">{{IconMore:18}}</span></div>
+        <div class="nav"><span class="back">{{IconChevron:18}}Devices</span><span style="flex:1"></span><span class="host-project"><span class="folder">{{IconFolder:18}}</span></span><span class="new-chat">{{IconPlus:20}}</span><span class="icon-btn">{{IconMore:18}}</span></div>
         <div class="host-head"><div class="where"><i class="live"></i>Online · 2 agents</div><h1>MacBook Pro</h1></div>
-        <div class="host-bar"><div class="host-tabs"><span class="on">Agents <i class="count">1</i></span><span>Terminals</span><span>Board</span></div><span class="host-project"><span class="folder">{{IconFolder:14}}</span>All projects<span class="ch">{{IconChevron:12}}</span></span></div>
+        <div class="host-bar"><div class="host-tabs"><span class="on"><span class="tab-ico agents">{{IconAgent:15}}</span>Agents <i class="count">1</i></span><span><span class="tab-ico terminals">{{IconTerminal:15}}</span>Terminals</span><span><span class="tab-ico board">{{IconBoard:15}}</span>Board</span></div></div>
         <div class="pad grow">
           <div class="rows">
-            <div class="row"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Move the ledger to cents</div><div class="s"><span class="place">{{IconFolder:11}}</span>ledger</div></div><span class="row-name">@Cedar</span><span class="status-slot"><span class="loader"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></span></div>
-            <div class="row worker"><span class="mark claude">{{IconClaude:16}}</span><div class="body"><div class="t"><b>Otter</b><em> on studio</em></div><div class="s"><span class="place">{{IconFolder:11}}</span>ledger · Working</div></div><span class="status-slot"><span class="loader"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></span></div>
-            <div class="row worker unreachable"><span class="mark codex" style="opacity:.5">{{IconCodex:16}}</span><div class="body"><div class="t"><b>Fern</b><em> on build-box</em></div><div class="s"><span class="place">{{IconFolder:11}}</span>ledger · Out of reach</div></div><span class="status-slot"><span class="dot off"></span></span></div>
-            <div class="row"><span class="mark codex">{{IconCodex:16}}</span><div class="body"><div class="t"><b>Wren</b><em> on studio</em></div><div class="s"><span class="place">{{IconFolder:11}}</span>ledger · Needs input</div></div><span class="status-slot"><span class="dot warn"></span></span></div>
+            <div class="row"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Move the ledger to cents</div></div><span class="row-name">@Cedar</span><span class="status-slot"><span class="loader"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></span></div>
+            <div class="row worker"><span class="mark claude">{{IconClaude:16}}</span><div class="body"><div class="t"><b>Otter</b><em> on studio</em></div></div><span class="status-slot"><span class="loader"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></span></div>
+            <div class="row worker unreachable"><span class="mark codex" style="opacity:.5">{{IconCodex:16}}</span><div class="body"><div class="t"><b>Fern</b><em> on build-box</em></div></div><span class="status-slot"><span class="dot off"></span></span></div>
+            <div class="row"><span class="mark codex">{{IconCodex:16}}</span><div class="body"><div class="t"><b>Wren</b><em> on studio</em></div></div><span class="status-slot"><span class="dot warn"></span></span></div>
           </div>
         </div>
-        <div class="fab">{{IconPlus:18}}New chat</div>
       </div>
       <div class="home-bar"></div></div>
       <figcaption><b>Workers on linked hosts</b><div class="note">An agent here can start workers on another host linked to the same account; they run there, on that host's own sign-ins. Each sits right under the agent that started it, a little in from it and with a smaller mark, as the agent's name and the host it runs on: Otter on studio. The line under it is its project there and the rail's word for where it is, and the end shows the same squares or dot as any agent. Its chat lives on its own host, so tapping it does nothing here. When its host can't be reached the row dims, the dot goes hollow and its line says Out of reach in place of its state. A worker whose lead has closed sits at the end of the same list while all projects are shown, as Wren does here, still with its own line.</div></figcaption>
@@ -1814,9 +1818,9 @@
     <figure><div class="phone"><div class="island"></div>
       <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
       <div class="screen">
-        <div class="nav"><span class="back">{{IconChevron:18}}Devices</span><span style="flex:1"></span><span class="icon-btn">{{IconMore:18}}</span></div>
+        <div class="nav"><span class="back">{{IconChevron:18}}Devices</span><span style="flex:1"></span><span class="host-project"><span class="folder">{{IconFolder:18}}</span></span><span class="new-chat">{{IconPlus:20}}</span><span class="icon-btn">{{IconMore:18}}</span></div>
         <div class="host-head"><div class="where"><i class="live"></i>Online · 3 agents · 2 terminals</div><h1>MacBook Pro</h1></div>
-        <div class="host-bar"><div class="host-tabs"><span>Agents <i class="count">1</i></span><span class="on">Terminals</span></div><span class="host-project"><span class="folder">{{IconFolder:14}}</span>All projects<span class="ch">{{IconChevron:12}}</span></span></div>
+        <div class="host-bar"><div class="host-tabs"><span><span class="tab-ico agents">{{IconAgent:15}}</span>Agents <i class="count">1</i></span><span class="on"><span class="tab-ico terminals">{{IconTerminal:15}}</span>Terminals</span></div></div>
         <div class="pad grow">
           <div class="glabel">sikemux</div>
           <div class="rows">
@@ -1836,13 +1840,12 @@
     <figure><div class="phone"><div class="island"></div>
       <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
       <div class="screen">
-        <div class="nav"><span class="back">{{IconChevron:18}}Devices</span><span style="flex:1"></span><span class="icon-btn">{{IconMore:18}}</span></div>
+        <div class="nav"><span class="back">{{IconChevron:18}}Devices</span><span style="flex:1"></span><span class="host-project"><span class="folder">{{IconFolder:18}}</span></span><span class="new-chat">{{IconPlus:20}}</span><span class="icon-btn">{{IconMore:18}}</span></div>
         <div class="host-head"><div class="where"><i class="live"></i>Online</div><h1>MacBook Pro</h1></div>
-        <div class="host-bar"><div class="host-tabs"><span class="on">Agents</span><span>Terminals</span><span>Board</span></div><span class="host-project"><span class="folder">{{IconFolder:14}}</span>All projects<span class="ch">{{IconChevron:12}}</span></span></div>
+        <div class="host-bar"><div class="host-tabs"><span class="on"><span class="tab-ico agents">{{IconAgent:15}}</span>Agents</span><span><span class="tab-ico terminals">{{IconTerminal:15}}</span>Terminals</span><span><span class="tab-ico board">{{IconBoard:15}}</span>Board</span></div></div>
         <div class="pad grow">
           <div class="empty-state"><span class="prompt-glyph small">{{IconAgent:20}}</span>No agents running.</div>
         </div>
-        <div class="fab">{{IconPlus:18}}New chat</div>
       </div>
       <div class="home-bar"></div></div>
       <figcaption><b>Nothing running</b><div class="note">An empty tab shows the small tile with the tab's own glyph over one quiet line. Terminals reads "No terminals open." under the terminal glyph, and Board "No board has cards yet." under the board glyph, or why it could not be read under the warning sign. With a project picked, each names it.</div></figcaption>
@@ -1881,13 +1884,13 @@
     <figure><div class="phone"><div class="island"></div>
       <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
       <div class="screen">
-        <div class="nav"><span class="back">{{IconChevron:18}}Devices</span><span style="flex:1"></span><span class="icon-btn">{{IconMore:18}}</span></div>
+        <div class="nav"><span class="back">{{IconChevron:18}}Devices</span><span style="flex:1"></span><span class="host-project"><span class="folder">{{IconFolder:18}}</span></span><span class="new-chat">{{IconPlus:20}}</span><span class="icon-btn">{{IconMore:18}}</span></div>
         <div class="host-head"><div class="where"><i class="off"></i>Reconnecting…</div><h1>MacBook Pro</h1></div>
-        <div class="host-bar"><div class="host-tabs"><span class="on">Agents <i class="count">1</i></span><span>Terminals</span></div><span class="host-project"><span class="folder">{{IconFolder:14}}</span>All projects<span class="ch">{{IconChevron:12}}</span></span></div>
+        <div class="host-bar"><div class="host-tabs"><span class="on"><span class="tab-ico agents">{{IconAgent:15}}</span>Agents <i class="count">1</i></span><span><span class="tab-ico terminals">{{IconTerminal:15}}</span>Terminals</span></div></div>
         <div class="pad grow" style="opacity:.5">
           <div class="rows">
-            <div class="row"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Remote pairing screen</div><div class="s"><span class="place">{{IconFolder:11}}</span>sikemux</div></div><span class="row-name">@Otter</span><span class="status-slot"><span class="dot warn"></span></span></div>
-            <div class="row"><span class="mark codex">{{IconCodex:20}}</span><div class="body"><div class="t">Fix the flaky PTY replay test</div><div class="s"><span class="place">{{IconFolder:11}}</span>sikemux</div></div><span class="row-name">@Flint</span><span class="status-slot"><span class="loader"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></span></div>
+            <div class="row"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Remote pairing screen</div></div><span class="row-name">@Otter</span><span class="status-slot"><span class="dot warn"></span></span></div>
+            <div class="row"><span class="mark codex">{{IconCodex:20}}</span><div class="body"><div class="t">Fix the flaky PTY replay test</div></div><span class="row-name">@Flint</span><span class="status-slot"><span class="loader"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></span></div>
           </div>
         </div>
       </div>
@@ -2079,9 +2082,9 @@
     <figure><div class="phone"><div class="island"></div>
       <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
       <div class="screen">
-        <div class="nav"><span class="back">{{IconChevron:18}}Devices</span><span style="flex:1"></span><span class="icon-btn">{{IconMore:18}}</span></div>
+        <div class="nav"><span class="back">{{IconChevron:18}}Devices</span><span style="flex:1"></span><span class="host-project"><span class="folder">{{IconFolder:18}}</span>sikemux</span><span class="new-chat">{{IconPlus:20}}</span><span class="icon-btn">{{IconMore:18}}</span></div>
         <div class="host-head"><div class="where"><i class="live"></i>Online · 5 agents · 2 terminals</div><h1>MacBook Pro</h1></div>
-        <div class="host-bar"><div class="host-tabs"><span>Agents <i class="count">2</i></span><span>Terminals</span><span class="on">Board</span></div><span class="host-project"><span class="folder">{{IconFolder:14}}</span>sikemux<span class="ch">{{IconChevron:12}}</span></span></div>
+        <div class="host-bar"><div class="host-tabs"><span><span class="tab-ico agents">{{IconAgent:15}}</span>Agents <i class="count">2</i></span><span><span class="tab-ico terminals">{{IconTerminal:15}}</span>Terminals</span><span class="on"><span class="tab-ico board">{{IconBoard:15}}</span>Board</span></div></div>
         <div class="pad grow">
           <div class="glabel">Triggers <span class="n">1</span></div>
           <div class="rows">
@@ -2114,9 +2117,9 @@
     <figure><div class="phone"><div class="island"></div>
       <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
       <div class="screen">
-        <div class="nav"><span class="back">{{IconChevron:18}}Devices</span><span style="flex:1"></span><span class="icon-btn">{{IconMore:18}}</span></div>
+        <div class="nav"><span class="back">{{IconChevron:18}}Devices</span><span style="flex:1"></span><span class="host-project"><span class="folder">{{IconFolder:18}}</span></span><span class="new-chat">{{IconPlus:20}}</span><span class="icon-btn">{{IconMore:18}}</span></div>
         <div class="host-head"><div class="where"><i class="live"></i>Online · 5 agents · 2 terminals</div><h1>MacBook Pro</h1></div>
-        <div class="host-bar"><div class="host-tabs"><span>Agents <i class="count">2</i></span><span>Terminals</span><span class="on">Board</span></div><span class="host-project"><span class="folder">{{IconFolder:14}}</span>All projects<span class="ch">{{IconChevron:12}}</span></span></div>
+        <div class="host-bar"><div class="host-tabs"><span><span class="tab-ico agents">{{IconAgent:15}}</span>Agents <i class="count">2</i></span><span><span class="tab-ico terminals">{{IconTerminal:15}}</span>Terminals</span><span class="on"><span class="tab-ico board">{{IconBoard:15}}</span>Board</span></div></div>
         <div class="pad grow">
           <div class="glabel">Boards</div>
           <div class="rows">
@@ -2132,8 +2135,8 @@
     <figure><div class="phone"><div class="island"></div>
       <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
       <div class="screen">
-        <div class="nav"><span class="back">{{IconChevron:18}}Devices</span><span style="flex:1"></span><span class="icon-btn">{{IconMore:18}}</span></div>
-        <div class="host-bar"><div class="host-tabs"><span>Agents <i class="count">2</i></span><span>Terminals</span><span class="on">Board</span></div><span class="host-project"><span class="folder">{{IconFolder:14}}</span>sikemux<span class="ch">{{IconChevron:12}}</span></span></div>
+        <div class="nav"><span class="back">{{IconChevron:18}}Devices</span><span style="flex:1"></span><span class="host-project"><span class="folder">{{IconFolder:18}}</span>sikemux</span><span class="new-chat">{{IconPlus:20}}</span><span class="icon-btn">{{IconMore:18}}</span></div>
+        <div class="host-bar"><div class="host-tabs"><span><span class="tab-ico agents">{{IconAgent:15}}</span>Agents <i class="count">2</i></span><span><span class="tab-ico terminals">{{IconTerminal:15}}</span>Terminals</span><span class="on"><span class="tab-ico board">{{IconBoard:15}}</span>Board</span></div></div>
         <div class="pad grow">
           <div class="glabel">Done <span class="n">1</span></div>
           <div class="rows">
@@ -2166,9 +2169,9 @@
     <figure><div class="phone"><div class="island"></div>
       <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
       <div class="screen">
-        <div class="nav"><span class="back">{{IconChevron:18}}Devices</span><span style="flex:1"></span><span class="icon-btn">{{IconMore:18}}</span></div>
+        <div class="nav"><span class="back">{{IconChevron:18}}Devices</span><span style="flex:1"></span><span class="host-project"><span class="folder">{{IconFolder:18}}</span></span><span class="new-chat">{{IconPlus:20}}</span><span class="icon-btn">{{IconMore:18}}</span></div>
         <div class="host-head"><div class="where"><i class="live"></i>Online · Dev · 4 agents · 3 terminals</div><h1>MacBook Pro</h1></div>
-        <div class="host-bar"><div class="host-tabs"><span class="on">Agents <i class="count">1</i></span><span>Terminals</span></div><span class="host-project"><span class="folder">{{IconFolder:14}}</span>All projects<span class="ch">{{IconChevron:12}}</span></span></div>
+        <div class="host-bar"><div class="host-tabs"><span class="on"><span class="tab-ico agents">{{IconAgent:15}}</span>Agents <i class="count">1</i></span><span><span class="tab-ico terminals">{{IconTerminal:15}}</span>Terminals</span></div></div>
         <div class="pad grow">
           <div class="rows">
             <div class="row"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Remote pairing screen</div><div class="s"><span class="place">{{IconFolder:11}}</span>sikemux</div></div><span class="row-name">@Otter</span><span class="status-slot"><span class="dot warn"></span></span></div>
@@ -2177,10 +2180,9 @@
             <div class="row"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Release notes for v0.4.3</div><div class="s"><span class="place">{{IconFolder:11}}</span>sikemux-front</div></div><span class="row-name">@Willow</span><span class="status-slot"></span></div>
           </div>
         </div>
-        <div class="fab">{{IconPlus:18}}New chat</div>
       </div>
       <div class="home-bar"></div></div>
-      <figcaption><b>All projects</b><div class="note">The picker sits on the tabs' line, at the right, because it scopes both. Unscoped it says All projects, and each row's second line names its project, with nothing else on it.</div></figcaption>
+      <figcaption><b>All projects</b><div class="note">The picker is the green folder in the top bar, because it scopes every tab. Unscoped it is the folder alone; scoped, the project's name sits beside it.</div></figcaption>
     </figure>
 
     <figure><div class="phone"><div class="island"></div>
@@ -2188,7 +2190,7 @@
       <div class="screen">
         <div class="nav"><span class="back">{{IconChevron:18}}Devices</span><span style="flex:1"></span></div>
         <div class="host-head"><div class="where"><i class="live"></i>Online · Dev · 4 agents · 3 terminals</div><h1>MacBook Pro</h1></div>
-        <div class="host-bar"><div class="host-tabs"><span class="on">Agents <i class="count">1</i></span><span>Terminals</span></div><span class="host-project"><span class="folder">{{IconFolder:14}}</span>All projects<span class="ch">{{IconChevron:12}}</span></span></div>
+        <div class="host-bar"><div class="host-tabs"><span class="on"><span class="tab-ico agents">{{IconAgent:15}}</span>Agents <i class="count">1</i></span><span><span class="tab-ico terminals">{{IconTerminal:15}}</span>Terminals</span></div></div>
         <div class="scrim"></div>
         <div class="sheet project-sheet scope-sheet">
           <div class="grabber"></div>
@@ -2210,16 +2212,15 @@
     <figure><div class="phone"><div class="island"></div>
       <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
       <div class="screen">
-        <div class="nav"><span class="back">{{IconChevron:18}}Devices</span><span style="flex:1"></span><span class="icon-btn">{{IconMore:18}}</span></div>
+        <div class="nav"><span class="back">{{IconChevron:18}}Devices</span><span style="flex:1"></span><span class="host-project"><span class="folder">{{IconFolder:18}}</span>sikemux<span class="claude">{{IconClaude:14}}</span></span><span class="new-chat">{{IconPlus:20}}</span><span class="icon-btn">{{IconMore:18}}</span></div>
         <div class="host-head"><div class="where"><i class="live"></i>Online · Dev · 4 agents · 3 terminals</div><h1>MacBook Pro</h1></div>
-        <div class="host-bar"><div class="host-tabs"><span class="on">Agents <i class="count">1</i></span><span>Terminals</span></div><span class="host-project"><span class="folder">{{IconFolder:14}}</span>sikemux<span class="claude">{{IconClaude:14}}</span><span class="ch">{{IconChevron:12}}</span></span></div>
+        <div class="host-bar"><div class="host-tabs"><span class="on"><span class="tab-ico agents">{{IconAgent:15}}</span>Agents <i class="count">1</i></span><span><span class="tab-ico terminals">{{IconTerminal:15}}</span>Terminals</span></div></div>
         <div class="pad grow">
           <div class="rows">
             <div class="row"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Remote pairing screen</div></div><span class="row-name">@Otter</span><span class="status-slot"><span class="dot warn"></span></span></div>
             <div class="row"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Tighten the rail spacing</div></div><span class="row-name">@Cedar</span><span class="status-slot"><span class="loader"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></span></div>
           </div>
         </div>
-        <div class="fab">{{IconPlus:18}}New chat</div>
       </div>
       <div class="home-bar"></div></div>
       <figcaption><b>One project, one provider</b><div class="note">The picker names the project, and carries the provider's mark while the sheet filters to one. Rows drop the second line, since the project was all it said, and New chat starts one in this project. The project is kept per device.</div></figcaption>
@@ -2237,9 +2238,9 @@
     <figure><div class="phone"><div class="island"></div>
       <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
       <div class="screen">
-        <div class="nav"><span class="back">{{IconChevron:18}}Devices</span><span style="flex:1"></span><span class="icon-btn">{{IconMore:18}}</span></div>
+        <div class="nav"><span class="back">{{IconChevron:18}}Devices</span><span style="flex:1"></span><span class="host-project"><span class="folder">{{IconFolder:18}}</span>sikemux</span><span class="new-chat">{{IconPlus:20}}</span><span class="icon-btn">{{IconMore:18}}</span></div>
         <div class="host-head"><div class="where"><i class="live"></i>Online · Dev · 4 agents · 3 terminals</div><h1>MacBook Pro</h1></div>
-        <div class="host-bar"><div class="host-tabs"><span class="on">Agents <i class="count">1</i></span><span>Terminals</span></div><span class="host-project"><span class="folder">{{IconFolder:14}}</span>sikemux<span class="ch">{{IconChevron:12}}</span></span></div>
+        <div class="host-bar"><div class="host-tabs"><span class="on"><span class="tab-ico agents">{{IconAgent:15}}</span>Agents <i class="count">1</i></span><span><span class="tab-ico terminals">{{IconTerminal:15}}</span>Terminals</span></div></div>
         <div class="pad grow">
           <div class="rows">
             <div class="row"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Remote pairing screen</div></div><span class="row-name">@Otter</span><span class="status-slot"><span class="dot warn"></span></span></div>
@@ -2248,10 +2249,9 @@
             <div class="row"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">App naming</div></div><span class="row-name">@Juniper</span><span class="status-slot"></span></div>
           </div>
         </div>
-        <div class="fab">{{IconPlus:18}}New chat</div>
       </div>
       <div class="home-bar"></div></div>
-      <figcaption><b>New chat</b><div class="note">A pill floats at the bottom right of the Agents tab, within the thumb's reach, and starts a chat in the chosen project. The list leaves room below its last row, so nothing stays under it; the top keeps only ⋯.</div></figcaption>
+      <figcaption><b>New chat</b><div class="note">+ in the top bar starts a chat in the chosen project, on every tab, for a phone with full access while the host is online. Nothing floats over the list, so its last row is never covered.</div></figcaption>
     </figure>
 
   </div>

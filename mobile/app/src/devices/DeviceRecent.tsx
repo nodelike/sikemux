@@ -7,7 +7,6 @@ import type { ProjectInfo, RecentInfo } from '@shared/wire.generated';
 import type { Snapshot } from '@/core/protocol';
 import { problem as problemOf } from '@/core/problem';
 import { useLive } from '@/devices/hub';
-import { projectName } from '@/devices/words';
 import { haptics } from '@/ui/haptics';
 import { useMinute } from '@/ui/motion';
 import { AgentIcon } from '@/ui/Icon';
@@ -92,14 +91,7 @@ export function Recent({
       <SectionLabel>Recent</SectionLabel>
       <Rows>
         {shown.map((chat) => (
-          <RecentRow
-            key={chat.id}
-            chat={chat}
-            place={scope ? undefined : projectName(snapshot, chat.project, chat.cwd)}
-            resuming={resuming === chat.id}
-            minute={minute}
-            onResume={onResume}
-          />
+          <RecentRow key={chat.id} chat={chat} resuming={resuming === chat.id} minute={minute} onResume={onResume} />
         ))}
         {shown.length < chats.length ? (
           <Pressable
