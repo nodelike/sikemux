@@ -99,6 +99,8 @@
   its packages from its own install, and its tests run under the phone's vitest.
 - Phone builds need rustup's Rust first on `PATH` as well; Homebrew's has no phone
   targets.
+- Teammates do not boot simulators. The lead runs the app on one simulator after merging
+  their work, always through `sim_attach`, never `simctl boot` or Xcode.
 - The bindings `uniffi-bindgen-react-native` generates are build output; do not commit or
   hand-edit them.
 - Phone screens are designed in `mobile/design/screens.src.html` before they are built, and
