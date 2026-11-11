@@ -6,6 +6,7 @@ use semver::Version;
 use serde::{Deserialize, Serialize};
 
 use sikemux_view::prefs::UpdateChannel;
+use sikemux_view::updates::UpdateOutcome;
 
 /// Where the installer puts the core, setgid to the group that guards its secrets.
 pub const INSTALLED_CORE: &str = "/usr/local/lib/sikemux/sikemux-host";
@@ -21,12 +22,39 @@ pub const SOCKET: &str = "/run/sikemux-update.sock";
 pub const SWITCH_SERVICE: &str = "sikemux-updates";
 pub const SWITCH_ACCOUNT: &str = "switch";
 pub const SWITCH_OFF: &str = "off";
+/// How the last update ended, which root writes before it exits and anyone may read.
+pub const OUTCOME_FILE: &str = "/usr/local/lib/sikemux/update-outcome.json";
+/// The core an update replaced, kept until the new one says it started well.
+pub const PREVIOUS_CORE: &str = "/usr/local/lib/sikemux/.sikemux-host.previous";
 
-/// The one line the core sends root: the channel the person follows.
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+/// The one line the core sends root: the channel the person follows, and
+/// what to do about the update `id`.
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HostRequest {
     pub channel: UpdateChannel,
+    #[serde(default)]
+    pub id: Option<String>,
+    #[serde(default)]
+    pub action: HostAction,
+    #[serde(default)]
+    pub reason: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum HostAction {
+    #[default]
+    Install,
+    /// The new core started well, so the one before it can go.
+    Ready,
+    /// The new core did not start well: put the one before it back.
+    RollBack,
+}
+
+/// How the last update ended, when one was ever recorded.
+pub fn read_outcome() -> Option<UpdateOutcome> {
+    serde_json::from_slice(&std::fs::read(OUTCOME_FILE).ok()?).ok()
 }
 
 /// One line the root service writes back for each thing it did, ending with
@@ -62,10 +90,10 @@ pub fn host_asset(version: &Version, arch: &str) -> String {
     format!("sikemux-host-{version}-linux-{arch}.tar.gz")
 }
 
-/// Asks root to install the newest release on `channel`, telling `seen` each
-/// step on the way, and answers with the last.
+/// Asks root to do what `request` says, telling `seen` each step on the way,
+/// and answers with the last.
 #[cfg(unix)]
-pub async fn ask_root(channel: UpdateChannel, mut seen: impl FnMut(&UpdateStep)) -> UpdateStep {
+pub async fn ask_root(request: &HostRequest, mut seen: impl FnMut(&UpdateStep)) -> UpdateStep {
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
     let failed = |message: String| UpdateStep::Failed { message };
@@ -77,7 +105,7 @@ pub async fn ask_root(channel: UpdateChannel, mut seen: impl FnMut(&UpdateStep))
             ))
         }
     };
-    let request = serde_json::to_string(&HostRequest { channel }).unwrap_or_default();
+    let request = serde_json::to_string(request).unwrap_or_default();
     if let Err(error) = stream.write_all(format!("{request}\n").as_bytes()).await {
         return failed(format!("could not reach the update service: {error}"));
     }

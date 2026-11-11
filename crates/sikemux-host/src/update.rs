@@ -116,17 +116,47 @@ fn install_as_root() -> Result<(), String> {
         BuildChannel::Nightly => UpdateChannel::Nightly,
         BuildChannel::Stable | BuildChannel::Dev => UpdateChannel::Stable,
     };
-    let last = root::install(sudo_uid().unwrap_or(0), channel, &mut show);
+    let last = root::install(sudo_uid().unwrap_or(0), channel, None, &mut show);
     let installed = matches!(
         last,
         UpdateStep::Installed { .. } | UpdateStep::Current { .. }
     );
     finish(last)?;
     let socket = headless::launch()?.socket;
-    if !installed || probe(&socket, headless::PROBE_TIMEOUT).is_err() {
+    if probe(&socket, headless::PROBE_TIMEOUT).is_err() {
+        return roll_back_unstarted(channel);
+    }
+    if !installed {
         return Ok(());
     }
     update_now()
+}
+
+/// Puts back the core an update replaced when the new one never answered.
+#[cfg(target_os = "linux")]
+fn roll_back_unstarted(channel: sikemux_view::prefs::UpdateChannel) -> Result<(), String> {
+    use sikemux_core::host_update::{read_outcome, HostAction, HostRequest};
+    use sikemux_view::updates::UpdateOutcomeState;
+    let Some(pending) =
+        read_outcome().filter(|outcome| outcome.state == UpdateOutcomeState::Pending)
+    else {
+        return Ok(());
+    };
+    let request = HostRequest {
+        channel,
+        id: Some(pending.id),
+        action: HostAction::RollBack,
+        reason: Some(format!(
+            "{} did not start",
+            pending.to.as_deref().unwrap_or("the new core")
+        )),
+    };
+    finish(root::settle(request))?;
+    let socket = headless::launch()?.socket;
+    if probe(&socket, headless::PROBE_TIMEOUT).is_ok() {
+        style::done("Put the previous core back", &pending.from);
+    }
+    Ok(())
 }
 
 #[cfg(not(target_os = "linux"))]

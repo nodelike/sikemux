@@ -1326,6 +1326,10 @@ export interface UpdateStatus {
      * person turns off; none on anything but a host's core.
      */
     automatic: boolean | null;
+    /** The update under way, which `outcome` names once it has one. */
+    id: string | null;
+    /** How this host's last update ended, kept on disk by the one that put it in place. */
+    outcome: UpdateOutcome | null;
 }
 
 /** The last check, kept because a failed one has nowhere else to show. */
@@ -1378,6 +1382,24 @@ export interface UpdateBlocker {
      */
     reason: string;
 }
+
+/**
+ * The written result of one update, so a failure that happens while nobody
+ * listens is still there to show.
+ */
+export interface UpdateOutcome {
+    id: string;
+    state: UpdateOutcomeState;
+    from: string;
+    to: string | null;
+    /** Unix milliseconds. */
+    at: number;
+    reason: string | null;
+    /** The last lines of what went wrong, for the page to show. */
+    evidence: string | null;
+}
+
+export type UpdateOutcomeState = "pending" | "done" | "rolledBack" | "failed";
 
 /**
  * A chat as a client opening it is sent: how it stands, its latest rows, and

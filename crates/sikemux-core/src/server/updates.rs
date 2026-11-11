@@ -20,11 +20,13 @@ use tokio::sync::Notify;
 use super::changed::Topic;
 use super::connection::blocking;
 use super::{upgrade, Core, CoreError, CoreResult};
-use crate::host_update::{self, HostUpdate, UpdateStep, INSTALLED_CORE};
+use crate::host_update::{self, HostAction, HostRequest, HostUpdate, UpdateStep, INSTALLED_CORE};
 use crate::release_feed::{self, Newest};
 use crate::releases::bundled_credits;
 use sikemux_view::prefs::UpdateChannel;
-use sikemux_view::updates::{UpdateBlocker, UpdateCheck, UpdateRelease, UpdateState, UpdateStatus};
+use sikemux_view::updates::{
+    UpdateBlocker, UpdateCheck, UpdateOutcomeState, UpdateRelease, UpdateState, UpdateStatus,
+};
 use sikemux_wire::protocol::BuildChannel;
 
 const FIRST_CHECK: Duration = Duration::from_secs(4);
@@ -41,6 +43,15 @@ const UPDATES_OFF: &str =
 const PACMAN_PACKAGES: [&str; 3] = ["sikemux-bin", "sikemux-nightly-bin", "sikemux"];
 /// Where pacman records each installed package and the files it owns.
 const PACMAN_INSTALLED: &str = "/var/lib/pacman/local";
+/// How long a new host core runs before it says it started well, and how often
+/// it may stop before that until the one it replaced is put back.
+const READY_AFTER: Duration = Duration::from_secs(30);
+const STARTS_BEFORE_ROLL_BACK: u32 = 3;
+/// How long an update may download or install, and wait to hand over once its
+/// chats are free, before it counts as failed.
+const WORKING_LIMIT: Duration = Duration::from_secs(30 * 60);
+const HANDING_OVER_LIMIT: Duration = Duration::from_secs(5 * 60);
+const WATCH_EVERY: Duration = Duration::from_secs(30);
 
 /// Where to fetch the release `available` names.
 #[derive(Clone)]
@@ -55,6 +66,8 @@ struct Held {
     found: Option<Found>,
     /// The download is in place of the app already.
     installed: bool,
+    /// When `status.state` last changed.
+    since: Option<Instant>,
 }
 
 #[derive(Default)]
@@ -216,7 +229,14 @@ impl Updates {
     }
 
     fn edit(&self, core: &Core, change: impl FnOnce(&mut Held)) {
-        change(&mut self.held.locked());
+        {
+            let mut held = self.held.locked();
+            let before = held.status.state;
+            change(&mut held);
+            if held.status.state != before {
+                held.since = Some(Instant::now());
+            }
+        }
         core.changed(What::Read(Topic::Update));
         if is_host() {
             core.changed(What::View);
@@ -245,12 +265,23 @@ pub(crate) async fn serve(core: Arc<Core>) {
         true => Some(blocking(|| Ok(read_switch())).await.unwrap_or(true)),
         false => None,
     };
+    let outcome = match is_host() {
+        true => blocking(|| Ok(host_update::read_outcome()))
+            .await
+            .ok()
+            .flatten(),
+        false => None,
+    };
     core.updates.edit(&core, |held| {
         held.status.updates = own_app().is_some();
         held.status.current = core.config.build.version.clone();
         held.status.install_command = by_installer.clone();
         held.status.automatic = automatic;
+        held.status.outcome = outcome;
     });
+    if is_host() {
+        tokio::spawn(settle_own_update(core.clone()));
+    }
     if !core.updates.status().updates && by_installer.is_none() {
         return;
     }
@@ -390,6 +421,9 @@ pub(crate) fn install(core: &Arc<Core>, params: UpdateInstallParams) -> CoreResu
     };
     let found = found.ok_or_else(|| CoreError::from("there is no update to install"))?;
     core.updates.edit(core, |held| {
+        if !installed {
+            begin_update(held);
+        }
         held.status.forced = params.force;
         held.status.error = None;
         held.status.downloaded_bytes = 0;
@@ -423,7 +457,13 @@ pub(crate) fn install(core: &Arc<Core>, params: UpdateInstallParams) -> CoreResu
 /// the one running.
 async fn ask_root(core: &Core) -> (Vec<UpdateStep>, Option<String>) {
     let mut steps = Vec::new();
-    let last = host_update::ask_root(channel(core), |step| {
+    let request = HostRequest {
+        channel: channel(core),
+        id: core.updates.status().id,
+        action: HostAction::Install,
+        reason: None,
+    };
+    let last = host_update::ask_root(&request, |step| {
         if let UpdateStep::Downloaded { bytes, .. } = step {
             core.updates.edit(core, |held| {
                 held.status.downloaded_bytes = *bytes;
@@ -438,6 +478,7 @@ async fn ask_root(core: &Core) -> (Vec<UpdateStep>, Option<String>) {
         core.updates
             .edit(core, |held| held.status.automatic = Some(false));
     }
+    refresh_outcome(core).await;
     let in_place = match &last {
         UpdateStep::Installed { version, .. } | UpdateStep::Current { version } => {
             Some(version.clone()).filter(|version| *version != core.config.build.version)
@@ -466,6 +507,127 @@ async fn restart_into_installed(core: &Arc<Core>) {
     });
 }
 
+/// Reads again how the last update ended, as root recorded it.
+async fn refresh_outcome(core: &Core) {
+    let outcome = blocking(|| Ok(host_update::read_outcome()))
+        .await
+        .ok()
+        .flatten();
+    core.updates
+        .edit(core, |held| held.status.outcome = outcome);
+}
+
+/// A new update gets an id, which root records its outcome under.
+fn begin_update(held: &mut Held) {
+    held.status.id = Some(uuid::Uuid::new_v4().to_string());
+}
+
+/// On a host core an update just put in place: says it started well once it
+/// has run a while, or, when it has stopped too often before that, asks root
+/// to put the core it replaced back and stops, to start again from that one.
+async fn settle_own_update(core: Arc<Core>) {
+    let Some(outcome) = core.updates.status().outcome.filter(|outcome| {
+        outcome.state == UpdateOutcomeState::Pending
+            && outcome.to.as_deref() == Some(core.config.build.version.as_str())
+    }) else {
+        return;
+    };
+    let id = outcome.id.clone();
+    let starts = blocking({
+        let id = id.clone();
+        move || Ok(count_start(&id))
+    })
+    .await
+    .unwrap_or(1);
+    let action = if starts > STARTS_BEFORE_ROLL_BACK {
+        HostAction::RollBack
+    } else {
+        tokio::time::sleep(READY_AFTER).await;
+        HostAction::Ready
+    };
+    let request = HostRequest {
+        channel: channel(&core),
+        id: Some(id),
+        action,
+        reason: (action == HostAction::RollBack).then(|| {
+            format!(
+                "{} stopped {} times before it was ready",
+                core.config.build.version,
+                starts - 1
+            )
+        }),
+    };
+    let answer = host_update::ask_root(&request, |_| {}).await;
+    if let UpdateStep::Failed { message } = &answer {
+        eprintln!("sikemux core: could not settle the update: {message}");
+    }
+    let _ = blocking(|| Ok(forget_starts())).await;
+    refresh_outcome(&core).await;
+    if action == HostAction::RollBack && !matches!(answer, UpdateStep::Failed { .. }) {
+        eprintln!("sikemux core: the previous core is back, so this one stops to start as it");
+        std::process::exit(1);
+    }
+}
+
+/// How many times a core has started for the update `id`, this one included.
+fn count_start(id: &str) -> u32 {
+    #[derive(Serialize, Deserialize)]
+    struct Starts {
+        id: String,
+        count: u32,
+    }
+    let Some(path) = sikemux_process::paths::config_file("update-starts", "json") else {
+        return 1;
+    };
+    let before = std::fs::read(&path)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<Starts>(&bytes).ok())
+        .filter(|starts| starts.id == id)
+        .map_or(0, |starts| starts.count);
+    let starts = Starts {
+        id: id.to_owned(),
+        count: before + 1,
+    };
+    if let Ok(bytes) = serde_json::to_vec(&starts) {
+        let _ = sikemux_process::files::write_atomic(&path, &bytes, true);
+    }
+    starts.count
+}
+
+fn forget_starts() {
+    if let Some(path) = sikemux_process::paths::config_file("update-starts", "json") {
+        let _ = std::fs::remove_file(path);
+    }
+}
+
+/// Marks an update failed once it has downloaded or installed, or waited to
+/// hand over with its chats free, for longer than any should.
+async fn watch_stalls(core: Arc<Core>) {
+    loop {
+        tokio::time::sleep(WATCH_EVERY).await;
+        let (state, since) = {
+            let held = core.updates.held.locked();
+            (held.status.state, held.since)
+        };
+        let limit = match state {
+            UpdateState::Downloading | UpdateState::Installing => WORKING_LIMIT,
+            UpdateState::Ready if is_host() => HANDING_OVER_LIMIT,
+            _ => continue,
+        };
+        if since.is_some_and(|since| since.elapsed() > limit) {
+            core.updates.edit(&core, |held| {
+                held.status.state = UpdateState::Failed;
+                held.status.error = Some(match state {
+                    UpdateState::Ready => {
+                        "the core could not hand its chats over to the new one".into()
+                    }
+                    _ => format!("it did not finish in {} minutes", limit.as_secs() / 60),
+                });
+            });
+        }
+    }
+}
+
 /// What a host's devices show of its updates; none on anything but a host.
 pub(crate) fn host_view(core: &Core) -> Option<UpdateStatus> {
     is_host().then(|| core.updates.status())
@@ -486,6 +648,7 @@ pub(crate) async fn update_host(core: &Arc<Core>) -> CoreResult<HostUpdate> {
         return Err("this host is already updating".into());
     }
     core.updates.edit(core, |held| {
+        begin_update(held);
         held.status.state = UpdateState::Installing;
         held.status.error = None;
     });
@@ -725,6 +888,9 @@ pub(crate) fn swap(bundle: &Path, archive: &Path) -> Result<(), String> {
 
 impl super::part::Part for Updates {
     fn start(&self, core: &Arc<Core>) -> Vec<tokio::task::JoinHandle<()>> {
-        vec![tokio::spawn(serve(core.clone()))]
+        vec![
+            tokio::spawn(serve(core.clone())),
+            tokio::spawn(watch_stalls(core.clone())),
+        ]
     }
 }

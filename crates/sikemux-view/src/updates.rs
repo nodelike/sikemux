@@ -63,6 +63,37 @@ pub struct UpdateStatus {
     /// Whether this host puts updates in place by itself, which only the
     /// person turns off; none on anything but a host's core.
     pub automatic: Option<bool>,
+    /// The update under way, which `outcome` names once it has one.
+    pub id: Option<String>,
+    /// How this host's last update ended, kept on disk by the one that put it in place.
+    pub outcome: Option<UpdateOutcome>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum UpdateOutcomeState {
+    /// In place, waiting for the new core to say it started well.
+    Pending,
+    Done,
+    /// The new core did not start well, so the one before it is back.
+    RolledBack,
+    Failed,
+}
+
+/// The written result of one update, so a failure that happens while nobody
+/// listens is still there to show.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateOutcome {
+    pub id: String,
+    pub state: UpdateOutcomeState,
+    pub from: String,
+    pub to: Option<String>,
+    /// Unix milliseconds.
+    pub at: u64,
+    pub reason: Option<String>,
+    /// The last lines of what went wrong, for the page to show.
+    pub evidence: Option<String>,
 }
 
 /// A chat whose agent is at work, which an update now would stop and

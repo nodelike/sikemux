@@ -40,7 +40,7 @@ use sikemux_core::server::hosts::transfer::{SendParams, SessionSent};
 use sikemux_core::server::layout::{ActivateProjectParams, HostParams};
 use sikemux_core::server::spare::NewTerminal;
 use sikemux_core::server::updates::HostUpdatesParams;
-use sikemux_view::updates::{UpdateState, UpdateStatus};
+use sikemux_view::updates::{UpdateOutcomeState, UpdateState, UpdateStatus};
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Default)]
 pub enum HostChoice {
@@ -855,15 +855,35 @@ pub fn host_updates(view: &sikemux_view::device::DeviceView) -> Option<UpdateSta
     (view.updates.clone()).filter(|updates| updates.automatic.is_some())
 }
 
+/// How a host's last update ended, once it ended badly: a written outcome
+/// outlives the core that wrote it, so a failure nobody was watching still shows.
+fn failed_update(updates: &UpdateStatus) -> Option<(UpdateOutcomeState, Option<&str>)> {
+    if updates.state == UpdateState::Failed {
+        return Some((UpdateOutcomeState::Failed, updates.error.as_deref()));
+    }
+    let outcome = updates.outcome.as_ref()?;
+    let settled = updates.state == UpdateState::Idle || updates.id.as_ref() == Some(&outcome.id);
+    let bad = matches!(
+        outcome.state,
+        UpdateOutcomeState::Failed | UpdateOutcomeState::RolledBack
+    );
+    (settled && bad && outcome.to.as_deref() != Some(updates.current.as_str()))
+        .then(|| (outcome.state, outcome.reason.as_deref()))
+}
+
 /// What a host's row says of its updates while one is under way or has failed.
 pub fn updates_label(updates: &UpdateStatus) -> Option<String> {
+    match failed_update(updates) {
+        Some((UpdateOutcomeState::RolledBack, _)) => return Some("update rolled back".to_owned()),
+        Some(_) => return Some("update failed".to_owned()),
+        None => {}
+    }
     match updates.state {
-        UpdateState::Failed => Some("update failed".to_owned()),
         UpdateState::Downloading
         | UpdateState::Installing
         | UpdateState::Waiting
         | UpdateState::Ready => Some("updating".to_owned()),
-        UpdateState::Idle => None,
+        UpdateState::Idle | UpdateState::Failed => None,
     }
 }
 
@@ -881,9 +901,15 @@ pub fn updates_items(
             .checked(on)
             .on_click(move |_, _, cx| set(!on, cx)),
     );
-    match (updates.state, updates.error.as_deref()) {
-        (UpdateState::Failed, Some(error)) => popup.item(PopupMenuItem::label(format!(
-            "The last update failed: {error}"
+    match failed_update(updates) {
+        Some((UpdateOutcomeState::RolledBack, reason)) => {
+            popup.item(PopupMenuItem::label(format!(
+                "The last update was undone: {}",
+                reason.unwrap_or("the new core did not start well")
+            )))
+        }
+        Some((_, Some(reason))) => popup.item(PopupMenuItem::label(format!(
+            "The last update failed: {reason}"
         ))),
         _ => popup,
     }

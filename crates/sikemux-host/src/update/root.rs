@@ -15,13 +15,16 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use semver::Version;
 use serde::{Deserialize, Serialize};
-use sikemux_core::host_update::{self, HostRequest, UpdateStep};
+use sikemux_core::host_update::{self, HostAction, HostRequest, UpdateStep};
 use sikemux_core::release_feed;
 use sikemux_view::prefs::UpdateChannel;
+use sikemux_view::updates::{UpdateOutcome, UpdateOutcomeState};
 
 const CORE: &str = sikemux_process::names::CORE_PROGRAM;
 const GROUP: &CStr = c"sikemux";
-const MAX_REQUEST_BYTES: u64 = 256;
+const MAX_REQUEST_BYTES: u64 = 4096;
+/// How much of a failure's output an outcome keeps as evidence.
+const EVIDENCE_LINES: usize = 20;
 const MAX_ARCHIVE_BYTES: u64 = 256 << 20;
 const MAX_CORE_BYTES: u64 = 512 << 20;
 /// However often it is asked, root reads the feeds at most this often.
@@ -48,12 +51,18 @@ pub fn serve() -> i32 {
         }
     };
     let last = match (peer_uid(io::stdin().as_raw_fd()), request()) {
-        (Some(person), Ok(request)) => install(person, request.channel, &mut send),
+        (Some(person), Ok(request)) => match request.action {
+            HostAction::Install => install(person, request.channel, request.id, &mut send),
+            HostAction::Ready | HostAction::RollBack => settle(request),
+        },
         (None, _) => UpdateStep::Failed {
             message: format!("run this through {}", host_update::SOCKET),
         },
         (_, Err(message)) => UpdateStep::Failed { message },
     };
+    if let UpdateStep::Failed { message } = &last {
+        eprintln!("sikemux update: {message}");
+    }
     send(&last);
     i32::from(matches!(last, UpdateStep::Failed { .. }))
 }
@@ -73,19 +82,22 @@ fn request() -> Result<HostRequest, String> {
 pub fn install(
     person: u32,
     channel: UpdateChannel,
+    id: Option<String>,
     report: &mut dyn FnMut(&UpdateStep),
 ) -> UpdateStep {
+    let id = id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
     let attempt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .map_err(|error| error.to_string())
-        .and_then(|runtime| runtime.block_on(attempt(person, channel, report)));
+        .and_then(|runtime| runtime.block_on(attempt(person, channel, &id, report)));
     attempt.unwrap_or_else(|message| UpdateStep::Failed { message })
 }
 
 async fn attempt(
     person: u32,
     channel: UpdateChannel,
+    id: &str,
     report: &mut dyn FnMut(&UpdateStep),
 ) -> Result<UpdateStep, String> {
     // SAFETY: geteuid takes nothing and cannot fail.
@@ -123,10 +135,24 @@ async fn attempt(
         return Ok(current);
     }
     let newest = release_feed::newest(channel).await?;
-    if newest.version <= installed {
+    let rolled_back = host_update::read_outcome().is_some_and(|outcome| {
+        outcome.state == UpdateOutcomeState::RolledBack
+            && outcome.to.as_deref() == Some(&newest.version.to_string())
+    });
+    if newest.version <= installed || rolled_back {
         write_checked(dir, channel, &installed, inode);
         return Ok(current);
     }
+    let mut outcome = UpdateOutcome {
+        id: id.to_owned(),
+        state: UpdateOutcomeState::Failed,
+        from: installed.to_string(),
+        to: Some(newest.version.to_string()),
+        at: now_ms(),
+        reason: Some("the update service stopped before it finished".into()),
+        evidence: None,
+    };
+    write_outcome(&outcome);
     let asset = newest
         .feed
         .platforms
@@ -152,7 +178,7 @@ async fn attempt(
         .mode(0o700)
         .create(&work)
         .map_err(|error| error.to_string())?;
-    let result = async {
+    let result: Result<u64, Failure> = async {
         let unpacked = match &app_asset {
             Some(app_asset) => Some(fetch_app(&work, &newest.version, app_asset, report).await?),
             None => None,
@@ -163,12 +189,25 @@ async fn attempt(
         if let Some(unpacked) = unpacked {
             replace_app(&unpacked, app)?;
         }
-        place(&archive, core)
+        Ok(place(&archive, core)?)
     }
     .await;
     let _ = fs::remove_dir_all(&work);
-    let inode = result?;
+    let inode = match result {
+        Ok(inode) => inode,
+        Err(failure) => {
+            outcome.at = now_ms();
+            outcome.reason = Some(failure.message.clone());
+            outcome.evidence = failure.evidence;
+            write_outcome(&outcome);
+            return Err(failure.message);
+        }
+    };
     write_checked(dir, channel, &newest.version, inode);
+    outcome.state = UpdateOutcomeState::Pending;
+    outcome.at = now_ms();
+    outcome.reason = None;
+    write_outcome(&outcome);
     Ok(UpdateStep::Installed {
         from: installed.to_string(),
         version: newest.version.to_string(),
@@ -217,7 +256,7 @@ async fn fetch_app(
     version: &Version,
     asset: &release_feed::Asset,
     report: &mut dyn FnMut(&UpdateStep),
-) -> Result<PathBuf, String> {
+) -> Result<PathBuf, Failure> {
     let file = format!("Sikemux_{version}_{}.AppImage", package_arch());
     let appimage = work.join(&file);
     let key = release_feed::release_key()?;
@@ -238,22 +277,25 @@ async fn fetch_app(
     if !release_feed::signed_for(&signed, &file, version) {
         return Err(format!(
             "{file} is not signed by Sikemux: its signature was made for another file ({signed})"
-        ));
+        )
+        .into());
     }
     report(&UpdateStep::Verified);
     let failed = |error: io::Error| format!("could not unpack the app: {error}");
     fs::set_permissions(&appimage, fs::Permissions::from_mode(0o700)).map_err(failed)?;
-    let unpacked_ok = sikemux_process::user_environment::command(&appimage)
+    let extracted = sikemux_process::user_environment::command(&appimage)
         .arg("--appimage-extract")
         .current_dir(work)
         .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .map_err(failed)?
-        .success();
+        .stderr(std::process::Stdio::piped())
+        .output()
+        .map_err(failed)?;
     let unpacked = work.join("squashfs-root");
-    if !unpacked_ok || !unpacked.join(host_update::INSTALLED_APP_PROGRAM).is_file() {
-        return Err(format!("{file} could not be unpacked"));
+    if !extracted.status.success() || !unpacked.join(host_update::INSTALLED_APP_PROGRAM).is_file() {
+        return Err(Failure {
+            message: format!("{file} could not be unpacked ({})", extracted.status),
+            evidence: tail(&extracted.stderr),
+        });
     }
     fs::set_permissions(&unpacked, fs::Permissions::from_mode(0o755)).map_err(failed)?;
     only_root_writes(&unpacked).map_err(failed)?;
@@ -306,7 +348,7 @@ fn replace_app(unpacked: &Path, app: &Path) -> Result<(), String> {
 
 /// Unpacks the core beside the one it replaces and moves it into place,
 /// answering with its inode. The archive's signature is checked already.
-fn place(archive: &Path, target: &Path) -> Result<u64, String> {
+fn place(archive: &Path, target: &Path) -> Result<u64, Failure> {
     let failed = |error: io::Error| format!("could not install the core: {error}");
     let work = archive.parent().ok_or("the download has no folder")?;
     let untarred = sikemux_process::user_environment::command("/usr/bin/tar")
@@ -315,11 +357,15 @@ fn place(archive: &Path, target: &Path) -> Result<u64, String> {
         .arg("-C")
         .arg(work)
         .arg(CORE)
-        .status()
+        .stderr(std::process::Stdio::piped())
+        .output()
         .map_err(failed)?;
     let unpacked = work.join(CORE);
-    if !untarred.success() || !unpacked.is_file() {
-        return Err(format!("the release has no {CORE} in it"));
+    if !untarred.status.success() || !unpacked.is_file() {
+        return Err(Failure {
+            message: format!("the release has no {CORE} in it"),
+            evidence: tail(&untarred.stderr),
+        });
     }
     let dir = target.parent().ok_or("the core has no folder")?;
     let staged = dir.join(".sikemux-host.new");
@@ -334,7 +380,7 @@ fn place(archive: &Path, target: &Path) -> Result<u64, String> {
         File::open(&unpacked).and_then(|from| io::copy(&mut from.take(MAX_CORE_BYTES), &mut core));
     if let Err(error) = copied {
         let _ = fs::remove_file(&staged);
-        return Err(failed(error));
+        return Err(failed(error).into());
     }
     let gid = group_id()?;
     let fd = core.as_raw_fd();
@@ -344,16 +390,121 @@ fn place(archive: &Path, target: &Path) -> Result<u64, String> {
     if !owned {
         let error = io::Error::last_os_error();
         let _ = fs::remove_file(&staged);
-        return Err(failed(error));
+        return Err(failed(error).into());
     }
     core.sync_all().map_err(failed)?;
     let inode = core.metadata().map_err(failed)?.ino();
     drop(core);
+    let previous = Path::new(host_update::PREVIOUS_CORE);
+    let _ = fs::remove_file(previous);
+    if let Err(error) = fs::hard_link(target, previous) {
+        eprintln!("sikemux update: the core in place is not kept to go back to: {error}");
+    }
     fs::rename(&staged, target).map_err(failed)?;
     if let Ok(dir) = File::open(dir) {
         let _ = dir.sync_all();
     }
     Ok(inode)
+}
+
+/// Why an update failed, with what the tools it ran said.
+struct Failure {
+    message: String,
+    evidence: Option<String>,
+}
+
+impl From<String> for Failure {
+    fn from(message: String) -> Self {
+        Failure {
+            message,
+            evidence: None,
+        }
+    }
+}
+
+impl From<&str> for Failure {
+    fn from(message: &str) -> Self {
+        message.to_owned().into()
+    }
+}
+
+/// The last lines of a tool's output, when it said anything.
+fn tail(output: &[u8]) -> Option<String> {
+    let text = String::from_utf8_lossy(output);
+    let lines: Vec<&str> = text
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .collect();
+    let kept = lines[lines.len().saturating_sub(EVIDENCE_LINES)..].join("\n");
+    (!kept.is_empty()).then_some(kept)
+}
+
+/// Settles the update `request` names once its new core has started: drops the
+/// core it replaced, or puts that one back.
+pub fn settle(request: HostRequest) -> UpdateStep {
+    let failed = |message: String| UpdateStep::Failed { message };
+    // SAFETY: geteuid takes nothing and cannot fail.
+    if unsafe { libc::geteuid() } != 0 {
+        return failed("only root can settle an update".into());
+    }
+    let core = Path::new(host_update::INSTALLED_CORE);
+    let Some(dir) = core.parent() else {
+        return failed("the core has no folder".into());
+    };
+    let _lock = match lock(dir) {
+        Ok(lock) => lock,
+        Err(message) => return failed(message),
+    };
+    let Some(mut outcome) = host_update::read_outcome().filter(|outcome| {
+        outcome.state == UpdateOutcomeState::Pending && request.id.as_ref() == Some(&outcome.id)
+    }) else {
+        return failed("no update is waiting on that".into());
+    };
+    let previous = Path::new(host_update::PREVIOUS_CORE);
+    outcome.at = now_ms();
+    if request.action != HostAction::RollBack {
+        let _ = fs::remove_file(previous);
+        outcome.state = UpdateOutcomeState::Done;
+        write_outcome(&outcome);
+        return UpdateStep::Current {
+            version: outcome.to.unwrap_or(outcome.from),
+        };
+    }
+    let reason =
+        (request.reason.clone()).unwrap_or_else(|| "the new core did not start well".into());
+    let restored = Version::parse(&outcome.from)
+        .map_err(|error| error.to_string())
+        .and_then(|from| {
+            fs::rename(previous, core).map_err(|error| error.to_string())?;
+            let inode = fs::metadata(core).map_err(|error| error.to_string())?.ino();
+            write_checked(dir, request.channel, &from, inode);
+            Ok(())
+        });
+    if let Err(error) = restored {
+        eprintln!("sikemux update: could not put the previous core back: {error}");
+        return failed(format!("could not put the previous core back: {error}"));
+    }
+    eprintln!("sikemux update: put {} back: {reason}", outcome.from);
+    outcome.state = UpdateOutcomeState::RolledBack;
+    outcome.reason = Some(reason);
+    write_outcome(&outcome);
+    UpdateStep::Current {
+        version: outcome.from,
+    }
+}
+
+/// Records how an update ended, readable by anyone, since the person's core reports it.
+fn write_outcome(outcome: &UpdateOutcome) {
+    if let Ok(bytes) = serde_json::to_vec(outcome) {
+        let path = Path::new(host_update::OUTCOME_FILE);
+        if let Err(error) = sikemux_process::files::write_atomic(path, &bytes, false) {
+            eprintln!("sikemux update: could not record how the update ended: {error}");
+        }
+    }
+}
+
+fn now_ms() -> u64 {
+    sikemux_process::clock::epoch_ms()
 }
 
 fn group_id() -> Result<libc::gid_t, String> {

@@ -2101,6 +2101,10 @@ struct UpdateStatus: Codable, Hashable, Sendable {
     /// Whether this host puts updates in place by itself, which only the
     /// person turns off; none on anything but a host's core.
     var automatic: Bool?
+    /// The update under way, which `outcome` names once it has one.
+    var id: String?
+    /// How this host's last update ended, kept on disk by the one that put it in place.
+    var outcome: UpdateOutcome?
 }
 
 /// The last check, kept because a failed one has nowhere else to show.
@@ -2173,6 +2177,35 @@ struct UpdateBlocker: Codable, Hashable, Sendable {
     /// `starting` while the agent is still starting, `busy` while the
     /// chat is in the middle of a request.
     var reason: String
+}
+
+/// The written result of one update, so a failure that happens while nobody
+/// listens is still there to show.
+struct UpdateOutcome: Codable, Hashable, Sendable {
+    var id: String
+    var state: UpdateOutcomeState
+    var from: String
+    var to: String?
+    /// Unix milliseconds.
+    var at: Int
+    var reason: String?
+    /// The last lines of what went wrong, for the page to show.
+    var evidence: String?
+}
+
+enum UpdateOutcomeState: String, Codable, Hashable, Sendable {
+    /// In place, waiting for the new core to say it started well.
+    case pending
+    case done
+    /// The new core did not start well, so the one before it is back.
+    case rolledBack
+    case failed
+    /// One added after this build.
+    case unknown
+
+    init(from decoder: any Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
 }
 
 /// A chat as a client opening it is sent: how it stands, its latest rows, and

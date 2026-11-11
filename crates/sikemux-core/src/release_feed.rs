@@ -21,7 +21,6 @@ const STABLE_FEED: &str =
 const NIGHTLY_FEED: &str =
     "https://github.com/nodelike/sikemux/releases/download/nightly/latest.json";
 const CHECK_TIMEOUT: Duration = Duration::from_secs(30);
-const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 /// The release scripts check updates against the key the app's Cargo.toml
 /// names, so the core reads the same one.
 const APP_MANIFEST: &str = include_str!("../../../app/Cargo.toml");
@@ -138,7 +137,8 @@ pub fn release_key() -> Result<PublicKey, String> {
 /// Downloads `url` to `to`, checking it against the release's `signature` as
 /// it comes, and reports each step as bytes done of the whole. Answers with
 /// the signature's trusted comment, which names the file and version it was
-/// made for.
+/// made for. A slow download runs as long as it keeps coming; the client stops
+/// one that goes quiet.
 pub async fn fetch_verified(
     url: &str,
     signature: &str,
@@ -158,7 +158,6 @@ pub async fn fetch_verified(
     let client = crate::http::client().map_err(|error| error.to_string())?;
     let response = client
         .get(url)
-        .timeout(DOWNLOAD_TIMEOUT)
         .send()
         .await
         .and_then(reqwest::Response::error_for_status)
