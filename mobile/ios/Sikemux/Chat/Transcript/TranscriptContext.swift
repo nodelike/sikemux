@@ -4,7 +4,8 @@ import SwiftUI
 /// from where it comes from, and what a tap asks of the screen around it.
 @MainActor @Observable
 final class TranscriptContext {
-    let provider: String
+    /// Whose marks the rows draw; a chat just started learns it once the host lists the chat.
+    var provider: String
     /// The host the chat is on, which keeps the files it names; nil where none can be read.
     let core: String?
     let agentId: String?
