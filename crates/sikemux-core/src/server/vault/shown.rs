@@ -94,7 +94,10 @@ pub(super) fn named(core: &Core, state: &State, key: &str) -> (String, bool) {
         .cloned()
         .or_else(|| linked.as_ref().map(|row| row.name.clone()))
         .unwrap_or_else(|| key.get(..8).unwrap_or(key).to_owned());
-    (name, linked.is_some_and(|row| row.reach == Reach::Connected))
+    (
+        name,
+        linked.is_some_and(|row| row.reach == Reach::Connected),
+    )
 }
 
 pub(crate) fn host_name(core: &Core, key: &str) -> String {
