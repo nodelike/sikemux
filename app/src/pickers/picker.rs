@@ -120,11 +120,20 @@ impl Workbench {
         self.open_picker(Picking::Projects, ThenPicked::MoveAgent, window, cx);
     }
 
+    /// The host whose projects the picker lists and acts on: the moving chat's own, else the
+    /// host in front.
+    fn picking_place(&self) -> crate::hosts::Place {
+        match self.moving.as_deref() {
+            Some(agent) => self.chat_target(agent).place().clone(),
+            None => self.place(),
+        }
+    }
+
     /// The agent the picker moves, and the folder it is in now.
     fn moving_from(&self) -> Option<(&str, &Path)> {
         let agent = self.moving.as_deref()?;
         let held = self
-            .this_view()?
+            .view_at(&self.picking_place())?
             .workspace
             .agents
             .iter()
@@ -181,7 +190,7 @@ impl Workbench {
         }
         let moved = self.moving.as_deref().and_then(|agent| {
             let held = self
-                .this_view()?
+                .view_at(&self.picking_place())?
                 .workspace
                 .agents
                 .iter()
@@ -265,8 +274,10 @@ impl Workbench {
     fn places(&self, picking: Picking) -> Vec<Row> {
         let mut rows = Vec::new();
         if picking.projects() {
-            let projects = self.projects();
-            let home = self.home_at(&self.place());
+            let place = self.picking_place();
+            let projects =
+                (self.view_at(&place)).map_or(&[][..], |view| view.workspace.projects.as_slice());
+            let home = self.home_at(&place);
             let from = self.moving_from().map(|(_, from)| from);
             for project in projects
                 .iter()
@@ -291,7 +302,9 @@ impl Workbench {
                     .iter()
                     .any(|project| project.path == Path::new(path))
             };
-            for folder in &self.reads.picker_folders {
+            let found =
+                (self.reads.picker_folders.iter()).filter(|_| place == crate::hosts::Place::This);
+            for folder in found {
                 let (name, path) = (folder.name.as_str(), folder.path.as_str());
                 if added(path) {
                     continue;
@@ -338,13 +351,14 @@ impl Workbench {
             let Some(agent) = self.moving.take() else {
                 return;
             };
+            let host = self.chat_target(&agent);
             if let Some(project) = key.strip_prefix(PROJECT) {
-                Target::here(&self.asks).call_typed::<call::MoveAgentToProject>(MoveParams {
+                host.call_typed::<call::MoveAgentToProject>(MoveParams {
                     agent_id: agent,
                     project: project.to_owned(),
                 });
             } else if let Some(path) = key.strip_prefix(FOLDER) {
-                Target::here(&self.asks).call_typed::<call::MoveAgentToFolder>(MoveToFolder {
+                host.call_typed::<call::MoveAgentToFolder>(MoveToFolder {
                     agent_id: agent,
                     path: path.into(),
                 });

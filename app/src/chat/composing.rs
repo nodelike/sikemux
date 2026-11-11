@@ -707,8 +707,10 @@ pub(super) fn strip(
                 saved.cwd.to_string_lossy().into_owned(),
                 cx.entity(),
             );
+            let place = bench.chat_target(&agent).place().clone();
             Box::new(move |trigger: gpui_kit::base::Button| {
-                crate::pickers::project_switcher::around(trigger, &agent, &cwd, &this)
+                let place = place.clone();
+                crate::pickers::project_switcher::around(trigger, &agent, &cwd, place, &this)
             }) as super::composer::ChipMenu
         }),
         worktree,

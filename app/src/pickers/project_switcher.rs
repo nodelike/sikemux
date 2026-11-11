@@ -1,5 +1,6 @@
-//! The project picker a new chat's project name and the top bar open: the projects open here,
-//! then folders found under the person's project roots, searchable in both.
+//! The project picker a new chat's project name and the top bar open: the projects open on the
+//! host it acts on, then, when that is this host, folders found under the person's project
+//! roots, searchable in both.
 
 use gpui_kit::base::{Popover, Selectable};
 use gpui_kit::component::input::{InputEvent, InputState};
@@ -11,6 +12,7 @@ use gpui_kit::{
 };
 
 use crate::core;
+use crate::hosts::Place;
 use crate::icons::Icon;
 use crate::theme::{Tokens, SPACE_0, SPACE_2, TEXT_XS};
 use crate::toast;
@@ -43,6 +45,8 @@ struct Choice {
 /// The open switcher: its search and the row the keys are on.
 pub struct ProjectSwitcher {
     bench: WeakEntity<Workbench>,
+    /// The host whose projects it lists and acts on.
+    place: Place,
     on_pick: OnPick,
     cwd: String,
     query: Entity<InputState>,
@@ -71,6 +75,7 @@ fn parent(path: &str) -> &str {
 impl ProjectSwitcher {
     fn new(
         bench: &Entity<Workbench>,
+        place: Option<Place>,
         on_pick: OnPick,
         cwd: String,
         close: Dismiss,
@@ -85,10 +90,14 @@ impl ProjectSwitcher {
                 cx.notify();
             }
         });
-        bench.read(cx).read_project_folders();
+        let place = place.unwrap_or_else(|| bench.read(cx).place());
+        if place == Place::This {
+            bench.read(cx).read_project_folders();
+        }
         let found = cx.observe(bench, |_, _, cx| cx.notify());
         Self {
             bench: bench.downgrade(),
+            place,
             on_pick,
             cwd,
             query,
@@ -99,15 +108,17 @@ impl ProjectSwitcher {
         }
     }
 
-    /// The projects open here, then the folders found on disk, matched to the search.
+    /// The projects open on its host, then, on this host, the folders found on disk, matched to
+    /// the search.
     fn choices(&self, cx: &App) -> Vec<Choice> {
         let Some(bench) = self.bench.upgrade() else {
             return Vec::new();
         };
         let bench = bench.read(cx);
-        let home = bench.home_at(&bench.place());
-        let open: Vec<Choice> = bench
-            .projects()
+        let home = bench.home_at(&self.place);
+        let projects =
+            (bench.view_at(&self.place)).map_or(&[][..], |view| view.workspace.projects.as_slice());
+        let open: Vec<Choice> = projects
             .iter()
             .map(|project| Choice {
                 path: project.path.to_string_lossy().into_owned(),
@@ -115,10 +126,8 @@ impl ProjectSwitcher {
                 home: home.clone(),
             })
             .collect();
-        let found: Vec<Choice> = bench
-            .reads
-            .picker_folders
-            .iter()
+        let found: Vec<Choice> = (bench.reads.picker_folders.iter())
+            .filter(|_| self.place == Place::This)
             .map(|entry| entry.path.clone())
             .filter(|path| !open.iter().any(|choice| choice.path == *path))
             .map(|path| Choice {
@@ -273,21 +282,22 @@ pub fn activates(this: WeakEntity<Workbench>) -> OnPick {
 }
 
 /// Wraps `trigger`, the project's name over a new chat, in the switcher it opens, which moves
-/// the chat `agent`, now in `cwd`, elsewhere.
+/// the chat `agent`, now in `cwd` on the host at `place`, to another project of that host.
 pub fn around(
     trigger: impl Selectable + IntoElement + 'static,
     agent: &str,
     cwd: &str,
+    place: Place,
     this: &Entity<Workbench>,
 ) -> Popover {
-    let (moved, bench) = (agent.to_owned(), this.downgrade());
+    let (moved, bench, on) = (agent.to_owned(), this.downgrade(), place.clone());
     let on_pick: OnPick = std::rc::Rc::new(move |project, cx| {
         let Some(asks) = bench.upgrade().map(|bench| bench.read(cx).asks.clone()) else {
             return;
         };
-        let (agent_id, bench) = (moved.clone(), bench.clone());
+        let (agent_id, bench, host) = (moved.clone(), bench.clone(), on.clone());
         cx.spawn(async move |cx| {
-            let moving = core::Target::here(&asks)
+            let moving = core::Target::new(&asks, host)
                 .request_typed::<call::MoveAgentToProject>(MoveParams { agent_id, project });
             if let Err(error) = moving.await {
                 let note = toast::error(format!("The chat stayed where it was: {error}"));
@@ -297,15 +307,37 @@ pub fn around(
         .detach();
     });
     let key = SharedString::from(format!("project-switcher-{agent}"));
-    picker(key, trigger, cwd, Anchor::BottomLeft, on_pick, this)
+    picker_on(
+        key,
+        trigger,
+        cwd,
+        Anchor::BottomLeft,
+        Some(place),
+        on_pick,
+        this,
+    )
 }
 
-/// Wraps `trigger` in the project picker, keyed `key`, with `cwd` the project shown now.
+/// Wraps `trigger` in the project picker of the host in front, keyed `key`, with `cwd` the
+/// project shown now.
 pub fn picker(
     key: SharedString,
     trigger: impl Selectable + IntoElement + 'static,
     cwd: &str,
     anchor: Anchor,
+    on_pick: OnPick,
+    this: &Entity<Workbench>,
+) -> Popover {
+    picker_on(key, trigger, cwd, anchor, None, on_pick, this)
+}
+
+/// [`picker`] for the projects of the host at `place`, else of the host in front.
+fn picker_on(
+    key: SharedString,
+    trigger: impl Selectable + IntoElement + 'static,
+    cwd: &str,
+    anchor: Anchor,
+    place: Option<Place>,
     on_pick: OnPick,
     this: &Entity<Workbench>,
 ) -> Popover {
@@ -317,9 +349,9 @@ pub fn picker(
         .content(move |_, window, cx| {
             let popover = cx.entity();
             let close = list_picker::dismiss(popover);
-            let (on_pick, folder) = (on_pick.clone(), folder.clone());
+            let (on_pick, folder, place) = (on_pick.clone(), folder.clone(), place.clone());
             window.use_keyed_state(key.clone(), cx, |window, cx| {
-                ProjectSwitcher::new(&this, on_pick, folder, close, window, cx)
+                ProjectSwitcher::new(&this, place, on_pick, folder, close, window, cx)
             })
         })
 }
