@@ -38,7 +38,7 @@ Every agent Sikemux starts gets these tools through the `sikemux-tools` MCP serv
 | Tool | What it does |
 |---|---|
 | `sim_devices` | List the simulators, the one you hold, and which other agents hold. |
-| `sim_attach` | Attach a simulator: with no device, the warmest free one (booted, else booted before), else your project's own; boots it if needed and reads its screen. Name a device only when you need that model or iOS version, and pass fresh: true for one never booted. When this Mac has no room, you wait in line: call again within a minute to keep your place. Never boot simulators with simctl or Xcode. |
+| `sim_attach` | Attach a simulator by name, else the warmest free one, and read its screen. |
 | `sim_state` | Read the attached simulator's screen: the frontmost app and numbered elements with their centre points. |
 | `sim_tap` | Tap an element by number or label, or a point in device points. A duration makes it a long press. |
 | `sim_swipe` | Swipe between two points in device points. Starting at a screen edge makes a system gesture. |
