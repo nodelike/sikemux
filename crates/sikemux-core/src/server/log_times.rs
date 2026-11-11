@@ -1,83 +1,80 @@
 //! Puts the time at the start of every line the core writes to its log. The log is whatever
 //! file launchd or systemd opened as the core's stderr; the core puts a pipe in its place and
-//! a thread copies each line across with the time in front. Updating the core hands the pipe
-//! and the file to the new one, which carries on copying, so no line is lost or left untimed.
+//! a thread copies each line across with the time in front. Whenever nothing would read the
+//! pipe, as before an update replaces the process or once the thread stops, stderr goes back
+//! to the file, so a write to it never waits.
 
 use std::os::fd::RawFd;
-use std::process::Command;
-use std::sync::{Mutex, MutexGuard, OnceLock};
-
-const LOG_FD: &str = "SIKEMUX_CORE_LOG_FD";
-const PIPE_FD: &str = "SIKEMUX_CORE_LOG_PIPE_FD";
-const MID_LINE: &str = "SIKEMUX_CORE_LOG_MID_LINE";
+use std::sync::Mutex;
 
 struct Stamping {
     log: RawFd,
     pipe: RawFd,
-    /// Held while lines are copied, so handing over never cuts one that was read off.
-    copying: Mutex<Copied>,
-}
-
-#[derive(Default)]
-pub(crate) struct Copied {
     mid_line: bool,
 }
 
-static STAMPING: OnceLock<Stamping> = OnceLock::new();
+static STAMPING: Mutex<Option<Stamping>> = Mutex::new(None);
 
-/// Starts timing the log's lines, when stderr is a log file or this core took over from one
-/// that was. A terminal or a pipe someone else reads is left as it is.
+fn stamping() -> std::sync::MutexGuard<'static, Option<Stamping>> {
+    STAMPING
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// Starts timing the log's lines when stderr is a log file. A terminal or a pipe someone else
+/// reads is left as it is.
 pub(crate) fn start() {
-    let handed = (env_fd(LOG_FD)).zip(env_fd(PIPE_FD));
-    let mid_line = std::env::var_os(MID_LINE).is_some();
-    for name in [LOG_FD, PIPE_FD, MID_LINE] {
-        std::env::remove_var(name);
-    }
-    let (log, pipe) = match handed {
-        Some(fds) => fds,
-        None => match take_stderr() {
-            Some(fds) => fds,
-            None => return,
-        },
-    };
-    set_close_on_exec(log);
-    set_close_on_exec(pipe);
-    let stamping = Stamping {
-        log,
-        pipe,
-        copying: Mutex::new(Copied { mid_line }),
-    };
-    if STAMPING.set(stamping).is_err() {
+    let mut held = stamping();
+    if held.is_some() {
         return;
     }
-    let _ = std::thread::Builder::new()
+    let Some((log, pipe)) = take_stderr() else {
+        return;
+    };
+    *held = Some(Stamping {
+        log,
+        pipe,
+        mid_line: false,
+    });
+    drop(held);
+    let started = std::thread::Builder::new()
         .name("sikemux-log".into())
-        .spawn(copy);
-}
-
-/// What the next core needs to carry on, given to `command` before it replaces this one: the
-/// guard stops lines being copied until the exec, and the descriptors must stay open over it.
-pub(crate) fn hand_over(
-    command: &mut Command,
-) -> Option<(MutexGuard<'static, Copied>, [RawFd; 2])> {
-    let stamping = STAMPING.get()?;
-    let copied = stamping
-        .copying
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    command
-        .env(LOG_FD, stamping.log.to_string())
-        .env(PIPE_FD, stamping.pipe.to_string());
-    if copied.mid_line {
-        command.env(MID_LINE, "1");
+        .spawn(move || copy(pipe));
+    if started.is_err() {
+        give_back(&mut stamping());
     }
-    Some((copied, [stamping.log, stamping.pipe]))
+    flush_on_panic();
 }
 
-fn env_fd(name: &str) -> Option<RawFd> {
-    let fd: RawFd = std::env::var(name).ok()?.parse().ok()?;
-    // SAFETY: F_GETFD only reads the descriptor's flags.
-    (unsafe { libc::fcntl(fd, libc::F_GETFD) } >= 0).then_some(fd)
+/// Copies whatever waits in the pipe into the log now, as before the process ends.
+pub(crate) fn flush() {
+    let mut held = stamping();
+    if let Some(stamping) = held.as_mut() {
+        if drain(stamping).is_err() {
+            give_back(&mut held);
+        }
+    }
+}
+
+/// Copies what waits, then puts stderr back on the log file, for a process about to be
+/// replaced by one that may not read the pipe. [`start`] takes it up again if it is not.
+pub(crate) fn before_exec() {
+    let mut held = stamping();
+    if let Some(stamping) = held.as_mut() {
+        let _ = drain(stamping);
+    }
+    give_back(&mut held);
+}
+
+fn flush_on_panic() {
+    static HOOKED: std::sync::Once = std::sync::Once::new();
+    HOOKED.call_once(|| {
+        let previous = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            previous(info);
+            flush();
+        }));
+    });
 }
 
 /// Keeps the log file stderr names and puts a pipe in its place, answering both.
@@ -101,8 +98,10 @@ fn take_stderr() -> Option<(RawFd, RawFd)> {
             return None;
         }
         let [read, write] = ends;
-        let flags = libc::fcntl(read, libc::F_GETFL);
-        libc::fcntl(read, libc::F_SETFL, flags | libc::O_NONBLOCK);
+        let status = libc::fcntl(read, libc::F_GETFL);
+        libc::fcntl(read, libc::F_SETFL, status | libc::O_NONBLOCK);
+        let flags = libc::fcntl(read, libc::F_GETFD);
+        libc::fcntl(read, libc::F_SETFD, flags | libc::FD_CLOEXEC);
         if libc::dup2(write, libc::STDERR_FILENO) < 0 {
             libc::close(read);
             libc::close(write);
@@ -114,61 +113,71 @@ fn take_stderr() -> Option<(RawFd, RawFd)> {
     }
 }
 
-fn set_close_on_exec(fd: RawFd) {
-    // SAFETY: F_GETFD and F_SETFD read and set one descriptor's flags.
+/// Points stderr at the log file again and lets the pipe go.
+fn give_back(held: &mut Option<Stamping>) {
+    let Some(stamping) = held.take() else {
+        return;
+    };
+    // SAFETY: both descriptors are this module's own; dup2 only repoints descriptor 2.
     unsafe {
-        let flags = libc::fcntl(fd, libc::F_GETFD);
-        if flags >= 0 {
-            libc::fcntl(fd, libc::F_SETFD, flags | libc::FD_CLOEXEC);
-        }
+        libc::dup2(stamping.log, libc::STDERR_FILENO);
+        libc::close(stamping.pipe);
+        libc::close(stamping.log);
     }
 }
 
-/// Copies what reaches the pipe into the log, the time in front of each line, until the pipe
-/// closes. Waiting happens unlocked; reading and writing happen under the lock.
-fn copy() {
-    let Some(stamping) = STAMPING.get() else {
-        return;
-    };
-    let mut buffer = vec![0u8; 16 * 1024];
-    let mut out = Vec::with_capacity(buffer.len() + 256);
+/// Copies what reaches `pipe` into the log, the time in front of each line, until stderr is
+/// given back. Waiting happens unlocked; reading and writing happen under the lock.
+fn copy(pipe: RawFd) {
     loop {
         let mut wait = libc::pollfd {
-            fd: stamping.pipe,
+            fd: pipe,
             events: libc::POLLIN,
             revents: 0,
         };
         // SAFETY: `wait` is one valid pollfd.
-        if unsafe { libc::poll(&mut wait, 1, -1) } < 0 {
-            if std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted {
-                continue;
-            }
+        let polled = unsafe { libc::poll(&mut wait, 1, -1) };
+        let interrupted =
+            polled < 0 && std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted;
+        if interrupted {
+            continue;
+        }
+        let mut held = stamping();
+        let Some(stamping) = held.as_mut().filter(|stamping| stamping.pipe == pipe) else {
+            return;
+        };
+        if polled < 0 || wait.revents & libc::POLLNVAL != 0 || drain(stamping).is_err() {
+            give_back(&mut held);
             return;
         }
-        let mut copied = stamping
-            .copying
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        loop {
-            // SAFETY: `buffer` has room for as many bytes as asked for.
-            let read =
-                unsafe { libc::read(stamping.pipe, buffer.as_mut_ptr().cast(), buffer.len()) };
-            if read == 0 {
-                return;
-            }
-            if read < 0 {
-                break;
-            }
-            out.clear();
-            for line in buffer[..read as usize].split_inclusive(|byte| *byte == b'\n') {
-                if !copied.mid_line {
-                    out.extend_from_slice(stamp().as_bytes());
-                }
-                out.extend_from_slice(line);
-                copied.mid_line = line.last() != Some(&b'\n');
-            }
-            write_all(stamping.log, &out);
+    }
+}
+
+/// Copies all the pipe holds now into the log; an error once the pipe cannot be read.
+fn drain(stamping: &mut Stamping) -> Result<(), ()> {
+    let mut buffer = [0u8; 16 * 1024];
+    let mut out = Vec::with_capacity(buffer.len() + 256);
+    loop {
+        // SAFETY: `buffer` has room for as many bytes as asked for.
+        let read = unsafe { libc::read(stamping.pipe, buffer.as_mut_ptr().cast(), buffer.len()) };
+        if read == 0 {
+            return Err(());
         }
+        if read < 0 {
+            return match std::io::Error::last_os_error().kind() {
+                std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted => Ok(()),
+                _ => Err(()),
+            };
+        }
+        out.clear();
+        for line in buffer[..read as usize].split_inclusive(|byte| *byte == b'\n') {
+            if !stamping.mid_line {
+                out.extend_from_slice(stamp().as_bytes());
+            }
+            out.extend_from_slice(line);
+            stamping.mid_line = line.last() != Some(&b'\n');
+        }
+        write_all(stamping.log, &out);
     }
 }
 

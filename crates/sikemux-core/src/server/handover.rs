@@ -341,8 +341,6 @@ pub(crate) fn replace_process(core: &Core, binary: &Path, handed: &mut [HandOver
         command.arg("--chat-fd").arg(fd.to_string());
         keep.push(fd);
     }
-    let stamping = super::log_times::hand_over(&mut command);
-    keep.extend(stamping.iter().flat_map(|(_, fds)| *fds));
     for fd in &keep {
         set_close_on_exec(*fd, false);
     }
@@ -352,11 +350,12 @@ pub(crate) fn replace_process(core: &Core, binary: &Path, handed: &mut [HandOver
         handed.len(),
         binary.display()
     );
+    super::log_times::before_exec();
     let error = command.exec();
+    super::log_times::start();
     for fd in &keep {
         set_close_on_exec(*fd, true);
     }
-    drop(stamping);
     let _ = std::fs::remove_dir_all(&directory);
     drop(held);
     CoreError::from(format!("could not start {}: {error}", binary.display()))
@@ -380,6 +379,9 @@ pub(crate) struct Recovery {
     /// their file type. Only these are adopted or closed: anything opened
     /// since may have reused a number that was listed but already closed.
     pub inherited: HashMap<RawFd, libc::mode_t>,
+    /// This process's children as it started, with when each started: those the core it
+    /// replaced left, which the reaper waits for unless they were handed over.
+    pub children: Vec<(u32, u64)>,
     pub plugins: Option<super::plugins::Provided>,
 }
 
@@ -919,6 +921,19 @@ pub(crate) async fn resume(recovery: Recovery, build: BuildIdentity) -> Result<(
         live_chats = state.live_chats;
         super::lsp::adopt(&core, state.lsp_documents);
     }
+    let handed: Vec<u32> = (recovery.sessions.iter())
+        .filter_map(|(_, _, pid)| *pid)
+        .chain(live_chats.iter().filter_map(|live| {
+            serde_json::from_value::<LiveChat>(live.clone())
+                .ok()
+                .map(|live| live.agent.pid)
+        }))
+        .collect();
+    super::reaper::watch(
+        (recovery.children.iter().copied())
+            .filter(|(pid, _)| !handed.contains(pid))
+            .collect(),
+    );
     let carried = live_chats.len();
     for live in live_chats {
         adopt_chat(&core, live, &mut inherited);

@@ -143,6 +143,7 @@ pub fn main(
             }
         };
     }
+    super::updates::roll_back_a_failing_update(&build.version);
     if let Some(directory) = args.resume {
         let mut recovery = Recovery {
             directory,
@@ -157,6 +158,7 @@ pub fn main(
             sessions: args.sessions,
             chat_fds: args.chat_fds,
             inherited: HashMap::new(),
+            children: Vec::new(),
             plugins,
         };
         // Taken before anything opens a descriptor of its own.
@@ -165,12 +167,13 @@ pub fn main(
             .into_iter()
             .filter_map(|fd| Some((fd, handover::file_type(fd)?)))
             .collect();
+        recovery.children = super::reaper::children_now();
         super::log_times::start();
-        super::reaper::watch(super::reaper::children_now());
         std::thread::spawn(sikemux_pty::user_shell::warm_login_shell_environment);
         sikemux_process::jobs::own();
         let exit = exit_code(super::on_runtime(handover::resume(recovery, build)));
         sikemux_process::jobs::leave();
+        super::log_times::flush();
         return exit;
     }
     super::log_times::start();
@@ -194,6 +197,7 @@ pub fn main(
         ..production
     }));
     sikemux_process::jobs::leave();
+    super::log_times::flush();
     exit
 }
 

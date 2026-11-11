@@ -47,8 +47,8 @@ const PACMAN_INSTALLED: &str = "/var/lib/pacman/local";
 /// it may stop before that until the one it replaced is put back.
 const READY_AFTER: Duration = Duration::from_secs(30);
 const STARTS_BEFORE_ROLL_BACK: u32 = 3;
-/// How long an update may download or install, and wait to hand over once its
-/// chats are free, before it counts as failed.
+/// How long an update may download or install, and a host's core wait for its chats to hand
+/// their agents over, before it counts as failed.
 const WORKING_LIMIT: Duration = Duration::from_secs(30 * 60);
 const HANDING_OVER_LIMIT: Duration = Duration::from_secs(5 * 60);
 const WATCH_EVERY: Duration = Duration::from_secs(30);
@@ -507,7 +507,13 @@ fn refusal(steps: &[UpdateStep]) -> String {
 /// and chats. Returns only if that failed.
 async fn restart_into_installed(core: &Arc<Core>) {
     let force = core.updates.status().forced;
-    let error = upgrade::replace_with(core, PathBuf::from(INSTALLED_CORE), force).await;
+    let error = upgrade::replace_with(
+        core,
+        PathBuf::from(INSTALLED_CORE),
+        force,
+        HANDING_OVER_LIMIT,
+    )
+    .await;
     core.updates.edit(core, |held| {
         held.status.state = UpdateState::Failed;
         held.status.error = Some(format!("could not restart into it: {error}"));
@@ -529,9 +535,8 @@ fn begin_update(held: &mut Held) {
     held.status.id = Some(uuid::Uuid::new_v4().to_string());
 }
 
-/// On a host core an update just put in place: says it started well once it
-/// has run a while, or, when it has stopped too often before that, asks root
-/// to put the core it replaced back and stops, to start again from that one.
+/// On a host core an update just put in place: says it started well once it has run a while,
+/// so root drops the core it replaced.
 async fn settle_own_update(core: Arc<Core>) {
     let Some(outcome) = core.updates.status().outcome.filter(|outcome| {
         outcome.state == UpdateOutcomeState::Pending
@@ -539,53 +544,77 @@ async fn settle_own_update(core: Arc<Core>) {
     }) else {
         return;
     };
+    tokio::time::sleep(READY_AFTER).await;
+    let channel = channel(&core);
     let id = outcome.id.clone();
-    let starts = blocking({
-        let id = id.clone();
-        move || Ok(count_start(&id))
-    })
-    .await
-    .unwrap_or(1);
-    let action = if starts > STARTS_BEFORE_ROLL_BACK {
-        HostAction::RollBack
-    } else {
-        tokio::time::sleep(READY_AFTER).await;
-        HostAction::Ready
-    };
-    let request = HostRequest {
-        channel: channel(&core),
-        id: Some(id),
-        action,
-    };
-    let note = host_update::settle_note(&request.id.clone().unwrap_or_default(), action);
-    let noted = blocking(move || {
-        sikemux_keychain::write(
-            host_update::SWITCH_SERVICE,
-            host_update::SETTLE_ACCOUNT,
-            &note,
-        )
-        .map_err(|error| CoreError::from(error.to_string()))
-    })
-    .await;
-    if let Err(error) = noted {
-        eprintln!("sikemux core: could not ask root to settle the update: {error}");
-        return;
-    }
-    let answer = host_update::ask_root(&request, |_| {}).await;
-    let _ = blocking(|| {
-        sikemux_keychain::delete(host_update::SWITCH_SERVICE, host_update::SETTLE_ACCOUNT)
-            .map_err(|error| CoreError::from(error.to_string()))
-    })
-    .await;
+    let answer = blocking(move || Ok(ask_root_to_settle(channel, &id, HostAction::Ready)))
+        .await
+        .unwrap_or_else(|error| UpdateStep::Failed {
+            message: error.to_string(),
+        });
     if let UpdateStep::Failed { message } = &answer {
         eprintln!("sikemux core: could not settle the update: {message}");
     }
     let _ = blocking(|| Ok(forget_starts())).await;
     refresh_outcome(&core).await;
-    if action == HostAction::RollBack && !matches!(answer, UpdateStep::Failed { .. }) {
-        eprintln!("sikemux core: the previous core is back, so this one stops to start as it");
-        std::process::exit(1);
+}
+
+/// Counts this start of a host core an update just put in place, before anything else can
+/// fail, and once it has stopped too often before it was ready, asks root to put the core it
+/// replaced back and stops, to start again as that one.
+pub(crate) fn roll_back_a_failing_update(version: &str) {
+    if !is_host() {
+        return;
     }
+    let Some(outcome) = host_update::read_outcome().filter(|outcome| {
+        outcome.state == UpdateOutcomeState::Pending && outcome.to.as_deref() == Some(version)
+    }) else {
+        return;
+    };
+    if count_start(&outcome.id) <= STARTS_BEFORE_ROLL_BACK {
+        return;
+    }
+    let channel = match BuildChannel::of_release(version) {
+        BuildChannel::Nightly => UpdateChannel::Nightly,
+        BuildChannel::Stable | BuildChannel::Dev => UpdateChannel::Stable,
+    };
+    let answer = ask_root_to_settle(channel, &outcome.id, HostAction::RollBack);
+    forget_starts();
+    if let UpdateStep::Failed { message } = answer {
+        eprintln!("sikemux core: could not put the previous core back: {message}");
+        return;
+    }
+    eprintln!("sikemux core: {version} stopped before it was ready, so the previous core is back and this one stops to start as it");
+    super::log_times::flush();
+    std::process::exit(1);
+}
+
+/// Asks root to settle update `id`, leaving the note in the guarded store that proves the
+/// person's core asks. Blocks.
+fn ask_root_to_settle(channel: UpdateChannel, id: &str, action: HostAction) -> UpdateStep {
+    let failed = |message: String| UpdateStep::Failed { message };
+    let note = host_update::settle_note(id, action);
+    if let Err(error) = sikemux_keychain::write(
+        host_update::SWITCH_SERVICE,
+        host_update::SETTLE_ACCOUNT,
+        &note,
+    ) {
+        return failed(error.to_string());
+    }
+    let request = HostRequest {
+        channel,
+        id: Some(id.to_owned()),
+        action,
+    };
+    let answer = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_or_else(
+            |error| failed(error.to_string()),
+            |runtime| runtime.block_on(host_update::ask_root(&request, |_| {})),
+        );
+    let _ = sikemux_keychain::delete(host_update::SWITCH_SERVICE, host_update::SETTLE_ACCOUNT);
+    answer
 }
 
 /// How many times a core has started for the update `id`, this one included.
@@ -619,8 +648,7 @@ fn forget_starts() {
     }
 }
 
-/// Marks an update failed once it has downloaded or installed, or waited to
-/// hand over with its chats free, for longer than any should.
+/// Marks an update failed once it has downloaded or installed for longer than any should.
 async fn watch_stalls(core: Arc<Core>) {
     loop {
         tokio::time::sleep(WATCH_EVERY).await;
@@ -628,20 +656,14 @@ async fn watch_stalls(core: Arc<Core>) {
             let held = core.updates.held.locked();
             (held.status.state, held.since)
         };
-        let limit = match state {
-            UpdateState::Downloading | UpdateState::Installing => WORKING_LIMIT,
-            UpdateState::Ready if is_host() => HANDING_OVER_LIMIT,
-            _ => continue,
-        };
-        if since.is_some_and(|since| since.elapsed() > limit) {
+        let working = matches!(state, UpdateState::Downloading | UpdateState::Installing);
+        if working && since.is_some_and(|since| since.elapsed() > WORKING_LIMIT) {
             core.updates.edit(&core, |held| {
                 held.status.state = UpdateState::Failed;
-                held.status.error = Some(match state {
-                    UpdateState::Ready => {
-                        "the core could not hand its chats over to the new one".into()
-                    }
-                    _ => format!("it did not finish in {} minutes", limit.as_secs() / 60),
-                });
+                held.status.error = Some(format!(
+                    "it did not finish in {} minutes",
+                    WORKING_LIMIT.as_secs() / 60
+                ));
             });
         }
     }
