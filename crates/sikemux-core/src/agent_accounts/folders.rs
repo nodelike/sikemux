@@ -16,7 +16,7 @@ use crate::sessions::roots::{account_root, environment_path};
 /// Marks a folder as one Sikemux made, whose shared entries it may link.
 const MARKER: &str = ".sikemux-account";
 
-fn home() -> PathBuf {
+pub(crate) fn home() -> PathBuf {
     sikemux_process::paths::home().unwrap_or_default()
 }
 

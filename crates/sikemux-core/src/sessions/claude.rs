@@ -547,6 +547,14 @@ impl AgentOps for Claude {
         Some(Box::pin(usage::claude_usage(program, config_path)))
     }
 
+    fn use_reset<'a>(
+        &self,
+        program: &'a Path,
+        config_path: Option<&'a str>,
+    ) -> Option<Pending<'a, Result<usage::ResetOutcome, String>>> {
+        Some(Box::pin(usage::use_claude_reset(program, config_path)))
+    }
+
     fn signed_in(&self, env: &BTreeMap<String, String>) -> Option<SignIn> {
         sign_in::claude_signed_in(env)
     }

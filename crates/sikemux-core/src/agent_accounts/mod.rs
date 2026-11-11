@@ -5,6 +5,7 @@
 //! reads or stores a credential.
 
 pub mod allocate;
+mod claude_resets;
 pub mod defaults;
 pub mod folders;
 pub mod sign_in;

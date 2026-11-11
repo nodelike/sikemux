@@ -599,10 +599,30 @@ pub(crate) async fn ask(
         .map_err(|_| format!("The {provider} usage lookup was not valid UTF-8"))
 }
 
+/// Runs the account's CLI once, which renews its sign-in when that has run out.
+pub(super) async fn renew_claude_sign_in(executable: &Path, config_path: Option<&str>) {
+    let _ = read_claude_usage(executable, config_path, &[]).await;
+}
+
 pub(crate) async fn claude_usage(
     executable: &Path,
     config_path: Option<&str>,
 ) -> Result<Usage, String> {
+    let mut usage = claude_plan_usage(executable, config_path).await?;
+    if usage.unavailable_reason.is_none() {
+        usage.resets = super::claude_resets::read(executable, config_path).await;
+    }
+    Ok(usage)
+}
+
+pub(crate) async fn use_claude_reset(
+    executable: &Path,
+    config_path: Option<&str>,
+) -> Result<ResetOutcome, String> {
+    super::claude_resets::spend(executable, config_path).await
+}
+
+async fn claude_plan_usage(executable: &Path, config_path: Option<&str>) -> Result<Usage, String> {
     let usage = read_claude_usage(executable, config_path, &[]).await?;
     // An API key inherited from whichever shell launched Sikemux outranks the
     // claude.ai login, so a subscriber sees no limits purely because of how the
