@@ -38,14 +38,21 @@ func listed(_ scope: ProjectInfo?, _ provider: String?, project: String?, type: 
 /// The agent list's groups folded shut, by key, as the Mac's rail keeps its own.
 @MainActor @Observable
 final class Folded {
+    enum Group: String {
+        case snoozed, settled
+    }
+
     static let shared = Folded()
     private static let key = "sikemux.folded-agent-groups"
 
-    private(set) var shut: Set<String> = Set(UserDefaults.standard.stringArray(forKey: key) ?? ["settled"])
+    private(set) var shut: Set<Group> =
+        UserDefaults.standard.stringArray(forKey: key).map {
+            Set($0.compactMap(Group.init))
+        } ?? [.settled]
 
-    func toggle(_ group: String) {
+    func toggle(_ group: Group) {
         if shut.contains(group) { shut.remove(group) } else { shut.insert(group) }
-        UserDefaults.standard.set(Array(shut), forKey: Self.key)
+        UserDefaults.standard.set(shut.map(\.rawValue), forKey: Self.key)
     }
 }
 
