@@ -513,7 +513,7 @@ final class HostWatch {
 }
 
 /// Hears one connection's events on the bridge's own thread, reads the views there, and hands them to the hub.
-final class ListenerBox: CoreListener, @unchecked Sendable {
+final class ListenerBox: CoreListener {
     let core: String
 
     init(core: String) { self.core = core }
