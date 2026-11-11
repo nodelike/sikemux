@@ -2185,10 +2185,16 @@ export interface AgentNotice {
 
 export type NoticeSeverity = "info" | "warning" | "error";
 
-/** Where a goal began or ended in a chat. */
+/** Where a goal began or ended in a chat, and how it stood then. */
 export interface GoalMarker {
     card: number;
     state: SliceState;
+    name?: string;
+    /** A step for each gate or slice, as `ChatGoal` counts them. */
+    steps?: SliceState[];
+    ofGates?: boolean;
+    /** How long the chat worked on it, in milliseconds, once it ended. */
+    took?: number;
 }
 
 /** A stretch of a sent message's text: its words, or a chip its draft wrote there. */

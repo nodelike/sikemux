@@ -2,6 +2,7 @@
 //! fired triggers, and subagents. Runs of messages between agents are in `team`.
 
 use super::*;
+use sikemux_view::slice::SliceState;
 
 use crate::theme::{
     SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_3H, SPACE_5, TEXT_2XS_H,
@@ -721,30 +722,66 @@ pub(super) fn runs<'a>(parts: impl Iterator<Item = &'a ChatPart>) -> Vec<Shown<'
 }
 
 /// Where a goal began or ended: a quiet line across the column with its state's mark.
+/// Where a goal began or ended, as a milestone: its state in its colour, its name, and at the
+/// right its steps then and, once ended, how long it took.
 fn goal_marker(notice: &AgentNotice, looks: &Drawn, cx: &App) -> AnyElement {
-    let rule = || {
-        div()
-            .flex_1()
-            .min_w(SPACE_3)
-            .h(px(1.))
-            .bg(looks.tints.line_soft)
+    let Some(goal) = notice.goal.as_ref() else {
+        return div().into_any_element();
+    };
+    let t = Tokens::get(cx);
+    let word = match goal.state {
+        SliceState::Moving => "Goal",
+        SliceState::Done => "Goal done",
+        SliceState::Failed => "Goal stopped",
+        SliceState::NeedsYou => "Goal needs you",
+        SliceState::Waiting => "Goal waiting",
+    };
+    let name = match goal.name.is_empty() {
+        true => notice.title.clone(),
+        false => goal.name.clone(),
     };
     div()
-        .my(SPACE_1)
+        .h(px(36.))
+        .my(SPACE_1H)
         .flex()
         .items_center()
-        .gap(SPACE_2)
+        .gap(px(9.))
         .min_w_0()
-        .text_size(crate::theme::ui_text(TEXT_3XS_H))
-        .text_color(looks.quiet)
-        .child(rule())
-        .children(
-            notice
-                .goal
-                .map(|goal| crate::goals::state_mark(goal.state, cx)),
+        .text_size(crate::theme::ui_text(TEXT_XS_H))
+        .child(crate::goals::state_mark(goal.state, cx))
+        .child(
+            div()
+                .flex_none()
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(crate::goals::state_ink(goal.state, t))
+                .child(word),
         )
-        .child(div().min_w_0().truncate().child(notice.title.clone()))
-        .child(rule())
+        .child(
+            div()
+                .min_w_0()
+                .truncate()
+                .text_color(t.text_secondary)
+                .child(name),
+        )
+        .child(
+            div()
+                .ml_auto()
+                .flex_none()
+                .flex()
+                .items_center()
+                .gap(SPACE_2)
+                .children(goal_line::steps(&goal.steps, cx))
+                .children(
+                    goal_line::progress(&goal.steps, goal.of_gates)
+                        .map(|words| div().text_color(looks.quiet).child(words)),
+                )
+                .children(goal.took.filter(|took| *took >= 1000).map(|took| {
+                    div()
+                        .text_size(crate::theme::ui_text(TEXT_2XS_H))
+                        .text_color(looks.faint)
+                        .child(crate::ui::time::took(took))
+                })),
+        )
         .into_any_element()
 }
 

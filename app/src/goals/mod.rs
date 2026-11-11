@@ -1332,6 +1332,16 @@ pub(crate) fn state_mark(state: SliceState, cx: &gpui_kit::App) -> AnyElement {
     ui::mark_box(14., state_dot(state, 8., cx)).into_any_element()
 }
 
+/// The colour a state's mark and words take.
+pub(crate) fn state_ink(state: SliceState, t: &Tokens) -> gpui_kit::Hsla {
+    match state {
+        SliceState::Done | SliceState::Moving => t.live,
+        SliceState::Waiting => t.text_tertiary,
+        SliceState::NeedsYou => t.warn,
+        SliceState::Failed => t.danger,
+    }
+}
+
 /// That mark on its own, at `size`.
 fn state_dot(state: SliceState, size: f32, cx: &gpui_kit::App) -> AnyElement {
     let t = Tokens::get(cx);

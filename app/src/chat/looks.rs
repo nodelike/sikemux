@@ -80,7 +80,6 @@ pub(super) struct Tints {
     pub(super) deleted_mark: Hsla,
     pub(super) spine: Hsla,
     pub(super) tick: Hsla,
-    pub(super) line_soft: Hsla,
     /// The ground under a diff or what a command printed, and the printed text.
     pub(super) sunken: Hsla,
     pub(super) printed: Hsla,
@@ -125,7 +124,6 @@ impl Tints {
             },
             spine: t.tree_spine,
             tick: t.tree_tick,
-            line_soft: t.line_soft,
             sunken: t.surface_sunken,
             printed: t.text_secondary,
             added_ink: theme::mix(t.git_added, t.text_primary, 0.22),

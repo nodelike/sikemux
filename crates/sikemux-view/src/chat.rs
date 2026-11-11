@@ -1552,12 +1552,22 @@ pub struct AgentNotice {
     pub goal: Option<GoalMarker>,
 }
 
-/// Where a goal began or ended in a chat.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+/// Where a goal began or ended in a chat, and how it stood then.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GoalMarker {
     pub card: u64,
     pub state: SliceState,
+    #[serde(default)]
+    pub name: String,
+    /// A step for each gate or slice, as `ChatGoal` counts them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub steps: Vec<SliceState>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub of_gates: bool,
+    /// How long the chat worked on it, in milliseconds, once it ended.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub took: Option<u64>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

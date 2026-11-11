@@ -51,18 +51,25 @@ pub(super) fn notice(
 }
 
 /// How far along a goal is, in the words its steps count in.
-fn progress(goal: &ChatGoal) -> Option<String> {
-    let total = goal.steps.len();
+pub(super) fn progress(steps: &[SliceState], of_gates: bool) -> Option<String> {
+    let total = steps.len();
     if total == 0 {
         return None;
     }
-    let done = (goal.steps.iter())
+    let done = (steps.iter())
         .filter(|step| **step == SliceState::Done)
         .count();
-    Some(match goal.of_gates {
+    Some(match of_gates {
         true => format!("{done} of {total} gates"),
         false => format!("{done} of {total} done"),
     })
+}
+
+/// A goal's steps as the strip of segments that shows them, as wide as the design has it.
+pub(super) fn steps(steps: &[SliceState], cx: &App) -> Option<AnyElement> {
+    let count = steps.len() as f32;
+    let width = (count * STEP_WIDTH + (count - 1.).max(0.) * STEP_GAP).min(STRIP_MOST);
+    (!steps.is_empty()).then(|| crate::goals::state_strip(steps.iter().copied(), px(width), cx))
 }
 
 /// The goal at the strip's right end, which opens it.
@@ -76,8 +83,6 @@ pub(super) fn on_strip(
         project: goal.project.clone(),
         card: goal.card,
     };
-    let steps = goal.steps.len() as f32;
-    let width = (steps * STEP_WIDTH + (steps - 1.).max(0.) * STEP_GAP).min(STRIP_MOST);
     div()
         .id(SharedString::from(format!("composer-goal-{}", goal.card)))
         .min_w_0()
@@ -99,10 +104,10 @@ pub(super) fn on_strip(
                 .truncate()
                 .text_color(t.text_primary),
         )
+        .children(steps(&goal.steps, cx))
         .children(
-            (!goal.steps.is_empty())
-                .then(|| crate::goals::state_strip(goal.steps.iter().copied(), px(width), cx)),
+            progress(&goal.steps, goal.of_gates)
+                .map(|words| ui::meta(words, cx).flex_none().mx(SPACE_1)),
         )
-        .children(progress(goal).map(|words| ui::meta(words, cx).flex_none().mx(SPACE_1)))
         .into_any_element()
 }

@@ -111,6 +111,9 @@ struct Attached {
     project: String,
     card: u64,
     name: String,
+    /// When the chat took it on.
+    #[serde(default)]
+    began: u64,
     /// The agent only just added it, and the person can still take that back.
     undoable: bool,
     /// Its line in the chat waits until that has passed, so the chat never shows a goal that was
@@ -264,7 +267,7 @@ pub(crate) fn turn_started(core: &Core, agent: &str) {
         lease::back_at_work(core, &goal.project, goal.card, agent);
     }
     if let (Some(goal), Some(chat)) = (settled, core.chats.get(agent)) {
-        started_line(&chat, &goal);
+        started_line(core, &chat, &goal);
         push_head(core, agent);
     }
 }
@@ -358,7 +361,7 @@ pub(crate) async fn undo(core: &Arc<Core>, agent: String) -> Result<(), String> 
     Ok(())
 }
 
-fn say(chat: &Chat, title: String, card: u64, state: SliceState) {
+fn say(chat: &Chat, title: String, marker: GoalMarker) {
     let Some(start) = chat.feed.start() else {
         return;
     };
@@ -366,26 +369,44 @@ fn say(chat: &Chat, title: String, card: u64, state: SliceState) {
         ChatEventKind::SessionUpdate,
         json!({
             "sessionId": start.session_id,
-            "update": goal_notice(&title, GoalMarker { card, state }),
+            "update": goal_notice(&title, marker),
         }),
     );
 }
 
-fn started_line(chat: &Chat, goal: &Attached) {
+/// The goal as it stands now, for the line that marks where it began or ended.
+fn marker(core: &Core, goal: &Attached, state: SliceState, took: Option<u64>) -> GoalMarker {
+    let (steps, of_gates) = {
+        let boards = core.boards.state.locked();
+        (boards.boards.get(&goal.project))
+            .and_then(|board| Some((board, board.card(goal.card).ok()?)))
+            .map(|(board, card)| slice::goal_steps(core, board, card))
+            .unwrap_or_default()
+    };
+    GoalMarker {
+        card: goal.card,
+        state,
+        name: goal.name.clone(),
+        steps,
+        of_gates,
+        took,
+    }
+}
+
+fn started_line(core: &Core, chat: &Chat, goal: &Attached) {
     say(
         chat,
         format!("Goal started: {}", goal.name),
-        goal.card,
-        SliceState::Moving,
+        marker(core, goal, SliceState::Moving, None),
     );
 }
 
-fn done_line(chat: &Chat, goal: &Attached) {
+fn done_line(core: &Core, chat: &Chat, goal: &Attached) {
+    let took = (goal.began > 0).then(|| epoch_ms().saturating_sub(goal.began));
     say(
         chat,
         format!("Goal done: {}", goal.name),
-        goal.card,
-        SliceState::Done,
+        marker(core, goal, SliceState::Done, took),
     );
 }
 
@@ -529,6 +550,7 @@ pub(super) fn settle(core: &Arc<Core>) {
                 project: now.project.clone(),
                 card: now.card,
                 name: now.name.clone(),
+                began: epoch_ms(),
                 undoable,
                 unshown: undoable,
             });
@@ -564,10 +586,10 @@ pub(super) fn settle(core: &Arc<Core>) {
     }
     for (chat, started, done) in lines {
         if let Some(done) = &done {
-            done_line(&chat, done);
+            done_line(core, &chat, done);
         }
         if let Some(started) = &started {
-            started_line(&chat, started);
+            started_line(core, &chat, started);
         }
     }
     for chat in &open {
