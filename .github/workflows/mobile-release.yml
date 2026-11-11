@@ -373,9 +373,10 @@ jobs:
           VERSION: ${{ needs.plan.outputs.version }}
           BUILD: ${{ needs.plan.outputs.build }}
           COMMIT: ${{ needs.plan.outputs.commit }}
+          SENTRY_DSN: https://76804485378be914417f459fe482c276@o4512409824919552.ingest.de.sentry.io/4512409866076240
         run: |
           archive="$RUNNER_TEMP/Sikemux.xcarchive"
-          settings=(CURRENT_PROJECT_VERSION="$BUILD" SIKEMUX_COMMIT="$COMMIT")
+          settings=(CURRENT_PROJECT_VERSION="$BUILD" SIKEMUX_COMMIT="$COMMIT" SIKEMUX_SENTRY_DSN="$SENTRY_DSN")
           xcodebuild -project Sikemux.xcodeproj -scheme Sikemux -configuration Release -destination generic/platform=iOS \
             -archivePath "$archive" "${settings[@]}" CODE_SIGNING_ALLOWED=NO archive
           entitlements="$RUNNER_TEMP/entitlements"
@@ -495,6 +496,17 @@ jobs:
           build="$(/usr/libexec/PlistBuddy -c 'Print :ApplicationProperties:CFBundleVersion' "$archive/Info.plist")"
           echo "build=$build" >>"$GITHUB_OUTPUT"
           echo "Sent build $build to TestFlight" >>"$GITHUB_STEP_SUMMARY"
+
+      # The dSYMs hold the Swift's and the Rust client's debug info, so crash reports read as source lines.
+      - name: Send the debug symbols to Sentry
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+        run: |
+          cli="$RUNNER_TEMP/sentry-cli"
+          curl -fsSL --retry 3 -o "$cli" https://github.com/getsentry/sentry-cli/releases/download/3.8.1/sentry-cli-Darwin-universal
+          echo "fb8413278fc45bb0e149db0cb201d6e1a2f20883fde4dc96b45961ab22946c3e  $cli" | shasum -a 256 -c -
+          chmod +x "$cli"
+          "$cli" debug-files upload --org nodelike --project sikemux-mobile --url https://de.sentry.io "$RUNNER_TEMP/Sikemux.xcarchive/dSYMs"
 
       - name: Send the build to the external testers through beta review
         working-directory: mobile/ios

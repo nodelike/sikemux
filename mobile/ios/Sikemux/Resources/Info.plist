@@ -50,12 +50,14 @@
 	<string>Sikemux shows your recent photos so you can attach them to a chat.</string>
 	<key>SikemuxAppGroup</key>
 	<string>group.$(SIKEMUX_BUNDLE_ID)</string>
-	<key>SikemuxKeychainGroup</key>
-	<string>$(DEVELOPMENT_TEAM).$(SIKEMUX_BUNDLE_ID).notify</string>
-	<key>SikemuxStashKeychainGroup</key>
-	<string>$(DEVELOPMENT_TEAM).$(SIKEMUX_BUNDLE_ID).stash</string>
 	<key>SikemuxCommit</key>
 	<string>$(SIKEMUX_COMMIT)</string>
+	<key>SikemuxKeychainGroup</key>
+	<string>$(DEVELOPMENT_TEAM).$(SIKEMUX_BUNDLE_ID).notify</string>
+	<key>SikemuxSentryDSN</key>
+	<string>$(SIKEMUX_SENTRY_DSN)</string>
+	<key>SikemuxStashKeychainGroup</key>
+	<string>$(DEVELOPMENT_TEAM).$(SIKEMUX_BUNDLE_ID).stash</string>
 	<key>SikemuxVariant</key>
 	<string>$(SIKEMUX_VARIANT)</string>
 	<key>UIAppFonts</key>

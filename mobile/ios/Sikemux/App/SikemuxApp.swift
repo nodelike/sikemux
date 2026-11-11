@@ -5,6 +5,10 @@ import UIKit
 struct SikemuxApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 
+    init() {
+        CrashReports.shared.start()
+    }
+
     var body: some Scene {
         WindowGroup {
             RootView()
@@ -48,6 +52,7 @@ struct RootView: View {
         }
         .onChange(of: account.state, initial: true) { _, state in
             session.follow(account.userId)
+            CrashReports.shared.follow(account: account.userId)
             if state != .loading { lock.follow(signedIn: account.isSignedIn) }
         }
         .onChange(of: scene) { _, phase in
