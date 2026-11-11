@@ -61,19 +61,4 @@ enum ShownRows {
         if open(fold.id) { return Fold(summary: summary, hidden: false, kept: nil) }
         return Fold(summary: summary, hidden: fold.shown.isEmpty, kept: fold.shown)
     }
-
-    /// The person's last message, of the rows held.
-    static func lastAsked(_ rows: [ChatMessage]) -> ChatMessage? {
-        rows.last { $0.role == .user && ($0.letters ?? []).isEmpty }
-    }
-
-    /// What it says, on one line.
-    static func askedText(_ message: ChatMessage) -> String {
-        message.parts.compactMap { part -> String? in
-            if case .text(let text) = part { return text.text }
-            return nil
-        }
-        .joined(separator: " ")
-        .components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }.joined(separator: " ")
-    }
 }
