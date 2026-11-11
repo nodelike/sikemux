@@ -141,18 +141,27 @@ struct RecentSheet: View {
 
     /// What the person sent in this chat, oldest first, with a message repeated back to back kept once.
     static func sent(_ messages: [ChatMessage], queued: [String] = []) -> [String] {
-        let texts =
-            messages
-            .filter { $0.role == .user && ($0.letters ?? []).isEmpty }
-            .map { message in
-                message.parts.map { part in if case .text(let text) = part { text.text } else { "" } }.joined()
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-            }
+        let texts = messages.filter(isPrompt).map(promptText)
         var prompts: [String] = []
         for text in texts + queued.map({ $0.trimmingCharacters(in: .whitespacesAndNewlines) })
         where !text.isEmpty && prompts.last != text {
             prompts.append(text)
         }
         return prompts
+    }
+
+    /// Whether the sheet has anything to show for `rows`, found from the newest row back.
+    static func offered(_ rows: ChatRows) -> Bool {
+        rows.queued.contains { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            || rows.messages.reversed().contains { isPrompt($0) && !promptText($0).isEmpty }
+    }
+
+    private static func isPrompt(_ message: ChatMessage) -> Bool {
+        message.role == .user && (message.letters ?? []).isEmpty
+    }
+
+    private static func promptText(_ message: ChatMessage) -> String {
+        message.parts.map { part in if case .text(let text) = part { text.text } else { "" } }.joined()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
