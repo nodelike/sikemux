@@ -275,7 +275,7 @@ fn watched(git: Git, args: &[&str], dir: &Path) -> Result<String, String> {
             }
             false
         });
-        let ran = git.timeout(LONGEST).cancel_on(&cancel).trimmed(args);
+        let ran = git.timeout(LONGEST).cancel_on(cancel).trimmed(args);
         drop(finished);
         (watcher.join().unwrap_or(false), ran)
     });
