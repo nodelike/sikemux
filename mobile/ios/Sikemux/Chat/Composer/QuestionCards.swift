@@ -70,7 +70,7 @@ private struct AskedBy: View {
 }
 
 private func named(_ name: String, _ palette: Palette) -> Text {
-    Text(name).font(Theme.ui(11.5, .semibold)).foregroundColor(palette.ink)
+    Text("@\(name)").font(Theme.ui(11.5, .semibold)).foregroundColor(palette.ink)
 }
 
 /// A question as it reads once answered: its words, and the answer in one line, or only that it was answered when
@@ -143,7 +143,7 @@ private struct SecretAnswer: View {
                     .frame(minHeight: 40)
                     .background(RoundedRectangle(cornerRadius: Radius.row, style: .continuous).fill(palette.sunken))
                     .overlay(RoundedRectangle(cornerRadius: Radius.row, style: .continuous).strokeBorder(palette.border, lineWidth: 1))
-                    .accessibilityLabel("Private answer to \(question.name)")
+                    .accessibilityLabel("Private answer to @\(question.name)")
                 Chip(title: "Send", primary: true) {
                     if !text.isEmpty, onKeep(text) { text = "" }
                 }
@@ -415,7 +415,7 @@ struct AssumedQuestion: View {
 
     /// The assumption in one run of words, with Fine and Change as taps inside it.
     private var words: AttributedString {
-        var name = AttributedString(question.name)
+        var name = AttributedString("@\(question.name)")
         name.font = Theme.ui(12.5, .semibold)
         name.foregroundColor = palette.ink
         var words = name + AttributedString(" assumed \(question.assumption ?? "")")

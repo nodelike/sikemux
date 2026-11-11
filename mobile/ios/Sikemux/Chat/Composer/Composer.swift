@@ -269,7 +269,7 @@ struct Composer: View {
     private func answering(_ question: ComposerQuestion) -> some View {
         HStack(spacing: 7) {
             AgentMark(provider: question.cli, size: 13)
-            Text("Answering \(question.name) · \(question.text)").font(Theme.ui(12)).foregroundStyle(palette.inkDim).lineLimit(1)
+            Text("Answering @\(question.name) · \(question.text)").font(Theme.ui(12)).foregroundStyle(palette.inkDim).lineLimit(1)
             Button(action: question.onRemove) {
                 IconView(icon: Icons.close, size: 10)
                     .foregroundStyle(palette.ground)
@@ -278,7 +278,7 @@ struct Composer: View {
                     .contentShape(Rectangle().inset(by: -8))
             }
             .buttonStyle(PressFade())
-            .accessibilityLabel("Stop answering \(question.name)")
+            .accessibilityLabel("Stop answering @\(question.name)")
         }
         .padding(.vertical, 6)
         .padding(.leading, 9)
