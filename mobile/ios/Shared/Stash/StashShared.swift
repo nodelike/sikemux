@@ -1,5 +1,4 @@
 import Foundation
-import Security
 
 /// The chats used last and where the accounts server is, as the app writes them down for its share extension.
 struct ShareSnapshot: Codable, Equatable {
@@ -29,7 +28,6 @@ struct ShareSnapshot: Codable, Equatable {
 /// What the app leaves for its share extension: the chats used last and where the accounts server
 /// is, in the App Group both can read, and this phone's key, in a Keychain group both can read.
 enum StashShared {
-    private static let service = "sikemux.stash"
     private static let keyAccount = "device-key"
     private static let fileName = "share.json"
 
@@ -75,33 +73,24 @@ enum StashShared {
     }
 
     static func setKey(_ hex: String?) {
-        SecItemDelete(base() as CFDictionary)
+        keychain.delete(keyAccount)
         guard let hex else { return }
-        var item = base()
-        item[kSecValueData as String] = Data(hex.utf8)
-        item[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
-        let added = SecItemAdd(item as CFDictionary, nil)
-        if added != errSecSuccess { print("sikemux: could not give the share extension this phone's key: \(added)") }
+        do {
+            try keychain.write(keyAccount, hex)
+        } catch {
+            print("sikemux: could not give the share extension this phone's key: \(error)")
+        }
     }
 
     static func key() -> String? {
-        var query = base()
-        query[kSecReturnData as String] = true
-        query[kSecMatchLimit as String] = kSecMatchLimitOne
-        var found: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &found) == errSecSuccess, let data = found as? Data else {
+        do {
+            return try keychain.read(keyAccount)
+        } catch {
+            print("sikemux: could not read this phone's key: \(error)")
             return nil
         }
-        return String(data: data, encoding: .utf8)
     }
 
-    private static func base() -> [String: Any] {
-        var query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: keyAccount,
-        ]
-        if let group = keychainGroup() { query[kSecAttrAccessGroup as String] = group }
-        return query
-    }
+    private static var keychain: Keychain { Keychain(service: "sikemux.stash", group: keychainGroup()) }
+
 }

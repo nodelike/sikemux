@@ -176,6 +176,7 @@ targets:
       - path: Notifications
         excludes: [Info.plist, SikemuxNotifications.entitlements]
       - path: Shared/Notify
+      - path: Shared/Keychain.swift
     info:
       path: Notifications/Info.plist
       properties:
@@ -204,6 +205,7 @@ targets:
         excludes: [Info.plist, SikemuxShare.entitlements]
       - path: Shared/Stash
       - path: Shared/Bytes.swift
+      - path: Shared/Keychain.swift
       - path: Shared/Thumbnail.swift
       - path: Sikemux/UI/Theme.swift
       - path: ../../helpers/notch/Sources/NotchKit/IconView.swift
