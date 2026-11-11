@@ -9,16 +9,22 @@ use gpui_kit::{
     div, px, Anchor, AnyElement, App, Context, Div, FontWeight, IntoElement, ParentElement,
     SharedString, Styled,
 };
-use sikemux_wire::protocol::{DeviceAccess, DeviceInfo, NotificationState, RemoteStatus};
+use sikemux_core::server::account::devices::DeviceParams;
+use sikemux_core::server::call;
+use sikemux_core::server::calls::NoParams;
+use sikemux_wire::protocol::{
+    DeviceAccess, DeviceInfo, HeldTrust, NotificationState, RemoteStatus,
+};
 
 use super::board::lifted;
 use super::{hair, ink};
-use crate::core::{Ask, RemoteAsk};
+use crate::core::{Ask, RemoteAsk, Target};
 use crate::icons::Icon;
 use crate::theme::{
     Tokens, RADIUS_4, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_4, SPACE_5, TEXT_2XS_H, TEXT_MD,
     TEXT_SM, TEXT_XS, TEXT_XS_H,
 };
+use crate::toast;
 use crate::ui::{self, Button, Variant};
 use crate::workbench::Workbench;
 
@@ -72,6 +78,9 @@ pub fn devices(bench: &Workbench, query: &str, t: &Tokens, cx: &mut Context<Work
                     .map(|(at, device)| device_row(device, status, at > 0, t, cx)),
             )
             .into_any_element(),
+        (Some(status), true) if let Some(held) = &status.held => {
+            held_card(held, t, cx).into_any_element()
+        }
         _ => empty(bench, all.is_empty(), t, cx).into_any_element(),
     };
     div()
@@ -118,6 +127,125 @@ fn remote_access(
             ui::text("Remote access", TEXT_XS_H, FontWeight::NORMAL).text_color(t.text_secondary),
         )
         .child(switch)
+}
+
+/// The devices and hosts this host stopped trusting when something else changed its list,
+/// and the person's two ways on: bring back those still on the account, or start over.
+fn held_card(held: &HeldTrust, t: &Tokens, cx: &mut Context<Workbench>) -> Div {
+    let names: Vec<&str> = (held.devices.iter().map(|device| device.name.as_str()))
+        .chain(held.hosts.iter().map(String::as_str))
+        .filter(|name| !name.is_empty())
+        .collect();
+    let said = match names.as_slice() {
+        [] => "Something other than Sikemux changed this host's list of devices, so it stopped trusting it.".to_owned(),
+        [one] => format!("Something other than Sikemux changed this host's list of devices, so it stopped trusting it. It named {one}."),
+        [rest @ .., last] => format!(
+            "Something other than Sikemux changed this host's list of devices, so it stopped trusting it. It named {} and {last}.",
+            rest.join(", ")
+        ),
+    };
+    div()
+        .p(SPACE_4)
+        .flex()
+        .flex_col()
+        .gap(SPACE_3)
+        .border_1()
+        .border_color(hair(t))
+        .rounded(RADIUS_4)
+        .bg(lifted(t, 0.))
+        .child(
+            ui::text("Remote access is paused", TEXT_XS_H, FontWeight::MEDIUM)
+                .text_color(t.text_primary),
+        )
+        .child(
+            ui::text(said, TEXT_XS_H, FontWeight::NORMAL)
+                .text_color(t.text_secondary)
+                .whitespace_normal(),
+        )
+        .child(
+            div()
+                .flex()
+                .gap(SPACE_2)
+                .child(
+                    Button::new(
+                        "held-trust",
+                        "Bring back those on your account",
+                        Variant::Primary,
+                    )
+                    .on_click(cx.listener(|bench, _, _, cx| bench.settle_held(true, cx))),
+                )
+                .child(
+                    Button::new("held-forget", "Start over", Variant::Outline)
+                        .on_click(cx.listener(|bench, _, _, cx| bench.settle_held(false, cx))),
+                ),
+        )
+}
+
+impl Workbench {
+    /// Brings back the held devices and hosts still on the account, or lets them go.
+    fn settle_held(&mut self, trust: bool, cx: &mut Context<Self>) {
+        let here = Target::here(&self.asks);
+        let trusting = trust.then(|| here.request_typed::<call::TrustHeldRemote>(NoParams {}));
+        let forgetting =
+            (!trust).then(|| here.request_typed::<call::ForgetHeldRemote>(NoParams {}));
+        cx.spawn(async move |bench, cx| {
+            let settled = match (trusting, forgetting) {
+                (Some(trusting), _) => trusting.await,
+                (_, Some(forgetting)) => forgetting.await,
+                _ => return,
+            };
+            let _ = bench.update(cx, |bench, cx| match settled {
+                Ok(status) if trust => {
+                    let said = match status.devices.len() {
+                        1 => "Brought back 1 device; remote access is on".to_owned(),
+                        count => format!("Brought back {count} devices; remote access is on"),
+                    };
+                    bench.notify(toast::success(said), cx);
+                }
+                Ok(_) => bench.notify(toast::success("Started over with no devices"), cx),
+                Err(error) => bench.notify(toast::error(error), cx),
+            });
+        })
+        .detach();
+    }
+
+    /// Takes the device `key` off the account, once the person agrees: it is signed out and
+    /// off every host at once.
+    fn remove_from_account(&mut self, key: String, name: String, cx: &mut Context<Self>) {
+        self.confirm(
+            format!("Remove {name} from your account?"),
+            "It is signed out of your account and taken off every host at once. To use it again, sign it in again.",
+            "Remove from account",
+            true,
+            move |bench, yes, _, _| {
+                if yes {
+                    Target::here(&bench.asks).call_typed::<call::RemoveAccountDevice>(
+                        DeviceParams {
+                            key: key.clone(),
+                            name: None,
+                        },
+                    );
+                }
+            },
+            cx,
+        );
+    }
+
+    /// Takes the device `id` off this host only, once the person agrees.
+    fn remove_here(&mut self, id: String, name: String, cx: &mut Context<Self>) {
+        self.confirm(
+            format!("Remove {name} from this host?"),
+            "It stays on your account and keeps reaching your other hosts. It reaches this one again only when you allow it, with no more access than it has now.",
+            "Remove from this host",
+            true,
+            move |bench, yes, _, _| {
+                if yes {
+                    let _ = bench.asks.send(Ask::Remote(RemoteAsk::Revoke(id.clone())));
+                }
+            },
+            cx,
+        );
+    }
 }
 
 fn empty(bench: &Workbench, none_at_all: bool, t: &Tokens, cx: &mut Context<Workbench>) -> Div {
@@ -265,7 +393,8 @@ fn device_menu(device: &DeviceInfo, name: String, cx: &mut Context<Workbench>) -
                     });
                 }
             };
-            let removing = (bench.clone(), id.clone());
+            let removing = (bench.clone(), id.clone(), name.clone());
+            let leaving = removing.clone();
             popup
                 .item(
                     PopupMenuItem::new("Rename…")
@@ -291,15 +420,27 @@ fn device_menu(device: &DeviceInfo, name: String, cx: &mut Context<Workbench>) -
                 )
                 .separator()
                 .item(
-                    ui::MenuRow::new("Remove")
+                    ui::MenuRow::new("Remove from this host")
                         .icon(Icon::Trash)
                         .danger(true)
                         .item(cx)
                         .on_click(move |_, _, cx| {
-                            let (bench, device) = &removing;
-                            let device = device.clone();
-                            let _ = bench.update(cx, |bench, _| {
-                                let _ = bench.asks.send(Ask::Remote(RemoteAsk::Revoke(device)));
+                            let (bench, device, named) = &removing;
+                            let (device, named) = (device.clone(), named.clone());
+                            let _ =
+                                bench.update(cx, |bench, cx| bench.remove_here(device, named, cx));
+                        }),
+                )
+                .item(
+                    ui::MenuRow::new("Remove from account")
+                        .icon(Icon::Trash)
+                        .danger(true)
+                        .item(cx)
+                        .on_click(move |_, _, cx| {
+                            let (bench, device, named) = &leaving;
+                            let (device, named) = (device.clone(), named.clone());
+                            let _ = bench.update(cx, |bench, cx| {
+                                bench.remove_from_account(device, named, cx)
                             });
                         }),
                 )
