@@ -20,7 +20,8 @@ use super::super::{layout, workspace, Core, CoreError, CoreResult};
 use super::calls::{self as asks, params_of, HostAsk};
 use super::code::Scratch;
 use super::link::{Answer, Received};
-use super::{ask, find, open};
+use super::open::{self, OpenAs};
+use super::{ask, find};
 use crate::agent_catalog::{self, AgentKind};
 use crate::sessions::{carry, delete, SavedRef};
 use sikemux_view::layout::Tab;
@@ -40,6 +41,10 @@ pub struct SendParams {
     /// Moves rather than copies.
     #[serde(default, rename = "move")]
     pub moving: bool,
+    /// Into a worktree at this project's commit on the other host, when its checkout there
+    /// stands elsewhere.
+    #[serde(default)]
+    pub worktree: bool,
 }
 
 /// A chat on its way, as the other host is told it.
@@ -65,6 +70,9 @@ struct Carried {
 pub(super) struct Take {
     project: String,
     from: String,
+    /// The folder the chats go on in there, when not the project's own: a worktree of it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    work: Option<String>,
     chats: Vec<Carried>,
     tabs: Vec<Tab>,
 }
@@ -89,6 +97,10 @@ pub struct SessionSent {
     pub carried: Vec<String>,
     pub left: Vec<Left>,
     pub moved: bool,
+    /// Why nothing went: the other host's checkout stands at another commit or branch, so
+    /// the session can go into a worktree there instead.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub differs: Option<String>,
 }
 
 /// Sends the project's session to the linked host `host`, answering what went, what stayed and
@@ -115,8 +127,25 @@ pub(crate) async fn send_session(core: &Arc<Core>, params: SendParams) -> CoreRe
             .into());
         }
     }
+    let how = match params.worktree {
+        true => OpenAs::Worktree,
+        false => OpenAs::Checkout,
+    };
     let opened =
-        open::open_there(core, &link, project.path.clone(), params.uncommitted, false).await?;
+        open::open_there(core, &link, project.path.clone(), params.uncommitted, how).await?;
+    if let Some(why) = opened["differs"].as_str() {
+        return Ok(SessionSent {
+            host: link.id.clone(),
+            host_name: link.name.clone(),
+            project: String::new(),
+            path: None,
+            uncommitted: None,
+            carried: Vec::new(),
+            left: Vec::new(),
+            moved: false,
+            differs: Some(why.to_owned()),
+        });
+    }
     let there = opened["project"]
         .as_str()
         .ok_or_else(|| CoreError::from(format!("{} did not open the project", link.name)))?
@@ -142,6 +171,9 @@ pub(crate) async fn send_session(core: &Arc<Core>, params: SendParams) -> CoreRe
     let request = params_of::<asks::TakeSession>(&Take {
         project: there.clone(),
         from,
+        work: (opened["work"].as_str())
+            .filter(|work| Some(*work) != opened["path"].as_str())
+            .map(str::to_owned),
         chats,
         tabs,
     });
@@ -180,6 +212,7 @@ pub(crate) async fn send_session(core: &Arc<Core>, params: SendParams) -> CoreRe
             .collect(),
         left,
         moved,
+        differs: None,
     })
 }
 
@@ -302,7 +335,10 @@ pub(super) async fn take_here(core: &Arc<Core>, params: Take, body: Option<Recei
         .workspaces
         .project_info(&take.project)
         .ok_or("that project is not on this host")?;
-    let to = project.path.to_string_lossy().into_owned();
+    let to = match take.work {
+        Some(work) => work,
+        None => project.path.to_string_lossy().into_owned(),
+    };
     let mode = core.workspace_view().permission_mode;
     let mut reader = match &body {
         Some(body) => Some(std::fs::File::open(body.path()).map_err(|error| error.to_string())?),

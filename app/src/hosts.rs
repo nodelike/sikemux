@@ -360,11 +360,18 @@ impl Workbench {
     /// when asked, its uncommitted changes. A move then removes the chats there, once that host
     /// has every one. The person is then on that host, in that project, when `after` says so.
     pub fn send_session(&mut self, sending: Sending, cx: &mut Context<Self>) {
+        self.send_session_into(sending, false, cx);
+    }
+
+    /// Sends the session as `send_session` does, into a worktree at its commit on the other
+    /// host when `worktree`, rather than into that host's checkout.
+    fn send_session_into(&mut self, sending: Sending, worktree: bool, cx: &mut Context<Self>) {
         let params = SendParams {
             project: sending.project.clone(),
             host: sending.host.clone(),
             moving: sending.moving,
             uncommitted: sending.uncommitted,
+            worktree,
         };
         // The project's own host sends it.
         let asked = core::Target::new(&self.asks, sending.from.clone())
@@ -378,6 +385,13 @@ impl Workbench {
         cx.spawn(async move |bench, cx| {
             let answer = asked.await;
             let _ = bench.update(cx, |bench, cx| {
+                if let Ok(SessionSent {
+                    differs: Some(why), ..
+                }) = &answer
+                {
+                    bench.offer_worktree(sending, why, cx);
+                    return;
+                }
                 let said = match &answer {
                     Ok(sent) => sent_summary(sent, &sending),
                     Err(error) => format!("It did not go to {}: {error}", sending.label),
@@ -403,6 +417,29 @@ impl Workbench {
             });
         })
         .detach();
+    }
+
+    /// Says the session did not go because the other host's checkout stands elsewhere, with
+    /// a way to send it into a worktree there at its commit instead.
+    fn offer_worktree(&mut self, sending: Sending, why: &str, cx: &mut Context<Self>) {
+        let said = format!(
+            "{} did not go to {}: {why}, and laying it there would mix the two.",
+            sending.name, sending.label
+        );
+        crate::settings::session_sent(self, Some(said.clone().into()), cx);
+        let bench = cx.weak_entity();
+        let note = toast::error(said).action(move |_, _, cx| {
+            let (note, bench, sending) = (cx.entity(), bench.clone(), sending.clone());
+            gpui_kit::component::button::Button::new("send-into-worktree")
+                .label("Into a worktree")
+                .on_click(move |_, window, cx| {
+                    let sending = sending.clone();
+                    let _ =
+                        bench.update(cx, |bench, cx| bench.send_session_into(sending, true, cx));
+                    note.update(cx, |note, cx| note.dismiss(window, cx));
+                })
+        });
+        self.notify(note, cx);
     }
 
     /// Sets Sikemux up on the SSH host `alias` as `set_up` says, over the person's own ssh in a
@@ -767,6 +804,7 @@ impl Workbench {
 }
 
 /// A project's session on its way to another host, as the person asked for it.
+#[derive(Clone)]
 pub struct Sending {
     /// Whose core holds the project now.
     pub from: Place,

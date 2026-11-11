@@ -35,19 +35,30 @@ pub struct OpenOnParams {
 /// that host's project for it.
 pub(crate) async fn open_on(core: &Arc<Core>, params: OpenOnParams) -> CoreResult<Value> {
     let link = find(core, &params.host)?;
-    open_there(core, &link, params.path, params.uncommitted, true).await
+    open_there(core, &link, params.path, params.uncommitted, OpenAs::Copy).await
 }
 
-/// Opens the project at `path` on the linked host `link`, with what is not committed laid
-/// over it there when `uncommitted`, and answers with that host's project for it and, then,
-/// how the uncommitted changes went. A `copy` is a new checkout there, with what is not
-/// committed committed on top.
+/// Where on the other host a project opened there goes.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum OpenAs {
+    /// A new checkout of its own, with what is not committed committed on top.
+    Copy,
+    /// The checkout there of the same repository when it stands where this one does, with
+    /// what is not committed laid over it; else nothing changes and the answer says why.
+    Checkout,
+    /// A worktree at this commit of the checkout there, else a new checkout.
+    Worktree,
+}
+
+/// Opens the project at `path` on the linked host `link`, with what is not committed going
+/// too when `uncommitted`, and answers with that host's project for it, the folder the work
+/// is in there and how the uncommitted changes went, or why the checkout there differs.
 pub(crate) async fn open_there(
     core: &Arc<Core>,
     link: &StoredLink,
     path: PathBuf,
     uncommitted: bool,
-    copy: bool,
+    how: OpenAs,
 ) -> CoreResult<Value> {
     let packed = blocking(move || code::package(&path).map_err(Into::into)).await?;
     let patch = packed.code.patch.clone().filter(|_| uncommitted);
@@ -56,9 +67,10 @@ pub(crate) async fn open_there(
             patch,
             ..packed.code.clone()
         },
-        copy,
+        copy: how == OpenAs::Copy,
         into: None,
         abandon: None,
+        worktree: how == OpenAs::Worktree,
     };
     let asked = |opening: &OpenParams, body: Option<&Path>| {
         let params = params_of::<asks::OpenProject>(opening);
@@ -126,6 +138,10 @@ pub(super) struct OpenParams {
     /// A folder the first round claimed for an opening that will not finish, to remove.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     abandon: Option<PathBuf>,
+    /// The work goes into a worktree at the commit sent, when the checkout there stands
+    /// elsewhere.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    worktree: bool,
 }
 
 pub(super) async fn open_here(
@@ -138,6 +154,7 @@ pub(super) async fn open_here(
         copy,
         into,
         abandon,
+        worktree,
     } = params;
     if let Some(dir) = abandon {
         blocking(move || {
@@ -152,7 +169,8 @@ pub(super) async fn open_here(
         let (core, code) = (core.clone(), code.clone());
         blocking(move || {
             let bundle = body.as_ref().map(Received::path);
-            code::open_project(&core, &code, bundle, copy, into.as_deref()).map_err(Into::into)
+            let into = into.as_deref();
+            code::open_project(&core, &code, bundle, copy, into, worktree).map_err(Into::into)
         })
         .await
         .map_err(|error| error.to_string())?
@@ -161,10 +179,11 @@ pub(super) async fn open_here(
         Opened::Needs { into, tips } => {
             Ok(json!({ "needs": "bundle", "tips": tips, "into": into }))
         }
-        Opened::Ready(path) => {
+        Opened::Differs(why) => Ok(json!({ "differs": why })),
+        Opened::Ready { repo, work } => {
             let laid = match &code.patch {
                 Some(patch) => {
-                    let (path, patch) = (path.clone(), patch.clone());
+                    let (path, patch) = (work.clone(), patch.clone());
                     let laid = blocking(move || {
                         match copy {
                             true => code::commit_over(&path, &patch),
@@ -179,10 +198,15 @@ pub(super) async fn open_here(
                 }
                 None => None,
             };
-            let project = workspace::add_project(core, AddProjectParams::named(path, code.project))
+            let project = workspace::add_project(core, AddProjectParams::named(repo, code.project))
                 .await
                 .map_err(|error| error.to_string())?;
-            Ok(json!({ "path": project.path, "project": project.id, "uncommitted": laid }))
+            Ok(json!({
+                "path": project.path,
+                "project": project.id,
+                "work": work,
+                "uncommitted": laid,
+            }))
         }
     }
 }

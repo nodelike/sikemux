@@ -253,8 +253,19 @@ fn tips(repo: &Path) -> Vec<String> {
 /// Where a project the person opened on this host from another one lives, or the
 /// folder claimed for it and the commits a bundle should leave out.
 pub(crate) enum Opened {
-    Ready(PathBuf),
-    Needs { into: PathBuf, tips: Vec<String> },
+    /// The project's checkout, and the folder the work goes on in: the checkout itself, or a
+    /// worktree of it at the commit sent.
+    Ready {
+        repo: PathBuf,
+        work: PathBuf,
+    },
+    Needs {
+        into: PathBuf,
+        tips: Vec<String>,
+    },
+    /// The checkout here is not where the sent work stands, so laying it there would mix the
+    /// two; the work can go into a worktree at the commit sent instead.
+    Differs(String),
 }
 
 /// The folder name a project takes here: its repository's, else its own.
@@ -413,7 +424,40 @@ fn fill(dir: &Path, code: &Code, bundle: Option<&Path>) -> Result<Opened, String
         None => Git::quick(dir).trimmed(&["checkout", "--quiet", "--detach", &code.commit])?,
     };
     Git::quick(dir).trimmed(&["config", "--unset", OPENING])?;
-    Ok(Opened::Ready(dir.to_owned()))
+    Ok(Opened::Ready {
+        repo: dir.to_owned(),
+        work: dir.to_owned(),
+    })
+}
+
+/// Why the checkout `repo` is not where `code` stands: another commit or branch checked out,
+/// or changes of its own under the uncommitted changes sent.
+fn differs(repo: &Path, code: &Code) -> Option<String> {
+    let git = || Git::quick(repo);
+    let head = git().trimmed(&["rev-parse", "HEAD"]).unwrap_or_default();
+    let branch = git()
+        .trimmed(&["symbolic-ref", "--quiet", "--short", "HEAD"])
+        .ok();
+    let word = |branch: &Option<String>| branch.clone().unwrap_or_else(|| "no branch".into());
+    if branch != code.branch {
+        return Some(format!(
+            "its checkout there is on {}, not {}",
+            word(&branch),
+            word(&code.branch)
+        ));
+    }
+    if head != code.commit {
+        return Some(format!(
+            "its checkout there is at another commit of {}",
+            word(&branch)
+        ));
+    }
+    let dirty = !git()
+        .trimmed(&["status", "--porcelain"])
+        .unwrap_or_default()
+        .is_empty();
+    (dirty && code.patch.is_some())
+        .then(|| "its checkout there has uncommitted changes of its own".to_owned())
 }
 
 /// Whether `dir` is the repository of one of this host's projects.
@@ -425,8 +469,9 @@ fn is_project_repo(core: &Core, dir: &Path) -> bool {
     })
 }
 
-/// Opens the person's project from another host here: a checkout of the same `origin` as it
-/// is, unless `copy` asks for a new one, else a new folder cloned from the remote with this
+/// Opens the person's project from another host here: a checkout of the same `origin` when it
+/// stands where the sent work does, or a worktree of it at the commit sent when `worktree`
+/// asks, unless `copy` asks for a new one, else a new folder cloned from the remote with this
 /// host's own sign-in, else filled from `bundle`, at the commit sent and on its branch. A
 /// second round names the folder the first claimed in `into`; a folder claimed here that
 /// fails is removed. Only committed work comes over.
@@ -436,6 +481,7 @@ pub(crate) fn open_project(
     bundle: Option<&Path>,
     copy: bool,
     into: Option<&Path>,
+    worktree: bool,
 ) -> Result<Opened, String> {
     if !is_commit_id(&code.commit) {
         return Err("the project's commit is not a commit id".into());
@@ -457,7 +503,20 @@ pub(crate) fn open_project(
             };
             take_commit(&repo, bundle, &code.commit)?;
         }
-        return Ok(Opened::Ready(repo));
+        return match worktree {
+            true => {
+                let branch = format!("sent/{}", code.branch.as_deref().unwrap_or("work"));
+                let (_, work) = worktree::cut(&repo, &branch, &code.commit)?;
+                Ok(Opened::Ready { repo, work })
+            }
+            false => Ok(match differs(&repo, code) {
+                Some(why) => Opened::Differs(why),
+                None => Opened::Ready {
+                    work: repo.clone(),
+                    repo,
+                },
+            }),
+        };
     }
     let dir = match into {
         Some(dir) => dir.to_owned(),
