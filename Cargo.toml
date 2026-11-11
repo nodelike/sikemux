@@ -38,11 +38,14 @@ opt-level = 3
 debug = false
 
 # The phone app's build: as fast as release, but a panic in one background
-# task fails that task instead of closing the whole app.
+# task fails that task instead of closing the whole app. Its symbols and line
+# tables go to the dSYM and Sentry; Xcode and Gradle strip them from the app.
 [profile.mobile]
 inherits = "release"
 panic = "unwind"
 opt-level = "z"
+debug = "line-tables-only"
+strip = "none"
 [profile.mobile.package."*"]
 opt-level = "z"
 
