@@ -206,7 +206,7 @@ async fn attempt(
         if let Some(unpacked) = unpacked {
             replace_app(&unpacked, app)?;
         }
-        Ok(place(&archive, core)?)
+        place(&archive, core)
     }
     .await;
     let _ = fs::remove_dir_all(&work);
