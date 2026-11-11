@@ -35,6 +35,7 @@ struct StashFace: View {
         }
         .frame(width: size, height: size)
         .clipShape(shape)
+        .contentShape(shape)
         .overlay(shape.strokeBorder(photo == nil ? palette.border : .clear, lineWidth: 1))
         .task(id: item.id) {
             guard item.kind == .image, photo == nil else { return }

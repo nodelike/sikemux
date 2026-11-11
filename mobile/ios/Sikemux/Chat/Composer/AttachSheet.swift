@@ -306,6 +306,7 @@ private struct PhotoCell: View {
                 }
             }
             .frame(width: side, height: side)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Photo")
