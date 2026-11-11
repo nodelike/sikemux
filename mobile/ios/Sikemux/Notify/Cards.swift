@@ -100,7 +100,7 @@ private final class QuietListener: CoreListener {
 /// Hears the system about notifications: the token, a clear that takes a card away, a card arriving while the app
 /// is open, and a card tapped.
 @MainActor
-final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
+final class AppDelegate: NSObject, UIApplicationDelegate {
     func application(_: UIApplication, didFinishLaunchingWithOptions _: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         UNUserNotificationCenter.current().delegate = self
         _ = Notify.shared
@@ -121,22 +121,29 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         await DeliveredCards.remove([tag])
         return .newData
     }
+}
 
+/// iOS asks these on the main thread, which the conformance checks as they run.
+extension AppDelegate: @preconcurrency UNUserNotificationCenterDelegate {
     /// A card that arrives while the app is open shows over it.
-    nonisolated func userNotificationCenter(
-        _: UNUserNotificationCenter, willPresent notification: UNNotification
-    ) async -> UNNotificationPresentationOptions {
-        if let card = Card.kept(in: notification.request.content.userInfo) {
-            await MainActor.run { Cards.arrived(card) }
-        }
-        return [.banner, .list, .sound]
+    func userNotificationCenter(
+        _: UNUserNotificationCenter, willPresent notification: UNNotification,
+        withCompletionHandler show: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        if let card = Card.kept(in: notification.request.content.userInfo) { Cards.arrived(card) }
+        show([.banner, .list, .sound])
     }
 
-    nonisolated func userNotificationCenter(_: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
+    /// A card tapped, or one of its buttons.
+    func userNotificationCenter(
+        _: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
+        withCompletionHandler done: @escaping () -> Void
+    ) {
         let request = response.notification.request
-        guard let card = Card.kept(in: request.content.userInfo) else { return }
-        let tag = Push.collapseId(request.content.userInfo) ?? request.identifier
-        let action = CardAction(rawValue: response.actionIdentifier)
-        await MainActor.run { Cards.tapped(card, action: action, tag: tag) }
+        if let card = Card.kept(in: request.content.userInfo) {
+            let tag = Push.collapseId(request.content.userInfo) ?? request.identifier
+            Cards.tapped(card, action: CardAction(rawValue: response.actionIdentifier), tag: tag)
+        }
+        done()
     }
 }
