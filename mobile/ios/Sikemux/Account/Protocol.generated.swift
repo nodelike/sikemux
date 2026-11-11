@@ -42,6 +42,7 @@ enum AccountEventType: String, Codable, Hashable, Sendable {
     case stashChanged = "stash.changed"
     case stashRemoved = "stash.removed"
     case stashSeen = "stash.seen"
+    case vaultChanged = "vault.changed"
     /// A value added after this build, which it cannot act on.
     case unknown
 

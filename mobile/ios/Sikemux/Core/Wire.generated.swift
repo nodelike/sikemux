@@ -1420,6 +1420,10 @@ enum InboxKind: String, Codable, Hashable, Sendable {
     /// Something about a host needs the person, as `hostAlert` says: this host's, or the
     /// linked one `host` names. Open its page on the Hosts tab.
     case hostAlert
+    /// The account vault needs the person, as `what` says: a host that may use none of the
+    /// account's sign-ins until they allow it, or a recovery key to save. Open Settings,
+    /// Connectors.
+    case vault
     /// One added after this build.
     case unknown
 
@@ -2051,6 +2055,24 @@ struct HostLoad: Codable, Hashable, Sendable {
     var cpu: Int
     /// Memory in use, in bytes, where the host says.
     var memoryUsed: Int?
+    /// More threads want to run than its cores take, so agents' simulators and builds wait.
+    var overloaded: Bool?
+    /// The one-minute load average, rounded, while it is overloaded.
+    var loadAverage: Int?
+    var cores: Int?
+    /// The builds agents run or wait to run, oldest first, while it is overloaded.
+    var builds: [AgentBuild]?
+}
+
+/// A build an agent started, such as `xcodebuild` or `cargo build`, running or waiting its turn.
+struct AgentBuild: Codable, Hashable, Sendable {
+    var id: Int
+    var agentId: String?
+    var command: String
+    /// When it started, or began to wait, in Unix milliseconds.
+    var since: Int
+    /// How many builds wait ahead of it, while it waits.
+    var ahead: Int?
 }
 
 /// An alert about this host, or about the linked host `host` names.
@@ -2495,6 +2517,8 @@ struct ToolRow: Codable, Hashable, Sendable {
     var intent: ToolIntent?
     /// What a command read, searched or listed, when `target` is the command as typed.
     var subject: String?
+    /// The folder a search looked in, when it says.
+    var within: String?
 }
 
 enum ToolAction: String, Codable, Hashable, Sendable {
@@ -3570,16 +3594,33 @@ enum NoticeSeverity: String, Codable, Hashable, Sendable {
     }
 }
 
-/// Where a goal began or ended in a chat, and how it stood then.
+/// Where a goal began, passed a step or ended in a chat, and how it stood then.
 struct GoalMarker: Codable, Hashable, Sendable {
     var card: Int
+    var moment: GoalMoment?
     var state: SliceState
     var name: String?
     /// A step for each gate or slice, as `ChatGoal` counts them.
     var steps: [SliceState]?
     var ofGates: Bool?
-    /// How long the chat worked on it, in milliseconds, once it ended.
+    /// How long the chat had worked on it, in milliseconds, past its start.
     var took: Int?
+}
+
+/// What happened to a goal where its line sits.
+enum GoalMoment: String, Codable, Hashable, Sendable {
+    case started
+    /// One more of its steps is done, and it goes on.
+    case step
+    case done
+    /// The chat no longer works on it, though it is not done.
+    case stopped
+    /// One added after this build.
+    case unknown
+
+    init(from decoder: any Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
 }
 
 /// A stretch of a sent message's text: its words, or a chip its draft wrote there.
