@@ -41,7 +41,9 @@ final class Account {
         do {
             saved =
                 try Clerk.hasClient()
-                ? Keychain.app.read(Self.savedItem).flatMap { try? JSONDecoder().decode(Saved.self, from: Data($0.utf8)) }
+                ? Keychain.app.read(Self.savedItem).flatMap {
+                    try? JSONDecoder().decode(Saved.self, from: Data($0.utf8))
+                }
                 : nil
         } catch {
             print("sikemux: the Keychain refused the sign-in, so it is read again once the phone is unlocked: \(error)")
