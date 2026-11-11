@@ -226,7 +226,7 @@ private struct SectionLabel: View {
 }
 
 private struct ChatRow: View {
-    let chat: ShareChat
+    let chat: ShareSnapshot.Chat
     let pick: () -> Void
 
     var body: some View {
@@ -256,7 +256,7 @@ private struct ChatRow: View {
 }
 
 private struct NewChatRow: View {
-    let chat: ShareNewChat
+    let chat: ShareSnapshot.NewChat
     let pick: () -> Void
 
     var body: some View {
