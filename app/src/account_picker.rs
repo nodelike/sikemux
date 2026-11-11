@@ -6,7 +6,8 @@ use gpui_kit::component::button::{Button as KitButton, ButtonVariants};
 use gpui_kit::component::menu::DropdownMenu;
 use gpui_kit::component::Disableable;
 use gpui_kit::{
-    div, px, Anchor, AnyElement, App, Context, IntoElement, ParentElement, SharedString, Styled,
+    div, img, px, Anchor, AnyElement, App, Context, IntoElement, ParentElement, SharedString,
+    Styled,
 };
 use sikemux_core::agent_accounts::status::AccountStatus;
 use sikemux_core::agent_accounts::Profile;
@@ -85,6 +86,9 @@ pub fn picker(
     let name =
         |profile: &Profile, status: Option<&AccountStatus>| accounts::name(bench, profile, status);
     let label = name(&current, signed_in(&current).as_ref());
+    let place = (bench.accounts.of(provider).iter())
+        .position(|profile| profile.id == current.id)
+        .unwrap_or_default();
     let about = match (&none_because, running) {
         (Some(why), _) => why.clone(),
         (None, true) => "Moving stops this turn and carries it on in the other account".to_owned(),
@@ -102,14 +106,18 @@ pub fn picker(
         .text_size(crate::theme::ui_text(TEXT_2XS))
         .text_color(t.text_secondary)
         .tooltip(about)
-        .child(ui::mark(provider, 13.))
+        .child(
+            img(crate::agents::marble::avatar(&label, place))
+                .size(px(16.))
+                .flex_none(),
+        )
         .child(
             div()
                 .min_w_0()
                 .overflow_hidden()
                 .text_ellipsis()
                 .whitespace_nowrap()
-                .child(label),
+                .child(label.clone()),
         )
         .child(ui::icon(Icon::Chevron, 10.).text_color(t.text_tertiary));
     if disabled {
