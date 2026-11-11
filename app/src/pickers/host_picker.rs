@@ -12,13 +12,14 @@ use gpui_kit::{
 use crate::copies::{Folded, HostCopy};
 use crate::hosts::{Copying, Place};
 use crate::icons::Icon;
-use crate::theme::{self, Tokens, SPACE_1, TEXT_2XS, TEXT_3XS_H};
+use crate::theme::{Tokens, SPACE_1, TEXT_2XS, TEXT_3XS_H};
 use crate::ui;
 use crate::ui::list_picker::{self, Choose, Close, Dismiss, Next, Previous};
-use crate::ui::path::tilde;
+use crate::ui::path::{middle, tilde};
 use crate::workbench::Workbench;
 
 const CONTEXT: &str = "HostPicker";
+const PATH_MOST: usize = 30;
 
 pub fn install(cx: &mut App) {
     list_picker::bind(CONTEXT, list_picker::Tab::Steps, cx);
@@ -108,6 +109,25 @@ impl HostPicker {
         });
     }
 
+    /// How long the host at `place` has been out of reach: "away 2 h", or "away" before this
+    /// window has seen it go.
+    fn away(&self, place: &Place, cx: &App) -> SharedString {
+        let since = match place {
+            Place::Account(key) => self.bench.upgrade().and_then(|bench| {
+                bench
+                    .read(cx)
+                    .feeds
+                    .host(key)
+                    .and_then(|feed| feed.away_since)
+            }),
+            Place::This => None,
+        };
+        since.map_or_else(
+            || "away".into(),
+            |since| format!("away {}", crate::hosts::lasted(since)).into(),
+        )
+    }
+
     fn step(&mut self, by: isize, cx: &mut Context<Self>) {
         let count = self.choices(cx).len();
         if count > 0 {
@@ -143,10 +163,15 @@ impl HostPicker {
                     .child(glyph)
                     .child(list_picker::label(copy.host.clone(), current, cx))
                     .child(list_picker::detail(
-                        tilde(&copy.path.to_string_lossy(), home(&copy.place).as_deref()),
+                        middle(
+                            &tilde(&copy.path.to_string_lossy(), home(&copy.place).as_deref()),
+                            PATH_MOST,
+                        ),
                         cx,
                     ))
-                    .when(copy.away, |row| row.child(tag("Out of reach", false, cx)))
+                    .when(copy.away, |row| {
+                        row.child(quiet(self.away(&copy.place, cx), false, cx))
+                    })
                     .when_some(
                         copy.git.as_ref().filter(|_| !copy.away && !current),
                         |row, git| {
@@ -161,22 +186,43 @@ impl HostPicker {
                     )
                     .when(current, |row| row.child(list_picker::check(cx)))
             }
-            Choice::CopyTo { name, reached, .. } => {
+            Choice::CopyTo {
+                host,
+                name,
+                reached,
+            } => {
                 let identity = self
                     .folded
                     .as_ref()
                     .and_then(|folded| folded.identity.clone());
-                let from = match identity.filter(|identity| identity.contains('/')) {
-                    Some(remote) => format!("clones {remote}"),
-                    None => format!("from {}", self.here.host),
+                let remote = identity.filter(|identity| identity.contains('/'));
+                let (from, verb) = match &remote {
+                    Some(remote) => (
+                        remote
+                            .split_once('/')
+                            .map_or(remote.as_str(), |(_, repo)| repo)
+                            .to_owned(),
+                        "Clone",
+                    ),
+                    None => (format!("from {}", self.here.host), "Copy"),
                 };
+                let lit = at == self.chosen;
                 row.when(!reached, |row| row.opacity(0.45))
                     .child(ui::icon(Icon::Server, 12.).text_color(t.host))
                     .child(list_picker::label(name.clone(), false, cx))
                     .child(list_picker::detail(from, cx))
                     .child(match reached {
-                        true => tag("Copy", true, cx),
-                        false => tag("Out of reach", false, cx),
+                        true => div()
+                            .flex()
+                            .flex_none()
+                            .items_center()
+                            .gap(SPACE_1)
+                            .child(ui::icon(Icon::Download, 11.))
+                            .child(quiet(verb.into(), lit, cx))
+                            .text_color(if lit { t.accent } else { t.text_tertiary })
+                            .into_any_element(),
+                        false => quiet(self.away(&Place::Account(host.clone()), cx), false, cx)
+                            .into_any_element(),
                     })
             }
         };
@@ -189,28 +235,17 @@ impl HostPicker {
     }
 }
 
-/// A small word in a frame at the end of a row, in the accent when it is what picking does.
-fn tag(words: &'static str, accent: bool, cx: &App) -> impl IntoElement {
+/// A short word at the end of a row, in the accent on the row the keys are on when it is what
+/// picking does.
+fn quiet(words: SharedString, lit: bool, cx: &App) -> impl IntoElement {
     let t = Tokens::get(cx);
     ui::text(words, TEXT_2XS, gpui_kit::FontWeight::NORMAL)
         .flex_none()
-        .px(px(6.))
-        .py(px(1.))
-        .rounded(theme::RADIUS_1)
-        .border_1()
-        .border_color(match accent {
-            true => t.accent.opacity(0.35),
-            false => t.border,
-        })
-        .text_color(match accent {
-            true => t.accent,
-            false => t.text_tertiary,
-        })
+        .text_color(if lit { t.accent } else { t.text_tertiary })
 }
 
 impl Render for HostPicker {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let t = Tokens::get(cx).clone();
         let choices = self.choices(cx);
         let this = cx.entity();
         let name = self
@@ -241,11 +276,10 @@ impl Render for HostPicker {
             }))
             .on_action(cx.listener(|picker, _: &Close, window, cx| (picker.close)(window, cx)))
             .gap_0()
-            .child(list_picker::heading(format!("Has {name}"), cx))
+            .child(list_picker::heading(&format!("Has {name}"), cx))
             .children(held)
             .when(copies < choices.len(), |popup| {
                 popup
-                    .child(div().h(px(1.)).mx(px(2.)).my(SPACE_1).bg(t.border))
                     .child(list_picker::heading("Copy to", cx))
                     .children(targets)
             })

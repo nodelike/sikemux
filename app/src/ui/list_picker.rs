@@ -11,7 +11,7 @@ use gpui_kit::{
 };
 
 use crate::icons::Icon;
-use crate::theme::{self, Tokens, SPACE_0, SPACE_1, SPACE_2, TEXT_2XS_H, TEXT_3XS_H, TEXT_XS_H};
+use crate::theme::{self, Tokens, SPACE_1, SPACE_2, TEXT_2XS_H, TEXT_XS_H};
 
 actions!(
     list_picker,
@@ -107,14 +107,15 @@ pub fn popup(width: f32, cx: &App) -> Div {
 }
 
 /// The quiet name over a group of rows.
-pub fn heading(words: impl IntoElement, cx: &App) -> Div {
+pub fn heading(words: &str, cx: &App) -> Div {
     div()
+        .flex()
+        .items_center()
+        .gap(SPACE_2)
         .px(SPACE_2)
-        .pt(SPACE_2)
-        .pb(SPACE_0)
-        .text_size(theme::ui_text(TEXT_3XS_H))
-        .text_color(Tokens::get(cx).text_tertiary)
-        .child(words)
+        .pt(SPACE_1)
+        .child(crate::ui::caps(words, cx).flex_none())
+        .child(div().flex_1().h(px(1.)).bg(Tokens::get(cx).border))
 }
 
 /// A row of a picker, `id`, at `at` in its `list`, lit while it is the `chosen` one, which the

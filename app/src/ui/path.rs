@@ -21,6 +21,36 @@ pub fn tilde(path: &str, home: Option<&str>) -> String {
     }
 }
 
+/// `path` cut to about `most` letters by dropping folders from its middle, so where it starts
+/// and the folders it ends in still show: `~/…/services/sikemux`.
+pub fn middle(path: &str, most: usize) -> String {
+    let count = path.chars().count();
+    if count <= most {
+        return path.to_owned();
+    }
+    let parts: Vec<&str> = path.split('/').collect();
+    let head = match parts.first() {
+        Some(&"") => "",
+        Some(first) => first,
+        None => return path.to_owned(),
+    };
+    let mut tail: Vec<&str> = Vec::new();
+    let mut used = head.chars().count() + 2;
+    for part in parts[1..].iter().rev() {
+        let width = part.chars().count() + 1;
+        if !tail.is_empty() && used + width > most {
+            break;
+        }
+        used += width;
+        tail.push(part);
+    }
+    if tail.len() + 1 >= parts.len() {
+        return path.to_owned();
+    }
+    tail.reverse();
+    format!("{head}/…/{}", tail.join("/"))
+}
+
 /// The last part of `path`, or all of it when it has none.
 pub fn file_name(path: &std::path::Path) -> String {
     path.file_name()
