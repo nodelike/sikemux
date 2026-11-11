@@ -1,6 +1,7 @@
-//! What waits to go to each linked host while it is out of reach, in the
-//! order it was sent, kept in `host-outbox.json` so it outlives a restart.
-//! Only the newest of what replaces itself, such as an agent's state, waits.
+//! What waits to go to each linked host while it is out of reach, kept in `host-outbox.json` so
+//! it outlives a restart. Each lane, such as one agent's, goes in the order it was sent, and a
+//! post stuck in one lane holds up no other. Only the newest of what replaces itself, such as an
+//! agent's state, waits, and what must arrive is never dropped.
 
 use std::collections::{BTreeMap, VecDeque};
 use std::path::{Path, PathBuf};
@@ -37,6 +38,12 @@ pub(crate) struct Post {
     /// Names it to the other host, which does it once however often it is sent.
     #[serde(default)]
     pub call: Option<String>,
+    /// What it waits behind: earlier posts of the same lane.
+    #[serde(default)]
+    pub lane: String,
+    /// The other host fetches `body` when it takes the post, rather than the post carrying it.
+    #[serde(default)]
+    pub pulled: bool,
     pub at: u64,
 }
 
@@ -61,6 +68,8 @@ pub(crate) struct Sending {
     keep: bool,
     from: Option<String>,
     call: Option<String>,
+    lane: String,
+    pulled: bool,
 }
 
 impl Sending {
@@ -73,6 +82,8 @@ impl Sending {
             keep: false,
             from: None,
             call: None,
+            lane: String::new(),
+            pulled: false,
         }
     }
 
@@ -88,8 +99,16 @@ impl Sending {
         self
     }
 
-    pub(crate) fn body(mut self, body: PathBuf) -> Self {
+    /// A file the other host fetches when it takes the post.
+    pub(crate) fn pulled(mut self, body: PathBuf) -> Self {
         self.body = Some(body);
+        self.pulled = true;
+        self
+    }
+
+    /// Goes after what was sent before it about `agent`, and waits for nothing else.
+    pub(crate) fn about(mut self, agent: &str) -> Self {
+        self.lane = agent.to_owned();
         self
     }
 
@@ -138,6 +157,8 @@ impl Outbox {
             keep: sending.keep,
             from: sending.from,
             call,
+            lane: sending.lane,
+            pulled: sending.pulled,
             at: epoch_ms(),
         };
         let posts = record.posts.entry(host.to_owned()).or_default();
@@ -152,7 +173,9 @@ impl Outbox {
         }
         posts.push_back(post);
         while posts.len() > MAX_POSTS {
-            let oldest = posts.iter().position(|waiting| !waiting.keep).unwrap_or(0);
+            let Some(oldest) = posts.iter().position(|waiting| !waiting.keep) else {
+                break;
+            };
             if let Some(dropped) = posts.remove(oldest) {
                 eprintln!(
                     "sikemux core: dropped a {} waiting for a linked host, which had {MAX_POSTS} waiting",
@@ -164,8 +187,46 @@ impl Outbox {
         self.kept.save(&*record);
     }
 
-    pub(crate) fn front(&self, host: &str) -> Option<Post> {
-        self.record.locked().posts.get(host)?.front().cloned()
+    /// The next post of `lane` to go to `host`.
+    pub(crate) fn front(&self, host: &str, lane: &str) -> Option<Post> {
+        (self.record.locked().posts.get(host)?.iter())
+            .find(|post| post.lane == lane)
+            .cloned()
+    }
+
+    /// The lanes with posts waiting for `host`.
+    pub(crate) fn lanes(&self, host: &str) -> Vec<String> {
+        let record = self.record.locked();
+        let mut lanes: Vec<String> = Vec::new();
+        for post in record.posts.get(host).into_iter().flatten() {
+            if !lanes.contains(&post.lane) {
+                lanes.push(post.lane.clone());
+            }
+        }
+        lanes
+    }
+
+    /// The file waiting to be fetched with a post to `host` that `wanted` picks.
+    pub(crate) fn pulled_body(
+        &self,
+        host: &str,
+        wanted: impl Fn(&Post) -> bool,
+    ) -> Option<PathBuf> {
+        (self.record.locked().posts.get(host)?.iter())
+            .find(|post| post.pulled && wanted(post))
+            .and_then(|post| post.body.clone())
+    }
+
+    /// The post `seq` carries its file after all, for a host too old to fetch it.
+    pub(crate) fn carry(&self, host: &str, seq: u64, method: &str) {
+        let mut record = self.record.locked();
+        if let Some(post) =
+            (record.posts.get_mut(host).into_iter().flatten()).find(|post| post.seq == seq)
+        {
+            post.pulled = false;
+            post.method = method.to_owned();
+        }
+        self.kept.save(&*record);
     }
 
     pub(crate) fn has(&self, host: &str) -> bool {

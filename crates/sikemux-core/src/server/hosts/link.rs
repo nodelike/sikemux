@@ -41,6 +41,9 @@ struct Reply {
     /// What kind of refusal `error` is; a host that does not say means it is final.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     refusal: Option<String>,
+    /// A file's bytes follow the answer, until the stream ends.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    body: bool,
 }
 
 /// Why a host turned an ask away, which tells the asker whether to ask again.
@@ -147,6 +150,14 @@ impl std::fmt::Display for Failed {
     }
 }
 
+fn refused(why: String, kind: Option<&str>) -> Failed {
+    match Kind::of(kind) {
+        Kind::Final => Failed::Refused(why),
+        Kind::Retry => Failed::Retry(why),
+        Kind::NotLinked => Failed::NotLinked(why),
+    }
+}
+
 fn broken(error: impl std::fmt::Display) -> Failed {
     Failed::Unreachable(error.to_string())
 }
@@ -192,7 +203,8 @@ async fn write_body(send: &mut SendStream, path: &Path) -> std::io::Result<()> {
     }
 }
 
-async fn read_body(recv: &mut RecvStream) -> std::io::Result<Received> {
+/// Reads a file's bytes until the stream ends, giving up once none came for `stall`.
+async fn read_body(recv: &mut RecvStream, stall: Option<Duration>) -> std::io::Result<Received> {
     let received = Received(
         std::env::temp_dir().join(format!("sikemux-link-{}", uuid::Uuid::new_v4().simple())),
     );
@@ -200,7 +212,13 @@ async fn read_body(recv: &mut RecvStream) -> std::io::Result<Received> {
     let mut buffer = vec![0u8; CHUNK];
     let mut total = 0u64;
     loop {
-        let read = AsyncReadExt::read(recv, &mut buffer).await?;
+        let reading = AsyncReadExt::read(recv, &mut buffer);
+        let read = match stall {
+            Some(stall) => tokio::time::timeout(stall, reading)
+                .await
+                .map_err(|_| std::io::Error::other("the file stopped coming"))??,
+            None => reading.await?,
+        };
         if read == 0 {
             return Ok(received);
         }
@@ -241,11 +259,7 @@ pub(crate) async fn ask(
             .await
             .map_err(|error| Failed::Unknown(error.to_string()))?;
         match (reply.ok, reply.error) {
-            (_, Some(error)) => Err(match Kind::of(reply.refusal.as_deref()) {
-                Kind::Final => Failed::Refused(error),
-                Kind::Retry => Failed::Retry(error),
-                Kind::NotLinked => Failed::NotLinked(error),
-            }),
+            (_, Some(error)) => Err(refused(error, reply.refusal.as_deref())),
             (ok, None) => Ok(ok.unwrap_or(Value::Null)),
         }
     };
@@ -258,6 +272,43 @@ pub(crate) async fn ask(
                 false => Failed::Unreachable(why),
             })
         })
+}
+
+/// Asks for a file, which comes back on the ask's own stream for as long as its bytes keep
+/// moving: it is given up only once none came for `stall`.
+pub(crate) async fn pull(
+    connection: &Connection,
+    method: &str,
+    params: Value,
+    stall: Duration,
+) -> Result<Received, Failed> {
+    let asked = async {
+        let (mut send, recv) = connection.open_bi().await.map_err(broken)?;
+        let ask = Ask {
+            method: method.to_owned(),
+            params,
+            body: false,
+            call: None,
+        };
+        write_message(&mut send, &ask).await.map_err(broken)?;
+        send.finish().map_err(broken)?;
+        Ok(recv)
+    };
+    let mut recv = tokio::time::timeout(stall, asked)
+        .await
+        .unwrap_or_else(|_| Err(broken("the other host did not answer in time")))?;
+    let unknown = |error: std::io::Error| Failed::Unknown(error.to_string());
+    let reply: Reply = tokio::time::timeout(stall, read_message(&mut recv))
+        .await
+        .map_err(|_| Failed::Unknown("the other host did not answer in time".into()))?
+        .map_err(unknown)?;
+    if let Some(error) = reply.error {
+        return Err(refused(error, reply.refusal.as_deref()));
+    }
+    if !reply.body {
+        return Err(Failed::Refused("the other host sent no file".into()));
+    }
+    read_body(&mut recv, Some(stall)).await.map_err(unknown)
 }
 
 pub(crate) type Answer = Result<Value, String>;
@@ -280,7 +331,7 @@ pub(crate) async fn next(connection: &Connection) -> Option<Result<Incoming, Str
             .map_err(|error| error.to_string())?;
         let body = if ask.body {
             Some(
-                read_body(&mut recv)
+                read_body(&mut recv, None)
                     .await
                     .map_err(|error| error.to_string())?,
             )
@@ -305,14 +356,31 @@ impl Incoming {
                 ok: Some(ok),
                 error: None,
                 refusal: None,
+                body: false,
             },
             Err(refusal) => Reply {
                 ok: None,
                 error: Some(refusal.why),
                 refusal: refusal.kind.word().map(str::to_owned),
+                body: false,
             },
         };
         if write_message(&mut self.send, &reply).await.is_ok() {
+            let _ = self.send.finish();
+        }
+    }
+
+    /// Answers with the file at `path`, sent for as long as the asker reads it.
+    pub(crate) async fn reply_body(mut self, path: &Path) {
+        let reply = Reply {
+            ok: Some(Value::Null),
+            error: None,
+            refusal: None,
+            body: true,
+        };
+        if write_message(&mut self.send, &reply).await.is_ok()
+            && write_body(&mut self.send, path).await.is_ok()
+        {
             let _ = self.send.finish();
         }
     }

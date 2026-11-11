@@ -61,10 +61,14 @@ pub(crate) use receipts::Stands;
 
 const DIAL_WAIT: Duration = Duration::from_secs(15);
 const ASK_WAIT: Duration = Duration::from_secs(30);
-/// How long a post the other host could not take yet waits before it is sent again.
-const RETRY_REFUSED_MS: u64 = 60_000;
-/// How long posts wait to go again after one got no answer over a connection still open.
-const RETRY_UNANSWERED_MS: u64 = 10_000;
+/// How long a lane waits to go again after its post could not go.
+const RETRY_MS: u64 = 15_000;
+/// How long a post that carries a file to a host too old to fetch it may take.
+const BODY_WAIT: Duration = Duration::from_secs(15 * 60);
+/// How long a file being fetched may go without a byte before it is given up.
+const STALL: Duration = Duration::from_secs(60);
+/// How a host refuses an ask it does not know, as older hosts do.
+const UNKNOWN_ASK: &str = "this host does not know ";
 const REDIAL: Backoff = Backoff {
     first: Duration::from_secs(2),
     cap: Duration::from_secs(60),
@@ -96,9 +100,10 @@ struct Down {
 struct State {
     connections: HashMap<String, Connection>,
     dialing: HashSet<String>,
-    flushing: HashSet<String>,
-    /// Hosts whose posts wait to be sent again until then, after one could not go.
-    held: HashMap<String, u64>,
+    /// The lanes of each host being sent now.
+    flushing: HashSet<(String, String)>,
+    /// The lanes of each host that wait to be sent again until then, after a post could not go.
+    held: HashMap<(String, String), u64>,
     down: HashMap<String, Down>,
     /// When each agent's teammates elsewhere last heard it did other work.
     worked: HashMap<String, u64>,
@@ -217,10 +222,10 @@ impl Hosts {
         true
     }
 
-    /// Holds what waits for `host` for `for_ms` before it is sent again.
-    fn hold(&self, host: &str, for_ms: u64) {
+    /// Holds what waits in `lane` for `host` for `for_ms` before it is sent again.
+    fn hold(&self, host: &str, lane: &str, for_ms: u64) {
         let until = epoch_ms() + for_ms;
-        self.state.locked().held.insert(host.to_owned(), until);
+        (self.state.locked().held).insert((host.to_owned(), lane.to_owned()), until);
         self.wake.at(until);
     }
 
@@ -458,6 +463,18 @@ pub(crate) async fn call(
     asking(core, host, method, params, body, limit, Some(id)).await
 }
 
+/// Fetches the file `host` holds for a post it sent this host, for as long as its bytes keep
+/// coming.
+pub(crate) async fn pull(
+    core: &Arc<Core>,
+    host: &str,
+    method: &str,
+    params: Value,
+) -> Result<link::Received, Failed> {
+    let connection = connection(core, host).await?;
+    link::pull(&connection, method, params, STALL).await
+}
+
 /// What became of the call `id` this host made to `host`. A host too old to keep receipts
 /// refuses, as it does any ask it does not know.
 pub(crate) async fn receipt(core: &Arc<Core>, host: &str, id: &str) -> Result<Stands, Failed> {
@@ -506,62 +523,79 @@ pub(crate) fn post(core: &Core, host: &str, sending: Sending) {
 
 /// Whether something sent to `host` now would go at once, rather than wait
 /// behind what is queued for it.
-pub(crate) fn goes_now(core: &Core, host: &str) -> bool {
-    !core.hosts.outbox.has(host) && core.hosts.reachable(host)
+pub(crate) fn goes_now(core: &Core, host: &str, about: &str) -> bool {
+    core.hosts
+        .outbox
+        .lanes(host)
+        .iter()
+        .all(|lane| lane != about)
+        && core.hosts.reachable(host)
 }
 
-/// Sends what waits for `host`, in order, while it stays reachable.
+/// Sends what waits for `host` while it stays reachable, each lane in order and every lane at
+/// once, so one post that cannot go yet holds up only those behind it in its lane.
 fn flush(core: &Arc<Core>, host: &str) {
-    {
+    let now = epoch_ms();
+    let lanes: Vec<String> = {
         let mut state = core.hosts.state.locked();
-        let held = state
-            .held
-            .get(host)
-            .is_some_and(|until| *until > epoch_ms());
-        if held || !state.flushing.insert(host.to_owned()) {
-            return;
-        }
+        (core.hosts.outbox.lanes(host).into_iter())
+            .filter(|lane| {
+                let key = (host.to_owned(), lane.clone());
+                let held = state.held.get(&key).is_some_and(|until| *until > now);
+                !held && state.flushing.insert(key)
+            })
+            .collect()
+    };
+    for lane in lanes {
+        tokio::spawn(flush_lane(core.clone(), host.to_owned(), lane));
     }
-    let (core, host) = (core.clone(), host.to_owned());
-    tokio::spawn(async move {
-        while let Some(post) = core.hosts.outbox.front(&host) {
-            let Some(connection) = core.hosts.connected(&host) else {
+}
+
+async fn flush_lane(core: Arc<Core>, host: String, lane: String) {
+    while let Some(post) = core.hosts.outbox.front(&host, &lane) {
+        let Some(connection) = core.hosts.connected(&host) else {
+            break;
+        };
+        let body = post.body.as_deref().filter(|_| !post.pulled);
+        let limit = if body.is_some() { BODY_WAIT } else { ASK_WAIT };
+        let sent = link::ask(
+            &connection,
+            &post.method,
+            post.params.clone(),
+            body,
+            limit,
+            post.call.as_deref(),
+        )
+        .await;
+        match sent {
+            Ok(_) => core.hosts.outbox.sent(&host, post.seq),
+            Err(Failed::Refused(why)) if post.pulled && why.starts_with(UNKNOWN_ASK) => {
+                core.hosts
+                    .outbox
+                    .carry(&host, post.seq, calls::Commits::METHOD);
+            }
+            Err(Failed::Refused(why)) => {
+                core.hosts.outbox.sent(&host, post.seq);
+                turned_away(&core, &host, &post, &why);
+            }
+            Err(Failed::NotLinked(_)) => {
+                unlinked_there(&core, &host);
                 break;
-            };
-            match link::ask(
-                &connection,
-                &post.method,
-                post.params.clone(),
-                post.body.as_deref(),
-                ASK_WAIT,
-                post.call.as_deref(),
-            )
-            .await
-            {
-                Ok(_) => core.hosts.outbox.sent(&host, post.seq),
-                Err(Failed::Refused(why)) => {
-                    core.hosts.outbox.sent(&host, post.seq);
-                    turned_away(&core, &host, &post, &why);
-                }
-                Err(Failed::NotLinked(_)) => {
-                    unlinked_there(&core, &host);
-                    break;
-                }
-                Err(Failed::Retry(_)) => {
-                    core.hosts.hold(&host, RETRY_REFUSED_MS);
-                    break;
-                }
-                Err(Failed::Unreachable(_) | Failed::Unknown(_)) => {
-                    core.hosts.hold(&host, RETRY_UNANSWERED_MS);
-                    break;
-                }
+            }
+            Err(Failed::Retry(_) | Failed::Unreachable(_) | Failed::Unknown(_)) => {
+                core.hosts.hold(&host, &lane, RETRY_MS);
+                break;
             }
         }
-        core.hosts.state.locked().flushing.remove(&host);
-        if core.hosts.outbox.has(&host) {
-            core.hosts.wake.now();
-        }
-    });
+    }
+    core.hosts
+        .state
+        .locked()
+        .flushing
+        .remove(&(host.clone(), lane));
+    if core.hosts.outbox.has(&host) {
+        core.hosts.wake.now();
+    }
 }
 
 /// `host` turned away a post that waited for it, for good: the agent that sent it hears why.
@@ -571,7 +605,9 @@ fn turned_away(core: &Core, host: &str, post: &outbox::Post, why: &str) {
         "sikemux core: {name} turned away a {} that waited for it: {why}",
         post.method
     );
-    if post.method == calls::Commits::METHOD {
+    let commits =
+        [calls::Commits::METHOD, calls::CommitsReady::METHOD].contains(&post.method.as_str());
+    if commits {
         if let Some(worker) = &post.from {
             core.hosts.team.tree_unsent(worker);
         }
@@ -581,7 +617,7 @@ fn turned_away(core: &Core, host: &str, post: &outbox::Post, why: &str) {
     };
     let what = match post.method.as_str() {
         "deliver" => "Your message",
-        method if method == calls::Commits::METHOD => "Your commits",
+        _ if commits => "Your commits",
         _ => "What you sent",
     };
     let text = format!(
@@ -599,7 +635,7 @@ fn adopt(core: &Arc<Core>, host: &str, connection: Connection) {
         state
             .connections
             .insert(host.to_owned(), connection.clone());
-        state.held.remove(host);
+        state.held.retain(|(held, _), _| held != host);
         state.down.remove(host)
     };
     core.remote.link_seen(host, None);
@@ -633,6 +669,14 @@ async fn answer_asks(core: Arc<Core>, host: String, connection: Connection) {
             let mut incoming = incoming;
             let method = std::mem::take(&mut incoming.method);
             let params = std::mem::take(&mut incoming.params);
+            if method == calls::PullCommits::METHOD {
+                match calls::pulled(&core, &host, &method, params) {
+                    Ok(path) => incoming.reply_body(&path).await,
+                    Err(refusal) => incoming.reply(Err(refusal)).await,
+                }
+                drop(slot);
+                return;
+            }
             let body = incoming.body.take();
             let call = incoming.call.take();
             let answer = calls::answer(&core, &host, &method, params, body, call).await;
@@ -752,16 +796,13 @@ pub(crate) fn settle(core: &Arc<Core>) {
         state.down.retain(|host, _| linked.contains(host));
         state
             .held
-            .retain(|host, until| linked.contains(host) && *until > now);
-        for host in state.connections.keys() {
-            if !core.hosts.outbox.has(host) || state.flushing.contains(host) {
-                continue;
-            }
-            match state.held.get(host) {
-                Some(until) => next = sooner(next, Some(*until)),
-                None => flushes.push(host.clone()),
-            }
-        }
+            .retain(|(host, _), until| linked.contains(host) && *until > now);
+        next = (state.held.values()).fold(next, |next, until| sooner(next, Some(*until)));
+        flushes.extend(
+            (state.connections.keys())
+                .filter(|host| core.hosts.outbox.has(host))
+                .cloned(),
+        );
         for link in &links {
             let needed = core.hosts.outbox.has(&link.id)
                 || core.hosts.team.has_host(&link.id)

@@ -140,7 +140,8 @@ fn tell_watchers(core: &Core, agent_id: &str, kind: &str, status: AgentStatus, k
                     status,
                 }),
             )
-            .keyed(format!("happened:{agent_id}"));
+            .keyed(format!("happened:{agent_id}"))
+            .about(agent_id);
             if keep {
                 sending.kept()
             } else {
@@ -440,7 +441,7 @@ pub(crate) async fn deliver(
     let from = carried.from_id.clone();
     let params = serde_json::to_value(&carried).map_err(|error| error.to_string())?;
     let id = call_id();
-    if goes_now(core, &foreign.host) {
+    if goes_now(core, &foreign.host, &from) {
         match call(
             core,
             &foreign.host,
@@ -463,7 +464,10 @@ pub(crate) async fn deliver(
     }
     let reachable = core.hosts.reachable(&foreign.host);
     post(core, &foreign.host, {
-        let sending = Sending::new("deliver", params).from(&from).call(id);
+        let sending = Sending::new("deliver", params)
+            .from(&from)
+            .about(&from)
+            .call(id);
         if keep {
             sending.kept()
         } else {
@@ -680,7 +684,8 @@ pub(crate) fn forget_hired(core: &Core, host: &str, agent_id: &str) {
             params_of::<asks::Forget>(&AboutAgent {
                 agent_id: agent_id.to_owned(),
             }),
-        ),
+        )
+        .about(agent_id),
     );
 }
 
@@ -723,7 +728,8 @@ pub(crate) fn stop_worker(core: &Core, agent_id: &str) {
                 agent_id: agent_id.to_owned(),
             }),
         )
-        .kept(),
+        .kept()
+        .about(agent_id),
     );
     super::changed(core);
 }
@@ -756,7 +762,8 @@ pub(crate) fn worked(core: &Core, agent_id: &str) {
                     agent_id: agent_id.to_owned(),
                 }),
             )
-            .keyed(format!("worked:{agent_id}")),
+            .keyed(format!("worked:{agent_id}"))
+            .about(agent_id),
         );
     }
 }
@@ -777,7 +784,12 @@ pub(super) fn worked_here(core: &Core, host: &str, params: AboutAgent) -> CoreRe
 /// Puts a question an agent here asked to the person on the host its team's
 /// lead runs on.
 pub(crate) fn relay_question(core: &Core, host: &str, question: Value) {
-    post(core, host, Sending::new("question", question).kept());
+    let asker = question["agentId"].as_str().unwrap_or_default().to_owned();
+    post(
+        core,
+        host,
+        Sending::new("question", question).kept().about(&asker),
+    );
 }
 
 /// Sends the person's answer to a question back to the host its asker runs on.

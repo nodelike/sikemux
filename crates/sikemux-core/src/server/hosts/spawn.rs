@@ -23,7 +23,7 @@ use super::super::worktree;
 use super::super::Core;
 use super::calls::{self as asks, params_of, HostAsk};
 use super::code::{self, Checked, Code, Packed};
-use super::link::Received;
+use super::link::{Received, Refusal};
 use super::route::pin;
 use super::team::{Foreign, Role, Tree};
 use super::{call, find, name_of, post, Failed, Sending, Stands};
@@ -578,17 +578,18 @@ async fn send_commits_to(core: &Arc<Core>, worker: &str, tree: Tree, host: &str)
                 core,
                 host,
                 Sending::new(
-                    asks::Commits::METHOD,
-                    params_of::<asks::Commits>(&code::ArrivingCommits {
+                    asks::CommitsReady::METHOD,
+                    params_of::<asks::CommitsReady>(&code::ArrivingCommits {
                         agent_id: worker.to_owned(),
                         head: head.clone(),
                         count,
                     }),
                 )
                 .keyed(format!("commits:{worker}"))
-                .body(into)
+                .pulled(into)
                 .kept()
-                .from(worker),
+                .from(worker)
+                .about(worker),
             );
             core.hosts.team.tree_sent(worker, &head);
         }
@@ -598,6 +599,26 @@ async fn send_commits_to(core: &Arc<Core>, worker: &str, tree: Tree, host: &str)
             eprintln!("sikemux core: a worker's commits did not go back to its lead: {error}");
         }
     }
+}
+
+/// The bundle of a worker's commits that its lead's host, `host`, fetches after hearing they are
+/// ready.
+pub(super) fn commits_for(
+    core: &Core,
+    host: &str,
+    wanted: code::ArrivingCommits,
+) -> Result<std::path::PathBuf, Refusal> {
+    if super::route::lead_host(core, &wanted.agent_id).as_deref() != Some(host) {
+        return Err("that worker's lead is not on your host".into());
+    }
+    core.hosts
+        .outbox
+        .pulled_body(host, |post| {
+            post.params["agentId"] == wanted.agent_id.as_str()
+                && post.params["head"] == wanted.head.as_str()
+        })
+        .filter(|path| path.is_file())
+        .ok_or_else(|| "those commits no longer wait here; newer ones replaced them".into())
 }
 
 /// How a turn of a worker Auto started from another host ended.
@@ -631,13 +652,14 @@ pub(crate) async fn auto_turn_ended(
         Sending::new(
             asks::AutoTurn::METHOD,
             params_of::<asks::AutoTurn>(&AutoTurn {
-                agent_id: worker,
+                agent_id: worker.clone(),
                 ending,
                 answer,
                 cost_usd,
             }),
         )
-        .kept(),
+        .kept()
+        .about(&worker),
     );
 }
 

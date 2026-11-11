@@ -15,6 +15,7 @@ use serde_json::{json, Value};
 use super::super::connection::blocking;
 use super::super::worktree::{self, inside, slug};
 use super::super::Core;
+use super::calls::{self as asks, params_of, HostAsk};
 use super::link::{Received, Refusal};
 use super::name_of;
 use super::team::{Role, Tree};
@@ -746,7 +747,22 @@ pub(super) async fn land(
     if !repo.is_dir() {
         return Err(refused(format!("{} is no longer there", repo.display())));
     }
-    let body = body.ok_or("the commits came without their bundle")?;
+    let body = match body {
+        Some(body) => body,
+        None => {
+            let wanted = params_of::<asks::PullCommits>(&ArrivingCommits {
+                agent_id: landing.agent_id.clone(),
+                head: landing.head.clone(),
+                count: landing.count,
+            });
+            super::pull(core, host, asks::PullCommits::METHOD, wanted)
+                .await
+                .map_err(|failed| match failed.passing() {
+                    true => Refusal::retry(failed.to_string()),
+                    false => Refusal::from(failed.to_string()),
+                })?
+        }
+    };
     let branch = format!(
         "sikemux/{}/{}",
         slug(&name_of(core, host)),

@@ -46,6 +46,8 @@ host_asks! {
     Team "team" route::TeamParams;
     Worked "worked" route::AboutAgent;
     Commits "commits" code::ArrivingCommits;
+    CommitsReady "commitsReady" code::ArrivingCommits;
+    PullCommits "pullCommits" code::ArrivingCommits;
     AutoTurn "autoTurn" spawn::AutoTurn;
     Stop "stop" route::AboutAgent;
     PassOn "passOn" route::PassOnParams;
@@ -67,6 +69,22 @@ pub(super) fn params_of<A: HostAsk>(params: &A::Params) -> Value {
 
 fn read<A: HostAsk>(params: Value) -> Result<A::Params, String> {
     serde_json::from_value(params).map_err(|error| format!("unreadable {}: {error}", A::METHOD))
+}
+
+/// The file a linked host fetches for a post this host sent it.
+pub(super) fn pulled(
+    core: &Core,
+    host: &str,
+    method: &str,
+    params: Value,
+) -> Result<std::path::PathBuf, Refusal> {
+    if core.remote.link(host).is_none() {
+        return Err(Refusal::not_linked(not_linked(core, host).to_string()));
+    }
+    match method {
+        PullCommits::METHOD => spawn::commits_for(core, host, read::<PullCommits>(params)?),
+        _ => Err(format!("this host does not know {method}").into()),
+    }
 }
 
 pub(super) async fn answer(
@@ -108,7 +126,7 @@ async fn work(
     params: Value,
     body: Option<Received>,
 ) -> Result<Value, Refusal> {
-    if method == Commits::METHOD {
+    if method == Commits::METHOD || method == CommitsReady::METHOD {
         return code::land(core, host, read::<Commits>(params)?, body).await;
     }
     dispatch(core, host, method, params, body)
