@@ -31,12 +31,7 @@ final class Lock {
     @ObservationIgnored private var leftAt: Date?
 
     private init() {
-        do {
-            on = try Keychain.app.read(Self.item) == "on"
-        } catch {
-            print("sikemux: could not read whether the lock is on, so the app stays locked: \(error)")
-            on = true
-        }
+        on = Self.chosen() ?? true
         phase = UIApplication.shared.applicationState == .active ? .locked : .covered
         Router.shared.holding = true
         let center = NotificationCenter.default
@@ -56,6 +51,7 @@ final class Lock {
         guard account != signedIn else { return }
         let launched = signedIn == nil
         signedIn = account
+        if launched { on = Self.chosen() ?? on }
         if account, launched, on { return }
         open()
     }
@@ -95,6 +91,16 @@ final class Lock {
     func turnOff() async {
         Keychain.app.delete(Self.item)
         on = false
+    }
+
+    /// Nil when the Keychain refuses, as it does while the phone is locked; the app then stays locked.
+    private static func chosen() -> Bool? {
+        do {
+            return try Keychain.app.read(item) == "on"
+        } catch {
+            print("sikemux: could not read whether the lock is on: \(error)")
+            return nil
+        }
     }
 
     private enum Result {

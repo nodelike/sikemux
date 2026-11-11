@@ -31,15 +31,12 @@ final class Notify {
     /// Why Sikemux does not have this phone's token though notifications are on, so the switch does not read as working.
     private(set) var syncProblem: String?
 
+    @ObservationIgnored private var unread = true
     @ObservationIgnored private var token: CheckedContinuation<Data, Error>?
     @ObservationIgnored private var syncing: Task<Void, Error>?
 
     private init() {
-        do {
-            choice = try Keychain.app.read(Self.choiceItem).flatMap(Choice.init)
-        } catch {
-            print("sikemux: could not read the notifications choice: \(error)")
-        }
+        recall()
         UNUserNotificationCenter.current().setNotificationCategories([Self.answers])
         NotificationCenter.default.addObserver(
             forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main
@@ -57,7 +54,19 @@ final class Notify {
         allowed = status == .notDetermined ? nil : status == .authorized || status == .provisional
     }
 
+    /// Reads the person's choice until the Keychain gives it up: it refuses while the phone is locked.
+    private func recall() {
+        guard unread else { return }
+        do {
+            choice = try Keychain.app.read(Self.choiceItem).flatMap(Choice.init)
+            unread = false
+        } catch {
+            print("sikemux: could not read the notifications choice: \(error)")
+        }
+    }
+
     private func choose(_ next: Choice?) {
+        unread = false
         choice = next
         guard let next else { return Keychain.app.delete(Self.choiceItem) }
         do {
@@ -69,7 +78,8 @@ final class Notify {
 
     /// Asks once, after a host lets the phone in, whether to turn notifications on; a person who already chose is not asked.
     func offer() {
-        if choice == nil { offered = true }
+        recall()
+        if choice == nil, !unread { offered = true }
     }
 
     func declineOffer() {
@@ -164,6 +174,8 @@ final class Notify {
     }
 
     private func sync() async throws {
+        recall()
+        guard !unread else { return }
         await checkAllowed()
         let sent = readSent()
         guard choice == .on, allowed == true else {

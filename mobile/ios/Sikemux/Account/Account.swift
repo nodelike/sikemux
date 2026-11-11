@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import UIKit
 
 /// Who this phone is signed in as: Clerk's session, a fresh token for the accounts server, and the person's name,
 /// email and picture.
@@ -36,15 +37,31 @@ final class Account {
     var sessionId: String? { session }
 
     func load() async {
-        guard Clerk.hasClient,
-            let text = try? Keychain.app.read(Self.savedItem),
-            let saved = try? JSONDecoder().decode(Saved.self, from: Data(text.utf8))
-        else {
+        let saved: Saved?
+        do {
+            saved =
+                try Clerk.hasClient()
+                ? Keychain.app.read(Self.savedItem).flatMap { try? JSONDecoder().decode(Saved.self, from: Data($0.utf8)) }
+                : nil
+        } catch {
+            print("sikemux: the Keychain refused the sign-in, so it is read again once the phone is unlocked: \(error)")
+            await Self.unlocked()
+            return await load()
+        }
+        guard let saved else {
             state = .signedOut
             return
         }
         apply(session: saved.session, user: saved.user)
         Task { await refresh() }
+    }
+
+    /// The Keychain refuses while the phone is locked, as when iOS starts the app early after an update.
+    private static func unlocked() async {
+        let name =
+            UIApplication.shared.isProtectedDataAvailable
+            ? UIApplication.didBecomeActiveNotification : UIApplication.protectedDataDidBecomeAvailableNotification
+        for await _ in NotificationCenter.default.notifications(named: name) { return }
     }
 
     /// Reads the sign-in from Clerk again, for a new name or picture, or to find it ended elsewhere.

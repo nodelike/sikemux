@@ -123,7 +123,7 @@ enum Clerk {
         return decoder
     }()
 
-    static var hasClient: Bool { (try? Keychain.app.read(clientItem)) != nil }
+    static func hasClient() throws -> Bool { try Keychain.app.read(clientItem) != nil }
 
     static func forget() {
         Keychain.app.delete(clientItem)
