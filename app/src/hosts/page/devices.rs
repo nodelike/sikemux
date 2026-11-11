@@ -431,7 +431,7 @@ pub(super) fn app_line(
                     .items_center()
                     .gap(SPACE_1H)
                     .text_color(t.text_tertiary)
-                    .child(ui::icon(Icon::Window, 12.).text_color(t.text_tertiary))
+                    .child(ui::icon(Icon::Logo, 12.).text_color(t.text_tertiary))
                     .child(ui::text("App", TEXT_XS, FontWeight::NORMAL)),
             )
             .child(right),
