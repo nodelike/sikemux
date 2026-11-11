@@ -214,8 +214,6 @@
   .team-fold .last.wants { color: var(--danger); }
   .team-fold .took { flex: none; font-size: 12px; font-variant-numeric: tabular-nums; }
   .team-earlier { align-self: flex-start; margin: 4px 0 0 12px; padding: 0 6px; height: 24px; display: inline-flex; align-items: center; font-size: 12px; color: var(--ink-dim); }
-  .asked-strip { display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 18px; border-bottom: 1px solid var(--border); background: var(--surface-raised); font-size: 12px; color: var(--ink-dim); }
-  .asked-strip span:last-child { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
   .ask-who { display: flex; align-items: center; gap: 7px; margin: 14px 0 2px; color: var(--ink-dim); font-size: 11.5px; line-height: 1.4; }
   .ask-who b { color: var(--ink); font-weight: 600; }
   .ask-who svg { flex: none; }
@@ -2611,7 +2609,6 @@
       <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
       <div class="screen">
         <div class="nav"><span class="back">{{IconChevron:18}}</span><span class="mid"><span class="codex">{{IconCodex:17}}</span><span class="named"><b>@Flint</b><i>·</i><em>Ship the nightly</em></span></span><span class="icon-btn">{{IconMoreVertical:16}}</span></div>
-        <div class="asked-strip"><span>You asked</span><span>Fix the grouping and ship a nightly.</span></div>
         <div class="chat" style="justify-content:flex-start">
           <div class="team-fold">{{IconChevron:10}}<span class="marks"><span class="claude">{{IconClaude:16}}</span><span class="codex">{{IconCodex:16}}</span></span><b>12 messages</b><span class="last">@Otter: Key changed on the phone side.</span><span class="took">14m</span></div>
           <div class="prose">The grouping is fixed on both. Starting the nightly now.</div>
@@ -2638,7 +2635,7 @@
         </div>
       </div>
       <div class="home-bar"></div></div>
-      <figcaption><b>Messages between agents</b><div class="note">What agents send each other folds to one line where it happened: its senders' marks, the count, the latest message and how long it went on, always one line. A turn another agent started folds but its last message, and whatever stays in view ends the line. A tap opens it in place on its last five messages, with the rest behind Show N earlier, and what is on screen holds still. Someone needing the person takes over the line in the danger colour until that is settled. Once the person's last message scrolls off, a strip over the transcript says what they asked; a tap goes back to it and lights it.</div></figcaption>
+      <figcaption><b>Messages between agents</b><div class="note">What agents send each other folds to one line where it happened: its senders' marks, the count, the latest message and how long it went on, always one line. A turn another agent started folds but its last message, and whatever stays in view ends the line. A tap opens it in place on its last five messages, with the rest behind Show N earlier, and what is on screen holds still. Someone needing the person takes over the line in the danger colour until that is settled.</div></figcaption>
     </figure>
 
     <figure><div class="phone"><div class="island"></div>

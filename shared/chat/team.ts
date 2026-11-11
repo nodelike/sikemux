@@ -74,20 +74,3 @@ export function teamTook(ms: number): string {
     const minutes = Math.round(ms / 60_000);
     return minutes < 60 ? `${minutes}m` : `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 }
-
-/** The person's last message, of the rows held. */
-export function lastAsked(rows: readonly ChatMessage[]): ChatMessage | undefined {
-    for (let at = rows.length - 1; at >= 0; at -= 1) {
-        if (rows[at].role === "user" && !rows[at].letters?.length) return rows[at];
-    }
-    return undefined;
-}
-
-/** What it says, on one line. */
-export function askedText(message: ChatMessage): string {
-    return message.parts
-        .flatMap((part) => (part.kind === "text" ? [part.text] : []))
-        .join(" ")
-        .replace(/\s+/g, " ")
-        .trim();
-}

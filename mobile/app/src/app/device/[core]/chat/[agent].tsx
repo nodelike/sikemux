@@ -9,7 +9,6 @@ import { KeyboardStickyView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { activityText, composerPlaceholder } from '@shared/chat/chatStatus';
-import { askedText, lastAsked } from '@shared/chat/team';
 import { sentPrompts } from '@/chat/promptHistory';
 import type { ChatMessage, InboxItem, ShipHold } from '@shared/wire.generated';
 import { ChatMenu } from '@/chat/ChatMenu';
@@ -32,7 +31,7 @@ import { hasLiveWork, liveKey, liveWork } from '@/chat/liveWork';
 import { stripOf, stripOwner } from '@/chat/messageMeta';
 import { ToolDetailContext } from '@/chat/Tools';
 import { Trouble } from '@/chat/Trouble';
-import { AskedStrip, Message, TeamFold, WorkSummary } from '@/chat/Transcript';
+import { Message, TeamFold, WorkSummary } from '@/chat/Transcript';
 import { Activity } from '@/chat/Activity';
 import { SmartPick } from '@/chat/Notices';
 import { Earlier, EarlierLost, Queued } from '@/chat/TranscriptEdges';
@@ -52,9 +51,6 @@ import { Nav, Screen, useBottomGap } from '@/ui/screen';
 import { Working } from '@/devices/AgentMarks';
 import { type Palette, typeFor, useColors, useStyles, useType } from '@/ui/theme';
 import { EdgeFades, Notice, Reconnecting, capitalised, renderScrollComponent, useArrivals } from '@/chat/ChatChrome';
-
-/** How long a message the person jumped to stays lit. */
-const LIT_MS = 900;
 
 export default function Chat() {
   const { core, agent } = useLocalSearchParams<{ core: string; agent: string }>();
@@ -107,19 +103,6 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
     scroll.hold();
     session.folds.set(`team-all/${id}`, true);
   };
-  const asked = lastAsked(rows);
-  const askedAt = asked ? rows.indexOf(asked) : -1;
-  const [topRow, setTopRow] = useState(0);
-  const askedAbove = topRow > askedAt;
-  const [noteTopRow] = useState(() => ({ viewableItems }: { viewableItems: { index: number | null }[] }) => {
-    if (viewableItems.length) setTopRow(Math.min(...viewableItems.map((seen) => seen.index ?? 0)));
-  });
-  const [lit, setLit] = useState<string>();
-  useEffect(() => {
-    if (lit === undefined) return;
-    const timer = setTimeout(() => setLit(undefined), LIT_MS);
-    return () => clearTimeout(timer);
-  }, [lit]);
   const { find, finding, shown, shownIndex, openFind, closeFind } = useChatFind(session, rows, workOpen, () => setEditing(undefined));
   const watchOnly = access === 'watch';
   const canEdit = !watchOnly && state.capabilities.editing && state.connection === 'ready' && !state.running && chat.attached === 'live';
@@ -127,8 +110,8 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
   const editable = (message: ChatMessage) =>
     canEdit && message.role === 'user' && message.promptId !== undefined && !message.context?.length && !chat.unsent.has(message.id);
   const marks = useMemo(
-    () => [chat.unsent, chat.sentFiles, liveId, open, openStrip, openWork, canEdit, editing, lit],
-    [chat.unsent, chat.sentFiles, liveId, open, openStrip, openWork, canEdit, editing, lit],
+    () => [chat.unsent, chat.sentFiles, liveId, open, openStrip, openWork, canEdit, editing],
+    [chat.unsent, chat.sentFiles, liveId, open, openStrip, openWork, canEdit, editing],
   );
   const subagents = useMemo(() => subagentsOf(state.messages, state.subagentRows), [state.messages, state.subagentRows]);
   const { plan, runningSubagents, tasks, queued } = state;
@@ -273,7 +256,6 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
                             // Folded work draws nothing, so it is never recycled into a whole answer.
                             getItemType={(message) => (rowFold(message, workOpen, runs.get(message.id)).hidden ? 'folded' : message.role)}
                             extraData={marks}
-                            onViewableItemsChanged={noteTopRow}
                             renderItem={({ item, index }) => {
                               const run = runs.get(item.id);
                               const { summary: fold, hidden, shown: kept } = rowFold(item, workOpen, run);
@@ -316,7 +298,6 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
                                   {summary}
                                   <Message
                                     message={item}
-                                    lit={item.id === lit}
                                     live={item.id === liveId}
                                     unsent={chat.unsent.get(item.id)}
                                     onRetry={session.retrySend}
@@ -395,15 +376,6 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
                             keyboardShouldPersistTaps={editing === undefined ? 'never' : 'handled'}
                           />
                         </MaskedView>
-                        {asked && askedAbove ? (
-                          <AskedStrip
-                            text={askedText(asked)}
-                            onPress={() => {
-                              setLit(asked.id);
-                              scroll.reveal(askedAt, 0);
-                            }}
-                          />
-                        ) : null}
                         {scroll.away ? (
                           <KeyboardStickyView style={styles.jumpPlace} offset={{ opened: homeBar }}>
                             <Pressable

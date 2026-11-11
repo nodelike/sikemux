@@ -271,7 +271,6 @@ export function Message({
   kept = null,
   onEdit,
   editing,
-  lit = false,
 }: {
   message: ChatMessage;
   live?: boolean;
@@ -288,8 +287,6 @@ export function Message({
   onEdit?: (message: ChatMessage) => void;
   /** This message is being written again. */
   editing?: Editing;
-  /** The person just jumped here. */
-  lit?: boolean;
 }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
@@ -354,7 +351,7 @@ export function Message({
           <Pressable
             onPress={tap}
             onLongPress={keepLongPress}
-            style={[styles.bubble, lit && styles.litBubble, unsent?.state === 'sending' && { opacity: 0.7 }, failed && styles.failedBubble]}
+            style={[styles.bubble, unsent?.state === 'sending' && { opacity: 0.7 }, failed && styles.failedBubble]}
             accessibilityHint={tap ? 'Tap for copy and the time it was sent' : undefined}>
             <Text style={styles.userText} selectable>
               {finding ? (
@@ -495,26 +492,6 @@ export function TeamFold({
   );
 }
 
-/** What the person last asked, kept in reach over the top of the transcript once it scrolls off. */
-export function AskedStrip({ text, onPress }: { text: string; onPress: () => void }) {
-  const styles = useStyles(makeStyles);
-  return (
-    <Pressable
-      onPress={() => {
-        haptics.select();
-        onPress();
-      }}
-      style={({ pressed }) => [styles.asked, pressed && styles.askedPressed]}
-      accessibilityRole="button"
-      accessibilityLabel={`You asked: ${text}. Go to it`}>
-      <Text style={styles.askedLabel}>You asked</Text>
-      <Text style={styles.askedText} numberOfLines={1}>
-        {text}
-      </Text>
-    </Pressable>
-  );
-}
-
 /** A finished answer's work, folded above the reply it closed with, as on the Mac. */
 export function WorkSummary({
   took,
@@ -624,24 +601,6 @@ const makeStyles = (colors: Palette) => {
       borderRadius: 6,
     },
     teamEarlierText: { fontFamily: fonts.ui, fontSize: 12, color: colors.inkDim },
-    asked: {
-      position: 'absolute',
-      top: 0,
-      left: 0,
-      right: 0,
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 8,
-      height: 32,
-      paddingHorizontal: 18,
-      borderBottomWidth: StyleSheet.hairlineWidth,
-      borderBottomColor: colors.border,
-      backgroundColor: colors.raised,
-    },
-    askedPressed: { backgroundColor: colors.active },
-    askedLabel: { fontFamily: fonts.ui, fontSize: 12, color: colors.inkDim },
-    askedText: { flex: 1, minWidth: 0, fontFamily: fonts.ui, fontSize: 12, color: colors.ink },
-    litBubble: { backgroundColor: mixed(colors.ink, colors.raised, 0.12) },
     work: { marginTop: 8, marginBottom: 4 },
     workSum: {
       flexDirection: 'row',
