@@ -78,7 +78,7 @@ struct JoinScreen: View {
     }
 
     private func secondsLeft(_ now: Date) -> Int {
-        guard step == .waiting, let deadline else { return Joining.approvalSeconds }
+        guard step == .waiting, let deadline else { return WireWaits.approvalTimeoutSeconds }
         return max(0, Int(deadline.timeIntervalSince(now).rounded(.up)))
     }
 
@@ -86,7 +86,9 @@ struct JoinScreen: View {
         do {
             try await Joining.join(core: core, name: name) { next in
                 step = next
-                if next == .waiting { deadline = Date().addingTimeInterval(TimeInterval(Joining.approvalSeconds)) }
+                if next == .waiting {
+                    deadline = Date().addingTimeInterval(TimeInterval(WireWaits.approvalTimeoutSeconds))
+                }
             }
             Haptics.success()
             Router.shared.replace(.device(core: core))
