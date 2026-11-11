@@ -50,7 +50,7 @@ final class ChatSession {
     /// This phone asked the running turn to stop and the host has not ended it yet.
     var stoppingTurn = false
     /// The mode this phone set, until the host says another.
-    var mode: String?
+    var mode: PermissionMode?
     /// Model and effort picks this phone made, by picker id, shown until the host says what it runs on.
     var chosen: [String: String] = [:]
 
@@ -101,7 +101,7 @@ final class ChatSession {
 
     // MARK: What the screen reads
 
-    var permissionMode: String? { mode ?? (rows.permissionMode.isEmpty ? nil : rows.permissionMode) }
+    var permissionMode: PermissionMode? { mode ?? rows.permissionMode }
     var mark: ChatMark? { feed.mark }
 
     /// Whether the transcript must redraw everything, or which rows, since it last asked; asking clears it.
@@ -131,13 +131,13 @@ final class ChatSession {
 
     /// When the running turn began: as the host timed it, or else as this phone saw it.
     private func since(_ view: ChatRows) -> Date {
-        if let at = view.head.turnOpening?.at { return Date(timeIntervalSince1970: Double(at) / 1000) }
+        if let at = view.head.turnOpening?.at { return Format.date(millis: at) }
         for row in view.messages.reversed() {
             if row.role == .user {
-                return row.sentAt.map { Date(timeIntervalSince1970: Double($0) / 1000) } ?? sawTurnBegin
+                return row.sentAt.map { Format.date(millis: $0) } ?? sawTurnBegin
             }
             if let opens = row.opensTurn {
-                return opens.at.map { Date(timeIntervalSince1970: Double($0) / 1000) } ?? sawTurnBegin
+                return opens.at.map { Format.date(millis: $0) } ?? sawTurnBegin
             }
         }
         return sawTurnBegin
@@ -342,7 +342,7 @@ final class ChatSession {
 
     func openConnection() throws -> Connection {
         guard let connection, connection.isOpen(), attached == .live else {
-            throw ChatProblem("the host is not connected")
+            throw ChatProblem.notConnected
         }
         return connection
     }
@@ -355,7 +355,7 @@ final class ChatSession {
         _ request: @escaping (Connection) async throws -> T
     ) async -> Bool {
         do {
-            guard let connection, connection.isOpen() else { throw ChatProblem("the host is not connected") }
+            guard let connection, connection.isOpen() else { throw ChatProblem.notConnected }
             let answer = try await request(connection)
             then?(answer)
             emit()
@@ -485,4 +485,10 @@ final class Folds {
     func isOpen(_ id: String, _ otherwise: Bool) -> Bool { open[id] ?? otherwise }
 
     func set(_ id: String, _ value: Bool) { open[id] = value }
+
+    /// A turn's folded work, a team's run, and that run with every member shown, as the chat screen and the
+    /// transcript both open them.
+    static func work(_ id: String) -> String { "work/\(id)" }
+    static func team(_ id: String) -> String { "team/\(id)" }
+    static func teamAll(_ id: String) -> String { "team-all/\(id)" }
 }

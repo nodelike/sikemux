@@ -16,6 +16,14 @@ func problem(_ error: Error) -> String {
     return error.localizedDescription
 }
 
+/// A problem the phone itself names, in the words shown to the person.
+struct ChatProblem: LocalizedError {
+    let errorDescription: String?
+    init(_ text: String) { errorDescription = text }
+
+    static let notConnected = ChatProblem("the host is not connected")
+}
+
 extension MobileError {
     /// What kind of refusal the host met, when it names one this build knows.
     var refusal: ErrorKind? {

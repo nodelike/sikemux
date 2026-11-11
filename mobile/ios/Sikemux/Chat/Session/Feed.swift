@@ -196,7 +196,7 @@ final class Feed {
     {
         if let kept = details[toolCallId] { return try await kept.value }
         let reading = Task { @MainActor () throws -> ToolDetail in
-            guard let connection, connection.isOpen() else { throw ChatProblem("the host is not connected") }
+            guard let connection, connection.isOpen() else { throw ChatProblem.notConnected }
             return try await connection.call(
                 PhoneCall.ChatToolDetail.self, ToolDetailParams(agentId: agentId, toolCallId: toolCallId))
         }
@@ -211,12 +211,6 @@ final class Feed {
             throw error
         }
     }
-}
-
-/// A problem the phone itself names, in the words shown to the person.
-struct ChatProblem: LocalizedError {
-    let errorDescription: String?
-    init(_ text: String) { errorDescription = text }
 }
 
 /// Runs once, just before a coming frame is drawn.

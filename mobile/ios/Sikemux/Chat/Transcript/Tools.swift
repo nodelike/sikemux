@@ -101,7 +101,7 @@ struct LiveSeconds: View {
 }
 
 extension ToolPart {
-    var startDate: Date? { startedAt.map { Date(timeIntervalSince1970: Double($0) / 1000) } }
+    var startDate: Date? { startedAt.map { Format.date(millis: $0) } }
 
     /// A call the turn cut off has a duration, but printing it would read as a call that ran that long and then
     /// finished, so it says why it stopped.

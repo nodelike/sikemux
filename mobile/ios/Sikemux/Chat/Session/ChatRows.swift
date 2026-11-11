@@ -11,15 +11,12 @@ struct ChatRows: Codable, Equatable {
     var olderBefore: Int?
 
     static let empty: ChatRows = {
-        let fields: [String: JSONValue] = [
-            "connection": .string("connecting"), "running": .bool(false), "turned": .bool(false),
-            "permissionMode": .string(""), "commands": .array([]),
-            "capabilities": .object(["steering": .bool(false), "editing": .bool(false)]),
-            "setup": .object([:]), "permissions": .array([]), "tasks": .array([]), "runningSubagents": .array([]),
-            "queued": .array([]), "triggers": .array([]), "earlierLost": .bool(false),
-        ]
-        return ChatRows(
-            headFields: fields, head: decodeJSON(.object(fields))!, messages: [], subagentRows: [:], olderBefore: nil)
+        let head = ChatHead(
+            connection: .connecting, running: false, turned: false, permissionMode: .unknown, commands: [],
+            capabilities: ChatCapabilities(steering: false, editing: false), setup: .object([:]), permissions: [],
+            tasks: [], runningSubagents: [], queued: [], triggers: [], earlierLost: false)
+        guard case .object(let fields) = encodeJSON(head) else { fatalError("a chat head is a JSON object") }
+        return ChatRows(headFields: fields, head: head, messages: [], subagentRows: [:], olderBefore: nil)
     }()
 
     init(
@@ -44,11 +41,8 @@ struct ChatRows: Codable, Equatable {
     }
 
     var running: Bool { head.running }
-    /// Empty until the core sends the chat's head.
-    var permissionMode: String {
-        if case .string(let mode) = headFields["permissionMode"] { return mode }
-        return ""
-    }
+    /// Nil until the core sends the chat's head, or when it names a mode this build does not know.
+    var permissionMode: PermissionMode? { head.permissionMode == .unknown ? nil : head.permissionMode }
 
     mutating func mergeHead(_ set: JSONValue) {
         guard case .object(let changed) = set else { return }

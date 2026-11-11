@@ -64,7 +64,7 @@ enum Pick {
 
     static func camera() async throws -> [Attachment] {
         guard await AVCaptureDevice.requestAccess(for: .video) else {
-            throw OutboxError.failed("Sikemux has no access to the camera; allow it in Settings")
+            throw ChatProblem("Sikemux has no access to the camera; allow it in Settings")
         }
         guard UIImagePickerController.isSourceTypeAvailable(.camera) else { return [] }
         let image: UIImage? = await withCheckedContinuation { done in
@@ -115,7 +115,7 @@ enum Pick {
             image.draw(in: CGRect(origin: .zero, size: target))
         }
         guard let data = drawn.jpegData(compressionQuality: 0.85) else {
-            throw OutboxError.failed("could not read the photo")
+            throw ChatProblem("could not read the photo")
         }
         let stem = name.map { ($0 as NSString).deletingPathExtension }.flatMap { $0.isEmpty ? nil : $0 } ?? "photo"
         let url = FileManager.default.temporaryDirectory.appending(path: "\(UUID().uuidString).jpg")

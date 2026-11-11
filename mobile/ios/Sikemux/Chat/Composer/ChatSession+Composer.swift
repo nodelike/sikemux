@@ -52,7 +52,7 @@ extension ChatSession {
             }
             draft.edited()
         }
-        guard await draft.saveNow() else { throw OutboxError.failed("the draft did not reach the host") }
+        guard await draft.saveNow() else { throw ChatProblem("the draft did not reach the host") }
         let stashed = try await connection.call(PhoneCall.StashPrompt.self, StashPromptParams(agentId: agentId))
         draft.clear()
         return stashed.id
@@ -179,14 +179,13 @@ extension ChatSession {
     /// `bypass` runs without asking; `workspaceWrite` asks first.
     func setPermissionMode(_ chosen: PermissionMode) {
         if feed.chat.changingMode { return }
-        let mode = chosen.rawValue
-        let before = self.mode
-        self.mode = mode
+        let before = mode
+        mode = chosen
         notice = nil
         Task {
-            await ask("Could not change permissions", undo: { if self.mode == mode { self.mode = before } }) {
+            await ask("Could not change permissions", undo: { if self.mode == chosen { self.mode = before } }) {
                 connection in
-                try await connection.setPermissionMode(agentId: self.agentId, mode: mode)
+                try await connection.setPermissionMode(agentId: self.agentId, mode: chosen.rawValue)
             }
         }
     }

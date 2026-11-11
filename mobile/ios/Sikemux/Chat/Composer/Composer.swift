@@ -192,7 +192,7 @@ struct Composer: View {
             .accessibilityLabel("Add photos or files")
             StashButton { adding = .stash }
             YoloToggle(
-                core: core, mode: session.permissionMode.flatMap(PermissionMode.init(rawValue:)), provider: provider,
+                core: core, mode: session.permissionMode, provider: provider,
                 locked: modeLocked, onToggle: session.setPermissionMode)
             if let model {
                 Capped(width: 160) { picker(model, accent: true, label: "Model, \(model)") }
