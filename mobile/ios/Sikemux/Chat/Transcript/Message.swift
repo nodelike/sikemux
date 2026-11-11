@@ -90,11 +90,9 @@ struct TranscriptMessage: View {
         } else if message.role == .user {
             UserMessage(message: message, look: look, tap: tap)
         } else {
-            Grow(live: look.live) {
-                VStack(alignment: .leading, spacing: 0) {
-                    Parts(id: message.id, parts: shownParts, live: look.live)
-                    if let strip = look.strip { StripView(strip: strip, mine: false) }
-                }
+            VStack(alignment: .leading, spacing: 0) {
+                Parts(id: message.id, parts: shownParts, live: look.live)
+                if let strip = look.strip { StripView(strip: strip, mine: false) }
             }
             .contentShape(Rectangle())
             .onTapGesture { tap() }
