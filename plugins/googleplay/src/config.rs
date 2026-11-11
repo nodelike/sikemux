@@ -50,3 +50,23 @@ pub struct PlayConfig {
 pub fn load(data_dir: &Path) -> PlayResult<PlayConfig> {
     Ok(store::load(data_dir)?)
 }
+
+impl sikemux_plugin_api::vault::Whole for PlayConfig {
+    fn identity(&self) -> Option<String> {
+        self.account.as_ref().map(|account| account.email.clone())
+    }
+
+    fn label(&self) -> String {
+        self.account
+            .as_ref()
+            .map(|account| account.email.clone())
+            .unwrap_or_default()
+    }
+
+    fn secrets(&self) -> Vec<(Secrets, String)> {
+        vec![(KEYCHAIN, ACCOUNT_KEY.to_owned())]
+    }
+}
+
+pub static BOOK: sikemux_plugin_api::vault::Single<PlayConfig> =
+    sikemux_plugin_api::vault::Single::new("config.json");

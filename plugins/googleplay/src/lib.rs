@@ -14,6 +14,10 @@ use sikemux_plugin_api::{answer, params, reply, Plugin, PluginContext, PluginErr
 sikemux_plugin_api::plugin!(GooglePlayPlugin);
 
 impl Plugin for GooglePlayPlugin {
+    fn vault(&self) -> Option<&'static dyn sikemux_plugin_api::vault::Book> {
+        Some(&config::BOOK)
+    }
+
     fn call<'a>(
         &'a self,
         ctx: &'a PluginContext,

@@ -16,6 +16,10 @@ use sikemux_plugin_api::{answer, params, reply, Plugin, PluginContext, PluginErr
 sikemux_plugin_api::plugin!(Database, pool: connections::Pool = connections::Pool::default());
 
 impl Plugin for Database {
+    fn vault(&self) -> Option<&'static dyn sikemux_plugin_api::vault::Book> {
+        Some(&profiles::BOOK)
+    }
+
     fn call<'a>(
         &'a self,
         ctx: &'a PluginContext,

@@ -387,7 +387,7 @@ fn password_delete(id: &str) -> DatabaseResult<()> {
 pub async fn blocking<T: Send + 'static>(
     work: impl FnOnce() -> DatabaseResult<T> + Send + 'static,
 ) -> DatabaseResult<T> {
-    tokio::task::spawn_blocking(work)
+    tokio::task::spawn_blocking(sikemux_plugin_api::vault::carry(work))
         .await
         .map_err(|error| DatabaseError::Storage(error.to_string()))?
 }
@@ -552,3 +552,16 @@ mod tests {
         ));
     }
 }
+
+impl sikemux_plugin_api::vault::Listing for Profile {
+    fn secret_account(&self) -> Option<String> {
+        self.has_password.then(|| split_id(&self.id).0.to_owned())
+    }
+
+    fn label(&self) -> String {
+        self.name.clone()
+    }
+}
+
+pub static BOOK: sikemux_plugin_api::vault::Listed<Profile> =
+    sikemux_plugin_api::vault::Listed::new("profiles.json", "profiles", "id", None, PASSWORDS);

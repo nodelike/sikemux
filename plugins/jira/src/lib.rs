@@ -41,6 +41,10 @@ fn for_agent(value: Value) -> Value {
 }
 
 impl Plugin for Jira {
+    fn vault(&self) -> Option<&'static dyn sikemux_plugin_api::vault::Book> {
+        Some(&oauth::BOOK)
+    }
+
     fn call<'a>(
         &'a self,
         ctx: &'a PluginContext,

@@ -62,6 +62,10 @@ async fn signed_in(ctx: &PluginContext) -> RundeckResult<(Session, Saved)> {
 }
 
 impl Plugin for Rundeck {
+    fn vault(&self) -> Option<&'static dyn sikemux_plugin_api::vault::Book> {
+        Some(&config::BOOK)
+    }
+
     fn call<'a>(
         &'a self,
         ctx: &'a PluginContext,

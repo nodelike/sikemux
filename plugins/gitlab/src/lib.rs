@@ -79,6 +79,10 @@ fn account_of(data_dir: &Path, input: &Value) -> Option<String> {
 }
 
 impl Plugin for Gitlab {
+    fn vault(&self) -> Option<&'static dyn sikemux_plugin_api::vault::Book> {
+        Some(&config::BOOK)
+    }
+
     fn call<'a>(
         &'a self,
         ctx: &'a PluginContext,

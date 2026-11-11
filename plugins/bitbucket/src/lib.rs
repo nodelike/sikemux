@@ -63,6 +63,10 @@ fn has_account(data_dir: &Path) -> bool {
 }
 
 impl Plugin for Bitbucket {
+    fn vault(&self) -> Option<&'static dyn sikemux_plugin_api::vault::Book> {
+        Some(&oauth::BOOK)
+    }
+
     fn call<'a>(
         &'a self,
         ctx: &'a PluginContext,

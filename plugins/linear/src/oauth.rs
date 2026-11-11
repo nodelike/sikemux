@@ -52,3 +52,13 @@ pub async fn revoke(refresh_token: &str) {
         eprintln!("linear: revoking the sign-in: {error}");
     }
 }
+
+pub static BOOK: sikemux_plugin_api::vault::Listed<config::Workspace> =
+    sikemux_plugin_api::vault::Listed::new(
+        "config.json",
+        "workspaces",
+        "id",
+        Some("default"),
+        config::KEYCHAIN,
+    )
+    .renewed_by(&ACCESS);
