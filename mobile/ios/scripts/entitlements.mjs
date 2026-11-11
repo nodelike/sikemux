@@ -4,12 +4,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const TEAM = 'D577WD6Z5U';
 const [settingsPath, out] = process.argv.slice(2);
 fs.mkdirSync(out, { recursive: true });
 for (const { buildSettings: s } of JSON.parse(fs.readFileSync(settingsPath, 'utf8'))) {
   if (!s.CODE_SIGN_ENTITLEMENTS) continue;
-  const settings = { ...s, AppIdentifierPrefix: `${TEAM}.`, TeamIdentifierPrefix: `${TEAM}.` };
+  const team = s.DEVELOPMENT_TEAM;
+  if (!team) throw new Error(`${s.FULL_PRODUCT_NAME} has no DEVELOPMENT_TEAM in project.yml`);
+  const settings = { ...s, AppIdentifierPrefix: `${team}.`, TeamIdentifierPrefix: `${team}.` };
   const text = fs
     .readFileSync(path.resolve(s.SRCROOT, s.CODE_SIGN_ENTITLEMENTS), 'utf8')
     .replace(/\$\((\w+)\)/g, (whole, name) => settings[name] ?? whole);

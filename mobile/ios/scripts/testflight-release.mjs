@@ -10,11 +10,16 @@
 // Signs in with the App Store Connect API key in APP_STORE_CONNECT_KEY, _KEY_ID and _ISSUER_ID.
 import { Buffer } from 'node:buffer';
 import { createSign } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { setTimeout as sleep } from 'node:timers/promises';
 
 import { releaseNotes } from '../../app/scripts/play-release.mjs';
 
-const BUNDLE_ID = 'com.nodelike.sikemux.mobile';
+/** The App Store build's bundle id, as project.yml's Release settings name it. */
+const BUNDLE_ID = /\n {4}Release:\n(?: {6}.*\n)*? {6}SIKEMUX_BUNDLE_ID: (\S+)\n/.exec(
+  readFileSync(new URL('../project.yml', import.meta.url), 'utf8'),
+)?.[1];
+if (!BUNDLE_ID) throw new Error('project.yml names no SIKEMUX_BUNDLE_ID for Release');
 const API = 'https://api.appstoreconnect.apple.com';
 export const TESTERS_GROUP = 'Testers';
 const PROCESSING_LIMIT_MS = 40 * 60 * 1000;
