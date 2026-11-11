@@ -681,10 +681,6 @@ fn rest_row(view: &View, agent: &Agent, place: usize, numbers: f32, cx: &App) ->
             .into_any_element();
     };
     let second = limits.get(1).map(|(_, window)| *window);
-    let tip = (limits.iter())
-        .map(|(name, window)| format!("{name} {}", left(window.used_at(view.now))))
-        .collect::<Vec<_>>()
-        .join(" · ");
     let rulers = div()
         .flex_1()
         .min_w_0()
@@ -716,10 +712,7 @@ fn rest_row(view: &View, agent: &Agent, place: usize, numbers: f32, cx: &App) ->
                 t.text_tertiary,
             ))
         }));
-    row.tooltip(ui::tooltip(tip))
-        .child(rulers)
-        .child(figures)
-        .into_any_element()
+    row.child(rulers).child(figures).into_any_element()
 }
 
 fn row_height(view: &View) -> f32 {
