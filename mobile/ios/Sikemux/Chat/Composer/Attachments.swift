@@ -103,6 +103,8 @@ extension ComposerAttachments where Lead == EmptyView {
 
 /// A picture on the composer: this phone's copy, or one fetched from the host for a picture only the host has.
 private struct TileImage: View {
+    /// Enough pixels for its 58 points at 3x, and a little more.
+    nonisolated private static let pixels: CGFloat = 240
     @Environment(\.palette) private var palette
     let attachment: Attachment
     let core: String?
@@ -123,20 +125,10 @@ private struct TileImage: View {
                 url = if let core { await HostFiles.shared.read(core: core, path: path) } else { nil }
             }
             guard let url else { return }
-            image = await Task.detached { Self.thumbnail(url) }.value
+            image = await Task.detached { UIImage.thumbnail(of: url, pixels: Self.pixels) }.value
         }
     }
 
-    /// Enough pixels for its 58 points at 3x, and a little more.
-    nonisolated private static func thumbnail(_ url: URL) -> UIImage? {
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
-        let options: [CFString: Any] = [
-            kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceThumbnailMaxPixelSize: 240,
-            kCGImageSourceCreateThumbnailWithTransform: true,
-        ]
-        return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary).map { UIImage(cgImage: $0) }
-    }
 }
 
 /// A file by its name and size.
