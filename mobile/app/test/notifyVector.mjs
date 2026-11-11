@@ -13,7 +13,8 @@ export const swiftAvailable = process.platform === 'darwin' && spawnSync('xcrun'
 export function openVectorInSwift() {
   const dir = mkdtempSync(join(tmpdir(), 'sikemux-notify-'));
   try {
-    const shared = readdirSync(join(ios, 'Shared', 'Notify')).map((name) => join(ios, 'Shared', 'Notify', name));
+    const notify = readdirSync(join(ios, 'Shared', 'Notify')).map((name) => join(ios, 'Shared', 'Notify', name));
+    const shared = [...notify, join(ios, 'Shared', 'Keychain.swift')];
     const binary = join(dir, 'check');
     execFileSync('xcrun', ['swiftc', '-o', binary, ...shared, join(ios, 'Tests', 'NotifyVector', 'main.swift')], { stdio: 'pipe' });
     return execFileSync(binary, [vector], { encoding: 'utf8' }).trim();
