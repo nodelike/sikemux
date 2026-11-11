@@ -328,7 +328,7 @@ private struct ChatPane: View {
     }
 
     private var closedProblem: String {
-        if case .closed(let problem, _, _) = live.status { return problem }
+        if case .closed(let problem, _) = live.status { return problem }
         return ""
     }
 
