@@ -1041,6 +1041,8 @@ export interface HostAlert {
     since: number;
     /** How full or busy, in percent. */
     percent: number;
+    /** Raised because the system says memory is short, rather than by how much is used. */
+    pressure?: boolean;
 }
 
 export type HostAlertKind = "memory" | "disk" | "cpu" | "offline";

@@ -17,8 +17,8 @@ The top of the page counts how many hosts are online and how many agents are run
 
 - its maker's logo, its name and its model
 - how it stands: an alert such as **Memory 98%** with how long it has lasted, **Out of reach** with how long since this Mac lost it, **Updating** while its core updates itself, or **Healthy**
-- CPU (cores in use out of all of them), memory and disk (used out of the total), each with a meter that turns amber or red near full
-- how many of its agents are running, idle or stopped
+- CPU (cores in use out of all of them), memory and disk (used out of the total), each with a meter that turns amber or red near full. Memory counts as Activity Monitor does and disk as Finder does, so space macOS can free on its own counts as free
+- how many of its agents are running, idle or stopped, and how many the system stopped lately to free memory
 
 **Table** puts the same on one row per host.
 
@@ -36,12 +36,12 @@ Click a host to see its detail over the hosts; **✕** or a second click closes 
 
 A host raises an alert when:
 
-- its memory runs short, as its system says
+- its memory runs short, as its system says, for a minute; it ends once memory has been fine for three minutes, and reads **Memory short** rather than a percentage
 - its disk is at 90% or more
 - its CPU stays at 90% or more for 10 minutes
 - a linked host stays out of reach for 2 minutes
 
-Its alerts show here first, and also under **Your calls** in Goals, and at the top of the notch's list. Clicking either opens this page on that host. In the side rail, a host with a serious alert only turns its dot red. When an alert comes from an agent's work, it names the agent using the most. If another host has room, it offers **Move @Name to** that host, which sends the agent's project, with its chats, tabs and uncommitted changes, to the healthy host with the most memory free, once you confirm. When other agents work in the same project, the button names the project instead, since they all go with it. With no host to move to, the alert only explains.
+Its alerts show here first, and also under **Your calls** in Goals, and at the top of the notch's list. Clicking either opens this page on that host. In the side rail, a host with a serious alert only turns its dot red. When an alert comes from an agent's work, it names the agent using the most. If another host has room, it offers **Move @Name to** that host, which sends the agent's project, with its chats, tabs and uncommitted changes, to the healthy host with the most memory free, in gigabytes, once you confirm. When other agents work in the same project, the button names the project instead, since they all go with it. With no host to move to, the alert only explains.
 
 ### Resources
 

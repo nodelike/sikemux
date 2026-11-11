@@ -348,6 +348,12 @@ fn title_of(alert: &HostAlert, stats: Option<&HostStats>) -> String {
     match alert.kind {
         HostAlertKind::Memory => {
             let swap = stats.map_or(0, |stats| stats.now.swap_used);
+            if alert.pressure {
+                return match swap > 0 {
+                    true => format!("Memory short, {} GB in swap", model::gb(swap)),
+                    false => format!("Memory short, {}% used", alert.percent),
+                };
+            }
             match swap > 0 {
                 true => format!(
                     "Memory at {}%, {} GB in swap",
@@ -422,9 +428,10 @@ fn roomiest_other<'a>(host: &Listed, listed: &'a [Listed]) -> Option<&'a Listed<
         .filter(|other| other.key != host.key)
         .filter(|other| other.fresh_stats().is_some())
         .filter(|other| other.state == State::Healthy)
-        .min_by(|a, b| {
-            let used = |host: &Listed| host.percent(HostAlertKind::Memory).unwrap_or(100.);
-            used(a).total_cmp(&used(b))
+        .max_by_key(|other| {
+            other.fresh_stats().map_or(0, |stats| {
+                (stats.about.memory_total).saturating_sub(stats.now.memory_used)
+            })
         })
 }
 
@@ -648,8 +655,9 @@ fn resources(
         "{:.1}",
         (about.cores as f64 - now.cpu as f64 * about.cores as f64 / 1000.).max(0.)
     );
-    let (memory_used, memory_of) = model::used_of(now.memory_used, memory_total);
-    let (disk_used, disk_of) = model::used_of(now.disk_used, disk_total);
+    let (memory_used, memory_of) =
+        model::used_of(now.memory_used, memory_total, model::Unit::Memory);
+    let (disk_used, disk_of) = model::used_of(now.disk_used, disk_total, model::Unit::Disk);
     let rows = [
         (
             HostAlertKind::Cpu,

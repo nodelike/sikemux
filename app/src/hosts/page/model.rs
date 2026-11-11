@@ -343,9 +343,33 @@ fn state(feed: Option<&Feed>, reached: bool, alert: Option<&HostAlert>) -> State
     }
 }
 
-/// A size in bytes as gigabytes, to one place under a hundred: "15.7", "364".
+/// How the system counts a size: memory in powers of 1024, as Activity Monitor and `free`
+/// do, disk in powers of 1000, as Finder and Files do. Both are labelled GB and TB.
+#[derive(Clone, Copy)]
+pub enum Unit {
+    Memory,
+    Disk,
+}
+
+impl Unit {
+    fn step(self) -> f64 {
+        match self {
+            Unit::Memory => 1024.,
+            Unit::Disk => 1000.,
+        }
+    }
+
+    fn gigabytes(self, bytes: u64) -> f64 {
+        bytes as f64 / self.step().powi(3)
+    }
+}
+
+/// An amount of memory in gigabytes, to one place under a hundred: "15.7", "364".
 pub fn gb(bytes: u64) -> String {
-    let gb = bytes as f64 / 1024f64.powi(3);
+    one_place(Unit::Memory.gigabytes(bytes))
+}
+
+fn one_place(gb: f64) -> String {
     if gb < 100. {
         format!("{gb:.1}")
     } else {
@@ -353,11 +377,16 @@ pub fn gb(bytes: u64) -> String {
     }
 }
 
-/// A total size as its card says it: "16 GB", "960 GB", "2 TB".
+/// A size on disk as Finder says it: "16 GB", "960 GB", "2 TB".
 pub fn size(bytes: u64) -> String {
-    let gb = bytes as f64 / 1024f64.powi(3);
+    total(bytes, Unit::Disk)
+}
+
+/// A total as its card says it, in `unit`: "16 GB", "960 GB", "2 TB".
+fn total(bytes: u64, unit: Unit) -> String {
+    let gb = unit.gigabytes(bytes);
     if gb >= 1000. {
-        let tb = gb / 1024.;
+        let tb = gb / unit.step();
         match tb.fract() < 0.05 {
             true => format!("{tb:.0} TB"),
             false => format!("{tb:.1} TB"),
@@ -368,13 +397,12 @@ pub fn size(bytes: u64) -> String {
 }
 
 /// Used out of a total, in the total's unit: ("15.7", "16 GB"), ("0.82", "2 TB").
-pub fn used_of(used: u64, total: u64) -> (String, String) {
-    let total_gb = total as f64 / 1024f64.powi(3);
-    let used_gb = used as f64 / 1024f64.powi(3);
-    if total_gb >= 1000. {
-        (format!("{:.2}", used_gb / 1024.), size(total))
+pub fn used_of(used: u64, all: u64, unit: Unit) -> (String, String) {
+    let used_gb = unit.gigabytes(used);
+    if unit.gigabytes(all) >= 1000. {
+        (format!("{:.2}", used_gb / unit.step()), total(all, unit))
     } else {
-        (gb(used), size(total))
+        (one_place(used_gb), total(all, unit))
     }
 }
 

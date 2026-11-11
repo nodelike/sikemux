@@ -469,8 +469,10 @@ fn reading(host: &Listed, kind: HostAlertKind, short: bool, t: &Tokens) -> Readi
                 false => format!("{} cores", about.cores),
             },
         ),
-        HostAlertKind::Memory => model::used_of(now.memory_used, about.memory_total),
-        _ => model::used_of(now.disk_used, about.disk_total),
+        HostAlertKind::Memory => {
+            model::used_of(now.memory_used, about.memory_total, model::Unit::Memory)
+        }
+        _ => model::used_of(now.disk_used, about.disk_total, model::Unit::Disk),
     };
     Reading {
         used: online.then_some(used),

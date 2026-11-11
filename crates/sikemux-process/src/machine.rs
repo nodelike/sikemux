@@ -85,10 +85,72 @@ pub fn disk(path: &Path) -> Option<Disk> {
     let stats = unsafe { stats.assume_init() };
     let block = stats.f_frsize as u64;
     let total = stats.f_blocks as u64 * block;
+    let free = stats.f_bavail as u64 * block;
     Some(Disk {
         total,
-        used: total.saturating_sub(stats.f_bavail as u64 * block),
+        used: total.saturating_sub(free.max(purgeable_free(&path).unwrap_or(0))),
     })
+}
+
+/// What Finder counts as free on the volume `path` is on: the free space with what macOS
+/// would delete to make room, such as caches and local snapshots, which statvfs leaves out.
+#[cfg(target_os = "macos")]
+fn purgeable_free(path: &std::ffi::CStr) -> Option<u64> {
+    use std::ffi::c_void;
+    type Ref = *const c_void;
+    #[link(name = "CoreFoundation", kind = "framework")]
+    extern "C" {
+        static kCFURLVolumeAvailableCapacityForImportantUsageKey: Ref;
+        fn CFURLCreateFromFileSystemRepresentation(
+            allocator: Ref,
+            buffer: *const u8,
+            length: isize,
+            directory: u8,
+        ) -> Ref;
+        fn CFURLCopyResourcePropertyForKey(
+            url: Ref,
+            key: Ref,
+            value: *mut Ref,
+            error: *mut Ref,
+        ) -> u8;
+        fn CFNumberGetValue(number: Ref, kind: isize, value: *mut c_void) -> u8;
+        fn CFRelease(object: Ref);
+    }
+    const SINT64: isize = 4;
+    let bytes = path.to_bytes();
+    // SAFETY: each object created here is released before returning, the key is a constant
+    // CoreFoundation owns, and the number is read into an i64, which kCFNumberSInt64Type fills.
+    unsafe {
+        let url = CFURLCreateFromFileSystemRepresentation(
+            std::ptr::null(),
+            bytes.as_ptr(),
+            bytes.len() as isize,
+            1,
+        );
+        if url.is_null() {
+            return None;
+        }
+        let mut value: Ref = std::ptr::null();
+        let found = CFURLCopyResourcePropertyForKey(
+            url,
+            kCFURLVolumeAvailableCapacityForImportantUsageKey,
+            &mut value,
+            std::ptr::null_mut(),
+        ) != 0;
+        CFRelease(url);
+        if !found || value.is_null() {
+            return None;
+        }
+        let mut free: i64 = 0;
+        let read = CFNumberGetValue(value, SINT64, (&raw mut free).cast()) != 0;
+        CFRelease(value);
+        (read && free > 0).then_some(free as u64)
+    }
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn purgeable_free(_path: &std::ffi::CStr) -> Option<u64> {
+    None
 }
 
 #[cfg(not(unix))]

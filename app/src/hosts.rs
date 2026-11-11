@@ -799,6 +799,7 @@ impl Copying {
 pub fn alert_words(alert: &HostAlert) -> String {
     match alert.kind {
         HostAlertKind::Offline => format!("Out of reach {}", lasted(alert.since)),
+        HostAlertKind::Memory if alert.pressure => "Memory short".to_owned(),
         kind => format!("{} {}%", alert_kind_word(kind), alert.percent),
     }
 }

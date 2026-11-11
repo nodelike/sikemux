@@ -45,7 +45,8 @@ pub struct HostStats {
     /// What about the host needs the person now.
     #[serde(default)]
     pub alerts: Vec<HostAlert>,
-    /// What happened on the host lately, newest first.
+    /// What happened on the host lately, newest first; only the agents the system stopped
+    /// for [`StatsSpan::Now`].
     #[serde(default)]
     pub events: Vec<HostEvent>,
 }
@@ -186,6 +187,9 @@ pub struct HostAlert {
     pub since: u64,
     /// How full or busy, in percent.
     pub percent: u16,
+    /// Raised because the system says memory is short, rather than by how much is used.
+    #[serde(default)]
+    pub pressure: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]

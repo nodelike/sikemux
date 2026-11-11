@@ -1620,6 +1620,9 @@ fn host_alert_items(core: &Core) -> Vec<InboxItem> {
     (alerts.into_iter())
         .map(|(host, name, alert)| {
             let (word, what) = match alert.kind {
+                HostAlertKind::Memory if alert.pressure => {
+                    ("memory", format!("Memory short, {}% used", alert.percent))
+                }
                 HostAlertKind::Memory => ("memory", format!("Memory {}% used", alert.percent)),
                 HostAlertKind::Disk => ("disk", format!("Disk {}% full", alert.percent)),
                 HostAlertKind::Cpu => ("cpu", format!("CPU {}% busy", alert.percent)),

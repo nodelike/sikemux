@@ -1725,6 +1725,8 @@ struct HostAlert: Codable, Hashable, Sendable {
     var since: Int
     /// How full or busy, in percent.
     var percent: Int
+    /// Raised because the system says memory is short, rather than by how much is used.
+    var pressure: Bool?
 }
 
 enum HostAlertKind: String, Codable, Hashable, Sendable {

@@ -62,6 +62,10 @@ const DISK_LIMITS: Limits = Limits {
     calm: 88,
 };
 const OFFLINE_AFTER_MS: u64 = 2 * 60_000;
+/// How long the system must say memory is short before that alerts, and calm before it ends,
+/// so a moment's stall neither starts nor ends one.
+const PRESSURE_FOR_MS: u64 = 60_000;
+const PRESSURE_CALM_FOR_MS: u64 = 3 * 60_000;
 const DISK_PARTS_EVERY: Duration = Duration::from_secs(30 * 60);
 
 pub(crate) struct HostWatch {
@@ -82,6 +86,8 @@ struct State {
     coarse: VecDeque<HostSample>,
     looks: usize,
     pressure: Option<Pressure>,
+    /// Since when the pressure has been what it is now.
+    pressure_since: u64,
     busy_since: Option<u64>,
     alerts: Vec<HostAlert>,
     offline: Vec<(String, u64)>,
@@ -182,11 +188,10 @@ pub(crate) fn read(core: &Core, params: HostStatsParams) -> HostStats {
             Vec::new()
         },
         alerts: state.alerts.clone(),
-        events: if more {
-            state.events.iter().rev().cloned().collect()
-        } else {
-            Vec::new()
-        },
+        events: (state.events.iter().rev())
+            .filter(|event| more || matches!(event.what, HostEventKind::Killed { .. }))
+            .cloned()
+            .collect(),
     }
 }
 
@@ -262,6 +267,7 @@ fn alerts_named(core: &Core) -> Vec<(HostAlerted, Option<String>)> {
             level: AlertLevel::Danger,
             since,
             percent: 0,
+            pressure: false,
         };
         listed.push((
             HostAlerted {
@@ -314,8 +320,12 @@ fn watch_pressure(core: Weak<Core>) {
         };
         let moved = {
             let mut state = core.host_watch.state.locked();
-            state.pressure = Some(pressure);
-            state.judge(epoch_ms())
+            let at = epoch_ms();
+            if state.pressure != Some(pressure) {
+                state.pressure = Some(pressure);
+                state.pressure_since = at;
+            }
+            state.judge(at)
         };
         if moved {
             core.changed(What::View);
@@ -828,7 +838,8 @@ fn percent(used: u64, total: u64) -> u16 {
     if total == 0 {
         return 0;
     }
-    (u128::from(used) * 100 / u128::from(total)).min(100) as u16
+    let (used, total) = (u128::from(used), u128::from(total));
+    ((used * 100 + total / 2) / total).min(100) as u16
 }
 
 fn level(percent: u16, limits: &Limits, was: Option<AlertLevel>) -> Option<AlertLevel> {
@@ -865,19 +876,25 @@ impl State {
     /// those that start and end. Answers whether any moved.
     fn judge(&mut self, at: u64) -> bool {
         let memory_percent = percent(self.now.memory_used, self.memory_total);
+        let held = at.saturating_sub(self.pressure_since);
+        let was_pressed = self
+            .alert(HostAlertKind::Memory)
+            .filter(|alert| alert.pressure)
+            .map(|alert| alert.level);
         let pressed = match self.pressure {
             Some(Pressure::Critical) => Some(AlertLevel::Danger),
-            Some(Pressure::Warn) => Some(AlertLevel::Warn),
+            Some(Pressure::Warn) if held >= PRESSURE_FOR_MS => Some(AlertLevel::Warn),
+            Some(Pressure::Warn) => was_pressed,
+            _ if held < PRESSURE_CALM_FOR_MS => was_pressed,
             _ => None,
         };
-        let memory = worse(
-            pressed,
-            level(
-                memory_percent,
-                &MEMORY_LIMITS,
-                self.alert(HostAlertKind::Memory).map(|alert| alert.level),
-            ),
+        let by_use = level(
+            memory_percent,
+            &MEMORY_LIMITS,
+            self.alert(HostAlertKind::Memory).map(|alert| alert.level),
         );
+        let memory = worse(pressed, by_use);
+        let memory_pressed = pressed.is_some() && worse(pressed, by_use) != by_use;
         let disk_percent = percent(self.now.disk_used, self.disk_total);
         let disk = level(
             disk_percent,
@@ -916,6 +933,7 @@ impl State {
                         level,
                         since: was.map_or(since.unwrap_or(at), |was| was.since),
                         percent,
+                        pressure: kind == HostAlertKind::Memory && memory_pressed,
                     });
                 }
                 (None, Some(_)) => self.record(at, HostEventKind::AlertEnded { alert: kind }),
