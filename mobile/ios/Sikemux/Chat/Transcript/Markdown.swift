@@ -122,8 +122,8 @@ struct Inline {
             return run
         case .path(let path):
             let label = path.code == true ? chip(visibleText(path.c)) : inner(false).string(path.c)
-            guard paths, let url = TranscriptLink.file(path.href) else { return label }
-            var run = label
+            guard paths, HostFiles.namesFile(path.href), let url = TranscriptLink.file(path.href) else { return label }
+            var run = FileGlyph.mark(size: 12) + AttributedString(" ") + label
             run.link = url
             if path.code != true { run.foregroundColor = palette.accent }
             return run
@@ -147,6 +147,7 @@ struct Inline {
                 label.link = url
                 label.foregroundColor = palette.accent
             } else if link.file == true, paths, let url = TranscriptLink.file(link.href) {
+                label = FileGlyph.mark(size: 12) + AttributedString(" ") + label
                 label.link = url
                 label.foregroundColor = palette.accent
             }
@@ -199,12 +200,14 @@ struct MarkdownView: View {
     let style: ProseStyle
     /// The places the find bar found in this part, while it is open.
     var marks: Marks?
+    /// The end still coming in, drawn fainter.
+    var fading: Fading = []
 
     var body: some View {
         let starts = marks.map { _ in FindText.starts(blocks.map(MdNode.element), separated: true, top: true) }
         VStack(alignment: .leading, spacing: 10) {
             ForEach(Array(blocks.enumerated()), id: \.offset) { index, block in
-                BlockView(block: block, style: style, palette: palette, marks: marks?.from(starts![index])).equatable()
+                BlockView(block: block, style: style, palette: palette, marks: marks?.from(starts![index]), fading: index == blocks.count - 1 ? fading : []).equatable()
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -218,6 +221,12 @@ struct BlockView: View, Equatable {
     let style: ProseStyle
     let palette: Palette
     var marks: Marks?
+    var fading: Fading = []
+
+    nonisolated static func == (a: BlockView, b: BlockView) -> Bool {
+        a.block == b.block && a.style == b.style && a.palette == b.palette && a.marks == b.marks
+            && a.fading.map(\.text) == b.fading.map(\.text) && a.fading.map(\.opacity) == b.fading.map(\.opacity)
+    }
 
     private var inline: Inline { Inline(palette: palette, style: style, marks: marks, cursor: marks.map { FindCursor($0.base) }) }
 
@@ -230,7 +239,7 @@ struct BlockView: View, Equatable {
             let set = ProseStyle(size: size, lineHeight: size * 1.35, color: palette.ink)
             var text = Inline(palette: palette, style: set, marks: marks, cursor: marks.map { FindCursor($0.base) }).string(heading.c)
             let _ = text.font = Theme.ui(size, .semibold)
-            Prose(text: text, style: set).accessibilityAddTraits(.isHeader)
+            Prose(text: text.fading(fading, color: set.color), style: set).accessibilityAddTraits(.isHeader)
         case .ul(let list):
             ListBlock(items: list.c, first: nil, style: style, palette: palette, marks: marks)
         case .ol(let list):
@@ -254,7 +263,7 @@ struct BlockView: View, Equatable {
         case .details(let details):
             DetailsBlock(details: details, style: style, marks: marks)
         case .p(let paragraph):
-            Prose(text: inline.string(paragraph.c), style: style)
+            Prose(text: inline.string(paragraph.c).fading(fading, color: style.color), style: style)
         default:
             Prose(text: inline.string(block), style: style)
         }
@@ -263,11 +272,12 @@ struct BlockView: View, Equatable {
 
 /// Words set in the transcript's prose, selectable as the Mac's are.
 struct Prose: View {
+    @Environment(\.palette) private var palette
     let text: AttributedString
     let style: ProseStyle
 
     var body: some View {
-        Text(text)
+        FileGlyph.text(text, ink: palette.inkDim)
             .font(style.font)
             .foregroundStyle(style.color)
             .lineSpacing(style.spacing)
@@ -561,4 +571,42 @@ func tableSource(_ table: MdElement.Table) -> String {
 
 extension Array {
     subscript(safe index: Int) -> Element? { indices.contains(index) ? self[index] : nil }
+}
+
+/// The file glyph a file the transcript names wears before its words, as the Mac's file refs do.
+enum FileGlyph: AttributedStringKey {
+    typealias Value = CGFloat
+    static let name = "sikemux.fileGlyph"
+
+    /// A place for the glyph inside a run of words, drawn by `text`.
+    static func mark(size: CGFloat) -> AttributedString {
+        var mark = AttributedString("\u{FFFC}")
+        mark[FileGlyph.self] = size
+        return mark
+    }
+
+    /// The words as one `Text`, with each glyph's place drawn as the file icon.
+    @MainActor static func text(_ words: AttributedString, ink: Color) -> Text {
+        guard words.runs.contains(where: { $0[FileGlyph.self] != nil }) else { return Text(words) }
+        var out = Text("")
+        for run in words.runs {
+            if let size = run[FileGlyph.self], let image = image(size) {
+                out = out + Text(Image(uiImage: image).renderingMode(.template)).foregroundColor(ink).baselineOffset(-1.5)
+            } else {
+                out = out + Text(AttributedString(words[run.range]))
+            }
+        }
+        return out
+    }
+
+    @MainActor private static var drawn: [CGFloat: UIImage] = [:]
+
+    @MainActor private static func image(_ size: CGFloat) -> UIImage? {
+        if let found = drawn[size] { return found }
+        let renderer = ImageRenderer(content: IconView(icon: Icons.file, size: size).foregroundStyle(.black))
+        renderer.scale = UIScreen.main.scale
+        guard let image = renderer.uiImage?.withRenderingMode(.alwaysTemplate) else { return nil }
+        drawn[size] = image
+        return image
+    }
 }
