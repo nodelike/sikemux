@@ -15,7 +15,8 @@ use super::super::drafts::{self, SetDraftParams};
 use super::super::{launching, layout, workspace, Core, CoreError, CoreResult};
 use super::calls::{self as asks, params_of, HostAsk};
 use super::link::Answer;
-use super::{ask, find};
+use super::transfer::call_once;
+use super::{find, Failed};
 
 const TAKE_WAIT: Duration = Duration::from_secs(30);
 
@@ -58,6 +59,16 @@ pub(crate) async fn move_chat(
     }
     let link = find(core, &params.host)?;
     let draft = core.drafts.chat_draft(&agent.id);
+    let attached = (draft.as_ref())
+        .and_then(|draft| draft.extra.as_ref())
+        .is_some_and(|extra| !extra.attachments.is_empty());
+    if attached {
+        return Err(format!(
+            "its draft has attached files, which stay on this host; take them off, move the chat, then attach them on {}",
+            link.name
+        )
+        .into());
+    }
     let taking = TakeChat {
         provider: agent.provider.clone(),
         project: params.project,
@@ -69,22 +80,19 @@ pub(crate) async fn move_chat(
             .as_ref()
             .map(|draft| draft.text.clone())
             .unwrap_or_default(),
-        // Files attached here are not on the other host.
-        extra: draft.and_then(|draft| draft.extra).map(|extra| DraftExtra {
-            attachments: Vec::new(),
-            ..extra
-        }),
+        extra: draft.and_then(|draft| draft.extra),
     };
-    let answer = ask(
-        core,
-        &link.id,
-        asks::TakeChat::METHOD,
-        params_of::<asks::TakeChat>(&taking),
-        None,
-        TAKE_WAIT,
-    )
-    .await
-    .map_err(|error| CoreError::from(error.to_string()))?;
+    let params = params_of::<asks::TakeChat>(&taking);
+    let method = asks::TakeChat::METHOD;
+    let answer = call_once(core, &link.id, method, params, None, TAKE_WAIT)
+        .await
+        .map_err(|error| match error {
+            Failed::Unknown(why) => CoreError::from(format!(
+                "{} did not say whether it started the chat ({why}); look there before moving it again",
+                link.name
+            )),
+            error => CoreError::from(error.to_string()),
+        })?;
     let agent_id = answer["agentId"]
         .as_str()
         .ok_or_else(|| CoreError::from(format!("{} did not start the chat", link.name)))?

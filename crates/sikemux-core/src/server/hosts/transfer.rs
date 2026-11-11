@@ -22,7 +22,7 @@ use super::calls::{self as asks, params_of, HostAsk};
 use super::code::Scratch;
 use super::link::{Answer, Received};
 use super::open::{self, OpenAs};
-use super::{ask, find, ASK_WAIT};
+use super::{ask, call, call_id, find, Failed, ASK_WAIT};
 use crate::agent_catalog::{self, AgentKind};
 use crate::sessions::{carry, delete, SavedRef};
 use sikemux_view::layout::Tab;
@@ -182,16 +182,23 @@ pub(crate) async fn send_session(core: &Arc<Core>, params: SendParams) -> CoreRe
         chats,
         tabs,
     });
-    let answer = ask(
+    let method = asks::TakeSession::METHOD;
+    let answer = call_once(
         core,
         &link.id,
-        asks::TakeSession::METHOD,
+        method,
         request,
         Some(body.path()),
         TAKE_WAIT,
     )
     .await
-    .map_err(|error| error.to_string())?;
+    .map_err(|error| match error {
+        Failed::Unknown(why) => format!(
+            "{} did not say whether it took the chats ({why}); nothing here was closed",
+            link.name
+        ),
+        error => error.to_string(),
+    })?;
     let taken: HashMap<String, String> =
         serde_json::from_value(answer["agents"].clone()).unwrap_or_default();
     let (went, stayed): (Vec<Sent>, Vec<Sent>) = sent
@@ -271,6 +278,26 @@ pub(crate) async fn send_session(core: &Arc<Core>, params: SendParams) -> CoreRe
         left,
         differs: None,
     })
+}
+
+/// Makes the call `method` on `host` once: when its answer is lost on the way, asks again with
+/// the same id, which answers what the first ask did rather than doing it twice.
+pub(super) async fn call_once(
+    core: &Arc<Core>,
+    host: &str,
+    method: &str,
+    params: serde_json::Value,
+    body: Option<&std::path::Path>,
+    limit: Duration,
+) -> Result<serde_json::Value, Failed> {
+    let id = call_id();
+    let mut tries = 0;
+    loop {
+        match call(core, host, method, params.clone(), body, limit, &id).await {
+            Err(Failed::Unknown(_)) if tries < 2 => tries += 1,
+            done => return done,
+        }
+    }
 }
 
 /// The chats of `agents` that can go, their files written one after another into a scratch
