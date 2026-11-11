@@ -417,6 +417,7 @@ impl Workbench {
             moving: sending.moving,
             uncommitted: sending.uncommitted,
             worktree,
+            there: self.copy_in_front_on(&sending.from, &sending.project, &sending.host),
         };
         // The project's own host sends it.
         let asked = core::Target::new(&self.asks, sending.from.clone())

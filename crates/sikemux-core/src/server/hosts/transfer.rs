@@ -46,6 +46,10 @@ pub struct SendParams {
     /// stands elsewhere.
     #[serde(default)]
     pub worktree: bool,
+    /// The project on the other host, by its id there, the person has in front, which the
+    /// session goes into when that host has several checkouts of the repository.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub there: Option<String>,
 }
 
 /// A chat on its way, as the other host is told it.
@@ -135,8 +139,15 @@ pub(crate) async fn send_session(core: &Arc<Core>, params: SendParams) -> CoreRe
         true => OpenAs::Worktree,
         false => OpenAs::Checkout,
     };
-    let opened =
-        open::open_there(core, &link, project.path.clone(), params.uncommitted, how).await?;
+    let opened = open::open_there(
+        core,
+        &link,
+        project.path.clone(),
+        params.uncommitted,
+        how,
+        params.there.clone(),
+    )
+    .await?;
     if let Some(why) = opened["differs"].as_str() {
         return Ok(SessionSent {
             host: link.id.clone(),

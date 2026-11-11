@@ -37,7 +37,15 @@ pub struct OpenOnParams {
 /// that host's project for it.
 pub(crate) async fn open_on(core: &Arc<Core>, params: OpenOnParams) -> CoreResult<Value> {
     let link = find(core, &params.host)?;
-    open_there(core, &link, params.path, params.uncommitted, OpenAs::Copy).await
+    open_there(
+        core,
+        &link,
+        params.path,
+        params.uncommitted,
+        OpenAs::Copy,
+        None,
+    )
+    .await
 }
 
 /// Where on the other host a project opened there goes.
@@ -61,6 +69,7 @@ pub(crate) async fn open_there(
     path: PathBuf,
     uncommitted: bool,
     how: OpenAs,
+    there: Option<String>,
 ) -> CoreResult<Value> {
     let packed =
         blocking(move || code::package_for(&path, uncommitted).map_err(Into::into)).await?;
@@ -70,6 +79,7 @@ pub(crate) async fn open_there(
         into: None,
         abandon: None,
         worktree: how == OpenAs::Worktree,
+        there,
     };
     let asked = |opening: &OpenParams, body: Option<&Path>| {
         let params = params_of::<asks::OpenProject>(opening);
@@ -141,6 +151,10 @@ pub(super) struct OpenParams {
     /// elsewhere.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     worktree: bool,
+    /// The project there, by its id there, the person has in front, for a host with several
+    /// checkouts of the repository.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    there: Option<String>,
 }
 
 pub(super) async fn open_here(
@@ -154,6 +168,7 @@ pub(super) async fn open_here(
         into,
         abandon,
         worktree,
+        there,
     } = params;
     if let Some(dir) = abandon {
         blocking(move || {
@@ -169,7 +184,9 @@ pub(super) async fn open_here(
         blocking(move || {
             let bundle = body.as_ref().map(Received::path);
             let into = into.as_deref();
-            code::open_project(&core, &code, bundle, copy, into, worktree).map_err(Into::into)
+            let there = there.as_deref();
+            code::open_project(&core, &code, bundle, copy, into, worktree, there)
+                .map_err(Into::into)
         })
         .await
         .map_err(|error| error.to_string())?

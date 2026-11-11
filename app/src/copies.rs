@@ -332,6 +332,17 @@ impl Workbench {
         crate::settings::set(self, PreferenceChange::ElsewhereSpaces(spaces));
     }
 
+    /// The project, by its id on the host `host`, of the copy the person has in front of the
+    /// project `project` of the host at `from`, when that copy is on `host`.
+    pub fn copy_in_front_on(&self, from: &Place, project: &str, host: &str) -> Option<String> {
+        let target = self.place_of(host);
+        let folded = (self.folded().into_iter()).find(|folded| {
+            (folded.copies.iter()).any(|copy| copy.place == *from && copy.project == project)
+        })?;
+        let front = self.front_copy(&folded)?;
+        (front.place == target).then(|| front.project.clone())
+    }
+
     /// A project of the host at `place`, by its id there.
     pub fn project_on(&self, place: &Place, id: &str) -> Option<&ProjectInfo> {
         (self.view_at(place)?.workspace.projects.iter()).find(|project| project.id == id)

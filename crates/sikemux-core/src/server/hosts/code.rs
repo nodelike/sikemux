@@ -275,8 +275,21 @@ fn projects_with(core: &Core, remote: &str) -> Vec<PathBuf> {
     repos
 }
 
-fn project_with(core: &Core, remote: &str) -> Option<PathBuf> {
-    projects_with(core, remote).into_iter().next()
+/// The checkout here a worker's worktree is cut from: the only one of the repository, else the
+/// only one that already has the lead's commit. With several and nothing to choose by, none,
+/// so the worker gets this host's own copy rather than whichever checkout sorts first.
+fn worker_repo(core: &Core, remote: &str, code: &Code) -> Option<PathBuf> {
+    let repos = projects_with(core, remote);
+    if let [only] = repos.as_slice() {
+        return Some(only.clone());
+    }
+    let mut holding = repos
+        .into_iter()
+        .filter(|repo| has_commit(repo, &code.commit));
+    match (holding.next(), holding.next()) {
+        (Some(repo), None) => Some(repo),
+        _ => None,
+    }
 }
 
 /// Where this host keeps its own copy of a lead's project it has no checkout
@@ -521,6 +534,46 @@ fn differs(repo: &Path, code: &Code) -> Option<String> {
         .then(|| "its checkout there has uncommitted changes of its own".to_owned())
 }
 
+/// The repository at the top of `path`.
+fn toplevel(path: &Path) -> Option<PathBuf> {
+    Git::quick(path)
+        .trimmed(&["rev-parse", "--path-format=absolute", "--show-toplevel"])
+        .ok()
+        .map(PathBuf::from)
+}
+
+/// Which of this host's checkouts `repos` of the sent repository the work goes into: the one
+/// already at the sent commit and branch, else the project `there` the person has in front
+/// here, else the only one. With several and nothing to choose by, it refuses and names them.
+fn chosen_clone(
+    core: &Core,
+    code: &Code,
+    repos: Vec<PathBuf>,
+    there: Option<&str>,
+) -> Result<Option<PathBuf>, String> {
+    let standing =
+        |repo: &&PathBuf| has_commit(repo, &code.commit) && differs(repo, code).is_none();
+    if let Some(repo) = repos.iter().find(standing) {
+        return Ok(Some(repo.clone()));
+    }
+    let chosen = (there.and_then(|id| core.workspaces.project_info(id)))
+        .and_then(|project| toplevel(&project.path))
+        .filter(|repo| repos.contains(repo));
+    match (chosen, repos.as_slice()) {
+        (Some(repo), _) => Ok(Some(repo)),
+        (None, []) => Ok(None),
+        (None, [only]) => Ok(Some(only.clone())),
+        (None, many) => Err(format!(
+            "this host has {} checkouts of it ({}) and none is at the sent commit; put the one to use in front in the copy switch, then send again",
+            many.len(),
+            (many.iter())
+                .map(|repo| repo.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        )),
+    }
+}
+
 /// Whether `dir` is the repository of one of this host's projects.
 fn is_project_repo(core: &Core, dir: &Path) -> bool {
     core.workspaces.project_paths().iter().any(|project| {
@@ -543,6 +596,7 @@ pub(crate) fn open_project(
     copy: bool,
     into: Option<&Path>,
     worktree: bool,
+    there: Option<&str>,
 ) -> Result<Opened, String> {
     if !is_commit_id(&code.commit) {
         return Err("the project's commit is not a commit id".into());
@@ -556,9 +610,7 @@ pub(crate) fn open_project(
             let repos = (code.remote.as_deref())
                 .map(|remote| projects_with(core, remote))
                 .unwrap_or_default();
-            let standing =
-                |repo: &&PathBuf| has_commit(repo, &code.commit) && differs(repo, code).is_none();
-            repos.iter().find(standing).or(repos.first()).cloned()
+            chosen_clone(core, code, repos, there)?
         }
     };
     if let Some(repo) = existing {
@@ -634,7 +686,7 @@ pub(crate) fn checkout(
     let repo = match code
         .remote
         .as_deref()
-        .and_then(|remote| project_with(core, remote))
+        .and_then(|remote| worker_repo(core, remote, code))
     {
         Some(repo) => repo,
         None => {
