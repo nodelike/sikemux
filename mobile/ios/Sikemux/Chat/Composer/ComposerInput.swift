@@ -22,6 +22,8 @@ struct ComposerInput: UIViewRepresentable {
     let placeholder: String
     var editable = true
     var focus: ComposerFocus?
+    /// Takes the keyboard as soon as it shows, as a new chat's composer does.
+    var focusOnShow = false
     var onFocus: (Bool) -> Void = { _ in }
 
     static let minHeight: CGFloat = 44
@@ -38,6 +40,7 @@ struct ComposerInput: UIViewRepresentable {
         field.isScrollEnabled = false
         field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         field.accessibilityLabel = "Message"
+        field.focusOnShow = focusOnShow
         focus?.field = field
         return field
     }
@@ -121,6 +124,14 @@ struct ComposerInput: UIViewRepresentable {
 /// A text view that draws its placeholder while it is empty, wrapping as the text would.
 private final class PlaceholderTextView: UITextView {
     var placeholder: NSAttributedString?
+    var focusOnShow = false
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        guard window != nil, focusOnShow else { return }
+        focusOnShow = false
+        becomeFirstResponder()
+    }
 
     func placeholderHeight(width: CGFloat) -> CGFloat {
         guard let placeholder else { return 0 }
