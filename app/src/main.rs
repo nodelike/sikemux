@@ -6,6 +6,8 @@ use sikemux_gpui::{console, core, icons, memory, theme, workbench, WINDOW_SIZE};
 use sikemux_host::crash_reports::{self, Process};
 
 fn main() {
+    #[cfg(target_os = "linux")]
+    hand_cli_to_core();
     let began = std::time::SystemTime::now();
     sikemux_host::panic_reports::record_panics("app");
     crash_reports::start(Process::App, None);
@@ -93,4 +95,25 @@ fn x11_session() -> gpui_kit::GraphicalEnvironment {
         session.wayland_display = None;
     }
     session
+}
+
+/// A Linux package puts the window on PATH as `sikemux`, so `sikemux login` and the other
+/// commands reach it; they belong to the core's CLI. The window itself is given only links.
+#[cfg(target_os = "linux")]
+fn hand_cli_to_core() {
+    use std::os::unix::process::CommandExt;
+    let args: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
+    let Some(first) = args.first() else {
+        return;
+    };
+    if first.to_string_lossy().contains("://") {
+        return;
+    }
+    let Some(core) = sikemux_host::cli_paths::cli_executable_path() else {
+        eprintln!("sikemux: the core is not installed beside the app");
+        std::process::exit(1);
+    };
+    let error = std::process::Command::new(core).args(args).exec();
+    eprintln!("sikemux: could not run the core: {error}");
+    std::process::exit(1);
 }
