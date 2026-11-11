@@ -49,7 +49,9 @@ struct WelcomeScreen: View {
     }
 
     private func provider(_ provider: ProviderSignIn.Provider, _ title: String, _ mark: IconDef) -> some View {
-        ActionButton(title: title, busy: busy == provider, action: { start(provider) }) {
+        ActionButton(title: title, busy: busy == provider) {
+            start(provider)
+        } lead: {
             IconView(icon: mark, size: 18)
         }
     }
