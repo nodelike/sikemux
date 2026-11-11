@@ -15,7 +15,7 @@ use sikemux_core::git::status::ProjectRepo;
 use sikemux_core::server::activity_log::ActivitySummary;
 use sikemux_core::server::call;
 use sikemux_core::server::calls::NoParams;
-use sikemux_core::server::hosts::HostRow;
+use sikemux_core::server::hosts::{HostReach, HostRow};
 use sikemux_core::server::mods::ModList;
 use sikemux_core::server::ports::ProjectPort;
 use sikemux_core::server::remote::ApprovalSetting;
@@ -658,6 +658,17 @@ impl Workbench {
             host: choice.key().to_string(),
         });
         cx.notify();
+    }
+}
+
+/// How a host is reached, as the rail and Devices both show it. A linked host counts as
+/// connected only once this app has its own connection to it, which its stats come over.
+pub fn reach(bench: &Workbench, row: &HostRow) -> HostReach {
+    let app_reached =
+        (row.id.as_ref()).is_none_or(|id| bench.feeds.host(id).is_some_and(|feed| feed.reached));
+    match row.reach {
+        HostReach::Connected if !app_reached => HostReach::Away,
+        reach => reach,
     }
 }
 

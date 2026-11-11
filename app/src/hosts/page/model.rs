@@ -263,7 +263,7 @@ pub fn hosts(bench: &Workbench) -> Vec<Listed<'_>> {
             return None;
         }
         let feed = bench.feeds.host(&key);
-        let reached = row.reach == HostReach::Connected && feed.is_some_and(|feed| feed.reached);
+        let reached = crate::hosts::reach(bench, row) == HostReach::Connected;
         let alert = bench.host_alert(Some(&key), reached);
         let state = state(feed, reached, alert);
         Some(Listed {

@@ -4,13 +4,14 @@
 //! is taken up again whenever it drops, until the host is no longer linked.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use iroh::EndpointAddr;
 use serde_json::{json, Value};
 use sikemux_client::client::{ClientError, ClientEvent, CoreClient, EventSink};
-use sikemux_client::device::{host_addr, Device};
+use sikemux_client::device::Device;
 use sikemux_client::join::{JoinHello, JoinReply};
 use sikemux_client::remote::{PublicKey, SecretKey};
 use sikemux_wire::accounts::protocol::{JoinTicket, Relay};
@@ -50,12 +51,14 @@ pub enum Happened {
 /// The account's other hosts this app keeps connections to.
 pub struct Linked {
     device: Device,
-    relays: Vec<Relay>,
     /// What the account calls this app, before " on <host>".
     app: String,
     platform: String,
     own: Mutex<Option<Arc<CoreClient>>>,
     hosts: Mutex<HashMap<String, Host>>,
+    /// Whether the account has taken this app as a device since it started. The relay carries
+    /// only devices on an account, so until then no host can be reached to say it is unknown.
+    registered: AtomicBool,
     happened: mpsc::UnboundedSender<Happened>,
 }
 
@@ -79,15 +82,15 @@ impl Linked {
         app: impl Into<String>,
         platform: impl Into<String>,
     ) -> Result<(Arc<Self>, mpsc::UnboundedReceiver<Happened>), ClientError> {
-        let device = Device::bind(key, relays.clone()).await?;
+        let device = Device::bind(key, relays).await?;
         let (happened, heard) = mpsc::unbounded_channel();
         let linked = Arc::new(Self {
             device,
-            relays,
             app: app.into(),
             platform: platform.into(),
             own: Mutex::new(None),
             hosts: Mutex::new(HashMap::new()),
+            registered: AtomicBool::new(false),
             happened,
         });
         Ok((linked, heard))
@@ -175,6 +178,7 @@ impl Linked {
             "host": host,
         });
         let ticket: Value = own.call("deviceJoinTicket", params).await?;
+        self.registered.store(true, Ordering::Release);
         Ok(serde_json::from_value(ticket)?)
     }
 
@@ -183,7 +187,7 @@ impl Linked {
     fn addr(&self, host: PublicKey) -> EndpointAddr {
         kit_addresses(&host.to_string())
             .into_iter()
-            .fold(host_addr(host, &self.relays), EndpointAddr::with_ip_addr)
+            .fold(self.device.addr(host), EndpointAddr::with_ip_addr)
     }
 
     async fn join(&self, host: &str, key: PublicKey) -> Result<(), ClientError> {
@@ -232,6 +236,11 @@ async fn stay_connected(
                 let _ = linked.happened.send(Happened::Lost(host.clone()));
             }
             Err(ClientError::NotPaired) => {
+                if linked.join(&host, key).await.is_ok() {
+                    continue;
+                }
+            }
+            Err(_) if !linked.registered.load(Ordering::Acquire) => {
                 if linked.join(&host, key).await.is_ok() {
                     continue;
                 }

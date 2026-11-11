@@ -438,7 +438,7 @@ fn hosts(bench: &Workbench, cx: &mut Context<Workbench>) -> Vec<AnyElement> {
         .map(|host| {
             let name = host.name.clone();
             let linked = host.id.is_some();
-            let reach = host.reach;
+            let reach = crate::hosts::reach(bench, host);
             let tone = match reach {
                 HostReach::Connected => Tone::Ok,
                 HostReach::Connecting => Tone::Pending,
@@ -456,11 +456,11 @@ fn hosts(bench: &Workbench, cx: &mut Context<Workbench>) -> Vec<AnyElement> {
                 .and_then(crate::hosts::host_updates)
                 .filter(|_| connected);
             let detail = match reach {
-                HostReach::Away if linked => Some("out of reach".to_owned()),
-                HostReach::Connecting if linked => Some("connecting".to_owned()),
                 _ if linked && bench.feeds.unavailable.is_some() => {
                     Some("needs the signed app".to_owned())
                 }
+                HostReach::Away if linked => Some("out of reach".to_owned()),
+                HostReach::Connecting if linked => Some("connecting".to_owned()),
                 _ if agents > 0 => Some(match agents {
                     1 => "1 agent".to_owned(),
                     count => format!("{count} agents"),
@@ -616,7 +616,7 @@ pub(crate) fn account_host_menu(
     let has_project = view.is_some_and(|view| !view.workspace.projects.is_empty());
     let updates = view
         .and_then(crate::hosts::host_updates)
-        .filter(|_| host.reach == HostReach::Connected);
+        .filter(|_| crate::hosts::reach(bench, host) == HostReach::Connected);
     let approval = bench.feeds.host(&key).and_then(|feed| feed.approval);
     let set_up_item = set_up_offer(bench, host);
     let bench_entity = cx.weak_entity();
