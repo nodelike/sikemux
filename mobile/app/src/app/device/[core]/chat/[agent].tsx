@@ -171,7 +171,7 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
   const project = live.snapshot?.workspace.projects.find((known) => known.id === saved?.project);
   const accounts = live.snapshot?.workspace.launchers.filter((known) => known.provider === provider) ?? [];
   const place = {
-    host: hostName,
+    host: devices.length > 1 ? hostName : undefined,
     project: project?.name,
     branch: worktree?.branch || project?.git?.branch,
     goal: state.goal,

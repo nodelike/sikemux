@@ -1,4 +1,5 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { useState } from 'react';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import type { ChatGoal } from '@shared/wire.generated';
 import { Icon } from '@/ui/Icon';
@@ -6,7 +7,8 @@ import { fonts, type Palette, useColors, useStyles } from '@/ui/theme';
 import { GoalSteps, StateMark } from './GoalLine';
 
 export type Place = {
-  host: string;
+  /** The host, when the account has more than one to tell apart. */
+  host?: string;
   project?: string;
   branch?: string;
   goal?: ChatGoal;
@@ -14,19 +16,25 @@ export type Place = {
   account?: string;
 };
 
-/** Where the chat runs, quietly under the composer: its host, project and branch, then its goal and account at the right. */
+/**
+ * Where the chat runs, quietly under the composer: its project and branch, the host when there are
+ * several, then its goal as its mark and steps, named on a tap, and its account at the right.
+ */
 export function ChatPlace({ place }: { place: Place }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
+  const [named, setNamed] = useState(false);
   const { host, project, branch, goal, account } = place;
   return (
     <View style={styles.line}>
-      <View style={[styles.part, styles.shrinksMost]}>
-        <Icon name="IconLaptop" size={12} color={colors.tertiary} />
-        <Text style={styles.quiet} numberOfLines={1}>
-          {host}
-        </Text>
-      </View>
+      {host ? (
+        <View style={[styles.part, styles.shrinksMost]}>
+          <Icon name="IconLaptop" size={12} color={colors.tertiary} />
+          <Text style={styles.quiet} numberOfLines={1}>
+            {host}
+          </Text>
+        </View>
+      ) : null}
       {project ? (
         <View style={[styles.part, styles.shrinks]}>
           <Icon name="IconFolder" size={12} color={colors.live} />
@@ -45,13 +53,20 @@ export function ChatPlace({ place }: { place: Place }) {
       ) : null}
       <View style={styles.fill} />
       {goal ? (
-        <View style={[styles.part, styles.shrinks]} accessibilityLabel={`Goal, ${goal.name}`}>
+        <Pressable
+          style={[styles.part, styles.shrinks]}
+          onPress={() => setNamed((shown) => !shown)}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel={`Goal, ${goal.name}`}>
           <StateMark state={goal.state} />
-          <Text style={styles.goal} numberOfLines={1}>
-            {goal.name}
-          </Text>
+          {named ? (
+            <Text style={styles.goal} numberOfLines={1}>
+              {goal.name}
+            </Text>
+          ) : null}
           <GoalSteps steps={goal.steps ?? []} />
-        </View>
+        </Pressable>
       ) : null}
       {account ? (
         <View style={[styles.part, styles.shrinks]}>

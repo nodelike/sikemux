@@ -240,6 +240,8 @@ export const CHATS: DemoChat[] = [
           '```ts:src/lib/release.ts\nexport const version = "2.4.0";\nexport const notes = "notes/2.4.md";\n```',
         ].join('\n\n'),
       ),
+      goal({ card: 41, name: 'Ship 2.4', state: 'moving', steps: ['done', 'done', 'waiting'], moment: 'step', took: 1_560_000 }),
+      goal({ card: 41, name: 'Ship 2.4', state: 'waiting', steps: ['done', 'done', 'waiting'], moment: 'stopped', took: 2_400_000 }),
     ],
   },
   {
