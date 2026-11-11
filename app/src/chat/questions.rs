@@ -853,23 +853,40 @@ fn tile(
                 .size_full()
                 .object_fit(ObjectFit::Contain)
         }));
-    let label = div()
+    let named = div()
+        .flex_grow(1.)
+        .min_w_0()
         .flex()
         .items_center()
         .gap(SPACE_1H)
-        .when(chosen, |label| {
-            label.child(ui::icon(Icon::Check, 11.).text_color(t.text_primary))
+        .when(chosen, |named| {
+            named.child(ui::icon(Icon::Check, 11.).text_color(t.text_primary))
         })
         .child(
-            div().flex_1().min_w_0().truncate().child(
+            div().min_w_0().truncate().child(
                 ui::text(choice.label.clone(), TEXT_SM, FontWeight::MEDIUM)
                     .line_height(crate::theme::ui_text(19.)),
             ),
-        )
-        .when(choice.recommended, |label| {
-            label.child(ui::caps("Recommended", cx).flex_none().text_color(t.accent))
-        })
-        .child(ui::kbd((ix + 1).to_string(), cx).line_height(crate::theme::ui_text(19.)));
+        );
+    // On a narrow tile the mark and number drop under the label rather than cutting it short.
+    let label = div()
+        .flex()
+        .flex_wrap()
+        .items_center()
+        .gap_x(SPACE_2)
+        .child(named)
+        .child(
+            div()
+                .ml_auto()
+                .flex()
+                .flex_none()
+                .items_center()
+                .gap(SPACE_1H)
+                .when(choice.recommended, |end| {
+                    end.child(ui::caps("Recommended", cx).text_color(t.accent))
+                })
+                .child(ui::kbd((ix + 1).to_string(), cx).line_height(crate::theme::ui_text(19.))),
+        );
     let note = choice.detail.clone().map(|note| {
         div()
             .text_size(crate::theme::ui_text(TEXT_XS))
