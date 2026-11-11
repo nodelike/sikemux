@@ -64,17 +64,19 @@ fn walk(dir: &Path, into: &mut Vec<PathBuf>) {
 }
 
 /// Files a session of `agent` that ran in `from_cwd` on another host into this host's own
-/// store for the project at `to_cwd`, each working directory in it moved there. A file
-/// already here stays as it is.
+/// store for the project at `to_cwd`, each working directory in it moved there, answering the
+/// files it made. A file already here that is the same, or the start of what came, takes what
+/// came; one that went on its own way since refuses the session, so neither copy is lost.
 pub fn file(
     agent: AgentKind,
     from_cwd: &str,
     to_cwd: &str,
     files: Vec<(String, Vec<u8>)>,
-) -> Result<(), String> {
+) -> Result<Vec<PathBuf>, String> {
     let root = account_root(agent, None, &BTreeMap::new())
         .ok_or("this host has no folder for that agent's sessions")?;
     let base = agent.ops().project_folder(&root, to_cwd).unwrap_or(root);
+    let mut filing = Vec::with_capacity(files.len());
     for (name, bytes) in files {
         let name = PathBuf::from(name);
         if !name
@@ -83,13 +85,6 @@ pub fn file(
         {
             return Err("a session file is named outside its folder".into());
         }
-        let target = base.join(&name);
-        if target.exists() {
-            continue;
-        }
-        if let Some(parent) = target.parent() {
-            fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-        }
         let bytes = match String::from_utf8(bytes) {
             Ok(text) if name.extension().is_some_and(|ext| ext == "jsonl") => {
                 moved_cwds(&text, from_cwd, to_cwd).into_bytes()
@@ -97,8 +92,26 @@ pub fn file(
             Ok(text) => text.into_bytes(),
             Err(raw) => raw.into_bytes(),
         };
+        let target = base.join(&name);
+        let here = fs::read(&target).ok();
+        if here.as_ref().is_some_and(|here| !bytes.starts_with(here)) {
+            return Err(
+                "a copy of this chat is already on this host and has gone on since, so it was left as it is"
+                    .into(),
+            );
+        }
+        filing.push((target, bytes, here.is_none()));
+    }
+    let mut made = Vec::new();
+    for (target, bytes, new) in filing {
+        if let Some(parent) = target.parent() {
+            fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+        }
         sikemux_process::files::write_atomic(&target, &bytes, false)
             .map_err(|error| error.to_string())?;
+        if new {
+            made.push(target);
+        }
     }
-    Ok(())
+    Ok(made)
 }

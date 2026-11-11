@@ -165,10 +165,8 @@ pub(crate) async fn send_session(core: &Arc<Core>, params: SendParams) -> CoreRe
         .as_str()
         .ok_or_else(|| CoreError::from(format!("{} did not open the project", link.name)))?
         .to_owned();
-    if params.moving && params.uncommitted && opened["uncommitted"] != "applied" {
-        let why = opened["uncommitted"]
-            .as_str()
-            .unwrap_or("they did not arrive");
+    let failed = (opened["uncommitted"].as_str()).filter(|said| *said != "applied");
+    if let (true, Some(why)) = (params.moving, failed) {
         return Err(format!(
             "nothing moved, since the uncommitted changes did not go to {}: {why}",
             link.name
@@ -481,34 +479,50 @@ pub(super) struct Untake {
     agents: Vec<String>,
 }
 
+/// What taking a chat here made: the session files that were not here before, and whether
+/// its agent is new rather than one this host already had for it.
+struct Taken {
+    made: Vec<std::path::PathBuf>,
+    new: bool,
+}
+
+/// The chats taken here, by their agents' ids, until a move that sent them finishes or drops
+/// them.
+fn taken() -> std::sync::MutexGuard<'static, HashMap<String, Taken>> {
+    static TAKEN: std::sync::OnceLock<std::sync::Mutex<HashMap<String, Taken>>> =
+        std::sync::OnceLock::new();
+    let taken = TAKEN.get_or_init(Default::default);
+    taken
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+fn remove_files(files: &[std::path::PathBuf]) {
+    for file in files {
+        let _ = std::fs::remove_file(file);
+    }
+}
+
 /// The host that sent a session asks this one to drop the chats it took of it, since the move
-/// did not finish there: each is closed and its saved files removed.
+/// did not finish there: a chat made by the take is closed, and only the files the take made are
+/// removed, so a chat this host already had keeps its own.
 pub(super) async fn untake_here(core: &Arc<Core>, untake: Untake) -> Answer {
     let mut kept = Vec::new();
     for id in untake.agents {
-        let Some(agent) = core.workspaces.agent(&id) else {
+        let Some(taken) = taken().remove(&id) else {
             continue;
         };
-        let (Some(kind), Some(resume)) = (AgentKind::from_name(&agent.provider), agent.resume_id)
-        else {
-            continue;
-        };
-        if !core.chats.stop_if_idle(&id) {
-            kept.push(agent.title);
-            continue;
+        if taken.new {
+            let Some(agent) = core.workspaces.agent(&id) else {
+                remove_files(&taken.made);
+                continue;
+            };
+            if !core.chats.stop_if_idle(&id) || workspace::close_agent(core, id).is_err() {
+                kept.push(agent.title);
+                continue;
+            }
         }
-        if workspace::close_agent(core, id).is_err() {
-            kept.push(agent.title);
-            continue;
-        }
-        let saved = SavedRef {
-            agent: kind,
-            cwd: agent.cwd.to_string_lossy().into_owned(),
-            session_id: resume,
-            executable_path: None,
-            config_path: None,
-        };
-        let _ = delete::delete(saved).await;
+        remove_files(&taken.made);
     }
     match kept.is_empty() {
         true => Ok(serde_json::Value::Null),
@@ -552,7 +566,17 @@ pub(super) async fn take_here(core: &Arc<Core>, params: Take, body: Option<Recei
         let (from, into) = (chat.cwd.clone(), to.clone());
         let filed =
             blocking(move || carry::file(kind, &from, &into, files).map_err(Into::into)).await;
-        if filed.is_err() {
+        let Ok(made) = filed else {
+            continue;
+        };
+        let held = (core.workspace_view().agents.into_iter()).find(|agent| {
+            agent.project == project.id
+                && agent.provider == chat.provider
+                && agent.resume_id.as_deref() == Some(chat.resume_id.as_str())
+        });
+        if let Some(held) = held {
+            taken().insert(held.id.clone(), Taken { made, new: false });
+            agents.insert(chat.id, held.id);
             continue;
         }
         let mut draft = Map::new();
@@ -575,8 +599,12 @@ pub(super) async fn take_here(core: &Arc<Core>, params: Take, body: Option<Recei
         {
             draft.insert("buddy".into(), buddy);
         }
-        if let Ok(made) = core.workspaces.put_agent_draft(draft) {
-            agents.insert(chat.id, made.id);
+        match core.workspaces.put_agent_draft(draft) {
+            Ok(agent) => {
+                taken().insert(agent.id.clone(), Taken { made, new: true });
+                agents.insert(chat.id, agent.id);
+            }
+            Err(_) => remove_files(&made),
         }
     }
     core.changed(What::View);

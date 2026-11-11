@@ -171,8 +171,9 @@ pub(super) async fn open_here(
         there,
     } = params;
     if let Some(dir) = abandon {
+        let core = core.clone();
         blocking(move || {
-            code::abandon(&dir);
+            code::abandon(&core, &dir);
             Ok(())
         })
         .await
