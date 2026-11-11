@@ -116,7 +116,7 @@ final class ShareModel: ObservableObject {
   }
 
   func toChat(_ chat: ShareChat) {
-    send(to: StashTarget(hostKey: chat.host, chatId: chat.chatId), done: ("Added to \(chat.name ?? "the chat")'s draft", "Unsent, on \(chat.hostName)"))
+    send(to: StashTarget(hostKey: chat.host, chatId: chat.chatId), done: ("Added to \(chat.name.map { "@\($0)" } ?? "the chat")'s draft", "Unsent, on \(chat.hostName)"))
   }
 
   func toNewChat(_ chat: ShareNewChat) {
