@@ -137,6 +137,7 @@ final class TranscriptController: UIViewController, UICollectionViewDelegate {
         collection = UICollectionView(frame: view.bounds, collectionViewLayout: layout)
         collection.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         collection.backgroundColor = .clear
+        collection.keyboardDismissMode = .interactive
         collection.showsVerticalScrollIndicator = false
         collection.keyboardDismissMode = .interactive
         collection.contentInsetAdjustmentBehavior = .automatic
