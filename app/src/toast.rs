@@ -30,9 +30,13 @@ const UNDO: Pixels = px(66.);
 /// What a window keeps clear on each side of its toasts.
 const MARGIN: Pixels = px(16.);
 
-/// Puts `note` up from something that holds the workbench only weakly.
+/// Puts `note` up from something that holds the workbench only weakly. It waits until the current
+/// update ends, since callers may be running inside the workbench's own update.
 pub fn show(bench: &WeakEntity<Workbench>, note: Notification, cx: &mut App) {
-    let _ = bench.update(cx, |bench, cx| bench.notify(note, cx));
+    let bench = bench.clone();
+    cx.defer(move |cx| {
+        let _ = bench.update(cx, |bench, cx| bench.notify(note, cx));
+    });
 }
 
 pub fn info(text: impl Into<SharedString>) -> Notification {
