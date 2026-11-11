@@ -117,6 +117,27 @@ pub async fn change_settings(
     .await
 }
 
+impl sikemux_plugin_api::vault::Whole for Settings {
+    fn identity(&self) -> Option<String> {
+        (!self.url.is_empty()).then(|| format!("{}|{}", self.url, self.user))
+    }
+
+    fn label(&self) -> String {
+        if self.user.is_empty() {
+            self.url.clone()
+        } else {
+            format!("{} on {}", self.user, self.url)
+        }
+    }
+
+    fn secrets(&self) -> Vec<(Secrets, String)> {
+        vec![(KEYCHAIN, TOKEN_ACCOUNT.to_owned())]
+    }
+}
+
+pub static BOOK: sikemux_plugin_api::vault::Single<Settings> =
+    sikemux_plugin_api::vault::Single::new("config.json");
+
 #[cfg(test)]
 pub fn validate_base_url(raw: &str) -> RundeckResult<Url> {
     validate_base_url_with_policy(raw, false)
@@ -248,24 +269,3 @@ mod tests {
         assert!(validate_base_url("https://user:pass@rundeck.example.com").is_err());
     }
 }
-
-impl sikemux_plugin_api::vault::Whole for Settings {
-    fn identity(&self) -> Option<String> {
-        (!self.url.is_empty()).then(|| format!("{}|{}", self.url, self.user))
-    }
-
-    fn label(&self) -> String {
-        if self.user.is_empty() {
-            self.url.clone()
-        } else {
-            format!("{} on {}", self.user, self.url)
-        }
-    }
-
-    fn secrets(&self) -> Vec<(Secrets, String)> {
-        vec![(KEYCHAIN, TOKEN_ACCOUNT.to_owned())]
-    }
-}
-
-pub static BOOK: sikemux_plugin_api::vault::Single<Settings> =
-    sikemux_plugin_api::vault::Single::new("config.json");
