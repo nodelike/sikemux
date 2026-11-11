@@ -50,5 +50,17 @@ enum Format {
         count == 1 ? word : "\(word)s"
     }
 
+    /// A count of tokens as the Mac writes it: 950, 12.3k, 1.2M.
+    static func tokens(_ count: Int) -> String {
+        if count < 1000 { return "\(count)" }
+        if count < 1_000_000 {
+            let thousands = Double(count) / 1000
+            return thousands < 100
+                ? "\(String(format: "%.1f", thousands).replacingOccurrences(of: ".0", with: ""))k"
+                : "\(Int(thousands.rounded()))k"
+        }
+        return "\(String(format: "%.1f", Double(count) / 1_000_000).replacingOccurrences(of: ".0", with: ""))M"
+    }
+
     private static let isoFractional = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
 }

@@ -76,7 +76,7 @@ extension ActionButton where Lead == AnyView {
     }
 }
 
-/// Pressed controls fade a little, as the RN app's did; nothing scales.
+/// Pressed controls fade a little; nothing scales.
 struct PressFade: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label.opacity(configuration.isPressed ? 0.75 : 1)
