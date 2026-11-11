@@ -162,5 +162,6 @@ struct ConfirmItsYou: View {
             }
             Spacer(minLength: 0)
         }
+        .onDisappear(perform: recent.cancel)
     }
 }
