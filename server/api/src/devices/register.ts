@@ -116,7 +116,8 @@ export async function registerDevice(
         );
     }
     const fields = {
-      name,
+      // Signing in again keeps the name the account has, which the person may have chosen.
+      name: existing?.name ?? name,
       platform: registration.platform,
       channel: registration.channel ?? null,
       clerk_session_id:

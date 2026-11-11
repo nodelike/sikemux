@@ -187,6 +187,18 @@ pub(crate) async fn remember_name_sent(core: &Core, name: &str) {
     .await;
 }
 
+/// Notes the name this host registers under when it signs in for the first time. Signing
+/// in again keeps the name the account has, so the one noted before still says whether
+/// someone chose that name.
+pub(crate) async fn remember_first_name_sent(core: &Core, name: &str) {
+    let Some(path) = name_sent_path(core) else {
+        return;
+    };
+    if !tokio::fs::try_exists(&path).await.unwrap_or(false) {
+        remember_name_sent(core, name).await;
+    }
+}
+
 /// Gives the account this computer's new name after the person renames it, unless the
 /// account's name for this host is no longer the one it last sent, since then someone
 /// chose that name and it stays.
