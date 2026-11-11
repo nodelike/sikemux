@@ -51,22 +51,18 @@ pub fn select(
     select_led(id, None, shown, picks, chosen, disabled, on_pick, cx)
 }
 
-/// [`select`] with `lead` before its words, such as an agent's mark.
-#[allow(clippy::too_many_arguments)]
-fn select_led(
+/// What a select shows while closed: `shown` in a bordered field, `lead` before it, with a
+/// chevron after. Other pickers that open their own menus use it to look the same.
+pub fn select_field(
     id: impl Into<SharedString>,
     lead: Option<AnyElement>,
     shown: impl Into<SharedString>,
-    picks: Vec<Pick>,
-    chosen: Option<SharedString>,
     disabled: bool,
-    on_pick: impl Fn(&SharedString, &mut Window, &mut App) + 'static,
     cx: &App,
-) -> AnyElement {
+) -> BaseButton {
     let t = Tokens::get(cx).clone();
-    let id: SharedString = id.into();
     let shown: SharedString = shown.into();
-    let trigger = BaseButton::new(SharedString::from(format!("{id}-field")))
+    BaseButton::new(id.into())
         .accessibility_label(shown.clone())
         .h(px(26.))
         .px(SPACE_2)
@@ -91,7 +87,29 @@ fn select_led(
             icon(Icon::Chevron, 9.)
                 .with_transformation(Transformation::rotate(radians(FRAC_PI_2)))
                 .text_color(t.text_tertiary),
-        );
+        )
+}
+
+/// [`select`] with `lead` before its words, such as an agent's mark.
+#[allow(clippy::too_many_arguments)]
+fn select_led(
+    id: impl Into<SharedString>,
+    lead: Option<AnyElement>,
+    shown: impl Into<SharedString>,
+    picks: Vec<Pick>,
+    chosen: Option<SharedString>,
+    disabled: bool,
+    on_pick: impl Fn(&SharedString, &mut Window, &mut App) + 'static,
+    cx: &App,
+) -> AnyElement {
+    let id: SharedString = id.into();
+    let trigger = select_field(
+        SharedString::from(format!("{id}-field")),
+        lead,
+        shown,
+        disabled,
+        cx,
+    );
     if disabled {
         return trigger.into_any_element();
     }

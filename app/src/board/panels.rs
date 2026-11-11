@@ -95,7 +95,6 @@ fn head(title: AnyElement, cx: &mut Context<BoardPane>) -> impl IntoElement {
         .gap(SPACE_1H)
         .pl(SPACE_3)
         .pr(SPACE_2)
-        .bg(crate::see_through::ground(t.surface, cx))
         .border_b_1()
         .border_color(t.border)
         .child(title)
@@ -758,7 +757,8 @@ fn auto_picker(
         Role::Agent => "board-auto-agent",
         Role::Reviewer => "board-auto-reviewer",
     };
-    let trigger = Button::new(key, label, Variant::Outline).lead(ui::mark(&shown.provider, 14.));
+    let mark = ui::mark(&shown.provider, 12.).into_any_element();
+    let trigger = ui::select_field(key, Some(mark), label, false, cx);
     model_picker::around(trigger, key, picked, &bench).into_any_element()
 }
 
