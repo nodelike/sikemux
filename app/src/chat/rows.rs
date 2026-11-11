@@ -134,24 +134,7 @@ pub(super) fn row(
         let count = groups.len();
         let live = live && at_segment == last_segment;
         let mut drawn = Vec::with_capacity(count);
-        let (earlier_key, earlier) = earlier_thoughts(rows, ix, looks);
-        let earlier_open = looks.reading.opened.contains(&earlier_key);
         for (at, group) in groups.into_iter().enumerate() {
-            if let Shown::Part(part @ ChatPart::Thought { .. }) = &group {
-                if let Some(place) = earlier.iter().position(|id| *id == part.id()) {
-                    if place == 0 {
-                        drawn.push(earlier_thinking(
-                            &earlier_key,
-                            earlier.len(),
-                            earlier_open,
-                            looks,
-                        ));
-                    }
-                    if !earlier_open {
-                        continue;
-                    }
-                }
-            }
             drawn.push(match group {
                 Shown::Part(ChatPart::Notice { notice, .. })
                     if let Some(card) = notice
@@ -696,62 +679,6 @@ fn answer_thread(
         looks,
     )
     .into_any_element()
-}
-
-/// The thoughts of the turn still streaming that came before its latest, and the key the
-/// line they tuck behind opens by. Nothing tucks once the turn ends.
-fn earlier_thoughts<'a>(rows: &'a [ChatRow], ix: usize, looks: &Drawn) -> (String, Vec<&'a str>) {
-    let start = rows
-        .iter()
-        .rposition(|row| row.message.role == ChatRole::User)
-        .map_or(0, |at| at + 1);
-    let Some(first) = rows
-        .get(start)
-        .filter(|_| looks.reading.running.get() && ix >= start)
-    else {
-        return (String::new(), Vec::new());
-    };
-    let mut thoughts: Vec<&str> = rows[start..]
-        .iter()
-        .flat_map(|row| row.message.parts.iter())
-        .filter(|part| matches!(part, ChatPart::Thought { .. }))
-        .map(ChatPart::id)
-        .collect();
-    thoughts.pop();
-    (format!("earlier:{}", first.message.id), thoughts)
-}
-
-/// The line older thoughts of a streaming turn tuck behind, which opens them in place.
-fn earlier_thinking(key: &str, count: usize, open: bool, looks: &Drawn) -> AnyElement {
-    let (reader, toggled) = (looks.reader.clone(), key.to_owned());
-    div()
-        .id(SharedString::from(key.to_owned()))
-        .flex()
-        .items_center()
-        .gap(SPACE_2)
-        .h(px(24.))
-        .text_size(crate::theme::ui_text(TEXT_XS_H))
-        .text_color(looks.quiet)
-        .cursor_pointer()
-        .hover(|line| line.text_color(looks.ink))
-        .child(motion::turn(
-            format!("{key}:chevron"),
-            motion::fold_angle(open),
-            motion::DETAIL_FOLD,
-            ui::icon(Icon::Chevron, 12.).text_color(looks.quiet),
-        ))
-        .child("Earlier thinking")
-        .child(div().text_color(looks.faint).child(format!(
-            "{count} {}",
-            if count == 1 { "thought" } else { "thoughts" }
-        )))
-        .on_click(move |_, _, cx| {
-            reader.update(cx, |reading, cx| {
-                reading.toggle(&toggled);
-                cx.notify();
-            })
-        })
-        .into_any_element()
 }
 
 pub(super) enum Shown<'a> {
