@@ -9,13 +9,13 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use base64::Engine;
-use gpui::PinchEvent;
+use gpui::{PinchEvent, ScrollEvent};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    canvas, div, img, px, uniform_list, AnyElement, App, Context, Entity, FontWeight,
-    ImgResourceLoader, InteractiveElement, IntoElement, ObjectFit, ParentElement, Pixels,
-    RenderOnce, Resource, SharedString, Size, StatefulInteractiveElement, Styled, StyledImage,
-    Window,
+    canvas, div, img, point, px, size, uniform_list, AnyElement, App, Bounds, Context, Entity,
+    FontWeight, ImgResourceLoader, InteractiveElement, IntoElement, ObjectFit, ParentElement,
+    Pixels, Point, RenderOnce, Resource, SharedString, Size, StatefulInteractiveElement, Styled,
+    StyledImage, Window,
 };
 
 use super::{copies, Editors, FileKey};
@@ -59,8 +59,10 @@ pub(super) fn not_text(path: &Path) -> bool {
 pub(super) struct Viewer {
     about: Option<About>,
     zoom: Zoom,
-    /// The room a picture is shown in, as last drawn.
-    room: Rc<Cell<Size<Pixels>>>,
+    /// Where a scaled picture's top left corner sits in its room.
+    pan: Point<Pixels>,
+    /// The room a picture is shown in, in the window, as last drawn.
+    room: Rc<Cell<Bounds<Pixels>>>,
     bytes: Option<Vec<u8>>,
     /// Where a picture or document is read from on this disk: the file itself, or
     /// the copy of another host's.
@@ -88,11 +90,13 @@ enum Zoom {
 const ZOOM_STEP: f32 = 1.25;
 const ZOOM_RANGE: (f32, f32) = (0.1, 8.);
 
-/// A picture fitted to the pane, or at a scale of its own size.
+/// A picture fitted to the pane, or at a scale of its own size placed where it was panned.
 #[derive(IntoElement)]
 struct Picture {
     path: PathBuf,
     zoom: Zoom,
+    pan: Point<Pixels>,
+    room: Size<Pixels>,
 }
 
 impl RenderOnce for Picture {
@@ -107,15 +111,43 @@ impl RenderOnce for Picture {
             .and_then(Result::ok)
             .map(|image| image.size(0));
         match natural {
-            Some(size) => picture
-                .flex_none()
-                .m_auto()
-                .w(px(size.width.0 as f32 * scale))
-                .h(px(size.height.0 as f32 * scale))
-                .object_fit(ObjectFit::Fill),
+            Some(natural) => {
+                let shown = scaled(natural, scale);
+                let at = clamp_pan(self.pan, shown, self.room);
+                picture
+                    .absolute()
+                    .left(at.x)
+                    .top(at.y)
+                    .w(shown.width)
+                    .h(shown.height)
+                    .object_fit(ObjectFit::Fill)
+            }
             None => picture.object_fit(ObjectFit::None),
         }
     }
+}
+
+fn scaled(natural: Size<gpui::DevicePixels>, scale: f32) -> Size<Pixels> {
+    size(
+        px(natural.width.0 as f32 * scale),
+        px(natural.height.0 as f32 * scale),
+    )
+}
+
+/// Keeps a picture larger than its room covering it, and centres one smaller.
+fn clamp_pan(pan: Point<Pixels>, shown: Size<Pixels>, room: Size<Pixels>) -> Point<Pixels> {
+    let axis = |pan: Pixels, shown: Pixels, room: Pixels| {
+        let (pan, shown, room) = (f32::from(pan), f32::from(shown), f32::from(room));
+        px(if shown <= room {
+            (room - shown) / 2.
+        } else {
+            pan.clamp(room - shown, 0.)
+        })
+    };
+    point(
+        axis(pan.x, shown.width, room.width),
+        axis(pan.y, shown.height, room.height),
+    )
 }
 
 #[derive(PartialEq)]
@@ -375,29 +407,39 @@ pub(super) fn pane(
             let picture = Picture {
                 path: viewer.local.clone().unwrap_or_else(|| path.to_owned()),
                 zoom: viewer.zoom,
+                pan: viewer.pan,
+                room: viewer.room.get().size,
             };
-            let (room, pinched, this) = (viewer.room.clone(), key.clone(), this.clone());
+            let room = viewer.room.clone();
+            let (pinched, pinching) = (key.clone(), this.clone());
+            let (panned, panning) = (key.clone(), this.clone());
             div()
+                .id("viewer-image")
                 .size_full()
                 .relative()
+                .overflow_hidden()
+                .on_pinch(move |event: &PinchEvent, _, cx| {
+                    let factor = 1. + event.delta;
+                    pinching.update(cx, |bench, cx| {
+                        rescale(
+                            bench,
+                            &pinched,
+                            |scale| Some(scale * factor),
+                            Some(event.position),
+                            cx,
+                        )
+                    })
+                })
+                .on_scroll(move |event: &ScrollEvent, window, cx| {
+                    let delta = event.delta.pixel_delta(window.line_height());
+                    panning.update(cx, |bench, cx| pan(bench, &panned, delta, cx))
+                })
                 .child(
-                    canvas(move |bounds, _, _| room.set(bounds.size), |_, _, _, _| {})
+                    canvas(move |bounds, _, _| room.set(bounds), |_, _, _, _| {})
                         .absolute()
                         .size_full(),
                 )
-                .child(
-                    div()
-                        .id("viewer-image")
-                        .size_full()
-                        .flex()
-                        .overflow_scroll()
-                        .on_pinch(move |event: &PinchEvent, _, cx| {
-                            this.update(cx, |bench, cx| {
-                                pinch(bench, &pinched, 1. + event.delta, cx)
-                            })
-                        })
-                        .child(picture),
-                )
+                .child(picture)
                 .into_any_element()
         }
         (None, Some(Kind::Document)) => document(viewer, key, &t),
@@ -413,35 +455,87 @@ pub(super) fn pane(
         .into_any_element()
 }
 
-/// Scales the picture by `factor`, starting from the size it is fitted to while it is fitted.
-fn pinch(bench: &mut Workbench, key: &FileKey, factor: f32, cx: &mut Context<Workbench>) {
-    let Some(viewer) = bench.editors.read(cx).viewers.get(key) else {
-        return;
-    };
-    let (zoom, room) = (viewer.zoom, viewer.room.get());
+fn natural_size(
+    editors: &Editors,
+    key: &FileKey,
+    cx: &mut App,
+) -> Option<Size<gpui::DevicePixels>> {
+    let viewer = editors.viewers.get(key)?;
     let path = viewer.local.clone().unwrap_or_else(|| key.path.clone());
-    let scale = match zoom {
-        Zoom::Scale(scale) => scale,
-        Zoom::Fit => {
-            let resource = Resource::Path(Arc::from(path.as_path()));
-            let Some(natural) = cx
-                .fetch_asset::<ImgResourceLoader>(&resource)
-                .and_then(Result::ok)
-                .map(|image| image.size(0))
-            else {
-                return;
-            };
-            let wide = f32::from(room.width) / natural.width.0 as f32;
-            let tall = f32::from(room.height) / natural.height.0 as f32;
-            wide.min(tall)
-        }
-    };
-    let (least, most) = ZOOM_RANGE;
+    let resource = Resource::Path(Arc::from(path.as_path()));
+    cx.fetch_asset::<ImgResourceLoader>(&resource)
+        .and_then(Result::ok)
+        .map(|image| image.size(0))
+}
+
+/// Zooms the picture to the scale `to` picks from its current one, or fits it on
+/// none, keeping the point under `toward` (in the window) still, or the room's
+/// centre without one.
+fn rescale(
+    bench: &mut Workbench,
+    key: &FileKey,
+    to: impl FnOnce(f32) -> Option<f32>,
+    toward: Option<Point<Pixels>>,
+    cx: &mut Context<Workbench>,
+) {
     bench.editors.update(cx, |editors, cx| {
-        if let Some(viewer) = editors.viewers.get_mut(key) {
-            viewer.zoom = Zoom::Scale((scale * factor).clamp(least, most));
-        }
+        let Some(natural) = natural_size(editors, key, cx) else {
+            return;
+        };
+        let Some(viewer) = editors.viewers.get_mut(key) else {
+            return;
+        };
+        let room = viewer.room.get();
+        let (scale, pan) = match viewer.zoom {
+            Zoom::Scale(scale) => (scale, viewer.pan),
+            Zoom::Fit => {
+                let wide = f32::from(room.size.width) / natural.width.0 as f32;
+                let tall = f32::from(room.size.height) / natural.height.0 as f32;
+                (wide.min(tall), point(px(0.), px(0.)))
+            }
+        };
+        let pan = clamp_pan(pan, scaled(natural, scale), room.size);
+        let Some(next) = to(scale) else {
+            viewer.zoom = Zoom::Fit;
+            cx.notify();
+            return;
+        };
+        let (least, most) = ZOOM_RANGE;
+        let next = next.clamp(least, most);
+        let anchor = toward.map_or(point(room.size.width / 2., room.size.height / 2.), |at| {
+            at - room.origin
+        });
+        let kept = next / scale;
+        let moved = point(
+            anchor.x - (anchor.x - pan.x) * kept,
+            anchor.y - (anchor.y - pan.y) * kept,
+        );
+        viewer.zoom = Zoom::Scale(next);
+        viewer.pan = clamp_pan(moved, scaled(natural, next), room.size);
         cx.notify();
+    });
+}
+
+/// Moves a picture larger than its room by a scroll's `delta`.
+fn pan(bench: &mut Workbench, key: &FileKey, delta: Point<Pixels>, cx: &mut Context<Workbench>) {
+    bench.editors.update(cx, |editors, cx| {
+        let Some(natural) = natural_size(editors, key, cx) else {
+            return;
+        };
+        let Some(viewer) = editors.viewers.get_mut(key) else {
+            return;
+        };
+        let Zoom::Scale(scale) = viewer.zoom else {
+            return;
+        };
+        let room = viewer.room.get().size;
+        let shown = scaled(natural, scale);
+        let pan = clamp_pan(viewer.pan, shown, room);
+        let moved = clamp_pan(pan + delta, shown, room);
+        if moved != viewer.pan {
+            viewer.pan = moved;
+            cx.notify();
+        }
     });
 }
 
@@ -620,7 +714,7 @@ fn bar(
     let path = key.path.as_path();
     let name = crate::ui::path::file_name(path);
     let about = viewer.about.as_ref();
-    let zoom = |id: &'static str, label: &'static str, to: fn(Zoom) -> Zoom| {
+    let zoom = |id: &'static str, label: &'static str, to: fn(f32) -> Option<f32>| {
         let (this, key) = (this.clone(), key.clone());
         div()
             .id(id)
@@ -629,14 +723,7 @@ fn bar(
             .text_color(t.text_secondary)
             .hover(move |style| style.text_color(t.text_primary))
             .on_click(move |_, _, cx| {
-                this.update(cx, |bench, cx| {
-                    bench.editors.update(cx, |editors, cx| {
-                        if let Some(viewer) = editors.viewers.get_mut(&key) {
-                            viewer.zoom = to(viewer.zoom);
-                        }
-                        cx.notify();
-                    })
-                })
+                this.update(cx, |bench, cx| rescale(bench, &key, to, None, cx))
             })
             .child(label)
     };
@@ -667,16 +754,10 @@ fn bar(
         .child(div().flex_1())
         .children(pinning)
         .when(image, |bar| {
-            bar.child(zoom("viewer-fit", "Fit", |_| Zoom::Fit))
-                .child(zoom("viewer-actual", "1:1", |_| Zoom::Scale(1.)))
-                .child(zoom("viewer-out", "−", |zoom| match zoom {
-                    Zoom::Fit => Zoom::Scale(1. / ZOOM_STEP),
-                    Zoom::Scale(scale) => Zoom::Scale(scale / ZOOM_STEP),
-                }))
-                .child(zoom("viewer-in", "+", |zoom| match zoom {
-                    Zoom::Fit => Zoom::Scale(ZOOM_STEP),
-                    Zoom::Scale(scale) => Zoom::Scale(scale * ZOOM_STEP),
-                }))
+            bar.child(zoom("viewer-fit", "Fit", |_| None))
+                .child(zoom("viewer-actual", "1:1", |_| Some(1.)))
+                .child(zoom("viewer-out", "−", |scale| Some(scale / ZOOM_STEP)))
+                .child(zoom("viewer-in", "+", |scale| Some(scale * ZOOM_STEP)))
         })
         .child(
             ui::IconButton::new("viewer-reload", Icon::Refresh, "Read it again")
