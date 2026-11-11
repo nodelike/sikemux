@@ -44,6 +44,32 @@ pub struct HostLoad {
     pub cpu: u32,
     /// Memory in use, in bytes, where the host says.
     pub memory_used: Option<u64>,
+    /// More threads want to run than its cores take, so agents' simulators and builds wait.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub overloaded: bool,
+    /// The one-minute load average, rounded, while it is overloaded.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub load_average: Option<u32>,
+    #[serde(default)]
+    pub cores: u32,
+    /// The builds agents run or wait to run, oldest first, while it is overloaded.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub builds: Vec<AgentBuild>,
+}
+
+/// A build an agent started, such as `xcodebuild` or `cargo build`, running or waiting its turn.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentBuild {
+    pub id: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_id: Option<String>,
+    pub command: String,
+    /// When it started, or began to wait, in Unix milliseconds.
+    pub since: u64,
+    /// How many builds wait ahead of it, while it waits.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ahead: Option<u32>,
 }
 
 /// An alert about this host, or about the linked host `host` names.

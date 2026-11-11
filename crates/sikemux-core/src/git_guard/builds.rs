@@ -198,6 +198,7 @@ fn take_turn(program: &str, command: String) -> Option<Session> {
     let request = BuildRequest {
         agent_id: std::env::var(vars::AGENT_ID).ok(),
         command,
+        pid: Some(std::process::id()),
     };
     session
         .send(&CliClientCommand::Build {

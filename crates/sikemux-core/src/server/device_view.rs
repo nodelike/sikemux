@@ -34,7 +34,7 @@ pub(crate) struct DeviceViews {
     /// own, or under none for every other client.
     sent: Mutex<HashMap<Option<String>, Vec<u8>>>,
     /// What the rows showed of this host's load in the view that last went out.
-    shown_load: Mutex<Option<(u32, Option<u64>)>>,
+    shown_load: Mutex<Option<sikemux_view::device::HostLoad>>,
 }
 
 impl Core {

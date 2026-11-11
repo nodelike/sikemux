@@ -193,16 +193,31 @@ pub(crate) fn read(core: &Core, params: HostStatsParams) -> HostStats {
 /// What the rows that show this host's load say of it.
 pub(crate) fn load(core: &Core) -> HostLoad {
     let now = core.host_watch.state.locked().now;
+    let cores = std::thread::available_parallelism().map_or(1, |cores| cores.get());
+    let average = sikemux_process::machine::load_average();
+    let overloaded = sikemux_process::machine::overloaded(average, cores);
     HostLoad {
         cpu: u32::from(now.cpu.div_ceil(10).min(100)),
         memory_used: (now.memory_used > 0).then_some(now.memory_used),
+        overloaded,
+        load_average: average
+            .filter(|_| overloaded)
+            .map(|average| average.round() as u32),
+        cores: cores as u32,
+        builds: match overloaded {
+            true => core.builds.shown(),
+            false => Vec::new(),
+        },
     }
 }
 
-/// What a row shows of `load`: its CPU share, and its memory to a tenth of a gigabyte.
-pub(crate) fn shown_load(load: &HostLoad) -> (u32, Option<u64>) {
+/// What a row shows of `load`: its memory only to a tenth of a gigabyte.
+pub(crate) fn shown_load(load: &HostLoad) -> HostLoad {
     let tenths = |bytes: u64| (bytes as f64 / (1u64 << 30) as f64 * 10.).round() as u64;
-    (load.cpu, load.memory_used.map(tenths))
+    HostLoad {
+        memory_used: load.memory_used.map(tenths),
+        ..load.clone()
+    }
 }
 
 /// This host's alerts, then each linked host out of reach.
