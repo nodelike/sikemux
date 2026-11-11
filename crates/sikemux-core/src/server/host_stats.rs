@@ -157,7 +157,8 @@ pub(crate) fn read(core: &Core, params: HostStatsParams) -> HostStats {
     if more {
         watch.watch();
     }
-    let about = about(core).clone();
+    let mut about = about(core).clone();
+    about.name = Some(super::host::shown_name());
     let state = watch.state.locked();
     let history = match params.span {
         StatsSpan::Now => Vec::new(),
@@ -235,7 +236,7 @@ pub(crate) fn alerts(core: &Core) -> Vec<HostAlerted> {
 
 /// Every alert the inbox lists, as [`alerts`] has them, with what to call the host each is about.
 pub(crate) fn inbox_alerts(core: &Core) -> Vec<(Option<String>, String, HostAlert)> {
-    let here = super::host::info().name;
+    let here = super::host::shown_name();
     alerts_named(core)
         .into_iter()
         .map(|(alerted, name)| {

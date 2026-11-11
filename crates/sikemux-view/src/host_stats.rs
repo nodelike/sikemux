@@ -55,7 +55,8 @@ pub struct HostStats {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HostAbout {
-    /// The computer's own name, such as "kishore-mbp".
+    /// What the host is called: its name on the account, else the computer's own, such as
+    /// "kishore-mbp".
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     /// What its maker calls it, such as "Mac mini (M2, 2023)" or "Hetzner AX52".

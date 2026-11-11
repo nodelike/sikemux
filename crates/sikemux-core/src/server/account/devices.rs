@@ -248,6 +248,9 @@ pub(crate) async fn rename_device(core: &Core, params: DeviceParams) -> CoreResu
         .ok_or_else(|| CoreError::from("a device needs a name"))?;
     let path = format!("{}/name", device_path(&params.key)?);
     host_request(core, Method::POST, &path, Some(json!({ "name": name }))).await?;
+    if core.remote.core_id().as_deref() == Some(params.key.as_str()) {
+        crate::server::host::note_account_name(Some(name.clone()));
+    }
     crate::server::remote::rename_paired(core, &params.key, &name)
 }
 

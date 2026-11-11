@@ -61,6 +61,11 @@ async fn link_all(core: &Arc<Core>) -> CoreResult<()> {
         .ok_or_else(|| CoreError::from("this host's key has not loaded"))?;
     let hosts: DeviceList = as_host(core, Method::GET, "/v1/devices?role=host", None).await?;
     forget_hosts_off_account(core, &hosts)?;
+    super::super::host::note_account_name(
+        (hosts.devices.iter())
+            .find(|host| host.key == own)
+            .map(|host| host.name.clone()),
+    );
     let names: Vec<(String, String)> = hosts
         .devices
         .iter()
