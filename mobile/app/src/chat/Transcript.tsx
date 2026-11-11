@@ -38,7 +38,7 @@ import type { Attachment } from './uploads';
 import { ToolGroup } from './Tools';
 import { AnsweredQuestions } from './Question';
 import { Bubble, From, makeBubbleStyles } from './Bubble';
-import { AgentContext, EarlierThoughtsContext, ProviderContext, SubagentsContext } from '@/chat/transcriptContext';
+import { AgentContext, ProviderContext, SubagentsContext } from '@/chat/transcriptContext';
 import { AccountLine, AgentNoticeLine, PageCard, TaskNotice } from '@/chat/Notices';
 import { ContextChips } from '@/chat/ContextChips';
 import { Editing, MessageEditor } from '@/chat/MessageEditor';
@@ -134,32 +134,9 @@ function TaskNoticeOrCard({ id, notice }: { id: string; notice: Notice }) {
   return <TaskNotice id={id} notice={notice} />;
 }
 
-/** The line a streaming turn's older thoughts fold behind, which opens them in place. */
-function EarlierThinking({ count, open, onToggle }: { count: number; open: boolean; onToggle: () => void }) {
-  const colors = useColors();
-  const styles = useStyles(makeStyles);
-  return (
-    <Pressable
-      onPress={onToggle}
-      style={styles.earlier}
-      hitSlop={6}
-      accessibilityRole="button"
-      accessibilityLabel={`Earlier thinking, ${count} ${count === 1 ? 'thought' : 'thoughts'}`}
-      accessibilityState={{ expanded: open }}>
-      <View style={open && styles.turned}>
-        <Icon name="IconChevron" size={11} color={colors.inkDim} />
-      </View>
-      <Text style={styles.earlierText}>Earlier thinking</Text>
-      <Text style={styles.earlierCount}>{`${count} ${count === 1 ? 'thought' : 'thoughts'}`}</Text>
-    </Pressable>
-  );
-}
-
 function Parts({ id, parts, live }: { id: string; parts: ChatPart[]; live: boolean }) {
   const styles = useStyles(makeStyles);
   const groups = groupParts(parts);
-  const earlier = useContext(EarlierThoughtsContext);
-  const [earlierOpen, setEarlierOpen] = useFold(earlier.key, false);
   return (
     <>
       {groups.map((group, index) => {
@@ -174,30 +151,11 @@ function Parts({ id, parts, live }: { id: string; parts: ChatPart[]; live: boole
               </View>
             ) : null;
           case 'thought': {
-            const place = earlier.ids.indexOf(run.id);
-            const line =
-              place === 0 ? (
-                <EarlierThinking
-                  key={`${run.id}/earlier`}
-                  count={earlier.ids.length}
-                  open={earlierOpen}
-                  onToggle={() => setEarlierOpen(!earlierOpen)}
-                />
-              ) : null;
-            if (place >= 0 && !earlierOpen) return line;
-            const thought = run.text.trim() ? (
+            return run.text.trim() ? (
               <View key={run.id} style={styles.thought}>
                 <LongText id={run.id} text={run.text.trim()} md={run.md} live={last} style={styles.thoughtText} />
               </View>
             ) : null;
-            return line ? (
-              <Fragment key={run.id}>
-                {line}
-                {thought}
-              </Fragment>
-            ) : (
-              thought
-            );
           }
           case 'subagent':
             return <Subagent key={run.id} subagent={run.subagent} />;
@@ -725,9 +683,6 @@ const makeStyles = (colors: Palette) => {
     prose: { fontFamily: fonts.ui, fontSize: 14.5, lineHeight: 24.5, color: colors.ink },
     letterName: { flexShrink: 1, fontFamily: fonts.uiSemibold, fontSize: 12.5, color: colors.ink },
     said: { paddingTop: 10 },
-    earlier: { flexDirection: 'row', alignItems: 'center', gap: 8, alignSelf: 'flex-start', height: 26 },
-    earlierText: { fontFamily: fonts.ui, fontSize: 12.5, color: colors.inkDim },
-    earlierCount: { fontFamily: fonts.ui, fontSize: 12.5, color: colors.inkFaint },
     thought: { marginVertical: 6 },
     thoughtText: { fontFamily: fonts.ui, fontSize: 14.5, lineHeight: 24.5, color: colors.secondary },
     subagent: { marginVertical: 4, borderRadius: 10, backgroundColor: translucent(colors.raised, 0.55) },

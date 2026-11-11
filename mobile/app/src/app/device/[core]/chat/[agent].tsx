@@ -35,14 +35,7 @@ import { Message, plainlySent, TeamFold, WorkSummary } from '@/chat/Transcript';
 import { Activity } from '@/chat/Activity';
 import { SmartPick } from '@/chat/Notices';
 import { Earlier, EarlierLost, Queued } from '@/chat/TranscriptEdges';
-import {
-  AgentContext,
-  EarlierThoughtsContext,
-  earlierThoughts,
-  liveRunKey,
-  ProviderContext,
-  SubagentsContext,
-} from '@/chat/transcriptContext';
+import { AgentContext, liveRunKey, ProviderContext, SubagentsContext } from '@/chat/transcriptContext';
 import { useChat } from '@/chat/useChat';
 import { callHost, useHostCall } from '@/core/hostCalls';
 import { problem } from '@/core/problem';
@@ -80,7 +73,6 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
   const state = chat.view;
   const request = chat.permissions[0];
   const liveId = state.running ? state.messages[state.messages.length - 1]?.id : undefined;
-  const earlier = useMemo(() => earlierThoughts(state.messages, state.running), [state.messages, state.running]);
   const [open, setOpen] = useState<string>();
   const openStrip = useMemo(() => (open ? stripOf(state.messages, open) : null), [open, state.messages]);
   // The list redraws a row when what it is handed changes, so nothing it is handed changes with every word streamed.
@@ -267,153 +259,151 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
               <AgentContext value={agentId}>
                 <FoldsContext value={session.folds}>
                   <SubagentsContext value={subagents}>
-                    <EarlierThoughtsContext value={earlier}>
-                      <ToolDetailContext value={session.toolDetail}>
-                        <View style={styles.transcript}>
-                          <MaskedView style={styles.transcript} maskElement={<EdgeFades />}>
-                            <FlashList
-                              ref={list}
-                              showsVerticalScrollIndicator={false}
-                              data={rows}
-                              keyExtractor={(message) => message.id}
-                              // Folded work draws nothing, so it is never recycled into a whole answer.
-                              getItemType={(message) => (rowFold(message, workOpen, runs.get(message.id)).hidden ? 'folded' : message.role)}
-                              extraData={marks}
-                              renderItem={({ item, index }) => {
-                                const run = runs.get(item.id);
-                                const { summary: fold, hidden, shown: kept } = rowFold(item, workOpen, run);
-                                const head = run?.head ? (
-                                  <TeamFold
-                                    line={run.head}
-                                    open={session.folds.isOpen(`team/${run.id}`, false)}
-                                    all={session.folds.isOpen(`team-all/${run.id}`, false)}
-                                    onToggle={() => toggleRun(run.id)}
-                                    onAll={() => showRunEarlier(run.id)}
-                                  />
+                    <ToolDetailContext value={session.toolDetail}>
+                      <View style={styles.transcript}>
+                        <MaskedView style={styles.transcript} maskElement={<EdgeFades />}>
+                          <FlashList
+                            ref={list}
+                            showsVerticalScrollIndicator={false}
+                            data={rows}
+                            keyExtractor={(message) => message.id}
+                            // Folded work draws nothing, so it is never recycled into a whole answer.
+                            getItemType={(message) => (rowFold(message, workOpen, runs.get(message.id)).hidden ? 'folded' : message.role)}
+                            extraData={marks}
+                            renderItem={({ item, index }) => {
+                              const run = runs.get(item.id);
+                              const { summary: fold, hidden, shown: kept } = rowFold(item, workOpen, run);
+                              const head = run?.head ? (
+                                <TeamFold
+                                  line={run.head}
+                                  open={session.folds.isOpen(`team/${run.id}`, false)}
+                                  all={session.folds.isOpen(`team-all/${run.id}`, false)}
+                                  onToggle={() => toggleRun(run.id)}
+                                  onAll={() => showRunEarlier(run.id)}
+                                />
+                              ) : null;
+                              const note =
+                                index === 0 && worktree && !chat.hasEarlier ? (
+                                  <WorktreeNote branch={worktree.branch} path={worktree.path} />
                                 ) : null;
-                                const note =
-                                  index === 0 && worktree && !chat.hasEarlier ? (
-                                    <WorktreeNote branch={worktree.branch} path={worktree.path} />
-                                  ) : null;
-                                const summary = fold ? (
-                                  <WorkSummary
-                                    took={fold.took}
-                                    calls={fold.calls}
-                                    thought={fold.thought}
-                                    open={workOpen(fold.id)}
-                                    onToggle={() => toggleWork(fold.id)}
-                                  />
-                                ) : null;
-                                if (hidden)
-                                  return note || summary || head ? (
-                                    <>
-                                      {note}
-                                      {head}
-                                      {summary}
-                                    </>
-                                  ) : (
-                                    <View />
-                                  );
-                                return (
+                              const summary = fold ? (
+                                <WorkSummary
+                                  took={fold.took}
+                                  calls={fold.calls}
+                                  thought={fold.thought}
+                                  open={workOpen(fold.id)}
+                                  onToggle={() => toggleWork(fold.id)}
+                                />
+                              ) : null;
+                              if (hidden)
+                                return note || summary || head ? (
                                   <>
                                     {note}
                                     {head}
                                     {summary}
-                                    <Message
-                                      message={item}
-                                      live={item.id === liveId}
-                                      unsent={chat.unsent.get(item.id)}
-                                      onRetry={session.retrySend}
-                                      onTap={onTap}
-                                      strip={item.id === open ? openStrip : undefined}
-                                      sentFiles={chat.sentFiles}
-                                      kept={kept}
-                                      onEdit={editable(item) ? startEdit : undefined}
-                                      editing={item.id === editing ? editingRow : undefined}
-                                      followsOwn={plainlySent(item) && plainlySent(rows[index - 1])}
-                                      followedByOwn={plainlySent(item) && plainlySent(rows[index + 1])}
-                                    />
                                   </>
+                                ) : (
+                                  <View />
                                 );
-                              }}
-                              ListEmptyComponent={state.placed ? <SmartPick move={state.placed} provider={provider} /> : null}
-                              ListHeaderComponent={
-                                chat.hasEarlier ? (
-                                  <Earlier
-                                    failed={chat.earlier === 'failed'}
-                                    loading={chat.earlier === 'loading'}
-                                    onRetry={session.loadEarlier}
-                                  />
-                                ) : state.earlierLost ? (
-                                  <EarlierLost />
-                                ) : null
-                              }
-                              ListFooterComponent={
+                              return (
                                 <>
-                                  {queued.length ? <Queued held={queued} sentFiles={chat.sentFiles} /> : null}
-                                  {activity ? <Activity provider={provider} doing={activity} since={chat.turnSince} /> : null}
-                                  <Trouble
-                                    state={state}
-                                    provider={provider}
-                                    hostName={hostName}
-                                    connection={connection}
-                                    session={session}
-                                    canAct={!watchOnly && chat.attached === 'live' && live.status === 'open'}
-                                    onStartOver={startOver}
+                                  {note}
+                                  {head}
+                                  {summary}
+                                  <Message
+                                    message={item}
+                                    live={item.id === liveId}
+                                    unsent={chat.unsent.get(item.id)}
+                                    onRetry={session.retrySend}
+                                    onTap={onTap}
+                                    strip={item.id === open ? openStrip : undefined}
+                                    sentFiles={chat.sentFiles}
+                                    kept={kept}
+                                    onEdit={editable(item) ? startEdit : undefined}
+                                    editing={item.id === editing ? editingRow : undefined}
+                                    followsOwn={plainlySent(item) && plainlySent(rows[index - 1])}
+                                    followedByOwn={plainlySent(item) && plainlySent(rows[index + 1])}
                                   />
-                                  {questions.answered.map((question) => (
-                                    <AnsweredQuestions
-                                      key={question.id}
-                                      agentId={question.agentId}
-                                      cli={question.cli}
-                                      asker={question.agentId === agentId ? null : question.name}
-                                      answers={[{ question: question.asked, answer: question.answer ?? '', secret: question.secret }]}
-                                    />
-                                  ))}
-                                  <QuestionDock
-                                    questions={questions}
+                                </>
+                              );
+                            }}
+                            ListEmptyComponent={state.placed ? <SmartPick move={state.placed} provider={provider} /> : null}
+                            ListHeaderComponent={
+                              chat.hasEarlier ? (
+                                <Earlier
+                                  failed={chat.earlier === 'failed'}
+                                  loading={chat.earlier === 'loading'}
+                                  onRetry={session.loadEarlier}
+                                />
+                              ) : state.earlierLost ? (
+                                <EarlierLost />
+                              ) : null
+                            }
+                            ListFooterComponent={
+                              <>
+                                {queued.length ? <Queued held={queued} sentFiles={chat.sentFiles} /> : null}
+                                {activity ? <Activity provider={provider} doing={activity} since={chat.turnSince} /> : null}
+                                <Trouble
+                                  state={state}
+                                  provider={provider}
+                                  hostName={hostName}
+                                  connection={connection}
+                                  session={session}
+                                  canAct={!watchOnly && chat.attached === 'live' && live.status === 'open'}
+                                  onStartOver={startOver}
+                                />
+                                {questions.answered.map((question) => (
+                                  <AnsweredQuestions
+                                    key={question.id}
+                                    agentId={question.agentId}
+                                    cli={question.cli}
+                                    asker={question.agentId === agentId ? null : question.name}
+                                    answers={[{ question: question.asked, answer: question.answer ?? '', secret: question.secret }]}
+                                  />
+                                ))}
+                                <QuestionDock
+                                  questions={questions}
+                                  canAnswer={!watchOnly}
+                                  onWrite={(question) => {
+                                    questions.write(question);
+                                    input.current?.focus();
+                                  }}
+                                />
+                                {questions.assumed.map((question) => (
+                                  <AssumedQuestion
+                                    key={question.id}
+                                    question={question}
                                     canAnswer={!watchOnly}
-                                    onWrite={(question) => {
+                                    onFine={() => void questions.answer(question, { fine: true })}
+                                    onChange={() => {
                                       questions.write(question);
                                       input.current?.focus();
                                     }}
                                   />
-                                  {questions.assumed.map((question) => (
-                                    <AssumedQuestion
-                                      key={question.id}
-                                      question={question}
-                                      canAnswer={!watchOnly}
-                                      onFine={() => void questions.answer(question, { fine: true })}
-                                      onChange={() => {
-                                        questions.write(question);
-                                        input.current?.focus();
-                                      }}
-                                    />
-                                  ))}
-                                </>
-                              }
-                              contentContainerStyle={styles.content}
-                              {...scroll.listProps}
-                              renderScrollComponent={renderScrollComponent}
-                              keyboardDismissMode="interactive"
-                              keyboardShouldPersistTaps={editing === undefined ? 'never' : 'handled'}
-                            />
-                          </MaskedView>
-                          {scroll.away ? (
-                            <KeyboardStickyView style={styles.jumpPlace} offset={{ opened: homeBar }}>
-                              <Pressable
-                                onPress={scroll.toEnd}
-                                style={styles.jump}
-                                hitSlop={8}
-                                accessibilityRole="button"
-                                accessibilityLabel="Jump to latest message">
-                                <Icon name="IconArrowDown" size={16} color={colors.inkDim} />
-                              </Pressable>
-                            </KeyboardStickyView>
-                          ) : null}
-                        </View>
-                      </ToolDetailContext>
-                    </EarlierThoughtsContext>
+                                ))}
+                              </>
+                            }
+                            contentContainerStyle={styles.content}
+                            {...scroll.listProps}
+                            renderScrollComponent={renderScrollComponent}
+                            keyboardDismissMode="interactive"
+                            keyboardShouldPersistTaps={editing === undefined ? 'never' : 'handled'}
+                          />
+                        </MaskedView>
+                        {scroll.away ? (
+                          <KeyboardStickyView style={styles.jumpPlace} offset={{ opened: homeBar }}>
+                            <Pressable
+                              onPress={scroll.toEnd}
+                              style={styles.jump}
+                              hitSlop={8}
+                              accessibilityRole="button"
+                              accessibilityLabel="Jump to latest message">
+                              <Icon name="IconArrowDown" size={16} color={colors.inkDim} />
+                            </Pressable>
+                          </KeyboardStickyView>
+                        ) : null}
+                      </View>
+                    </ToolDetailContext>
                   </SubagentsContext>
                 </FoldsContext>
               </AgentContext>

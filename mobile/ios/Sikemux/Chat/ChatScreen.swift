@@ -259,9 +259,6 @@ private struct ChatPane: View {
                     canAct: !watchOnly, focus: focus)
             }
         )
-        .onChange(of: EarlierThoughts.of(messages, running: rows.running), initial: true) { _, earlier in
-            context.earlierThoughts = earlier
-        }
     }
 
     // MARK: Around the transcript

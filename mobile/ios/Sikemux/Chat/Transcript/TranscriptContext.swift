@@ -20,8 +20,6 @@ final class TranscriptContext {
     var picture: ShownPicture?
     /// What the find bar found, while it is open.
     var finding: Finding?
-    /// The streaming turn's older thoughts, folded behind one line.
-    var earlierThoughts = EarlierThoughts.none
     @ObservationIgnored let actions = TranscriptActions()
     @ObservationIgnored let reveal = Reveal()
 
@@ -67,31 +65,6 @@ final class TranscriptContext {
             }
         }
         return nil
-    }
-}
-
-/// The thoughts of a streaming turn before its latest, which fold behind one line where the first of them stood.
-struct EarlierThoughts: Equatable {
-    /// The fold that opens them, one per turn.
-    let key: String
-    let ids: [String]
-
-    static let none = EarlierThoughts(key: "", ids: [])
-
-    /// The streaming turn's thoughts but its latest, counted across its messages; nothing folds once the turn ends.
-    static func of(_ messages: [ChatMessage], running: Bool) -> EarlierThoughts {
-        guard running else { return .none }
-        let start = (messages.lastIndex { $0.role == .user } ?? -1) + 1
-        guard start < messages.count else { return .none }
-        var ids: [String] = []
-        for message in messages[start...] {
-            for part in message.parts {
-                if case .thought(let thought) = part { ids.append(thought.id) }
-            }
-        }
-        guard ids.count > 1 else { return .none }
-        ids.removeLast()
-        return EarlierThoughts(key: "earlier/\(messages[start].id)", ids: ids)
     }
 }
 

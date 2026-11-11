@@ -312,65 +312,25 @@ private struct LetterGroup {
     }
 }
 
-/// The parts of an agent's reply, calls gathered into runs. A streaming turn's older thoughts fold behind one line.
+/// The parts of an agent's reply, calls gathered into runs.
 struct Parts: View {
-    @Environment(\.palette) private var palette
-    @Environment(TranscriptContext.self) private var context
     let id: String
     let parts: [ChatPart]
     let live: Bool
 
     var body: some View {
         let groups = PartGroup.of(parts)
-        let thinks = parts.contains { if case .thought = $0 { true } else { false } }
-        let earlier = thinks ? context.earlierThoughts : .none
-        let earlierOpen = !earlier.ids.isEmpty && context.folds.isOpen(earlier.key, false)
         VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(groups.enumerated()), id: \.element.id) { index, group in
                 let last = live && index == groups.count - 1
                 switch group {
                 case .tools(let first, let tools):
                     ToolGroup(id: "\(id)/\(first)", parts: tools, live: last)
-                case .part(.thought(let thought)):
-                    let place = earlier.ids.firstIndex(of: thought.id)
-                    if place == 0 {
-                        EarlierThinking(count: earlier.ids.count, open: earlierOpen) {
-                            context.folds.set(earlier.key, !earlierOpen)
-                        }
-                    }
-                    if place == nil || earlierOpen {
-                        PartView(part: .thought(thought), last: last)
-                    }
                 case .part(let part):
                     PartView(part: part, last: last).padding(.top, index > 0 && part.isText ? 10 : 0)
                 }
             }
         }
-    }
-}
-
-/// The line a streaming turn's older thoughts fold behind, which opens them in place.
-private struct EarlierThinking: View {
-    @Environment(\.palette) private var palette
-    let count: Int
-    let open: Bool
-    let toggle: () -> Void
-
-    var body: some View {
-        let thoughts = "\(count) \(count == 1 ? "thought" : "thoughts")"
-        Button(action: toggle) {
-            HStack(spacing: 8) {
-                IconView(icon: Icons.chevron, size: 11).foregroundStyle(palette.inkDim)
-                    .rotationEffect(.degrees(open ? 90 : 0))
-                Text("Earlier thinking").font(Theme.ui(12.5)).foregroundStyle(palette.inkDim)
-                Text(thoughts).font(Theme.ui(12.5)).foregroundStyle(palette.inkFaint)
-            }
-            .frame(height: 26)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Earlier thinking, \(thoughts)")
-        .accessibilityValue(open ? "expanded" : "collapsed")
     }
 }
 
