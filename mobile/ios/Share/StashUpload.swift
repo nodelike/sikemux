@@ -1,14 +1,6 @@
 import CryptoKit
 import Foundation
 
-/// A chat on a host, or a new chat in one of its projects, that a shared item goes to unsent.
-struct StashTarget: Encodable {
-  let hostKey: String
-  var chatId: String?
-  var projectPath: String?
-  var newChat: Bool?
-}
-
 enum StashProblem: LocalizedError {
   case signedOut
   case unreachable
