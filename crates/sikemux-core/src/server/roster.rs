@@ -278,8 +278,8 @@ pub(crate) fn rows(core: &Core, project: Option<&str>, caller: &str) -> Vec<Valu
         .collect()
 }
 
-/// Closes agents the caller started, or that one of its workers started, as
-/// the person closing their tabs would. Their chats stay in Recent.
+/// Closes agents the caller started, or that one of its workers started, or
+/// that no open agent leads, as the person closing their tabs would. Their chats stay in Recent.
 pub(crate) async fn close(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, String> {
     let caller = request
         .agent_id
@@ -307,9 +307,14 @@ pub(crate) async fn close(core: &Arc<Core>, request: &HarnessRequest) -> Result<
                 )
                 .into());
             }
-            if !core.names.leads(&caller, &target.agent_id) {
+            let led = core.names.leads_of(&target.agent_id);
+            let by_auto = super::board::run_by_auto(&core, &target.agent_id);
+            let orphan = (by_auto || !led.is_empty())
+                && !led.iter().any(|lead| core.agent_now(lead).open())
+                && !super::board::led_by_auto(&core, &target.agent_id);
+            if !orphan && !led.contains(&caller) {
                 return Err(format!(
-                    "You did not start {name}, so closing it is the person's or its lead's to do"
+                    "{name} is the person's, or its lead or Auto still runs, so closing it is theirs to do"
                 )
                 .into());
             }

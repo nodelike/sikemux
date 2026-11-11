@@ -531,6 +531,23 @@ impl Names {
         self.book.locked().leads(lead, agent_id)
     }
 
+    /// The agent that started `agent_id`, the one that started that, and so on up.
+    pub(crate) fn leads_of(&self, agent_id: &str) -> Vec<String> {
+        let book = self.book.locked();
+        let mut leads = Vec::new();
+        let mut current = agent_id;
+        for _ in 0..=book.agents.len() + book.closed_leads.len() {
+            match book.parent(current) {
+                Some(parent) => {
+                    leads.push(parent.to_owned());
+                    current = parent;
+                }
+                None => break,
+            }
+        }
+        leads
+    }
+
     /// `lead` and every named agent it started, or that one of those started.
     pub(crate) fn team(&self, lead: &str) -> Vec<String> {
         let book = self.book.locked();

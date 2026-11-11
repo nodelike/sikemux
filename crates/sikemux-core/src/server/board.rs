@@ -1246,6 +1246,12 @@ fn holder<'a>(core: &Core, card: &'a Card) -> Option<&'a str> {
         .filter(|owner| card.run().is_some() || core.agent_now(owner).open())
 }
 
+/// The agent other agents must leave a card to. With Auto off, the run it left
+/// on a card stops holding the card once that run's agent closes.
+fn holder_for_agents<'a>(core: &Core, board: &Board, card: &'a Card) -> Option<&'a str> {
+    holder(core, card).filter(|owner| board.settings.auto || core.agent_now(owner).open())
+}
+
 /// Whether `agent_id` may change a card `holder` answers for: its own, one held by
 /// an agent it started, or one nobody answers for.
 fn may_change(core: &Core, agent_id: &str, holder: Option<&str>) -> bool {
@@ -2111,7 +2117,7 @@ fn claim_card(core: &Core, project: &str, agent: &str, id: u64) -> Result<Value,
     if card.status == CardStatus::Done {
         return Err(format!("#{id} is done already"));
     }
-    if let Some(owner) = holder(core, card).filter(|owner| *owner != agent) {
+    if let Some(owner) = holder_for_agents(core, board, card).filter(|owner| *owner != agent) {
         return Err(format!(
             "{} has #{id} already; pick another card, or message {} about it",
             name_of(core, owner),
@@ -2203,7 +2209,7 @@ fn change_in(
         }
         .is_empty();
     if let By::Agent(agent) = by {
-        let holder = holder(core, &before);
+        let holder = holder_for_agents(core, board, &before);
         if !only_ticks && !may_change(core, agent, holder) {
             let owner = before.owner_name(core).unwrap_or_default();
             return Err(format!(
@@ -3004,6 +3010,26 @@ pub(crate) fn reviews_contract(core: &Core, agent_id: &str) -> bool {
             .and_then(|(_, card)| card.auto.as_ref())
             .is_some_and(|run| run.stage == RunStage::Contracting)
     }
+}
+
+/// Whether Auto, switched on, runs the agent: it builds or reviews a card on a
+/// board whose Auto is on.
+pub(crate) fn led_by_auto(core: &Core, agent_id: &str) -> bool {
+    let state = core.boards.state.locked();
+    let on = |project: &String| {
+        state
+            .boards
+            .get(project)
+            .is_some_and(|board| board.settings.auto)
+    };
+    blind::reviewed_card(&state, agent_id).is_some_and(|(project, _)| on(project))
+        || state.boards.iter().any(|(project, board)| {
+            on(project)
+                && board
+                    .cards
+                    .iter()
+                    .any(|card| card.auto.as_ref().is_some_and(|run| run.agent == agent_id))
+        })
 }
 
 /// Whether Auto runs the agent, building a card or reviewing one, so the ends of its turns
