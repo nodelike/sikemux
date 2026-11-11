@@ -142,7 +142,7 @@ private struct UserMessage: View {
                     .sentWords(palette)
                     .textSelection(.enabled)
                     .sentBubble(
-                        fill: look.lit ? palette.ink.mixed(with: palette.raised, 0.12) : palette.raised,
+                        fill: palette.raised,
                         border: failed ? palette.danger : palette.border
                     )
                     .opacity(look.unsent?.state == .sending ? 0.7 : 1)
