@@ -879,15 +879,13 @@ async fn run(
                 let area =
                     call_when_shown(view, "areaOf", &[json!({ "selector": selector })]).await?;
                 let image = screenshot(view, None, Some(area_rect(&area))).await?;
-                if let Some(save) = text("save") {
-                    let save = std::path::PathBuf::from(save);
-                    if !save.is_absolute() {
-                        return Err(format!("{} is not an absolute path", save.display()));
-                    }
-                    std::fs::write(&save, &image)
-                        .map_err(|error| format!("could not write {}: {error}", save.display()))?;
-                    result["saved"] = json!(save);
-                }
+                let saved = std::env::temp_dir().join(format!(
+                    "sikemux-element-{}.jpg",
+                    uuid::Uuid::new_v4().simple()
+                ));
+                std::fs::write(&saved, &image)
+                    .map_err(|error| format!("could not write {}: {error}", saved.display()))?;
+                result["saved"] = json!(saved);
                 result["element"] = json!(area["label"]);
                 result["mimeType"] = json!("image/jpeg");
                 result["data"] = json!(base64::engine::general_purpose::STANDARD.encode(&image));

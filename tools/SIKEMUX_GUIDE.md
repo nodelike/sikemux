@@ -313,7 +313,8 @@ chart library from a CDN, load as they are. Pass absolute paths to the tools.
    `contentHeight` it needs and its console, errors included. A `script` runs
    in the page first, with the real theme, as `browser_evaluate` does: click its
    buttons or read what it drew, and its result comes back under `script`.
-   `picture: false` leaves the screenshot out. This is the way to test your own
+   `picture: false` leaves the screenshot out; `selector` pictures only that
+   element and returns the picture's file as `saved`. This is the way to test your own
    page; never open it in a tab. Fix and preview again until it is right.
    Editing the file and previewing again is cheaper than writing it anew.
 3. `page_show` with the path, a short `title` and `height` set to the last
@@ -1052,8 +1053,8 @@ agents it started, and only what follows reaches the person.
   needs no `choices` or `pick`. `reason: taste` also needs a `picture` on each
   choice: the path of a screenshot or mockup that shows it. Sikemux keeps a copy
   and the person's card leads with them. For choices drawn on one mockup page,
-  give each its own element and take each picture with `page_preview`,
-  `selector` and `save`, so a card shows that choice and nothing around it.
+  give each its own element and take each picture with `page_preview` and
+  `selector`, so a card shows that choice and nothing around it.
 - A question ending your reply can show away from this chat, so it must say what
   is being decided, never only "Is that okay?".
 - A choice for the person always goes through `ask`, never only in your reply.

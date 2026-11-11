@@ -1476,16 +1476,7 @@
           "type": "boolean"
         },
         "selector": {
-          "description": "Picture only this element, such as one choice of a mockup",
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 1000
-        },
-        "save": {
-          "description": "With selector: absolute path to write that picture to, for ask's picture",
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 4096
+          "type": "string"
         }
       },
       "required": [
