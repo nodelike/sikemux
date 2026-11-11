@@ -46,14 +46,14 @@ enum ShareExtension {
             for chat in view.chats {
                 let shown = view.inbox.agents.first { $0.agentId == chat.agentId }
                 let place = shown?.project ?? chat.cwd
-                let project = view.workspace.projects.first { $0.id == place || $0.path == place }
+                let project = view.project(at: place)
                 found.append(
                     (
                         ShareSnapshot.Chat(
                             host: device.core, hostName: device.displayName, chatId: chat.agentId,
                             provider: chat.provider,
                             title: chat.title ?? shown?.title ?? "New chat", name: chat.name,
-                            project: project?.name ?? URL(fileURLWithPath: chat.cwd).lastPathComponent),
+                            project: project?.name ?? folderName(chat.cwd)),
                         project?.path ?? chat.cwd,
                         shown?.activeAt ?? 0
                     ))

@@ -108,7 +108,7 @@ private struct DeviceContent: View {
     private func content(
         _ view: DeviceView, live: HostLive, device: PairedDevice?, status: HostStatus, hostName: String
     ) -> some View {
-        let scope = view.workspace.projects.first { $0.id == device?.project }
+        let scope = view.project(id: device?.project)
         let asking = scope.map { view.needs(in: $0) } ?? view.inbox.items.filter { $0.tier == .needs }.count
         let providers = Self.providers(view, scope)
         let provider = providers.contains(filter) ? filter : "all"
