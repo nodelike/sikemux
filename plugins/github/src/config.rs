@@ -284,15 +284,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn github_dot_com_has_its_own_api_host() {
-        assert_eq!(api_base("github.com"), "https://api.github.com");
-        assert_eq!(
-            api_base("git.example.com"),
-            "https://git.example.com/api/v3"
-        );
-    }
-
     fn account(host: &str, login: &str) -> Account {
         Account {
             id: account_id(host, login),

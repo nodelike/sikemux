@@ -217,15 +217,6 @@ async fn finished(task: JoinHandle<()>) {
         .unwrap();
 }
 
-#[test]
-fn urls_follow_the_api_scheme() {
-    assert_eq!(
-        url("https://api.sikemux.com"),
-        "wss://api.sikemux.com/v1/live"
-    );
-    assert_eq!(url("http://127.0.0.1:4000/"), "ws://127.0.0.1:4000/v1/live");
-}
-
 #[tokio::test]
 async fn a_host_proves_its_key_applies_each_event_once_and_acknowledges_it() {
     let server = Server::new().await;

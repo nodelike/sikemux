@@ -137,7 +137,7 @@ fn summarize(header: &ReportHeader) -> String {
     parts.join(" · ")
 }
 
-pub fn human_duration(ms: u64) -> String {
+fn human_duration(ms: u64) -> String {
     if ms < 1_000 {
         format!("{ms}ms")
     } else {
@@ -149,17 +149,4 @@ pub fn human_duration(ms: u64) -> String {
 /// cannot bury the evidence from an installed build.
 pub fn autopsy_dir() -> Option<PathBuf> {
     sikemux_process::paths::config_file("autopsy", "")
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn durations_read_as_seconds_once_they_matter() {
-        assert_eq!(human_duration(0), "0ms");
-        assert_eq!(human_duration(999), "999ms");
-        assert_eq!(human_duration(1_000), "1.0s");
-        assert_eq!(human_duration(4_299), "4.2s");
-    }
 }

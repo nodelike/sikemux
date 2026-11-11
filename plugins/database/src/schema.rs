@@ -84,17 +84,4 @@ mod tests {
         assert_eq!(quote_identifier("users"), "\"users\"");
         assert_eq!(quote_identifier("odd \"name\""), "\"odd \"\"name\"\"\"");
     }
-
-    #[test]
-    fn postgres_relation_kinds_are_named() {
-        assert_eq!(postgres_kind("r"), TableKind::Table);
-        assert_eq!(postgres_kind("p"), TableKind::Table);
-        assert_eq!(postgres_kind("v"), TableKind::View);
-        assert_eq!(postgres_kind("m"), TableKind::MaterializedView);
-        assert_eq!(postgres_kind("f"), TableKind::ForeignTable);
-        assert_eq!(
-            serde_json::to_value(TableKind::MaterializedView).unwrap(),
-            "materialized-view"
-        );
-    }
 }

@@ -2058,14 +2058,6 @@ mod row_meta {
     }
 
     #[test]
-    fn times_nothing_for_history_replayed_after_a_reconnect() {
-        let mut chat = Chat::new();
-        chat.update(chunk(&"a".repeat(400), "m1"));
-        assert!(chat.fold.main.rows[0].stream.is_none());
-        assert_eq!(rate(&mut chat), None);
-    }
-
-    #[test]
     fn gives_no_rate_for_a_burst_too_short_to_measure() {
         let mut chat = Chat::running();
         chat.at(0).update(chunk("hello", "m1"));

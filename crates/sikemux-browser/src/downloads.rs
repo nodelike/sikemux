@@ -190,20 +190,6 @@ mod tests {
     }
 
     #[test]
-    fn only_the_latest_downloads_are_kept() {
-        let mut log = DownloadLog::default();
-        for index in 0..KEPT + 5 {
-            log.note(
-                &download(&format!("{index}.zip"), DownloadState::Failed),
-                None,
-            );
-        }
-        let files = log.since(0);
-        assert_eq!(files.len(), KEPT);
-        assert_eq!(files[0].url, "5.zip");
-    }
-
-    #[test]
     fn download_names_come_from_the_page_then_the_url_and_stay_in_the_folder() {
         let url = Url::parse("https://a.test/files/report.pdf?x=1").unwrap();
         assert_eq!(

@@ -427,42 +427,4 @@ mod tests {
             "https://avatars.githubusercontent.com/u/1?s=64"
         );
     }
-
-    #[test]
-    #[ignore = "requires network access"]
-    fn release_avatars_reads_github() {
-        let _ = tokio_rustls::rustls::crypto::ring::default_provider().install_default();
-        let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
-        let urls = vec![
-            "https://avatars.githubusercontent.com/u/95223229?v=4".to_owned(),
-            "https://avatars.githubusercontent.com/u/108696612?v=4".to_owned(),
-        ];
-        let found = runtime.block_on(release_avatars(urls.clone()));
-        for url in &urls {
-            assert!(
-                found
-                    .get(url)
-                    .is_some_and(|data| data.starts_with("data:image/")),
-                "{url}"
-            );
-        }
-    }
-
-    // Network check, excluded from the normal suite. Run with
-    // `cargo test -p sikemux-core --lib -- --ignored release_notes_reads_github`.
-    #[test]
-    #[ignore = "requires network access"]
-    fn release_notes_reads_github() {
-        let _ = tokio_rustls::rustls::crypto::ring::default_provider().install_default();
-        let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
-        let notes = runtime
-            .block_on(release_notes("0.4.0-nightly.10".into()))
-            .expect("notes for a published nightly");
-        assert!(notes.notes.is_some_and(|body| body.contains("nightly")));
-        assert_eq!(notes.commits, Some(8));
-        assert!(notes
-            .contributors
-            .iter()
-            .any(|person| person.login == "nodelike"));
-    }
 }

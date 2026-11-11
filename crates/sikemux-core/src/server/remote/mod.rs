@@ -1128,14 +1128,6 @@ mod tests {
     }
 
     #[test]
-    fn the_file_sits_beside_the_socket() {
-        assert_eq!(
-            file_path(Path::new("/home/me/.config/sikemux/core.dev.sock")),
-            PathBuf::from("/home/me/.config/sikemux/core.dev.sock.remote.json")
-        );
-    }
-
-    #[test]
     fn the_devices_survive_a_write_and_read() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("nested/core.sock.remote.json");

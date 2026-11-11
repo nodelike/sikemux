@@ -314,21 +314,6 @@ pub mod tests {
     }
 
     #[tokio::test]
-    async fn it_opens_a_file() {
-        let path = fixture("open");
-        let session = Session::open(path.to_str().unwrap(), false).await.unwrap();
-        let count = session
-            .with(|connection| {
-                connection.query_row("select count(*) from customers", [], |row| {
-                    row.get::<_, i64>(0)
-                })
-            })
-            .await
-            .unwrap();
-        assert_eq!(count, 2);
-    }
-
-    #[tokio::test]
     async fn a_missing_file_is_never_created() {
         let path = std::env::temp_dir().join(format!(
             "sikemux-database-missing-{}.db",

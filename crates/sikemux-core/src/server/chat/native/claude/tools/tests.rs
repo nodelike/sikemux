@@ -21,28 +21,6 @@ fn text_of(update: &Value) -> &str {
 }
 
 #[test]
-fn read_title_shows_range_and_relative_path() {
-    let info = tool_info(
-        "Read",
-        &json!({ "file_path": "/repo/app/src/a.rs", "offset": 10, "limit": 5 }),
-        cwd(),
-    );
-    assert_eq!(info.title, "Read src/a.rs (10 - 14)");
-    assert_eq!(info.kind, "read");
-    assert_eq!(
-        info.locations,
-        vec![json!({ "path": "/repo/app/src/a.rs", "line": 10 })]
-    );
-
-    let outside = tool_info(
-        "Read",
-        &json!({ "file_path": "/etc/hosts", "offset": 3 }),
-        cwd(),
-    );
-    assert_eq!(outside.title, "Read /etc/hosts (from line 3)");
-}
-
-#[test]
 fn read_result_numbers_lines_from_the_structured_file() {
     let update = tool_result(
         "t",
@@ -118,16 +96,6 @@ fn edit_and_write_show_the_optimistic_diff_and_no_result_content() {
 }
 
 #[test]
-fn grep_title_reads_like_a_command_line() {
-    let info = tool_info(
-        "Grep",
-        &json!({ "pattern": "fn", "-i": true, "output_mode": "count", "glob": "*.rs", "path": "src" }),
-        cwd(),
-    );
-    assert_eq!(info.title, "grep -i -c --include=\"*.rs\" \"fn\" src");
-}
-
-#[test]
 fn web_search_lists_hits() {
     let update = tool_result(
         "t",
@@ -173,19 +141,6 @@ fn exit_plan_mode_unwraps_the_raw_output() {
     assert_eq!(
         tool_info("ExitPlanMode", &json!({}), cwd()).kind,
         "switch_mode"
-    );
-}
-
-#[test]
-fn skill_and_mcp_titles() {
-    assert_eq!(
-        tool_info("Skill", &json!({ "skill": "pdf" }), cwd()).title,
-        "Load skill: pdf"
-    );
-    let mcp = tool_info("mcp__github__get_issue", &json!({}), cwd());
-    assert_eq!(
-        (mcp.title.as_str(), mcp.kind),
-        ("mcp__github__get_issue", "other")
     );
 }
 

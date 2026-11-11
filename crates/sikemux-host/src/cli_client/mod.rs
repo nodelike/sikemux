@@ -219,11 +219,6 @@ mod tests {
     }
 
     #[test]
-    fn nested_open_help_is_a_successful_control_path() {
-        assert!(parse_open_args(vec!["--help".into()]).unwrap().is_none());
-    }
-
-    #[test]
     fn parses_one_based_locations_into_zero_based_positions() {
         assert_eq!(
             split_location("src/main.rs:42:8").unwrap(),

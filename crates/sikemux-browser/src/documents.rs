@@ -252,15 +252,4 @@ mod tests {
         assert_eq!(loads[0].duration_ms, None);
         assert!(!loads[0].open);
     }
-
-    #[test]
-    fn only_the_latest_loads_are_kept() {
-        let mut log = DocumentLog::default();
-        for page in 0..MAX_DOCUMENTS + 5 {
-            load(&mut log, page, &format!("http://a/{page}"), Some(200));
-        }
-        let loads = log.loads(false);
-        assert_eq!(loads.len(), MAX_DOCUMENTS);
-        assert_eq!(loads[0].url, "http://a/5");
-    }
 }

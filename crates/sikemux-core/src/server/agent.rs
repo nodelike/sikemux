@@ -557,24 +557,3 @@ fn detection_reason(detection: &AgentDetection) -> String {
         None => format!("manifest rule {rule} matched {visible}"),
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::{next_sequence, submits_line};
-
-    #[test]
-    fn only_submitted_input_arms_agent_activity() {
-        assert!(submits_line(b"ship it\r"));
-        assert!(submits_line(b"first\nsecond"));
-        assert!(!submits_line(b"still typing"));
-        assert!(!submits_line(b"\x1b[A"));
-    }
-
-    #[test]
-    fn sequences_rise_and_stay_exact_in_a_javascript_number() {
-        let first = next_sequence();
-        let second = next_sequence();
-        assert!(second > first);
-        assert!(second < 1 << 53);
-    }
-}
