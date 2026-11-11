@@ -41,6 +41,8 @@ struct Composer: View {
     @State private var holds = Holds()
     @State private var mentions: MentionSearch?
     @State private var prompt = PromptStash()
+    /// The send button was held to stash the prompt, so the lift that ends the hold sends nothing.
+    @State private var heldSend = false
 
     private enum Adding { case files, stash }
 
@@ -214,7 +216,13 @@ struct Composer: View {
     @ViewBuilder
     private func sendOrStop(sendable: Bool, uploading: Bool) -> some View {
         if sendable || !running {
-            Button(action: send) {
+            Button {
+                if heldSend {
+                    heldSend = false
+                    return
+                }
+                send()
+            } label: {
                 Group {
                     if uploading {
                         ProgressView().tint(palette.ground).controlSize(.small)
@@ -228,7 +236,11 @@ struct Composer: View {
             }
             .buttonStyle(PressFade())
             .disabled(uploading)
-            .simultaneousGesture(LongPressGesture().onEnded { _ in if sendable { stashPrompt() } })
+            .simultaneousGesture(LongPressGesture().onEnded { _ in
+                guard sendable else { return }
+                heldSend = true
+                stashPrompt()
+            })
             .accessibilityLabel(uploading ? "Sending files" : offline ? "Send, waiting for \(hostName)" : running ? (steers ? "Send to steer this turn" : "Send after this turn") : "Send")
             .accessibilityHint(sendable ? "Hold to stash this prompt" : "")
         } else {
