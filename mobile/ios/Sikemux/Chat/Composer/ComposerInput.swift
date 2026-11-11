@@ -9,7 +9,6 @@ final class ComposerFocus: ObservableObject {
     @Published var recent = false
 
     func request() { field?.becomeFirstResponder() }
-    func blur() { field?.resignFirstResponder() }
     /// Empties the field, words the keyboard is still composing too.
     func clear() { field?.text = "" }
 }

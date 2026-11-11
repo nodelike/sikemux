@@ -15,15 +15,12 @@ struct ChatBottomContext {
     var strip: AnyView?
     /// Scrolls the transcript to its end, once a message is sent.
     var onSent: () -> Void
-    /// Opens the messages sent before, when there are any.
-    var onRecent: (() -> Void)?
     var focus: ComposerFocus
 }
 
 struct ChatScreen: View {
     let core: String
     let agentId: String
-    var started = false
 
     var body: some View {
         ChatPane(core: core, agentId: agentId)
@@ -364,7 +361,7 @@ private struct ChatPane: View {
             ? AnyView(LiveStrip(work: work, provider: provider) { showLive = true }) : nil
         return ChatBottomContext(
             core: core, agentId: agentId, provider: provider, hostName: hostName, watchOnly: watchOnly,
-            offline: !live.isOpen, steers: steerable(rows), strip: strip, onSent: { scroll.toEnd() }, onRecent: nil,
+            offline: !live.isOpen, steers: steerable(rows), strip: strip, onSent: { scroll.toEnd() },
             focus: focus)
     }
 

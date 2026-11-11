@@ -8,7 +8,6 @@ struct Trouble: View {
     let provider: String
     let hostName: String
     let canAct: Bool
-    var onStartOver: (() -> Void)?
     @State private var accounts: ChatAccounts?
     @State private var now = Date()
 
@@ -28,7 +27,6 @@ struct Trouble: View {
                     if canAct {
                         actions {
                             action("Reconnect") { session.retry() }
-                            if let onStartOver { action("Start new chat", onStartOver) }
                         }
                     }
                 }
