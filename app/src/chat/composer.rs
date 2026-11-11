@@ -81,8 +81,6 @@ pub struct Composer {
     provider: String,
     agent_label: SharedString,
     strip: Option<Strip>,
-    /// Something is docked on the strip, which then meets it square rather than rounding.
-    covered: bool,
     ready: bool,
     running: bool,
     steers: bool,
@@ -133,7 +131,6 @@ impl Composer {
             provider: provider.to_owned(),
             agent_label: agent_label.into(),
             strip: None,
-            covered: false,
             ready: false,
             running: false,
             steers: true,
@@ -173,12 +170,6 @@ impl Composer {
         self
     }
 
-    pub fn covered(mut self, covered: bool) -> Self {
-        self.covered = covered;
-        self
-    }
-
-    /// The session takes changes to its mode and settings.
     pub fn ready(mut self, ready: bool) -> Self {
         self.ready = ready;
         self
@@ -438,6 +429,7 @@ impl RenderOnce for Composer {
                 .into_any_element(),
             });
         let has_strip = self.strip.is_some();
+        let context = self.strip.map(|strip| context_line(strip, cx));
         div()
             .w_full()
             .px(SPACE_4)
@@ -446,9 +438,7 @@ impl RenderOnce for Composer {
             .flex_col()
             .items_center()
             .on_children_prepainted(move |bounds, window, cx| {
-                let composer = bounds
-                    .get(usize::from(has_strip))
-                    .map_or(0., |box_| box_.size.width.into());
+                let composer = bounds.first().map_or(0., |box_| box_.size.width.into());
                 if shape(composer, aside_room) != shape(width.replace(composer), aside_room) {
                     crate::ui::redraw_after_paint(window, cx);
                 }
@@ -457,10 +447,6 @@ impl RenderOnce for Composer {
                     strip: if has_strip { drawn.strip } else { 0. },
                 });
             })
-            .children(
-                self.strip
-                    .map(|strip| project_strip(strip, self.covered, fill, cx)),
-            )
             .child(
                 div()
                     .relative()
@@ -507,6 +493,7 @@ impl RenderOnce for Composer {
                     .children(self.menu)
                     .children(self.tray.map(|tray| ui::dock_shell(cx).child(tray))),
             )
+            .children(context)
             .children(self.notice.map(|notice| {
                 let line = div()
                     .w_full()
@@ -542,20 +529,21 @@ impl RenderOnce for Composer {
     }
 }
 
-fn project_strip(strip: Strip, covered: bool, fill: Hsla, cx: &App) -> impl IntoElement {
+/// Where the chat runs, quietly under the box: its host, project and branch, then its goal and
+/// account at the right.
+fn context_line(strip: Strip, cx: &App) -> impl IntoElement {
     let t = Tokens::get(cx).clone();
     let name = |chevron: bool| {
         div()
-            .h(px(26.))
-            .px(SPACE_2)
+            .h(px(24.))
+            .px(SPACE_1H)
             .max_w(px(240.))
             .flex()
             .items_center()
-            .gap(px(7.))
+            .gap(SPACE_1H)
             .rounded_full()
             .text_size(crate::theme::ui_text(TEXT_XS))
-            .font_weight(FontWeight::MEDIUM)
-            .text_color(t.text_primary)
+            .text_color(t.text_secondary)
             .child(ui::icon(Icon::Folder, 12.).text_color(t.live))
             .child(
                 div()
@@ -591,27 +579,20 @@ fn project_strip(strip: Strip, covered: bool, fill: Hsla, cx: &App) -> impl Into
             .child(name(false))
             .into_any_element(),
     };
-    // As wide as the composer under it less a step either side, so it sits on it like a tab.
-    let strip_row = div()
+    let line = div()
         .w_full()
+        .max_w(px(WIDTH))
         .min_w_0()
-        .overflow_hidden()
+        .pt(SPACE_1H)
+        .px(SPACE_2)
         .flex()
         .items_center()
-        .gap(SPACE_0)
-        .py(SPACE_1)
-        .px(SPACE_1H)
-        .border_t_1()
-        .border_l_1()
-        .border_r_1()
-        .border_color(t.border)
-        .when(!covered, |row| row.rounded_t(theme::RADIUS_3))
-        .bg(fill)
+        .gap(SPACE_1)
         .child(
             div()
                 .min_w_0()
                 .max_w(px(180.))
-                .px(SPACE_2)
+                .px(SPACE_1H)
                 .flex()
                 .items_center()
                 .gap(SPACE_1H)
@@ -619,7 +600,7 @@ fn project_strip(strip: Strip, covered: bool, fill: Hsla, cx: &App) -> impl Into
                     Some(_) => ui::icon(Icon::Server, 12.).flex_none().text_color(t.host),
                     None => ui::icon(Icon::Laptop, 12.)
                         .flex_none()
-                        .text_color(t.text_secondary),
+                        .text_color(t.text_tertiary),
                 })
                 .child(
                     ui::text(
@@ -629,30 +610,15 @@ fn project_strip(strip: Strip, covered: bool, fill: Hsla, cx: &App) -> impl Into
                     )
                     .min_w_0()
                     .truncate()
-                    .text_color(t.text_secondary),
+                    .text_color(t.text_tertiary),
                 ),
         )
-        .child(
-            ui::icon(Icon::Chevron, 10.)
-                .flex_none()
-                .text_color(t.text_tertiary),
-        )
         .child(project)
-        .when(strip.branch.is_some() || strip.worktree.is_some(), |row| {
-            row.child(
-                div()
-                    .flex_none()
-                    .w(px(1.))
-                    .h(px(14.))
-                    .mx(SPACE_1H)
-                    .bg(t.border),
-            )
-        })
         .children(strip.branch.map(|branch| {
             div()
                 .min_w_0()
                 .max_w(px(200.))
-                .px(SPACE_2)
+                .px(SPACE_1H)
                 .flex()
                 .items_center()
                 .gap(px(5.))
@@ -674,19 +640,14 @@ fn project_strip(strip: Strip, covered: bool, fill: Hsla, cx: &App) -> impl Into
                 .account
                 .map(|account| div().min_w_0().flex().child(account)),
         );
-    div()
-        .w_full()
-        .max_w(px(WIDTH))
-        .px(px(STRIP_STEP))
-        .child(strip_row)
-        .on_children_prepainted(|bounds, _, cx| {
-            let strip = bounds.first().map_or(0., |row| row.size.width.into());
-            Drawn::keep(cx, |drawn| Drawn { strip, ..drawn });
-        })
+    line.on_children_prepainted(|bounds, _, cx| {
+        let strip = bounds.iter().map(|part| f32::from(part.size.width)).sum();
+        Drawn::keep(cx, |drawn| Drawn { strip, ..drawn });
+    })
 }
 
-/// The widths the composer and the strip over it were last drawn at, which the shot example
-/// reports so a check can hold the strip narrower than the composer.
+/// The widths the composer and what the context line under it holds were last drawn at, which
+/// the shot example reports.
 #[derive(Clone, Copy, Default, PartialEq)]
 pub struct Drawn {
     pub strip: f32,
@@ -786,9 +747,6 @@ fn shape(width: f32, aside: Option<AsideRoom>) -> (Room, bool) {
 
 /// The widest the composer draws, which the goals' column takes too.
 pub const WIDTH: f32 = 820.;
-
-/// How far the strip over the composer steps in from either side of it.
-const STRIP_STEP: f32 = 20.;
 
 /// YOLO or SAFE: whether the agent acts without asking. YOLO's letters run through the
 /// rainbow the app paints it with.

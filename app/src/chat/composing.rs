@@ -276,8 +276,6 @@ pub struct ComposerView {
     pub owner: String,
     /// The chat's agent as the stage last drew it.
     pub agent: Option<AgentRow>,
-    /// Whether the stage docked questions, subagents, tasks or queued messages on the composer.
-    pub covered: bool,
     /// Draws it again as what it starts with changes, for Home's, which the goals and the
     /// workbench hold.
     pub _follows: Vec<Subscription>,
@@ -293,11 +291,10 @@ impl gpui::Render for ComposerView {
         let Some(agent) = self.agent.clone() else {
             return div().into_any_element();
         };
-        let covered = self.covered;
         self.bench
             .update(cx, |bench, cx| {
                 let chat = bench.chats.open.get(&agent.id)?;
-                mounted_composer(bench, &agent, chat, covered, cx)
+                mounted_composer(bench, &agent, chat, cx)
             })
             .ok()
             .flatten()
@@ -311,11 +308,10 @@ pub(super) fn mounted_composer(
     bench: &Workbench,
     agent: &AgentRow,
     chat: &Chat,
-    covered: bool,
     cx: &mut Context<Workbench>,
 ) -> Option<AnyElement> {
     let (composer, offering) = composer(bench, agent, chat, cx)?;
-    Some(mounted(&agent.id, composer.covered(covered), offering, cx).into_any_element())
+    Some(mounted(&agent.id, composer, offering, cx).into_any_element())
 }
 
 /// `owner`'s composer with the keys every composer takes: Backspace onto a chip, the arrows
@@ -1074,7 +1070,6 @@ impl Workbench {
             bench,
             owner: owner.to_owned(),
             agent: None,
-            covered: false,
             _follows: match goals {
                 Some(goals) => vec![
                     cx.observe(&goals, |_, _, cx| cx.notify()),

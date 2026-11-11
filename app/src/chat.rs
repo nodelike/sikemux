@@ -1616,7 +1616,6 @@ pub fn pane(
     groups.extend(live::queued(&agent.id, chat, cx));
     groups.extend(live::triggers(&agent.id, chat, cx));
     let stack = live::stack(groups, Tokens::get(cx));
-    let covered = stack.is_some();
     let empty = chat
         .composer
         .as_ref()
@@ -1650,12 +1649,8 @@ pub fn pane(
         .children(permissions)
         .children(stack)
         .children(chat.composer.as_ref().map(|composing| {
-            composing.view.update(cx, |view, cx| {
+            composing.view.update(cx, |view, _| {
                 view.agent = Some(agent.clone());
-                if view.covered != covered {
-                    view.covered = covered;
-                    cx.notify();
-                }
             });
             composing.view.clone().into_element().isolated()
         }))
