@@ -882,8 +882,9 @@ fn tile(
     });
     let (bench, agent, id) = (bench.clone(), agent.to_owned(), shown.question.id.clone());
     let title = SharedString::from(choice.label.clone());
-    let hover = t.surface_hover;
+    let hover = theme::over(t.surface_hover, t.surface_raised);
     BaseButton::new(SharedString::from(format!("question-tile-{id}-{ix}")))
+        .bg(t.surface_raised)
         .w_full()
         .p(SPACE_1H)
         .flex()
@@ -893,7 +894,9 @@ fn tile(
         .rounded(theme::RADIUS_3)
         .border_1()
         .border_color(if chosen { t.border_selected } else { t.border })
-        .when(chosen, |tile| tile.bg(t.surface_chosen))
+        .when(chosen, |tile| {
+            tile.bg(theme::over(t.surface_chosen, t.surface_raised))
+        })
         .when(!chosen && shown.cursor == Some(ix), |tile| tile.bg(hover))
         .when(!chosen && shown.cursor != Some(ix), |tile| {
             tile.hover(move |style| style.bg(hover))
