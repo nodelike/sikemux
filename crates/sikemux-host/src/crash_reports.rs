@@ -32,6 +32,7 @@ const DSN: Option<&str> = if cfg!(debug_assertions) {
     option_env!("SIKEMUX_SENTRY_DSN")
 };
 const REPORTER_VARIABLE: &str = "SIKEMUX_CRASH_REPORTER";
+const PARENT_VARIABLE: &str = "SIKEMUX_CRASH_REPORTER_PARENT";
 const FLUSH_TIMEOUT: Duration = Duration::from_secs(2);
 /// How often the core looks for panics that other processes left behind.
 const SWEEP_EVERY: Duration = Duration::from_secs(60 * 60);
@@ -56,6 +57,7 @@ impl Process {
 }
 
 static DATA_DIR: OnceLock<PathBuf> = OnceLock::new();
+static SENDING_CRASH: AtomicBool = AtomicBool::new(false);
 static STARTUP: Mutex<Option<Startup>> = Mutex::new(None);
 
 struct Startup {
@@ -76,11 +78,17 @@ pub fn start(process: Process, data_dir: Option<PathBuf>) {
     let mut minidumps = MinidumpIntegration::new()
         .server_env_var(REPORTER_VARIABLE)
         .process_name(format!("sikemux {} crash reporter", process.name()))
-        .flush_timeout(FLUSH_TIMEOUT);
+        .flush_timeout(FLUSH_TIMEOUT)
+        .before_capture(|_, _| SENDING_CRASH.store(true, Ordering::SeqCst))
+        .on_process(|command| {
+            command.env(PARENT_VARIABLE, std::process::id().to_string());
+        });
     if let Some(autopsies) = crate::hang_reports::autopsy_dir() {
         minidumps = minidumps.crashes_dir(autopsies.join("minidumps"));
     }
     if minidumps.is_crash_reporter_process() {
+        #[cfg(unix)]
+        leave_with_parent();
         Client::with_options(options(dsn, process, minidumps));
         std::process::exit(0);
     }
@@ -110,6 +118,35 @@ pub fn start(process: Process, data_dir: Option<PathBuf>) {
     if let Err(error) = spawned {
         eprintln!("sikemux: crash reports could not start: {error}");
     }
+}
+
+/// The crash reporter only stops once the process it watches disconnects, so one whose process
+/// ended before connecting would run on forever. It ends a couple of seconds after that process,
+/// unless it is sending its crash.
+#[cfg(unix)]
+fn leave_with_parent() {
+    let Some(parent) = std::env::var(PARENT_VARIABLE)
+        .ok()
+        .and_then(|pid| pid.parse::<libc::pid_t>().ok())
+    else {
+        return;
+    };
+    let _ = std::thread::Builder::new()
+        .name("parent-watch".into())
+        .spawn(move || {
+            let mut gone = 0;
+            loop {
+                std::thread::sleep(Duration::from_secs(1));
+                // SAFETY: getppid has no preconditions.
+                if unsafe { libc::getppid() } == parent || SENDING_CRASH.load(Ordering::SeqCst) {
+                    gone = 0;
+                } else if gone == 1 {
+                    std::process::exit(0);
+                } else {
+                    gone += 1;
+                }
+            }
+        });
 }
 
 /// Ends this run's session as one that exited well, and sends what is waiting.
