@@ -3,7 +3,7 @@
 //! remote with its own sign-in, or takes it from this host as a git bundle when
 //! it cannot, and adds it to its projects. Only committed work goes over.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -51,24 +51,26 @@ pub(crate) async fn open_there(
 ) -> CoreResult<Value> {
     let packed = blocking(move || code::package(&path).map_err(Into::into)).await?;
     let patch = packed.code.patch.clone().filter(|_| uncommitted);
-    let request = params_of::<asks::OpenProject>(&OpenParams {
+    let opening = OpenParams {
         code: Code {
             patch,
             ..packed.code.clone()
         },
         copy,
-    });
-    let asked = |body| {
-        ask(
-            core,
-            &link.id,
-            asks::OpenProject::METHOD,
-            request.clone(),
-            body,
-            OPEN_WAIT,
-        )
+        into: None,
+        abandon: None,
     };
-    let answer = asked(None).await.map_err(|error| error.to_string())?;
+    let asked = |opening: &OpenParams, body: Option<&Path>| {
+        let params = params_of::<asks::OpenProject>(opening);
+        let body = body.map(Path::to_path_buf);
+        async move {
+            let method = asks::OpenProject::METHOD;
+            ask(core, &link.id, method, params, body.as_deref(), OPEN_WAIT).await
+        }
+    };
+    let answer = asked(&opening, None)
+        .await
+        .map_err(|error| error.to_string())?;
     if answer["needs"] != "bundle" {
         return Ok(answer);
     }
@@ -79,28 +81,51 @@ pub(crate) async fn open_there(
         .filter_map(Value::as_str)
         .map(str::to_owned)
         .collect();
+    let into = answer["into"].as_str().map(PathBuf::from);
     let (repo, commit) = (packed.repo, packed.code.commit);
-    let bundle = blocking(move || code::bundle(&repo, &commit, &tips).map_err(Into::into)).await?;
-    let answer = asked(Some(bundle.path()))
-        .await
-        .map_err(|error| error.to_string())?;
-    if answer["needs"] == "bundle" {
-        return Err(format!(
+    let bundled = blocking(move || code::bundle(&repo, &commit, &tips).map_err(Into::into)).await;
+    let answer = match bundled {
+        Ok(bundle) => {
+            let second = OpenParams {
+                into: into.clone(),
+                ..opening.clone()
+            };
+            let sent = asked(&second, Some(bundle.path())).await;
+            sent.map_err(|error| error.to_string())
+        }
+        Err(error) => Err(error.to_string()),
+    };
+    let failed = match answer {
+        Ok(answer) if answer["needs"] != "bundle" => return Ok(answer),
+        Ok(_) => format!(
             "{} could not take the project from this host's bundle",
             link.name
-        )
-        .into());
+        ),
+        Err(error) => error,
+    };
+    if let Some(into) = into {
+        let leave = OpenParams {
+            abandon: Some(into),
+            ..opening
+        };
+        let _ = asked(&leave, None).await;
     }
-    Ok(answer)
+    Err(failed.into())
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub(super) struct OpenParams {
     code: Code,
     /// A new copy (ADR 0023): a checkout of its own, never one already there, with what is
     /// not committed committed on top.
     #[serde(default)]
     copy: bool,
+    /// The folder the first round claimed, which the bundle of the second goes into.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    into: Option<PathBuf>,
+    /// A folder the first round claimed for an opening that will not finish, to remove.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    abandon: Option<PathBuf>,
 }
 
 pub(super) async fn open_here(
@@ -108,18 +133,34 @@ pub(super) async fn open_here(
     params: OpenParams,
     body: Option<Received>,
 ) -> Answer {
-    let OpenParams { code, copy } = params;
+    let OpenParams {
+        code,
+        copy,
+        into,
+        abandon,
+    } = params;
+    if let Some(dir) = abandon {
+        blocking(move || {
+            code::abandon(&dir);
+            Ok(())
+        })
+        .await
+        .map_err(|error| error.to_string())?;
+        return Ok(Value::Null);
+    }
     let opened = {
         let (core, code) = (core.clone(), code.clone());
         blocking(move || {
-            code::open_project(&core, &code, body.as_ref().map(Received::path), copy)
-                .map_err(Into::into)
+            let bundle = body.as_ref().map(Received::path);
+            code::open_project(&core, &code, bundle, copy, into.as_deref()).map_err(Into::into)
         })
         .await
         .map_err(|error| error.to_string())?
     };
     match opened {
-        Opened::Needs(tips) => Ok(json!({ "needs": "bundle", "tips": tips })),
+        Opened::Needs { into, tips } => {
+            Ok(json!({ "needs": "bundle", "tips": tips, "into": into }))
+        }
         Opened::Ready(path) => {
             let laid = match &code.patch {
                 Some(patch) => {

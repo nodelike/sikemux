@@ -7,6 +7,7 @@
 
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -249,11 +250,11 @@ fn tips(repo: &Path) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// Where a project the person opened on this host from another one lives, or
-/// the commits a bundle should leave out.
+/// Where a project the person opened on this host from another one lives, or the
+/// folder claimed for it and the commits a bundle should leave out.
 pub(crate) enum Opened {
     Ready(PathBuf),
-    Needs(Vec<String>),
+    Needs { into: PathBuf, tips: Vec<String> },
 }
 
 /// The folder name a project takes here: its repository's, else its own.
@@ -274,18 +275,42 @@ fn folder_name(code: &Code) -> String {
     }
 }
 
-fn has_origin(dir: &Path, remote: &str) -> bool {
-    Git::quick(dir)
-        .trimmed(&["remote", "get-url", "origin"])
-        .is_ok_and(|origin| {
-            crate::git::remote::normalized_remote(&origin)
-                == crate::git::remote::normalized_remote(remote)
-        })
+/// Whether `dir` is a checkout this host began for a project from another host and has not
+/// finished, so it is still its own to fill or remove.
+pub(crate) fn claimed(dir: &Path) -> bool {
+    let config = dir.join(".git").join("config");
+    config.is_file()
+        && Git::quick(dir)
+            .trimmed(&[
+                "config",
+                "--file",
+                &config.to_string_lossy(),
+                "--get",
+                OPENING,
+            ])
+            .is_ok()
 }
 
-/// Where a project opened from another host goes: beside most of this host's
-/// projects, else in the home folder, under a new name when its own is taken.
-fn opened_dir(core: &Core, code: &Code, fresh: bool) -> Result<PathBuf, String> {
+/// Removes `dir` when it is a checkout this host began and did not finish.
+pub(crate) fn abandon(dir: &Path) {
+    if claimed(dir) {
+        let _ = std::fs::remove_dir_all(dir);
+    }
+}
+
+/// A claimed checkout older than this was left by a copy that never came back for it.
+const CLAIM_LEFT: Duration = Duration::from_secs(24 * 60 * 60);
+
+fn left_behind(dir: &Path) -> bool {
+    claimed(dir)
+        && std::fs::metadata(dir.join(".git"))
+            .and_then(|meta| meta.modified())
+            .is_ok_and(|at| at.elapsed().unwrap_or_default() > CLAIM_LEFT)
+}
+
+/// A new folder for a project opened from another host: beside most of this host's projects,
+/// else in the home folder, under a new name when its own is taken.
+fn opened_dir(core: &Core, code: &Code) -> Result<PathBuf, String> {
     let mut parents: Vec<PathBuf> = core
         .workspaces
         .project_paths()
@@ -309,9 +334,10 @@ fn opened_dir(core: &Core, code: &Code, fresh: bool) -> Result<PathBuf, String> 
             })
         })
         .find(|dir| {
+            if left_behind(dir) {
+                abandon(dir);
+            }
             !dir.exists()
-                || (!fresh
-                    && (code.remote.as_deref()).is_some_and(|remote| has_origin(dir, remote)))
         })
         .ok_or_else(|| {
             format!(
@@ -321,81 +347,127 @@ fn opened_dir(core: &Core, code: &Code, fresh: bool) -> Result<PathBuf, String> 
         })
 }
 
-/// Opens the person's project from another host here: a checkout of the same
-/// `origin` as it is, unless `fresh` asks for a new one, else a clone from the
-/// remote with this host's own sign-in, else a copy from `bundle`, at the
-/// commit sent and on its branch. Only committed work comes over.
+/// Claims a new folder for `code`: a clone from its remote with this host's own sign-in when
+/// no bundle came, else an empty repository a bundle fills.
+fn claim(core: &Core, code: &Code, bundle: Option<&Path>) -> Result<PathBuf, String> {
+    let dir = opened_dir(core, code)?;
+    if let (Some(remote), None) = (&code.remote, bundle) {
+        let parent = dir
+            .parent()
+            .ok_or("the folder to clone into has no parent")?;
+        let target = dir.to_string_lossy().into_owned();
+        let ssh = sikemux_process::user_environment::var("GIT_SSH_COMMAND")
+            .unwrap_or_else(|| "ssh -o BatchMode=yes -o ConnectTimeout=20".into());
+        let cloned = Git::slow(parent)
+            .env("GIT_SSH_COMMAND", &ssh)
+            .trimmed(&["clone", "--quiet", "--", remote, &target])
+            .and_then(|_| Git::quick(&dir).trimmed(&["config", OPENING, "true"]));
+        if cloned.is_ok() {
+            return Ok(dir);
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+    std::fs::create_dir_all(&dir)
+        .map_err(|error| format!("could not make {}: {error}", dir.display()))?;
+    let begun = Git::quick(&dir)
+        .trimmed(&["init", "--quiet"])
+        .and_then(|_| Git::quick(&dir).trimmed(&["config", OPENING, "true"]));
+    if let Err(error) = begun {
+        let _ = std::fs::remove_dir_all(&dir);
+        return Err(error);
+    }
+    if let Some(remote) = &code.remote {
+        let _ = Git::quick(&dir).trimmed(&["remote", "add", "origin", remote]);
+    }
+    Ok(dir)
+}
+
+/// Fetches `commit` into `repo` from `bundle`, keeping no branch for it.
+fn take_commit(repo: &Path, bundle: &Path, commit: &str) -> Result<(), String> {
+    let incoming = format!("refs/sikemux/incoming/{}", uuid::Uuid::new_v4().simple());
+    let fetched = fetch(repo, bundle, &incoming);
+    let _ = Git::quick(repo).trimmed(&["update-ref", "-d", &incoming]);
+    fetched?;
+    match has_commit(repo, commit) {
+        true => Ok(()),
+        false => Err("the bundle did not hold the project's commit".into()),
+    }
+}
+
+/// Brings the claimed checkout `dir` to the commit sent and its branch, from `bundle` when it
+/// lacks the commit.
+fn fill(dir: &Path, code: &Code, bundle: Option<&Path>) -> Result<Opened, String> {
+    if !has_commit(dir, &code.commit) {
+        let Some(bundle) = bundle else {
+            return Ok(Opened::Needs {
+                into: dir.to_owned(),
+                tips: tips(dir),
+            });
+        };
+        take_commit(dir, bundle, &code.commit)?;
+    }
+    match &code.branch {
+        Some(branch) => {
+            Git::quick(dir).trimmed(&["checkout", "--quiet", "-B", branch, &code.commit])?
+        }
+        None => Git::quick(dir).trimmed(&["checkout", "--quiet", "--detach", &code.commit])?,
+    };
+    Git::quick(dir).trimmed(&["config", "--unset", OPENING])?;
+    Ok(Opened::Ready(dir.to_owned()))
+}
+
+/// Whether `dir` is the repository of one of this host's projects.
+fn is_project_repo(core: &Core, dir: &Path) -> bool {
+    core.workspaces.project_paths().iter().any(|project| {
+        Git::quick(project)
+            .trimmed(&["rev-parse", "--path-format=absolute", "--show-toplevel"])
+            .is_ok_and(|top| Path::new(&top) == dir)
+    })
+}
+
+/// Opens the person's project from another host here: a checkout of the same `origin` as it
+/// is, unless `copy` asks for a new one, else a new folder cloned from the remote with this
+/// host's own sign-in, else filled from `bundle`, at the commit sent and on its branch. A
+/// second round names the folder the first claimed in `into`; a folder claimed here that
+/// fails is removed. Only committed work comes over.
 pub(crate) fn open_project(
     core: &Core,
     code: &Code,
     bundle: Option<&Path>,
-    fresh: bool,
+    copy: bool,
+    into: Option<&Path>,
 ) -> Result<Opened, String> {
     if !is_commit_id(&code.commit) {
         return Err("the project's commit is not a commit id".into());
     }
-    if let Some(repo) = (code.remote.as_deref())
-        .filter(|_| !fresh)
-        .and_then(|remote| project_with(core, remote))
-    {
+    let existing = match into {
+        Some(dir) if claimed(dir) => None,
+        Some(dir) if is_project_repo(core, dir) => Some(dir.to_owned()),
+        Some(_) => return Err("the folder begun for this project is gone".into()),
+        None if copy => None,
+        None => (code.remote.as_deref()).and_then(|remote| project_with(core, remote)),
+    };
+    if let Some(repo) = existing {
+        if !has_commit(&repo, &code.commit) {
+            let Some(bundle) = bundle else {
+                return Ok(Opened::Needs {
+                    tips: tips(&repo),
+                    into: repo,
+                });
+            };
+            take_commit(&repo, bundle, &code.commit)?;
+        }
         return Ok(Opened::Ready(repo));
     }
-    let dir = opened_dir(core, code, fresh)?;
-    // A clone this made before it had the commit is still its own to check out.
-    let reused = dir.exists()
-        && Git::quick(&dir)
-            .trimmed(&["config", "--get", OPENING])
-            .is_err();
-    if !dir.exists() {
-        if let (Some(remote), None) = (&code.remote, bundle) {
-            let parent = dir
-                .parent()
-                .ok_or("the folder to clone into has no parent")?;
-            let target = dir.to_string_lossy().into_owned();
-            let ssh = sikemux_process::user_environment::var("GIT_SSH_COMMAND")
-                .unwrap_or_else(|| "ssh -o BatchMode=yes -o ConnectTimeout=20".into());
-            let cloned = Git::slow(parent)
-                .env("GIT_SSH_COMMAND", &ssh)
-                .trimmed(&["clone", "--quiet", "--", remote, &target])
-                .and_then(|_| Git::quick(&dir).trimmed(&["config", OPENING, "true"]));
-            if cloned.is_err() {
-                let _ = std::fs::remove_dir_all(&dir);
-            }
-        }
-        if !dir.exists() {
-            let Some(_) = bundle else {
-                return Ok(Opened::Needs(Vec::new()));
-            };
-            std::fs::create_dir_all(&dir)
-                .map_err(|error| format!("could not make {}: {error}", dir.display()))?;
-            Git::quick(&dir).trimmed(&["init", "--quiet"])?;
-            Git::quick(&dir).trimmed(&["config", OPENING, "true"])?;
-            if let Some(remote) = &code.remote {
-                let _ = Git::quick(&dir).trimmed(&["remote", "add", "origin", remote]);
-            }
-        }
+    let dir = match into {
+        Some(dir) => dir.to_owned(),
+        None => claim(core, code, bundle)?,
+    };
+    let filled = fill(&dir, code, bundle);
+    if filled.is_err() {
+        abandon(&dir);
     }
-    if !has_commit(&dir, &code.commit) {
-        let Some(bundle) = bundle else {
-            return Ok(Opened::Needs(tips(&dir)));
-        };
-        let incoming = format!("refs/sikemux/incoming/{}", uuid::Uuid::new_v4().simple());
-        fetch(&dir, bundle, &incoming)?;
-        let _ = Git::quick(&dir).trimmed(&["update-ref", "-d", &incoming]);
-        if !has_commit(&dir, &code.commit) {
-            return Err("the bundle did not hold the project's commit".into());
-        }
-    }
-    if !reused {
-        match &code.branch {
-            Some(branch) => {
-                Git::quick(&dir).trimmed(&["checkout", "--quiet", "-B", branch, &code.commit])?
-            }
-            None => Git::quick(&dir).trimmed(&["checkout", "--quiet", "--detach", &code.commit])?,
-        };
-        Git::quick(&dir).trimmed(&["config", "--unset", OPENING])?;
-    }
-    Ok(Opened::Ready(dir))
+    filled
 }
 
 /// Where a worker's code was cut and the folder it works in, or the commits
