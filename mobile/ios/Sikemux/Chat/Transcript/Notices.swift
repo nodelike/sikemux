@@ -55,7 +55,7 @@ struct TaskNoticeOrCard: View {
     let notice: TaskNotice
 
     var body: some View {
-        if let session = notice.subagent, let card = context.subagent(session, in: []) {
+        if let session = notice.subagent, let card = context.subagent(session) {
             SubagentRow(subagent: card)
         } else {
             TaskNoticeView(id: id, notice: notice)

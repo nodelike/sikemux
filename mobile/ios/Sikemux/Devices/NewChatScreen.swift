@@ -436,7 +436,8 @@ private struct NewChatContent: View {
             attachments: attachments.isEmpty ? nil : attachments.map(\.uri.absoluteString),
             sentAt: Int(since.timeIntervalSince1970 * 1000))
         context = TranscriptContext(
-            provider: launcher.provider, core: core, agentId: nil, folds: Folds(), toolDetail: nil)
+            provider: launcher.provider, core: core, agentId: nil, folds: Folds(), messages: { [message] },
+            toolDetail: nil)
         sending = Sending(message: message, draft: draft, attachments: attachments, since: since)
         draft = ""
         attachments = []
