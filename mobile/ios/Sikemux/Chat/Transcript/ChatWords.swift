@@ -51,7 +51,7 @@ enum ChatWords {
     /// When a message was sent, as a reader scanning the transcript wants it: "Today, 21:07", "Yesterday, 14:02",
     /// "29 Sep, 09:15".
     static func sent(_ at: Int, now: Date = Date()) -> String {
-        let date = Date(timeIntervalSince1970: Double(at) / 1000)
+        let date = Format.date(millis: at)
         let calendar = Calendar.current
         let clock = time.string(from: date)
         let days =

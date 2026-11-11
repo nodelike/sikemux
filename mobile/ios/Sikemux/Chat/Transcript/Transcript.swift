@@ -54,14 +54,14 @@ struct Transcript<Footer: View>: View {
         let folds = context.folds
         let messages = rows.messages
         let runs = ShownRows.teamRows(messages) { id in
-            folds.isOpen("team-all/\(id)", false) ? .all : folds.isOpen("team/\(id)", false) ? .open : .closed
+            folds.isOpen(Folds.teamAll(id), false) ? .all : folds.isOpen(Folds.team(id), false) ? .open : .closed
         }
         let liveId = rows.running ? messages.last?.id : nil
         var order: [String] = []
         var entries: [String: RowEntry] = [:]
         for (index, message) in messages.enumerated() {
             let run = runs[message.id]
-            let fold = ShownRows.fold(message, { folds.isOpen("work/\($0)", false) }, run)
+            let fold = ShownRows.fold(message, { folds.isOpen(Folds.work($0), false) }, run)
             // A folded row that draws nothing stays out of the list, so it costs nothing to measure.
             guard !fold.hidden || fold.summary != nil || run?.head != nil else { continue }
             var look = RowLook()
@@ -69,12 +69,12 @@ struct Transcript<Footer: View>: View {
             look.kept = fold.kept
             look.hidden = fold.hidden
             look.summary = fold.summary
-            look.workOpen = fold.summary.map { folds.isOpen("work/\($0.id)", false) } ?? false
+            look.workOpen = fold.summary.map { folds.isOpen(Folds.work($0.id), false) } ?? false
             if let run, let head = run.head {
                 look.team = head
                 look.teamId = run.id
-                look.teamOpen = folds.isOpen("team/\(run.id)", false)
-                look.teamAll = folds.isOpen("team-all/\(run.id)", false)
+                look.teamOpen = folds.isOpen(Folds.team(run.id), false)
+                look.teamAll = folds.isOpen(Folds.teamAll(run.id), false)
             }
             if index == 0, !hasEarlier { look.worktree = worktree }
             self.look(message, &look)
