@@ -28,8 +28,6 @@ use crate::theme::{self, Tokens};
 use crate::ui;
 use crate::workbench::Workbench;
 
-/// The narrowest and widest the chosen host's detail is drawn.
-
 /// What this window keeps of the Hosts page while it is open: which host is chosen, how the
 /// hosts are laid out and narrowed, and what is watched for it.
 pub struct Page {
