@@ -721,6 +721,46 @@ pub(super) async fn usage(core: &Arc<Core>, account: Account) -> CoreResult<usag
     Ok(usage::usage(&account.provider, &program, config_path).await?)
 }
 
+/// The account whose limit reset to spend, by the launcher its usage row names.
+#[derive(Serialize, Deserialize)]
+pub struct UsingReset {
+    pub launcher: String,
+}
+
+/// What spending a reset did, and the resets the account holds after it.
+#[derive(Serialize, Deserialize)]
+pub struct UsedReset {
+    pub outcome: usage::ResetOutcome,
+    pub left: Option<u32>,
+}
+
+/// Spends one of the account's limit resets and reads its limits again, telling clients.
+pub(super) async fn use_reset(core: &Arc<Core>, using: UsingReset) -> CoreResult<UsedReset> {
+    let Some(found) = (core.workspaces.usage_accounts().into_iter())
+        .find(|account| account.launcher == using.launcher)
+    else {
+        return Err("That account is no longer offered".into());
+    };
+    let account = Account {
+        provider: found.provider,
+        config_path: found.config_path,
+    };
+    let program = program(core, &account).await?;
+    let config_path = account.config_path.as_deref();
+    let spend = crate::agent_catalog::AgentKind::from_name(&account.provider)
+        .and_then(|kind| kind.ops().use_reset(&program, config_path))
+        .ok_or("This agent offers no limit resets")?;
+    let outcome = spend.await?;
+    usage::forget_lookup(&account.provider, config_path);
+    let left = usage::usage(&account.provider, &program, config_path)
+        .await
+        .ok()
+        .and_then(|read| read.resets)
+        .map(|resets| resets.left);
+    core.changed(What::Read(Topic::Usage));
+    Ok(UsedReset { outcome, left })
+}
+
 pub(super) fn forget(core: &Arc<Core>, forget: Forget) {
     let (provider, config_path) = (forget.provider.as_deref(), forget.config_path.as_deref());
     status::forget(provider, config_path);

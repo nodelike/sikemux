@@ -258,6 +258,7 @@ calls! { core, client, method, params;
     "agentUsage": Full, any_program => answer(agent_accounts::usage(&core, parse(params)?).await?),
     "agentUsages" AgentUsages (NoParams) -> Vec<agent_accounts::AccountUsage>: Watch, any_program => agent_accounts::usages(&core).await,
     "readAgentUsages" ReadAgentUsages (NoParams) -> Vec<agent_accounts::AccountUsage>: Full, any_program => agent_accounts::read_usages(&core).await,
+    "useAgentReset" UseAgentReset (agent_accounts::UsingReset) -> agent_accounts::UsedReset: Full, counted => agent_accounts::use_reset(&core, params).await?,
     "openTab" OpenTab (sikemux_view::layout::OpenTab) -> String: Full => super::layout::open_tab(&core, params)?,
     "keepTab" KeepTab (super::layout::TabParams) -> (): Full => super::layout::keep_tab(&core, params)?,
     "closeTab" CloseTab (super::layout::TabParams) -> (): Full => super::layout::close_tab(&core, params)?,

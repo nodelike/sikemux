@@ -540,6 +540,14 @@ impl AgentOps for Codex {
         Some(Box::pin(usage::codex_usage(program, config_path)))
     }
 
+    fn use_reset<'a>(
+        &self,
+        program: &'a Path,
+        config_path: Option<&'a str>,
+    ) -> Option<Pending<'a, Result<usage::ResetOutcome, String>>> {
+        Some(Box::pin(usage::use_codex_reset(program, config_path)))
+    }
+
     fn signed_in(&self, env: &BTreeMap<String, String>) -> Option<SignIn> {
         sign_in::codex_signed_in(env)
     }

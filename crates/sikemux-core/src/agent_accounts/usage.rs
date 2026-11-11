@@ -44,6 +44,30 @@ pub struct Usage {
     pub plan: Option<String>,
     pub windows: Vec<UsageWindow>,
     pub unavailable_reason: Option<String>,
+    /// The limit resets the account holds; none when its provider offers it none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resets: Option<Resets>,
+}
+
+/// Limit resets an account was given, each of which starts its used-up windows over at once.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Resets {
+    pub left: u32,
+    /// When the first of them expires, in Unix milliseconds; none when none do.
+    pub use_by: Option<u64>,
+}
+
+/// What spending a reset did.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub enum ResetOutcome {
+    /// The account's used-up windows started over.
+    Reset,
+    /// No window was far enough along to reset, so none was spent.
+    NothingToReset,
+    /// The account holds no resets.
+    NoReset,
 }
 
 impl UsageResetAt {
@@ -347,6 +371,7 @@ pub(crate) fn note_live(provider: &str, config_path: Option<&str>, live: Vec<Usa
                 plan: None,
                 windows: Vec::new(),
                 unavailable_reason: None,
+                resets: None,
             },
         });
     let mut changed = false;
@@ -429,12 +454,20 @@ pub(crate) fn last_problem(provider: &str, config_path: Option<&str>) -> Option<
     }
 }
 
+/// Drops the answer kept for one account's lookup, so the next one asks its CLI again.
+pub(crate) fn forget_lookup(provider: &str, config_path: Option<&str>) {
+    usage_cache().locked().remove(&key(provider, config_path));
+}
+
 /// Drops the usage remembered for one account, whose sign-in just changed.
 pub(crate) fn forget(provider: &str, config_path: Option<&str>) {
-    let key = key(provider, config_path);
-    usage_cache().locked().remove(&key);
+    forget_lookup(provider, config_path);
     let mut readings = readings().locked();
-    if readings.by_account.remove(&key).is_some() {
+    if readings
+        .by_account
+        .remove(&key(provider, config_path))
+        .is_some()
+    {
         save(&readings);
     }
 }
@@ -814,6 +847,7 @@ fn parse_claude_usage(text: &str, request_id: &str) -> Option<Usage> {
         plan,
         windows,
         unavailable_reason,
+        resets: None,
     })
 }
 
@@ -914,6 +948,44 @@ fn parse_codex_usage_result(result: &Value) -> Usage {
         plan,
         unavailable_reason: windows.is_empty().then(|| "This account did not report subscription limits. API-key accounts do not provide plan usage.".to_string()),
         windows,
+        resets: codex_resets(result),
+    }
+}
+
+/// The resets in a Codex limits answer; none when it sent no count.
+fn codex_resets(result: &Value) -> Option<Resets> {
+    let summary = result.get("rateLimitResetCredits")?;
+    let left = summary.get("availableCount")?.as_u64()?;
+    let use_by = (summary.get("credits").and_then(Value::as_array))
+        .into_iter()
+        .flatten()
+        .filter(|credit| credit.get("status").and_then(Value::as_str) == Some("available"))
+        .filter_map(|credit| credit.get("expiresAt")?.as_u64()?.checked_mul(1000))
+        .min();
+    Some(Resets {
+        left: u32::try_from(left).unwrap_or(u32::MAX),
+        use_by,
+    })
+}
+
+pub(crate) async fn use_codex_reset(
+    executable: &Path,
+    config_path: Option<&str>,
+) -> Result<ResetOutcome, String> {
+    let command = cli("codex", executable, config_path, BTreeMap::new());
+    let params = serde_json::json!({ "idempotencyKey": uuid::Uuid::new_v4().to_string() });
+    let answer = codex_ask(
+        command,
+        "account/rateLimitResetCredit/consume",
+        params,
+        "reset",
+    )
+    .await?;
+    match answer.get("outcome").and_then(Value::as_str) {
+        Some("reset" | "alreadyRedeemed") => Ok(ResetOutcome::Reset),
+        Some("nothingToReset") => Ok(ResetOutcome::NothingToReset),
+        Some("noCredit") => Ok(ResetOutcome::NoReset),
+        _ => Err("Codex did not say whether the reset went through".to_owned()),
     }
 }
 

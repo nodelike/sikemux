@@ -12,7 +12,7 @@ use serde_json::Value;
 
 use crate::agent_accounts::sign_in::SignIn;
 use crate::agent_accounts::status::{AccountStatus, AgentStatus};
-use crate::agent_accounts::usage::Usage;
+use crate::agent_accounts::usage::{ResetOutcome, Usage};
 use crate::agent_catalog::AgentKind;
 use crate::git_guard::homes::GitHook;
 use crate::launch::providers::{ChatRoute, ListedProvider};
@@ -230,6 +230,15 @@ pub(crate) trait AgentOps: Sync {
         _program: &'a Path,
         _config_path: Option<&'a str>,
     ) -> Option<Pending<'a, Result<Usage, String>>> {
+        None
+    }
+
+    /// Spends one of the account's limit resets, which starts its used-up windows over.
+    fn use_reset<'a>(
+        &self,
+        _program: &'a Path,
+        _config_path: Option<&'a str>,
+    ) -> Option<Pending<'a, Result<ResetOutcome, String>>> {
         None
     }
 
