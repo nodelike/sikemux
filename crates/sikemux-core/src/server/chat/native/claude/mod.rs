@@ -338,7 +338,7 @@ impl Claude {
         if let Some(settings) = crate::git_guard::shim::claude_settings() {
             args.extend(["--settings".to_owned(), settings]);
         }
-        if let Some(model) = model.filter(|model| *model != config::DEFAULT) {
+        if let Some(model) = model {
             args.extend(["--model".to_owned(), model.to_owned()]);
         }
         let tools = servers::tool_servers(launch);
@@ -514,10 +514,13 @@ impl Backend for Claude {
             Some(id) => Start::Resume(id),
             None => Start::New(&session_id),
         };
+        let routed = launch.model_provider.is_some();
+        // A picked "default" is Claude's own default model, which only `--model default` gets:
+        // without it Claude runs the model the person's settings name instead.
         let wanted = launch
             .model
             .clone()
-            .filter(|model| model != config::DEFAULT);
+            .filter(|model| !(routed && model == config::DEFAULT));
         let (running, initialized) = Self::spawn(
             launch,
             &sink,
@@ -531,7 +534,6 @@ impl Backend for Claude {
         if let Some(replaying) = replaying {
             replaying.await.map_err(|error| error.to_string())??;
         }
-        let routed = launch.model_provider.is_some();
         let mut models: Vec<Value> = initialized
             .get("models")
             .and_then(Value::as_array)
