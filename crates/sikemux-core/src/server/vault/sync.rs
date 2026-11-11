@@ -603,10 +603,11 @@ async fn reconcile(
         entries.clone(),
         account.to_owned(),
         me.to_owned(),
+        vault.recovery_key.clone(),
     );
     let mut plan = blocking(move || {
-        let (books, entries, account, me) = planning;
-        let local = local::load(data_dir.as_deref(), &account);
+        let (books, entries, account, me, vault) = planning;
+        let local = local::load(data_dir.as_deref(), &account, &vault);
         if compare || !local.moved_in {
             plan(&books, &entries, local, &me)
         } else {
