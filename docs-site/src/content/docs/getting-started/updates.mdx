@@ -38,7 +38,7 @@ A server running just the core keeps itself up to date too, on the channel it wa
 
 The server's row under **Hosts** says **updating** while an update is under way, or **update failed** when the last try did not work; its **⋯**, or the **⋯** on its detail on the **Devices** page, says why. Root writes how each update ended to `/usr/local/lib/sikemux/update-outcome.json`, so a failure is still there to read after the core restarts. A download only stops when it goes quiet for a minute, however slow it is.
 
-The server keeps the core it replaced until the new one has run for half a minute. If the new core stops three times before then, it puts the previous one back and the row says **update rolled back**; that release is not installed again, and the next one is. `sudo sikemux update` also puts the previous core back when the new one does not start.
+The server keeps the core it replaced until the new one has run for half a minute. If the new core stops three times before then, it puts the previous one back and the row says **update rolled back**; that release is not installed again, and the next one is.
 
 To keep a server on the release it has, turn off **Update automatically** in either **⋯**, or run `sudo sikemux update --off` on it; `--on` turns updates back on. Only you can change this, so an agent on the server cannot pin it or unpin it: plain `sikemux update --on` or `--off` only says how. While updates are off, nothing installs, not even with `sikemux update`.
 
