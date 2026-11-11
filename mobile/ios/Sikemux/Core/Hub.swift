@@ -289,19 +289,32 @@ final class Hub {
         Task { await readHost(found, connection) }
     }
 
-    /// Takes the agents the host can run, then shows the view that waited on them.
+    /// Takes the agents the host can run, then shows the view that waited on them. A failed read is tried again,
+    /// waiting longer each time, for as long as this connection is the host's.
     private func readCatalog(_ found: HostLive, _ connection: Connection) {
         Task {
-            do {
-                found.catalog = try await connection.call(PhoneCall.AgentCatalog.self, NoParams())
-            } catch {
-                print("sikemux: could not read the host's agents: \(error)")
+            var wait: Duration = .seconds(1)
+            while true {
+                do {
+                    found.catalog = try await connection.call(PhoneCall.AgentCatalog.self, NoParams())
+                    break
+                } catch {
+                    print("sikemux: could not read the host's agents: \(error)")
+                }
+                showHeldView(found)
+                try? await Task.sleep(for: wait)
+                guard found.connection === connection else { return }
+                wait = min(wait * 2, .seconds(30))
             }
-            found.catalogRead = true
-            if let held = found.heldView {
-                found.heldView = nil
-                found.view = held
-            }
+            showHeldView(found)
+        }
+    }
+
+    private func showHeldView(_ found: HostLive) {
+        found.catalogRead = true
+        if let held = found.heldView {
+            found.heldView = nil
+            found.view = held
         }
     }
 
