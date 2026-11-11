@@ -238,8 +238,20 @@ fn disable() -> Result<(), String> {
     Ok(())
 }
 
+/// Under sudo it acts for the person who ran sudo, on their core, which it
+/// never starts as root.
 fn with_core(work: Work) -> Result<(), String> {
-    let socket = running()?;
+    let socket = if crate::update::as_person_of_sudo() {
+        let socket = launch()?.socket;
+        if running_pid(&socket).is_none() {
+            return Err(
+                "no core runs for you; run `sikemux start` without sudo, then try again".into(),
+            );
+        }
+        socket
+    } else {
+        running()?
+    };
     runtime()?.block_on(async {
         let (core, _events) = CoreClient::connect(&socket)
             .await

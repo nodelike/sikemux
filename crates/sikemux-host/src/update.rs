@@ -48,7 +48,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
 
 /// Whether this runs as root. Under sudo, it then acts for the person who
 /// ran sudo: their core, their switch.
-fn as_person_of_sudo() -> bool {
+pub(crate) fn as_person_of_sudo() -> bool {
     // SAFETY: geteuid takes nothing and cannot fail.
     if unsafe { libc::geteuid() } != 0 {
         return false;
