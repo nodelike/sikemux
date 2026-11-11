@@ -55,7 +55,9 @@ enum Joining {
             throw refusal(name, reason)
         case .allowed(let access):
             await Hub.shared.remember(
-                PairedDevice(core: core, access: access, pairedAt: Date().timeIntervalSince1970 * 1000, name: name))
+                PairedDevice(
+                    core: core, access: DeviceAccess(rawValue: access) ?? .unknown,
+                    pairedAt: Date().timeIntervalSince1970 * 1000, name: name))
             Hub.shared.rejoined(core)
         }
     }

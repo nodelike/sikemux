@@ -36,7 +36,7 @@ struct ForgetSheet: View {
             }
             .padding(.top, 8)
             .padding(.bottom, 4)
-            if device.access == "full" {
+            if device.access == .full {
                 ActionButton("Paired devices") {
                     onClose()
                     Router.shared.push(.pairing(core: device.core))

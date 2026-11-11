@@ -113,7 +113,7 @@ private struct DeviceContent: View {
         let providers = Self.providers(view, scope)
         let provider = providers.contains(filter) ? filter : "all"
         let filtering = tab == .agents && providers.count > 1
-        let starts = device?.access == "full" && status.online && tab == .agents
+        let starts = device?.access == .full && status.online && tab == .agents
         let pinned = headHeight > 0 && scrolled >= headHeight - barHeight - Self.fade
         let barTop = max(0, headHeight - scrolled)
 
@@ -139,9 +139,9 @@ private struct DeviceContent: View {
                         default:
                             DeviceAgents(
                                 core: core, view: view, scope: scope, provider: provider,
-                                full: device?.access == "full",
+                                full: device?.access == .full,
                                 hostName: hostName, onTab: { tab = $0 },
-                                onHold: device?.access == "full" ? { held = $0 } : nil)
+                                onHold: device?.access == .full ? { held = $0 } : nil)
                         }
                     }
                     .padding(.horizontal, 16)

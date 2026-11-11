@@ -73,7 +73,7 @@ private struct ChatPane: View {
     private var info: ChatInfo? { live.view?.chats.first { $0.agentId == agentId } }
     private var device: PairedDevice? { Hub.shared.device(core) }
     private var hostName: String { device?.displayName ?? "the host" }
-    private var watchOnly: Bool { device?.access == "watch" }
+    private var watchOnly: Bool { device?.access == .watch }
     private var provider: String { info?.provider ?? "agent" }
     private var listed: AgentShown? { live.view?.inbox.agents.first { $0.agentId == agentId } }
 
