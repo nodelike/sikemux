@@ -29,6 +29,7 @@ use crate::workbench::Workbench;
 
 /// What a search finds on this page.
 pub(in crate::settings) const ENTRIES: &[Entry] = &[
+    section(Connectors, "Account vault", "vault recovery key sealed sign-ins hosts allow revoke use log"),
     section(Connectors, "Connectors", "aws bitbucket database postgres postgresql mysql sqlite sql github gitlab jira linear rundeck signoz slack vercel sign in sign out login logout token account enable disable switch off turn on integrations plugins connectors"),
 ];
 
@@ -48,6 +49,7 @@ pub struct Fields {
     aws: Option<Aws>,
     rundeck: Option<Lists>,
     databases: Vec<Database>,
+    vault: super::vault::Fields,
 }
 
 /// A sign-in on its way: the token form's boxes, and the browser's, while it runs.
@@ -120,6 +122,14 @@ fn change_fields<R>(
     super::change_form(bench, cx, |pages| pages.connectors.as_mut(), change)
 }
 
+pub(super) fn change_vault(
+    bench: &Workbench,
+    cx: &mut App,
+    change: impl FnOnce(&mut super::vault::Fields, &mut Context<crate::settings::Settings>),
+) {
+    change_fields(bench, cx, |fields, cx| change(&mut fields.vault, cx));
+}
+
 /// Asks `plugin` for `method`, and reads its answer.
 fn ask<T: serde::de::DeserializeOwned + 'static>(
     bench: &Workbench,
@@ -144,6 +154,7 @@ fn ask<T: serde::de::DeserializeOwned + 'static>(
 /// Reads what the connectors with settings of their own say now.
 pub(super) fn read(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench>) {
     change_fields(bench, cx, |fields, _| fields.stale = false);
+    super::vault::read(bench, window, cx);
     let on = |id: &str| {
         bench
             .reads
@@ -373,27 +384,35 @@ pub fn render(
     let body = match plugins.is_empty() {
         true => rows::note("No connectors in this build.", cx),
         false => div()
-            .children(plugins.all().map(|plugin| {
+            .children(plugins.all().flat_map(|plugin| {
                 let (name, trouble) = summary(plugin, fields, cx);
-                rows::row_parts(
+                let row = rows::row_parts(
                     Some(tile(plugin, cx)),
                     name,
                     trouble,
                     controls(plugin, fields, this),
                     cx,
                 )
-                .into_any_element()
+                .into_any_element();
+                std::iter::once(row).chain(super::vault::sign_ins(
+                    &plugin.id,
+                    &fields.vault,
+                    this,
+                    cx,
+                ))
             }))
             .into_any_element(),
     };
-    vec![rows::section(
+    let vault = super::vault::section(&fields.vault, lit("Account vault"), this, cx);
+    let connectors = rows::section(
         "Connectors",
         None,
         None,
         lit("Connectors"),
         body,
         cx,
-    )]
+    );
+    vault.into_iter().chain([connectors]).collect()
 }
 
 /// The connector has settings of its own to open, read since the page opened.

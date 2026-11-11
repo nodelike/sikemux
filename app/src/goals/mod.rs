@@ -463,6 +463,18 @@ impl GoalsPane {
                 });
                 return;
             }
+            (InboxKind::Vault, ..) => {
+                let bench = self.bench.clone();
+                if let Some(window) = cx.active_window() {
+                    cx.defer(move |cx| {
+                        let _ = window.update(cx, |_, window, cx| {
+                            let page = crate::settings::Page::Connectors;
+                            let _ = bench.update(cx, |bench, cx| bench.open_settings(page, window, cx));
+                        });
+                    });
+                }
+                return;
+            }
             (InboxKind::PullRequest, _, Some(url)) => return self.open_url(agent, url.clone(), cx),
             (_, Some(inbox), _) if !in_chat || agent.is_none() => {
                 if let Some(card) = (self.board_of(&inbox.project))

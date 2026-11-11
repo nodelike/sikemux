@@ -23,6 +23,7 @@ pub(super) mod keybindings;
 pub(super) mod mods;
 pub(super) mod settled;
 pub mod theme_editor;
+mod vault;
 
 /// What the pages keep while settings are open: what the core last answered
 /// for them, and the fields being typed in.

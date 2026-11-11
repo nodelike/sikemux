@@ -469,6 +469,10 @@ enum InboxKind: String, Codable, Hashable {
     /// Something about a host needs the person, as `hostAlert` says: this host's, or the
     /// linked one `host` names. Open its page on the Hosts tab.
     case hostAlert
+    /// The account vault needs the person, as `what` says: a host that may use none of the
+    /// account's sign-ins until they allow it, or a recovery key to save. Open Settings,
+    /// Connectors.
+    case vault
     /// One added after this build.
     case unknown
 
