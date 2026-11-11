@@ -64,7 +64,7 @@ struct AttachSheet: ViewModifier {
                     chosen = []
                     stashing = stash
                     stashChosen = []
-                    library.open()
+                    if !stash { library.open() }
                 } else {
                     library.close()
                 }
