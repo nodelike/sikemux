@@ -2244,6 +2244,7 @@ struct Retrying: Codable, Hashable, Sendable {
     var attempt: Int?
     /// The connection was lost, rather than the service answering with an error.
     var connection: Bool
+    var reason: String?
 }
 
 /// Why the last turn failed, when it was the account's or the network's doing.
@@ -2488,6 +2489,12 @@ struct ToolRow: Codable, Hashable, Sendable {
     /// How many calls one after another this row stands for, when more than one:
     /// an agent waiting on the same thing again and again shows as one row.
     var times: Int?
+    /// The kind of tool it is, which a run of calls is read by.
+    var family: ToolFamily?
+    /// What the call did, as its run counts it: a command by what it does.
+    var intent: ToolIntent?
+    /// What a command read, searched or listed, when `target` is the command as typed.
+    var subject: String?
 }
 
 enum ToolAction: String, Codable, Hashable, Sendable {
@@ -2502,6 +2509,77 @@ enum ToolAction: String, Codable, Hashable, Sendable {
     case switchMode = "switch_mode"
     case mcp
     case other
+    /// One added after this build.
+    case unknown
+
+    init(from decoder: any Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
+}
+
+/// The kind of tool a call is.
+enum ToolFamily: String, Codable, Hashable, Sendable {
+    case shell
+    case browser
+    case files
+    case agents
+    case waiting
+    /// Commits and code hosts.
+    case git
+    /// Logs, metrics, deploys and databases.
+    case ops
+    case trackers
+    case simulator
+    case web
+    /// Calls that already show as themselves or say nothing to the reader, such as loading a
+    /// tool or a skill. A run leaves them out and only counts them.
+    case housekeeping
+    case other
+    /// One added after this build.
+    case unknown
+
+    init(from decoder: any Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
+}
+
+/// What a call did, as its run counts it.
+enum ToolIntent: String, Codable, Hashable, Sendable {
+    case read
+    /// Looked at a picture.
+    case view
+    case search
+    case list
+    case edit
+    case write
+    case move
+    case delete
+    case run
+    case test
+    /// Built, checked, linted or type-checked.
+    case build
+    /// Any other git command.
+    case git
+    case commit
+    /// Opened a page or an app.
+    case `open`
+    /// Clicked or tapped.
+    case click
+    case type
+    /// Took a screenshot.
+    case look
+    case message
+    /// Started an agent or a process.
+    case start
+    case stop
+    case wait
+    /// Asked a service: logs, issues, pipelines.
+    case query
+    /// Read a web page.
+    case fetch
+    /// Switched the agent's mode.
+    case mode
+    case use
     /// One added after this build.
     case unknown
 
@@ -2683,6 +2761,8 @@ enum ChatActivity: Codable, Hashable, Sendable {
     struct RetryingPayload: Codable, Hashable, Sendable {
         var attempt: Int?
         var connection: Bool
+        /// What went wrong, in the agent's words.
+        var reason: String?
     }
 
     struct Call: Codable, Hashable, Sendable {
@@ -2895,6 +2975,8 @@ enum ChatPart: Codable, Hashable, Sendable {
         var failure: String?
         var startedAt: Int?
         var endedAt: Int?
+        /// On a run's first call, what the run did.
+        var run: ToolRun?
     }
 
     struct Subagent: Codable, Hashable, Sendable {
@@ -3045,6 +3127,8 @@ enum MdElement: Codable, Hashable, Sendable {
 
     struct Pre: Codable, Hashable, Sendable {
         var lang: String?
+        /// The file the block shows, when its fence names one.
+        var name: String?
         var v: String
     }
 
@@ -3405,6 +3489,41 @@ struct GifRef: Codable, Hashable, Sendable {
     var width: Int
     var height: Int
     var title: String
+}
+
+/// A run of calls, on its first call: what the run did, counted, which a client words as one
+/// sentence, and the lines it opens onto.
+struct ToolRun: Codable, Hashable, Sendable {
+    /// Each thing the run did, in the order it first did it.
+    var said: [RunClause]
+    /// It only looked: read, searched and listed, more than one way.
+    var explored: Bool?
+    var failed: Int?
+    /// Housekeeping calls it holds, which are left out of it.
+    var hidden: Int?
+    /// What it opens onto: failed calls first, then neighbours that did the same thing,
+    /// each as one line.
+    var lines: [RunLine]
+}
+
+struct RunClause: Codable, Hashable, Sendable {
+    var intent: ToolIntent
+    var family: ToolFamily
+    /// How many: files read, distinct when the calls name them, else calls.
+    var count: Int
+    /// Who or what it was done with, first ones first: the agents messaged or waited
+    /// on, the services asked.
+    var names: [String]?
+    /// How long its calls took together, in milliseconds.
+    var took: Int?
+}
+
+struct RunLine: Codable, Hashable, Sendable {
+    var intent: ToolIntent
+    var family: ToolFamily
+    /// The calls it stands for, by `toolCallId`.
+    var calls: [String]
+    var failed: Bool?
 }
 
 /// What a background task left behind once it ended.
