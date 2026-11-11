@@ -228,7 +228,7 @@ private struct ChatRow: View {
         }
         Spacer(minLength: 8)
         if let name = chat.name {
-          Text(name).font(Theme.ui(11.5)).foregroundColor(palette.tertiary).lineLimit(1)
+          Text("@\(name)").font(Theme.ui(11.5)).foregroundColor(palette.tertiary).lineLimit(1)
         }
       }
       .padding(.horizontal, 8)
