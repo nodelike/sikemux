@@ -45,7 +45,7 @@ shopt -u nullglob
 [[ ${#TARBALLS[@]} -eq 2 ]] || fail "expected the amd64 and arm64 Linux tarballs, found ${#TARBALLS[@]}"
 [[ ${#PACMAN_PACKAGES[@]} -eq 1 ]] || fail "expected exactly one Arch package, found ${#PACMAN_PACKAGES[@]}"
 [[ ${#HOSTS[@]} -eq 2 ]] || fail "expected the x86_64 and aarch64 host cores, found ${#HOSTS[@]}"
-[[ ${#SYMBOLS[@]} -eq 2 ]] || fail "expected the Mac app's and core's symbols, found ${#SYMBOLS[@]}"
+[[ ${#SYMBOLS[@]} -eq 3 ]] || fail "expected the Mac app's, core's and notch helper's symbols, found ${#SYMBOLS[@]}"
 HOST_SIGS=("${HOSTS[@]/%/.sig}")
 DMG="${DMGS[0]}"
 HELPERS=("${PUBLISHED_HELPER_FILES[@]/#/$ROOT/packaging/binaries/}")

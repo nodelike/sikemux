@@ -6,7 +6,7 @@ cd "$(dirname "$0")/.."
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
-bash -n scripts/build-mac.sh scripts/release.sh scripts/sign-helper.sh scripts/sign-mac.sh scripts/mac-entitlements.sh scripts/verify-release.sh scripts/publish-release.sh scripts/sign-host.sh scripts/icons.sh scripts/check-release.sh scripts/check-rust.sh
+bash -n scripts/build-mac.sh scripts/release.sh scripts/sign-helper.sh scripts/sign-mac.sh scripts/mac-entitlements.sh scripts/verify-release.sh scripts/publish-release.sh scripts/sign-host.sh scripts/icons.sh scripts/check-release.sh scripts/check-rust.sh scripts/sentry-release.sh scripts/keep-linux-symbols.sh
 bash -n packaging/arch/PKGBUILD packaging/arch/prepare.sh packaging/arch/build-release.sh packaging/arch/push-aur.sh
 node --check scripts/verify-updater-signature.mjs
 node --check scripts/app-metadata.mjs
@@ -93,6 +93,8 @@ if (!releaseWorkflow.includes("scripts/sign-host.sh")) fail("the Release workflo
 if (!signHost.includes('"${HOSTS[@]}" "${APPIMAGES[@]}"')) fail("releases do not sign the AppImages with the updater key");
 if (!publish.includes('"$INSTALLER" "${APPIMAGE_SIGS[@]}"')) fail("releases do not publish the AppImage's update signature");
 if (!publish.includes('"${APPIMAGE_SIGS[@]}" "${SYMBOLS[@]}"')) fail("releases do not publish the Mac dSYMs that name a crash's frames");
+if (!releaseWorkflow.includes('run: scripts/sentry-release.sh "$VERSION" target/symbols')) fail("the Release workflow does not send Sentry the symbols that name a crash's frames");
+if ((releaseWorkflow.match(/scripts\/keep-linux-symbols\.sh/g) ?? []).length !== 3) fail("the Release workflow does not keep the symbols of each Linux binary it builds");
 if (!publish.includes('manifest["platforms"][f"linux-{arch}"]')) fail("the update feed does not offer the AppImage");
 if (!publish.includes('manifest["platforms"][f"host-linux-{arch}"]')) fail("the update feed does not offer the host cores");
 if (!releaseWorkflow.includes("scripts/smoke-host-install.sh")) fail("the Release workflow does not install the host core with its own installer");
