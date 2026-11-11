@@ -12,8 +12,7 @@ struct PairedDevice: Codable, Hashable, Identifiable {
     }
 
     let core: String
-    /// `full` or `watch`.
-    var access: String
+    var access: DeviceAccess
     /// Milliseconds since 1970, as the file has always kept times.
     var pairedAt: Double
     var name: String?

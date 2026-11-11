@@ -41,7 +41,7 @@ enum ShareExtension {
     /// The chats used last across every host this phone has full access to, and a new chat in the newest one's project.
     private static func write() {
         var found: [(chat: ShareSnapshot.Chat, path: String, at: Int)] = []
-        for device in Hub.shared.devices where device.access == "full" {
+        for device in Hub.shared.devices where device.access == .full {
             guard let view = Hub.shared.live(device.core).view else { continue }
             for chat in view.chats {
                 let shown = view.inbox.agents.first { $0.agentId == chat.agentId }
