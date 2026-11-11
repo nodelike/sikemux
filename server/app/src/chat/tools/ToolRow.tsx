@@ -2,6 +2,23 @@ import { type ComponentType, memo, useContext, useRef, useState } from "react";
 import { CopyButton } from "../ui/CopyButton";
 import {
   IconActivity,
+  IconAgents,
+  IconAws,
+  IconBoard,
+  IconBolt,
+  IconCheck,
+  IconCommit,
+  IconCube,
+  IconFilePlus,
+  IconFlask,
+  IconGit,
+  IconImage,
+  IconPush,
+  IconRundeck,
+  IconServer,
+  IconShare,
+  IconTimer,
+  IconUser,
   IconAgent,
   IconBook,
   IconCamera,
@@ -62,6 +79,13 @@ import {
   IconWrench,
   Logo,
 } from "@shared/ui/Icons";
+import bitbucketMark from "../../../../../app/assets/icons/bitbucket.svg";
+import githubMark from "../../../../../app/assets/icons/github.svg";
+import gitlabMark from "../../../../../app/assets/icons/gitlab.svg";
+import jiraMark from "../../../../../app/assets/icons/jira.svg";
+import linearMark from "../../../../../app/assets/icons/linear.svg";
+import slackMark from "../../../../../app/assets/icons/slack.svg";
+import vercelMark from "../../../../../app/assets/icons/vercel.svg";
 import { ChatFileRef, useFileRef } from "../files/FileRef";
 import { openLink, ToolDetailContext } from "../transcript/chatAgent";
 import { ChatImage } from "../files/ChatImage";
@@ -80,7 +104,38 @@ import {
 import { attachmentName } from "@shared/chat/transcript";
 import type { ChatPart, ToolCall, ToolOutput } from "@shared/wire.generated";
 
+/** A service's own mark, in its own colours, from the Mac's icons. */
+function brandMark(src: string): ComponentType<{ size?: number }> {
+  return function BrandMark({ size = 14 }: { size?: number }) {
+    return <img src={src} width={size} height={size} alt="" />;
+  };
+}
+
 const TOOL_ICONS: Record<ToolIconName, ComponentType<{ size?: number }>> = {
+  agents: IconAgents,
+  aws: IconAws,
+  board: IconBoard,
+  bolt: IconBolt,
+  check: IconCheck,
+  commit: IconCommit,
+  cube: IconCube,
+  "file-plus": IconFilePlus,
+  flask: IconFlask,
+  git: IconGit,
+  image: IconImage,
+  push: IconPush,
+  rundeck: IconRundeck,
+  server: IconServer,
+  share: IconShare,
+  timer: IconTimer,
+  user: IconUser,
+  bitbucket: brandMark(bitbucketMark),
+  github: brandMark(githubMark),
+  gitlab: brandMark(gitlabMark),
+  jira: brandMark(jiraMark),
+  linear: brandMark(linearMark),
+  slack: brandMark(slackMark),
+  vercel: brandMark(vercelMark),
   activity: IconActivity,
   agent: IconAgent,
   book: IconBook,
