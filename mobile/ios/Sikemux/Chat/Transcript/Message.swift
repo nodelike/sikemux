@@ -271,11 +271,6 @@ private struct Letters: View {
                                 id: "\(message.id)/letter/\(group.at)", text: letter.text, md: letter.tree, live: false,
                                 style: ProseStyle(size: 14, lineHeight: 22, color: palette.ink))
                         }
-                        .padding(.top, 16)
-                        .padding(.bottom, 2)
-                        LongText(
-                            id: "\(message.id)/letter/\(index)", text: letter.text, md: letter.tree, live: false,
-                            style: .prose(palette))
                     }
                 }
             }
