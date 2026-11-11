@@ -866,13 +866,11 @@ fn tile(
                     .line_height(crate::theme::ui_text(19.)),
             ),
         )
+        .when(choice.recommended, |label| {
+            label.child(ui::caps("Recommended", cx).flex_none().text_color(t.accent))
+        })
         .child(ui::kbd((ix + 1).to_string(), cx).line_height(crate::theme::ui_text(19.)));
-    let note = match (choice.recommended, choice.detail.clone()) {
-        (true, Some(detail)) => Some(format!("Recommended · {detail}")),
-        (true, None) => Some("Recommended".to_owned()),
-        (false, detail) => detail,
-    };
-    let note = note.map(|note| {
+    let note = choice.detail.clone().map(|note| {
         div()
             .text_size(crate::theme::ui_text(TEXT_XS))
             .line_height(relative(1.45))
