@@ -96,6 +96,8 @@ struct Down {
     retry_at: u64,
     /// Dials in a row that failed.
     failures: u32,
+    /// Why the last of them failed.
+    last: Option<DialFailure>,
     /// Its workers' leads were told it is out of reach.
     told: bool,
 }
@@ -247,9 +249,30 @@ impl Hosts {
                 since: now,
                 retry_at: now,
                 failures: 0,
+                last: None,
                 told: false,
             });
         self.wake.now();
+    }
+
+    /// How this host last fared reaching `host`, for a diagnosis of why it is out of reach.
+    pub(crate) fn dial_state(&self, host: &str) -> DialState {
+        let state = self.state.locked();
+        if let Some(connection) = state.connections.get(host) {
+            let paths = connection.paths();
+            let relay = (paths.iter())
+                .find(|path| path.is_selected())
+                .is_some_and(|path| path.is_relay());
+            return DialState::Connected { relay };
+        }
+        match state.down.get(host) {
+            Some(down) => DialState::Down {
+                since: down.since,
+                failures: down.failures,
+                last: down.last,
+            },
+            None => DialState::Unknown,
+        }
     }
 }
 
@@ -401,16 +424,101 @@ fn on_this_network(ip: std::net::IpAddr) -> bool {
     }
 }
 
-async fn dial(core: &Core, id: &str, addresses: &[String]) -> Result<Connection, String> {
-    let endpoint = core
-        .remote
-        .endpoint()
-        .ok_or("remote access is off on this host, so it reaches no other host")?;
-    let addr = addr_of(core, id, addresses)?;
+/// Why a dial to a linked host failed, as iroh says rather than as its words read.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum DialFailure {
+    /// Remote access is off here, so this host has no endpoint to dial from.
+    Off,
+    /// iroh knows no address or relay for the host.
+    NoAddress,
+    /// Nothing answered in time: no path to the host.
+    NoAnswer,
+    /// The host's core answered and said this one is not linked with it.
+    NotLinked,
+    /// The host's core answered and closed the connection for another reason.
+    Closed,
+    Other,
+}
+
+/// How this host last fared reaching a linked one.
+pub(crate) enum DialState {
+    Connected {
+        relay: bool,
+    },
+    Down {
+        since: u64,
+        failures: u32,
+        last: Option<DialFailure>,
+    },
+    Unknown,
+}
+
+pub(crate) struct DialError {
+    pub failure: DialFailure,
+    message: String,
+}
+
+impl std::fmt::Display for DialError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl DialFailure {
+    fn closed(close: &iroh::endpoint::ApplicationClose) -> Self {
+        match close.error_code.into_inner() == u64::from(link::NOT_LINKED) {
+            true => DialFailure::NotLinked,
+            false => DialFailure::Closed,
+        }
+    }
+
+    fn of(error: &iroh::endpoint::ConnectError) -> Self {
+        use iroh::endpoint::{
+            ConnectError, ConnectWithOptsError, ConnectingError, ConnectionError,
+        };
+        let closed = |error: &ConnectionError| match error {
+            ConnectionError::TimedOut => Some(DialFailure::NoAnswer),
+            ConnectionError::ApplicationClosed(close) => Some(DialFailure::closed(close)),
+            _ => None,
+        };
+        match error {
+            ConnectError::Connect {
+                source: ConnectWithOptsError::NoAddress { .. },
+                ..
+            } => DialFailure::NoAddress,
+            ConnectError::Connect {
+                source: ConnectWithOptsError::EndpointClosed { .. },
+                ..
+            } => DialFailure::Off,
+            ConnectError::Connecting {
+                source: ConnectingError::ConnectionError { source, .. },
+                ..
+            }
+            | ConnectError::Connection { source, .. } => {
+                closed(source).unwrap_or(DialFailure::Other)
+            }
+            _ => DialFailure::Other,
+        }
+    }
+}
+
+async fn dial(core: &Core, id: &str, addresses: &[String]) -> Result<Connection, DialError> {
+    let failed = |failure, message: String| DialError { failure, message };
+    let endpoint = core.remote.endpoint().ok_or_else(|| {
+        failed(
+            DialFailure::Off,
+            "remote access is off on this host, so it reaches no other host".into(),
+        )
+    })?;
+    let addr =
+        addr_of(core, id, addresses).map_err(|message| failed(DialFailure::Other, message))?;
     match tokio::time::timeout(DIAL_WAIT, endpoint.connect(addr, LINK_ALPN)).await {
         Ok(Ok(connection)) => Ok(connection),
-        Ok(Err(error)) => Err(error.to_string()),
-        Err(_) => Err("it did not answer in time".into()),
+        Ok(Err(error)) => Err(failed(DialFailure::of(&error), error.to_string())),
+        Err(_) => Err(failed(
+            DialFailure::NoAnswer,
+            "it did not answer in time".into(),
+        )),
     }
 }
 
@@ -745,7 +853,7 @@ async fn answer_asks(core: Arc<Core>, host: String, connection: Connection) {
 }
 
 async fn until_closed(core: Arc<Core>, host: String, connection: Connection) {
-    connection.closed().await;
+    let closed = connection.closed().await;
     let current = {
         let mut state = core.hosts.state.locked();
         let current = state
@@ -759,6 +867,13 @@ async fn until_closed(core: Arc<Core>, host: String, connection: Connection) {
     };
     if current {
         core.hosts.note_down(&host);
+        if let iroh::endpoint::ConnectionError::ApplicationClosed(close) = closed {
+            if DialFailure::closed(&close) == DialFailure::NotLinked {
+                if let Some(down) = core.hosts.state.locked().down.get_mut(&host) {
+                    down.last = Some(DialFailure::NotLinked);
+                }
+            }
+        }
         changed(&core);
     }
 }
@@ -883,6 +998,7 @@ pub(crate) fn settle(core: &Arc<Core>) {
                 since: now,
                 retry_at: now,
                 failures: 0,
+                last: None,
                 told: false,
             });
             if !down.told && core.hosts.team.has_host(&link.id) {
@@ -911,8 +1027,9 @@ pub(crate) fn settle(core: &Arc<Core>) {
             {
                 let mut state = core.hosts.state.locked();
                 state.dialing.remove(&link.id);
-                if dialed.is_err() {
+                if let Err(error) = &dialed {
                     if let Some(down) = state.down.get_mut(&link.id) {
+                        down.last = Some(error.failure);
                         down.failures = down.failures.saturating_add(1);
                         down.retry_at =
                             epoch_ms() + backoff.after(down.failures).as_millis() as u64;

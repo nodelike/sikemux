@@ -270,3 +270,77 @@ pub enum ClearedFor {
     /// The disk was nearly full and nothing had built in it for longest.
     DiskFull,
 }
+
+/// Why a host cannot be reached, or this host cannot be reached, as a chain of steps each
+/// needing the one before it: the first that failed is the one to fix.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HostDiagnosis {
+    /// The linked host diagnosed, by its core key; none for this host's own reachability.
+    pub host: Option<String>,
+    pub steps: Vec<DiagnosisStep>,
+    /// Since when it has been out of reach, in Unix milliseconds.
+    pub since: Option<u64>,
+    /// Tries in a row that failed to reach it.
+    #[serde(default)]
+    pub tries: u32,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiagnosisStep {
+    pub step: ReachStep,
+    pub state: StepState,
+    /// For a path that works: whether it goes through a relay rather than straight there.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub relay: Option<bool>,
+    /// What failed, where the core can tell.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub why: Option<StepWhy>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ReachStep {
+    /// This host's remote access is on and its endpoint runs.
+    RemoteAccess,
+    /// This host reaches the internet.
+    Online,
+    /// This host is signed in and connected to the accounts server.
+    Account,
+    /// A path to the other host, straight there or through a relay.
+    Path,
+    /// The core on the other host answers.
+    Core,
+    /// The other host takes this one as linked.
+    Accepted,
+    #[serde(other)]
+    Unknown,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum StepState {
+    Passed,
+    Failed,
+    /// Not checked, as a step before it failed or nothing has tried it yet.
+    Unchecked,
+    #[serde(other)]
+    Unknown,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum StepWhy {
+    Off,
+    SignedOut,
+    RemovedFromAccount,
+    AccountOffline,
+    NoRelay,
+    NoAddress,
+    NoAnswer,
+    NotLinked,
+    Closed,
+    #[serde(other)]
+    Unknown,
+}
