@@ -1925,11 +1925,16 @@ pub(crate) async fn answer_all(core: &Arc<Core>, mut params: AnswersParams) -> R
         state
             .open
             .retain(|question| !taken.iter().any(|(taken, ..)| taken.id == question.id));
-        for (question, _, text) in &taken {
+        for (question, given, text) in &taken {
             if let (None, None, Some(text)) = (&question.from_host, &question.dialog, text) {
+                let picked = given.choice.is_some() || given.choices.is_some();
+                let text = match picked {
+                    true => without_attached(text, &given.paths),
+                    false => text.clone(),
+                };
                 state.answered.push(Answered {
                     question: question.clone(),
-                    answer: (!question.secret).then(|| text.clone()),
+                    answer: (!question.secret).then_some(text),
                 });
             }
         }

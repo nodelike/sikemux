@@ -450,6 +450,17 @@ impl Workbench {
     ) {
         let picture = picture.into();
         let name = picture.name();
+        self.show_picture_titled(picture, name, window, cx);
+    }
+
+    /// Shows `picture` as `show_picture` does, under `name` rather than its file's.
+    pub fn show_picture_titled(
+        &self,
+        picture: Picture,
+        name: SharedString,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let this = cx.weak_entity();
         window.open_dialog(cx, move |dialog, window, cx| {
             let room = window.viewport_size();

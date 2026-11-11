@@ -880,6 +880,7 @@ fn tile(
             .child(note)
     });
     let (bench, agent, id) = (bench.clone(), agent.to_owned(), shown.question.id.clone());
+    let title = SharedString::from(choice.label.clone());
     let hover = t.surface_hover;
     BaseButton::new(SharedString::from(format!("question-tile-{id}-{ix}")))
         .w_full()
@@ -918,12 +919,21 @@ fn tile(
                         .and_then(|chat| chat.picks.get(&id))
                         .is_some_and(|pick| matches!(pick.answer, Answer::Choice(at) if at == ix));
                     match (again, picture.clone()) {
-                        (true, Some(picture)) => bench.show_picture(picture, window, cx),
-                        _ => bench.answer(
-                            &agent,
-                            |chat, open| chat.choose(&id, ix, open).map(Into::into),
-                            cx,
-                        ),
+                        (true, Some(picture)) => {
+                            bench.show_picture_titled(picture, title.clone(), window, cx)
+                        }
+                        _ => {
+                            bench.answer(
+                                &agent,
+                                |chat, open| chat.choose(&id, ix, open).map(Into::into),
+                                cx,
+                            );
+                            let draft = (bench.chats.open.get(&agent))
+                                .and_then(|chat| Some(chat.composer.as_ref()?.draft.clone()));
+                            if let Some(draft) = draft {
+                                draft.read(cx).focus_handle(cx).focus(window, cx);
+                            }
+                        }
                     }
                     cx.notify();
                 })
