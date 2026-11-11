@@ -1238,11 +1238,12 @@ fn name_of(core: &Core, agent_id: &str) -> String {
 }
 
 /// The agent that answers for a card: its owner while that agent is open, here
-/// or on a linked host, or while Auto runs it. An owner that closed answers for
-/// nothing, so its card counts as nobody's and can't be left stuck.
+/// or on a linked host, or while Auto runs it and has not handed it back. An owner
+/// that closed answers for nothing, so its card counts as nobody's and can't be
+/// left stuck.
 fn holder<'a>(core: &Core, card: &'a Card) -> Option<&'a str> {
     card.owner_id()
-        .filter(|owner| card.kept_run().is_some() || core.agent_now(owner).open())
+        .filter(|owner| card.run().is_some() || core.agent_now(owner).open())
 }
 
 /// Whether `agent_id` may change a card `holder` answers for: its own, one held by
