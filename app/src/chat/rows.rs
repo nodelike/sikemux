@@ -263,7 +263,7 @@ pub(super) fn row(
             )
             .children(meta::line(rows, ix, &group, looks, cx))
     };
-    let user = user && (!lettered || triggered);
+    let user = user && !lettered;
     let drawn = div()
         .w_full()
         .flex()
@@ -358,9 +358,8 @@ pub(super) fn tucked(
         .into_any_element()
 }
 
-/// The prompts of the chat's triggers that came due, drawn where the person's own messages
-/// sit: a line naming the trigger, its prompt in a bubble, and the webhook request that fired
-/// it folded beneath.
+/// The prompts of the chat's triggers that came due, each in a bubble at the left under the
+/// trigger's name, with the webhook request that fired it folded beneath.
 pub(super) fn fired(
     row: &ChatRow,
     pen: &Pen,
@@ -378,43 +377,10 @@ pub(super) fn fired(
         .map(|(ix, trigger)| {
             let id = SharedString::from(format!("{}:{}", row.message.id, letter_doc(ix)));
             let prompt = row.doc(&letter_doc(ix)).map(|doc| {
-                let look = looks.styles.borrow().text.clone();
+                let look = looks.styles.borrow().user.clone();
                 pen.markdown_with(&look, id.clone(), &doc.markdown, window, cx)
             });
-            let named = div()
-                .flex()
-                .items_center()
-                .gap(px(5.))
-                .text_size(crate::theme::ui_text(TEXT_2XS_H))
-                .text_color(looks.quiet)
-                .child(ui::icon(Icon::Timer, 11.).text_color(t.cmd))
-                .child("Trigger")
-                .child("·")
-                .child(
-                    div()
-                        .min_w_0()
-                        .truncate()
-                        .font_weight(FontWeight::MEDIUM)
-                        .text_color(looks.ink)
-                        .child(trigger.title.clone()),
-                );
-            let bubble = div()
-                .max_w_full()
-                .px(SPACE_3)
-                .py(SPACE_2)
-                .border_1()
-                .border_color(looks.line)
-                .rounded(theme::RADIUS_3)
-                .bg(looks.bubble)
-                .children(prompt);
-            div()
-                .max_w_full()
-                .flex()
-                .flex_col()
-                .items_end()
-                .gap(px(5.))
-                .child(named)
-                .child(bubble)
+            from(trigger_named(&trigger.title, &t), row, prompt, looks)
                 .children(trigger.request.as_ref().map(|request| {
                     let body = row.doc(&request_doc(ix)).map(|doc| {
                         let look = looks.styles.borrow().text.clone();
@@ -427,12 +393,72 @@ pub(super) fn fired(
         })
         .collect();
     div()
-        .max_w(relative(0.8))
+        .w_full()
         .flex()
         .flex_col()
-        .items_end()
         .gap(SPACE_3H)
         .children(drawn)
+}
+
+/// A trigger's name over its prompt.
+fn trigger_named(title: &str, t: &Tokens) -> Div {
+    div()
+        .min_w_0()
+        .flex()
+        .items_center()
+        .gap(SPACE_2)
+        .child(ui::icon(Icon::Timer, 13.).text_color(t.cmd))
+        .child(
+            div()
+                .min_w_0()
+                .truncate()
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(t.text_primary)
+                .child(title.to_owned()),
+        )
+}
+
+/// What another agent or a trigger sent: who over its bubble at the left, and when at the
+/// line's end.
+fn from(who: Div, row: &ChatRow, body: Option<AnyElement>, looks: &Looks) -> Div {
+    let when = row.message.sent_at.and_then(meta::clock).map(|when| {
+        div()
+            .ml_auto()
+            .flex_none()
+            .text_size(crate::theme::ui_text(TEXT_2XS_H))
+            .text_color(looks.faint)
+            .child(when)
+    });
+    div()
+        .max_w(relative(0.78))
+        .flex()
+        .flex_col()
+        .items_start()
+        .gap(SPACE_1H)
+        .child(
+            div()
+                .w_full()
+                .h(px(22.))
+                .flex()
+                .items_center()
+                .gap(SPACE_2)
+                .text_size(crate::theme::ui_text(TEXT_XS_H))
+                .text_color(looks.quiet)
+                .child(who)
+                .children(when),
+        )
+        .child(
+            div()
+                .max_w_full()
+                .px(px(14.))
+                .py(SPACE_2H)
+                .rounded(BUBBLE_RADIUS)
+                .rounded_bl(SPACE_1H)
+                .border_1()
+                .border_color(looks.line)
+                .bg(looks.asked)
+                .children(body),
+        )
 }
 
 /// The webhook request that fired a trigger: one line saying what it was, which opens onto
@@ -542,7 +568,7 @@ pub(super) fn fired_request(
         .max_w_full()
         .flex()
         .flex_col()
-        .items_end()
+        .items_start()
         .gap(SPACE_1)
         .child(line)
         .children(details)
@@ -577,52 +603,36 @@ pub(super) fn letters(
         drawn.push(match letter.kind {
             LetterKind::Answer => unreachable!(),
             LetterKind::Message | LetterKind::Trigger => {
-                let (bench, agent) = (looks.bench.clone(), letter.agent_id.clone());
-                let name = div()
-                    .id(SharedString::from(format!(
-                        "{}:{}:from",
-                        row.message.id,
-                        letter_doc(ix)
-                    )))
-                    .text_color(looks.accent)
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .cursor_pointer()
-                    .hover(|name| name.underline())
-                    .child(format!("@{}", letter.name))
-                    .on_click(move |_, _, cx| {
-                        bench
-                            .update(cx, |bench, cx| bench.open_agent(&agent, cx))
-                            .ok();
-                    });
-                let from = div()
-                    .mb(SPACE_2)
-                    .flex()
-                    .flex_col()
-                    .gap(SPACE_1)
-                    .child(
+                let id = SharedString::from(format!("{}:{}", row.message.id, letter_doc(ix)));
+                let text = row.doc(&letter_doc(ix)).map(|doc| {
+                    let look = looks.styles.borrow().user.clone();
+                    pen.markdown_with(&look, id.clone(), &doc.markdown, window, cx)
+                });
+                let who = match &letter.trigger {
+                    Some(trigger) => trigger_named(&trigger.title, Tokens::get(cx)),
+                    None => {
+                        let (bench, agent) = (looks.bench.clone(), letter.agent_id.clone());
+                        let name = div()
+                            .id(SharedString::from(format!("{id}:from")))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(looks.ink)
+                            .cursor_pointer()
+                            .hover(|name| name.underline())
+                            .child(format!("@{}", letter.name))
+                            .on_click(move |_, _, cx| {
+                                bench
+                                    .update(cx, |bench, cx| bench.open_agent(&agent, cx))
+                                    .ok();
+                            });
                         div()
-                            .h(px(22.))
                             .flex()
                             .items_center()
                             .gap(SPACE_2)
-                            .text_size(crate::theme::ui_text(TEXT_XS_H))
-                            .font_weight(FontWeight::MEDIUM)
-                            .text_color(looks.quiet)
                             .child(looks.mark_of(&letter.agent_id, &letter.cli, 17., cx))
-                            .child(div().flex().gap(SPACE_1).child("Message from").child(name)),
-                    )
-                    .child(div().h(px(1.)).bg(looks.rule));
-                let id = SharedString::from(format!("{}:{}", row.message.id, letter_doc(ix)));
-                let text = row.doc(&letter_doc(ix)).map(|doc| {
-                    let look = looks.styles.borrow().text.clone();
-                    pen.markdown_with(&look, id, &doc.markdown, window, cx)
-                });
-                div()
-                    .flex()
-                    .flex_col()
-                    .child(from)
-                    .children(text)
-                    .into_any_element()
+                            .child(name)
+                    }
+                };
+                from(who, row, text, looks).into_any_element()
             }
         });
         ix += 1;

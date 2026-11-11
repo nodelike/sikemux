@@ -68,6 +68,11 @@ fn sent(at: u64, mine: bool) -> Option<String> {
     })
 }
 
+/// When a message came, as the line over a teammate's bubble says it.
+pub fn clock(at: u64) -> Option<String> {
+    sent(at, true)
+}
+
 fn rate(rate: f64) -> String {
     if rate < 10. {
         format!("~{rate:.1} tok/s")

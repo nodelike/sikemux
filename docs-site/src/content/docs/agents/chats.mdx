@@ -48,7 +48,7 @@ The line under the reply says what the agent is on: the command it runs, the age
 
 An agent can set a trigger on its own chat, to be sent a prompt later: once, such as "check the deploy in 20 minutes", or on a schedule, such as every hour or each weekday at 9:00. Ask it to, in your own words.
 
-Its triggers are listed above the composer, each with when it next fires. **×** removes one. When a trigger fires, its prompt arrives in the chat as a message from **Trigger**, and an agent that was asleep wakes for it. A time that passes while the host is off fires once the host is back: a one-time trigger always, a repeating one only within 15 minutes of its time.
+Its triggers are listed above the composer, each with when it next fires. **×** removes one. When a trigger fires, its prompt arrives in the chat in a bubble at the left under the trigger's name, and an agent that was asleep wakes for it. A time that passes while the host is off fires once the host is back: a one-time trigger always, a repeating one only within 15 minutes of its time.
 
 Closing the agent pauses its triggers, and a toast says how many with **Undo**, which opens the chat again. **Recent** keeps the chat while they wait, with a clock and their count on its row, and taking it up again, from **Recent** or by an agent resuming it, starts them again: a repeating trigger skips the times that passed while it was closed, and a one-time trigger that came due meanwhile fires once, saying when it was due. A webhook trigger keeps its address, but requests that arrive while the chat is closed are dropped. Paused triggers still count toward the 20 a chat holds. Rest the pointer on that row to see them; **×** beside one removes it for good.
 
