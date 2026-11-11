@@ -49,6 +49,7 @@ final class CrashReports {
             options.enableCaptureFailedRequests = false
             options.enableAutoPerformanceTracing = false
             options.initialScope = { scope in
+                scope.setUser(CrashReports.anonymous())
                 scope.setTag(value: release.contains("-nightly.") ? "nightly" : "stable", key: "channel")
                 return scope
             }
@@ -69,11 +70,15 @@ final class CrashReports {
 
     private func name() {
         guard SentrySDK.isEnabled else { return }
-        SentrySDK.setUser(
-            account.map { id in
-                let user = User()
-                user.userId = SHA256.hash(data: Data("sikemux-usage|\(id)".utf8)).hex
-                return user
-            })
+        let user = CrashReports.anonymous()
+        user.userId = account.map { SHA256.hash(data: Data("sikemux-usage|\($0)".utf8)).hex }
+        SentrySDK.setUser(user)
+    }
+
+    /// Sentry works out a city from the sender's address unless the event names one, so every event names none.
+    nonisolated private static func anonymous() -> User {
+        let user = User()
+        user.ipAddress = "0.0.0.0"
+        return user
     }
 }
