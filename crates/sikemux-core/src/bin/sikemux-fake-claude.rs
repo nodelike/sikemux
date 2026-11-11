@@ -11,6 +11,7 @@
 //!   interrupt; `hold PATH` waits for as long as that file exists;
 //! - `count` says how many messages the person sent before this one;
 //! - `limit` fails the way Claude Code does when the account is out of usage;
+//! - `question` asks three questions, or `question {...}` asks the AskUserQuestion input given;
 //! - anything else is echoed back.
 //!
 //! `FAKE_CLAUDE_SCRIPT` names a JSON file of replies for recorded demos, each
@@ -297,7 +298,8 @@ impl Claude {
                 self.finish(uuid, None);
             }
             "question" => {
-                let input = json!({ "questions": [
+                let given = text.trim_start()["question".len()..].trim();
+                let input = serde_json::from_str(given).unwrap_or_else(|_| json!({ "questions": [
                     { "question": "Which database should the cache use?", "header": "Cache store", "options": [
                         { "label": "Redis (recommended)", "description": "Fast, and already running here" },
                         { "label": "SQLite", "description": "No server to keep up" }
@@ -306,7 +308,7 @@ impl Claude {
                         { "label": "Unit tests" }, { "label": "Clippy" }, { "label": "Format" }
                     ] },
                     { "question": "What is the database password?", "header": "Password", "isSecret": true }
-                ] });
+                ] }));
                 self.ask(json!({ "subtype": "can_use_tool", "tool_name": "AskUserQuestion", "input": input, "tool_use_id": format!("toolu-{uuid}"), "permission_suggestions": [] }));
                 self.say(&message_id, "asked");
                 self.finish(uuid, None);

@@ -328,7 +328,7 @@ fn question_tabs(
                     }
                 })
                 .hover(move |style| style.bg(hover))
-                .on_click(cx.listener(move |bench, _, _, cx| {
+                .on_click(cx.listener(move |bench, _, window, cx| {
                     bench.answer(
                         &agent,
                         |chat, _| {
@@ -337,6 +337,7 @@ fn question_tabs(
                         },
                         cx,
                     );
+                    bench.focus_answer(&agent, window, cx);
                     cx.notify();
                 }))
                 .child(mark)
@@ -965,11 +966,7 @@ fn tile(
                         |chat, open| chat.choose(&id, ix, open).map(Into::into),
                         cx,
                     );
-                    let draft = (bench.chats.open.get(&agent))
-                        .and_then(|chat| Some(chat.composer.as_ref()?.draft.clone()));
-                    if let Some(draft) = draft {
-                        draft.read(cx).focus_handle(cx).focus(window, cx);
-                    }
+                    bench.focus_answer(&agent, window, cx);
                     cx.notify();
                 })
                 .ok();
@@ -1464,6 +1461,16 @@ impl Workbench {
 }
 
 impl Workbench {
+    /// Hands the keys back to `agent`'s draft after a click on a question, so typing answers
+    /// it and ⌘↵ sends.
+    fn focus_answer(&self, agent: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let draft = (self.chats.open.get(agent))
+            .and_then(|chat| Some(chat.composer.as_ref()?.draft.clone()));
+        if let Some(draft) = draft {
+            draft.read(cx).focus_handle(cx).focus(window, cx);
+        }
+    }
+
     /// The chat in front while its question asks and nothing else holds the keys, as when the
     /// person clicked away from every field, so the question takes its keys from anywhere.
     pub fn asking_freely(&self, window: &Window, cx: &App) -> Option<String> {
