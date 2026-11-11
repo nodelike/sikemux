@@ -3,7 +3,7 @@ import SwiftUI
 
 /// The account a launcher runs on, as the core names it after the agent: "Claude · Work" is Work.
 @MainActor private func accountName(_ launcher: LauncherInfo, core: String) -> String {
-    let prefix = "\(agentLabel(launcher.provider, core: core)) · "
+    let prefix = "\(Catalog.label(launcher.provider, core: core)) · "
     return launcher.label.hasPrefix(prefix) ? String(launcher.label.dropFirst(prefix.count)) : launcher.label
 }
 
@@ -89,7 +89,7 @@ private struct NewChatContent: View {
                     if let launcher {
                         ChatTitle(
                             agentId: nil, provider: launcher.provider, name: nil,
-                            title: "New \(agentLabel(launcher.provider, core: core)) chat")
+                            title: "New \(Catalog.label(launcher.provider, core: core)) chat")
                     }
                 },
                 end: {
@@ -265,7 +265,7 @@ private struct NewChatContent: View {
                         } label: {
                             HStack(spacing: 6) {
                                 AgentMark(provider: launcher.provider, size: 16)
-                                Text(agentLabel(launcher.provider, core: core)).font(Theme.ui(12.5)).foregroundStyle(
+                                Text(Catalog.label(launcher.provider, core: core)).font(Theme.ui(12.5)).foregroundStyle(
                                     palette.accent)
                                 IconView(icon: Icons.chevron, size: 10).foregroundStyle(palette.accent).rotationEffect(
                                     .degrees(90)
@@ -482,7 +482,7 @@ private struct NewChatContent: View {
                 if !taken.isEmpty { Task { await StashStore.shared.take(taken) } }
                 chips = []
                 DraftStore.clear(keptKey)
-                Router.shared.replace(.chat(core: core, agent: agentId, started: true))
+                Router.shared.replace(.chat(core: core, agent: agentId))
             } catch {
                 fail(Sikemux.problem(error))
             }
@@ -519,7 +519,7 @@ private struct AgentPicker: View {
                     } label: {
                         VStack(spacing: 6) {
                             AgentMark(provider: launcher.provider, size: 22)
-                            Text(agentLabel(launcher.provider, core: core))
+                            Text(Catalog.label(launcher.provider, core: core))
                                 .font(Theme.ui(12))
                                 .foregroundStyle(on ? palette.ink : palette.tertiary)
                                 .lineLimit(1)
@@ -552,7 +552,7 @@ private struct AccountPicker: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 10) {
                 AgentMark(provider: chosen.provider, size: 20)
-                Text(agentLabel(chosen.provider, core: core)).font(Theme.ui(17, .semibold)).tracking(-0.35)
+                Text(Catalog.label(chosen.provider, core: core)).font(Theme.ui(17, .semibold)).tracking(-0.35)
                     .foregroundStyle(palette.ink)
             }
             .padding(.horizontal, 4)

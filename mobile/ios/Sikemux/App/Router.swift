@@ -9,7 +9,7 @@ enum Route: Hashable {
     }
 
     case device(core: String, tab: DeviceTab? = nil)
-    case chat(core: String, agent: String, started: Bool = false)
+    case chat(core: String, agent: String)
     case newChat(core: String, project: String? = nil, launcher: String? = nil)
     case pairing(core: String)
     case join(core: String, name: String?, arrived: Bool = false)
@@ -32,7 +32,7 @@ enum Route: Hashable {
             switch words.count > 2 ? words[2] : nil {
             case nil: self = .device(core: core, tab: query["tab"].flatMap(DeviceTab.init))
             case "chat" where words.count > 3:
-                self = .chat(core: core, agent: words[3], started: query["started"] == "1")
+                self = .chat(core: core, agent: words[3])
             case "new": self = .newChat(core: core, project: query["project"], launcher: query["launcher"])
             case "pairing": self = .pairing(core: core)
             default: return nil
@@ -54,7 +54,7 @@ enum Route: Hashable {
     /// The screens a link to this one opens over, so back goes where it would have.
     var under: [Route] {
         switch self {
-        case .chat(let core, _, _), .newChat(let core, _, _), .pairing(let core): [.device(core: core)]
+        case .chat(let core, _), .newChat(let core, _, _), .pairing(let core): [.device(core: core)]
         default: []
         }
     }

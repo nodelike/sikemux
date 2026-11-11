@@ -12,7 +12,7 @@ struct TextToken: Hashable, Sendable {
 
 /// A word that asks for something to name, and where it starts.
 struct Typed: Hashable {
-    enum Trigger: String, CaseIterable {
+    enum Trigger: String {
         case agents = "@"
         case issues = "#"
         case pulls = "!"
