@@ -60,6 +60,7 @@ private struct ChatPane: View {
         _context = State(
             initialValue: TranscriptContext(
                 provider: info?.provider ?? "agent", core: core, agentId: agentId, folds: session.folds,
+                messages: { [weak session] in session?.rows.messages ?? [] },
                 toolDetail: { [weak session] id, done in
                     guard let session else { throw ChatProblem("the chat is closed") }
                     return try await session.toolDetail(id, done: done)

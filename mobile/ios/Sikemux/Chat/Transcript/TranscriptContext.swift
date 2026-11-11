@@ -11,6 +11,8 @@ final class TranscriptContext {
     let folds: Folds
     /// Reads a call's whole change and what it printed; nil where nothing can read it.
     @ObservationIgnored let toolDetail: ((String, Bool) async throws -> ToolDetail)?
+    /// The chat's own rows, read where they are kept so a view reading them redraws when they change.
+    @ObservationIgnored let messages: () -> [ChatMessage]
     /// Each subagent's own rows, by its session.
     var subagentRows: [String: [ChatMessage]] = [:]
     /// The picture shown over the transcript.
@@ -21,9 +23,10 @@ final class TranscriptContext {
     @ObservationIgnored let reveal = Reveal()
 
     init(
-        provider: String, core: String?, agentId: String?, folds: Folds,
+        provider: String, core: String?, agentId: String?, folds: Folds, messages: @escaping () -> [ChatMessage],
         toolDetail: ((String, Bool) async throws -> ToolDetail)?
     ) {
+        self.messages = messages
         self.provider = provider
         self.core = core
         self.agentId = agentId
@@ -35,9 +38,25 @@ final class TranscriptContext {
         picture = ShownPicture(image: image, name: name)
     }
 
+    /// Opens the viewer on the host's picture `path` at once, and fills it when the phone has fetched it.
+    func showHostImage(core: String, path: String) {
+        let shown = ShownPicture(name: (path as NSString).lastPathComponent)
+        picture = shown
+        Task {
+            let file = await HostFiles.shared.read(core: core, path: path)
+            guard picture?.id == shown.id else { return }
+            if let file, let image = UIImage(contentsOfFile: file.path) {
+                picture?.image = image
+            } else {
+                Haptics.failure()
+                picture?.problem = "Could not get it from the host."
+            }
+        }
+    }
+
     /// The card of the chat's subagent `sessionId`, as its rows carry it.
-    func subagent(_ sessionId: String, in messages: [ChatMessage]) -> SubagentCard? {
-        for rows in [messages] + Array(subagentRows.values) {
+    func subagent(_ sessionId: String) -> SubagentCard? {
+        for rows in [messages()] + Array(subagentRows.values) {
             for row in rows.reversed() {
                 for part in row.parts {
                     if case .subagent(let card) = part, card.subagent.sessionId == sessionId { return card.subagent }
@@ -48,10 +67,12 @@ final class TranscriptContext {
     }
 }
 
+/// A picture over the transcript: its image once the phone has it, or why it could not get it.
 struct ShownPicture: Identifiable {
     let id = UUID()
-    let image: UIImage
+    var image: UIImage?
     let name: String
+    var problem: String?
 }
 
 /// A live label with the Mac's sweep: a bright band slides across text drawn in its own colour.

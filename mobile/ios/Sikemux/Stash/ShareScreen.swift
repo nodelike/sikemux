@@ -48,6 +48,7 @@ private struct Watching: View {
     private static func context(_ session: ShareSession, provider: String) -> TranscriptContext {
         TranscriptContext(
             provider: provider, core: nil, agentId: nil, folds: Folds(),
+            messages: { [weak session] in session?.rows.messages ?? [] },
             toolDetail: { [weak session] id, _ in
                 guard let session else { throw CancellationError() }
                 return try await session.toolDetail(id)
