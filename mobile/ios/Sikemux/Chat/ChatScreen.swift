@@ -28,9 +28,6 @@ struct ChatScreen: View {
     }
 }
 
-/// How long a message the person jumped to stays lit.
-private let litFor: Duration = .milliseconds(900)
-
 private struct ChatPane: View {
     @Environment(\.palette) private var palette
     let core: String
@@ -44,7 +41,6 @@ private struct ChatPane: View {
     /// The message whose strip is shown.
     @State private var open: String?
     @State private var editing: String?
-    @State private var lit: String?
     @State private var menu = false
     @State private var showLive = false
     @State private var find: ChatFind?
@@ -101,7 +97,6 @@ private struct ChatPane: View {
                     }.frame(maxWidth: .infinity)
                 } else {
                     transcript(rows)
-                        .overlay(alignment: .top) { askedStrip(rows) }
                         .overlay(alignment: .bottom) { JumpToLatest(scroll: scroll) }
                 }
             }
@@ -147,13 +142,6 @@ private struct ChatPane: View {
             if asked != nil { Haptics.warning() }
         }
         .onChange(of: find?.finding) { _, found in context.finding = found }
-        .onChange(of: lit) { _, shown in
-            guard shown != nil else { return }
-            Task {
-                try? await Task.sleep(for: litFor)
-                lit = nil
-            }
-        }
     }
 
     private func appeared() {
@@ -249,8 +237,7 @@ private struct ChatPane: View {
             rows: rows, drawn: session.drawn, touched: { session.takeTouched() }, context: context, scroll: scroll,
             hasEarlier: session.hasEarlier, earlier: session.earlier, loadEarlier: { session.loadEarlier() },
             worktree: live.view?.workspace.agents?.first { $0.id == agentId }?.worktree,
-            look: { [open, lit, editing] message, look in
-                look.lit = message.id == lit
+            look: { [open, editing] message, look in
                 look.unsent = unsent[message.id]
                 if message.id == open { look.strip = Strip.of(messages, message.id) }
                 look.editable =
@@ -263,32 +250,6 @@ private struct ChatPane: View {
                     session: session, core: core, agentId: agentId, provider: provider, hostName: hostName,
                     canAct: !watchOnly, focus: focus)
             })
-    }
-
-    @ViewBuilder private func askedStrip(_ rows: ChatRows) -> some View {
-        if let asked = ShownRows.lastAsked(rows.messages), let top = scroll.topRow,
-            let askedAt = rows.messages.firstIndex(where: { $0.id == asked.id }),
-            let topAt = rows.messages.firstIndex(where: { $0.id == top }), topAt > askedAt
-        {
-            let text = ShownRows.askedText(asked)
-            Button {
-                Haptics.select()
-                lit = asked.id
-                scroll.reveal(asked.id)
-            } label: {
-                HStack(spacing: 8) {
-                    Text("You asked").font(Theme.ui(12)).foregroundStyle(palette.inkDim)
-                    Text(text).font(Theme.ui(12)).foregroundStyle(palette.ink).lineLimit(1).frame(
-                        maxWidth: .infinity, alignment: .leading)
-                }
-                .padding(.horizontal, 18)
-                .frame(height: 32)
-                .background(palette.raised)
-                .overlay(alignment: .bottom) { Hairline(color: palette.border) }
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("You asked: \(text). Go to it")
-        }
     }
 
     // MARK: Around the transcript

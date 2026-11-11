@@ -5,7 +5,6 @@ import UIKit
 /// shows changed.
 struct RowLook: Equatable {
     var live = false
-    var lit = false
     var unsent: Unsent?
     /// Which parts stay in view, or nil when the row shows whole.
     var kept: [Int]?
@@ -51,8 +50,6 @@ final class TranscriptActions {
 final class TranscriptScroll {
     /// The reader scrolled away from the newest message.
     var away = false
-    /// The first row in view.
-    var topRow: String?
     @ObservationIgnored fileprivate weak var controller: TranscriptController?
 
     func toEnd() { controller?.toEnd(animated: true) }
@@ -273,16 +270,9 @@ final class TranscriptController: UIViewController, UICollectionViewDelegate {
         let away = !pinned && fromEnd > Self.pinSlack
         if scroll?.away != away { scroll?.away = away }
         askForEarlierInReach()
-        noteTopRow()
     }
 
     func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
         if bottomOffset - scrollView.contentOffset.y < Self.pinSlack { pinned = true }
-    }
-
-    private func noteTopRow() {
-        let top = collection.indexPathsForVisibleItems.min()
-        guard let top, case .row(let id) = source.itemIdentifier(for: top) else { return }
-        if scroll?.topRow != id { scroll?.topRow = id }
     }
 }
