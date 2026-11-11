@@ -713,9 +713,6 @@ pub(super) fn strip(
         }),
         worktree,
         pull: crate::worktrees::head::badges(bench, &agent.id, cx),
-        goal: head
-            .and_then(|head| head.goal.as_ref())
-            .map(|goal| goal_line::on_strip(goal, cx.entity(), cx)),
         account,
     }
 }

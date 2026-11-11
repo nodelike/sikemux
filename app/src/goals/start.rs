@@ -722,7 +722,6 @@ fn strip(
         moves: Some(moves),
         worktree,
         pull: None,
-        goal: None,
         account,
     }
 }

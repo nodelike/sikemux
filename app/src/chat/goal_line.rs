@@ -1,11 +1,11 @@
-//! A chat and its goal: a toast with Undo right after its agent tracks one, and the goal on
-//! the strip. The core decides all of it; this only draws it.
+//! A chat and its goal: a toast with Undo right after its agent tracks one, and the goal at
+//! the head of the dock over the composer. The core decides all of it; this only draws it.
 
 use std::rc::Rc;
 
 use gpui_kit::{
-    div, px, AnyElement, App, Context, Entity, FontWeight, InteractiveElement, IntoElement,
-    ParentElement, SharedString, StatefulInteractiveElement, Styled, WeakEntity, Window,
+    div, px, AnyElement, App, Context, FontWeight, InteractiveElement, IntoElement, ParentElement,
+    SharedString, StatefulInteractiveElement, Styled, WeakEntity, Window,
 };
 use sikemux_core::server::board::chat_goal::ChatGoalParams;
 use sikemux_core::server::call;
@@ -14,11 +14,11 @@ use sikemux_view::slice::SliceState;
 use sikemux_wire::protocol::NoticeGoal;
 
 use super::composer::Act;
-use crate::theme::{Tokens, SPACE_1, SPACE_1H, TEXT_XS};
+use crate::theme::{self, Tokens, SPACE_2, SPACE_2H, TEXT_XS_H};
 use crate::ui;
 use crate::workbench::Workbench;
 
-/// A step of the strip's progress, as wide as the design has it.
+/// A step of the goal's progress, as wide as the design has it.
 const STEP_WIDTH: f32 = 14.;
 const STEP_GAP: f32 = 3.;
 const STRIP_MOST: f32 = 120.;
@@ -68,42 +68,44 @@ pub(super) fn steps(steps: &[SliceState], cx: &App) -> Option<AnyElement> {
     (!steps.is_empty()).then(|| crate::goals::state_strip(steps.iter().copied(), px(width), cx))
 }
 
-/// The goal at the strip's right end, which opens it.
-pub(super) fn on_strip(
-    goal: &ChatGoal,
-    bench: Entity<Workbench>,
-    cx: &mut Context<Workbench>,
-) -> AnyElement {
+/// The goal heading the dock over the composer: its state, name, steps and how far along,
+/// and a chevron; the row opens it.
+pub(super) fn in_dock(goal: &ChatGoal, cx: &mut Context<Workbench>) -> AnyElement {
     let t = Tokens::get(cx).clone();
     let opens = NoticeGoal {
         project: goal.project.clone(),
         card: goal.card,
     };
     div()
-        .id(SharedString::from(format!("composer-goal-{}", goal.card)))
-        .min_w_0()
-        .px(SPACE_1H)
+        .id(SharedString::from(format!("dock-goal-{}", goal.card)))
+        .h(px(34.))
+        .pl(SPACE_2H)
+        .pr(SPACE_2)
         .flex()
         .items_center()
-        .gap(SPACE_1H)
-        .rounded_full()
+        .gap(SPACE_2)
+        .rounded(theme::RADIUS_2)
         .cursor_pointer()
         .hover(move |style| style.bg(t.surface_hover))
         .tooltip(ui::tooltip("Open goal"))
-        .on_click(move |_, _, cx| {
-            bench.update(cx, |bench, cx| bench.open_goal(&opens, cx));
-        })
+        .on_click(cx.listener(move |bench, _, _, cx| bench.open_goal(&opens, cx)))
         .child(crate::goals::state_mark(goal.state, cx))
         .child(
-            ui::text(goal.name.clone(), TEXT_XS, FontWeight::MEDIUM)
+            ui::text(goal.name.clone(), TEXT_XS_H, FontWeight::MEDIUM)
                 .min_w_0()
                 .truncate()
                 .text_color(t.text_primary),
         )
         .children(steps(&goal.steps, cx))
-        .children(
-            progress(&goal.steps, goal.of_gates)
-                .map(|words| ui::meta(words, cx).flex_none().mx(SPACE_1)),
+        .children(progress(&goal.steps, goal.of_gates).map(|words| ui::meta(words, cx).flex_none()))
+        .child(div().flex_1())
+        .child(
+            div()
+                .w(px(18.))
+                .flex_none()
+                .flex()
+                .justify_center()
+                .child(ui::icon(crate::icons::Icon::Chevron, 10.).text_color(t.text_tertiary)),
         )
         .into_any_element()
 }

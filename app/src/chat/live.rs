@@ -5,8 +5,9 @@
 use gpui_kit::base::Button as BaseButton;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    div, px, AnyElement, Context, Div, Hsla, InteractiveElement, IntoElement, ParentElement,
-    SharedString, StatefulInteractiveElement, Styled,
+    div, linear_color_stop, linear_gradient, px, AnyElement, Context, Div, FontWeight, Hsla,
+    InteractiveElement, IntoElement, ParentElement, SharedString, StatefulInteractiveElement,
+    Styled,
 };
 use sikemux_core::server::call;
 use sikemux_core::server::chat::calls::QueuedParams;
@@ -23,14 +24,16 @@ use crate::core::ChatAsk;
 use crate::icons::Icon;
 use crate::motion;
 use crate::theme::{
-    self, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, TEXT_2XS, TEXT_3XS, TEXT_3XS_H, TEXT_XS,
+    self, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_3H, SPACE_4,
+    TEXT_2XS, TEXT_2XS_H, TEXT_3XS, TEXT_3XS_H, TEXT_XS, TEXT_XS_H,
 };
 use crate::ui;
 use crate::ui::shimmer::shimmer;
 use crate::workbench::Workbench;
 
-/// The groups, one above another, ending on the composer's top border in its fill.
-pub fn stack(groups: Vec<AnyElement>, t: &Tokens) -> Option<AnyElement> {
+/// The groups, one above another, ending on the composer's top border in its fill, or closed
+/// off above the dock when there is one.
+pub fn stack(groups: Vec<AnyElement>, over_dock: bool, t: &Tokens) -> Option<AnyElement> {
     if groups.is_empty() {
         return None;
     }
@@ -49,6 +52,9 @@ pub fn stack(groups: Vec<AnyElement>, t: &Tokens) -> Option<AnyElement> {
         .border_r_1()
         .border_color(t.border)
         .rounded_t(theme::RADIUS_3)
+        .when(over_dock, |docked| {
+            docked.border_b_1().rounded_b(theme::RADIUS_3).mb(SPACE_2)
+        })
         .bg(t.surface_composer)
         .children(ruled);
     Some(
@@ -192,64 +198,6 @@ impl Tints {
     }
 }
 
-/// A row of running work: its mark, name and what it is doing, then what it cost and how it stands.
-fn task_row(
-    t: &Tokens,
-    tint: Hsla,
-    mark: AnyElement,
-    name: String,
-    detail: Option<AnyElement>,
-    cost: Option<String>,
-    end: Option<AnyElement>,
-) -> Div {
-    div()
-        .min_w_0()
-        .pt(SPACE_1)
-        .pb(SPACE_1)
-        .pl(px(11.))
-        .pr(SPACE_2)
-        .flex()
-        .items_center()
-        .gap(px(7.))
-        .text_size(crate::theme::ui_text(TEXT_2XS))
-        .text_color(tint)
-        .child(div().flex_none().child(mark))
-        .child(
-            div()
-                .min_w_0()
-                .truncate()
-                .font_family(theme::MONO)
-                .text_size(crate::theme::ui_text(TEXT_3XS_H))
-                .text_color(t.text_primary)
-                .child(name),
-        )
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .truncate()
-                .text_size(crate::theme::ui_text(TEXT_3XS_H))
-                .text_color(t.text_disabled)
-                .children(detail),
-        )
-        .children(cost.map(|cost| {
-            div()
-                .flex_none()
-                .font_family(theme::MONO)
-                .text_size(crate::theme::ui_text(TEXT_3XS))
-                .text_color(t.text_disabled)
-                .child(cost)
-        }))
-        .child(
-            div()
-                .w(px(18.))
-                .flex_none()
-                .flex()
-                .justify_center()
-                .children(end),
-        )
-}
-
 fn tokens(tokens: Option<u64>) -> Option<String> {
     tokens
         .filter(|tokens| *tokens > 0)
@@ -261,97 +209,29 @@ fn cost(parts: [Option<String>; 2]) -> Option<String> {
     (!cost.is_empty()).then(|| cost.join(" · "))
 }
 
-/// The chat's subagents still at work, where the reader looks for live work.
-pub fn subagents(agent: &AgentRow, chat: &Chat, cx: &mut Context<Workbench>) -> Option<AnyElement> {
-    let running: &[SubagentCard] = chat
-        .state
-        .as_ref()
-        .map_or(&[], |head| head.running_subagents.as_slice());
-    if running.is_empty() {
-        return None;
-    }
-    let t = Tokens::get(cx).clone();
-    let tint = Tints::new(&t).agent;
-    let key = "subagent".to_owned();
-    let folded = chat.groups_folded.contains(&key);
-    let label = Label {
-        word: plural("subagent", running.len()),
-        count: running.len(),
-        folds: true,
-        folded,
-        icon: ui::mark(&agent.provider, 16.),
-        peek: running.iter().map(|card| card.name.clone()).collect(),
-        action: None,
-        key,
-    }
-    .draw(&agent.id, cx);
-    let rows = running.iter().map(|card| {
-        let activity = match &card.last_tool {
-            Some(tool) => format!("{} {}", word(&tool.row), tool.row.target)
-                .trim()
-                .to_owned(),
-            None => card
-                .task
-                .split('\n')
-                .next()
-                .unwrap_or_default()
-                .trim()
-                .to_owned(),
-        };
-        let calls = (card.calls > 0).then(|| {
-            format!(
-                "{} {}",
-                card.calls,
-                if card.calls == 1 { "call" } else { "calls" }
-            )
-        });
-        let working = ui::icon(Icon::Hourglass, 11.)
-            .text_color(tint)
-            .into_any_element();
-        task_row(
-            &t,
-            tint,
-            ui::mark(&agent.provider, 16.),
-            card.name.clone(),
-            Some(shimmer(
-                SharedString::from(format!("subagent-{}", card.session_id)),
-                activity,
-            )),
-            cost([tokens(card.tokens), calls]),
-            Some(working),
-        )
-        .into_any_element()
-    });
-    Some(
-        div()
-            .pb(px(7.))
-            .flex()
-            .flex_col()
-            .child(label)
-            .child(folding("subagent", folded, rows.collect()))
-            .into_any_element(),
-    )
-}
-
+/// The kinds of running work, each with the mark the dock's header and rows show it by.
 fn task_icon(kind: &str) -> Icon {
     match kind {
-        "shell" => Icon::Command,
+        "shell" => Icon::Terminal,
         "workflow" => Icon::Workflow,
         _ => Icon::Timer,
     }
 }
 
+fn task_kind(task: &AsyncTask) -> &str {
+    if task.task_type.is_empty() {
+        "task"
+    } else {
+        task.task_type.as_str()
+    }
+}
+
 /// What a task row says beside its name: who started it, and the first thing that says more than the name.
 fn task_detail(task: &AsyncTask) -> Option<String> {
-    let said = [
-        task.summary.as_deref(),
-        Some(task.description.as_str()),
-        task.last_tool_name.as_deref(),
-        Some(task.task_type.as_str()),
-    ]
-    .into_iter()
-    .flatten()
-    .find(|text| !text.is_empty() && *text != task.name);
+    let said = [task.summary.as_deref(), Some(task.description.as_str())]
+        .into_iter()
+        .flatten()
+        .find(|text| !text.is_empty() && *text != task.name);
     let owner = task.owner.as_ref().map(|owner| format!("from {owner}"));
     let detail: Vec<String> = owner.into_iter().chain(said.map(str::to_owned)).collect();
     (!detail.is_empty()).then(|| one_line(&detail.join(" · ")))
@@ -366,113 +246,397 @@ fn one_line(text: &str) -> String {
         .to_owned()
 }
 
-/// The background tasks, a group for each kind the agent named them by.
-pub fn tasks(agent: &AgentRow, chat: &Chat, cx: &mut Context<Workbench>) -> Vec<AnyElement> {
-    let tasks: &[AsyncTask] = chat
-        .state
-        .as_ref()
-        .map_or(&[], |head| head.tasks.as_slice());
+/// How long a task has run, as a clock reads it.
+fn elapsed(task: &AsyncTask) -> Option<String> {
+    let seconds = task.usage.as_ref()?.duration_ms / 1000;
+    (seconds > 0).then(|| match seconds {
+        s if s >= 3600 => format!("{}:{:02}:{:02}", s / 3600, s / 60 % 60, s % 60),
+        s => format!("{}:{:02}", s / 60, s % 60),
+    })
+}
+
+const DOCK_KEY: &str = "dock";
+
+/// The sheet tucked under the composer's top edge: the chat's goal, then what is running for
+/// it — its subagents and background tasks — which folds down to a count of each kind.
+pub fn dock(agent: &AgentRow, chat: &Chat, cx: &mut Context<Workbench>) -> Option<AnyElement> {
+    let head = chat.state.as_ref();
+    let subagents: &[SubagentCard] = head.map_or(&[], |head| head.running_subagents.as_slice());
+    let tasks: &[AsyncTask] = head.map_or(&[], |head| head.tasks.as_slice());
+    let goal = head
+        .and_then(|head| head.goal.as_ref())
+        .map(|goal| super::goal_line::in_dock(goal, cx));
+    let running = subagents.len() + tasks.len();
+    if goal.is_none() && running == 0 {
+        return None;
+    }
+    let t = Tokens::get(cx).clone();
+    let tints = Tints::new(&t);
+    let folded = chat.groups_folded.contains(DOCK_KEY);
     let mut kinds: Vec<(&str, Vec<&AsyncTask>)> = Vec::new();
     for task in tasks {
-        let kind = if task.task_type.is_empty() {
-            "task"
-        } else {
-            task.task_type.as_str()
-        };
+        let kind = task_kind(task);
         match kinds.iter_mut().find(|(held, _)| *held == kind) {
             Some((_, group)) => group.push(task),
             None => kinds.push((kind, vec![task])),
         }
     }
-    let t = Tokens::get(cx).clone();
-    let tints = Tints::new(&t);
-    kinds
-        .into_iter()
-        .map(|(kind, group)| {
-            let key = format!("task:{kind}");
-            let folded = chat.groups_folded.contains(&key);
-            let fold_key = key.clone();
-            let label = Label {
-                word: plural(kind, group.len()),
-                count: group.len(),
-                folds: true,
-                folded,
-                icon: ui::icon(task_icon(kind), 12.)
+    let work = (running > 0).then(|| {
+        let marks = folded.then(|| {
+            let subagent = (!subagents.is_empty())
+                .then(|| kind_count(ui::mark(&agent.provider, 13.), subagents.len(), &t));
+            let tasks = kinds.iter().map(|(kind, group)| {
+                let icon = ui::icon(task_icon(kind), 12.)
                     .text_color(tints.task)
-                    .into_any_element(),
-                peek: group.iter().map(|task| one_line(&task.name)).collect(),
-                action: None,
-                key,
-            }
-            .draw(&agent.id, cx);
-            let mut rows: Vec<AnyElement> = Vec::new();
-            for task in group {
-                let tint = if task.state == TaskState::Paused {
-                    t.text_disabled
-                } else {
-                    tints.task
-                };
-                let stopping = chat.stopping.contains(&task.async_task_id);
-                let stop = task
-                    .can_stop
-                    .then(|| stop(&agent.id, task, stopping, &t, cx));
-                let finished = task
-                    .agents
-                    .iter()
-                    .filter(|agent| {
-                        matches!(
-                            agent.state,
-                            WorkflowAgentState::Completed | WorkflowAgentState::Failed
-                        )
-                    })
-                    .count();
-                let agents = (!task.agents.is_empty()).then(|| {
-                    format!(
-                        "{finished}/{} {}",
-                        task.agents.len(),
-                        if task.agents.len() == 1 {
-                            "agent"
-                        } else {
-                            "agents"
-                        }
-                    )
-                });
-                let mark = ui::icon(task_icon(kind), 12.)
-                    .text_color(tint)
                     .into_any_element();
-                rows.push(
-                    task_row(
-                        &t,
-                        tint,
-                        mark,
-                        one_line(&task.name),
-                        task_detail(task).map(|detail| match task.state {
-                            TaskState::Running => shimmer(
-                                SharedString::from(format!("task-{}", task.async_task_id)),
-                                detail,
-                            ),
-                            _ => detail.into_any_element(),
-                        }),
-                        agents,
-                        stop,
-                    )
-                    .into_any_element(),
-                );
+                kind_count(icon, group.len(), &t)
+            });
+            subagent.into_iter().chain(tasks).collect::<Vec<_>>()
+        });
+        let stoppable: Vec<&AsyncTask> = (tasks.iter())
+            .filter(|task| task.can_stop && !chat.stopping.contains(&task.async_task_id))
+            .collect();
+        let stop_all = (stoppable.len() > 1).then(|| stop_all(&agent.id, &stoppable, &t, cx));
+        let header = header(&agent.id, running, marks, stop_all, folded, &t, cx);
+        let mut rows: Vec<AnyElement> = Vec::new();
+        rows.extend(
+            subagents
+                .iter()
+                .map(|card| subagent_row(agent, card, &t, &tints)),
+        );
+        for (kind, group) in &kinds {
+            for task in group {
+                rows.push(task_row_of(agent, kind, task, chat, &t, &tints, cx));
                 rows.extend(
                     task.agents
                         .iter()
                         .map(|worker| workflow_agent(agent, worker, &t, &tints)),
                 );
             }
+        }
+        div()
+            .flex()
+            .flex_col()
+            .child(header)
+            .child(folding(DOCK_KEY, folded, rows))
+    });
+    let rule = (goal.is_some() && work.is_some())
+        .then(|| div().h(px(1.)).mx(SPACE_2).my(SPACE_0).bg(t.line));
+    let sheet = div()
+        .w_full()
+        .pt(SPACE_0)
+        .px(SPACE_1H)
+        .pb(DOCK_TUCK + SPACE_1)
+        .flex()
+        .flex_col()
+        .rounded_t(theme::RADIUS_3)
+        .border_t_1()
+        .border_l_1()
+        .border_r_1()
+        .border_color(t.line)
+        .bg(linear_gradient(
+            180.,
+            linear_color_stop(t.surface_composer, 0.),
+            linear_color_stop(t.surface_sunken, 1.),
+        ))
+        .children(goal)
+        .children(rule)
+        .children(work);
+    Some(
+        div()
+            .w_full()
+            .px(SPACE_4)
+            .mb(-DOCK_TUCK)
+            .flex()
+            .justify_center()
+            .child(
+                div()
+                    .w_full()
+                    .max_w(px(super::composer::WIDTH))
+                    .px(SPACE_4)
+                    .child(sheet),
+            )
+            .into_any_element(),
+    )
+}
+
+/// How far the dock runs on under the composer's top edge.
+const DOCK_TUCK: gpui_kit::Pixels = SPACE_3H;
+
+/// A kind of running work in the folded header: its mark and how many.
+fn kind_count(mark: AnyElement, count: usize, t: &Tokens) -> AnyElement {
+    div()
+        .flex()
+        .items_center()
+        .gap(px(5.))
+        .child(mark)
+        .child(
             div()
-                .pb(px(7.))
+                .font_features(theme::tabular())
+                .text_color(t.text_tertiary)
+                .child(count.to_string()),
+        )
+        .into_any_element()
+}
+
+/// The dock's header: a live dot and how much is running, each kind's count while folded,
+/// Stop all, and the chevron that folds the rows away.
+fn header(
+    agent: &str,
+    running: usize,
+    marks: Option<Vec<AnyElement>>,
+    stop_all: Option<AnyElement>,
+    folded: bool,
+    t: &Tokens,
+    cx: &mut Context<Workbench>,
+) -> AnyElement {
+    let agent = agent.to_owned();
+    let chevron = motion::turn(
+        "dock-chevron",
+        motion::fold_angle(true) * if folded { -1. } else { 1. },
+        motion::DETAIL_FOLD,
+        ui::icon(Icon::Chevron, 10.).text_color(t.text_tertiary),
+    );
+    div()
+        .id("dock-header")
+        .h(px(30.))
+        .pl(SPACE_2H)
+        .pr(SPACE_2)
+        .flex()
+        .items_center()
+        .gap(SPACE_2)
+        .rounded(theme::RADIUS_2)
+        .cursor_pointer()
+        .text_size(theme::ui_text(TEXT_XS))
+        .text_color(t.text_tertiary)
+        .on_click(cx.listener(move |bench, _, _, cx| {
+            if let Some(chat) = bench.chats.open.get_mut(&agent) {
+                chat.toggle_group(DOCK_KEY);
+            }
+            cx.notify();
+        }))
+        .child(div().size(px(6.)).flex_none().rounded_full().bg(t.live))
+        .child(
+            ui::text(format!("{running} running"), TEXT_XS, FontWeight::MEDIUM)
+                .text_color(t.text_secondary),
+        )
+        .children(marks.map(|marks| {
+            div()
+                .ml(SPACE_1H)
                 .flex()
-                .flex_col()
-                .child(label)
-                .child(folding(&fold_key, folded, rows))
-                .into_any_element()
+                .items_center()
+                .gap(SPACE_3)
+                .children(marks)
+        }))
+        .child(div().flex_1())
+        .children(stop_all)
+        .child(
+            div()
+                .w(px(18.))
+                .flex_none()
+                .flex()
+                .justify_center()
+                .child(chevron),
+        )
+        .into_any_element()
+}
+
+/// Stops every task that can be stopped, as each row's own stop does.
+fn stop_all(
+    agent: &str,
+    tasks: &[&AsyncTask],
+    t: &Tokens,
+    cx: &mut Context<Workbench>,
+) -> AnyElement {
+    let agent = agent.to_owned();
+    let ids: Vec<String> = tasks
+        .iter()
+        .map(|task| task.async_task_id.clone())
+        .collect();
+    let (ink, hover) = (t.text_tertiary, t.text_primary);
+    BaseButton::new("dock-stop-all")
+        .accessibility_label("Stop all background tasks")
+        .h(px(22.))
+        .px(SPACE_1H)
+        .flex()
+        .items_center()
+        .rounded(theme::RADIUS_1)
+        .text_size(theme::ui_text(TEXT_2XS_H))
+        .text_color(ink)
+        .hover(move |button| button.text_color(hover))
+        .on_click(cx.listener(move |bench, _, _, cx| {
+            if let Some(chat) = bench.chats.open.get_mut(&agent) {
+                chat.stopping.extend(ids.iter().cloned());
+            }
+            bench.parts.redraw_stage(cx);
+            for id in &ids {
+                bench.ask_chat(ChatAsk::StopTask {
+                    agent: agent.clone(),
+                    task: id.clone(),
+                });
+            }
+        }))
+        .child("Stop all")
+        .into_any_element()
+}
+
+/// A row of running work: its mark, its name, what it is doing, then what it has cost and its end.
+fn work_row(
+    t: &Tokens,
+    mark: AnyElement,
+    name: String,
+    detail: Option<(AnyElement, bool)>,
+    meta: Option<String>,
+    end: Option<AnyElement>,
+) -> Div {
+    div()
+        .min_w_0()
+        .h(px(30.))
+        .pl(SPACE_2H)
+        .pr(SPACE_1H)
+        .flex()
+        .items_center()
+        .gap(SPACE_2H)
+        .rounded(theme::RADIUS_2)
+        .hover(|row| row.bg(t.surface_hover))
+        .child(div().flex_none().flex().child(mark))
+        .child(
+            ui::text(name, TEXT_XS_H, FontWeight::MEDIUM)
+                .min_w_0()
+                .flex_shrink_0()
+                .max_w(gpui_kit::relative(0.5))
+                .truncate()
+                .text_color(t.text_primary),
+        )
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .truncate()
+                .text_size(theme::ui_text(TEXT_2XS))
+                .text_color(t.text_tertiary)
+                .children(detail.map(|(detail, command)| {
+                    div()
+                        .truncate()
+                        .when(command, |detail| detail.font_family(theme::MONO))
+                        .child(detail)
+                })),
+        )
+        .children(meta.map(|meta| {
+            div()
+                .flex_none()
+                .font_features(theme::tabular())
+                .text_size(theme::ui_text(TEXT_2XS_H))
+                .text_color(t.text_tertiary)
+                .child(meta)
+        }))
+        .child(
+            div()
+                .w(px(18.))
+                .flex_none()
+                .flex()
+                .justify_center()
+                .children(end),
+        )
+}
+
+fn subagent_row(agent: &AgentRow, card: &SubagentCard, t: &Tokens, tints: &Tints) -> AnyElement {
+    let activity = match &card.last_tool {
+        Some(tool) => format!("{} {}", word(&tool.row), tool.row.target)
+            .trim()
+            .to_owned(),
+        None => one_line(&card.task),
+    };
+    let calls = (card.calls > 0).then(|| {
+        format!(
+            "{} {}",
+            card.calls,
+            if card.calls == 1 { "call" } else { "calls" }
+        )
+    });
+    let working = ui::icon(Icon::Hourglass, 11.)
+        .text_color(tints.agent)
+        .into_any_element();
+    let activity = shimmer(
+        SharedString::from(format!("subagent-{}", card.session_id)),
+        activity,
+    );
+    work_row(
+        t,
+        ui::mark(&agent.provider, 13.),
+        card.name.clone(),
+        Some((activity, false)),
+        cost([tokens(card.tokens), calls]),
+        Some(working),
+    )
+    .into_any_element()
+}
+
+fn task_row_of(
+    agent: &AgentRow,
+    kind: &str,
+    task: &AsyncTask,
+    chat: &Chat,
+    t: &Tokens,
+    tints: &Tints,
+    cx: &mut Context<Workbench>,
+) -> AnyElement {
+    let tint = if task.state == TaskState::Paused {
+        t.text_disabled
+    } else {
+        tints.task
+    };
+    let stopping = chat.stopping.contains(&task.async_task_id);
+    let stop = task
+        .can_stop
+        .then(|| stop(&agent.id, task, stopping, t, cx));
+    let finished = task
+        .agents
+        .iter()
+        .filter(|agent| {
+            matches!(
+                agent.state,
+                WorkflowAgentState::Completed | WorkflowAgentState::Failed
+            )
         })
-        .collect()
+        .count();
+    let agents = (!task.agents.is_empty()).then(|| {
+        format!(
+            "{finished}/{} {}",
+            task.agents.len(),
+            if task.agents.len() == 1 {
+                "agent"
+            } else {
+                "agents"
+            }
+        )
+    });
+    let used = task
+        .usage
+        .as_ref()
+        .and_then(|usage| tokens(Some(usage.total_tokens)));
+    let mark = ui::icon(task_icon(kind), 12.)
+        .text_color(tint)
+        .into_any_element();
+    let detail = task_detail(task).map(|detail| {
+        let detail = match task.state {
+            TaskState::Running => shimmer(
+                SharedString::from(format!("task-{}", task.async_task_id)),
+                detail,
+            ),
+            _ => detail.into_any_element(),
+        };
+        (detail, matches!(kind, "shell" | "monitor"))
+    });
+    work_row(
+        t,
+        mark,
+        one_line(&task.name),
+        detail,
+        cost([agents.or(used), elapsed(task)]),
+        stop,
+    )
+    .into_any_element()
 }
 
 fn stop(
@@ -537,18 +701,17 @@ fn workflow_agent(
     );
     let mark = div()
         .when(quiet, |mark| mark.opacity(0.6))
-        .child(ui::mark(&agent.provider, 16.))
+        .child(ui::mark(&agent.provider, 13.))
         .into_any_element();
-    task_row(
+    work_row(
         t,
-        tints.agent,
         mark,
         worker.label.clone(),
-        detail.map(IntoElement::into_any_element),
+        detail.map(|detail| (detail.into_any_element(), false)),
         cost([tokens(worker.tokens), calls]),
         end.map(IntoElement::into_any_element),
     )
-    .pl(px(26.))
+    .pl(px(33.))
     .into_any_element()
 }
 

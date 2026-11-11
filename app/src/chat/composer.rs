@@ -22,7 +22,7 @@ use crate::icons::Icon;
 use crate::motion::{Curve, Ease};
 use crate::theme::{
     self, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_4, TEXT_2XS, TEXT_2XS_H,
-    TEXT_3XS_H, TEXT_XS, TEXT_XS_H,
+    TEXT_3XS_H, TEXT_SM, TEXT_XS, TEXT_XS_H,
 };
 use crate::ui::{self, DockMenu, IconButton};
 use crate::workbench::Workbench;
@@ -70,8 +70,6 @@ pub struct Strip {
     pub worktree: Option<AnyElement>,
     /// A worktree agent's pull request and its Remove worktree, beside the worktree.
     pub pull: Option<AnyElement>,
-    /// The goal the chat works on, at the right end.
-    pub goal: Option<AnyElement>,
     pub account: Option<AnyElement>,
 }
 
@@ -299,6 +297,7 @@ impl RenderOnce for Composer {
             cx,
         );
         let settable = self.ready && !self.running;
+        let yolo_on = self.yolo.as_ref().is_some_and(|(on, _, _)| *on);
         let width = window
             .use_keyed_state(
                 ElementId::NamedInteger("composer-width".into(), self.draft.entity_id().as_u64()),
@@ -449,46 +448,61 @@ impl RenderOnce for Composer {
                     .relative()
                     .w_full()
                     .max_w(px(WIDTH))
-                    .p(SPACE_2)
-                    .flex()
-                    .flex_col()
-                    .border_1()
-                    .border_color(edge)
                     .rounded(theme::RADIUS_3)
-                    .bg(fill)
-                    .children(tiles)
+                    .when(yolo_on, |outer| {
+                        outer
+                            .p(px(1.))
+                            .child(ui::yolo::edge(theme::RADIUS_3, YOLO_EDGE))
+                    })
                     .child(
                         div()
-                            .py(SPACE_0)
-                            .min_h(px(14.5 * self.text_scale * 1.75 * 2.5))
+                            .relative()
+                            .w_full()
+                            .p(SPACE_2)
+                            .flex()
+                            .flex_col()
+                            .when(!yolo_on, |inner| inner.border_1().border_color(edge))
+                            .rounded(if yolo_on {
+                                theme::RADIUS_3 - px(1.)
+                            } else {
+                                theme::RADIUS_3
+                            })
+                            .bg(fill)
+                            .children(tiles)
                             .child(
-                                Textarea::new(&self.draft)
-                                    .appearance(false)
+                                div()
+                                    .py(SPACE_0)
+                                    .min_h(px(14.5 * self.text_scale * 1.75 * 2.5))
+                                    .child(
+                                        Textarea::new(&self.draft)
+                                            .appearance(false)
+                                            .text_size(px(14.5 * self.text_scale))
+                                            .line_height(gpui_kit::relative(1.75))
+                                            .text_color(t.text_primary)
+                                            .when_some(on_paste, |draft, on_paste| {
+                                                draft.on_paste(move |item, window, cx| {
+                                                    on_paste(item, window, cx)
+                                                })
+                                            })
+                                            .when_some(chip, |draft, chip| {
+                                                draft.token(move |token, window, cx| {
+                                                    chip(token, window, cx)
+                                                })
+                                            }),
+                                    ),
+                            )
+                            .children(self.heard.map(|heard| {
+                                div()
+                                    .px(SPACE_2H)
+                                    .pb(SPACE_1)
                                     .text_size(px(14.5 * self.text_scale))
-                                    .line_height(gpui_kit::relative(1.75))
-                                    .text_color(t.text_primary)
-                                    .when_some(on_paste, |draft, on_paste| {
-                                        draft.on_paste(move |item, window, cx| {
-                                            on_paste(item, window, cx)
-                                        })
-                                    })
-                                    .when_some(chip, |draft, chip| {
-                                        draft
-                                            .token(move |token, window, cx| chip(token, window, cx))
-                                    }),
-                            ),
-                    )
-                    .children(self.heard.map(|heard| {
-                        div()
-                            .px(SPACE_2H)
-                            .pb(SPACE_1)
-                            .text_size(px(14.5 * self.text_scale))
-                            .text_color(t.text_disabled)
-                            .child(heard)
-                    }))
-                    .child(bar)
-                    .children(self.menu)
-                    .children(self.tray.map(|tray| ui::dock_shell(cx).child(tray))),
+                                    .text_color(t.text_disabled)
+                                    .child(heard)
+                            }))
+                            .child(bar)
+                            .children(self.menu)
+                            .children(self.tray.map(|tray| ui::dock_shell(cx).child(tray))),
+                    ),
             )
             .children(context)
             .children(self.notice.map(|notice| {
@@ -526,7 +540,7 @@ impl RenderOnce for Composer {
     }
 }
 
-/// Where the chat runs, quietly under the box: its host, project and branch, then its goal and
+/// Where the chat runs, quietly under the box: its host, project and branch, then its
 /// account at the right.
 fn context_line(strip: Strip, cx: &App) -> impl IntoElement {
     let t = Tokens::get(cx).clone();
@@ -540,7 +554,7 @@ fn context_line(strip: Strip, cx: &App) -> impl IntoElement {
             .gap(SPACE_1H)
             .rounded_full()
             .text_size(crate::theme::ui_text(TEXT_XS))
-            .text_color(t.text_secondary)
+            .text_color(t.text_tertiary)
             .child(ui::icon(Icon::Folder, 12.).text_color(t.live))
             .child(
                 div()
@@ -635,7 +649,9 @@ fn context_line(strip: Strip, cx: &App) -> impl IntoElement {
         .items_center()
         .gap(SPACE_1)
         .child(host)
+        .child(slash(&t))
         .child(project)
+        .children(strip.branch.is_some().then(|| slash(&t)))
         .children(strip.branch.map(|branch| {
             div()
                 .min_w_0()
@@ -656,7 +672,6 @@ fn context_line(strip: Strip, cx: &App) -> impl IntoElement {
         .children(strip.worktree)
         .children(strip.pull)
         .child(div().flex_1())
-        .children(strip.goal)
         .children(
             strip
                 .account
@@ -666,6 +681,11 @@ fn context_line(strip: Strip, cx: &App) -> impl IntoElement {
         let strip = bounds.iter().map(|part| f32::from(part.size.width)).sum();
         Drawn::keep(cx, |drawn| Drawn { strip, ..drawn });
     })
+}
+
+/// The thin slash between the host, project and branch in the line under the box.
+fn slash(t: &Tokens) -> impl IntoElement {
+    ui::text("/", TEXT_SM, FontWeight::NORMAL).text_color(t.border_strong)
 }
 
 /// The widths the composer and what the context line under it holds were last drawn at, which
@@ -817,7 +837,7 @@ fn yolo(
         )
         .when(room >= Room::Compact, |toggle| {
             toggle.child(match on {
-                true => ui::rainbow("YOLO", 10.5, cx).into_any_element(),
+                true => ui::yolo::wordmark(10.5).into_any_element(),
                 false => ui::text("SAFE", TEXT_3XS_H, FontWeight::SEMIBOLD)
                     .letter_spacing(0.08)
                     .text_color(t.text_tertiary)
@@ -893,6 +913,7 @@ fn picker_face<E: Styled + ParentElement + IntoElement>(
         .gap(SPACE_1H)
         .rounded_full()
         .text_size(crate::theme::ui_text(TEXT_2XS))
+        .font_weight(FontWeight::MEDIUM)
         .text_color(if first {
             t.text_secondary
         } else {
@@ -1182,6 +1203,8 @@ fn context_card(
 }
 
 /// How the composer's edge changes colour as it takes and loses the keys.
+/// How strongly the rainbow shows on the box's edge while YOLO is on.
+const YOLO_EDGE: f32 = 0.4;
 const FOCUS_EDGE: Ease = Ease::new(140, Curve::OUT);
 
 /// How the send button's new mark turns in.

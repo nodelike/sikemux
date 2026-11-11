@@ -1669,12 +1669,11 @@ pub fn pane(
     drop(seen);
     let mut groups: Vec<AnyElement> = approving;
     groups.extend(asking);
-    groups.extend(live::subagents(agent, chat, cx));
-    groups.extend(live::tasks(agent, chat, cx));
     groups.extend(sending);
     groups.extend(live::queued(&agent.id, chat, cx));
     groups.extend(live::triggers(&agent.id, chat, cx));
-    let stack = live::stack(groups, Tokens::get(cx));
+    let dock = live::dock(agent, chat, cx);
+    let stack = live::stack(groups, dock.is_some(), Tokens::get(cx));
     let empty = chat
         .composer
         .as_ref()
@@ -1707,6 +1706,7 @@ pub fn pane(
         .children(status::trouble(bench, agent, chat, cx))
         .children(permissions)
         .children(stack)
+        .children(dock)
         .children(chat.composer.as_ref().map(|composing| {
             composing.view.update(cx, |view, _| {
                 view.agent = Some(agent.clone());
