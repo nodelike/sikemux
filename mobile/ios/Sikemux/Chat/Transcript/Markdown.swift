@@ -246,17 +246,17 @@ struct BlockView: View, Equatable {
         case .h(let heading):
             let size = heading.l <= headingSizes.count ? headingSizes[heading.l - 1] : style.size
             let set = ProseStyle(size: size, lineHeight: size * 1.35, color: palette.ink)
-            var text = Inline(palette: palette, style: set, marks: marks, cursor: marks.map { FindCursor($0.base) })
+            let text = Inline(palette: palette, style: set, marks: marks, cursor: marks.map { FindCursor($0.base) })
                 .string(heading.c)
-            let _ = text.font = Theme.ui(size, .semibold)
+                .settingAttributes(AttributeContainer().font(Theme.ui(size, .semibold)))
             Prose(text: text.fading(fading, color: set.color), style: set).accessibilityAddTraits(.isHeader)
         case .ul(let list):
             ListBlock(items: list.c, first: nil, style: style, palette: palette, marks: marks)
         case .ol(let list):
             ListBlock(items: list.c, first: list.start ?? 1, style: style, palette: palette, marks: marks)
         case .quote(let quote):
-            var quoted = style
-            let _ = quoted.color = palette.secondary
+            let quoted = ProseStyle(
+                size: style.size, lineHeight: style.lineHeight, color: palette.secondary, italic: style.italic)
             Contents(nodes: quote.c, style: quoted, palette: palette, marks: marks, separated: true)
                 .padding(.leading, 12)
                 .overlay(alignment: .leading) { Rectangle().fill(palette.borderStrong).frame(width: 2) }
