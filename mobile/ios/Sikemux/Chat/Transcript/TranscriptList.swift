@@ -198,6 +198,13 @@ final class TranscriptController: UIViewController, UICollectionViewDelegate {
         self.drawn = drawn
         source.apply(snapshot, animatingDifferences: false)
         if pinned { stickToEnd() }
+        askForEarlierInReach()
+    }
+
+    /// Earlier rows are fetched as the top comes into reach, including a chat too short to scroll at all.
+    private func askForEarlierInReach() {
+        guard hasEarlier, collection.contentOffset.y + collection.adjustedContentInset.top < Self.earlierReach else { return }
+        loadEarlier()
     }
 
     // MARK: Following the end
@@ -262,9 +269,7 @@ final class TranscriptController: UIViewController, UICollectionViewDelegate {
         }
         let away = !pinned && fromEnd > Self.pinSlack
         if scroll?.away != away { scroll?.away = away }
-        if hasEarlier, scrollView.contentOffset.y + scrollView.adjustedContentInset.top < Self.earlierReach {
-            loadEarlier()
-        }
+        askForEarlierInReach()
         noteTopRow()
     }
 

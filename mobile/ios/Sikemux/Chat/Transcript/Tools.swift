@@ -186,7 +186,7 @@ private struct ToolRowView: View {
         let open = context.folds.isOpen("\(group)/\(part.id)", false)
         VStack(alignment: .leading, spacing: 0) {
             Button {
-                context.folds.set("\(group)/\(part.id)", !open)
+                if opens { context.folds.set("\(group)/\(part.id)", !open) }
             } label: {
                 HStack(spacing: 8) {
                     Rectangle().fill(palette.treeTick).frame(width: 10, height: 1).opacity(last && !open ? 0 : 1)
@@ -225,7 +225,7 @@ private struct ToolRowView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .disabled(!opens)
+            .allowsHitTesting(opens)
             .accessibilityLabel("\(ChatWords.toolKind(tool)) \(tool.row.target)\(tool.status == .failed ? ", failed" : running ? ", running" : "")")
             if open {
                 ToolDetailView(part: part, command: command, group: group)
