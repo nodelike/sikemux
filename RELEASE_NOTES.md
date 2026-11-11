@@ -1,27 +1,26 @@
-# Sikemux v0.6.1-nightly.15
+# Sikemux v0.6.1-nightly.16
 
 Nightlies are signed and delivered exactly like stable releases, but they carry unreleased work and can break. Switch back to stable in Settings → About whenever you want; you keep the build you are on until a stable release passes it.
 
 ## Before you update
 
-- **Your phone needs 0.2.0-nightly.13 or later**, from TestFlight on iPhone or the Google Play testing track on Android. Phone 0.2.0-nightly.21 comes out alongside this nightly, and on iPhone it is the new native app.
+- **Your phone needs 0.2.0-nightly.13 or later**, from TestFlight on iPhone or the Google Play testing track on Android. Phone 0.2.0-nightly.23 comes out alongside this nightly.
 - **This nightly links only with hosts on the 0.6.1 nightlies.** Hosts on stable 0.6.0 can't reach it.
 
-## New since nightly.14
+## New since nightly.15
 
-- **Hosts and projects across hosts.** One repository is one project on every host, however its remote is written. Copies and moves between hosts never lose your work, and a host out of reach says why, step by step, on its Devices card.
-- **The account vault.** A host on an account keeps a vault for your connectors' sign-ins, with a recovery key you save once, in Settings → Connectors.
-- **Limits per account.** The rail lists each account instead of adding them up, and the accounts card shows each one's plan, limits and resets.
-- **The composer's dock.** What runs for a chat sits in one dock under the composer's top edge, and a new chat's host is a picker.
-- **Chat strips say what they did.** An opened strip names what a search did, shows the files it touched as chips and the pictures it looked at, and older thoughts fold behind "Earlier thinking".
-- **A busy Mac says so.** When agents' builds and simulators overload this Mac, the title bar and the notch list them, with Stop on each. Agents' Xcode, Gradle and Swift builds take turns as cargo builds do.
-- **`sikemux status --json`** lists the host's problems, worst first, with what fixes each.
+- **Every tool-call row says what the call did**, with an icon to match, and a background task that ended reads as a row of the tree.
+- **The composer's dock is one width**, and when it's folded it offers Steer all ahead of Stop all.
+- **Pictures zoom toward the cursor** and pan with two-finger scroll, and text in a markdown preview can be selected and copied.
+- **YOLO's rainbow** takes your theme's own colours.
+- **Phones join hosts on your account by themselves** once they sign in.
 
 ## Fixes
 
-- A host update that keeps crashing at start is rolled back.
-- A host with two clones of a repository never picks whichever sorts first.
-- A host renamed in Devices keeps its name on the account.
-- Desk pages show their own cursors.
+- A toast shown during a workbench update no longer crashes the app.
+- A streaming turn shows every thought in place again.
+- Each open question keeps what you typed for it.
+- A chat moved to a built-in account names who it is signed in as.
+- Tooltips that only repeated what is on screen are gone.
 
-For the complete patch history, compare [`v0.6.1-nightly.14...v0.6.1-nightly.15`](https://github.com/nodelike/sikemux/compare/v0.6.1-nightly.14...v0.6.1-nightly.15).
+For the complete patch history, compare [`v0.6.1-nightly.15...v0.6.1-nightly.16`](https://github.com/nodelike/sikemux/compare/v0.6.1-nightly.15...v0.6.1-nightly.16).
