@@ -42,6 +42,14 @@ const SCENES = [
   { name: 'question', route: `/device/${CORE}/chat/chat-release` },
   { name: 'assumed', route: `/device/${CORE}/chat/chat-login-check` },
   { name: 'new-chat', route: `/device/${CORE}/new` },
+  { name: 'work', route: `/device/${CORE}/chat/chat-login-fix`, taps: [/^Worked for/, /ran tests|^5 tool calls/] },
+  {
+    name: 'work-opened',
+    route: `/device/${CORE}/chat/chat-login-fix`,
+    taps: [/^Worked for/, /ran tests|^5 tool calls/, /pnpm test src\/auth, failed/, /^(Edited|edit) LoginForm\.css/],
+  },
+  { name: 'live', route: `/device/${CORE}/chat/chat-signup-check` },
+  { name: 'subagent', route: `/device/${CORE}/chat/chat-adapter-hunt`, taps: [/^Subagent/] },
   { name: 'prompt-strip', route: `/device/${CORE}/chat/chat-release`, tapPart: 'Write release notes for this week from t' },
   {
     name: 'prompt-edit',
@@ -156,6 +164,15 @@ for (const scene of SCENES) {
       .first()
       .click({ timeout: 5000 })
       .catch(() => problems.push(`no ${scene.tapLabel} on ${scene.name}`));
+    await page.waitForTimeout(800);
+  }
+  // Each opens the last thing labelled so, in order; one the screen does not have is passed over.
+  for (const label of scene.taps ?? []) {
+    await page
+      .getByLabel(label)
+      .last()
+      .click({ timeout: 3000 })
+      .catch(() => problems.push(`no ${label} on ${scene.name}`));
     await page.waitForTimeout(800);
   }
   if (scene.scroll) {

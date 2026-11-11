@@ -19,9 +19,11 @@ import {
   PROJECT_FILES,
   QUESTIONS,
   RECENT,
+  RECORDED,
   SESSIONS,
   TRACKED,
   chatHead,
+  recordedView,
   chatRows,
   permissionPayload,
 } from './world';
@@ -240,7 +242,7 @@ const HOST_CALLS: { [M in keyof CoreCalls]?: (params: CoreCalls[M]['params']) =>
   questions: () => QUESTIONS,
   agentCatalog: () => AGENT_CATALOG,
   agentMessages: ({ project }) => ({ project, entries: project === BOARDS[0].project ? MESSAGES : [] }),
-  chatToolDetail: () => ({}),
+  chatToolDetail: ({ agentId, toolCallId }) => RECORDED.find((chat) => chat.agentId === agentId)?.recorded?.details[toolCallId] ?? {},
   closedAgents: () => [],
   agentSessions: () => [],
   projectEntries: ({ query }) =>
@@ -276,8 +278,11 @@ class Connection {
   async wakeChat() {}
 
   async attachChat(agentId: string) {
-    const chat = CHATS.find((known) => known.agentId === agentId);
+    const chat = [...CHATS, ...RECORDED].find((known) => known.agentId === agentId);
     if (!chat) return ChatAttachment.Missing.new({});
+    if (chat.recorded) {
+      return ChatAttachment.Live.new({ viewJson: JSON.stringify(recordedView(chat.recorded)), mark: { feed: chat.agentId, seq: 0n } });
+    }
     const rows = await withTrees(chatRows(chat));
     return ChatAttachment.Live.new({
       viewJson: JSON.stringify({ head: chatHead(chat), rows }),

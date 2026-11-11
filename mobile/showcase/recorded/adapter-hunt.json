@@ -1,0 +1,225 @@
+{
+ "head": {
+  "connection": "ready",
+  "running": true,
+  "turned": true,
+  "permissionMode": "bypass",
+  "turnOpening": {
+   "at": 1794386227339
+  },
+  "commands": [
+   {
+    "name": "review",
+    "description": "Review the change"
+   }
+  ],
+  "capabilities": {
+   "steering": true,
+   "editing": true
+  },
+  "model": {
+   "id": "model",
+   "current": "default",
+   "choices": [
+    {
+     "value": "default",
+     "label": "Default",
+     "description": "Fake",
+     "isDefault": true
+    },
+    {
+     "value": "small",
+     "label": "Small",
+     "description": "Smaller"
+    }
+   ]
+  },
+  "effort": {
+   "id": "effort",
+   "current": "default",
+   "choices": [
+    {
+     "value": "default",
+     "label": "Auto",
+     "isDefault": true
+    },
+    {
+     "value": "low",
+     "label": "Low"
+    },
+    {
+     "value": "high",
+     "label": "High"
+    }
+   ]
+  },
+  "permissions": [],
+  "tasks": [],
+  "runningSubagents": [
+   {
+    "sessionId": "task-01a1c9c0-f070-74c7-9849-462a73d185b0",
+    "name": "Find the adapter",
+    "task": "Find where the chat adapter starts\nThen report back",
+    "state": "running",
+    "calls": 1,
+    "lastTool": {
+     "toolCallId": "toolu-read-01a1c9c0-f070-74c7-9849-462a73d185b0",
+     "title": "Read /Users/edon/code/acme-shop/src/adapter.ts",
+     "kind": "read",
+     "status": "completed",
+     "rawInput": {
+      "file_path": "/Users/edon/code/acme-shop/src/adapter.ts"
+     },
+     "path": "/Users/edon/code/acme-shop/src/adapter.ts:1",
+     "row": {
+      "action": "read",
+      "target": "adapter.ts",
+      "path": "/Users/edon/code/acme-shop/src/adapter.ts:1",
+      "family": "files",
+      "intent": "read"
+     }
+    }
+   }
+  ],
+  "queued": [],
+  "triggers": [],
+  "earlierLost": false,
+  "activity": {
+   "kind": "thinking"
+  },
+  "sessionId": "session-adapter-hunt",
+  "setup": {}
+ },
+ "rows": [
+  {
+   "id": "m1",
+   "role": "user",
+   "promptId": "01a1c9c0-f070-74c7-9849-462a73d185b0",
+   "parts": [
+    {
+     "kind": "text",
+     "id": "m1.0",
+     "text": "Find where the chat adapter starts, using a subagent.",
+     "md": {
+      "blocks": [
+       {
+        "t": "p",
+        "c": [
+         "Find where the chat adapter starts, using a subagent."
+        ]
+       }
+      ],
+      "n": 15
+     }
+    }
+   ],
+   "sentAt": 1794386227312,
+   "fromEvent": 1
+  },
+  {
+   "id": "m4",
+   "role": "assistant",
+   "parts": [
+    {
+     "kind": "subagent",
+     "id": "m4.0",
+     "subagent": {
+      "sessionId": "task-01a1c9c0-f070-74c7-9849-462a73d185b0",
+      "name": "Find the adapter",
+      "task": "Find where the chat adapter starts\nThen report back",
+      "state": "running",
+      "calls": 1,
+      "lastTool": {
+       "toolCallId": "toolu-read-01a1c9c0-f070-74c7-9849-462a73d185b0",
+       "title": "Read /Users/edon/code/acme-shop/src/adapter.ts",
+       "kind": "read",
+       "status": "completed",
+       "rawInput": {
+        "file_path": "/Users/edon/code/acme-shop/src/adapter.ts"
+       },
+       "path": "/Users/edon/code/acme-shop/src/adapter.ts:1",
+       "row": {
+        "action": "read",
+        "target": "adapter.ts",
+        "path": "/Users/edon/code/acme-shop/src/adapter.ts:1",
+        "family": "files",
+        "intent": "read"
+       }
+      }
+     }
+    }
+   ],
+   "fromEvent": 4
+  }
+ ],
+ "subagents": {
+  "task-01a1c9c0-f070-74c7-9849-462a73d185b0": [
+   {
+    "id": "m5",
+    "role": "assistant",
+    "parts": [
+     {
+      "kind": "text",
+      "id": "m5.0",
+      "text": "Looking at the adapter.",
+      "md": {
+       "blocks": [
+        {
+         "t": "p",
+         "c": [
+          "Looking at the adapter."
+         ]
+        }
+       ],
+       "n": 23
+      }
+     },
+     {
+      "kind": "tool",
+      "id": "m5.1",
+      "tool": {
+       "toolCallId": "toolu-read-01a1c9c0-f070-74c7-9849-462a73d185b0",
+       "title": "Read /Users/edon/code/acme-shop/src/adapter.ts",
+       "kind": "read",
+       "status": "completed",
+       "rawInput": {
+        "file_path": "/Users/edon/code/acme-shop/src/adapter.ts"
+       },
+       "path": "/Users/edon/code/acme-shop/src/adapter.ts:1",
+       "row": {
+        "action": "read",
+        "target": "adapter.ts",
+        "path": "/Users/edon/code/acme-shop/src/adapter.ts:1",
+        "family": "files",
+        "intent": "read"
+       }
+      },
+      "startedAt": 1794386227347,
+      "endedAt": 1794386227347,
+      "run": {
+       "said": [
+        {
+         "intent": "read",
+         "family": "files",
+         "count": 1,
+         "took": 0
+        }
+       ],
+       "lines": [
+        {
+         "intent": "read",
+         "family": "files",
+         "calls": [
+          0
+         ]
+        }
+       ]
+      }
+     }
+    ],
+    "sentAt": 1794386227347,
+    "fromEvent": 5
+   }
+  ]
+ }
+}

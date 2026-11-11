@@ -14,7 +14,11 @@ import type {
   PermissionMode,
   ToolAction,
   ToolCall,
+  ToolDetail,
 } from '@shared/wire.generated';
+import ADAPTER_HUNT from './recorded/adapter-hunt.json';
+import LOGIN_FIX from './recorded/login-fix.json';
+import SIGNUP_CHECK from './recorded/signup-check.json';
 
 export const CORE = 'showcase0000000000000000000000000000000000000000000000000000core';
 export const HOST = { name: 'MacBook Pro', model: 'MacBook Pro' };
@@ -123,7 +127,36 @@ type DemoChat = {
   goal?: ChatGoal;
   /** Left out of the host's agent list, so only its own scene opens it. */
   unlisted?: boolean;
+  /**
+   * A chat a real core folded, as it sent it, with what each call changed or printed: the strips need the runs the
+   * core counts, which a written history does not have.
+   */
+  recorded?: Recorded;
 };
+
+export type Recorded = Pick<ChatView, 'head' | 'rows' | 'subagents'> & { details: Record<string, ToolDetail> };
+
+const recorded = (agentId: string, name: string, project: string, view: unknown): DemoChat => {
+  const chat = view as Recorded;
+  return {
+    agentId,
+    name,
+    provider: 'claude',
+    title: chat.rows.find((row) => row.role === 'user')?.parts.find((part) => part.kind === 'text')?.text ?? name,
+    project,
+    running: chat.head.running,
+    permissionMode: chat.head.permissionMode,
+    history: [],
+    recorded: chat,
+  };
+};
+
+/** Chats opened only by their own scenes, so the device's lists stay as the site's pictures show them. */
+export const RECORDED: DemoChat[] = [
+  recorded('chat-login-fix', 'Sango', 'p-shop', LOGIN_FIX),
+  recorded('chat-signup-check', 'Kuro', 'p-shop', SIGNUP_CHECK),
+  recorded('chat-adapter-hunt', 'Ivy', 'p-shop', ADAPTER_HUNT),
+];
 
 export const CHATS: DemoChat[] = [
   {
@@ -523,6 +556,17 @@ export function chatRows(chat: DemoChat): ChatMessage[] {
     answer.fold = { id: answer.id, last: answer.id, from, shown, calls, took, thought: calls === 0 };
   });
   return rows;
+}
+
+/** A recorded chat's view with its times moved up to now, so a running call counts from a moment ago. */
+export function recordedView(chat: Recorded): Pick<ChatView, 'head' | 'rows' | 'subagents'> {
+  const times = JSON.stringify(chat).match(/"(?:startedAt|endedAt|sentAt|at)":\d+/g) ?? [];
+  const latest = Math.max(...times.map((time) => Number(time.split(':')[1])));
+  const shift = Date.now() - 20_000 - latest;
+  const moved = JSON.parse(JSON.stringify(chat), (key, value) =>
+    ['startedAt', 'endedAt', 'sentAt', 'at'].includes(key) && typeof value === 'number' ? value + shift : value,
+  ) as Recorded;
+  return { head: moved.head, rows: moved.rows, subagents: moved.subagents };
 }
 
 /** How the demo chat stands, as the head of the view a host sends. */
