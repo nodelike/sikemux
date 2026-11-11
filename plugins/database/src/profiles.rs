@@ -404,6 +404,21 @@ impl sikemux_plugin_api::vault::Listing for Profile {
     fn label(&self) -> String {
         self.name.clone()
     }
+
+    /// The login, which every database on its server shares, since one password covers them.
+    fn identity(&self) -> Option<String> {
+        let (engine, server, port) = match &self.target {
+            Target::Postgres(server) => ("postgres", server, POSTGRES_PORT),
+            Target::Mysql(server) => ("mysql", server, crate::engines::mysql::MYSQL_PORT),
+            Target::Sqlite { .. } => return None,
+        };
+        Some(format!(
+            "{engine}:{}@{}:{}",
+            server.user,
+            server.host.to_lowercase(),
+            server.port.unwrap_or(port)
+        ))
+    }
 }
 
 pub static BOOK: sikemux_plugin_api::vault::Listed<Profile> =
