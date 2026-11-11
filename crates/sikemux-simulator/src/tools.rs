@@ -9,7 +9,8 @@ use serde_json::{json, Value};
 
 use super::android::is_android;
 use super::claims::Claim;
-use super::{checkpoint, pause, remaining, SimulatorManager};
+use super::load::Wait;
+use super::{checkpoint, pause, remaining, Queued, SimulatorManager};
 use sikemux_base::cli::protocol::{HarnessRequest, SIM_CANCEL_METHOD, SIM_OFFERED_METHOD};
 
 /// A cold boot can outlast one call, so it is reported as still going and finishes in the background.
@@ -21,6 +22,8 @@ const SETTLE_STEP: Duration = if cfg!(test) {
 } else {
     Duration::from_millis(300)
 };
+/// How often an agent waiting for a simulator looks again.
+const WAIT_STEP: Duration = Duration::from_secs(2);
 /// A device reports itself booted a little before its screen can be read; this waits up to 30 s.
 pub(crate) const SCREEN_READY_READS: usize = 30;
 pub(crate) const SCREEN_READY_STEP: Duration = Duration::from_secs(1);
@@ -159,7 +162,10 @@ pub(super) async fn run(
                     .collect::<Vec<_>>(),
             }))
         }
-        "sim.attach" => attach(manager, agent_id, project, text("device")).await,
+        "sim.attach" => {
+            let fresh = params.get("fresh").and_then(Value::as_bool) == Some(true);
+            attach(manager, agent_id, project, text("device"), fresh).await
+        }
         "sim.state" => settled_state(manager, agent_id, None, Report::Full).await,
         "sim.tap" => {
             let device = attached(manager, agent_id)?;
@@ -281,6 +287,22 @@ pub(super) async fn run(
         "sim.install" => {
             let device = attached(manager, agent_id)?;
             let path = inside_project(project, text("path").ok_or("path is required")?)?;
+            if !is_android(&device.udid) {
+                let (udid, app) = (device.udid.clone(), path.clone());
+                let installed = tokio::task::spawn_blocking(move || {
+                    super::bundle::already_installed(&udid, &app)
+                        .then(|| super::bundle::bundle_id(&app))
+                        .flatten()
+                })
+                .await
+                .ok()
+                .flatten();
+                if let Some(bundle) = installed {
+                    return Ok(
+                        json!({ "bundleId": bundle, "unchanged": "this build is already on the device" }),
+                    );
+                }
+            }
             manager
                 .request("install", json!({ "udid": device.udid, "path": path }))
                 .await
@@ -389,6 +411,10 @@ pub(crate) struct Device {
     pub name: String,
     pub os: String,
     pub booted: bool,
+    /// Booting or shutting down.
+    pub busy: bool,
+    /// Booted now or before, so it starts without a first boot.
+    pub warm: bool,
     /// Width and height in points, upright, known once the device is booted.
     pub screen: Option<(f64, f64)>,
 }
@@ -493,16 +519,21 @@ pub(super) async fn list_devices(manager: &SimulatorManager) -> Result<Vec<Devic
 }
 
 fn device_from(value: &Value) -> Option<Device> {
+    let udid = value.get("udid")?.as_str()?.to_owned();
+    let state = value.get("state").and_then(Value::as_str);
+    let booted = state == Some("booted");
     Some(Device {
-        udid: value.get("udid")?.as_str()?.to_owned(),
+        warm: booted || is_android(&udid) || super::load::booted_before(&udid),
         name: value.get("name")?.as_str()?.to_owned(),
         os: value
             .get("runtime")
             .and_then(Value::as_str)
             .unwrap_or_default()
             .to_owned(),
-        booted: value.get("state").and_then(Value::as_str) == Some("booted"),
+        booted,
+        busy: state == Some("busy"),
         screen: None,
+        udid,
     })
 }
 
@@ -533,8 +564,9 @@ pub(super) enum Pick<'a> {
 }
 
 /// The device for an agent that named none: the one the person picked on its
-/// desk, else the one its project used before, else the device Sikemux made
-/// for the project, else a booted iPhone nobody holds, else a new one.
+/// desk, else the one its project used before, else the warmest free one of
+/// the device Sikemux made for the project and the iPhones booted now or
+/// before, else a new one.
 pub(super) fn pick_device<'a>(
     devices: &'a [Device],
     held: &HashMap<String, Claim>,
@@ -554,30 +586,25 @@ pub(super) fn pick_device<'a>(
     if let Some(device) = by_udid(desk).or_else(|| by_udid(remembered)) {
         return Pick::Use(device);
     }
-    let newest = |candidates: Vec<&'a Device>| {
-        candidates.into_iter().max_by(|a, b| {
-            (a.booted, os_version(&a.os))
-                .partial_cmp(&(b.booted, os_version(&b.os)))
-                .unwrap_or(std::cmp::Ordering::Equal)
-        })
-    };
-    let made = newest(
-        devices
-            .iter()
-            .filter(free)
-            .filter(|device| device.name == project_device)
-            .collect(),
-    );
-    let booted = || {
-        newest(
-            devices
-                .iter()
-                .filter(free)
-                .filter(|device| device.booted && device.name.starts_with("iPhone"))
-                .collect(),
+    let ours = |device: &Device| device.name == project_device;
+    let warmth = |device: &Device| {
+        (
+            device.booted,
+            device.warm,
+            ours(device),
+            os_version(&device.os),
         )
     };
-    made.or_else(booted).map_or(Pick::Create, Pick::Use)
+    devices
+        .iter()
+        .filter(free)
+        .filter(|device| ours(device) || (device.warm && device.name.starts_with("iPhone")))
+        .max_by(|a, b| {
+            warmth(a)
+                .partial_cmp(&warmth(b))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .map_or(Pick::Create, Pick::Use)
 }
 
 /// A named device by udid or name, newest iOS first when a name repeats, a booted one before one that is not.
@@ -616,62 +643,34 @@ async fn attach(
     agent_id: &str,
     project: &str,
     wanted: Option<&str>,
+    fresh: bool,
 ) -> Result<Value, String> {
-    let devices = list_devices(manager).await?;
-    let held = manager.held_by_others(agent_id);
-    let current = manager
-        .attached(agent_id)
-        .and_then(|current| devices.iter().find(|device| device.udid == current.udid));
-    let mut device = match (wanted, current) {
-        (Some(wanted), _) => {
-            let device = choose_device(&devices, wanted)?;
-            if let Some(claim) = held.get(&device.udid) {
-                return Err(in_use(device, claim));
-            }
-            device.clone()
+    let mut device = loop {
+        let devices = list_devices(manager).await?;
+        let chosen = choose_for(manager, agent_id, project, wanted, fresh, &devices)?;
+        if let Some(device) = chosen
+            .as_ref()
+            .filter(|device| device.booted || device.busy)
+        {
+            manager.leave_line(agent_id);
+            break device.clone();
         }
-        (None, Some(current)) => current.clone(),
-        (None, None) => {
-            let (desk, remembered) = (
-                manager.desk_device(agent_id),
-                manager.project_device(project),
-            );
-            let chosen = [&desk, &remembered].into_iter().flatten().any(|udid| {
-                devices
-                    .iter()
-                    .any(|device| &device.udid == udid && !held.contains_key(udid))
-            });
-            let android = !super::capable();
-            if android && !chosen && manager.android().sdk().is_none() {
-                return Err(super::android::NO_SDK.into());
+        let cold = chosen.as_ref().is_none_or(|device| !device.warm);
+        match manager.room(agent_id, &devices, cold) {
+            Ok(()) => match chosen {
+                Some(device) => break device,
+                None => break create_device(manager, project, &devices).await?,
+            },
+            Err(queued) if near_deadline() || matches!(queued, Queued::TooLong) => {
+                return Err(queued_text(&queued))
             }
-            let candidates: Vec<Device> = devices
-                .iter()
-                .filter(|device| chosen || is_android(&device.udid) == android)
-                .cloned()
-                .collect();
-            match pick_device(
-                &candidates,
-                &held,
-                desk.as_deref(),
-                remembered.as_deref(),
-                &project_device_name(project),
-            ) {
-                Pick::Use(device) => device.clone(),
-                Pick::Create if android => any_android(&candidates, &held)?,
-                Pick::Create => create_device(manager, project, &devices).await?,
-            }
+            Err(_) => pause(WAIT_STEP).await?,
         }
     };
-    if !device.booted && manager.booted_by_sikemux(&devices) >= super::MAX_BOOTED {
-        return Err(format!(
-            "Sikemux already runs {} simulators it started, which is as many as it will; sim_detach one you no longer need, or ask the person to shut one down",
-            super::MAX_BOOTED
-        ));
-    }
     manager.hold(agent_id, project, &device)?;
     if !device.booted {
         manager.note_booted(&device.udid);
+        let _starting = manager.starting(&device.udid);
         let budget = remaining()
             .unwrap_or(Duration::from_secs(180))
             .saturating_sub(BOOT_MARGIN);
@@ -713,6 +712,116 @@ async fn attach(
     let mut state = settled_state(manager, agent_id, None, Report::Full).await?;
     state["shown"] = SHOWN_ON_DESK.into();
     Ok(state)
+}
+
+/// The device `sim_attach` takes, or none when the project needs one made.
+fn choose_for(
+    manager: &SimulatorManager,
+    agent_id: &str,
+    project: &str,
+    wanted: Option<&str>,
+    fresh: bool,
+    devices: &[Device],
+) -> Result<Option<Device>, String> {
+    let held = manager.held_by_others(agent_id);
+    let current = manager
+        .attached(agent_id)
+        .and_then(|current| devices.iter().find(|device| device.udid == current.udid));
+    match (wanted, current) {
+        (Some(wanted), _) => {
+            let device = choose_device(devices, wanted)?;
+            if let Some(claim) = held.get(&device.udid) {
+                return Err(in_use(device, claim));
+            }
+            if !device.warm && !fresh {
+                let warm = devices.iter().find(|other| {
+                    other.warm
+                        && other.name.starts_with("iPhone")
+                        && !held.contains_key(&other.udid)
+                });
+                if let Some(warm) = warm {
+                    return Err(format!(
+                        "{} was never booted, and a first boot is the heaviest work a simulator does. {} is ready; attach it, or pass fresh: true if you need this model or iOS version",
+                        device.name, warm.name
+                    ));
+                }
+            }
+            Ok(Some(device.clone()))
+        }
+        (None, Some(current)) => Ok(Some(current.clone())),
+        (None, None) => {
+            let (desk, remembered) = (
+                manager.desk_device(agent_id),
+                manager.project_device(project),
+            );
+            let chosen = [&desk, &remembered].into_iter().flatten().any(|udid| {
+                devices
+                    .iter()
+                    .any(|device| &device.udid == udid && !held.contains_key(udid))
+            });
+            let android = !super::capable();
+            if android && !chosen && manager.android().sdk().is_none() {
+                return Err(super::android::NO_SDK.into());
+            }
+            let candidates: Vec<Device> = devices
+                .iter()
+                .filter(|device| chosen || is_android(&device.udid) == android)
+                .cloned()
+                .collect();
+            match pick_device(
+                &candidates,
+                &held,
+                desk.as_deref(),
+                remembered.as_deref(),
+                &project_device_name(project),
+            ) {
+                Pick::Use(device) => Ok(Some(device.clone())),
+                Pick::Create if android => any_android(&candidates, &held).map(Some),
+                Pick::Create => Ok(None),
+            }
+        }
+    }
+}
+
+/// What an agent waiting for a simulator is told.
+pub(super) fn queued_text(queued: &Queued) -> String {
+    let (place, wait, machine) = match queued {
+        Queued::TooLong => {
+            return format!(
+                "you waited {} minutes and no simulator freed up; ask the person which to shut down. Never boot one with simctl or Xcode yourself",
+                super::MOST_WAIT.as_secs() / 60
+            )
+        }
+        Queued::Waiting {
+            place,
+            wait,
+            machine,
+        } => (*place, wait, machine),
+    };
+    let why = match wait {
+        Some(Wait::Full { running, .. }) if machine.busy() => format!(
+            "this Mac is busy (load {:.0} on {} cores) and already runs {running} simulator{}",
+            machine.load.unwrap_or_default(),
+            machine.cores,
+            if *running == 1 { "" } else { "s" },
+        ),
+        Some(Wait::Full { running, limit }) => format!(
+            "this Mac runs {running} simulator{}, as many as its cores and memory take now ({limit})",
+            if *running == 1 { "" } else { "s" },
+        ),
+        Some(Wait::Starting) => "another simulator is starting, and a first boot goes alone".into(),
+        None => "agents ahead of you start theirs first".into(),
+    };
+    let line = match place {
+        0 => "you are next in line".to_owned(),
+        ahead => format!(
+            "{ahead} agent{} ahead of you",
+            if ahead == 1 { " is" } else { "s are" }
+        ),
+    };
+    format!(
+        "waiting for a simulator: {line}, as {why}. Call sim_attach again within a minute to keep your place; never boot one with simctl or Xcode yourself"
+    )
 }
 
 /// A free Android device for an agent that named none: one already running, else the virtual

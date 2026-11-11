@@ -4,7 +4,7 @@
 //! ([`SimulatorManager`]), and the agents' `sim_*` tools ([`tools`]). The app
 //! hosting it gives it a [`Host`] for its data folder and its events.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -20,8 +20,10 @@ use claims::{Claim, Claims};
 use tools::{Device, Element, Numbered, Numbering};
 
 pub mod android;
+mod bundle;
 pub mod claims;
 mod helper;
+mod load;
 pub mod tools;
 
 pub use helper::{
@@ -57,13 +59,17 @@ impl Host for NoHost {
 }
 
 const CORE_SIMULATOR: &str = "/Library/Developer/PrivateFrameworks/CoreSimulator.framework";
-/// Simulators take gigabytes of memory each, so agents may have Sikemux boot at most this many.
-pub(crate) const MAX_BOOTED: usize = 3;
 /// One tool call's whole budget, well inside the time the page has to answer.
 const CALL_DEADLINE: Duration = Duration::from_secs(PAGE_REPLY_TIMEOUT.as_secs() - 15);
 /// A device Sikemux booted is shut down this long after nobody holds it, so an agent that restarts finds it still running.
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(180);
 const BOOT_LIMIT: Duration = Duration::from_secs(180);
+/// An agent keeps its device while it uses it; one that has not for this long gives it up to an agent waiting for one.
+const LEASE: Duration = Duration::from_secs(600);
+/// An agent waiting for a simulator keeps its place in line while it calls again within this.
+const PLACE_KEPT: Duration = Duration::from_secs(60);
+/// The longest an agent waits in line before it is told to ask the person.
+const MOST_WAIT: Duration = Duration::from_secs(300);
 const CANCELLED: &str = "the simulator call was cancelled";
 const OVERRAN: &str = "the simulator call ran out of time; call sim_state to see where it got to";
 
@@ -77,6 +83,29 @@ struct Attachment {
     launches: HashMap<String, (Instant, Option<i64>)>,
     /// The log each cursor was numbered by, per process, as the helper names it.
     log_generations: HashMap<Option<String>, i64>,
+    /// When the agent last called a simulator tool.
+    used: Instant,
+}
+
+impl Attachment {
+    fn new(device: Device, project: String) -> Self {
+        Self {
+            device,
+            project,
+            numbers: Numbering::default(),
+            read: None,
+            launches: HashMap::new(),
+            log_generations: HashMap::new(),
+            used: Instant::now(),
+        }
+    }
+}
+
+/// An agent waiting for room to start a simulator.
+struct Waiter {
+    agent_id: String,
+    joined: Instant,
+    seen: Instant,
 }
 
 /// One agent's device, as the desk lists it.
@@ -122,6 +151,10 @@ struct Shared {
     booted: HashSet<String>,
     /// Whether each agent was offered the tools when it listed them.
     offered: HashMap<String, bool>,
+    /// Agents waiting for room to start a simulator, first come first served.
+    line: VecDeque<Waiter>,
+    /// Devices Sikemux is booting now.
+    starting: HashSet<String>,
 }
 
 pub struct SimulatorManager {
@@ -348,6 +381,9 @@ impl SimulatorManager {
             deadline: Instant::now() + CALL_DEADLINE,
         };
         let turn = Arc::clone(self.turns.locked().entry(agent_id.to_owned()).or_default());
+        if let Some(attachment) = self.shared.locked().attachments.get_mut(agent_id) {
+            attachment.used = Instant::now();
+        }
         CALL.scope(call, async move {
             let _turn = tokio::time::timeout(CALL_DEADLINE, turn.lock_owned())
                 .await
@@ -404,14 +440,7 @@ impl SimulatorManager {
             if previous.is_some() || !shared.attachments.contains_key(agent_id) {
                 shared.attachments.insert(
                     agent_id.to_owned(),
-                    Attachment {
-                        device: device.clone(),
-                        project: project.to_owned(),
-                        numbers: Numbering::default(),
-                        read: None,
-                        launches: HashMap::new(),
-                        log_generations: HashMap::new(),
-                    },
+                    Attachment::new(device.clone(), project.to_owned()),
                 );
             }
             previous
@@ -446,6 +475,7 @@ impl SimulatorManager {
         let mut shared = self.shared.locked();
         shared.desk.remove(agent_id);
         shared.offered.remove(agent_id);
+        shared.line.retain(|waiter| waiter.agent_id != agent_id);
     }
 
     /// Stops following a device's log, and shuts it down a while later if
@@ -558,21 +588,16 @@ impl SimulatorManager {
                 name: held.name,
                 os: held.os,
                 booted: true,
+                busy: false,
+                warm: true,
                 screen: held.screen,
             };
             taken.push(device.udid.clone());
             agents.push(held.agent_id.clone());
-            self.shared.locked().attachments.insert(
-                held.agent_id,
-                Attachment {
-                    device,
-                    project: held.project,
-                    numbers: Numbering::default(),
-                    read: None,
-                    launches: HashMap::new(),
-                    log_generations: HashMap::new(),
-                },
-            );
+            self.shared
+                .locked()
+                .attachments
+                .insert(held.agent_id, Attachment::new(device, held.project));
         }
         {
             let mut shared = self.shared.locked();
@@ -638,12 +663,107 @@ impl SimulatorManager {
         self.shared.locked().booted.insert(udid.to_owned());
     }
 
-    pub(crate) fn booted_by_sikemux(&self, devices: &[Device]) -> usize {
-        let shared = self.shared.locked();
-        devices
+    /// Whether the agent may start a simulator now, `cold` for one never booted: it
+    /// must be first in line, and the Mac must have room beside every simulator
+    /// running, whoever started it. Agents that stopped using their devices give
+    /// them up while anyone waits.
+    pub(crate) fn room(
+        &self,
+        agent_id: &str,
+        devices: &[Device],
+        cold: bool,
+    ) -> Result<(), Queued> {
+        let mut running = load::running();
+        running.extend(
+            devices
+                .iter()
+                .filter(|device| device.booted || device.busy)
+                .map(|device| device.udid.clone()),
+        );
+        let (place, joined) = self.take_place(agent_id);
+        if joined.elapsed() >= MOST_WAIT {
+            self.leave_line(agent_id);
+            return Err(Queued::TooLong);
+        }
+        self.expire_leases(agent_id);
+        let starting = {
+            let shared = self.shared.locked();
+            devices.iter().filter(|device| device.busy).count() + shared.starting.len()
+        };
+        let machine = load::Machine::now();
+        let limit = machine.limit(running.len());
+        let wait = load::room(running.len(), starting, cold, limit).err();
+        match (place, wait) {
+            (0, None) => {
+                self.leave_line(agent_id);
+                Ok(())
+            }
+            (place, wait) => Err(Queued::Waiting {
+                place,
+                wait,
+                machine,
+            }),
+        }
+    }
+
+    /// The agent's place in line, joining it or keeping it, and when it joined.
+    fn take_place(&self, agent_id: &str) -> (usize, Instant) {
+        let mut shared = self.shared.locked();
+        let now = Instant::now();
+        shared
+            .line
+            .retain(|waiter| waiter.agent_id == agent_id || waiter.seen.elapsed() < PLACE_KEPT);
+        let place = match shared
+            .line
             .iter()
-            .filter(|device| device.booted && shared.booted.contains(&device.udid))
-            .count()
+            .position(|waiter| waiter.agent_id == agent_id)
+        {
+            Some(place) => place,
+            None => {
+                shared.line.push_back(Waiter {
+                    agent_id: agent_id.to_owned(),
+                    joined: now,
+                    seen: now,
+                });
+                shared.line.len() - 1
+            }
+        };
+        let waiter = &mut shared.line[place];
+        waiter.seen = now;
+        (place, waiter.joined)
+    }
+
+    pub(crate) fn leave_line(&self, agent_id: &str) {
+        self.shared
+            .locked()
+            .line
+            .retain(|waiter| waiter.agent_id != agent_id);
+    }
+
+    /// Lets go of the devices of agents other than `waiting` that have not used them for a while.
+    fn expire_leases(&self, waiting: &str) {
+        let expired: Vec<String> = self
+            .shared
+            .locked()
+            .attachments
+            .iter()
+            .filter(|(agent_id, attachment)| {
+                agent_id.as_str() != waiting && attachment.used.elapsed() >= LEASE
+            })
+            .map(|(agent_id, _)| agent_id.clone())
+            .collect();
+        for agent_id in expired {
+            self.release(&agent_id);
+        }
+    }
+
+    /// Notes that Sikemux is booting the device until the guard is dropped.
+    pub(crate) fn starting(&self, udid: &str) -> Starting<'_> {
+        self.shared.locked().starting.insert(udid.to_owned());
+        Starting {
+            manager: self,
+            udid: udid.to_owned(),
+        }
     }
 
     pub(crate) fn desk_device(&self, agent_id: &str) -> Option<String> {
@@ -741,6 +861,27 @@ impl SimulatorManager {
                 .log_generations
                 .insert(process.map(str::to_owned), generation);
         }
+    }
+}
+
+/// Why an agent waits for a simulator.
+pub(crate) enum Queued {
+    Waiting {
+        place: usize,
+        wait: Option<load::Wait>,
+        machine: load::Machine,
+    },
+    TooLong,
+}
+
+pub(crate) struct Starting<'a> {
+    manager: &'a SimulatorManager,
+    udid: String,
+}
+
+impl Drop for Starting<'_> {
+    fn drop(&mut self) {
+        self.manager.shared.locked().starting.remove(&self.udid);
     }
 }
 

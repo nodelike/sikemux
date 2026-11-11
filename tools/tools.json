@@ -854,12 +854,15 @@
       "row": {"verb": "attach", "kind": "move", "icon": "link", "target": ["{device}", "a simulator"]},
       "method": "sim.attach",
       "offered": "simulator",
-      "description": "Attach a simulator by name or udid, else your project's own; boots it if needed and reads its screen.",
+      "description": "Attach a simulator: with no device, the warmest free one (booted, else booted before), else your project's own; boots it if needed and reads its screen. Name a device only when you need that model or iOS version, and pass fresh: true for one never booted. When this Mac has no room, you wait in line: call again within a minute to keep your place. Never boot simulators with simctl or Xcode.",
       "properties": {
         "device": {
           "type": "string",
           "minLength": 1,
           "maxLength": 200
+        },
+        "fresh": {
+          "type": "boolean"
         }
       },
       "required": []
