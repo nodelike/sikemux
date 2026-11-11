@@ -1100,6 +1100,7 @@ impl Workbench {
     }
 
     /// Slides the desk back to the window's edge, then closes it unless it was opened again.
+    /// A desk filling its tab, or on its way to, slides its agent back out as it goes.
     fn shut_desk(
         &mut self,
         to: Target,
@@ -1108,10 +1109,24 @@ impl Workbench {
         desk: String,
         cx: &mut Context<Self>,
     ) {
+        let alone = self.panes.zoomed.as_ref() == Some(&desk);
+        if alone {
+            self.panes.zoomed = None;
+        }
+        if self.panes.widening.as_ref() == Some(&desk) {
+            self.panes.widening = None;
+        }
         if cx.reduce_motion() {
             return self.close_pane(&to, &strip, &tab, &desk);
         }
-        let lasts = self.panes.slide_view(&desk, false);
+        let mut lasts = self.panes.slide_view(&desk, false);
+        if let Some(owner) = self.desk_owner(&strip, &tab, &desk) {
+            let back = match alone {
+                true => self.panes.slide_view(&owner, true),
+                false => self.panes.reopen(&owner),
+            };
+            lasts = lasts.max(back);
+        }
         self.parts.redraw_stage(cx);
         cx.spawn(async move |this, cx| {
             cx.background_executor().timer(lasts).await;
@@ -1122,6 +1137,13 @@ impl Workbench {
             });
         })
         .detach();
+    }
+
+    /// The view of the agent whose desk is the view `desk` of `tab`.
+    fn desk_owner(&self, strip: &Strip, tab: &str, desk: &str) -> Option<String> {
+        let pane = &self.tabs(strip).iter().find(|held| held.id == tab)?.pane;
+        let agent = crate::panes::find_view(pane, desk)?.target;
+        view_of(pane, PaneKind::Agent, agent)
     }
 
     /// The agent in the pane the person last used, else the tab's first agent, with its view.
@@ -1222,12 +1244,12 @@ impl Workbench {
 
     /// Slides the view `beside` shut until `desk` has its tab, then lets the desk fill it.
     pub fn widen_desk(&mut self, desk: String, beside: String, cx: &mut Context<Self>) {
-        self.panes.forget_slide(&desk);
         if cx.reduce_motion() {
+            self.panes.forget_slide(&desk);
             self.panes.zoomed = Some(desk);
             return self.parts.redraw_stage(cx);
         }
-        let lasts = self.panes.slide_view(&beside, false);
+        let lasts = (self.panes.slide_view(&beside, false)).max(self.panes.reopen(&desk));
         self.panes.widening = Some(desk.clone());
         self.parts.redraw_stage(cx);
         cx.spawn(async move |this, cx| {

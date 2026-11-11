@@ -235,6 +235,15 @@ impl Panes {
             .retain(|id, slide| held.contains(&id.as_str()) || !slide.done(now));
     }
 
+    /// Turns `view` back open if it is sliding, answering how long that takes.
+    pub(crate) fn reopen(&self, view: &str) -> Duration {
+        let sliding = self.slides.borrow().contains_key(view);
+        match sliding {
+            true => self.slide_view(view, true),
+            false => Duration::ZERO,
+        }
+    }
+
     pub(crate) fn forget_slide(&self, view: &str) {
         self.slides.borrow_mut().remove(view);
     }
