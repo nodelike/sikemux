@@ -30,14 +30,14 @@ extension NotificationCard {
 
   /// The card kept on the notification that shows it, for the app to answer it, open its chat, or take it away.
   func keep(in info: inout [AnyHashable: Any]) throws {
-    info[Self.infoKey] = try JSONEncoder().encode(self)
+    info[Self.infoKey] = String(decoding: try JSONEncoder().encode(self), as: UTF8.self)
   }
 
   /// The card a shown notification keeps; nil on one the extension could not open, which only opens the app.
   static func kept(in info: [AnyHashable: Any]) -> Card? {
-    guard let data = info[infoKey] as? Data else { return nil }
+    guard let json = info[infoKey] as? String else { return nil }
     do {
-      return try JSONDecoder().decode(Card.self, from: data)
+      return try JSONDecoder().decode(Card.self, from: Data(json.utf8))
     } catch {
       print("sikemux: a shown notification keeps a card this app cannot read: \(error)")
       return nil
