@@ -26,6 +26,7 @@ struct SheetModifier<SheetContent: View>: ViewModifier {
                         .accessibilityAddTraits(.isButton)
                         .transition(.opacity)
                     panel
+                        .geometryGroup()
                         .transition(.move(edge: .bottom))
                 }
             }
