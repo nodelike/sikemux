@@ -16,7 +16,11 @@ use sikemux_base::cli::protocol::{HarnessRequest, SIM_CANCEL_METHOD, SIM_OFFERED
 const BOOT_MARGIN: Duration = Duration::from_secs(12);
 /// Time kept back for reading the screen once an action is done.
 const SETTLE_MARGIN: Duration = Duration::from_secs(4);
-const SETTLE_STEP: Duration = Duration::from_millis(300);
+const SETTLE_STEP: Duration = if cfg!(test) {
+    Duration::from_millis(10)
+} else {
+    Duration::from_millis(300)
+};
 /// A device reports itself booted a little before its screen can be read; this waits up to 30 s.
 pub(crate) const SCREEN_READY_READS: usize = 30;
 pub(crate) const SCREEN_READY_STEP: Duration = Duration::from_secs(1);
@@ -41,7 +45,11 @@ const HOME_READS: usize = 20;
 const KEYBOARD_READS: usize = 20;
 /// How many pictures, a step apart, to wait for a turn to come round: three seconds.
 const TURN_READS: usize = 20;
-const TURN_STEP: Duration = Duration::from_millis(150);
+const TURN_STEP: Duration = if cfg!(test) {
+    Duration::from_millis(10)
+} else {
+    Duration::from_millis(150)
+};
 /// A swipe that starts this close to an edge is sent as a system gesture, as the helper decides.
 const EDGE: f64 = 10.0;
 const MAX_ELEMENTS: usize = 200;
