@@ -58,6 +58,7 @@ fn host(when: NotifyWhen) -> Host {
             access: DeviceAccess::Watch,
             paired_at: 1,
             last_seen: None,
+            via: None,
         }],
     );
     let key = NotificationKey::new(7, [5; 32]);

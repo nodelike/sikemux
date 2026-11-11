@@ -7,6 +7,7 @@ use gpui_kit::{
     ParentElement, SharedString, StatefulInteractiveElement, Styled,
 };
 use sikemux_view::host_stats::{AlertLevel, HostAlertKind};
+use sikemux_wire::protocol::RemoteStatus;
 
 use super::model::{self, Counts, Listed, State};
 use super::{hair, ink};
@@ -48,7 +49,7 @@ pub fn board(
     let hosts = match (shown.is_empty(), page.table) {
         (true, _) => empty(&t, listed.is_empty()).into_any_element(),
         (false, true) => table(&shown, chosen, &t, cx),
-        (false, false) => cards(&shown, chosen, &t, cx),
+        (false, false) => cards(&shown, chosen, bench.remote.as_ref(), &t, cx),
     };
     let controls = div()
         .flex_none()
@@ -250,6 +251,7 @@ fn empty(t: &Tokens, none_at_all: bool) -> Div {
 fn cards(
     shown: &[&Listed],
     chosen: Option<&str>,
+    remote: Option<&RemoteStatus>,
     t: &Tokens,
     cx: &mut Context<Workbench>,
 ) -> AnyElement {
@@ -263,7 +265,13 @@ fn cards(
                 .min_w(px(CARD_MIN))
                 .max_w(px(CARD_MAX))
                 .flex()
-                .child(host_card(host, chosen == Some(host.key.as_str()), t, cx))
+                .child(host_card(
+                    host,
+                    chosen == Some(host.key.as_str()),
+                    remote,
+                    t,
+                    cx,
+                ))
         }))
         .into_any_element()
 }
@@ -293,7 +301,14 @@ fn chooses(key: &str, cx: &mut Context<Workbench>) -> Box<Clicked> {
     Box::new(cx.listener(move |bench, _, _, cx| bench.choose_on_page(key.clone(), cx)))
 }
 
-fn host_card(host: &Listed, chosen: bool, t: &Tokens, cx: &mut Context<Workbench>) -> AnyElement {
+fn host_card(
+    host: &Listed,
+    chosen: bool,
+    remote: Option<&RemoteStatus>,
+    t: &Tokens,
+    cx: &mut Context<Workbench>,
+) -> AnyElement {
+    let app = super::devices::app_line(remote, &host.place, t, cx);
     let ground = lifted(t, 0.);
     div()
         .id(SharedString::from(format!("host-card-{}", host.key)))
@@ -357,6 +372,7 @@ fn host_card(host: &Listed, chosen: bool, t: &Tokens, cx: &mut Context<Workbench
                 )
                 .child(div().ml_auto().child(counts(host.counts(), t))),
         )
+        .children(app)
         .into_any_element()
 }
 

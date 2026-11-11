@@ -358,6 +358,7 @@ mod tests {
             access: sikemux_wire::protocol::DeviceAccess::Full,
             paired_at: 0,
             last_seen: None,
+            via: None,
         };
         let offered = unpaired_phones(
             vec![

@@ -106,7 +106,11 @@ pub(super) async fn serve(core: Arc<Core>, connection: Connection) {
         expires_at: sikemux_process::clock::epoch_ms() + APPROVAL_TIMEOUT.as_millis() as u64,
     };
     if !core.remote.requires_approval_of(&request.device_id) {
-        let reply = match core.remote.admit(&request, hello.ticket.account.clone()) {
+        let reply = match core.remote.admit(
+            &request,
+            hello.ticket.account.clone(),
+            hello.ticket.via.clone(),
+        ) {
             Ok(()) => JoinReply::Allowed {
                 access: DeviceAccess::Full,
             },
@@ -123,9 +127,12 @@ pub(super) async fn serve(core: Arc<Core>, connection: Connection) {
         return;
     };
     core.remote.forget_device_requests(&request.device_id);
-    let answered = core
-        .remote
-        .ask(request.clone(), hello.ticket.account.clone(), None);
+    let answered = core.remote.ask(
+        request.clone(),
+        hello.ticket.account.clone(),
+        None,
+        hello.ticket.via.clone(),
+    );
     remote::announce(&core);
     core.notify.send(Signal::Pairing(request.clone()));
     // The person may answer after the device gave up waiting; it is let in

@@ -202,6 +202,7 @@ pub(super) async fn answer(core: Arc<Core>, connection: Connection) {
             request.clone(),
             hello.ticket.account.clone(),
             Some(addresses),
+            None,
         );
         remote::announce(&core);
         core.notify.send(Signal::Pairing(request.clone()));

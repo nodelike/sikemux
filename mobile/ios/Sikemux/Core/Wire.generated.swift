@@ -5753,6 +5753,8 @@ struct DeviceInfo: Codable, Hashable, Sendable {
     /// Milliseconds since the Unix epoch.
     var pairedAt: Int
     var lastSeen: Int?
+    /// The host whose own app this is, by its key, for an app that joined through it.
+    var via: String?
 }
 
 struct PendingDevice: Codable, Hashable, Sendable {

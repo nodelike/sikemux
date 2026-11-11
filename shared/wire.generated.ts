@@ -3701,6 +3701,8 @@ export interface DeviceInfo {
     /** Milliseconds since the Unix epoch. */
     pairedAt: number;
     lastSeen: number | null;
+    /** The host whose own app this is, by its key, for an app that joined through it. */
+    via?: string;
 }
 
 export interface PendingDevice {

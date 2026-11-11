@@ -416,6 +416,8 @@ struct Running {
 struct Pending {
     device: PendingDevice,
     account: String,
+    /// The host whose own app is asking, for an app that came through it.
+    via: Option<String>,
     /// Where a host asking to link was reached; none for a phone.
     host: Option<Vec<String>>,
     answer: oneshot::Sender<Option<DeviceAccess>>,
@@ -605,7 +607,12 @@ impl Remote {
 
     /// Lets a device in at full access as the person, with no question: its
     /// ticket shows it is signed in to this host's own account.
-    pub(super) fn admit(&self, device: &PendingDevice, account: String) -> CoreResult<()> {
+    pub(super) fn admit(
+        &self,
+        device: &PendingDevice,
+        account: String,
+        via: Option<String>,
+    ) -> CoreResult<()> {
         self.add_device(
             DeviceInfo {
                 id: device.device_id.clone(),
@@ -614,6 +621,7 @@ impl Remote {
                 access: DeviceAccess::Full,
                 paired_at: epoch_ms(),
                 last_seen: None,
+                via,
             },
             Some(account),
         )
@@ -750,11 +758,13 @@ impl Remote {
         device: PendingDevice,
         account: String,
         host: Option<Vec<String>>,
+        via: Option<String>,
     ) -> oneshot::Receiver<Option<DeviceAccess>> {
         let (answer, answered) = oneshot::channel();
         self.inner.locked().pending.push(Pending {
             device,
             account,
+            via,
             host,
             answer,
         });
@@ -796,6 +806,7 @@ impl Remote {
                 access,
                 paired_at: epoch_ms(),
                 last_seen: None,
+                via: pending.via.clone(),
             };
             if let Err(error) = self.add_device(added, Some(pending.account.clone())) {
                 drop(pending.answer);
@@ -832,6 +843,7 @@ impl Remote {
                     access: device.access,
                     paired_at: epoch_ms(),
                     last_seen: None,
+                    via: waiting.as_ref().and_then(|waiting| waiting.via.clone()),
                 },
                 owner,
             )?;
@@ -1263,6 +1275,7 @@ mod tests {
                 access: DeviceAccess::Watch,
                 paired_at: 1,
                 last_seen: None,
+                via: None,
             }],
         };
         write_stored(&path, &stored).unwrap();
@@ -1334,6 +1347,7 @@ mod tests {
             access: DeviceAccess::Full,
             paired_at: 1,
             last_seen: None,
+            via: None,
         }
     }
 
@@ -1386,6 +1400,7 @@ mod tests {
                 expires_at: epoch_ms() + 120_000,
             },
             "user_2abc".into(),
+            None,
             None,
         );
         let events = [

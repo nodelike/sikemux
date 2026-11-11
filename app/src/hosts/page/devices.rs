@@ -62,8 +62,11 @@ pub fn pair_button(bench: &Workbench) -> AnyElement {
 /// The devices paired with this host, under their count and the switch that lets them reach it.
 pub fn devices(bench: &Workbench, query: &str, t: &Tokens, cx: &mut Context<Workbench>) -> Div {
     let status = bench.remote.as_ref();
-    let all = status.map_or(&[][..], |status| status.devices.as_slice());
-    let shown: Vec<&DeviceInfo> = (all.iter())
+    let all: Vec<&DeviceInfo> = (status.iter())
+        .flat_map(|status| &status.devices)
+        .filter(|device| device.via.is_none())
+        .collect();
+    let shown: Vec<&DeviceInfo> = (all.iter().copied())
         .filter(|device| query.is_empty() || matches(device, query))
         .collect();
     let list = match (status, shown.is_empty()) {
@@ -310,10 +313,6 @@ fn device_row(
         "web" => Icon::Globe,
         _ => Icon::Phone,
     };
-    let access = match device.access {
-        DeviceAccess::Full => "Full access",
-        DeviceAccess::Watch => "Watch",
-    };
     div()
         .min_h(px(54.))
         .px(SPACE_4)
@@ -353,26 +352,106 @@ fn device_row(
                 )
                 .child(line),
         )
-        .child(
-            div()
-                .flex_none()
-                .px(SPACE_2)
-                .py(px(2.))
-                .rounded(px(6.))
-                .border_1()
-                .border_color(hair(t))
-                .bg(ink(t, 0.04))
-                .child(
-                    ui::text(access, TEXT_2XS_H, FontWeight::MEDIUM).text_color(t.text_secondary),
-                ),
-        )
+        .child(access_pill(device.access, t))
         .child(device_menu(device, name, cx))
         .into_any_element()
 }
 
-/// A device's ⋯: rename it on the account, choose what it may do here, or take it off this host.
+fn access_pill(access: DeviceAccess, t: &Tokens) -> Div {
+    let said = match access {
+        DeviceAccess::Full => "Full access",
+        DeviceAccess::Watch => "Watch",
+    };
+    div()
+        .flex_none()
+        .px(SPACE_2)
+        .py(px(2.))
+        .rounded(px(6.))
+        .border_1()
+        .border_color(hair(t))
+        .bg(ink(t, 0.04))
+        .child(ui::text(said, TEXT_2XS_H, FontWeight::MEDIUM).text_color(t.text_secondary))
+}
+
+/// A host card's App line: this host's own app is always let in; another host's app shows
+/// whether it is connected here, what it may do and its ⋯, once it is paired here.
+pub(super) fn app_line(
+    remote: Option<&RemoteStatus>,
+    place: &crate::hosts::Place,
+    t: &Tokens,
+    cx: &mut Context<Workbench>,
+) -> Option<Div> {
+    let right = match place {
+        crate::hosts::Place::This => div()
+            .ml_auto()
+            .text_size(crate::theme::ui_text(TEXT_XS))
+            .text_color(t.text_tertiary)
+            .child(format!("{} · always allowed", this_computer()))
+            .into_any_element(),
+        crate::hosts::Place::Account(key) => {
+            let remote = remote?;
+            let app = (remote.devices.iter()).find(|device| device.via.as_ref() == Some(key))?;
+            let connected = remote.connected.contains(&app.id);
+            div()
+                .ml_auto()
+                .flex()
+                .items_center()
+                .gap(SPACE_2)
+                .when(connected, |line| {
+                    line.child(div().size(px(6.)).rounded_full().bg(t.live))
+                })
+                .child(
+                    ui::text(
+                        match connected {
+                            true => "connected now".to_owned(),
+                            false => seen(app.last_seen),
+                        },
+                        TEXT_XS,
+                        FontWeight::NORMAL,
+                    )
+                    .text_color(t.text_secondary),
+                )
+                .child(access_pill(app.access, t))
+                .child(device_menu(app, app.name.clone(), cx))
+                .into_any_element()
+        }
+    };
+    Some(
+        div()
+            .min_h(px(43.))
+            .px(SPACE_4)
+            .py(SPACE_2)
+            .border_t_1()
+            .border_color(hair(t))
+            .flex()
+            .items_center()
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(SPACE_1H)
+                    .text_color(t.text_tertiary)
+                    .child(ui::icon(Icon::Window, 12.).text_color(t.text_tertiary))
+                    .child(ui::text("App", TEXT_XS, FontWeight::NORMAL)),
+            )
+            .child(right),
+    )
+}
+
+fn this_computer() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "this Mac"
+    } else {
+        "this computer"
+    }
+}
+
+/// A device's ⋯: rename it on the account, choose what it may do here, or take it off this host
+/// or the account. A host's own app has neither account action: it is on the account as long as
+/// its host is.
 fn device_menu(device: &DeviceInfo, name: String, cx: &mut Context<Workbench>) -> impl IntoElement {
     let (bench, id, access) = (cx.weak_entity(), device.id.clone(), device.access);
+    let on_account = device.via.is_none();
     ui::menu_button(
         SharedString::from(format!("device-menu-{id}")),
         Anchor::TopRight,
@@ -395,17 +474,19 @@ fn device_menu(device: &DeviceInfo, name: String, cx: &mut Context<Workbench>) -
             };
             let removing = (bench.clone(), id.clone(), name.clone());
             let leaving = removing.clone();
-            popup
-                .item(
-                    PopupMenuItem::new("Rename…")
-                        .icon(Icon::Pencil)
-                        .on_click(move |_, _, cx| {
+            let popup = match on_account {
+                true => popup
+                    .item(PopupMenuItem::new("Rename…").icon(Icon::Pencil).on_click(
+                        move |_, _, cx| {
                             let (bench, key, named) = &renaming;
                             let _ = bench
                                 .update(cx, |bench, cx| bench.rename_on_account(key, named, cx));
-                        }),
-                )
-                .separator()
+                        },
+                    ))
+                    .separator(),
+                false => popup,
+            };
+            let popup = popup
                 .item(
                     PopupMenuItem::new("Full access")
                         .icon(Icon::Pointer)
@@ -430,20 +511,22 @@ fn device_menu(device: &DeviceInfo, name: String, cx: &mut Context<Workbench>) -
                             let _ =
                                 bench.update(cx, |bench, cx| bench.remove_here(device, named, cx));
                         }),
-                )
-                .item(
-                    ui::MenuRow::new("Remove from account")
-                        .icon(Icon::Trash)
-                        .danger(true)
-                        .item(cx)
-                        .on_click(move |_, _, cx| {
-                            let (bench, device, named) = &leaving;
-                            let (device, named) = (device.clone(), named.clone());
-                            let _ = bench.update(cx, |bench, cx| {
-                                bench.remove_from_account(device, named, cx)
-                            });
-                        }),
-                )
+                );
+            if !on_account {
+                return popup;
+            }
+            popup.item(
+                ui::MenuRow::new("Remove from account")
+                    .icon(Icon::Trash)
+                    .danger(true)
+                    .item(cx)
+                    .on_click(move |_, _, cx| {
+                        let (bench, device, named) = &leaving;
+                        let (device, named) = (device.clone(), named.clone());
+                        let _ = bench
+                            .update(cx, |bench, cx| bench.remove_from_account(device, named, cx));
+                    }),
+            )
         },
     )
 }

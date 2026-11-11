@@ -52,6 +52,9 @@ pub struct DeviceInfo {
     /// Milliseconds since the Unix epoch.
     pub paired_at: u64,
     pub last_seen: Option<u64>,
+    /// The host whose own app this is, by its key, for an app that joined through it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub via: Option<String>,
 }
 
 /// A phone the person lets in ahead of it asking, by its account key.
