@@ -104,9 +104,9 @@ struct Row<Mark: View, End: View, After: View>: View {
 
     private var content: some View {
         let handle = name.map { "@\($0)" }
-        let where_ = host.map { "on \($0)" }
+        let onHost = host.map { "on \($0)" }
         let label = title ?? handle ?? ""
-        let named = title != nil && handle != nil ? [handle, where_].compactMap { $0 }.joined(separator: " ") : nil
+        let named = title != nil && handle != nil ? [handle, onHost].compactMap { $0 }.joined(separator: " ") : nil
         return HStack(spacing: 10) {
             if Mark.self != EmptyView.self {
                 mark.frame(width: 20, height: 20)
@@ -118,8 +118,8 @@ struct Row<Mark: View, End: View, After: View>: View {
                         .tracking(-0.15)
                         .foregroundStyle(dim ? palette.tertiary : palette.ink)
                         .lineLimit(1)
-                    if let where_, named == nil {
-                        Text(" \(where_)")
+                    if let onHost, named == nil {
+                        Text(" \(onHost)")
                             .font(Theme.ui(14.5))
                             .foregroundStyle(palette.tertiary)
                             .lineLimit(1)
