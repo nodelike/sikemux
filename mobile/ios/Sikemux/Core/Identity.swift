@@ -61,20 +61,20 @@ final class Identity {
     /// Makes this phone a new device: the account may still hold the old key, and anything it signed for that
     /// account must not follow the phone into another one.
     func rotateKey() async {
-        Keychain.delete(Self.keyItem)
+        Keychain.app.delete(Self.keyItem)
         identity = nil
         await goOffline()
     }
 
     private func key() throws -> Data {
-        if let stored = try Keychain.read(Self.keyItem) {
+        if let stored = try Keychain.app.read(Self.keyItem) {
             guard stored.count == 64, let bytes = Data(hex: stored) else {
                 throw IdentityError.damaged
             }
             return bytes
         }
         let key = newDeviceKey()
-        try Keychain.write(Self.keyItem, key.hex)
+        try Keychain.app.write(Self.keyItem, key.hex)
         return key
     }
 }

@@ -34,7 +34,7 @@ final class Notify {
 
     private init() {
         do {
-            choice = try Keychain.read(Self.choiceItem).flatMap(Choice.init)
+            choice = try Keychain.app.read(Self.choiceItem).flatMap(Choice.init)
         } catch {
             print("sikemux: could not read the notifications choice: \(error)")
         }
@@ -57,9 +57,9 @@ final class Notify {
 
     private func choose(_ next: Choice?) {
         choice = next
-        guard let next else { return Keychain.delete(Self.choiceItem) }
+        guard let next else { return Keychain.app.delete(Self.choiceItem) }
         do {
-            try Keychain.write(Self.choiceItem, next.rawValue)
+            try Keychain.app.write(Self.choiceItem, next.rawValue)
         } catch {
             print("sikemux: could not keep the notifications choice: \(error)")
         }
@@ -106,7 +106,7 @@ final class Notify {
     func forget() async {
         Keys().clear()
         UNUserNotificationCenter.current().removeAllDeliveredNotifications()
-        Keychain.delete(Self.sentItem)
+        Keychain.app.delete(Self.sentItem)
         choose(nil)
         UIApplication.shared.unregisterForRemoteNotifications()
     }
@@ -131,7 +131,7 @@ final class Notify {
     /// A copy that cannot be read counts as none, so the token is sent again.
     private func readSent() -> SentToken? {
         do {
-            guard let stored = try Keychain.read(Self.sentItem) else { return nil }
+            guard let stored = try Keychain.app.read(Self.sentItem) else { return nil }
             return try JSONDecoder().decode(SentToken.self, from: Data(stored.utf8))
         } catch {
             print("sikemux: could not read the push token the server has: \(error)")
@@ -140,8 +140,8 @@ final class Notify {
     }
 
     private func keepSent(_ token: SentToken?) throws {
-        guard let token else { return Keychain.delete(Self.sentItem) }
-        try Keychain.write(Self.sentItem, String(decoding: try JSONEncoder().encode(token), as: UTF8.self))
+        guard let token else { return Keychain.app.delete(Self.sentItem) }
+        try Keychain.app.write(Self.sentItem, String(decoding: try JSONEncoder().encode(token), as: UTF8.self))
     }
 
     /// Makes the server's copy of this phone's token match what the person chose and the system allows: sends it

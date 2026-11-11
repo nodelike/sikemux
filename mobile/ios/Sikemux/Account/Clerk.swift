@@ -123,10 +123,10 @@ enum Clerk {
         return decoder
     }()
 
-    static var hasClient: Bool { (try? Keychain.read(clientItem)) != nil }
+    static var hasClient: Bool { (try? Keychain.app.read(clientItem)) != nil }
 
     static func forget() {
-        Keychain.delete(clientItem)
+        Keychain.app.delete(clientItem)
     }
 
     /// Calls the Frontend API, returning what it answered and the client it sent with it.
@@ -141,7 +141,7 @@ enum Clerk {
         parts.queryItems = [URLQueryItem(name: "_is_native", value: "1")] + extra
         var request = URLRequest(url: parts.url!, timeoutInterval: 30)
         request.httpMethod = method
-        if let client = try? Keychain.read(clientItem) {
+        if let client = try? Keychain.app.read(clientItem) {
             request.setValue(client, forHTTPHeaderField: "Authorization")
         }
         if method != "GET" {
@@ -157,7 +157,7 @@ enum Clerk {
         let http = response as? HTTPURLResponse
         if let client = http?.value(forHTTPHeaderField: "Authorization"), !client.isEmpty {
             do {
-                try Keychain.write(clientItem, client)
+                try Keychain.app.write(clientItem, client)
             } catch {
                 print("sikemux: could not keep Clerk's client in the Keychain: \(error)")
             }

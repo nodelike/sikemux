@@ -32,7 +32,7 @@ final class Lock {
 
     private init() {
         do {
-            on = try Keychain.read(Self.item) == "on"
+            on = try Keychain.app.read(Self.item) == "on"
         } catch {
             print("sikemux: could not read whether the lock is on, so the app stays locked: \(error)")
             on = true
@@ -81,7 +81,7 @@ final class Lock {
         switch result {
         case .passed:
             do {
-                try Keychain.write(Self.item, "on")
+                try Keychain.app.write(Self.item, "on")
             } catch {
                 return Sikemux.problem(error)
             }
@@ -93,7 +93,7 @@ final class Lock {
     }
 
     func turnOff() async {
-        Keychain.delete(Self.item)
+        Keychain.app.delete(Self.item)
         on = false
     }
 
