@@ -201,6 +201,7 @@ icons!(
     Nvidia => "nvidia",
     Ubuntu => "ubuntu",
     Debian => "debian",
+    Omarchy => "omarchy",
     Linux => "linux",
 );
 

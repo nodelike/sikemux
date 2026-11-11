@@ -286,6 +286,7 @@ fn about(core: &Core) -> &HostAbout {
                 _ if cfg!(target_os = "macos") => HostMark::Apple,
                 (_, Some("ubuntu")) => HostMark::Ubuntu,
                 (_, Some("debian")) => HostMark::Debian,
+                _ if super::themes::on_omarchy() => HostMark::Omarchy,
                 _ => HostMark::Linux,
             }
         };

@@ -383,6 +383,7 @@ pub fn logo(mark: HostMark, t: &Tokens) -> (Icon, Hsla) {
         HostMark::Nvidia => (Icon::Nvidia, hex(0x76B900)),
         HostMark::Ubuntu => (Icon::Ubuntu, hex(0xE95420)),
         HostMark::Debian => (Icon::Debian, hex(0xA81D33)),
+        HostMark::Omarchy => (Icon::Omarchy, t.text_primary),
         HostMark::Linux => (Icon::Linux, hex(0xFCC624)),
         HostMark::Unknown => (Icon::Server, t.text_secondary),
     }

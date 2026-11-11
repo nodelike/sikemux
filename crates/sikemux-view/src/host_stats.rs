@@ -84,6 +84,7 @@ pub enum HostMark {
     Nvidia,
     Ubuntu,
     Debian,
+    Omarchy,
     Linux,
     #[serde(other)]
     Unknown,
