@@ -19,7 +19,8 @@ use super::join::{link_with, LinkParams, Linking};
 
 /// How soon a pass that found one already running looks again.
 const AGAIN: Duration = Duration::from_secs(5);
-/// How long to wait when the account is too busy to say how long.
+/// How long to wait when the account is too busy to say how long, or did not
+/// answer at all.
 const BUSY: Duration = Duration::from_secs(60);
 
 /// Forgets the linked hosts that `hosts`, the account's, no longer holds.
@@ -49,6 +50,7 @@ pub(crate) fn relink(core: &Arc<Core>) {
     tokio::spawn(async move {
         if let Err(error) = link_all(&core).await {
             eprintln!("sikemux core: could not link with the account's other hosts: {error}");
+            core.hosts.relink.at(epoch_ms() + BUSY.as_millis() as u64);
         }
         core.hosts.linking.store(false, Ordering::Release);
     });
@@ -90,6 +92,7 @@ async fn link_all(core: &Arc<Core>) -> CoreResult<()> {
             || host.key == own
             || linked.contains(&host.key)
             || declined.contains(&host.key)
+            || core.remote.removed_here(&host.key)
         {
             continue;
         }

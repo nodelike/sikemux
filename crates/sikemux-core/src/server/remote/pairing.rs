@@ -138,18 +138,27 @@ impl Remote {
         })
     }
 
-    /// Forgets every phone that joined through the account this host is
-    /// signed in to and that `account`, the account's phones, no longer
-    /// holds. A ticket issued before now is refused for each.
-    pub(crate) fn forget_phones_off(&self, account: &[String]) -> CoreResult<Vec<DeviceInfo>> {
+    /// Forgets every phone that joined through `owner` before `since` and
+    /// that `account`, the phones `owner`'s account listed from then on, no
+    /// longer holds. Nothing changes if the host moved to another account
+    /// meanwhile. A ticket issued before now is refused for each.
+    pub(crate) fn forget_phones_off(
+        &self,
+        owner: &str,
+        since: u64,
+        account: &[String],
+    ) -> CoreResult<Vec<DeviceInfo>> {
         self.change(|stored| {
-            let Some(owner) = stored.owner.clone() else {
+            if stored.owner.as_deref() != Some(owner) {
                 return Ok(Vec::new());
-            };
+            }
             let gone: Vec<String> = stored
                 .devices
                 .iter()
-                .filter(|device| stored.joined_through.get(&device.id) == Some(&owner))
+                .filter(|device| device.paired_at < since)
+                .filter(|device| {
+                    stored.joined_through.get(&device.id).map(String::as_str) == Some(owner)
+                })
                 .filter(|device| !account.contains(&device.id))
                 .map(|device| device.id.clone())
                 .collect();
