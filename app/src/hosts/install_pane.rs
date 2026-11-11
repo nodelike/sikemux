@@ -135,6 +135,18 @@ impl Workbench {
         Some((setup.work, setup.problem.clone()?))
     }
 
+    /// The set-up `alias` is offered: the one its newest answer calls for, or a retry of the one
+    /// that stopped short while there is no answer yet to say otherwise.
+    pub fn set_up_offered(&self, alias: &str) -> Option<SetUp> {
+        let row = self.ssh_row(alias)?;
+        let unknown =
+            row.found.is_none() && matches!(row.unanswered, None | Some(Unanswered::Checking));
+        row.set_up.or_else(|| {
+            let setup = row.setup.as_ref()?;
+            (setup.problem.is_some() && unknown).then_some(setup.work)
+        })
+    }
+
     /// What the tab rail and the new-tab list call the pane, as `alias` needs.
     pub fn set_up_label(&self, alias: &str) -> (Icon, &'static str) {
         match self.setting_up(alias).or_else(|| self.set_up_of(alias)) {
@@ -179,13 +191,19 @@ pub fn pane(bench: &Workbench, alias: &str, cx: &mut Context<Workbench>) -> AnyE
     };
     let row = bench.ssh_row(alias);
     let problem = bench.set_up_problem(alias);
-    let Some(set_up) = (bench.setting_up(alias))
-        .or(problem.as_ref().map(|(work, _)| *work))
-        .or(bench.set_up_of(alias))
-    else {
+    let Some(set_up) = (bench.setting_up(alias)).or(bench.set_up_offered(alias)) else {
         let says = match row.and_then(|row| row.unanswered.as_ref()) {
             Some(unanswered) => unanswered_says(unanswered, alias),
             None => format!("{alias} runs Sikemux, on your account or another one."),
+        };
+        let says = match &problem {
+            Some((work, problem)) => {
+                format!(
+                    "{says} The last {} stopped short: {problem}",
+                    work.menu_label()
+                )
+            }
+            None => says,
         };
         return ui::pane(cx)
             .child(note(Icon::Server, None, says))

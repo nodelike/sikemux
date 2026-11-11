@@ -166,13 +166,15 @@ fn set_up_offer(bench: &Workbench, alias: &str, cx: &mut Context<Workbench>) -> 
         .ssh_row(alias)
         .and_then(|row| row.unanswered.as_ref())
         .is_some_and(|unanswered| *unanswered == HostUnanswered::Checking);
-    let (set_up, label) = match (running, problem, bench.set_up_of(alias)) {
-        (Some(running), _, _) => (running, running.running(alias)),
-        (None, Some((work, problem)), _) => (
+    let offered = bench.set_up_offered(alias);
+    let (mark_of, set_up, label) = match (running, problem, offered) {
+        (Some(running), _, _) => (running, None, running.running(alias)),
+        (None, Some((work, problem)), offered) => (
             work,
+            offered,
             format!("{} stopped short: {problem}", work.menu_label()),
         ),
-        (None, None, Some(set_up)) => (set_up, set_up.offer(alias)),
+        (None, None, Some(set_up)) => (set_up, Some(set_up), set_up.offer(alias)),
         (None, None, None) if checking => {
             return Some(
                 div()
@@ -192,7 +194,7 @@ fn set_up_offer(bench: &Workbench, alias: &str, cx: &mut Context<Workbench>) -> 
     Some(
         BaseButton::new("place-set-up")
             .accessibility_label(label.clone())
-            .disabled(running.is_some())
+            .disabled(set_up.is_none())
             .h(px(26.))
             .max_w(px(260.))
             .px(SPACE_2H)
@@ -202,15 +204,19 @@ fn set_up_offer(bench: &Workbench, alias: &str, cx: &mut Context<Workbench>) -> 
             .rounded_full()
             .text_size(crate::theme::ui_text(TEXT_XS))
             .font_weight(FontWeight::MEDIUM)
-            .text_color(if running.is_some() {
+            .text_color(if set_up.is_none() {
                 t.text_tertiary
             } else {
                 t.text_primary
             })
             .hover(move |style| style.bg(t.surface_hover))
-            .child(mark((set_up.icon(), t.text_secondary)))
+            .child(mark((mark_of.icon(), t.text_secondary)))
             .child(div().min_w_0().truncate().child(label))
-            .on_click(cx.listener(move |bench, _, _, cx| bench.set_up_host(&alias, set_up, cx)))
+            .on_click(cx.listener(move |bench, _, _, cx| {
+                if let Some(set_up) = set_up {
+                    bench.set_up_host(&alias, set_up, cx)
+                }
+            }))
             .into_any_element(),
     )
 }

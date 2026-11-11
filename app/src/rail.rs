@@ -587,11 +587,8 @@ fn set_up_offer(
     host: &HostRow,
 ) -> impl Fn(WeakEntity<Workbench>, bool) -> Option<PopupMenuItem> + Clone + 'static {
     let setting_up = (host.setup.as_ref()).is_some_and(|setup| setup.problem.is_none());
-    let stopped_short = (host.setup.as_ref())
-        .filter(|setup| setup.problem.is_some())
-        .map(|setup| setup.work);
     let set_up = (host.ssh.as_deref())
-        .and_then(|alias| bench.set_up_of(alias).or(stopped_short))
+        .and_then(|alias| bench.set_up_offered(alias))
         .zip(host.ssh.clone());
     move |bench: WeakEntity<Workbench>, here: bool| {
         set_up.clone().map(|(set_up, alias)| {

@@ -506,21 +506,31 @@ impl Workbench {
         };
         cx.spawn(async move |bench, cx| {
             let here = core::Target::here(&asks);
-            let failed = match here.request_typed::<call::InstallHost>(params).await {
-                Err(error) => Some(error.to_string()),
+            let ended = match here.request_typed::<call::InstallHost>(params).await {
+                Err(error) => Err(error.to_string()),
                 Ok(_) => here
                     .request_typed::<call::HostSetup>(HostAliasParams {
                         alias: alias.clone(),
                     })
                     .await
-                    .map_or_else(|error| Some(error.to_string()), |ended| ended.problem),
+                    .map_err(|error| error.to_string())
+                    .and_then(|ended| match ended.problem {
+                        Some(problem) => Err(problem),
+                        None => Ok(ended.added),
+                    }),
             };
-            let _ = bench.update(cx, |bench, cx| match failed {
-                Some(problem) => bench.notify(
+            let _ = bench.update(cx, |bench, cx| match ended {
+                Err(problem) => bench.notify(
                     toast::error(format!("{}: {problem}", set_up.offer(&alias))),
                     cx,
                 ),
-                None => {
+                Ok(added) => {
+                    if let Some(name) = added {
+                        bench.notify(
+                            toast::success(format!("{alias} was added to your account as {name}")),
+                            cx,
+                        );
+                    }
                     bench.feeds.following = Some(alias.clone());
                     bench.follow_folded(cx);
                 }
@@ -535,6 +545,10 @@ impl Workbench {
         let Some(alias) = self.feeds.following.clone() else {
             return;
         };
+        if self.strip() != Some(Strip::Host(alias.clone())) {
+            self.feeds.following = None;
+            return;
+        }
         let linked = (self.reads.hosts.iter())
             .find(|host| host.id.is_some() && host.ssh.as_deref() == Some(alias.as_str()))
             .and_then(|host| host.id.clone());
@@ -542,9 +556,7 @@ impl Workbench {
             return;
         };
         self.feeds.following = None;
-        if self.strip() == Some(Strip::Host(alias)) {
-            self.choose_host(HostChoice::Account(key), cx);
-        }
+        self.choose_host(HostChoice::Account(key), cx);
     }
 
     /// Takes a set-up that stopped short off `alias`'s row.
