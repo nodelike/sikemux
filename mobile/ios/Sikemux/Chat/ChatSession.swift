@@ -61,6 +61,8 @@ final class ChatSession {
     @ObservationIgnored private var holders = 0
     /// Counts attaches, so an answer that comes back after the chat was taken up again is dropped.
     @ObservationIgnored private var run = 0
+    /// Reading the chat this phone kept, which the first attach waits for so it asks only for what came after.
+    @ObservationIgnored private var restoring: Task<Void, Never>?
     @ObservationIgnored private var stopRun: (() -> Void)?
     /// What the host lists as up, or nil before it has said.
     @ObservationIgnored private var hostUp: Bool?
@@ -84,9 +86,11 @@ final class ChatSession {
             connection: { [unowned self] in connection },
             chat: { [unowned self] in feed.chat },
             emit: { [unowned self] in emit() })
-        if feed.restore() {
+        restoring = Task { [weak self] in
+            guard let self, await feed.restore() else { return }
             attached = .live
             draft.takeIn()
+            emit()
         }
         emit()
         NotificationCenter.default.addObserver(
@@ -225,10 +229,13 @@ final class ChatSession {
                 }
             }
         }
-        let began = Date()
-        let mark = feed.mark
         let up = hostUp == true
+        let restoring = restoring
         Task { [weak self] in
+            await restoring?.value
+            guard let current = self, run == current.run else { return }
+            let began = Date()
+            let mark = current.feed.mark
             var woke = false
             do {
                 var attachment: ChatAttachment
