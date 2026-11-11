@@ -442,6 +442,7 @@ struct FiredTrigger: View {
 /// The line under the last row while the agent works: its mark breathing, what it is doing, and for how long.
 struct ActivityLine: View {
     @Environment(\.palette) private var palette
+    @Environment(\.accessibilityReduceMotion) private var still
     let provider: String
     let label: String
     let since: Date
@@ -451,7 +452,10 @@ struct ActivityLine: View {
         HStack(spacing: 9) {
             AgentMark(provider: provider, size: 20)
                 .opacity(breath ? 0.5 : 1)
-                .onAppear { withAnimation(.easeInOut(duration: 0.75).repeatForever()) { breath = true } }
+                .onAppear {
+                    guard !still else { return }
+                    withAnimation(.easeInOut(duration: 0.75).repeatForever()) { breath = true }
+                }
             Shimmer(text: label, font: Theme.ui(12.5), color: palette.inkFaint)
             TimelineView(.periodic(from: since, by: 1)) { timeline in
                 let seconds = Int(timeline.date.timeIntervalSince(since).rounded())
