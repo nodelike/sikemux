@@ -730,15 +730,22 @@ when you do not, and the device you hold.
 
 `sim_attach` comes first, and each device belongs to one agent at a time.
 Without a `device` you get, in order: the device the person picked on your
-desk, the one your project used before, the iPhone Sikemux made for your
-project (named `Sikemux · <project folder>`), a booted iPhone no agent holds,
-or a new iPhone made for your project on the newest iOS. `sim_devices` lists
-every device with `inUseBy` naming who holds it; a device another agent holds
-cannot be attached, so pick another or ask the person. Attaching boots the
-device if it is off and waits until its screen can be read. A cold boot can
-take a minute; when it outlasts the call it carries on, and `sim_attach` says
-it is still booting, so call it again. Sikemux runs at most three simulators
-it booted at once; `sim_detach` one you no longer need. Every other `sim_*`
+desk, the one your project used before, the warmest free one of your project's
+iPhone (named `Sikemux · <project folder>`) and the iPhones booted now or
+before, or a new iPhone made for your project on the newest iOS. Name a device
+only when you need that model or iOS version; one never booted needs
+`fresh: true`, since a first boot is the heaviest work a simulator does.
+`sim_devices` lists every device with `inUseBy` naming who holds it; a device
+another agent holds cannot be attached, so pick another or ask the person.
+Attaching boots the device if it is off and waits until its screen can be
+read. A cold boot can take a minute; when it outlasts the call it carries on,
+and `sim_attach` says it is still booting, so call it again. How many
+simulators run at once follows this Mac's cores, memory and load, counting
+every simulator running, whoever started it. With no room, `sim_attach` waits
+in line and says your place; call it again within a minute to keep it, for up
+to five minutes. Never boot a simulator with `simctl` or Xcode to get around
+the line. A device you have not used for ten minutes goes to an agent waiting;
+`sim_detach` one you no longer need. Every other `sim_*`
 tool acts on the device you hold, and fails until you attach one. When the
 person picks another device on your desk you move to it.
 
@@ -804,6 +811,7 @@ To try an app: build it for the simulator as a process (`xcodebuild` with
 `-sdk iphonesimulator` and a `-derivedDataPath` inside the project), then
 `sim_install` the `.app` it produced, which must be inside the project, and
 `sim_launch` it by bundle id, with optional `arguments` and `environment`.
+`sim_install` of a build already on the device answers `unchanged` at once.
 `sim_launch` relaunches an app that is running. A first launch can outlast
 the call; it then answers with `launching`, and calling `sim_launch` again
 waits for that launch instead of starting the app over. `sim_terminate` quits
@@ -851,8 +859,8 @@ device Sikemux booted shuts down a few minutes after nobody holds it.
 
 If a call fails: "call sim_attach" means you hold no device or it is not
 running; "in use by" means another agent holds it; "not on the screen now"
-means read the screen again; "still booting" or `launching` mean call again in
-a moment.
+means read the screen again; "still booting", "waiting for a simulator" or
+`launching` mean call again in a moment.
 
 ## databases: Saved databases
 

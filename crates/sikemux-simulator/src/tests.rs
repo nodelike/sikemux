@@ -201,6 +201,8 @@ mod tools {
             name: name.into(),
             os: os.into(),
             booted,
+            busy: false,
+            warm: booted,
             screen: Some((402.0, 874.0)),
         }
     }
@@ -240,7 +242,7 @@ mod tools {
     }
 
     #[test]
-    fn an_agent_without_a_device_gets_the_desk_pick_then_its_projects_then_a_free_booted_one() {
+    fn an_agent_without_a_device_gets_the_desk_pick_then_the_warmest_free_one() {
         let ours = device("Sikemux · shop", "iOS 27.0", false);
         let booted = device("iPhone 17", "iOS 27.0", true);
         let taken = device("iPhone 16e", "iOS 26.0", true);
@@ -256,11 +258,20 @@ mod tools {
             Pick::Use(&picked)
         );
         assert_eq!(pick(None, Some(&booted.udid), &held), Pick::Use(&booted));
-        assert_eq!(pick(None, None, &held), Pick::Use(&ours));
+        assert_eq!(
+            pick(None, None, &held),
+            Pick::Use(&booted),
+            "a running iPhone before the project's own that is off"
+        );
         assert_eq!(
             pick(Some(&taken.udid), None, &held),
-            Pick::Use(&ours),
+            Pick::Use(&booted),
             "a desk pick another agent holds is passed over"
+        );
+        let without_booted = [ours.clone(), taken.clone(), picked.clone()];
+        assert_eq!(
+            pick_device(&without_booted, &held, None, None, "Sikemux · shop"),
+            Pick::Use(&ours)
         );
         let all_held: HashMap<String, Claim> = [ours.clone(), booted.clone(), taken.clone()]
             .iter()
