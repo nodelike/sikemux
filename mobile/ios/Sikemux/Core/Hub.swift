@@ -23,7 +23,14 @@ final class HostLive {
         /// `problem` is why the last try failed, while the phone tries again.
         case connecting(problem: String?)
         case open
-        case closed(problem: String, outdated: Outdated? = nil, unpaired: Bool = false)
+        case closed(problem: String, blocked: Blocked? = nil)
+    }
+
+    /// Why a closed host stays closed until someone acts.
+    enum Blocked: Equatable {
+        /// The host no longer knows this phone; only forgetting it and joining again helps.
+        case unpaired
+        case outdated(Outdated)
     }
 
     let core: String
@@ -58,7 +65,7 @@ final class HostLive {
 
     /// The host no longer knows this phone, or speaks another version; it stays so until someone acts.
     var settled: Bool {
-        if case .closed(_, let outdated, let unpaired) = status { return unpaired || outdated != nil }
+        if case .closed(_, let blocked) = status { return blocked != nil }
         return false
     }
 }
@@ -354,19 +361,17 @@ final class Hub {
 
     private func drop(_ found: HostLive, reason: String, error: Error? = nil) {
         release(found)
-        var unpaired = false
-        var outdated: Outdated?
-        if let error = error as? MobileError {
-            if case .Unpaired = error { unpaired = true }
-            if case .Outdated(let macIsOlder) = error { outdated = macIsOlder ? .host : .phone }
-        }
+        let blocked: HostLive.Blocked? =
+            switch error as? MobileError {
+            case .Unpaired: .unpaired
+            case .Outdated(let macIsOlder): .outdated(macIsOlder ? .host : .phone)
+            default: nil
+            }
         found.failure = reason
         let holding =
-            found.recovering && !unpaired && outdated == nil && found.attempt < Self.patientTries
-            && found.watchers > 0 && !away
+            found.recovering && blocked == nil && found.attempt < Self.patientTries && found.watchers > 0 && !away
         if !holding { found.recovering = false }
-        found.status =
-            holding ? .connecting(problem: nil) : .closed(problem: reason, outdated: outdated, unpaired: unpaired)
+        found.status = holding ? .connecting(problem: nil) : .closed(problem: reason, blocked: blocked)
         if !found.settled { scheduleRetry(found) }
     }
 
@@ -435,7 +440,7 @@ final class Hub {
                 found.recovering = true
             }
             guard found.watchers > 0, found.status != .open else { continue }
-            if case .closed(_, _, true) = found.status { continue }
+            if case .closed(_, .unpaired) = found.status { continue }
             found.attempt = 0
             open(found.core)
         }
