@@ -3,8 +3,103 @@
 
 import Foundation
 
+/// The body of every response that is not a success.
+struct ApiError: Codable, Hashable, Sendable {
+    var error: ErrorDetail
+}
+
 /// A device's iroh public key: 32 bytes of Ed25519, in lowercase hex.
 typealias DeviceKey = String
+
+enum ErrorCode: String, Codable, Hashable, Sendable {
+    case badRequest = "bad_request"
+    case unauthorized = "unauthorized"
+    case forbidden = "forbidden"
+    case notFound = "not_found"
+    case conflict = "conflict"
+    case payloadTooLarge = "payload_too_large"
+    case rateLimited = "rate_limited"
+    case `internal` = "internal"
+    case unavailable = "unavailable"
+    case reverifyRequired = "reverify_required"
+    /// A value added after this build, which it cannot act on.
+    case unknown
+
+    init(from decoder: Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
+}
+
+struct ErrorDetail: Codable, Hashable, Sendable {
+    var code: ErrorCode
+    /// Written for whoever reads the logs. Apps show their own words for each code.
+    var message: String
+    /// The same as the response's x-request-id header, and how the server's logs find this request.
+    var requestId: String
+    /// Only with reverify_required: how recently the person must have proved their first factor.
+    var reverifyWithinMinutes: Int?
+}
+
+/// A link, text or prompt to stash. A file is sent as its bytes instead, with Content-Type, X-Stash-Name (URI-encoded), and optionally X-Stash-Note and X-Stash-Target (URI-encoded JSON of a StashTarget), or X-Stash-Prompt with a prompt's id to attach it to that prompt. A file signed with SikemuxHost or SikemuxDevice also sends X-Body-Sha256, the body's SHA-256 in lowercase hex, which the signature covers in place of hashing the body.
+enum StashAdd: Codable, Hashable, Sendable {
+    case link(StashAddLink)
+    case text(StashAddText)
+    case prompt(StashAddPrompt)
+    /// A message added after this build, which it cannot act on.
+    case unknown
+
+    private enum Tag: String, CodingKey {
+        case tag = "kind"
+    }
+
+    init(from decoder: Decoder) throws {
+        switch try decoder.container(keyedBy: Tag.self).decode(String.self, forKey: .tag) {
+        case "link": self = .link(try StashAddLink(from: decoder))
+        case "text": self = .text(try StashAddText(from: decoder))
+        case "prompt": self = .prompt(try StashAddPrompt(from: decoder))
+        default: self = .unknown
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        switch self {
+        case .link(let message): try message.encode(to: encoder)
+        case .text(let message): try message.encode(to: encoder)
+        case .prompt(let message): try message.encode(to: encoder)
+        case .unknown: break
+        }
+    }
+}
+
+/// A link to stash.
+struct StashAddLink: Codable, Hashable, Sendable {
+    var kind = "link"
+    /// An http or https link.
+    var url: String
+    var note: StashNote?
+    var target: StashTarget?
+}
+
+/// A composer's whole prompt to stash: its text, with its files uploaded after it.
+struct StashAddPrompt: Codable, Hashable, Sendable {
+    var kind = "prompt"
+    var text: String
+    /// How many files will follow, each uploaded with X-Stash-Prompt set to the prompt's id. Until the last arrives the prompt is in no list and announced to no device; one left unfinished for a day is deleted.
+    var attachmentCount: Int?
+    var note: StashNote?
+    var target: StashTarget?
+}
+
+/// Text to stash.
+struct StashAddText: Codable, Hashable, Sendable {
+    var kind = "text"
+    var text: String
+    var note: StashNote?
+    var target: StashTarget?
+}
+
+/// What the person wrote beside the item when they shared it.
+typealias StashNote = String
 
 /// Where the person sent the item from the share sheet: a chat on a host (chatId), or a new chat in a project on it (projectPath with newChat true). That host puts it in the chat's draft and marks it taken.
 struct StashTarget: Codable, Hashable, Sendable {
