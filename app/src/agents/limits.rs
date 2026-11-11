@@ -966,6 +966,15 @@ fn account_line(view: &View, agent: &Agent, shown: &Shown, in_use: bool, cx: &Ap
                 .child(name(shown.name.clone()))
                 .when(smart && pinned, |names| names.child(meta("Pinned".into()))),
         )
+        .when(pickable, |names| {
+            names.child(
+                ui::text(offer, TEXT_3XS, FontWeight::NORMAL)
+                    .flex_none()
+                    .text_color(t.text_primary)
+                    .opacity(0.)
+                    .group_hover(group.clone(), |offer| offer.opacity(1.)),
+            )
+        })
         .children(
             (resets.iter())
                 .filter(|kind| {
@@ -974,32 +983,6 @@ fn account_line(view: &View, agent: &Agent, shown: &Shown, in_use: bool, cx: &Ap
                 })
                 .map(|kind| reset_button(view, shown, kind, false, cx)),
         );
-    let windows = div()
-        .relative()
-        .child(
-            div()
-                .flex()
-                .flex_col()
-                .children(lines)
-                .when(pickable, |lines| {
-                    lines.group_hover(group.clone(), |lines| lines.opacity(0.))
-                }),
-        )
-        .when(pickable, |windows| {
-            windows.child(
-                div()
-                    .absolute()
-                    .inset_0()
-                    .flex()
-                    .items_center()
-                    .justify_end()
-                    .opacity(0.)
-                    .group_hover(group.clone(), |action| action.opacity(1.))
-                    .child(
-                        ui::text(offer, TEXT_3XS, FontWeight::NORMAL).text_color(t.text_primary),
-                    ),
-            )
-        });
     div()
         .id(id)
         .group(group.clone())
@@ -1022,7 +1005,7 @@ fn account_line(view: &View, agent: &Agent, shown: &Shown, in_use: bool, cx: &Ap
                 }))
         })
         .child(names)
-        .child(windows)
+        .children(lines)
         .into_any_element()
 }
 
