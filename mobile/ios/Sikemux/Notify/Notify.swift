@@ -28,6 +28,8 @@ final class Notify {
     private(set) var allowed: Bool?
     /// Asked once, after a host first lets a signed-in phone in.
     var offered = false
+    /// Why Sikemux does not have this phone's token though notifications are on, so the switch does not read as working.
+    private(set) var syncProblem: String?
 
     @ObservationIgnored private var token: CheckedContinuation<Data, Error>?
     @ObservationIgnored private var syncing: Task<Void, Error>?
@@ -95,6 +97,7 @@ final class Notify {
     /// Every connected host stops, the cards and keys go, and the server forgets the token.
     func turnOff() async {
         choose(.off)
+        syncProblem = nil
         for (core, connection) in Hub.shared.openConnections { await withdrawKey(core, connection) }
         Keys().clear()
         UNUserNotificationCenter.current().removeAllDeliveredNotifications()
@@ -151,7 +154,13 @@ final class Notify {
         let work = Task { try await sync() }
         syncing = work
         defer { syncing = nil }
-        try await work.value
+        do {
+            try await work.value
+            syncProblem = nil
+        } catch {
+            syncProblem = "Sikemux could not take this phone's address for them: \(problem(error))"
+            throw error
+        }
     }
 
     private func sync() async throws {
