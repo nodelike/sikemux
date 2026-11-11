@@ -264,10 +264,10 @@ private struct ToolRowView: View {
         let target = tool.row.target
         var words = AttributedString(target)
         words.foregroundColor = palette.ink
-        if let path = tool.row.path, let url = TranscriptLink.file(path) {
+        if let path = tool.row.path {
             words = FileGlyph.mark(size: 11) + AttributedString(" ") + words
             words.foregroundColor = palette.ink
-            words.link = url
+            words.link = TranscriptLink.file(path)
         } else if let range = target.range(of: #"https?://[^\s<>"'`]+"#, options: .regularExpression) {
             var raw = String(target[range])
             while let last = raw.last, ".,;:!?)]".contains(last) { raw.removeLast() }

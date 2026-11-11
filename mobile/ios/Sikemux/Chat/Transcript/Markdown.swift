@@ -21,7 +21,9 @@ struct ProseStyle: Equatable {
 enum TranscriptLink {
     static let fileScheme = "sikemux-file"
 
+    /// A link to the host's file `raw`, only for a picture, the one kind of file the phone opens.
     static func file(_ raw: String) -> URL? {
+        guard HostFiles.imagePath(raw) != nil else { return nil }
         var parts = URLComponents()
         parts.scheme = fileScheme
         parts.host = "open"
@@ -124,9 +126,9 @@ struct Inline {
             return run
         case .path(let path):
             let label = path.code == true ? chip(visibleText(path.c)) : inner(false).string(path.c)
-            guard paths, HostFiles.namesFile(path.href), let url = TranscriptLink.file(path.href) else { return label }
+            guard paths, HostFiles.namesFile(path.href) else { return label }
             var run = FileGlyph.mark(size: 12) + AttributedString(" ") + label
-            run.link = url
+            run.link = TranscriptLink.file(path.href)
             if path.code != true { run.foregroundColor = palette.accent }
             return run
         case .img(let image):
@@ -148,9 +150,9 @@ struct Inline {
             if let url = TranscriptLink.openable(link.href) {
                 label.link = url
                 label.foregroundColor = palette.accent
-            } else if link.file == true, paths, let url = TranscriptLink.file(link.href) {
+            } else if link.file == true, paths {
                 label = FileGlyph.mark(size: 12) + AttributedString(" ") + label
-                label.link = url
+                label.link = TranscriptLink.file(link.href)
                 label.foregroundColor = palette.accent
             }
             return label
