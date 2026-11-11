@@ -1,8 +1,9 @@
-//! "Install Sikemux", "Update" and "Sign in" on an SSH host (ADR 0018, ADR 0019): the
-//! installer, or `sikemux login`, runs over the person's own SSH in a terminal of that host's
-//! strip, so a password ssh or sudo asks for is typed there and never passes through the core.
-//! Only the sign-in code shown on that terminal's own screen, on the line login prints it on,
-//! is approved for the account; the host is then noted as installed from the alias.
+//! "Install Sikemux", "Update", "Start" and "Sign in" on an SSH host (ADR 0018, ADR 0019), over
+//! the person's own SSH. Install runs in a terminal of that host's strip, so a password sudo asks
+//! for is typed there and never passes through the core; the rest run without one. A set-up
+//! ends when its remote command ends. Signing in runs `login --json` there, whose code the core
+//! reads from the pipe and approves for the account; the host is then noted as reached at the
+//! alias, and asked afresh what it runs.
 
 use crate::server::changed::What;
 use std::sync::Arc;
@@ -11,22 +12,19 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sikemux_process::sync::Locked;
-use tokio::sync::watch;
+use tokio::sync::{mpsc, watch};
 
 use super::super::account::devices::{approve_host_sign_in, SignInCodeParams};
 use super::super::changed::Topic;
 use super::super::{session, spare, Core, CoreResult};
-use sikemux_wire::protocol::{BuildChannel, SessionId};
+use super::probe::{self, Why};
+use sikemux_wire::protocol::SessionId;
 
-/// Long enough to type a password, download the core and sign in.
-const INSTALL_WAIT: Duration = Duration::from_secs(15 * 60);
-/// The letters a sign-in code is made of, which the accounts server chooses.
-const CODE_LETTERS: &str = "BCDFGHJKLMNPQRSTVWXZ";
-/// What `sikemux login` prints in front of the code.
-const CODE_LINE: &str = "enter the code";
-/// How long, and how often, to look again for a code printed after the words in front of it.
-const CODE_SETTLE: Duration = Duration::from_millis(200);
-const CODE_SETTLE_TRIES: usize = 10;
+/// Long enough to download a release and hand the core over to it.
+const UPDATE_WAIT: Duration = Duration::from_secs(10 * 60);
+/// Long enough to sign in once the code is approved.
+const SIGN_IN_WAIT: Duration = Duration::from_secs(3 * 60);
+const START_WAIT: Duration = Duration::from_secs(60);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -92,12 +90,12 @@ fn checked_alias(alias: &str) -> CoreResult<&str> {
     }
 }
 
-/// Starts `work` on the SSH host `alias` in a terminal of its strip, and answers with that
-/// terminal. `hostSetup` waits for the end, and the host's row says how it went.
+/// Starts `work` on the SSH host `alias`, and answers with the terminal it runs in, when it
+/// needs one. `hostSetup` waits for the end, and the host's row says how it went.
 pub(crate) async fn install_host(core: &Arc<Core>, params: InstallParams) -> CoreResult<Value> {
     let alias = checked_alias(&params.alias)?.to_owned();
-    let needs_code = matches!(params.work, SetUpWork::Install | SetUpWork::SignIn);
-    if needs_code && core.remote.owner().is_none() {
+    let signs_in = matches!(params.work, SetUpWork::Install | SetUpWork::SignIn);
+    if signs_in && core.remote.owner().is_none() {
         return Err(format!(
             "this host is not signed in to your Sikemux account, so it cannot add {alias} to it"
         )
@@ -123,28 +121,39 @@ pub(crate) async fn install_host(core: &Arc<Core>, params: InstallParams) -> Cor
         run
     };
     core.changed(What::Read(Topic::Hosts));
-    let remote = match params.work {
-        SetUpWork::Install => installer(),
-        SetUpWork::Update => format!("{} && {}", installer(), over_ssh("restart")),
-        SetUpWork::SignIn => over_ssh("login"),
-        SetUpWork::Start => over_ssh("start"),
-    };
-    let startup = format!("ssh -t -- {alias} {}", single_quoted(&remote));
-    let started = async {
-        let id = spare::setup_shell(core, &alias, startup).await?;
-        let tab = super::super::layout::show_ssh_terminal(core, alias.clone(), id)?;
-        CoreResult::Ok((id, tab))
-    }
-    .await;
-    let (id, tab) = match started {
-        Ok(started) => started,
-        Err(error) => {
-            settle(core, &alias, run, Err(error.to_string()));
-            return Err(error);
+    let terminal = match params.work {
+        SetUpWork::Install => {
+            let startup = format!("ssh -t -- {alias} {}", single_quoted(&installer()));
+            let started = async {
+                let id = spare::setup_shell(core, &alias, startup).await?;
+                let tab = super::super::layout::show_ssh_terminal(core, alias.clone(), id)?;
+                CoreResult::Ok((id, tab))
+            }
+            .await;
+            match started {
+                Ok(started) => Some(started),
+                Err(error) => {
+                    settle(core, &alias, run, Err(error.to_string()));
+                    return Err(error);
+                }
+            }
         }
+        _ => None,
     };
-    tokio::spawn(finish(core.clone(), id, alias, run, needs_code));
-    Ok(json!({ "terminal": id, "tab": tab }))
+    let (core, work, id) = (
+        core.clone(),
+        params.work,
+        terminal.as_ref().map(|(id, _)| *id),
+    );
+    tokio::spawn(async move {
+        let ended = set_up(&core, &alias, work, id).await;
+        settle(&core, &alias, run, ended);
+        probe::ask(&core, &alias, Why::Changed);
+    });
+    Ok(match terminal {
+        Some((id, tab)) => json!({ "terminal": id, "tab": tab }),
+        None => json!({ "terminal": null }),
+    })
 }
 
 pub(crate) async fn host_setup(core: &Arc<Core>, params: AliasParams) -> CoreResult<Value> {
@@ -164,6 +173,21 @@ pub(crate) async fn host_setup(core: &Arc<Core>, params: AliasParams) -> CoreRes
         Some(Err(problem)) => json!({ "problem": problem }),
         _ => json!({ "problem": null }),
     })
+}
+
+/// Takes a set-up that stopped short off its host's row.
+pub(crate) fn dismiss_host_setup(core: &Core, params: AliasParams) -> CoreResult<()> {
+    let mut setups = core.hosts.setups.locked();
+    if setups
+        .get(&params.alias)
+        .is_some_and(|setup| setup.ended.borrow().is_none())
+    {
+        return Err("that set-up is still running".into());
+    }
+    setups.remove(&params.alias);
+    drop(setups);
+    core.changed(What::Read(Topic::Hosts));
+    Ok(())
 }
 
 /// The set-ups that are running or stopped short, by alias, for the hosts' rows.
@@ -203,87 +227,118 @@ fn settle(core: &Core, alias: &str, run: u64, ended: Result<(), String>) {
     core.changed(What::Read(Topic::Hosts));
 }
 
-async fn finish(core: Arc<Core>, id: SessionId, alias: String, run: u64, needs_code: bool) {
-    let ended = approve_shown_code(&core, id, &alias, needs_code).await;
-    settle(&core, &alias, run, ended);
-    super::probe::ask(&core, &alias, true);
-}
-
-async fn approve_shown_code(
+async fn set_up(
     core: &Arc<Core>,
-    id: SessionId,
     alias: &str,
-    needs_code: bool,
+    work: SetUpWork,
+    terminal: Option<SessionId>,
 ) -> Result<(), String> {
-    let session = core.session(id).ok_or("the set-up terminal ended")?;
-    let line = tokio::time::timeout(
-        INSTALL_WAIT,
-        session::line_shown(&session, CODE_LINE.to_owned()),
-    )
-    .await
-    .map_err(|_| "setting it up took too long".to_owned())?
-    .unwrap_or_default();
-    let mut code = line.as_deref().and_then(sign_in_code);
-    // The code can reach the screen a moment after the words in front of it.
-    for _ in 0..CODE_SETTLE_TRIES {
-        if code.is_some() || line.is_none() {
-            break;
+    match work {
+        SetUpWork::Install => {
+            let session = terminal
+                .and_then(|id| core.session(id))
+                .ok_or("the set-up terminal ended")?;
+            let exit = session::ended(&session).await;
+            match exit.and_then(|exit| exit.code) {
+                Some(0) => sign_in(core, alias).await,
+                Some(code) => Err(format!(
+                    "the installer exited with code {code}; its terminal shows why"
+                )),
+                None => Err("the set-up terminal was closed before it finished".into()),
+            }
         }
-        tokio::time::sleep(CODE_SETTLE).await;
-        let shown = session::line_shown(&session, CODE_LINE.to_owned())
-            .await
-            .unwrap_or_default();
-        code = shown.as_deref().and_then(sign_in_code);
+        SetUpWork::SignIn => sign_in(core, alias).await,
+        SetUpWork::Update => {
+            let ran = probe::run(
+                alias,
+                &probe::core_command("$core restart && $core update"),
+                UPDATE_WAIT,
+                |_| {},
+            )
+            .await;
+            ended(&ran)
+        }
+        SetUpWork::Start => {
+            let ran = probe::run(
+                alias,
+                &probe::core_command("$core start"),
+                START_WAIT,
+                |_| {},
+            )
+            .await;
+            ended(&ran)
+        }
     }
-    session.end_setup();
-    let Some(code) = code else {
-        return if needs_code {
-            Err("it ended without a sign-in code; a host already signed in to your account shows under Hosts as it is".into())
-        } else {
-            Ok(())
-        };
-    };
-    let host = approve_host_sign_in(core, SignInCodeParams::new(code))
-        .await
-        .map_err(|error| error.to_string())?;
-    super::listed::note_installed(core, host.key, alias.to_owned());
-    Ok(())
 }
 
-/// The sign-in code in a line `sikemux login` printed, if it is that line.
-fn sign_in_code(line: &str) -> Option<String> {
-    if !line.contains(CODE_LINE) {
-        return None;
+fn ended(ran: &probe::Ran) -> Result<(), String> {
+    match ran.failure() {
+        None => Ok(()),
+        Some(
+            probe::Unanswered::Unreachable { detail }
+            | probe::Unanswered::SshSignIn { detail }
+            | probe::Unanswered::Failed { detail },
+        ) => Err(detail),
+        Some(probe::Unanswered::Checking) => Err("it did not answer".into()),
     }
-    line.split(|c: char| !c.is_ascii_uppercase() && c != '-')
-        .find(|word| {
-            word.len() == 9
-                && word.char_indices().all(|(at, c)| {
-                    if at == 4 {
-                        c == '-'
-                    } else {
-                        CODE_LETTERS.contains(c)
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LoginLine {
+    code: Option<String>,
+    signed_in: Option<bool>,
+    account: Option<String>,
+}
+
+/// Runs `login --json` on `alias`, approving the code it prints for this host's account.
+async fn sign_in(core: &Arc<Core>, alias: &str) -> Result<(), String> {
+    let (lines, mut said) = mpsc::unbounded_channel::<String>();
+    let script = probe::core_command("$core login --json");
+    let running = probe::run(alias, &script, SIGN_IN_WAIT, move |line| {
+        let _ = lines.send(line.to_owned());
+    });
+    let reading = async {
+        let mut outcome: Result<(), String> = Err("it ended without saying it signed in".into());
+        while let Some(line) = said.recv().await {
+            let Some(read) = line
+                .find('{')
+                .and_then(|start| serde_json::from_str::<LoginLine>(&line[start..]).ok())
+            else {
+                continue;
+            };
+            if let Some(code) = read.code {
+                match approve_host_sign_in(core, SignInCodeParams::new(code)).await {
+                    Ok(host) => super::listed::note_installed(core, host.key, alias.to_owned()),
+                    Err(error) => outcome = Err(error.to_string()),
+                }
+            }
+            if read.signed_in == Some(true) {
+                outcome = match read.account {
+                    Some(account) if Some(&account) != core.remote.owner().as_ref() => {
+                        Err(format!("{alias} is signed in to another Sikemux account"))
                     }
-                })
-        })
-        .map(str::to_owned)
+                    _ => Ok(()),
+                };
+            }
+        }
+        outcome
+    };
+    let (ran, outcome) = tokio::join!(running, reading);
+    ended(&ran).and(outcome)
 }
 
-/// The installer for this core's channel, as an SSH host runs it.
+/// The installer for this core's channel, as an SSH host runs it. It leaves signing in to the
+/// core, which approves the code itself.
 fn installer() -> String {
     let channel = match super::super::host::info().channel {
         BuildChannel::Stable => "stable",
         _ => "nightly",
     };
     format!(
-        "curl -fsSL https://sikemux.com/install | SIKEMUX_CHANNEL={channel} sh -s -- --host --yes"
+        "curl -fsSL https://sikemux.com/install | SIKEMUX_CHANNEL={channel} SIKEMUX_SIGN_IN=later sh -s -- --host --yes"
     )
 }
 
-/// `sikemux` with `args`, run on an SSH host through its login shell's PATH and where the
-/// installer puts it when that PATH does not reach it.
-pub(super) fn over_ssh(args: &str) -> String {
-    format!(r#"exec "$SHELL" -lc 'PATH="$PATH:$HOME/.local/bin" sikemux {args}'"#)
-}
-
 use sikemux_process::single_quoted;
+use sikemux_wire::protocol::BuildChannel;

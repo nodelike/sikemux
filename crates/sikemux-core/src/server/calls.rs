@@ -421,6 +421,7 @@ calls! { core, client, method, params;
     "hostInstalledFrom": Owner => answer(super::hosts::installed_from(&core, parse(params)?)?),
     "installHost" InstallHost (super::hosts::install::InstallParams) -> Value: Owner => super::hosts::install::install_host(&core, params).await?,
     "hostSetup": Owner => answer(super::hosts::install::host_setup(&core, parse(params)?).await?),
+    "dismissHostSetup": Owner => answer(super::hosts::install::dismiss_host_setup(&core, parse(params)?)?),
     "linkHost": Owner, counted => answer(super::hosts::link_host(&core, parse(params)?).await?),
     "openOnHost" OpenOnHost (super::hosts::open::OpenOnParams) -> Value: Owner, counted => super::hosts::open::open_on(&core, params).await?,
     "moveChatToHost" MoveChatToHost (super::hosts::chat_move::MoveChatToHostParams) -> super::hosts::chat_move::ChatMoved: Owner, counted => super::hosts::chat_move::move_chat(&core, params).await?,

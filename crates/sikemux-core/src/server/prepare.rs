@@ -202,10 +202,17 @@ pub(crate) fn prepare_terminal(
     if login_shell && startup.is_none() && direct_command.is_none() {
         cmd.arg("-l");
     }
+    let setup = context
+        .as_ref()
+        .is_some_and(|context| context.session_kind == LaunchKind::Setup);
     if let Some(startup) = startup.as_deref() {
         cmd.env(vars::SHELL, &shell);
         cmd.arg("-c");
-        cmd.arg(startup_bootstrap(startup, login_shell));
+        if setup {
+            cmd.arg(format!("exec {startup}"));
+        } else {
+            cmd.arg(startup_bootstrap(startup, login_shell));
+        }
     }
     Ok(PreparedLaunch {
         cols,
@@ -221,9 +228,7 @@ pub(crate) fn prepare_terminal(
             .as_ref()
             .is_some_and(|context| context.initial_prompt_submitted),
         continues,
-        setup: context
-            .as_ref()
-            .is_some_and(|context| context.session_kind == LaunchKind::Setup),
+        setup,
         model_grant: None,
     })
 }

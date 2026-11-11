@@ -304,9 +304,8 @@ async fn a_paired_device_drives_a_terminal_over_the_network() {
     assert!(seen > 0);
 }
 
-/// A host's set-up terminal shows the sign-in code the core approves for the
-/// account, and echoes what is typed into it, so a device that could type
-/// there could print a code of its own and get its host onto the account.
+/// A host's install terminal is where sudo asks for a password, so only the
+/// Sikemux window types into it. Its alias never answers, so it stays open.
 #[tokio::test(flavor = "multi_thread")]
 async fn only_the_app_types_into_a_setup_terminal() {
     let core_key = SecretKey::generate();
@@ -325,7 +324,7 @@ async fn only_the_app_types_into_a_setup_terminal() {
     let started = app
         .call(
             "installHost",
-            json!({ "alias": "build-box", "work": "start" }),
+            json!({ "alias": "192.0.2.1", "work": "install" }),
         )
         .await
         .expect("the app sets a host up");

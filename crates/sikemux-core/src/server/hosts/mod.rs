@@ -56,7 +56,7 @@ pub(crate) use link::{Failed, LINK_ALPN};
 pub(crate) use listed::{installed_from, rows};
 pub use listed::{HostRow, Reach as HostReach};
 pub(crate) use outbox::Sending;
-pub use probe::Found as HostFound;
+pub use probe::{Found as HostFound, Unanswered as HostUnanswered};
 pub(crate) use receipts::Stands;
 
 const DIAL_WAIT: Duration = Duration::from_secs(15);
@@ -125,8 +125,9 @@ pub(crate) struct Hosts {
     /// What is being done to SSH hosts from here, by alias, until it ends well.
     setups: Mutex<HashMap<String, install::Setup>>,
     /// What each SSH host was found to run when last asked, by alias.
-    probes: Mutex<HashMap<String, probe::Found>>,
-    probing: Mutex<probe::Probing>,
+    probes: Mutex<probe::Probes>,
+    /// The linked hosts when the hosts were last listed, to see links come and go.
+    listed_links: Mutex<Option<Vec<String>>>,
 }
 
 impl Hosts {
@@ -146,7 +147,7 @@ impl Hosts {
             installed_kept,
             setups: Mutex::default(),
             probes: Mutex::default(),
-            probing: Mutex::default(),
+            listed_links: Mutex::default(),
         }
     }
 

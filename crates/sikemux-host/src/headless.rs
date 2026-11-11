@@ -38,7 +38,9 @@ pub fn run(command: &str, args: &[String]) -> i32 {
     crate::install_tls_crypto();
     let result = match command {
         "status" => return status(args.iter().any(|arg| arg == "--json")),
-        "login" => with_core(Work::Login),
+        "login" => with_core(Work::Login {
+            json: args.iter().any(|arg| arg == "--json"),
+        }),
         "logout" => with_core(Work::Logout),
         "start" => start().map(|_| ()),
         "stop" => stop(),
@@ -61,7 +63,11 @@ pub fn run(command: &str, args: &[String]) -> i32 {
 }
 
 enum Work {
-    Login,
+    /// With `json`, says the code and the outcome as one JSON line each, for a core signing
+    /// this host in over SSH.
+    Login {
+        json: bool,
+    },
     Logout,
 }
 
@@ -257,7 +263,8 @@ fn with_core(work: Work) -> Result<(), String> {
             .await
             .map_err(|error| error.to_string())?;
         match work {
-            Work::Login => login(&core).await,
+            Work::Login { json: false } => login(&core).await,
+            Work::Login { json: true } => login_json(&core).await,
             Work::Logout => {
                 let status = core
                     .remote_status()
@@ -304,6 +311,33 @@ async fn login(core: &CoreClient) -> Result<(), String> {
     Ok(())
 }
 
+async fn login_json(core: &CoreClient) -> Result<(), String> {
+    let owner = core
+        .remote_status()
+        .await
+        .map_err(|error| error.to_string())?
+        .owner;
+    if owner.is_none() {
+        crate::account::sign_in_by_code(core, |signing| {
+            println!(
+                "{}",
+                json!({ "code": signing.user_code, "url": signing.verification_url })
+            );
+        })
+        .await?;
+    }
+    let account = core
+        .remote_status()
+        .await
+        .map_err(|error| error.to_string())?
+        .owner;
+    println!(
+        "{}",
+        json!({ "signedIn": account.is_some(), "account": account })
+    );
+    Ok(())
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct Status {
@@ -335,7 +369,12 @@ fn status(json: bool) -> i32 {
         eprintln!("sikemux status: HOME is not set");
         return 1;
     };
-    let hello = probe(&launch.socket, PROBE_TIMEOUT).ok();
+    let probed = probe(&launch.socket, PROBE_TIMEOUT);
+    let older = match probed {
+        Err(ProbeError::Rejected { pid, .. }) => Some(pid),
+        _ => None,
+    };
+    let hello = probed.ok();
     let about = hello
         .as_ref()
         .and_then(|_| runtime().ok()?.block_on(about(&launch.socket)).ok());
@@ -343,8 +382,8 @@ fn status(json: bool) -> i32 {
         (Some(remote), Some(name), updates)
     });
     let status = Status {
-        running: hello.is_some(),
-        pid: hello.as_ref().map(|hello| hello.pid),
+        running: hello.is_some() || older.is_some(),
+        pid: hello.as_ref().map(|hello| hello.pid).or(older),
         version: hello.as_ref().map(|hello| hello.build.version.clone()),
         socket: launch.socket,
         starts_at_boot: starts_at_boot(),
@@ -396,6 +435,12 @@ fn print_status(status: &Status) {
         |label: &str, value: String| println!("  {} {value}", style::dim(&format!("{label:<9}")));
     match (status.pid, &status.version) {
         (Some(pid), Some(version)) => row("Core", format!("running, pid {pid}, version {version}")),
+        (Some(pid), None) => row(
+            "Core",
+            format!(
+                "running, pid {pid}, from another release; `sikemux restart` brings it to this one"
+            ),
+        ),
         _ => row("Core", "not running; start it with `sikemux start`".into()),
     }
     row(

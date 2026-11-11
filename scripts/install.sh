@@ -4,11 +4,13 @@
 # the latest stable one; a nightly install hands over to that nightly's own.
 # On Linux it asks whether to install the desktop app or just the core, which
 # runs agents on a server; `| sh -s -- --host` or `--app` picks without asking,
-# and `--yes` takes every default. Set SIKEMUX_CHANNEL=nightly for the nightly build.
+# and `--yes` takes every default. Set SIKEMUX_CHANNEL=nightly for the nightly build, and
+# SIKEMUX_SIGN_IN=later to leave signing in to whoever runs it, as Sikemux does over SSH.
 set -eu
 
 REPO="https://github.com/nodelike/sikemux"
 CHANNEL="${SIKEMUX_CHANNEL:-stable}"
+SIGN_IN="${SIKEMUX_SIGN_IN:-now}"
 MODE=ask
 YES=false
 for arg in "$@"; do
@@ -305,6 +307,7 @@ install_linux() {
   else
     install_guarded_core "$ARCH"
     install_appimage
+    link_cli
   fi
   say ""
 }
@@ -336,7 +339,7 @@ ExecStart=/usr/local/lib/sikemux/sikemux-host update --install
 StandardInput=socket
 StandardOutput=socket
 StandardError=journal
-RuntimeMaxSec=20min
+RuntimeMaxSec=60min
 MemoryMax=512M
 ProtectSystem=strict
 ReadWritePaths=/usr/local/lib/sikemux
@@ -388,6 +391,13 @@ install_guarded_core() {
   fi
 }
 
+# Puts `sikemux` on PATH, run as the core, for a person and for Sikemux over SSH alike.
+link_cli() {
+  if [ "$(id -u)" -eq 0 ]; then bin=/usr/local/bin; else bin="$HOME/.local/bin"; fi
+  mkdir -p "$bin"
+  ln -sf /usr/local/lib/sikemux/sikemux-host "$bin/sikemux"
+}
+
 install_host() {
   case "$(uname -m)" in
     x86_64 | amd64) arch=x86_64 ;;
@@ -395,11 +405,10 @@ install_host() {
     *) fail "a Sikemux host needs an x86_64 or arm64 machine" ;;
   esac
   if [ "$(id -u)" -eq 0 ]; then bin=/usr/local/bin; else bin="$HOME/.local/bin"; fi
-  mkdir -p "$bin"
   previous=""
   [ -x "$bin/sikemux" ] && previous=$("$bin/sikemux" --version 2>/dev/null | sed 's/^sikemux //')
   install_guarded_core "$arch"
-  ln -sf /usr/local/lib/sikemux/sikemux-host "$bin/sikemux"
+  link_cli
   user=$(id -un)
   if [ "$(id -u)" -eq 0 ]; then
     note "Running as root, agents run as root too and can read anything; use your own account to keep them out of the core's secrets."
@@ -437,6 +446,10 @@ install_host() {
   if "$bin/sikemux" status --json 2>/dev/null | grep -q '"account": "'; then
     say ""
     say "  This host is signed in: your Mac and phone reach it from Sikemux now."
+    say ""
+    return 0
+  fi
+  if [ "$SIGN_IN" = later ]; then
     say ""
     return 0
   fi

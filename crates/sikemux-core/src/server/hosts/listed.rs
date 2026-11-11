@@ -27,58 +27,68 @@ pub enum Reach {
 #[derive(Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct HostRow {
-    /// The host's core key; none for an SSH host without Sikemux.
+    /// The host's core key; none for an SSH host not linked with this one.
     pub id: Option<String>,
     pub name: String,
     pub platform: Option<String>,
     pub reach: Reach,
-    /// The SSH host it was installed on from here, or the row's own alias.
+    /// The SSH host it was installed on or found at from here, or the row's own alias.
     pub ssh: Option<String>,
-    /// What is being done to an SSH host from here: installing, updating or signing in.
+    /// What is being done to its SSH host from here: installing, updating or signing in.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub setup: Option<super::install::SetupRow>,
     /// What its SSH host was found to run when last asked.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub found: Option<super::probe::Found>,
-    /// What setting its SSH host up takes: installing where nothing has said Sikemux is there.
+    /// Why its SSH host has no answer yet; nothing is offered meanwhile.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unanswered: Option<super::probe::Unanswered>,
+    /// What setting its SSH host up takes, once it answered.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub set_up: Option<super::install::SetUpWork>,
 }
 
-/// Linked hosts in the order they were linked, then the SSH hosts a terminal
-/// is open to, by alias, leaving out those a linked host was installed on.
+/// One row per host: the hosts linked with this one in the order they were linked, each with
+/// the SSH host it is reached at from here, then the SSH hosts a terminal is open to or a set-up
+/// runs on, by alias, one row for each host they reach.
 pub(crate) fn rows(core: &Core) -> Vec<HostRow> {
     if !core.hosts.listed.swap(true, Ordering::AcqRel) {
         core.hosts.wake.now();
     }
+    let links = core.remote.links();
+    let links_moved = forget_unlinked(core, &links);
     let installed = core.hosts.installed.locked().clone();
     let listening = core.remote.endpoint().is_some();
-    let mut rows: Vec<HostRow> = core
-        .remote
-        .links()
+    let mut setups: BTreeMap<String, super::install::SetupRow> =
+        super::install::rows(core).into_iter().collect();
+    let mut asking: Vec<String> = Vec::new();
+    let mut rows: Vec<HostRow> = links
         .into_iter()
-        .map(|link| HostRow {
-            reach: if listening {
+        .map(|link| {
+            let reach = if listening {
                 core.hosts.reach(&link.id)
             } else {
                 Reach::Away
-            },
-            found: installed
-                .get(&link.id)
-                .and_then(|alias| super::probe::found(core, alias)),
-            set_up: installed
-                .get(&link.id)
-                .and_then(|alias| super::probe::found(core, alias))
-                .and_then(super::probe::Found::set_up),
-            ssh: installed.get(&link.id).cloned(),
-            setup: None,
-            id: Some(link.id),
-            name: link.name,
-            platform: Some(link.platform),
+            };
+            let ssh = installed.get(&link.id).cloned();
+            let mut row = HostRow {
+                setup: ssh.as_ref().and_then(|alias| setups.remove(alias)),
+                ssh: ssh.clone(),
+                id: Some(link.id),
+                name: link.name,
+                platform: Some(link.platform),
+                reach,
+                found: None,
+                unanswered: None,
+                set_up: None,
+            };
+            if let Some(alias) = ssh.filter(|_| reach != Reach::Connected) {
+                answered(&mut row, super::probe::answer(core, &alias));
+                asking.push(alias);
+            }
+            row
         })
         .collect();
-    let mut setups: BTreeMap<String, super::install::SetupRow> =
-        super::install::rows(core).into_iter().collect();
     let mut open: BTreeMap<String, Reach> = BTreeMap::new();
     for (alias, setup) in &setups {
         open.insert(alias.clone(), setup.reach());
@@ -98,23 +108,71 @@ pub(crate) fn rows(core: &Core) -> Vec<HostRow> {
             *best = reach;
         }
     }
-    rows.extend(open.into_iter().map(|(alias, reach)| {
-        let found = super::probe::found(core, &alias);
-        HostRow {
+    let mut reached: Vec<String> = Vec::new();
+    for (alias, reach) in open {
+        let key = super::probe::reached(core, &alias);
+        if let Some(key) = &key {
+            if reached.contains(key) {
+                continue;
+            }
+            reached.push(key.clone());
+        }
+        let mut row = HostRow {
             id: None,
             name: alias.clone(),
             platform: None,
             reach,
             setup: setups.remove(&alias),
-            set_up: found.map_or(
-                Some(super::install::SetUpWork::Install),
-                super::probe::Found::set_up,
-            ),
-            found,
-            ssh: Some(alias),
+            found: None,
+            unanswered: None,
+            set_up: None,
+            ssh: Some(alias.clone()),
+        };
+        answered(&mut row, super::probe::answer(core, &alias));
+        asking.push(alias);
+        rows.push(row);
+    }
+    if let Some(core) = core.arc() {
+        let why = if links_moved {
+            super::probe::Why::Changed
+        } else {
+            super::probe::Why::Shown
+        };
+        for alias in asking {
+            super::probe::ask(&core, &alias, why);
         }
-    }));
+    }
     rows
+}
+
+fn answered(row: &mut HostRow, answer: super::probe::Answer) {
+    match answer {
+        super::probe::Answer::Found(found) => {
+            row.found = Some(found);
+            row.set_up = found.set_up();
+        }
+        super::probe::Answer::Unanswered(unanswered) => row.unanswered = Some(unanswered),
+    }
+}
+
+/// Drops the SSH hosts of hosts no longer linked, and says whether the links moved since the
+/// hosts were last listed.
+fn forget_unlinked(core: &Core, links: &[super::super::remote::StoredLink]) -> bool {
+    let now: Vec<String> = links.iter().map(|link| link.id.clone()).collect();
+    let before = core.hosts.listed_links.locked().replace(now.clone());
+    let Some(before) = before else {
+        return false;
+    };
+    if before == now {
+        return false;
+    }
+    let mut installed = core.hosts.installed.locked();
+    let count = installed.len();
+    installed.retain(|key, _| now.contains(key) || !before.contains(key));
+    if installed.len() != count {
+        core.hosts.installed_kept.save(&*installed);
+    }
+    true
 }
 
 fn rank(reach: Reach) -> u8 {

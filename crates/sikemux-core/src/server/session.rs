@@ -977,7 +977,7 @@ fn broadcast_output(core: &Arc<Core>, session: &Session, bytes: &[u8]) {
         if let Some(alias) = &session.owner.ssh_host {
             super::ssh::moved(core);
             if link == sikemux_pty::shell_protocol::SshLink::Connected {
-                super::hosts::probe::ask(core, alias, false);
+                super::hosts::probe::ask(core, alias, super::hosts::probe::Why::Connected);
             }
         }
     }
@@ -1122,6 +1122,12 @@ pub(crate) fn reconnect_ssh(session: &Session) {
             Box::new(|_| {}),
         );
     }
+}
+
+/// How the terminal's process ended, once it has.
+pub(crate) async fn ended(session: &Session) -> Option<SessionExit> {
+    let _ = line_shown(session, "\0".to_owned()).await;
+    session.exit()
 }
 
 /// The first line on the screen containing `containing`, once one shows,

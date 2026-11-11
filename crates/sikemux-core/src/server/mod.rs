@@ -79,6 +79,7 @@ pub mod remote_image;
 mod repo_events;
 mod requests;
 mod roster;
+mod runtime_file;
 pub mod saved;
 pub mod saved_sessions;
 pub mod search;
@@ -1135,6 +1136,11 @@ pub(crate) async fn run_core(
     listener.set_nonblocking(true)?;
     let listener = tokio::net::UnixListener::from_std(listener)?;
     remote::start(&core, &config).await;
+    runtime_file::write(
+        &remote::file_path(&config.socket),
+        core.remote.owner(),
+        core.remote.core_id(),
+    );
     if config.plugins.is_some() {
         vault::start(&core);
     }

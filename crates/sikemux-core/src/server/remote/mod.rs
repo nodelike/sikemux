@@ -864,6 +864,14 @@ impl Remote {
             inner.kept = kept;
         }
         write_stored(&path, &inner.stored)?;
+        crate::server::runtime_file::write(
+            &path,
+            inner.stored.owner.clone(),
+            inner
+                .secret
+                .as_ref()
+                .map(|secret| secret.public().to_string()),
+        );
         if inner.written != inner.kept.0 {
             inner.written = inner.kept.0.clone();
             keep(inner, &inner.kept)?;
