@@ -155,7 +155,7 @@ final class MentionSearch {
         let start = typed.start
         let session = session
         let write = { (written: String, id: String?, label: String?, context: ChatContext?) in
-            session.mention(start, written: written, id: id, label: label, context: context)
+            session.draft.mention(start, written: written, id: id, label: label, context: context)
         }
         let wanted = typed.needle.lowercased()
         let project = project
@@ -273,7 +273,7 @@ final class MentionSearch {
                                     let answer = try await connection.call(
                                         PhoneCall.CodeHostTrackedContext.self, params)
                                     guard case .value(let value) = answer else { return }
-                                    session.track(id, try value.decoded(as: ChatContext.self))
+                                    session.draft.track(id, try value.decoded(as: ChatContext.self))
                                 } catch {
                                     log.error(
                                         "what the issue or pull request says: \(problem(error), privacy: .public)")
