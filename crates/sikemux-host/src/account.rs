@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use serde::de::DeserializeOwned;
 use serde::Serialize;
+use sikemux_process::clock::epoch_ms;
 use sikemux_client::client::CoreClient;
 use sikemux_core::accounts::host::{
     HostSignIn, HostSignInFinish, HostSignInPoll, HostSignInStart, HostSignInState,
@@ -39,16 +40,7 @@ pub async fn sign_in_by_code(
     let poll = HostSignInPoll {
         code: signing.code.clone(),
     };
-    let interval = Duration::from_secs(signing.interval.max(1).unsigned_abs());
-    let (account, nonce) = loop {
-        tokio::time::sleep(interval).await;
-        let state: HostSignInState = post("/v1/host-sign-ins/poll", &poll).await?;
-        if let (HostSignInStatus::Approved, Some(account), Some(nonce)) =
-            (state.status, state.account, state.nonce)
-        {
-            break (account, nonce);
-        }
-    };
+    let (account, nonce) = wait_for_approval(&signing, &poll).await?;
     sikemux_client::accounts::check_user_id(&account).map_err(|error| error.to_string())?;
     let signed = core
         .ask(ask::SignRegistration {
@@ -69,14 +61,72 @@ pub async fn sign_in_by_code(
     Ok(account)
 }
 
-async fn post<T: DeserializeOwned>(path: &str, body: &impl Serialize) -> Result<T, String> {
+/// Asks whether the person approved the code until they do or it expires,
+/// riding out a dropped network, a busy server and being asked to slow down.
+/// Answers with the account and the challenge to sign.
+async fn wait_for_approval(
+    signing: &HostSignIn,
+    poll: &HostSignInPoll,
+) -> Result<(String, String), String> {
+    let interval = Duration::from_secs(signing.interval.max(1).unsigned_abs());
+    let expires = sikemux_core::accounts::live::parse_rfc3339(&signing.expires_at)
+        .ok_or("the account server gave a code with no expiry")?;
+    let mut wait = interval;
+    loop {
+        tokio::time::sleep(wait).await;
+        if epoch_ms() >= expires {
+            return Err("the code expired before it was approved; run `sikemux login` again".into());
+        }
+        wait = interval;
+        match send("/v1/host-sign-ins/poll", poll).await {
+            Ok(response) if response.status().is_success() => {
+                let state: HostSignInState =
+                    response.json().await.map_err(|error| error.to_string())?;
+                if let (HostSignInStatus::Approved, Some(account), Some(nonce)) =
+                    (state.status, state.account, state.nonce)
+                {
+                    return Ok((account, nonce));
+                }
+            }
+            Ok(response) if passing(response.status()) => {
+                wait = retry_after(&response).unwrap_or(interval).max(interval);
+            }
+            Ok(response) => return Err(sikemux_core::accounts::refusal(response).await),
+            Err(_) => {}
+        }
+    }
+}
+
+/// A refusal that says nothing about the code: the server is busy or asks
+/// for fewer requests.
+fn passing(status: reqwest::StatusCode) -> bool {
+    status.is_server_error() || status == reqwest::StatusCode::TOO_MANY_REQUESTS
+}
+
+fn retry_after(response: &reqwest::Response) -> Option<Duration> {
+    let seconds = response
+        .headers()
+        .get(reqwest::header::RETRY_AFTER)?
+        .to_str()
+        .ok()?
+        .trim()
+        .parse()
+        .ok()?;
+    Some(Duration::from_secs(seconds))
+}
+
+async fn send(path: &str, body: &impl Serialize) -> Result<reqwest::Response, String> {
     let base = sikemux_core::accounts::api_base();
-    let response = sikemux_core::accounts::client()?
+    sikemux_core::accounts::client()?
         .post(format!("{}{path}", base.trim_end_matches('/')))
         .json(body)
         .send()
         .await
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| error.to_string())
+}
+
+async fn post<T: DeserializeOwned>(path: &str, body: &impl Serialize) -> Result<T, String> {
+    let response = send(path, body).await?;
     if !response.status().is_success() {
         return Err(sikemux_core::accounts::refusal(response).await);
     }
