@@ -95,10 +95,22 @@ fn an_ordered_list_says_where_it_starts_only_when_not_at_one() {
 }
 
 #[test]
-fn a_fence_names_its_language_by_the_first_word() {
+fn a_fence_names_its_language_and_the_file_it_shows() {
     assert_eq!(
-        chat("```src/a.ts title=x\nconst a = 1;\n```"),
-        json!([{"t": "pre", "lang": "src/a.ts", "v": "const a = 1;\n"}])
+        chat("```ts\nconst a = 1;\n```"),
+        json!([{"t": "pre", "lang": "ts", "v": "const a = 1;\n"}])
+    );
+    assert_eq!(
+        chat("```ts:src/a.ts\nconst a = 1;\n```"),
+        json!([{"t": "pre", "lang": "ts", "name": "src/a.ts", "v": "const a = 1;\n"}])
+    );
+    assert_eq!(
+        chat("```src/a.ts\nconst a = 1;\n```"),
+        json!([{"t": "pre", "lang": "ts", "name": "src/a.ts", "v": "const a = 1;\n"}])
+    );
+    assert_eq!(
+        chat("```ts title=\"a.ts\"\nconst a = 1;\n```"),
+        json!([{"t": "pre", "lang": "ts", "name": "a.ts", "v": "const a = 1;\n"}])
     );
     assert_eq!(chat("```\n```"), json!([{"t": "pre", "v": ""}]));
     assert_eq!(

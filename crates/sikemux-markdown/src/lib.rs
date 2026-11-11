@@ -93,6 +93,9 @@ pub enum MdElement {
     Pre {
         #[serde(skip_serializing_if = "Option::is_none")]
         lang: Option<String>,
+        /// The file the block shows, when its fence names one.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
         v: String,
     },
     Hr,
@@ -256,6 +259,7 @@ enum Kind {
     },
     Code {
         lang: Option<String>,
+        name: Option<String>,
         text: String,
     },
     Html(String),
@@ -735,15 +739,17 @@ impl Builder {
             Tag::Paragraph => Kind::Paragraph,
             Tag::Heading { level, .. } => Kind::Heading(level as u8),
             Tag::BlockQuote(_) => Kind::Quote,
-            Tag::CodeBlock(kind) => Kind::Code {
-                lang: match kind {
-                    CodeBlockKind::Fenced(info) => {
-                        info.split_whitespace().next().map(str::to_owned)
-                    }
-                    CodeBlockKind::Indented => None,
-                },
-                text: String::new(),
-            },
+            Tag::CodeBlock(kind) => {
+                let (lang, name) = match kind {
+                    CodeBlockKind::Fenced(info) => fence_info(&info),
+                    CodeBlockKind::Indented => (None, None),
+                };
+                Kind::Code {
+                    lang,
+                    name,
+                    text: String::new(),
+                }
+            }
             Tag::HtmlBlock => Kind::Html(String::new()),
             Tag::List(start) => Kind::List(start),
             Tag::Item => Kind::Item(None),
@@ -842,11 +848,19 @@ impl Builder {
                 plain_text(&Self::nodes(frame.children, false, false), &mut alt);
                 MdElement::Img { src, alt, title }
             }
-            Kind::Code { lang, mut text } => {
+            Kind::Code {
+                lang,
+                name,
+                mut text,
+            } => {
                 if !text.is_empty() && !text.ends_with('\n') {
                     text.push('\n');
                 }
-                MdElement::Pre { lang, v: text }
+                MdElement::Pre {
+                    lang,
+                    name,
+                    v: text,
+                }
             }
             Kind::Html(html) => {
                 if !self.options.html_as_text {
@@ -893,4 +907,35 @@ impl Builder {
         };
         self.push_element(element);
     }
+}
+
+/// A fence's language and the file it names: `rust:src/main.rs`, `rust title="main.rs"`, or a
+/// bare `main.rs`, whose language is its extension.
+fn fence_info(info: &str) -> (Option<String>, Option<String>) {
+    let mut words = info.split_whitespace();
+    let Some(first) = words.next() else {
+        return (None, None);
+    };
+    let named = words.find_map(|word| {
+        let (key, value) = word.split_once('=')?;
+        matches!(key, "title" | "file" | "filename" | "path")
+            .then(|| value.trim_matches(['"', '\'']).to_owned())
+            .filter(|value| !value.is_empty())
+    });
+    if let Some((lang, name)) = first
+        .split_once(':')
+        .filter(|(lang, name)| !lang.is_empty() && !name.is_empty())
+    {
+        return (
+            Some(lang.to_owned()),
+            named.or_else(|| Some(name.to_owned())),
+        );
+    }
+    if first.contains(['.', '/']) {
+        let extension = first
+            .rsplit_once('.')
+            .map(|(_, extension)| extension.to_owned());
+        return (extension, named.or_else(|| Some(first.to_owned())));
+    }
+    (Some(first.to_owned()), named)
 }

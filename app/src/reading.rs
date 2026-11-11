@@ -60,15 +60,16 @@ pub(crate) fn reading_style(text_size: f32, cx: &App) -> Style {
     }
 }
 
-/// How the app draws a fenced code block: a card a step above the text, headed by its
-/// language's icon.
+/// How the app draws a fenced code block: one card a step above the text, headed by its
+/// language's icon and its file's name, with line numbers and a Copy pill.
 pub(crate) fn code_card(t: &Tokens) -> CodeCard {
     CodeCard {
-        ground: Hsla {
-            a: 0.8,
-            ..t.surface_raised
-        },
-        radius: px(10.),
+        ground: t.surface_raised,
+        edge: t.border,
+        radius: px(12.),
+        gutter: theme::mix(t.text_disabled, t.surface_raised, 0.5),
+        pill: t.surface_hover,
+        pill_edge: t.border,
         button: t.text_secondary,
         hover: t.surface_hover,
         held: t.surface_chosen,
@@ -86,7 +87,22 @@ pub(crate) fn code_card(t: &Tokens) -> CodeCard {
                     .into_any_element(),
             )
         })),
+        title: Some(Rc::new(|lang, code| {
+            match shell_like(lang, code) || commands(lang) {
+                true => ("Terminal".into(), false),
+                false => (lang.unwrap_or("Code").to_owned().into(), true),
+            }
+        })),
     }
+}
+
+/// Whether a code block holds commands to type, as `sh` and `bash` blocks do.
+fn commands(lang: Option<&str>) -> bool {
+    lang.is_some_and(|lang| {
+        ["sh", "bash", "zsh", "shell"]
+            .iter()
+            .any(|shell| lang.eq_ignore_ascii_case(shell))
+    })
 }
 
 /// Whether a code block shows a shell: it names one, or names nothing and starts at a prompt.

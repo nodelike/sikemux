@@ -20,7 +20,8 @@ pub enum Kind {
     Bullets,
     Numbers(u64),
     Item(Option<bool>),
-    Code(Option<SharedString>),
+    /// A code block's language, and the file it shows when its fence names one.
+    Code(Option<SharedString>, Option<SharedString>),
     Rule,
     Table(Box<Table>),
     /// A list with no tag of its own, as a table's rows and its cells are.
@@ -213,7 +214,7 @@ impl Node {
     /// The node's content as it is drawn, worked out once until a patch reaches inside it.
     pub fn flow(&self) -> &[Piece] {
         self.flow.get_or_init(|| {
-            if let Kind::Code(_) = self.kind {
+            if let Kind::Code(..) = self.kind {
                 return vec![Piece::Text(Rich {
                     text: self.text.trim_end_matches('\n').to_owned().into(),
                     ..Rich::default()
@@ -269,7 +270,7 @@ impl Node {
     /// A code block's first lines up to `limit` characters, ending at a line break when
     /// one comes in the second half.
     fn code_head(&self, limit: usize) -> Option<Node> {
-        let Kind::Code(_) = self.kind else {
+        let Kind::Code(..) = self.kind else {
             return None;
         };
         let end = self
@@ -382,6 +383,7 @@ struct Element {
     start: Option<u64>,
     checked: Option<bool>,
     lang: Option<SharedString>,
+    name: Option<SharedString>,
     /// A table's side for each column, or the one side of an aligned block.
     align: Value,
     summary: SharedString,
@@ -416,7 +418,7 @@ impl From<Wire> for Node {
             "ul" => Kind::Bullets,
             "ol" => Kind::Numbers(element.start.unwrap_or(1)),
             "li" => Kind::Item(element.checked),
-            "pre" => Kind::Code(element.lang),
+            "pre" => Kind::Code(element.lang, element.name),
             "hr" => Kind::Rule,
             "table" => Kind::Table(Box::new(Table {
                 align: (element.align.as_array().into_iter().flatten())

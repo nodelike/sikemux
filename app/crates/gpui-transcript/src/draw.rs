@@ -59,6 +59,9 @@ pub type CodeColours =
     Rc<dyn Fn(Option<&SharedString>, &SharedString, &mut App) -> Option<CodeRuns>>;
 /// The icon a code block heads itself with, by its language and its text, `size` square.
 pub type CodeIcon = Rc<dyn Fn(Option<&str>, &str, Pixels, &mut App) -> Option<AnyElement>>;
+/// What a code block without a file name is called, from its language and code, and whether
+/// its lines are numbered.
+pub type CodeTitle = Rc<dyn Fn(Option<&str>, &str) -> (SharedString, bool)>;
 /// Draws a picture from its address and its alt text.
 pub type DrawImage = Rc<dyn Fn(&str, &str, &mut Window, &mut App) -> AnyElement>;
 
@@ -110,7 +113,12 @@ const FILE_ICON_SPACE_EMS: f32 = 0.3;
 #[derive(Clone)]
 pub struct CodeCard {
     pub ground: Hsla,
+    pub edge: Hsla,
     pub radius: Pixels,
+    /// The line numbers, and the ground and edge of the Copy pill.
+    pub gutter: Hsla,
+    pub pill: Hsla,
+    pub pill_edge: Hsla,
     /// The buttons' icons at rest, and the ground under a button hovered or held on.
     pub button: Hsla,
     pub hover: Hsla,
@@ -120,13 +128,18 @@ pub struct CodeCard {
     pub copied: SharedString,
     pub wrap: SharedString,
     pub icon: Option<CodeIcon>,
+    pub title: Option<CodeTitle>,
 }
 
 impl Default for CodeCard {
     fn default() -> Self {
         CodeCard {
-            ground: rgba(0x1a1a1fcc).into(),
-            radius: px(10.),
+            ground: rgb(0x131317).into(),
+            edge: rgb(0x22222a).into(),
+            radius: px(12.),
+            gutter: rgb(0x3b3a44).into(),
+            pill: rgb(0x1e1e25).into(),
+            pill_edge: rgb(0x2a2a32).into(),
             button: rgb(0xb4b1c0).into(),
             hover: rgba(0xffffff0f).into(),
             held: rgba(0xffffff17).into(),
@@ -134,6 +147,7 @@ impl Default for CodeCard {
             copied: "icons/check.svg".into(),
             wrap: "icons/wrap.svg".into(),
             icon: None,
+            title: None,
         }
     }
 }
@@ -851,7 +865,7 @@ impl Draw<'_> {
                 .child(self.flow(node, window, cx))
                 .into_any_element(),
             Kind::Bullets | Kind::Numbers(_) => self.list(node, window, cx),
-            Kind::Code(lang) => self.fence(node, lang.clone(), window, cx),
+            Kind::Code(lang, name) => self.fence(node, lang.clone(), name.clone(), window, cx),
             Kind::Rule => div().h(px(1.)).my(px(4.)).bg(style.line).into_any_element(),
             Kind::Table(_) => self.table(node, window, cx),
             Kind::Footnote(n) => div()
@@ -1378,6 +1392,7 @@ impl Draw<'_> {
         &mut self,
         node: &Node,
         lang: Option<SharedString>,
+        name: Option<SharedString>,
         window: &mut Window,
         cx: &mut App,
     ) -> AnyElement {
@@ -1401,7 +1416,7 @@ impl Draw<'_> {
                     .any(|known| lang.eq_ignore_ascii_case(known))
             });
         if let Some((fences, lang)) = fences {
-            let lines = self.lines(id.clone(), code, colours, false, window, cx);
+            let lines = self.lines(id.clone(), code, colours, (false, false), window, cx);
             let copy = self.copy_button(code.text.clone(), window, cx);
             return (fences.draw)(
                 Fence {
@@ -1431,22 +1446,54 @@ impl Draw<'_> {
                 block.size.set(None);
                 window.refresh();
             });
+        let (title, numbered) = match &name {
+            Some(name) => (name.clone(), true),
+            None => match &style.card.title {
+                Some(title) => title(lang.as_deref(), &code.text),
+                None => (lang.clone().unwrap_or_default(), true),
+            },
+        };
+        let (folder, file) = match title.rsplit_once('/') {
+            Some((folder, file)) if name.is_some() => (Some(folder.to_owned()), file.to_owned()),
+            _ => (None, title.to_string()),
+        };
+        let numbered = numbered && !wrapped && code.text.contains('\n');
+        let card = &style.card;
         let head = div()
-            .mt(px(6.))
-            .h(px(22.))
+            .h(px(38.))
             .pl(px(14.))
-            .pr(px(10.))
+            .pr(px(8.))
             .flex()
             .items_center()
-            .gap(px(2.))
-            .child(div().flex_1().flex().children(icon))
+            .gap(px(8.))
+            .text_size(style.code_size)
+            .children(icon)
+            .child(
+                div()
+                    .flex_none()
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(style.ink)
+                    .child(file),
+            )
+            .children(folder.map(|folder| {
+                div()
+                    .min_w_0()
+                    .truncate()
+                    .text_size(style.code_size * 0.96)
+                    .text_color(style.ink_faint)
+                    .child(folder)
+            }))
+            .child(div().flex_1())
             .child(toggle)
-            .child(self.copy_button(code.text.clone(), window, cx));
+            .child(self.copy_pill(code.text.clone(), window, cx));
         div()
-            .rounded(style.card.radius)
-            .bg(style.card.ground)
+            .rounded(card.radius)
+            .bg(card.ground)
+            .border_1()
+            .border_color(card.edge)
+            .overflow_hidden()
             .child(head)
-            .child(self.lines(id, code, colours, wrapped, window, cx))
+            .child(self.lines(id, code, colours, (wrapped, numbered), window, cx))
             .into_any_element()
     }
 
@@ -1457,11 +1504,30 @@ impl Draw<'_> {
         id: ElementId,
         code: &Rich,
         colours: Option<CodeRuns>,
-        wrapped: bool,
+        (wrapped, numbered): (bool, bool),
         window: &mut Window,
         cx: &mut App,
     ) -> AnyElement {
         let style = self.on.style.clone();
+        let gutter = numbered.then(|| {
+            let count = code.text.lines().count();
+            let key = ElementId::NamedChild(Arc::new(id.clone()), "gutter".into());
+            let numbers = window.use_keyed_state(key, cx, |_, _| (0, SharedString::default()));
+            if numbers.read(cx).0 != count {
+                let written = (1..=count)
+                    .map(|n| n.to_string())
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                numbers.update(cx, |numbers, _| *numbers = (count, written.into()));
+            }
+            div()
+                .flex_none()
+                .w(px(24.))
+                .mr(px(16.))
+                .text_right()
+                .text_color(style.card.gutter)
+                .child(numbers.read(cx).1.clone())
+        });
         let key = ElementId::NamedChild(Arc::new(id.clone()), "scroll".into());
         let scroll = window.use_keyed_state(key, cx, |_, _| CodeScroll::default());
         let handle = scroll.read(cx).handle.clone();
@@ -1477,15 +1543,17 @@ impl Draw<'_> {
             .max_h(px(420.))
             .overflow_hidden()
             .track_scroll(&handle)
-            .pt(px(4.))
-            .px(px(14.))
-            .pb(px(12.))
+            .pr(px(16.))
+            .pb(px(14.))
+            .pl(px(if gutter.is_some() { 0. } else { 16. }))
             .font(style.mono.clone())
             .text_size(style.code_size)
-            .line_height(relative(1.55))
+            .line_height(relative(1.7))
             .when(!wrapped, |lines| lines.whitespace_nowrap())
             .text_color(style.ink)
-            .child(text);
+            .flex()
+            .children(gutter)
+            .child(div().flex_1().min_w_0().child(text));
         div()
             .relative()
             .child(lines)
@@ -1569,6 +1637,44 @@ impl Draw<'_> {
             let card = &draw.on.style.card;
             let icon = if copied { &card.copied } else { &card.copy };
             draw.button(id, icon.clone(), copied)
+        })
+        .into_any_element()
+    }
+
+    /// The Copy pill in a code block's head, its icon and word, ticking once it has copied.
+    fn copy_pill(&mut self, text: SharedString, window: &mut Window, cx: &mut App) -> AnyElement {
+        self.copy(text, window, cx, |draw, id, copied| {
+            let style = &draw.on.style;
+            let card = &style.card;
+            let icon = if copied { &card.copied } else { &card.copy };
+            let ink = style.ink;
+            div()
+                .id(id)
+                .group("code-copy")
+                .h(px(26.))
+                .px(px(9.))
+                .flex()
+                .flex_none()
+                .items_center()
+                .gap(px(6.))
+                .rounded(px(7.))
+                .bg(card.pill)
+                .border_1()
+                .border_color(card.pill_edge)
+                .cursor_pointer()
+                .text_size(style.code_size * 0.92)
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(if copied { ink } else { card.button })
+                .hover(move |pill| pill.text_color(ink))
+                .child(
+                    svg()
+                        .path(icon.clone())
+                        .size(px(13.))
+                        .flex_none()
+                        .text_color(if copied { ink } else { card.button })
+                        .group_hover("code-copy", move |icon| icon.text_color(ink)),
+                )
+                .child(if copied { "Copied" } else { "Copy" })
         })
         .into_any_element()
     }
