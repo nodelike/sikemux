@@ -147,6 +147,63 @@ pub struct DeviceParams {
     pub name: Option<String>,
 }
 
+/// The name this host last gave itself on the account, kept beside the core's data.
+const NAME_SENT_FILE: &str = "account-host-name";
+
+fn name_sent_path(core: &Core) -> Option<std::path::PathBuf> {
+    Some(core.config.data_dir.as_ref()?.join(NAME_SENT_FILE))
+}
+
+pub(crate) async fn remember_name_sent(core: &Core, name: &str) {
+    let Some(path) = name_sent_path(core) else {
+        return;
+    };
+    let bytes = name.as_bytes().to_vec();
+    let _ = tokio::task::spawn_blocking(move || {
+        sikemux_process::files::write_atomic(&path, &bytes, true)
+    })
+    .await;
+}
+
+/// Gives the account this computer's new name after the person renames it, unless the
+/// account's name for this host is no longer the one it last sent, since then someone
+/// chose that name and it stays.
+pub(crate) async fn keep_name_current(core: &Core) {
+    let (Some(path), Some(_)) = (name_sent_path(core), core.remote.owner()) else {
+        return;
+    };
+    let Ok(current) = tokio::task::spawn_blocking(super::super::host::name).await else {
+        return;
+    };
+    let current: String = current.chars().take(NAME_LIMIT).collect();
+    let sent = tokio::fs::read_to_string(&path).await.ok();
+    if sent.as_deref() == Some(current.as_str()) {
+        return;
+    }
+    let key = core.remote.status().core_id;
+    let Ok(hosts) = as_host::<DeviceList>(core, Method::GET, "/v1/devices?role=host", None).await
+    else {
+        return;
+    };
+    let Some(on_account) = hosts.devices.into_iter().find(|known| known.key == key) else {
+        return;
+    };
+    if on_account.name != current && sent.as_deref() == Some(on_account.name.as_str()) {
+        let renamed = rename_device(
+            core,
+            DeviceParams {
+                key: key.to_string(),
+                name: Some(current.clone()),
+            },
+        )
+        .await;
+        if renamed.is_err() {
+            return;
+        }
+    }
+    remember_name_sent(core, &current).await;
+}
+
 /// Renames a device or host on the account, which every device and host
 /// shows from then on.
 pub(crate) async fn rename_device(core: &Core, params: DeviceParams) -> CoreResult<()> {

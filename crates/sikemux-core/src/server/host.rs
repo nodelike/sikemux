@@ -11,13 +11,18 @@ use sikemux_wire::protocol::BuildChannel;
 pub fn info() -> HostInfo {
     static HOST: OnceLock<HostInfo> = OnceLock::new();
     HOST.get_or_init(|| HostInfo {
-        name: os::name().unwrap_or_else(|| "Host".into()),
+        name: name(),
         model: os::model().unwrap_or_else(|| "Host".into()),
         version: VERSION.into(),
         channel: channel(cfg!(debug_assertions), VERSION),
         home: sikemux_process::paths::home().unwrap_or_default(),
     })
     .clone()
+}
+
+/// What the computer is called now, read afresh since the person may rename it while the core runs.
+pub fn name() -> String {
+    os::name().unwrap_or_else(|| "Host".into())
 }
 
 pub const PLATFORM: Platform = os::PLATFORM;

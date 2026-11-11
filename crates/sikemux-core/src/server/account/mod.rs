@@ -225,6 +225,7 @@ pub(crate) fn start(core: &Arc<Core>) {
                 return;
             };
             refresh_profile(&alive).await;
+            devices::keep_name_current(&alive).await;
             drop(alive);
             tokio::time::sleep(PROFILE_RETRY).await;
         }
@@ -539,10 +540,12 @@ pub(crate) async fn host_registration(
 ) -> CoreResult<HostRegistration> {
     core.remote.may_join(user_id, peer)?;
     let (key, signature) = core.remote.sign_registration(nonce, user_id)?;
-    let host = super::connection::blocking(|| Ok(super::host::info())).await?;
+    let (host, name) =
+        super::connection::blocking(|| Ok((super::host::info(), super::host::name()))).await?;
+    devices::remember_name_sent(core, &name).await;
     Ok(HostRegistration {
         key,
-        name: host.name,
+        name,
         channel: host.channel,
         signature,
     })
