@@ -8,6 +8,9 @@ use crate::theme::{
     TEXT_2XS_H, TEXT_3XS_H, TEXT_XS, TEXT_XS_H,
 };
 
+/// About 68 characters of a thought, so its lines stay short enough to read at a glance.
+const THOUGHT_MEASURE: f32 = 500.;
+
 /// The chat's looks with what the reader has open, for drawing its rows once.
 pub(super) struct Drawn<'a> {
     pub(super) looks: &'a Looks,
@@ -142,6 +145,14 @@ pub(super) fn row(
                 {
                     self::subagent(card, pen, looks, window, cx)
                 }
+                Shown::Part(part @ ChatPart::Thought { .. }) => div()
+                    .max_w(px(THOUGHT_MEASURE * looks.scale.get()))
+                    .child(self::part(row, part, user, pen, looks, window, cx))
+                    .into_any_element(),
+                Shown::Part(part @ ChatPart::Text { .. }) if at > 0 && !user => div()
+                    .pt(SPACE_2H)
+                    .child(self::part(row, part, user, pen, looks, window, cx))
+                    .into_any_element(),
                 Shown::Part(part) => self::part(row, part, user, pen, looks, window, cx),
                 Shown::Run(calls) => {
                     runs::strip(&calls, live && at + 1 == count, looks, window, cx)

@@ -240,9 +240,8 @@ impl Looks {
             ..Style::default()
         };
         let thought = Style {
-            text_size: px(12.5),
-            ink: t.text_tertiary,
-            italic: true,
+            text_size: px(13.5),
+            ink: t.text_secondary,
             ..text.clone()
         };
         let user = Style {
