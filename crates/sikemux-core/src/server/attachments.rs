@@ -195,7 +195,7 @@ fn extension_for(mime: &str) -> Option<&'static str> {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct ChatFileParams {
+pub struct ChatFileParams {
     path: PathBuf,
     /// For a picture shown small: the longest side, in pixels, to send it scaled to.
     #[serde(default)]
@@ -203,7 +203,7 @@ pub(crate) struct ChatFileParams {
 }
 
 #[derive(Serialize)]
-pub(crate) struct ChatFile {
+pub struct ChatFile {
     /// Set when the file was sent as a scaled copy, which is a JPEG.
     #[serde(skip_serializing_if = "Option::is_none")]
     mime: Option<&'static str>,

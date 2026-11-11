@@ -4045,6 +4045,18 @@ export interface NamedAccount {
     label: string;
 }
 
+export interface ChatFileParams {
+    path: string;
+    /** For a picture shown small: the longest side, in pixels, to send it scaled to. */
+    maxEdge?: number | null;
+}
+
+export interface ChatFile {
+    /** Set when the file was sent as a scaled copy, which is a JPEG. */
+    mime?: string;
+    data: string;
+}
+
 export interface FindParams {
     agentId: string;
     feed: string;
@@ -4299,6 +4311,7 @@ export interface CoreCalls {
     cancelResume: { params: ChatAccountsParams; answer: null };
     changeDevice: { params: DeviceChange; answer: RemotePairing };
     chatAccounts: { params: ChatAccountsParams; answer: ChatAccounts };
+    chatFile: { params: ChatFileParams; answer: ChatFile };
     chatFind: { params: FindParams; answer: FindAnswer };
     chatToolDetail: { params: ToolDetailParams; answer: ToolDetail };
     closeChat: { params: AgentParams; answer: null };
