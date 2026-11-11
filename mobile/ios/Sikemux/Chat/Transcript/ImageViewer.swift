@@ -1,29 +1,44 @@
 import SwiftUI
 import UIKit
 
-/// A picture over the whole screen, pinched to zoom, with Save through the share sheet.
+/// A picture over the whole screen, pinched to zoom, with Save through the share sheet. A picture still on its way from
+/// the host shows a spinner, or why it could not come.
 struct ImageViewer: View {
     @Environment(\.palette) private var palette
     @Environment(\.dismiss) private var dismiss
-    let image: UIImage
-    let name: String
+    let picture: ShownPicture
     @State private var saving = false
 
     var body: some View {
+        let name = picture.name
         ZStack(alignment: .top) {
             Color.black.opacity(0.94).ignoresSafeArea()
-            ZoomingImage(image: image).ignoresSafeArea().accessibilityLabel(name)
+            if let image = picture.image {
+                ZoomingImage(image: image).ignoresSafeArea().accessibilityLabel(name)
+            } else if picture.problem == nil {
+                ProgressView().tint(palette.ink).frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
             HStack(spacing: 12) {
                 control(Icons.close, label: "Close") { dismiss() }
                 Text(name).font(Theme.mono(12)).foregroundStyle(palette.inkDim).lineLimit(1).truncationMode(.middle)
                     .frame(maxWidth: .infinity)
                 control(Icons.download, label: "Save \(name)") { saving = true }
+                    .disabled(picture.image == nil)
+                    .opacity(picture.image == nil ? 0.5 : 1)
             }
             .padding(.horizontal, 16)
             .padding(.top, 8)
+            if let problem = picture.problem {
+                ProblemLine(text: problem, centred: true)
+                    .padding(.horizontal, 16)
+                    .frame(maxHeight: .infinity, alignment: .bottom)
+                    .padding(.bottom, 16)
+            }
         }
         .presentationBackground(.clear)
-        .sheet(isPresented: $saving) { ShareSheet(items: [image]).presentationDetents([.medium, .large]) }
+        .sheet(isPresented: $saving) {
+            if let image = picture.image { ShareSheet(items: [image]).presentationDetents([.medium, .large]) }
+        }
     }
 
     private func control(_ icon: IconDef, label: String, action: @escaping () -> Void) -> some View {

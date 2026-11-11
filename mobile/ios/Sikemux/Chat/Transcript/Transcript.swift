@@ -34,18 +34,13 @@ struct Transcript<Footer: View>: View {
             row: { entry in TranscriptRow(entry: entry) }
         )
         .environment(\.openURL, OpenURLAction { url in opened(url) })
-        .sheet(item: Bindable(context).picture) { picture in ImageViewer(image: picture.image, name: picture.name) }
+        .sheet(item: Bindable(context).picture) { picture in ImageViewer(picture: picture) }
     }
 
     private func opened(_ url: URL) -> OpenURLAction.Result {
         guard let path = TranscriptLink.filePath(url) else { return .systemAction }
         if let image = HostFiles.imagePath(path), let core = context.core {
-            Task {
-                guard let file = await HostFiles.shared.read(core: core, path: image),
-                    let picture = UIImage(contentsOfFile: file.path)
-                else { return }
-                context.showImage(picture, (image as NSString).lastPathComponent)
-            }
+            context.showHostImage(core: core, path: image)
         }
         return .handled
     }
