@@ -231,34 +231,28 @@ fn refills(grant: &Live, windows: &[UsageWindow]) -> Option<String> {
 }
 
 /// The account's limits and resets in one request to Claude's usage endpoint, as claude.ai and
-/// Claude Code's /usage read them. None when Claude could not be asked, or answered in a shape
-/// with no limits in it, so the caller asks the CLI instead; an error when Claude refused, so
-/// nothing asks again for a while.
-pub(crate) async fn usage(
-    program: &Path,
-    config_path: Option<&str>,
-) -> Result<Option<Usage>, String> {
-    let answer = match usage_answer(program, config_path).await {
-        Ok(answer) => answer,
-        Err(error) if super::usage::refused(&error) => return Err(error),
-        Err(_) => return Ok(None),
-    };
+/// Claude Code's /usage read them. None when it could not be asked, its stored sign-in had run
+/// out (Claude answers an old token with "rate limited"), or it answered with no limits, so the
+/// caller asks the CLI, which renews the sign-in for itself.
+pub(crate) async fn usage(program: &Path, config_path: Option<&str>) -> Option<Usage> {
+    let answer = usage_answer(program, config_path).await.ok()?;
     let windows = super::usage::claude_windows(&answer);
     if windows.is_empty() {
-        return Ok(None);
+        return None;
     }
     let now = sikemux_process::clock::epoch_ms();
     let resets = (answer.get("cedar_ember"))
         .and_then(|block| Grants::from(block, now))
         .map(|grants| grants.resets(&windows));
-    Ok(Some(Usage {
+    Some(Usage {
         provider: "claude".to_owned(),
         plan: None,
         tier: None,
         windows,
         unavailable_reason: None,
         resets,
-    }))
+        light: true,
+    })
 }
 
 async fn usage_answer(program: &Path, config_path: Option<&str>) -> Result<Value, String> {
@@ -400,11 +394,14 @@ async fn token(config_path: Option<&str>) -> Option<String> {
             .ok()?
     };
     let stored: Value = serde_json::from_slice(&stored).ok()?;
+    let expired = (stored.pointer("/claudeAiOauth/expiresAt"))
+        .and_then(Value::as_u64)
+        .is_some_and(|expires| expires <= sikemux_process::clock::epoch_ms());
     let token = stored
         .pointer("/claudeAiOauth/accessToken")?
         .as_str()?
         .trim();
-    (!token.is_empty()).then(|| token.to_owned())
+    (!token.is_empty() && !expired).then(|| token.to_owned())
 }
 
 /// The Keychain item Claude keeps an account's sign-in in: one more for each `CLAUDE_CONFIG_DIR`,

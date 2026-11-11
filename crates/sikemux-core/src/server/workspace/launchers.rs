@@ -267,8 +267,13 @@ impl Workspaces {
     pub(super) fn offered(&self) -> Vec<Launcher> {
         let published = self.published.locked();
         let saved = &published.saved;
-        let profiles = saved
+        let kept = saved
             .accounts
+            .as_ref()
+            .map(|book| book.profiles.as_slice())
+            .unwrap_or_default();
+        let every = saved.accounts.clone().map(|book| book.with_built_ins());
+        let every = every
             .as_ref()
             .map(|book| book.profiles.as_slice())
             .unwrap_or_default();
@@ -287,9 +292,9 @@ impl Workspaces {
                 status: None,
                 program: None,
             };
-            let own: Vec<_> = profiles
-                .iter()
-                .filter(|profile| profile.provider == def.kind)
+            let kept_own = kept.iter().any(|profile| profile.provider == def.kind);
+            let own: Vec<_> = (every.iter())
+                .filter(|profile| kept_own && profile.provider == def.kind)
                 .collect();
             if own.is_empty() {
                 let agent = AgentSpec::new(def.kind);

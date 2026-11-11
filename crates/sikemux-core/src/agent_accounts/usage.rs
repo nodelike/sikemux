@@ -50,6 +50,9 @@ pub struct Usage {
     /// The limit resets the account holds; none when its provider offers it none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resets: Option<Resets>,
+    /// Read in one small request rather than by booting the CLI, so it may be read again soon.
+    #[serde(skip)]
+    pub light: bool,
 }
 
 /// Limit resets an account was given, by kind.
@@ -199,7 +202,7 @@ fn remembered(key: &str) -> Option<Lookup> {
     cache.get(key).map(|(_, _, lookup)| lookup.clone())
 }
 
-pub(super) fn refused(error: &str) -> bool {
+fn refused(error: &str) -> bool {
     let error = error.to_ascii_lowercase();
     error.contains("429") || error.contains("rate limit") || error.contains("rate_limit")
 }
@@ -226,7 +229,7 @@ pub async fn usage(
         None => Err(format!("{provider} does not expose structured plan usage")),
     };
     let ttl = match &lookup {
-        Ok(_) if provider == "claude" => CLAUDE_USAGE_TTL,
+        Ok(usage) if usage.light => CLAUDE_USAGE_TTL,
         Ok(_) => USAGE_TTL,
         Err(error) if refused(error) => REFUSED_TTL,
         Err(_) => FAILED_TTL,
@@ -398,6 +401,7 @@ pub(crate) fn note_live(provider: &str, config_path: Option<&str>, live: Vec<Usa
                 windows: Vec::new(),
                 unavailable_reason: None,
                 resets: None,
+                light: false,
             },
         });
     let mut changed = false;
@@ -635,7 +639,7 @@ pub(crate) async fn claude_usage(
     config_path: Option<&str>,
 ) -> Result<Usage, String> {
     let tier = claude_plan_name(config_path);
-    if let Some(mut usage) = super::claude_resets::usage(executable, config_path).await? {
+    if let Some(mut usage) = super::claude_resets::usage(executable, config_path).await {
         usage.plan = tier.as_deref().map(str::to_ascii_lowercase);
         usage.tier = tier;
         return Ok(usage);
@@ -892,6 +896,7 @@ fn parse_claude_usage(text: &str, request_id: &str) -> Option<Usage> {
         windows,
         unavailable_reason,
         resets: None,
+        light: false,
     })
 }
 
@@ -1069,6 +1074,7 @@ fn parse_codex_usage_result(result: &Value) -> Usage {
         unavailable_reason: windows.is_empty().then(|| "This account did not report subscription limits. API-key accounts do not provide plan usage.".to_string()),
         windows,
         resets: codex_resets(result),
+        light: false,
     }
 }
 
