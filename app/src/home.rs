@@ -16,14 +16,15 @@ use gpui_kit::{
 use crate::agents::menu::AgentMenu;
 use crate::icons::Icon;
 use crate::theme::{
-    self, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_3, SPACE_6, TEXT_2XS, TEXT_XL,
-    TEXT_XS, TEXT_XS_H,
+    self, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_3, SPACE_4, SPACE_6, TEXT_2XS,
+    TEXT_XL, TEXT_XS, TEXT_XS_H,
 };
 use crate::ui::{self, Button, IconButton, PaneHeader, Segmented, Variant};
 
 use crate::agents::rows::AgentRow;
 use crate::workbench::Workbench;
 use crate::{chat, terminal};
+use sikemux_view::chat::AccountMove;
 
 /// The calendar's metrics, in the order its buttons show.
 pub const METRICS: [(Metric, &str); 5] = [
@@ -131,12 +132,13 @@ fn agent_shown(
                 .any(|saved| saved.id == agent.id && saved.resume_id.is_some())
         });
         let welcome = chat.is_empty(cx).then(|| {
+            let placed = chat.placed();
             chat::status::connection_note(agent, chat, resumes, cx)
-                .unwrap_or_else(|| welcome(bench, Some(agent), cx).into_any_element())
+                .unwrap_or_else(|| welcome(bench, Some(agent), placed, cx).into_any_element())
         });
         return chat::pane(bench, agent, chat, welcome, cx).into_any_element();
     }
-    centred(welcome(bench, agent, cx))
+    centred(welcome(bench, agent, None, cx))
         .size_full()
         .into_any_element()
 }
@@ -223,10 +225,12 @@ fn asleep_in_terminal(bench: &Workbench, agent: &AgentRow, cx: &mut Context<Work
 }
 
 /// What a chat opens on before its first message: the agent's face asking what is being made in
-/// the project, over the calendar of the tokens burnt in it.
+/// the project, over the calendar of the tokens burnt in it and the account smart accounts
+/// `placed` it on.
 pub fn welcome(
     bench: &Workbench,
     agent: Option<&AgentRow>,
+    placed: Option<&AccountMove>,
     cx: &mut Context<Workbench>,
 ) -> impl IntoElement {
     let mark = match agent {
@@ -234,14 +238,49 @@ pub fn welcome(
         None => ui::mark("claude", 32.),
     };
     let project = bench.project().map(|project| project.name.clone());
-    welcome_over(
-        mark,
-        project.unwrap_or_default(),
-        bench.parts.activity.clone(),
-        cx,
-    )
-    .max_w(px(sikemux_browser::REPLY_COLUMN_WIDTH))
-    .mx(px(22.))
+    let provider = agent.map_or("claude", |agent| agent.provider.as_str());
+    let under = div()
+        .w_full()
+        .flex()
+        .flex_col()
+        .gap(SPACE_4)
+        .child(bench.parts.activity.clone())
+        .children(placed.map(|placed| smart_pick(placed, provider, cx)));
+    welcome_over(mark, project.unwrap_or_default(), under, cx)
+        .max_w(px(sikemux_browser::REPLY_COLUMN_WIDTH))
+        .mx(px(22.))
+}
+
+/// The account smart accounts picked for a new chat, and why, in one quiet line.
+fn smart_pick(placed: &AccountMove, provider: &str, cx: &App) -> impl IntoElement {
+    let t = Tokens::get(cx).clone();
+    let dot = || div().flex_none().child("·");
+    div()
+        .min_w_0()
+        .flex()
+        .items_center()
+        .justify_center()
+        .gap(SPACE_2)
+        .text_size(theme::ui_text(TEXT_2XS))
+        .text_color(t.text_tertiary)
+        .child(ui::mark(provider, 12.))
+        .child(
+            div()
+                .flex_none()
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(t.text_primary)
+                .child(placed.label.clone()),
+        )
+        .child(dot())
+        .child(ui::caps("Smart pick", cx).flex_none())
+        .children(placed.placed.clone().map(|why| {
+            div()
+                .min_w_0()
+                .flex()
+                .gap(SPACE_2)
+                .child(dot())
+                .child(div().min_w_0().truncate().child(why))
+        }))
 }
 
 /// An agent's face, by `mark`, asking what is being made in `project`, over `under`, as wide as

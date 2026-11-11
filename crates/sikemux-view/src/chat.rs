@@ -264,6 +264,9 @@ pub struct ChatHead {
     /// How often the agent has compacted the conversation to free its context, once it has.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compactions: Option<Compactions>,
+    /// The account smart accounts started the chat on, and why, shown before its first message.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub placed: Option<AccountMove>,
     /// The steps the agent plans for the turn, once it has said them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub plan: Option<Vec<PlanEntry>>,

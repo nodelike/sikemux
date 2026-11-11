@@ -279,6 +279,13 @@ pub(super) fn start(
     if waits_for_person {
         wait_for_person(&chat);
     }
+    let notice = match notice {
+        Some(update) if waits_for_person => {
+            super::offers::tell_update(&chat, update);
+            None
+        }
+        notice => notice,
+    };
     chat.keep(kept::Progress::STARTING);
     if let Some(client) = subscriber {
         chat.feed.subscribe(client);

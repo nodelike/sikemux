@@ -1054,6 +1054,11 @@ impl Chat {
         self.transcript.read(cx).rows().is_empty()
     }
 
+    /// The account smart accounts started the chat on, and why.
+    pub fn placed(&self) -> Option<&sikemux_view::chat::AccountMove> {
+        self.state.as_ref()?.placed.as_ref()
+    }
+
     /// The earlier turns to ask for, when there are more and none are on their way.
     pub fn earlier(&mut self, agent: &str) -> Option<ChatAsk> {
         let (before, mark) = (self.older_before?, self.mark.as_ref()?);

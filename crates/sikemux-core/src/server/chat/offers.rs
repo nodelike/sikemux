@@ -1,6 +1,6 @@
 //! What a chat offers to pick before its agent starts.
 
-use crate::server::workspace::ModelPick;
+use crate::server::workspace::{launcher_of, ModelPick};
 use sikemux_view::workspace::ConfigPicker;
 
 use super::*;
@@ -102,6 +102,14 @@ pub(super) fn offer_options(core: &Arc<Core>, chat: &Arc<Chat>) {
 }
 
 pub(super) fn tell_options(chat: &Chat, options: Value) {
+    tell_update(
+        chat,
+        serde_json::json!({ "sessionUpdate": UpdateKind::ConfigOptionUpdate, "configOptions": options }),
+    );
+}
+
+/// Says `update` in a chat whose agent may not have started yet.
+pub(super) fn tell_update(chat: &Chat, update: Value) {
     let session = chat
         .launch
         .resume_id
@@ -109,10 +117,7 @@ pub(super) fn tell_options(chat: &Chat, options: Value) {
         .unwrap_or_else(|| chat.agent_id().to_owned());
     chat.emit(
         ChatEventKind::SessionUpdate,
-        serde_json::json!({
-            "sessionId": session,
-            "update": { "sessionUpdate": UpdateKind::ConfigOptionUpdate, "configOptions": options },
-        }),
+        serde_json::json!({ "sessionId": session, "update": update }),
     );
 }
 
@@ -139,6 +144,39 @@ pub(super) fn choose_before_start(
     let options = waiting_options(core, chat).unwrap_or(Value::Null);
     keep_model_choice(core, chat.agent_id(), &options);
     tell_options(chat, options.clone());
+    Ok(serde_json::json!({ "configOptions": options }))
+}
+
+/// Picks the model or effort an asleep chat wakes on: kept with its agent, which it starts with
+/// when it wakes, and shown in its pickers at once.
+pub(super) fn choose_while_asleep(
+    core: &Core,
+    agent_id: &str,
+    config_id: &str,
+    value: String,
+) -> CoreResult<Value> {
+    let (Some(agent), Some(feed)) = (core.workspaces.agent(agent_id), core.chats.heard(agent_id))
+    else {
+        return Err(NOT_RUNNING.into());
+    };
+    let mut options = feed
+        .config_options()
+        .or_else(|| core.workspaces.launcher_options(&launcher_of(&agent)))
+        .unwrap_or(Value::Null);
+    let row = (options.as_array_mut().into_iter().flatten())
+        .find(|row| row["id"] == config_id)
+        .filter(|row| row["id"] == "model" || sikemux_fold::pickers::is_effort(row))
+        .ok_or_else(|| CoreError::from(format!("{config_id} is chosen once the chat starts")))?;
+    row["currentValue"] = Value::String(value);
+    keep_model_choice(core, agent_id, &options);
+    let session = agent.resume_id.unwrap_or_else(|| agent_id.to_owned());
+    feed.emit(
+        ChatEventKind::SessionUpdate,
+        serde_json::json!({
+            "sessionId": session,
+            "update": { "sessionUpdate": UpdateKind::ConfigOptionUpdate, "configOptions": options },
+        }),
+    );
     Ok(serde_json::json!({ "configOptions": options }))
 }
 

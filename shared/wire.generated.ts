@@ -1393,6 +1393,8 @@ export interface ChatHead {
     usage?: ContextUsage;
     /** How often the agent has compacted the conversation to free its context, once it has. */
     compactions?: Compactions;
+    /** The account smart accounts started the chat on, and why, shown before its first message. */
+    placed?: AccountMove;
     /** The steps the agent plans for the turn, once it has said them. */
     plan?: PlanEntry[];
     commands: ChatCommandInfo[];
@@ -1475,6 +1477,17 @@ export interface Compactions {
     /** When the last one finished, in Unix milliseconds. */
     lastAt: number;
 }
+
+/** The chat moved to another of the person's accounts. */
+export interface AccountMove {
+    label: string;
+    from?: string;
+    reason: MoveReason;
+    /** Why smart accounts started the chat on this account, as a person reads it. */
+    placed?: string;
+}
+
+export type MoveReason = "limit" | "chosen";
 
 export interface PlanEntry {
     content: string;
@@ -2086,17 +2099,6 @@ export interface GoalMarker {
     card: number;
     state: SliceState;
 }
-
-/** The chat moved to another of the person's accounts. */
-export interface AccountMove {
-    label: string;
-    from?: string;
-    reason: MoveReason;
-    /** Why smart accounts started the chat on this account, as a person reads it. */
-    placed?: string;
-}
-
-export type MoveReason = "limit" | "chosen";
 
 /** A stretch of a sent message's text: its words, or a chip its draft wrote there. */
 export interface SentSpan {

@@ -663,6 +663,14 @@ impl Fold {
         self.read_pickers();
     }
 
+    /// The models and efforts the session offers, on the ones it runs.
+    pub fn config_options(&self) -> Option<&Value> {
+        self.head
+            .setup
+            .get("configOptions")
+            .filter(|options| options.is_array())
+    }
+
     pub fn set_config_options(&mut self, options: Value) {
         if !self.head.setup.is_object() {
             self.head.setup = Value::Object(Map::new());
@@ -1202,6 +1210,14 @@ impl Fold {
                         .then(|| text_of(update.get("why")).map(str::to_owned))
                         .flatten(),
                 };
+                if moved.placed.is_some() {
+                    self.head.placed = Some(moved);
+                    self.set_head("placed");
+                    return;
+                }
+                if self.head.placed.take().is_some() {
+                    self.set_head("placed");
+                }
                 self.append_part(index, &None, |id| ChatPart::Account { id, moved }, false);
             }
             UpdateKind::SessionInfoUpdate => {

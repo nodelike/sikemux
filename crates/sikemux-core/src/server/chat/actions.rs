@@ -1,6 +1,6 @@
 //! What the core's calls ask of one chat.
 
-use super::offers::{choose_before_start, keep_model_choice};
+use super::offers::{choose_before_start, choose_while_asleep, keep_model_choice};
 use super::*;
 use crate::agent_accounts::Takers;
 
@@ -454,7 +454,9 @@ pub(crate) async fn set_config(
 ) -> CoreResult<Value> {
     bounded_text("config id", &config_id, 256)?;
     bounded_text("config value", &value, 4096)?;
-    let chat = core.chats.running(agent_id)?;
+    let Ok(chat) = core.chats.running(agent_id) else {
+        return choose_while_asleep(core, agent_id, &config_id, value);
+    };
     if chat.unstarted() {
         return choose_before_start(core, &chat, &config_id, value);
     }

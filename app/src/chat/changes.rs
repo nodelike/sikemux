@@ -173,6 +173,7 @@ named_fields!(head_field, ChatHead {
     "title" => title,
     "usage" => usage,
     "compactions" => compactions,
+    "placed" => placed,
     "plan" => plan,
     "commands" => commands,
     "capabilities" => capabilities,

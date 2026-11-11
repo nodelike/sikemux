@@ -900,6 +900,10 @@ impl Feed {
         self.inner.locked().start.clone()
     }
 
+    pub(crate) fn config_options(&self) -> Option<Value> {
+        self.inner.locked().fold.as_ref()?.config_options().cloned()
+    }
+
     pub(crate) fn forget_permission(&self, request_id: &str) {
         let mut inner = self.inner.locked();
         inner.replay.forget_permission(request_id);
