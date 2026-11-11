@@ -864,8 +864,12 @@ pub(crate) fn relay_question(core: &Core, host: &str, question: Value) {
 }
 
 /// Sends the person's answer to a question back to the host its asker runs on.
-pub(crate) fn relay_answer(core: &Core, host: &str, answer: Value) {
-    post(core, host, Sending::new("answer", answer).kept());
+pub(crate) fn relay_answer(core: &Core, host: &str, answer: Value, asked: Value) {
+    post(
+        core,
+        host,
+        Sending::new("answer", answer).kept().back(asked),
+    );
 }
 
 #[derive(Serialize, Deserialize)]

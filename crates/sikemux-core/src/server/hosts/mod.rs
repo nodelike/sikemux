@@ -567,7 +567,14 @@ async fn flush_lane(core: Arc<Core>, host: String, lane: String) {
         )
         .await;
         match sent {
-            Ok(_) => core.hosts.outbox.sent(&host, post.seq),
+            Ok(_) => {
+                core.hosts.outbox.sent(&host, post.seq);
+                if post.method == "question" {
+                    if let Some(id) = post.params["id"].as_str() {
+                        super::questions::relay_arrived(&core, id);
+                    }
+                }
+            }
             Err(Failed::Refused(why)) if post.pulled && why.starts_with(UNKNOWN_ASK) => {
                 core.hosts
                     .outbox
@@ -610,6 +617,9 @@ fn turned_away(core: &Core, host: &str, post: &outbox::Post, why: &str) {
         if let Some(worker) = &post.from {
             core.hosts.team.tree_unsent(worker);
         }
+    }
+    if let (Some(asked), "answer") = (post.back.clone(), post.method.as_str()) {
+        super::questions::answer_turned_away(core, host, asked, why);
     }
     let Some(from) = post.from.clone() else {
         return;

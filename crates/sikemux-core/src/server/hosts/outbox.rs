@@ -44,6 +44,9 @@ pub(crate) struct Post {
     /// The other host fetches `body` when it takes the post, rather than the post carrying it.
     #[serde(default)]
     pub pulled: bool,
+    /// What this host takes back if the other host turns it away for good.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub back: Option<Value>,
     pub at: u64,
 }
 
@@ -70,6 +73,7 @@ pub(crate) struct Sending {
     call: Option<String>,
     lane: String,
     pulled: bool,
+    back: Option<Value>,
 }
 
 impl Sending {
@@ -84,6 +88,7 @@ impl Sending {
             call: None,
             lane: String::new(),
             pulled: false,
+            back: None,
         }
     }
 
@@ -103,6 +108,12 @@ impl Sending {
     pub(crate) fn pulled(mut self, body: PathBuf) -> Self {
         self.body = Some(body);
         self.pulled = true;
+        self
+    }
+
+    /// Takes `back` again here if the other host turns it away for good.
+    pub(crate) fn back(mut self, back: Value) -> Self {
+        self.back = Some(back);
         self
     }
 
@@ -159,6 +170,7 @@ impl Outbox {
             call,
             lane: sending.lane,
             pulled: sending.pulled,
+            back: sending.back,
             at: epoch_ms(),
         };
         let posts = record.posts.entry(host.to_owned()).or_default();

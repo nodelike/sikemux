@@ -102,6 +102,8 @@ pub(crate) fn relayed_here(core: &Core, host: &str, params: Value) -> Result<Val
     );
     question.project = foreign.project;
     question.relayed = None;
+    question.relay_taken = false;
+    question.undelivered = None;
     question.from_host = Some(host.to_owned());
     question.stage = match question.stage {
         Stage::Person { lead, passed } => Stage::Person { lead, passed },
@@ -115,6 +117,33 @@ pub(crate) fn relayed_here(core: &Core, host: &str, params: Value) -> Result<Val
     state.open.push(question);
     core.harness.questions.changed(&mut state);
     Ok(Value::Null)
+}
+
+/// The host a question was relayed to took it, and lists it for phones from now on.
+pub(crate) fn relay_arrived(core: &Core, id: &str) {
+    let mut state = core.harness.questions.state.locked();
+    let Some(question) = (state.open.iter_mut()).find(|question| question.id == id) else {
+        return;
+    };
+    question.relay_taken = true;
+    core.harness.questions.changed(&mut state);
+}
+
+/// The answer the person gave here to `asked`, a question an agent on `host` asked, was turned
+/// away there for good: the question waits here again, saying why.
+pub(crate) fn answer_turned_away(core: &Core, host: &str, asked: Value, why: &str) {
+    let Ok(mut question) = serde_json::from_value::<Question>(asked) else {
+        return;
+    };
+    question.undelivered = Some(format!(
+        "Your answer did not reach {} on {}: {why}. Answer again, or dismiss it.",
+        question.name.split(" on ").next().unwrap_or(&question.name),
+        crate::server::hosts::name_of(core, host)
+    ));
+    let mut state = core.harness.questions.state.locked();
+    state.open.retain(|open| open.id != question.id);
+    state.open.push(question);
+    core.harness.questions.changed(&mut state);
 }
 
 /// The person on the linked host this question was put to answered it.

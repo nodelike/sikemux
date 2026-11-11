@@ -39,7 +39,9 @@ mod relay;
 mod reply;
 
 use relay::*;
-pub(crate) use relay::{answer_relayed, closed_elsewhere, relayed_here};
+pub(crate) use relay::{
+    answer_relayed, answer_turned_away, closed_elsewhere, relay_arrived, relayed_here,
+};
 use reply::*;
 
 const FILE: &str = "agent-questions.json";
@@ -133,6 +135,12 @@ struct Question {
     /// is led from.
     #[serde(skip_serializing_if = "Option::is_none")]
     relayed: Option<String>,
+    /// The host it was relayed to took it, so that host lists it for phones and this one does not.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    relay_taken: bool,
+    /// Why the answer the person gave it here never reached its asker on another host.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    undelivered: Option<String>,
     /// The linked host its asker runs on, when it is put to the person here
     /// for an agent there.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -195,7 +203,7 @@ impl Question {
             secret: self.secret,
             at: self.at,
             state,
-            via_note,
+            via_note: self.undelivered.clone().or(via_note),
             secret_note: self.secret.then(|| format!(
                 "Kept private. {} reads it from a file only your account can open, and it never shows in the chat.",
                 self.name
@@ -203,6 +211,12 @@ impl Question {
             answer: None,
             ticket: None,
         }
+    }
+
+    /// Whether this host lists it where every host's questions are gathered, as phones and the
+    /// inbox do: a question another host took to put to the person is listed there alone.
+    fn listed_for_devices(&self) -> bool {
+        self.asks_person() && !(self.relayed.is_some() && self.relay_taken)
     }
 
     fn asks_person(&self) -> bool {
@@ -589,7 +603,7 @@ impl Questions {
     pub(crate) fn for_person(&self) -> Vec<ForPerson> {
         let state = self.state.locked();
         let asked = (state.open.iter())
-            .filter(|question| question.asks_person())
+            .filter(|question| question.listed_for_devices())
             .map(|question| ForPerson {
                 id: question.id.clone(),
                 agent_id: question.agent_id.clone(),
@@ -1086,6 +1100,8 @@ fn open(
             assumption: asked.assumption,
             at,
             relayed: None,
+            relay_taken: false,
+            undelivered: None,
             from_host: None,
             approval: asked.approval,
             proof: asked.proof,
@@ -1960,7 +1976,8 @@ pub(crate) async fn answer_all(core: &Arc<Core>, mut params: AnswersParams) -> R
     for (question, given, text) in taken {
         if let Some(host) = &question.from_host {
             let params = serde_json::to_value(&given).map_err(|error| error.to_string())?;
-            super::hosts::route::relay_answer(core, host, params);
+            let asked = serde_json::to_value(&question).map_err(|error| error.to_string())?;
+            super::hosts::route::relay_answer(core, host, params, asked);
             continue;
         }
         let Some(text) = text else { continue };
@@ -2508,7 +2525,7 @@ fn tell_phones(core: &Core) {
         let shown: HashMap<String, String> = state
             .open
             .iter()
-            .filter(|question| question.asks_person())
+            .filter(|question| question.listed_for_devices())
             .map(|question| (question.id.clone(), question.agent_id.clone()))
             .chain(
                 (state.reply_questions.iter())
@@ -2531,7 +2548,7 @@ fn tell_phones(core: &Core) {
         let now: HashMap<String, Asking> = (state.open.iter())
             .filter(|question| {
                 let waits = question.blocked || question.raise.is_some() || question.persons_call();
-                waits && question.asks_person()
+                waits && question.listed_for_devices()
             })
             .map(|question| {
                 let asking = Asking::new(
