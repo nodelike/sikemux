@@ -61,7 +61,7 @@ export const makeBubbleStyles = (colors: Palette) => {
   });
 };
 
-/** The person's bubble: the accent warmed toward the ink, faintly over the ground, as the Mac fills it. */
+/** The person's bubble: the accent warmed toward the ink, laid faintly over the sunken ground and opaque, as the Mac fills it, so a pane picture never shows through. */
 export function bubbleFill(colors: Palette): string {
-  return translucent(mixed(colors.accent, colors.ink, 0.25), 0.075);
+  return mixed(mixed(colors.accent, colors.ink, 0.25), colors.sunken, 0.1);
 }
