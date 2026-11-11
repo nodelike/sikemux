@@ -183,17 +183,17 @@ private struct ChatPane: View {
         }
         actions.toggleWork = { [weak session] id in
             guard let folds = session?.folds else { return }
-            folds.set("work/\(id)", !folds.isOpen("work/\(id)", false))
+            folds.set(Folds.work(id), !folds.isOpen(Folds.work(id), false))
         }
         actions.toggleRun = { [weak session, scroll] id in
             guard let folds = session?.folds else { return }
             scroll.hold()
-            folds.set("team/\(id)", !folds.isOpen("team/\(id)", false))
-            folds.set("team-all/\(id)", false)
+            folds.set(Folds.team(id), !folds.isOpen(Folds.team(id), false))
+            folds.set(Folds.teamAll(id), false)
         }
         actions.showRunEarlier = { [weak session, scroll] id in
             scroll.hold()
-            session?.folds.set("team-all/\(id)", true)
+            session?.folds.set(Folds.teamAll(id), true)
         }
     }
 
@@ -202,12 +202,12 @@ private struct ChatPane: View {
         let folds = session.folds
         find = ChatFind(session: session) { [weak session, scroll] hit in
             guard let session, let row = session.rows.messages.first(where: { $0.id == hit.row }) else { return }
-            if let fold = row.fold, !folds.isOpen("work/\(fold.id)", false) {
+            if let fold = row.fold, !folds.isOpen(Folds.work(fold.id), false) {
                 let kept = fold.shown
                 let tucked = !row.parts.enumerated().contains { kept.contains($0.offset) && $0.element.id == hit.part }
-                if tucked { folds.set("work/\(fold.id)", true) }
+                if tucked { folds.set(Folds.work(fold.id), true) }
             }
-            if let team = row.team { folds.set("team-all/\(team.id)", true) }
+            if let team = row.team { folds.set(Folds.teamAll(team.id), true) }
             let length = row.parts.first { $0.id == hit.part }.map(Self.length) ?? 0
             let at = length > 0 ? CGFloat(hit.range.first) / CGFloat(length) : 0
             Task { @MainActor in scroll.reveal(hit.row, at: at) }

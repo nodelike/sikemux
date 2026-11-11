@@ -126,7 +126,7 @@ final class Outbox {
         let connection = connection()
         do {
             try await inOrder {
-                guard let connection, connection.isOpen() else { throw OutboxError.closed }
+                guard let connection, connection.isOpen() else { throw ChatProblem.notConnected }
                 let sent = try await self.put(connection, files) { _, _ in }
                 let paths = Uploads.paths(sent) + named.paths
                 if !steers { return try await self.prompt(connection, id, text, paths, named.context) }
@@ -186,14 +186,14 @@ final class Outbox {
         let (sent, failure) = await Uploads.each(
             files,
             put: { attachment in
-                guard let connection, connection.isOpen() else { throw OutboxError.closed }
+                guard let connection, connection.isOpen() else { throw ChatProblem.notConnected }
                 let bytes = try await Task.detached { try Data(contentsOf: attachment.uri) }.value
                 let path = try await connection.attachFile(
                     agentId: agentId, name: attachment.name, mime: attachment.mime, bytes: bytes)
                 self.sentFiles[path] = attachment
                 return path
             }, mark: mark)
-        guard let sent else { throw OutboxError.failed(failure ?? "a file did not reach the host") }
+        guard let sent else { throw ChatProblem(failure ?? "a file did not reach the host") }
         return sent
     }
 
@@ -232,7 +232,7 @@ final class Outbox {
         Task {
             do {
                 try await inOrder {
-                    guard let connection, connection.isOpen() else { throw OutboxError.closed }
+                    guard let connection, connection.isOpen() else { throw ChatProblem.notConnected }
                     let files = self.entries.first(where: { $0.messageId == id })?.files ?? entry.files
                     let sent = try await self.put(connection, files) { fileId, change in
                         self.update(id) { outgoing in
@@ -283,17 +283,5 @@ final class Outbox {
             context: context.isEmpty ? nil : context,
             sentAt: outgoing.at
         )
-    }
-}
-
-enum OutboxError: LocalizedError {
-    case closed
-    case failed(String)
-
-    var errorDescription: String? {
-        switch self {
-        case .closed: "the host is not connected"
-        case .failed(let why): why
-        }
     }
 }
