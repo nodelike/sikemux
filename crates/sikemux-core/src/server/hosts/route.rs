@@ -789,6 +789,8 @@ pub(crate) fn stop_worker(core: &Core, agent_id: &str) {
         return;
     };
     core.hosts.team.remove(agent_id);
+    core.harness
+        .note_agent(&worker.project, Happened::Gone.kind(), agent_id);
     pin(core);
     post(
         core,

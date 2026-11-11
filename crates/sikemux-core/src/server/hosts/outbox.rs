@@ -158,7 +158,8 @@ impl Outbox {
     pub(crate) fn push(&self, host: &str, sending: Sending) {
         let mut record = self.record.locked();
         record.next += 1;
-        let call = (sending.call).or_else(|| sending.key.is_none().then(super::call_id));
+        let call =
+            (sending.call).or_else(|| (sending.key.is_none() || sending.keep).then(super::call_id));
         let post = Post {
             seq: record.next,
             method: sending.method.to_owned(),
@@ -249,12 +250,14 @@ impl Outbox {
             .is_some_and(|posts| !posts.is_empty())
     }
 
-    /// Takes away the post `seq`, which has gone.
-    pub(crate) fn sent(&self, host: &str, seq: u64) {
+    /// Takes away the post `seq`, which has gone. Answers whether it still waited, rather than
+    /// a newer post with its key having replaced it.
+    pub(crate) fn sent(&self, host: &str, seq: u64) -> bool {
         let mut record = self.record.locked();
         let Some(posts) = record.posts.get_mut(host) else {
-            return;
+            return false;
         };
+        let before = posts.len();
         posts.retain(|post| {
             let gone = post.seq == seq;
             if gone {
@@ -262,10 +265,12 @@ impl Outbox {
             }
             !gone
         });
+        let waited = posts.len() != before;
         if posts.is_empty() {
             record.posts.remove(host);
         }
         self.kept.save(&*record);
+        waited
     }
 
     pub(crate) fn forget(&self, host: &str) {

@@ -69,6 +69,8 @@ const BODY_WAIT: Duration = Duration::from_secs(15 * 60);
 const STALL: Duration = Duration::from_secs(60);
 /// The code a host closes a second connection to the same host with.
 const DUPLICATE: u32 = 3;
+/// Two connections this close together were dialed by both hosts at once.
+const DIALED_AT_ONCE_MS: u64 = 10_000;
 /// How a host refuses an ask it does not know, as older hosts do.
 const UNKNOWN_ASK: &str = "this host does not know ";
 const REDIAL: Backoff = Backoff {
@@ -109,6 +111,10 @@ struct State {
     down: HashMap<String, Down>,
     /// When each agent's teammates elsewhere last heard it did other work.
     worked: HashMap<String, u64>,
+    /// When the connection kept to each host was taken.
+    adopted: HashMap<String, u64>,
+    /// Workers whose start is being asked after, so one asks at a time.
+    settling: HashSet<String>,
 }
 
 pub(crate) struct Hosts {
@@ -575,14 +581,17 @@ async fn flush_lane(core: Arc<Core>, host: String, lane: String) {
                     }
                 }
             }
-            Err(Failed::Refused(why)) if post.pulled && why.starts_with(UNKNOWN_ASK) => {
+            Err(Failed::Refused(why))
+                if post.pulled && why == format!("{UNKNOWN_ASK}{}", post.method) =>
+            {
                 core.hosts
                     .outbox
                     .carry(&host, post.seq, calls::Commits::METHOD);
             }
             Err(Failed::Refused(why)) => {
-                core.hosts.outbox.sent(&host, post.seq);
-                turned_away(&core, &host, &post, &why);
+                if core.hosts.outbox.sent(&host, post.seq) {
+                    turned_away(&core, &host, &post, &why);
+                }
             }
             Err(Failed::NotLinked(_)) => {
                 unlinked_there(&core, &host);
@@ -637,15 +646,19 @@ fn turned_away(core: &Core, host: &str, post: &outbox::Post, why: &str) {
 
 /// Takes `connection` as the one to `host`: answers what it asks over it,
 /// sends what waits for it, and notices when it closes.
-/// When both hosts dialed at once, each keeps the connection the host with the lower key
-/// dialed and closes the other, so they agree. Answers the connection kept.
+/// A new connection replaces the one kept, which the other host would not have dialed past
+/// unless it lost it. When both hosts dialed at once, each keeps the connection the host with
+/// the lower key dialed and closes the other, so they agree. Answers the connection kept.
 fn adopt(core: &Arc<Core>, host: &str, connection: Connection) -> Connection {
     core.boards.wake.now();
     let (was_down, replaced) = {
         let mut state = core.hosts.state.locked();
+        let racing = (state.adopted.get(host))
+            .is_some_and(|at| epoch_ms().saturating_sub(*at) < DIALED_AT_ONCE_MS);
         if let Some(kept) = state.connections.get(host).filter(|kept| {
             kept.stable_id() != connection.stable_id()
                 && kept.close_reason().is_none()
+                && racing
                 && !replaces(core, host, kept, &connection)
         }) {
             let kept = kept.clone();
@@ -658,6 +671,7 @@ fn adopt(core: &Arc<Core>, host: &str, connection: Connection) -> Connection {
             .insert(host.to_owned(), connection.clone())
             .filter(|old| old.stable_id() != connection.stable_id());
         state.held.retain(|(held, _), _| held != host);
+        state.adopted.insert(host.to_owned(), epoch_ms());
         (state.down.remove(host), replaced)
     };
     if let Some(replaced) = replaced {

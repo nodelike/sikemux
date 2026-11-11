@@ -810,6 +810,9 @@ pub(super) async fn land(
     if !repo.is_dir() {
         return Err(refused(format!("{} is no longer there", repo.display())));
     }
+    if worker.landed_head.as_deref() == Some(landing.head.as_str()) {
+        return Ok(json!({ "branch": worker.landed.map(|(branch, _)| branch) }));
+    }
     let body = match body {
         Some(body) => body,
         None => {

@@ -10,6 +10,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sikemux_process::clock::epoch_ms;
+use sikemux_process::sync::Locked;
 
 use crate::cli::protocol::{is_tool_agent_id, HarnessRequest};
 use sikemux_wire::protocol::AgentStatus;
@@ -334,6 +335,33 @@ fn not_started(core: &Core, agent_id: &str) {
     super::changed(core);
 }
 
+/// Holds a worker's place among those whose start is asked after, until dropped.
+struct Settling<'a> {
+    core: &'a Core,
+    agent_id: String,
+}
+
+impl<'a> Settling<'a> {
+    fn claim(core: &'a Core, agent_id: &str) -> Option<Self> {
+        let mut state = core.hosts.state.locked();
+        state.settling.insert(agent_id.to_owned()).then(|| Self {
+            core,
+            agent_id: agent_id.to_owned(),
+        })
+    }
+}
+
+impl Drop for Settling<'_> {
+    fn drop(&mut self) {
+        self.core
+            .hosts
+            .state
+            .locked()
+            .settling
+            .remove(&self.agent_id);
+    }
+}
+
 /// The workers being started on `host` whose start is not known yet find out how it went.
 pub(crate) fn settle_pending_on(core: &Arc<Core>, host: &str) {
     for worker in core.hosts.team.on(host) {
@@ -350,6 +378,9 @@ pub(crate) fn settle_pending_on(core: &Arc<Core>, host: &str) {
 /// Asks `host` what became of starting the worker `agent_id`, while it is reachable, and tells
 /// its lead once that is known. A host too old to say has the worker stopped instead.
 async fn settle_pending(core: &Arc<Core>, host: &str, agent_id: &str, first: Duration) {
+    let Some(_settling) = Settling::claim(core, agent_id) else {
+        return;
+    };
     tokio::time::sleep(first).await;
     loop {
         let Some(worker) = core.hosts.team.get(agent_id) else {
