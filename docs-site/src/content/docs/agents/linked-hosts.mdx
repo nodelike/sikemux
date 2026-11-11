@@ -16,7 +16,7 @@ An agent uses the sign-ins of the host it runs on, whichever host started or mes
 **Settings → General → Session transfer** sends the project in front to another host you've linked, with its chats and tabs. Pick the host, then:
 
 - **Copy** leaves the project here as it is.
-- **Move** closes its chats here and removes their saved conversations, but only once the other host has every chat and tab. If anything doesn't arrive whole, nothing here changes.
+- **Move** closes here each chat the other host took and removes its saved conversation. If a chat goes on here while the move runs, none closes here and the other host drops the ones it took, so no chat is left on both. A move whose uncommitted changes don't apply on the other host sends no chats.
 
 Tick **Bring uncommitted changes** to take the checkout's uncommitted work along. Chats come along when their agent keeps them in files, as Claude Code and Codex do; the others stay here. A chat that came along runs on the other host's sign-in the next time you send to it. Sikemux then says what went and what stayed, and opens the project on the other host.
 

@@ -38,6 +38,7 @@ host_asks! {
     Spawn "spawn" spawn::SpawnParams;
     OpenProject "openProject" open::OpenParams;
     TakeSession "takeSession" transfer::Take;
+    UntakeSession "untakeSession" transfer::Untake;
     Hire "hire" route::HireParams;
     Forget "forget" route::AboutAgent;
     Read "read" route::ReadParams;
@@ -137,6 +138,7 @@ async fn dispatch(
         Spawn::METHOD => spawn::start_here(core, host, read::<Spawn>(params)?, body).await,
         OpenProject::METHOD => open::open_here(core, read::<OpenProject>(params)?, body).await,
         TakeSession::METHOD => transfer::take_here(core, read::<TakeSession>(params)?, body).await,
+        UntakeSession::METHOD => transfer::untake_here(core, read::<UntakeSession>(params)?).await,
         Hire::METHOD => answered(route::hire_here(core, host, read::<Hire>(params)?)),
         Forget::METHOD => answered(route::forget_here(core, host, read::<Forget>(params)?)),
         "deliver" => route::deliver_here(core, host, params).await,

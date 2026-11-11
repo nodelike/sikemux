@@ -344,7 +344,7 @@ impl Workbench {
         let held = std::cell::RefCell::new(Some(sending));
         self.confirm(
             title,
-            "Its chats are closed here and their saved conversations removed, once the other host has every chat and tab. If anything does not arrive whole, nothing here changes.",
+            "Each chat the other host takes is closed here and its saved conversation removed. If one goes on here while the move runs, none closes here and the other host drops the ones it took.",
             "Move",
             true,
             move |bench, yes, _, cx| {
@@ -397,7 +397,10 @@ impl Workbench {
                     Err(error) => format!("It did not go to {}: {error}", sending.label),
                 };
                 match &answer {
-                    Ok(_) => bench.notify(toast::success(said.clone()), cx),
+                    Ok(sent) if sent.left.is_empty() => {
+                        bench.notify(toast::success(said.clone()), cx)
+                    }
+                    Ok(_) => bench.notify(toast::info(said.clone()), cx),
                     Err(_) => bench.notify(toast::error(said.clone()), cx),
                 }
                 crate::settings::session_sent(bench, Some(said.into()), cx);
@@ -820,22 +823,22 @@ pub struct Sending {
 
 /// One line on what went, what stayed here and how the uncommitted changes went.
 fn sent_summary(sent: &SessionSent, sending: &Sending) -> String {
-    let chats = match sent.carried.len() {
+    let chats = |count: usize| match count {
         1 => "1 chat".to_owned(),
         count => format!("{count} chats"),
     };
-    let done = if sending.moving && sent.moved {
-        "Moved"
-    } else {
-        "Copied"
+    let (name, label) = (&sending.name, &sending.label);
+    let mut said = match sending.moving {
+        true if sent.closed.is_empty() => format!("{name} did not move to {label}."),
+        true => format!(
+            "Moved {name} to {label} with {} and its tabs.",
+            chats(sent.closed.len())
+        ),
+        false => format!(
+            "Copied {name} to {label} with {} and its tabs.",
+            chats(sent.carried.len())
+        ),
     };
-    let mut said = format!(
-        "{done} {} to {} with {chats} and its tabs.",
-        sending.name, sending.label
-    );
-    if sending.moving && !sent.moved {
-        said.push_str(" Nothing was removed here, since not everything arrived whole.");
-    }
     let left: Vec<String> = (sent.left.iter())
         .map(|left| format!("{} ({})", left.title, left.why))
         .collect();

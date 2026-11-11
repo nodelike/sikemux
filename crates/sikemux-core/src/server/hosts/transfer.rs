@@ -2,9 +2,10 @@
 //! does, with the uncommitted changes laid over it when the person asks; each chat whose agent
 //! keeps it in files is filed in that host's own store and added stopped, to start on that
 //! host's sign-in when the person next sends to it; and the project's tabs are laid out again.
-//! A copy leaves everything here. A move then closes the chats here and removes their files,
-//! but only once the other host has taken every chat and tab; anything short of that leaves
-//! this host as it was.
+//! A copy leaves everything here. A move then closes here each chat the other host took and
+//! removes its files, but only when every one of them is idle and unchanged since it went;
+//! otherwise none closes here and the other host drops the ones it took, so no chat is left
+//! resumable on both. A move whose uncommitted changes did not go sends no chat.
 
 use crate::server::changed::What;
 use std::collections::HashMap;
@@ -21,7 +22,7 @@ use super::calls::{self as asks, params_of, HostAsk};
 use super::code::Scratch;
 use super::link::{Answer, Received};
 use super::open::{self, OpenAs};
-use super::{ask, find};
+use super::{ask, find, ASK_WAIT};
 use crate::agent_catalog::{self, AgentKind};
 use crate::sessions::{carry, delete, SavedRef};
 use sikemux_view::layout::Tab;
@@ -84,8 +85,8 @@ pub struct Left {
     pub why: String,
 }
 
-/// Where a project's session went: the host and project there, the chats it carried and those
-/// it left, how its uncommitted changes went, and whether it is gone from here.
+/// Where a project's session went: the host and project there, the chats it carried, those a
+/// move closed here and those it left, and how its uncommitted changes went.
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionSent {
@@ -94,9 +95,12 @@ pub struct SessionSent {
     pub project: String,
     pub path: Option<String>,
     pub uncommitted: Option<String>,
+    /// The chats the other host holds now.
     pub carried: Vec<String>,
+    /// Of those, the ones a move closed here.
+    #[serde(default)]
+    pub closed: Vec<String>,
     pub left: Vec<Left>,
-    pub moved: bool,
     /// Why nothing went: the other host's checkout stands at another commit or branch, so
     /// the session can go into a worktree there instead.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -119,7 +123,7 @@ pub(crate) async fn send_session(core: &Arc<Core>, params: SendParams) -> CoreRe
         .filter(|agent| agent.project == project.id)
         .collect();
     if params.moving {
-        if let Some(busy) = agents.iter().find(|agent| at_work(core, agent)) {
+        if let Some(busy) = agents.iter().find(|agent| at_work(core, &agent.id)) {
             return Err(format!(
                 "{} is at work; move the session once its turn ends",
                 busy.title
@@ -141,8 +145,8 @@ pub(crate) async fn send_session(core: &Arc<Core>, params: SendParams) -> CoreRe
             path: None,
             uncommitted: None,
             carried: Vec::new(),
+            closed: Vec::new(),
             left: Vec::new(),
-            moved: false,
             differs: Some(why.to_owned()),
         });
     }
@@ -150,7 +154,17 @@ pub(crate) async fn send_session(core: &Arc<Core>, params: SendParams) -> CoreRe
         .as_str()
         .ok_or_else(|| CoreError::from(format!("{} did not open the project", link.name)))?
         .to_owned();
-    let (chats, body, mut left) = {
+    if params.moving && params.uncommitted && opened["uncommitted"] != "applied" {
+        let why = opened["uncommitted"]
+            .as_str()
+            .unwrap_or("they did not arrive");
+        return Err(format!(
+            "nothing moved, since the uncommitted changes did not go to {}: {why}",
+            link.name
+        )
+        .into());
+    }
+    let (chats, sent, body, mut left) = {
         let core = core.clone();
         blocking(move || Ok(gather(&core, agents))).await?
     };
@@ -159,15 +173,6 @@ pub(crate) async fn send_session(core: &Arc<Core>, params: SendParams) -> CoreRe
         .remove(&project.id)
         .map(|strip| strip.tabs)
         .unwrap_or_default();
-    let sent: Vec<Sent> = chats
-        .iter()
-        .map(|chat| Sent {
-            id: chat.id.clone(),
-            title: chat.title.clone(),
-            cwd: chat.cwd.clone(),
-            resume: chat.resume_id.clone(),
-        })
-        .collect();
     let request = params_of::<asks::TakeSession>(&Take {
         project: there.clone(),
         from,
@@ -189,39 +194,94 @@ pub(crate) async fn send_session(core: &Arc<Core>, params: SendParams) -> CoreRe
     .map_err(|error| error.to_string())?;
     let taken: HashMap<String, String> =
         serde_json::from_value(answer["agents"].clone()).unwrap_or_default();
-    for chat in &sent {
-        if !taken.contains_key(&chat.id) {
-            left.push(Left {
-                title: chat.title.clone(),
-                why: format!("{} could not take it", link.name),
-            });
+    let (went, stayed): (Vec<Sent>, Vec<Sent>) = sent
+        .into_iter()
+        .partition(|chat| taken.contains_key(&chat.id));
+    left.extend(stayed.into_iter().map(|chat| Left {
+        title: chat.title,
+        why: format!("{} could not take it", link.name),
+    }));
+    let (mut carried, mut closed) = (Vec::new(), Vec::new());
+    if !params.moving || went.is_empty() {
+        carried.extend(went.into_iter().map(|chat| chat.title));
+    } else {
+        let stirred: Vec<String> = {
+            let (core, went) = (core.clone(), went.clone());
+            blocking(move || {
+                Ok((went.into_iter())
+                    .filter(|chat| !chat.still(&core))
+                    .map(|chat| chat.title)
+                    .collect())
+            })
+            .await?
+        };
+        if stirred.is_empty() {
+            for chat in went {
+                match close_here(core, &chat).await {
+                    Ok(()) => closed.push(chat.title.clone()),
+                    Err(why) => left.push(Left {
+                        title: chat.title.clone(),
+                        why: format!("it is on both hosts now, as it did not close here: {why}"),
+                    }),
+                }
+                carried.push(chat.title);
+            }
+        } else {
+            let there: Vec<String> = (went.iter())
+                .filter_map(|chat| taken.get(&chat.id).cloned())
+                .collect();
+            let dropped = ask(
+                core,
+                &link.id,
+                asks::UntakeSession::METHOD,
+                params_of::<asks::UntakeSession>(&Untake { agents: there }),
+                None,
+                ASK_WAIT,
+            )
+            .await;
+            for chat in went {
+                let why = match &dropped {
+                    Err(error) => {
+                        carried.push(chat.title.clone());
+                        format!("it is on both hosts now, as {} kept it: {error}", link.name)
+                    }
+                    Ok(_) if stirred.contains(&chat.title) => {
+                        "it went on here while it was on its way".to_owned()
+                    }
+                    Ok(_) => format!(
+                        "{} went on here while it was on its way",
+                        stirred.join(", ")
+                    ),
+                };
+                left.push(Left {
+                    title: chat.title,
+                    why,
+                });
+            }
         }
     }
-    let laid_over = !params.uncommitted || opened["uncommitted"] == "applied";
-    let whole = taken.len() == sent.len() && answer["tabs"] == answer["wanted"] && laid_over;
-    let moved = params.moving && whole && close_here(core, &sent).await;
     Ok(SessionSent {
         host: link.id.clone(),
         host_name: link.name.clone(),
         project: there,
         path: opened["path"].as_str().map(str::to_owned),
         uncommitted: opened["uncommitted"].as_str().map(str::to_owned),
-        carried: (sent.iter())
-            .filter(|chat| taken.contains_key(&chat.id))
-            .map(|chat| chat.title.clone())
-            .collect(),
+        carried,
+        closed,
         left,
-        moved,
         differs: None,
     })
 }
 
 /// The chats of `agents` that can go, their files written one after another into a scratch
 /// file to send as the body, and the rest with why they stay.
-fn gather(core: &Core, agents: Vec<WorkspaceAgent>) -> (Vec<Carried>, Scratch, Vec<Left>) {
+fn gather(
+    core: &Core,
+    agents: Vec<WorkspaceAgent>,
+) -> (Vec<Carried>, Vec<Sent>, Scratch, Vec<Left>) {
     let body = Scratch::new("session");
     let mut out = std::fs::File::create(body.path()).ok();
-    let (mut chats, mut left) = (Vec::new(), Vec::new());
+    let (mut chats, mut sent, mut left) = (Vec::new(), Vec::new(), Vec::new());
     for agent in agents {
         let stay = |why: String| Left {
             title: agent.title.clone(),
@@ -244,87 +304,162 @@ fn gather(core: &Core, agents: Vec<WorkspaceAgent>) -> (Vec<Carried>, Scratch, V
             .as_deref()
             .and_then(|id| core.workspaces.accounts()?.profile(id)?.config_path.clone());
         let cwd = agent.cwd.to_string_lossy().into_owned();
+        let mut prints = Vec::new();
         let written = carry::gather(kind, &cwd, &resume, config.as_deref()).and_then(|files| {
             let out = out.as_mut().ok_or("could not make the file to send")?;
             files
                 .into_iter()
                 .map(|file| {
+                    let print = Print::of(&file.path);
                     let bytes = std::fs::read(&file.path).map_err(|error| error.to_string())?;
                     out.write_all(&bytes).map_err(|error| error.to_string())?;
+                    prints.push(print);
                     Ok((file.name, bytes.len() as u64))
                 })
                 .collect::<Result<Vec<_>, String>>()
         });
         match written {
-            Ok(files) => chats.push(Carried {
-                id: agent.id,
-                provider: agent.provider,
-                title: agent.title,
-                renamed: agent.renamed,
-                cwd,
-                resume_id: resume,
-                model: agent.model,
-                effort: agent.effort,
-                buddy: agent.buddy,
-                files,
-            }),
+            Ok(files) => {
+                sent.push(Sent {
+                    id: agent.id.clone(),
+                    title: agent.title.clone(),
+                    kind,
+                    cwd: cwd.clone(),
+                    resume: resume.clone(),
+                    config: config.clone(),
+                    prints,
+                });
+                chats.push(Carried {
+                    id: agent.id,
+                    provider: agent.provider,
+                    title: agent.title,
+                    renamed: agent.renamed,
+                    cwd,
+                    resume_id: resume,
+                    model: agent.model,
+                    effort: agent.effort,
+                    buddy: agent.buddy,
+                    files,
+                })
+            }
             Err(error) => left.push(stay(error)),
         }
     }
-    (chats, body, left)
+    (chats, sent, body, left)
 }
 
-/// A chat that went: here by its id, with its folder and saved session.
+/// A saved file as it was when its chat was gathered: where, how long, when last written.
+#[derive(Clone, PartialEq, Eq)]
+struct Print(
+    std::path::PathBuf,
+    Option<u64>,
+    Option<std::time::SystemTime>,
+);
+
+impl Print {
+    fn of(path: &std::path::Path) -> Self {
+        let meta = std::fs::metadata(path).ok();
+        Self(
+            path.to_owned(),
+            meta.as_ref().map(|meta| meta.len()),
+            meta.and_then(|meta| meta.modified().ok()),
+        )
+    }
+}
+
+/// A chat that went: here by its id, with its saved session and its files as they went.
+#[derive(Clone)]
 struct Sent {
     id: String,
     title: String,
+    kind: AgentKind,
     cwd: String,
     resume: String,
+    config: Option<String>,
+    prints: Vec<Print>,
 }
 
-/// Whether `agent` is in a turn, in its chat or its terminal.
-fn at_work(core: &Core, agent: &WorkspaceAgent) -> bool {
-    core.chats.at_work(&agent.id) || core.agent_now(&agent.id).mid_turn()
+impl Sent {
+    /// Whether the chat is idle here and its saved files are as they went.
+    fn still(&self, core: &Core) -> bool {
+        !at_work(core, &self.id)
+            && carry::gather(self.kind, &self.cwd, &self.resume, self.config.as_deref()).is_ok_and(
+                |files| {
+                    files
+                        .iter()
+                        .map(|file| Print::of(&file.path))
+                        .collect::<Vec<_>>()
+                        == self.prints
+                },
+            )
+    }
 }
 
-/// Closes the chats `sent` here and removes their saved files, now that another host holds
-/// them, answering whether every one went.
-async fn close_here(core: &Arc<Core>, sent: &[Sent]) -> bool {
-    let mut all = true;
-    for chat in sent {
-        let Some(agent) = core.workspaces.agent(&chat.id) else {
+/// Whether the agent `id` is in a turn, in its chat or its terminal.
+fn at_work(core: &Core, id: &str) -> bool {
+    core.chats.at_work(id) || core.agent_now(id).mid_turn()
+}
+
+/// Closes the chat `chat` here and removes its saved files, now that another host holds it.
+async fn close_here(core: &Arc<Core>, chat: &Sent) -> Result<(), String> {
+    if core.workspaces.agent(&chat.id).is_none() {
+        return Ok(());
+    }
+    if !core.chats.stop_if_idle(&chat.id) {
+        return Err("it began a turn".into());
+    }
+    workspace::close_agent(core, chat.id.clone()).map_err(|error| error.to_string())?;
+    let saved = SavedRef {
+        agent: chat.kind,
+        cwd: chat.cwd.clone(),
+        session_id: chat.resume.clone(),
+        executable_path: None,
+        config_path: chat.config.clone(),
+    };
+    delete::delete(saved)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[derive(Serialize, Deserialize)]
+pub(super) struct Untake {
+    /// The chats this host took, by their ids here.
+    agents: Vec<String>,
+}
+
+/// The host that sent a session asks this one to drop the chats it took of it, since the move
+/// did not finish there: each is closed and its saved files removed.
+pub(super) async fn untake_here(core: &Arc<Core>, untake: Untake) -> Answer {
+    let mut kept = Vec::new();
+    for id in untake.agents {
+        let Some(agent) = core.workspaces.agent(&id) else {
             continue;
         };
-        if !core.chats.stop_if_idle(&chat.id) {
-            all = false;
-            continue;
-        }
-        let config = agent.profile_id.as_deref().and_then(|profile| {
-            core.workspaces
-                .accounts()?
-                .profile(profile)?
-                .config_path
-                .clone()
-        });
-        if workspace::close_agent(core, chat.id.clone()).is_err() {
-            all = false;
-            continue;
-        }
-        let Some(kind) = AgentKind::from_name(&agent.provider) else {
+        let (Some(kind), Some(resume)) = (AgentKind::from_name(&agent.provider), agent.resume_id)
+        else {
             continue;
         };
+        if !core.chats.stop_if_idle(&id) {
+            kept.push(agent.title);
+            continue;
+        }
+        if workspace::close_agent(core, id).is_err() {
+            kept.push(agent.title);
+            continue;
+        }
         let saved = SavedRef {
             agent: kind,
-            cwd: chat.cwd.clone(),
-            session_id: chat.resume.clone(),
+            cwd: agent.cwd.to_string_lossy().into_owned(),
+            session_id: resume,
             executable_path: None,
-            config_path: config,
+            config_path: None,
         };
-        if delete::delete(saved).await.is_err() {
-            all = false;
-        }
+        let _ = delete::delete(saved).await;
     }
-    all
+    match kept.is_empty() {
+        true => Ok(serde_json::Value::Null),
+        false => Err(format!("{} began a turn here", kept.join(", "))),
+    }
 }
 
 /// A linked host sends this one a project's session: its chats' files in `body`, filed here
