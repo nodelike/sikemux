@@ -4,7 +4,8 @@
 - Decision date: 2026-10-16
 - Amended: 2026-10-19, to say which credentials are shared and how a per-host agent login stays
   within the vendors' terms, and that agents from a linked host use none of them until allowed;
-  2026-11-11, to say how sign-ins a host already has move in
+  2026-11-11, to say how sign-ins a host already has move in, and what the server sees, how a
+  host gets the key and how a shared sign-in is refreshed
 
 ## Context
 
@@ -66,6 +67,21 @@ when its home goes away.
   on the same service, the newest token is kept and its host refreshes it; different identities
   become separate entries. AWS profiles stay in the AWS CLI's own files on each host.
 - **A host with no account keeps its sign-ins in its own secret store**, as before the vault.
+- **The server sees which plugin each entry is for, and nothing else of it.** An entry's label,
+  such as the account it signs in as, is sealed with its tokens, its plugin settings and who may
+  use it. The server keeps each entry's plugin, revision and the host that last wrote it, and the
+  use log keeps the entry, its plugin, the host, the agent and the time, so the web app can show
+  "GitHub, used by @Otter on mini" without the key.
+- **A host signed in to the account gets the key from any host that holds it.** Signing in is
+  the person letting it in ([ADR 0018](./0018-the-account-is-the-trust.md)); it still uses no
+  entry until they allow it. The vault key is wrapped with each host's Ed25519 key taken as its
+  X25519 key, and the recovery key is an X25519 key the hosts know only the public half of, so a
+  host that replaces the vault key wraps the new one for it as well.
+- **The host that refreshes a shared sign-in renews it ahead of time.** It seals each new access
+  token into the entry before the old one runs out, and the other hosts use that token rather than
+  refreshing. Whichever host writes a newer token for the same identity becomes the one that
+  refreshes it. An entry allowed only for some projects is matched by the project folder's name,
+  which each host's copy of the project shares.
 
 ## Consequences
 

@@ -9,7 +9,7 @@ A worker on another host runs there on that host's own sign-in for its CLI, in a
 
 ## Sign-ins
 
-An agent uses the sign-ins of the host it runs on, whichever host started or messaged it: that host's [connectors](/agents/connectors/) such as Jira, GitHub, AWS or Slack, its saved databases and its browser tabs. A worker on another host gets that host's sign-ins, never this one's. Sign-ins never leave the host they were made on.
+An agent uses the sign-ins of the host it runs on, whichever host started or messaged it: that host's [connectors](/agents/connectors/) such as Jira, GitHub, AWS or Slack, its saved databases and its browser tabs. A worker on another host gets that host's sign-ins. A sign-in from your [account vault](/agents/connectors/#account-vault) reaches another host only once you allow that host to use it.
 
 ## Sending a project to another host
 
