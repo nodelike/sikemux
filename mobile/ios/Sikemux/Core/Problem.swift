@@ -8,7 +8,8 @@ func problem(_ error: Error) -> String {
         case .Refused(let message, _), .Connection(let message), .Invalid(let message): return message
         case .Unpaired: return "This host no longer knows this phone. Forget it, then connect again."
         case .Outdated(let macIsOlder):
-            return macIsOlder ? "Update Sikemux on this host to reach it from this app." : "Update this app to reach this host."
+            return macIsOlder
+                ? "Update Sikemux on this host to reach it from this app." : "Update this app to reach this host."
         }
     }
     if let error = error as? LocalizedError, let description = error.errorDescription { return description }

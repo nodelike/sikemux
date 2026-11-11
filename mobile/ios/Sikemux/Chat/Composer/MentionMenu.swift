@@ -77,7 +77,9 @@ final class MentionSearch {
             if closed?.cwd != cwd {
                 run("closed") {
                     do {
-                        self.closed = (cwd, try await connection.call(PhoneCall.ClosedAgents.self, ClosedAgentsParams(cwd: cwd)))
+                        self.closed = (
+                            cwd, try await connection.call(PhoneCall.ClosedAgents.self, ClosedAgentsParams(cwd: cwd))
+                        )
                     } catch {
                         log.error("closed agents: \(problem(error), privacy: .public)")
                         self.closed = (cwd, [])
@@ -89,7 +91,8 @@ final class MentionSearch {
             run("found") {
                 try? await Task.sleep(for: Self.settle)
                 if Task.isCancelled { return }
-                let params = SessionSearchParams(query: query, projects: [cwd], limit: Self.earlierShown, budgetMs: Self.earlierBudget)
+                let params = SessionSearchParams(
+                    query: query, projects: [cwd], limit: Self.earlierShown, budgetMs: Self.earlierBudget)
                 do {
                     let list = try await connection.call(PhoneCall.AgentSessions.self, params)
                     if !Task.isCancelled { self.found = (query, list) }
@@ -102,7 +105,9 @@ final class MentionSearch {
             let needle = typed.needle
             run("entries") {
                 do {
-                    let list = try await connection.call(PhoneCall.ProjectEntries.self, ProjectEntriesParams(project: cwd, query: needle, limit: Self.shown))
+                    let list = try await connection.call(
+                        PhoneCall.ProjectEntries.self,
+                        ProjectEntriesParams(project: cwd, query: needle, limit: Self.shown))
                     if !Task.isCancelled { self.entries = (needle, list, nil) }
                 } catch {
                     if !Task.isCancelled { self.entries = (needle, nil, problem(error)) }
@@ -112,7 +117,8 @@ final class MentionSearch {
             guard let host = project?.codeHost?.label, tracked?.cwd != cwd else { return }
             run("tracked") {
                 do {
-                    let answer = try await connection.call(PhoneCall.CodeHostTracked.self, CodeHostProjectParams(project: cwd))
+                    let answer = try await connection.call(
+                        PhoneCall.CodeHostTracked.self, CodeHostProjectParams(project: cwd))
                     self.tracked = (cwd, Self.read(answer, host))
                 } catch {
                     self.tracked = (cwd, .failed(problem(error)))
@@ -129,7 +135,9 @@ final class MentionSearch {
     private static func read(_ answer: PluginOutcome, _ host: String) -> Listed {
         switch answer {
         case .failed(let failure):
-            return .failed(failure.category == .auth ? "Sign in to \(host) in the Git pane to pick from its issues" : failure.message)
+            return .failed(
+                failure.category == .auth
+                    ? "Sign in to \(host) in the Git pane to pick from its issues" : failure.message)
         case .value(let value):
             do {
                 return .items(try value.decoded(as: [Item].self))
@@ -159,19 +167,23 @@ final class MentionSearch {
             let groups = Dictionary(view.chats.map { ($0.agentId, $0.group) }, uniquingKeysWith: { a, _ in a })
             let places = [project].compactMap { $0 } + view.workspace.projects.filter { $0.id != project?.id }
             let mates: [MentionRow] = places.flatMap { place in
-                agents.filter { $0.project == place.id && $0.id != session.agentId && ($0.name ?? "").lowercased().hasPrefix(wanted) }
+                agents.filter {
+                    $0.project == place.id && $0.id != session.agentId && ($0.name ?? "").lowercased().hasPrefix(wanted)
+                }
             }
             .prefix(Self.shown)
             .map { agent in
                 let name = agent.name ?? ""
                 return MentionRow(
                     id: "\(Mentions.agent)\(agent.id)", title: "@\(name)", detail: agent.title,
-                    group: agent.project == project?.id ? nil : view.workspace.projects.first { $0.id == agent.project }?.name,
+                    group: agent.project == project?.id
+                        ? nil : view.workspace.projects.first { $0.id == agent.project }?.name,
                     mark: .agent(id: agent.id, provider: agent.provider), state: groups[agent.id] ?? nil,
                     take: { write("@\(name)", "\(Mentions.agent)\(agent.id)", nil, nil) }
                 )
             }
-            let named = (closed?.cwd == cwd ? closed?.list ?? [] : []).filter { $0.name.lowercased().hasPrefix(wanted) }.prefix(Self.shown)
+            let named = (closed?.cwd == cwd ? closed?.list ?? [] : []).filter { $0.name.lowercased().hasPrefix(wanted) }
+                .prefix(Self.shown)
             let closedRows: [MentionRow] = named.enumerated().map { index, agent in
                 let id = "\(Mentions.earlier)\(agent.provider)/\(agent.sessionId)"
                 return MentionRow(
@@ -188,13 +200,22 @@ final class MentionSearch {
             let earlierRows: [MentionRow] = earlier.enumerated().map { index, chat in
                 MentionRow(
                     id: "\(Mentions.earlier)\(chat.cli)/\(chat.sessionId)", title: chat.title, plain: true,
-                    aside: Format.age(Format.date(millis: Double(chat.activeAt))), group: index == 0 ? "Earlier chats" : nil,
+                    aside: Format.age(Format.date(millis: Double(chat.activeAt))),
+                    group: index == 0 ? "Earlier chats" : nil,
                     mark: .agent(id: nil, provider: chat.cli),
-                    take: { write("", nil, nil, ChatContext(uri: "\(WireURIs.earlierURI)\(chat.cli)/\(chat.sessionId)", title: chat.title, text: "")) }
+                    take: {
+                        write(
+                            "", nil, nil,
+                            ChatContext(
+                                uri: "\(WireURIs.earlierURI)\(chat.cli)/\(chat.sessionId)", title: chat.title, text: "")
+                        )
+                    }
                 )
             }
             let rows = mates + closedRows + earlierRows
-            return (rows, rows.isEmpty ? (wanted.isEmpty ? "No other agent yet" : "No agent or earlier chat matches") : nil)
+            return (
+                rows, rows.isEmpty ? (wanted.isEmpty ? "No other agent yet" : "No agent or earlier chat matches") : nil
+            )
 
         case .files:
             guard let project else { return ([], "Open a project to pick its files") }
@@ -217,7 +238,9 @@ final class MentionSearch {
 
         case .issues, .pulls:
             let pulls = typed.trigger == .pulls
-            guard let project, let cwd else { return ([], "Open a project to pick its \(pulls ? "pull requests" : "issues")") }
+            guard let project, let cwd else {
+                return ([], "Open a project to pick its \(pulls ? "pull requests" : "issues")")
+            }
             guard project.codeHost != nil else { return ([], "This project has no remote on a code host") }
             let listed = tracked?.cwd == cwd ? tracked?.listed : nil
             if case .failed(let why) = listed { return ([], why) }
@@ -227,9 +250,12 @@ final class MentionSearch {
             let digits = !query.isEmpty && query.allSatisfy(\.isNumber)
             let words = query.split(whereSeparator: \.isWhitespace).map(String.init)
             let connection = live.connection
-            let rows: [MentionRow] = items
+            let rows: [MentionRow] =
+                items
                 .filter { $0.kind == (pulls ? "pull" : "issue") }
-                .filter { digits ? String($0.number).hasPrefix(query) : words.allSatisfy($0.title.lowercased().contains) }
+                .filter {
+                    digits ? String($0.number).hasPrefix(query) : words.allSatisfy($0.title.lowercased().contains)
+                }
                 .prefix(Self.shown)
                 .map { item in
                     let sign = pulls ? "!" : "#"
@@ -241,13 +267,16 @@ final class MentionSearch {
                             write("\(sign)\(item.number)", id, "#\(item.number) \(item.title)", nil)
                             guard let connection else { return }
                             Task {
-                                let params = TrackedContextParams(project: cwd, kind: pulls ? .pull : .issue, number: item.number)
+                                let params = TrackedContextParams(
+                                    project: cwd, kind: pulls ? .pull : .issue, number: item.number)
                                 do {
-                                    let answer = try await connection.call(PhoneCall.CodeHostTrackedContext.self, params)
+                                    let answer = try await connection.call(
+                                        PhoneCall.CodeHostTrackedContext.self, params)
                                     guard case .value(let value) = answer else { return }
                                     session.track(id, try value.decoded(as: ChatContext.self))
                                 } catch {
-                                    log.error("what the issue or pull request says: \(problem(error), privacy: .public)")
+                                    log.error(
+                                        "what the issue or pull request says: \(problem(error), privacy: .public)")
                                 }
                             }
                         }
@@ -268,7 +297,9 @@ struct MentionMenu: View {
     let empty: String?
     let onScope: (Typed.Trigger) -> Void
 
-    private static let scopes: [(Typed.Trigger, String)] = [(.agents, "Agents"), (.issues, "Issues"), (.pulls, "Pull requests"), (.files, "Files")]
+    private static let scopes: [(Typed.Trigger, String)] = [
+        (.agents, "Agents"), (.issues, "Issues"), (.pulls, "Pull requests"), (.files, "Files"),
+    ]
 
     var body: some View {
         VStack(spacing: 0) {
@@ -282,12 +313,16 @@ struct MentionMenu: View {
                             onScope(trigger)
                         } label: {
                             HStack(spacing: 5) {
-                                Text(trigger.rawValue).font(Theme.mono(12.5)).foregroundStyle(on ? palette.accent : palette.inkFaint)
-                                Text(label).font(Theme.ui(12.5, .medium)).foregroundStyle(on ? palette.ink : palette.tertiary)
+                                Text(trigger.rawValue).font(Theme.mono(12.5)).foregroundStyle(
+                                    on ? palette.accent : palette.inkFaint)
+                                Text(label).font(Theme.ui(12.5, .medium)).foregroundStyle(
+                                    on ? palette.ink : palette.tertiary)
                             }
                             .padding(.horizontal, 9)
                             .frame(height: 30)
-                            .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(on ? palette.active : .clear))
+                            .background(
+                                RoundedRectangle(cornerRadius: 8, style: .continuous).fill(on ? palette.active : .clear)
+                            )
                         }
                         .buttonStyle(.plain)
                         .accessibilityAddTraits(on ? [.isSelected] : [])
@@ -344,7 +379,8 @@ struct MentionMenu: View {
                 Group {
                     switch row.mark {
                     case .icon(let icon): IconView(icon: icon, size: 15).foregroundStyle(palette.tertiary)
-                    case .agent(let id, let provider): AgentFaceView(agentId: id, provider: provider, group: nil, size: 18, logoSize: 16)
+                    case .agent(let id, let provider):
+                        AgentFaceView(agentId: id, provider: provider, group: nil, size: 18, logoSize: 16)
                     }
                 }
                 .frame(width: 18)

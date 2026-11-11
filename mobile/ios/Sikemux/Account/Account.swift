@@ -37,8 +37,8 @@ final class Account {
 
     func load() async {
         guard Clerk.hasClient,
-              let text = try? Keychain.read(Self.savedItem),
-              let saved = try? JSONDecoder().decode(Saved.self, from: Data(text.utf8))
+            let text = try? Keychain.read(Self.savedItem),
+            let saved = try? JSONDecoder().decode(Saved.self, from: Data(text.utf8))
         else {
             state = .signedOut
             return
@@ -132,8 +132,8 @@ final class Account {
         var payload = parts[1].replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
         payload += String(repeating: "=", count: (4 - payload.count % 4) % 4)
         guard let data = Data(base64Encoded: payload),
-              let claims = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let exp = claims["exp"] as? Double
+            let claims = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let exp = claims["exp"] as? Double
         else { return nil }
         return Date(timeIntervalSince1970: exp)
     }

@@ -13,12 +13,15 @@ struct CodeEntry: View {
 
     var body: some View {
         ZStack {
-            TextField("", text: Binding(
-                get: { code },
-                set: { typed in
-                    if !disabled { code = String(typed.filter(\.isNumber).prefix(Self.length)) }
-                }
-            ))
+            TextField(
+                "",
+                text: Binding(
+                    get: { code },
+                    set: { typed in
+                        if !disabled { code = String(typed.filter(\.isNumber).prefix(Self.length)) }
+                    }
+                )
+            )
             .keyboardType(.numberPad)
             .textContentType(.oneTimeCode)
             .focused($focused)
@@ -44,7 +47,10 @@ struct CodeEntry: View {
         }
         .accessibilityElement()
         .accessibilityLabel(failed ? "Code, wrong" : "Code")
-        .accessibilityValue(code.isEmpty ? "Empty" : "\(code.map(String.init).joined(separator: " ")), \(code.count) of \(Self.length) digits")
+        .accessibilityValue(
+            code.isEmpty
+                ? "Empty" : "\(code.map(String.init).joined(separator: " ")), \(code.count) of \(Self.length) digits"
+        )
         .accessibilityHint("Type the \(Self.length) digits")
     }
 
@@ -59,9 +65,11 @@ struct CodeEntry: View {
             .background(shape.fill(failed ? palette.danger.opacity(0.08) : disabled ? palette.raised : palette.sunken))
             .overlay(
                 shape.strokeBorder(
-                    failed ? palette.danger.opacity(0.55)
-                        : disabled ? palette.borderStrong
-                        : current ? palette.borderSelected : palette.border,
+                    failed
+                        ? palette.danger.opacity(0.55)
+                        : disabled
+                            ? palette.borderStrong
+                            : current ? palette.borderSelected : palette.border,
                     lineWidth: 1
                 )
             )

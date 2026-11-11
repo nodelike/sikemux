@@ -163,8 +163,10 @@ final class Feed {
         let generation = generation
         let paging = Task { @MainActor [weak self] () -> Bool in
             do {
-                let json = try await connection.chatHistory(agentId: agentId, feed: feed, before: UInt64(before), turns: Self.pageTurns)
-                let page = try await Task.detached { try JSONDecoder().decode(ChatPage.self, from: Data(json.utf8)) }.value
+                let json = try await connection.chatHistory(
+                    agentId: agentId, feed: feed, before: UInt64(before), turns: Self.pageTurns)
+                let page = try await Task.detached { try JSONDecoder().decode(ChatPage.self, from: Data(json.utf8)) }
+                    .value
                 guard let self, generation == self.generation else { return false }
                 chat.addPage(page)
                 touched.all = true
@@ -189,11 +191,14 @@ final class Feed {
     }
 
     /// A call's whole change and what it printed, which rows carry only counts of. `done` calls are read once.
-    func toolDetail(_ connection: Connection?, _ agentId: String, _ toolCallId: String, done: Bool) async throws -> ToolDetail {
+    func toolDetail(_ connection: Connection?, _ agentId: String, _ toolCallId: String, done: Bool) async throws
+        -> ToolDetail
+    {
         if let kept = details[toolCallId] { return try await kept.value }
         let reading = Task { @MainActor () throws -> ToolDetail in
             guard let connection, connection.isOpen() else { throw ChatProblem("the host is not connected") }
-            return try await connection.call(PhoneCall.ChatToolDetail.self, ToolDetailParams(agentId: agentId, toolCallId: toolCallId))
+            return try await connection.call(
+                PhoneCall.ChatToolDetail.self, ToolDetailParams(agentId: agentId, toolCallId: toolCallId))
         }
         guard done else { return try await reading.value }
         details[toolCallId] = reading

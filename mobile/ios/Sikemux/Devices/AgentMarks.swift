@@ -12,7 +12,9 @@ struct Working: View {
             Canvas { context, _ in
                 for (index, period) in Self.periods.enumerated() {
                     let rect = CGRect(x: Double(index % 3) * 5, y: Double(index / 3) * 5, width: 3, height: 3)
-                    context.opacity = still ? 1 : Self.opacity(time, period: period, delay: Double(index * 230 % Int(period * 1000)) / 1000)
+                    context.opacity =
+                        still
+                        ? 1 : Self.opacity(time, period: period, delay: Double(index * 230 % Int(period * 1000)) / 1000)
                     context.fill(Path(roundedRect: rect, cornerRadius: 0.6), with: .color(palette.live))
                 }
             }
@@ -46,7 +48,8 @@ struct NeedsYou: View {
                         .frame(width: 7, height: 7)
                         .scaleEffect(rung ? 2.4 : 0.6)
                         .opacity(rung ? 0 : 0.9)
-                        .animation(.timingCurve(0.2, 0.6, 0.3, 1, duration: 0.52).delay(Double(ring) * 0.38), value: rung)
+                        .animation(
+                            .timingCurve(0.2, 0.6, 0.3, 1, duration: 0.52).delay(Double(ring) * 0.38), value: rung)
                 }
             }
             Circle().fill(palette.warn).frame(width: 7, height: 7)
@@ -108,10 +111,14 @@ struct TriggerTime: View {
 
     var body: some View {
         let seconds = max(0, Int(at.timeIntervalSince(now)))
-        let left = seconds == 0 ? "now"
-            : seconds < 3600 ? "\(Int((Double(seconds) / 60).rounded(.up)))m"
-            : seconds < 86_400 ? "\(seconds / 3600)h"
-            : "\(seconds / 86_400)d"
+        let left =
+            seconds == 0
+            ? "now"
+            : seconds < 3600
+                ? "\(Int((Double(seconds) / 60).rounded(.up)))m"
+                : seconds < 86_400
+                    ? "\(seconds / 3600)h"
+                    : "\(seconds / 86_400)d"
         MarkCount(icon: Icons.timer, tint: palette.cmd, text: left)
             .accessibilityLabel("A trigger wakes it in \(left)")
     }
@@ -125,9 +132,12 @@ struct WakeTime: View {
 
     var body: some View {
         let left = max(0, at.timeIntervalSince(now))
-        let words = left < 3600 ? "\(max(1, Int((left / 60).rounded(.up))))m"
-            : left < 86_400 ? "\(max(1, Int((left / 3600).rounded())))h"
-            : at.formatted(.dateTime.weekday(.abbreviated))
+        let words =
+            left < 3600
+            ? "\(max(1, Int((left / 60).rounded(.up))))m"
+            : left < 86_400
+                ? "\(max(1, Int((left / 3600).rounded())))h"
+                : at.formatted(.dateTime.weekday(.abbreviated))
         MarkCount(icon: Icons.clock, tint: palette.tertiary, text: words, dim: true)
             .accessibilityLabel("Snoozed, wakes in \(words)")
     }

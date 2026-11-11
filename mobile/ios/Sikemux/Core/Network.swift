@@ -59,8 +59,8 @@ final class Network {
         var request = URLRequest(url: Config.apiUrl.appending(path: "v1/network"))
         request.timeoutInterval = 3
         if let (data, response) = try? await URLSession.shared.data(for: request),
-           (response as? HTTPURLResponse)?.statusCode == 200,
-           let answer = try? JSONDecoder().decode(WireNetwork.self, from: data)
+            (response as? HTTPURLResponse)?.statusCode == 200,
+            let answer = try? JSONDecoder().decode(WireNetwork.self, from: data)
         {
             check(answer.minimumVersions.ios)
             let relays = answer.relays.filter { $0.url.hasPrefix("http://") || $0.url.hasPrefix("https://") }
@@ -110,7 +110,7 @@ enum Versions {
         for (x, y) in zip(left.pre, right.pre) {
             let order: Int
             switch (Int(x), Int(y)) {
-            case let (.some(m), .some(n)): order = m - n
+            case (.some(let m), .some(let n)): order = m - n
             case (.some, .none): order = -1
             case (.none, .some): order = 1
             default: order = x < y ? -1 : x > y ? 1 : 0

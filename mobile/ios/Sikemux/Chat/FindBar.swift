@@ -75,11 +75,12 @@ final class ChatFind {
             return
         }
         let last = found.count - 1
-        let to: Int? = if let at {
-            older ? (at < last ? at + 1 : next == nil ? 0 : nil) : (at > 0 ? at - 1 : next == nil ? last : nil)
-        } else {
-            0
-        }
+        let to: Int? =
+            if let at {
+                older ? (at < last ? at + 1 : next == nil ? 0 : nil) : (at > 0 ? at - 1 : next == nil ? last : nil)
+            } else {
+                0
+            }
         guard let to else {
             if older {
                 stepping = true
@@ -153,7 +154,9 @@ final class ChatFind {
         } else if wasStepping {
             step(older: true)
         }
-        if !complete, counted < Self.mostCounted, let more = answer.next, asked == self.asked { ask(from: more, countOnly: true) }
+        if !complete, counted < Self.mostCounted, let more = answer.next, asked == self.asked {
+            ask(from: more, countOnly: true)
+        }
         mark()
     }
 

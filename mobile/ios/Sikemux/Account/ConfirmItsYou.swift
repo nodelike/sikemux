@@ -56,13 +56,15 @@ final class RecentSignIn {
         guard let asked = verify, let session = Account.shared.sessionId else { return }
         verify?.checking = true
         verify?.problem = nil
-        let form: [String: String] = switch asked.factor {
-        case .password: ["strategy": "password", "password": asked.entry]
-        case .emailCode: ["strategy": "email_code", "code": asked.entry]
-        }
+        let form: [String: String] =
+            switch asked.factor {
+            case .password: ["strategy": "password", "password": asked.entry]
+            case .emailCode: ["strategy": "email_code", "code": asked.entry]
+            }
         do {
             let (result, _) = try await Clerk.call(
-                "POST", "v1/client/sessions/\(session)/verify/attempt_first_factor", form, as: Clerk.SessionVerification.self
+                "POST", "v1/client/sessions/\(session)/verify/attempt_first_factor", form,
+                as: Clerk.SessionVerification.self
             )
             guard result.status == .complete else {
                 return giveUp("This account also needs a second step to confirm it. \(elsewhere)")
@@ -81,7 +83,8 @@ final class RecentSignIn {
     private func ask() async throws {
         guard let session = Account.shared.sessionId else { throw Clerk.Problem(code: nil, message: "Sign in again.") }
         let (started, _) = try await Clerk.call(
-            "POST", "v1/client/sessions/\(session)/verify", ["level": "first_factor"], as: Clerk.SessionVerification.self
+            "POST", "v1/client/sessions/\(session)/verify", ["level": "first_factor"],
+            as: Clerk.SessionVerification.self
         )
         let factors = started.supportedFirstFactors ?? []
         let factor: Factor
@@ -91,7 +94,8 @@ final class RecentSignIn {
             factor = .emailCode(to: email.safeIdentifier ?? "your email", emailAddressId: email.emailAddressId!)
             _ = try await Clerk.call(
                 "POST", "v1/client/sessions/\(session)/verify/prepare_first_factor",
-                ["strategy": "email_code", "email_address_id": email.emailAddressId!], as: Clerk.SessionVerification.self
+                ["strategy": "email_code", "email_address_id": email.emailAddressId!],
+                as: Clerk.SessionVerification.self
             )
         } else {
             throw Clerk.Problem(code: nil, message: "This account can't confirm it's you in the app. \(elsewhere)")
@@ -125,10 +129,12 @@ struct ConfirmItsYou: View {
             if case .emailCode(let to, _) = verify.factor {
                 Prompt(icon: Icons.shield, title: "Confirm it's you", detail: "Sikemux sent a code to \(to).") {
                     CodeEntry(
-                        code: Binding(get: { verify.entry }, set: { typed in
-                            recent.enter(typed)
-                            if typed.count == 6 { Task { await recent.check() } }
-                        }),
+                        code: Binding(
+                            get: { verify.entry },
+                            set: { typed in
+                                recent.enter(typed)
+                                if typed.count == 6 { Task { await recent.check() } }
+                            }),
                         failed: verify.problem != nil && verify.entry.isEmpty,
                         disabled: verify.checking
                     )
@@ -138,12 +144,17 @@ struct ConfirmItsYou: View {
             } else {
                 Prompt(icon: Icons.shield, title: "Confirm it's you")
                 VStack(spacing: 12) {
-                    PasswordField(placeholder: "Password", text: Binding(get: { verify.entry }, set: recent.enter), autoFocus: true)
-                        .textContentType(.password)
-                        .submitLabel(.go)
-                        .onSubmit { Task { await recent.check() } }
-                    ActionButton(verify.checking ? "Checking…" : action, kind: kind, icon: icon) { Task { await recent.check() } }
-                        .disabled(verify.checking || verify.entry.isEmpty)
+                    PasswordField(
+                        placeholder: "Password", text: Binding(get: { verify.entry }, set: recent.enter),
+                        autoFocus: true
+                    )
+                    .textContentType(.password)
+                    .submitLabel(.go)
+                    .onSubmit { Task { await recent.check() } }
+                    ActionButton(verify.checking ? "Checking…" : action, kind: kind, icon: icon) {
+                        Task { await recent.check() }
+                    }
+                    .disabled(verify.checking || verify.entry.isEmpty)
                     if let problem = verify.problem { ProblemLine(text: problem) }
                 }
                 .padding(.horizontal, 24)

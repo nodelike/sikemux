@@ -39,10 +39,12 @@ struct AttachSheet: ViewModifier {
                             onStash(Array(items.prefix(room)))
                             shown = false
                         },
-                        onStashPrompt: onStashPrompt.map { prompt in {
-                            shown = false
-                            prompt()
-                        } },
+                        onStashPrompt: onStashPrompt.map { prompt in
+                            {
+                                shown = false
+                                prompt()
+                            }
+                        },
                         onBack: { shown = false },
                         onClose: { shown = false }
                     )
@@ -77,8 +79,11 @@ struct AttachSheet: ViewModifier {
         VStack(spacing: 0) {
             if full {
                 HStack {
-                    Button { shown = false } label: {
-                        IconView(icon: Icons.close, size: 15).foregroundStyle(palette.tertiary).frame(width: 40, height: 40)
+                    Button {
+                        shown = false
+                    } label: {
+                        IconView(icon: Icons.close, size: 15).foregroundStyle(palette.tertiary).frame(
+                            width: 40, height: 40)
                     }
                     .buttonStyle(PressFade())
                     .accessibilityLabel("Close")
@@ -112,7 +117,9 @@ struct AttachSheet: ViewModifier {
                         Chip(title: "Allow access", primary: true) { library.open() }
                     } else {
                         Chip(title: "Open Settings") {
-                            if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
+                            if let url = URL(string: UIApplication.openSettingsURLString) {
+                                UIApplication.shared.open(url)
+                            }
                         }
                     }
                 }
@@ -161,7 +168,9 @@ struct AttachSheet: ViewModifier {
                     .foregroundStyle(palette.ink)
                     .frame(maxWidth: .infinity, minHeight: 54, maxHeight: 54)
                     .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(palette.raised))
-                    .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(palette.border, lineWidth: 1))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(
+                            palette.border, lineWidth: 1))
                 Text(label).font(Theme.ui(12.5, .medium)).foregroundStyle(palette.secondary)
             }
             .contentShape(Rectangle())
@@ -202,7 +211,9 @@ struct AttachSheet: ViewModifier {
     }
 
     private var cameraCell: some View {
-        Button { leave { try await Pick.camera() } } label: {
+        Button {
+            leave { try await Pick.camera() }
+        } label: {
             VStack(spacing: 6) {
                 IconView(icon: Icons.camera, size: 20).foregroundStyle(palette.ink)
                 Text("Camera").font(Theme.ui(12, .medium)).foregroundStyle(palette.ink)
@@ -280,7 +291,9 @@ private struct PhotoCell: View {
                 }
                 .frame(width: side - 4, height: side - 4)
                 .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(order > 0 ? palette.accent : .clear, lineWidth: 2))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(
+                        order > 0 ? palette.accent : .clear, lineWidth: 2))
                 if choosing {
                     ZStack {
                         Circle().fill(order > 0 ? palette.accent : Color(hex: "rgba(9, 9, 11, 0.25)"))
@@ -305,9 +318,13 @@ private struct PhotoCell: View {
         }
     }
 
-    private static func images(_ asset: PHAsset, _ size: CGSize, _ options: PHImageRequestOptions) -> AsyncStream<UIImage> {
+    private static func images(_ asset: PHAsset, _ size: CGSize, _ options: PHImageRequestOptions) -> AsyncStream<
+        UIImage
+    > {
         AsyncStream { stream in
-            let id = PHCachingImageManager.default().requestImage(for: asset, targetSize: size, contentMode: .aspectFill, options: options) { image, info in
+            let id = PHCachingImageManager.default().requestImage(
+                for: asset, targetSize: size, contentMode: .aspectFill, options: options
+            ) { image, info in
                 if let image { stream.yield(image) }
                 if (info?[PHImageResultIsDegradedKey] as? Bool) != true { stream.finish() }
             }
@@ -322,9 +339,10 @@ extension View {
         shown: Binding<Bool>, stash: Bool, room: Int, onAttach: @escaping ([Attachment]) -> Void,
         onStash: @escaping ([StashItem]) -> Void, onStashPrompt: (() -> Void)?, onProblem: @escaping (String) -> Void
     ) -> some View {
-        modifier(AttachSheet(
-            shown: shown, stash: stash, room: room, onAttach: onAttach, onStash: onStash,
-            onStashPrompt: onStashPrompt, onProblem: onProblem
-        ))
+        modifier(
+            AttachSheet(
+                shown: shown, stash: stash, room: room, onAttach: onAttach, onStash: onStash,
+                onStashPrompt: onStashPrompt, onProblem: onProblem
+            ))
     }
 }

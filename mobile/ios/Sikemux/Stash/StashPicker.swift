@@ -35,7 +35,9 @@ struct StashPicker: View {
                 if news.isEmpty {
                     Color.clear.frame(width: 40, height: 40)
                 } else {
-                    Button { onAddNew(news) } label: {
+                    Button {
+                        onAddNew(news)
+                    } label: {
                         Text("Add \(news.count) new").font(Theme.ui(14, .semibold)).foregroundStyle(palette.accent)
                             .frame(minWidth: 40, minHeight: 40, alignment: .trailing).padding(.horizontal, 4)
                     }
@@ -68,8 +70,10 @@ struct StashPicker: View {
             fresh.formUnion(store.new.map(\.id))
             await store.see()
         }
-        .confirmationDialog("Remove from stash?", isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }),
-                            titleVisibility: .visible, presenting: removing) { item in
+        .confirmationDialog(
+            "Remove from stash?", isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }),
+            titleVisibility: .visible, presenting: removing
+        ) { item in
             Button("Remove", role: .destructive) {
                 Task {
                     do { try await store.remove(item.id) } catch { Haptics.failure() }
@@ -89,8 +93,10 @@ struct StashPicker: View {
                     }
                     .frame(height: 0)
                     ForEach(store.items) { item in
-                        StashRow(item: item, fresh: fresh.contains(item.id),
-                                 order: (chosen.firstIndex { $0.id == item.id } ?? -1) + 1) {
+                        StashRow(
+                            item: item, fresh: fresh.contains(item.id),
+                            order: (chosen.firstIndex { $0.id == item.id } ?? -1) + 1
+                        ) {
                             Haptics.select()
                             onToggle(item)
                         } remove: {
@@ -111,8 +117,10 @@ struct StashPicker: View {
                     HStack(spacing: 12) {
                         RoundedRectangle(cornerRadius: 9).fill(palette.raised).frame(width: 46, height: 46)
                         VStack(alignment: .leading, spacing: 8) {
-                            RoundedRectangle(cornerRadius: 4).fill(palette.raised).frame(height: 11).containerRelativeFrame(.horizontal) { w, _ in w * 0.5 }
-                            RoundedRectangle(cornerRadius: 4).fill(palette.raised).frame(height: 11).containerRelativeFrame(.horizontal) { w, _ in w * 0.3 }
+                            RoundedRectangle(cornerRadius: 4).fill(palette.raised).frame(height: 11)
+                                .containerRelativeFrame(.horizontal) { w, _ in w * 0.5 }
+                            RoundedRectangle(cornerRadius: 4).fill(palette.raised).frame(height: 11)
+                                .containerRelativeFrame(.horizontal) { w, _ in w * 0.3 }
                         }
                         Spacer()
                     }
@@ -126,16 +134,21 @@ struct StashPicker: View {
                 Chip(title: "Try again") { Task { await store.refresh() } }.padding(.top, 10)
             }
         } else {
-            empty(icon: Icons.stack, title: "Nothing stashed",
-                  detail: "Share a link, a photo or a file to Sikemux from any app to keep it here.") { EmptyView() }
+            empty(
+                icon: Icons.stack, title: "Nothing stashed",
+                detail: "Share a link, a photo or a file to Sikemux from any app to keep it here."
+            ) { EmptyView() }
         }
     }
 
-    private func empty<Extra: View>(icon: IconDef, title: String, detail: String, @ViewBuilder extra: () -> Extra) -> some View {
+    private func empty<Extra: View>(icon: IconDef, title: String, detail: String, @ViewBuilder extra: () -> Extra)
+        -> some View
+    {
         VStack(spacing: 8) {
             PromptGlyph(icon: icon, small: true)
             Text(title).font(Theme.ui(16, .semibold)).foregroundStyle(palette.ink).padding(.top, 8)
-            Text(detail).font(Theme.ui(14)).lineSpacing(6).foregroundStyle(palette.tertiary).multilineTextAlignment(.center)
+            Text(detail).font(Theme.ui(14)).lineSpacing(6).foregroundStyle(palette.tertiary).multilineTextAlignment(
+                .center)
             extra()
         }
         .padding(.top, 70)
@@ -164,10 +177,13 @@ private struct StashRow: View {
             StashFace(item: item)
             VStack(alignment: .leading, spacing: 0) {
                 HStack(alignment: .top, spacing: 6) {
-                    Text(prompt ? (item.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines) : StashWords.title(item))
-                        .font(file ? Theme.mono(13) : Theme.ui(14.5, .medium))
-                        .foregroundStyle(palette.ink)
-                        .lineLimit(prompt ? 2 : 1)
+                    Text(
+                        prompt
+                            ? (item.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines) : StashWords.title(item)
+                    )
+                    .font(file ? Theme.mono(13) : Theme.ui(14.5, .medium))
+                    .foregroundStyle(palette.ink)
+                    .lineLimit(prompt ? 2 : 1)
                     if fresh {
                         Text("NEW").font(Theme.ui(9.5, .semibold)).tracking(0.76).foregroundStyle(palette.ground)
                             .padding(.horizontal, 5).frame(height: 15)
@@ -184,7 +200,8 @@ private struct StashRow: View {
                 if let note = item.note, !note.isEmpty {
                     Text(note).font(Theme.ui(12.5)).foregroundStyle(palette.secondary).lineLimit(1).padding(.top, 3)
                 }
-                Text(StashWords.place(item)).font(Theme.ui(12)).foregroundStyle(palette.tertiary).lineLimit(1).padding(.top, 2)
+                Text(StashWords.place(item)).font(Theme.ui(12)).foregroundStyle(palette.tertiary).lineLimit(1).padding(
+                    .top, 2)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             ZStack {

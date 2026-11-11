@@ -179,7 +179,8 @@ final class TranscriptController: UIViewController, UICollectionViewDelegate {
         guard isViewLoaded else { return }
         var snapshot: NSDiffableDataSourceSnapshot<Int, Item>
         if reordered || source.snapshot().numberOfSections == 0 {
-            let prepended = !self.order.isEmpty && order.first != self.order.first && self.order.first.map(order.contains) == true
+            let prepended =
+                !self.order.isEmpty && order.first != self.order.first && self.order.first.map(order.contains) == true
             if prepended { holdPlace() }
             self.order = order
             snapshot = NSDiffableDataSourceSnapshot()
@@ -203,7 +204,9 @@ final class TranscriptController: UIViewController, UICollectionViewDelegate {
 
     /// Earlier rows are fetched as the top comes into reach, including a chat too short to scroll at all.
     private func askForEarlierInReach() {
-        guard hasEarlier, collection.contentOffset.y + collection.adjustedContentInset.top < Self.earlierReach else { return }
+        guard hasEarlier, collection.contentOffset.y + collection.adjustedContentInset.top < Self.earlierReach else {
+            return
+        }
         loadEarlier()
     }
 

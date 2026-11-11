@@ -6,7 +6,8 @@ typealias ContextChip = ChatContext
 /// How the stash reads in lists, and how its items go into a message.
 enum StashWords {
     static func site(of url: String) -> String {
-        let bare = url.replacingOccurrences(of: #"^[a-z]+://"#, with: "", options: [.regularExpression, .caseInsensitive])
+        let bare = url.replacingOccurrences(
+            of: #"^[a-z]+://"#, with: "", options: [.regularExpression, .caseInsensitive])
         return bare.split(whereSeparator: { "/?#".contains($0) }).first.map(String.init) ?? url
     }
 
@@ -89,7 +90,8 @@ enum StashWords {
             let text = [title, url, item.preview?.description].compactMap { $0 }.filter { !$0.isEmpty }
             return ContextChip(uri: url, title: title, text: text.joined(separator: "\n\n"))
         }
-        return ContextChip(uri: "\(WireURIs.stashURI)\(item.id)", title: String(title(item).prefix(80)), text: item.text ?? "")
+        return ContextChip(
+            uri: "\(WireURIs.stashURI)\(item.id)", title: String(title(item).prefix(80)), text: item.text ?? "")
     }
 
     /// The message as this phone sends it: what was written, then each chip's words.
@@ -113,7 +115,8 @@ enum StashWords {
     static func intoMessage(_ items: [StashItem], draft: String) -> IntoMessage {
         let prompts = items.filter { $0.kind == .prompt }
         let rest = items.filter { $0.kind != .prompt }
-        let words = (prompts.map { ($0.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines) }
+        let words =
+            (prompts.map { ($0.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines) }
             + rest.compactMap { $0.note?.trimmingCharacters(in: .whitespacesAndNewlines) })
             .filter { !$0.isEmpty }
         let fetching = rest.filter(\.carriesFile) + prompts.flatMap { $0.attachments ?? [] }
@@ -121,16 +124,18 @@ enum StashWords {
         return IntoMessage(
             draft: words.isEmpty ? draft : ([trimmed] + words).filter { !$0.isEmpty }.joined(separator: "\n\n"),
             chips: rest.filter { !$0.carriesFile },
-            files: fetching.isEmpty ? nil : Task {
-                try await withThrowingTaskGroup(of: (Int, StashItem, URL).self) { group in
-                    for (index, item) in fetching.enumerated() {
-                        group.addTask { (index, item, try await StashAPI.download(item)) }
+            files: fetching.isEmpty
+                ? nil
+                : Task {
+                    try await withThrowingTaskGroup(of: (Int, StashItem, URL).self) { group in
+                        for (index, item) in fetching.enumerated() {
+                            group.addTask { (index, item, try await StashAPI.download(item)) }
+                        }
+                        var done: [(Int, StashItem, URL)] = []
+                        for try await one in group { done.append(one) }
+                        return done.sorted { $0.0 < $1.0 }.map { ($0.1, $0.2) }
                     }
-                    var done: [(Int, StashItem, URL)] = []
-                    for try await one in group { done.append(one) }
-                    return done.sorted { $0.0 < $1.0 }.map { ($0.1, $0.2) }
-                }
-            },
+                },
             restored: prompts.map(\.id)
         )
     }

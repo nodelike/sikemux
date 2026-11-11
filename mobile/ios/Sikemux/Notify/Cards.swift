@@ -52,17 +52,20 @@ enum Cards {
     }
 
     fileprivate static func arrived(_ card: Card) {
-        for arrival in arrivals.values where arrival.host == card.hostKey && arrival.kind == card.kind { arrival.call() }
+        for arrival in arrivals.values where arrival.host == card.hostKey && arrival.kind == card.kind {
+            arrival.call()
+        }
     }
 
     /// Opens the chat a tapped card is about, and sends the answer when it was Allow or Reject.
     fileprivate static func tapped(_ card: Card, action: CardAction?, tag: String) {
         if let url = URL(string: card.url) { Router.shared.open(url) }
-        let option = switch action {
-        case .allow: card.allowOptionId
-        case .reject: card.rejectOptionId
-        case nil: String?.none
-        }
+        let option =
+            switch action {
+            case .allow: card.allowOptionId
+            case .reject: card.rejectOptionId
+            case nil: String?.none
+            }
         guard let option, let request = card.requestId else { return }
         Task { await answer(tag: tag, card: card, request: request, option: option) }
     }
@@ -78,7 +81,8 @@ enum Cards {
                     try await Identity.shared.whileJoining { device in
                         let connection = try await device.connect(core: card.hostKey, listener: QuietListener())
                         defer { connection.close() }
-                        try await connection.answerPermission(agentId: card.agentId, requestId: request, optionId: option)
+                        try await connection.answerPermission(
+                            agentId: card.agentId, requestId: request, optionId: option)
                     }
                 }
             }
@@ -101,7 +105,9 @@ private final class QuietListener: CoreListener {
 /// is open, and a card tapped.
 @MainActor
 final class AppDelegate: NSObject, UIApplicationDelegate {
-    func application(_: UIApplication, didFinishLaunchingWithOptions _: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+    func application(_: UIApplication, didFinishLaunchingWithOptions _: [UIApplication.LaunchOptionsKey: Any]? = nil)
+        -> Bool
+    {
         UNUserNotificationCenter.current().delegate = self
         _ = Notify.shared
         return true
@@ -116,7 +122,9 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     }
 
     /// A host's clear arrives as a background push that wakes the app.
-    func application(_: UIApplication, didReceiveRemoteNotification info: [AnyHashable: Any]) async -> UIBackgroundFetchResult {
+    func application(_: UIApplication, didReceiveRemoteNotification info: [AnyHashable: Any]) async
+        -> UIBackgroundFetchResult
+    {
         guard Push.clears(info), let tag = Push.collapseId(info) else { return .noData }
         await DeliveredCards.remove([tag])
         return .newData

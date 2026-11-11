@@ -40,7 +40,9 @@ struct DevicesScreen: View {
                     Haptics.tap()
                     addingAt = count
                 }
-                Button { accountShown = true } label: {
+                Button {
+                    accountShown = true
+                } label: {
                     Avatar(size: 28).frame(width: 44, height: 44)
                 }
                 .buttonStyle(PressFade())
@@ -137,10 +139,13 @@ private struct DeviceCard: View {
                     HStack(spacing: 10) {
                         AgentMark(provider: needs.cli ?? "", size: 16)
                         VStack(alignment: .leading, spacing: 1) {
-                            Text(needs.title ?? needs.card?.title ?? needs.name.map { "@\($0)" } ?? agentLabel(needs.cli ?? "agent", core: device.core))
-                                .font(Theme.ui(13.5, .medium))
-                                .foregroundStyle(palette.ink)
-                                .lineLimit(1)
+                            Text(
+                                needs.title ?? needs.card?.title ?? needs.name.map { "@\($0)" }
+                                    ?? agentLabel(needs.cli ?? "agent", core: device.core)
+                            )
+                            .font(Theme.ui(13.5, .medium))
+                            .foregroundStyle(palette.ink)
+                            .lineLimit(1)
                             Text(needs.detail.map { "\(needs.what) · \($0)" } ?? needs.what)
                                 .font(Theme.ui(12.5))
                                 .foregroundStyle(palette.tertiary)
@@ -152,7 +157,10 @@ private struct DeviceCard: View {
                     .padding(.vertical, 10)
                     .padding(.horizontal, 12)
                     .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(palette.overlay))
-                    .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(palette.borderStrong, lineWidth: 1))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(
+                            palette.borderStrong, lineWidth: 1)
+                    )
                     .padding(.horizontal, 8)
                 }
                 if !busy.isEmpty {
@@ -215,7 +223,9 @@ private struct AccountHostCard: View {
                     .padding(.horizontal, 13)
                     .frame(minHeight: 32)
                     .background(RoundedRectangle(cornerRadius: Radius.control, style: .continuous).fill(palette.raised))
-                    .overlay(RoundedRectangle(cornerRadius: Radius.control, style: .continuous).strokeBorder(palette.borderStrong, lineWidth: 1))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: Radius.control, style: .continuous).strokeBorder(
+                            palette.borderStrong, lineWidth: 1))
             }
             .padding(.vertical, 14)
             .padding(.leading, 16)
@@ -303,17 +313,25 @@ private struct BringItIn: View {
                         try? await Task.sleep(for: .seconds(2))
                         copied = false
                     }
-                } label: { chip(copied ? "Copied" : "Copy link") }
-                    .buttonStyle(CardPress())
-                Button { Router.shared.push(.hostSignIn) } label: { chip("Have a code?") }
-                    .buttonStyle(CardPress())
+                } label: {
+                    chip(copied ? "Copied" : "Copy link")
+                }
+                .buttonStyle(CardPress())
+                Button {
+                    Router.shared.push(.hostSignIn)
+                } label: {
+                    chip("Have a code?")
+                }
+                .buttonStyle(CardPress())
             }
             .padding(.top, 14)
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: Radius.card, style: .continuous).fill(palette.raised))
-        .overlay(RoundedRectangle(cornerRadius: Radius.card, style: .continuous).strokeBorder(palette.border, lineWidth: 1))
+        .overlay(
+            RoundedRectangle(cornerRadius: Radius.card, style: .continuous).strokeBorder(palette.border, lineWidth: 1)
+        )
         .padding(.top, 8)
     }
 
@@ -339,7 +357,11 @@ private struct BringItIn: View {
             .lineLimit(1)
             .padding(.horizontal, 14)
             .frame(minHeight: 36)
-            .background(RoundedRectangle(cornerRadius: Radius.control, style: .continuous).fill(primary ? palette.ink : .clear))
-            .overlay(RoundedRectangle(cornerRadius: Radius.control, style: .continuous).strokeBorder(primary ? palette.ink : palette.borderStrong, lineWidth: 1))
+            .background(
+                RoundedRectangle(cornerRadius: Radius.control, style: .continuous).fill(primary ? palette.ink : .clear)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: Radius.control, style: .continuous).strokeBorder(
+                    primary ? palette.ink : palette.borderStrong, lineWidth: 1))
     }
 }

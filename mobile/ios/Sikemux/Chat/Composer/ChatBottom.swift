@@ -25,7 +25,8 @@ struct ChatBottom: View {
             running: rows.running && !session.stoppingTurn,
             steers: context.steers,
             placeholder: composing.map { "Answer @\($0.name)" } ?? placeholder(rows),
-            modeLocked: rows.running || !session.permissions.isEmpty || rows.head.connection != .ready || context.offline,
+            modeLocked: rows.running || !session.permissions.isEmpty || rows.head.connection != .ready
+                || context.offline,
             watchOnly: context.watchOnly,
             offline: context.offline,
             hostName: context.hostName,
@@ -42,7 +43,8 @@ struct ChatBottom: View {
             focus: focus
         )
         .liftedSheet(shown: $focus.recent) {
-            RecentSheet(prompts: focus.recent ? RecentSheet.sent(rows.messages, queued: rows.queued.map(\.text)) : []) { text in
+            RecentSheet(prompts: focus.recent ? RecentSheet.sent(rows.messages, queued: rows.queued.map(\.text)) : []) {
+                text in
                 session.setDraft(text)
                 focus.recent = false
             }
@@ -67,7 +69,10 @@ struct SentAttachments: View {
     let paths: [String]
 
     var body: some View {
-        let sent = transcript.core.flatMap { core in transcript.agentId.map { ChatSession.of(core: core, agentId: $0).sentFiles } } ?? [:]
+        let sent =
+            transcript.core.flatMap { core in
+                transcript.agentId.map { ChatSession.of(core: core, agentId: $0).sentFiles }
+            } ?? [:]
         FlowRight(spacing: 6) {
             ForEach(paths, id: \.self) { path in
                 let picked = sent[path]
@@ -105,7 +110,9 @@ private struct SentImage: View {
                     .scaledToFill()
                     .frame(width: 132, height: 99)
                     .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(palette.border, lineWidth: 1))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(
+                            palette.border, lineWidth: 1))
             } else {
                 FileChip(name: name, size: picked?.size, image: true)
             }

@@ -22,7 +22,9 @@ struct Trouble: View {
         Group {
             if dropped && !session.rows.messages.isEmpty {
                 VStack(alignment: .leading, spacing: 8) {
-                    said(Icons.plug, head.ended?.message.map { "This session dropped: \($0)" } ?? "This session dropped.")
+                    said(
+                        Icons.plug, head.ended?.message.map { "This session dropped: \($0)" } ?? "This session dropped."
+                    )
                     if canAct {
                         actions {
                             action("Reconnect") { session.retry() }
@@ -34,12 +36,19 @@ struct Trouble: View {
             } else if let error = head.error {
                 let network = failure?.kind == .network
                 let signIn = failure?.kind == .signIn
-                let resumes = failure?.kind == .limit && (failure?.resumesAt).map { Double($0) / 1000 > now.timeIntervalSince1970 } == true
+                let resumes =
+                    failure?.kind == .limit
+                    && (failure?.resumesAt).map { Double($0) / 1000 > now.timeIntervalSince1970 } == true
                 let moves = failure?.kind == .limit ? accounts?.others ?? [] : []
                 VStack(alignment: .leading, spacing: 8) {
-                    said(Icons.warning, network ? "Lost connection to \(maker ?? "the model provider"). Sikemux sends it again when you're back online." : error)
+                    said(
+                        Icons.warning,
+                        network
+                            ? "Lost connection to \(maker ?? "the model provider"). Sikemux sends it again when you're back online."
+                            : error)
                     if network, let details = failure?.details {
-                        Text(details).font(Theme.mono(11.5)).lineSpacing(3).foregroundStyle(palette.tertiary).textSelection(.enabled).padding(.leading, 22)
+                        Text(details).font(Theme.mono(11.5)).lineSpacing(3).foregroundStyle(palette.tertiary)
+                            .textSelection(.enabled).padding(.leading, 22)
                     }
                     if signIn {
                         Text("Sign in to \(accounts?.account?.label ?? label) on \(hostName), then retry here.")
@@ -52,7 +61,9 @@ struct Trouble: View {
                                 action("Discard") { session.failedTurn(.discard) }
                             }
                             if resumes { action("Don't resume") { session.failedTurn(.cancelResume) } }
-                            ForEach(moves, id: \.id) { other in action("Continue on \(other.label)") { session.moveToAccount(other.id) } }
+                            ForEach(moves, id: \.id) { other in
+                                action("Continue on \(other.label)") { session.moveToAccount(other.id) }
+                            }
                             if signIn { action("Retry") { session.failedTurn(.retry) } }
                         }
                     }
@@ -72,7 +83,8 @@ struct Trouble: View {
     private func readAccounts(_ failure: ChatFailure?) async {
         guard canAct, failure?.kind == .signIn || failure?.kind == .limit else { return }
         do {
-            accounts = try await session.openConnection().call(PhoneCall.ChatAccounts.self, ChatAccountsParams(agentId: session.agentId))
+            accounts = try await session.openConnection().call(
+                PhoneCall.ChatAccounts.self, ChatAccountsParams(agentId: session.agentId))
         } catch {
             print("sikemux: could not read the chat's accounts: \(error)")
         }
@@ -81,7 +93,8 @@ struct Trouble: View {
     private func said(_ icon: IconDef, _ text: String) -> some View {
         HStack(alignment: .top, spacing: 8) {
             IconView(icon: icon, size: 14).foregroundStyle(palette.danger).frame(height: 19)
-            Text(text).font(Theme.ui(13.5)).lineSpacing(19 - 13.5 * 1.22).foregroundStyle(palette.secondary).textSelection(.enabled)
+            Text(text).font(Theme.ui(13.5)).lineSpacing(19 - 13.5 * 1.22).foregroundStyle(palette.secondary)
+                .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
     }

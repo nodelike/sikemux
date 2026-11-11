@@ -100,7 +100,8 @@ enum Pick {
         let mime = type?.preferredMIMEType ?? "application/octet-stream"
         let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
         let image = type.map { $0.conforms(to: .image) && !$0.conforms(to: .svg) } ?? false
-        return Attachment(id: nextId(), kind: image ? .image : .file, name: url.lastPathComponent, mime: mime, uri: url, size: size)
+        return Attachment(
+            id: nextId(), kind: image ? .image : .file, name: url.lastPathComponent, mime: mime, uri: url, size: size)
     }
 
     /// Scaled down and as JPEG, which every agent reads (HEIC included).
@@ -110,12 +111,17 @@ enum Pick {
         let target = CGSize(width: (size.width * scale).rounded(), height: (size.height * scale).rounded())
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
-        let drawn = UIGraphicsImageRenderer(size: target, format: format).image { _ in image.draw(in: CGRect(origin: .zero, size: target)) }
-        guard let data = drawn.jpegData(compressionQuality: 0.85) else { throw OutboxError.failed("could not read the photo") }
+        let drawn = UIGraphicsImageRenderer(size: target, format: format).image { _ in
+            image.draw(in: CGRect(origin: .zero, size: target))
+        }
+        guard let data = drawn.jpegData(compressionQuality: 0.85) else {
+            throw OutboxError.failed("could not read the photo")
+        }
         let stem = name.map { ($0 as NSString).deletingPathExtension }.flatMap { $0.isEmpty ? nil : $0 } ?? "photo"
         let url = FileManager.default.temporaryDirectory.appending(path: "\(UUID().uuidString).jpg")
         try data.write(to: url)
-        return Attachment(id: nextId(), kind: .image, name: "\(stem).jpg", mime: "image/jpeg", uri: url, size: data.count)
+        return Attachment(
+            id: nextId(), kind: .image, name: "\(stem).jpg", mime: "image/jpeg", uri: url, size: data.count)
     }
 
     private static func load(_ provider: NSItemProvider) async throws -> UIImage? {
@@ -151,7 +157,9 @@ private final class CameraDelegate: NSObject, UIImagePickerControllerDelegate, U
     let done: (UIImage?) -> Void
     init(_ done: @escaping (UIImage?) -> Void) { self.done = done }
 
-    func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
+    func imagePickerController(
+        _ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]
+    ) {
         picker.dismiss(animated: true)
         done(info[.originalImage] as? UIImage)
     }
@@ -190,12 +198,13 @@ final class PhotoLibrary: NSObject, PHPhotoLibraryChangeObserver {
     func open() {
         Task {
             let status = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
-            access = switch status {
-            case .authorized: .all
-            case .limited: .limited
-            case .notDetermined: .asking
-            default: .denied
-            }
+            access =
+                switch status {
+                case .authorized: .all
+                case .limited: .limited
+                case .notDetermined: .asking
+                default: .denied
+                }
             if sees { reload() }
         }
     }

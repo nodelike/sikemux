@@ -99,7 +99,8 @@ actor PairedStore {
         let devices = edit(before)
         guard devices != before || !FileManager.default.fileExists(atPath: file.path) else { return }
         do {
-            try JSONEncoder().encode(devices).write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+            try JSONEncoder().encode(devices).write(
+                to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
             cached = devices
         } catch {
             print("sikemux: could not save the paired hosts: \(error)")

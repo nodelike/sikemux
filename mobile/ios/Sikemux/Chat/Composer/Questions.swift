@@ -123,7 +123,9 @@ final class ChatQuestions {
     }
 
     @discardableResult
-    private func call(_ ids: [String], undo: (() -> Void)? = nil, _ send: @escaping (Connection) async throws -> Void) -> Bool {
+    private func call(_ ids: [String], undo: (() -> Void)? = nil, _ send: @escaping (Connection) async throws -> Void)
+        -> Bool
+    {
         guard let connection = Hub.shared.live(core).connection else { return false }
         sent.formUnion(ids)
         if let writing = writingId, ids.contains(writing) { writingId = nil }

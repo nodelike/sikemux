@@ -69,10 +69,12 @@ final class CrashReports {
 
     private func name() {
         guard SentrySDK.isEnabled else { return }
-        SentrySDK.setUser(account.map { id in
-            let user = User()
-            user.userId = SHA256.hash(data: Data("sikemux-usage|\(id)".utf8)).map { String(format: "%02x", $0) }.joined()
-            return user
-        })
+        SentrySDK.setUser(
+            account.map { id in
+                let user = User()
+                user.userId = SHA256.hash(data: Data("sikemux-usage|\(id)".utf8)).map { String(format: "%02x", $0) }
+                    .joined()
+                return user
+            })
     }
 }

@@ -61,15 +61,16 @@ final class AccountSession {
         end()
         self.userId = userId
         guard userId != nil else { return }
-        live = LiveAccount(handlers: .init(
-            hostsChanged: { AccountHosts.shared.read() },
-            stashChanged: { StashStore.shared.changed() },
-            deviceAdded: { key in Task { await AccountSession.shared.askAbout(key) } },
-            ready: { AccountHosts.shared.retry() },
-            gone: { reason in
-                Task { await Leave.signOutHere(farewell: reason.farewell, confirmed: true) }
-            }
-        ))
+        live = LiveAccount(
+            handlers: .init(
+                hostsChanged: { AccountHosts.shared.read() },
+                stashChanged: { StashStore.shared.changed() },
+                deviceAdded: { key in Task { await AccountSession.shared.askAbout(key) } },
+                ready: { AccountHosts.shared.retry() },
+                gone: { reason in
+                    Task { await Leave.signOutHere(farewell: reason.farewell, confirmed: true) }
+                }
+            ))
         AccountHosts.shared.read()
         register()
     }
@@ -153,7 +154,8 @@ final class AccountSession {
         let hosts = AccountHosts.shared.hosts
         Task {
             let arrived = await Arrivals.shared.hostsArrived(account: userId, hosts: hosts)
-            guard let host = arrived.first(where: { found in !Hub.shared.devices.contains { $0.core == found.key } }) else { return }
+            guard let host = arrived.first(where: { found in !Hub.shared.devices.contains { $0.core == found.key } })
+            else { return }
             Router.shared.open(.join(core: host.key, name: host.name, arrived: true))
         }
     }

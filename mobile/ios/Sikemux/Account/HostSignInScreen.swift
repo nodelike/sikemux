@@ -44,7 +44,8 @@ struct HostSignInScreen: View {
                         Text("Add a host with a code")
                             .font(Theme.ui(22, .semibold)).tracking(-0.7).foregroundStyle(palette.ink)
                             .padding(.top, 20)
-                        (Text("Enter the code ") + Text("sikemux login").font(Theme.monoText).foregroundStyle(palette.ink)
+                        (Text("Enter the code ")
+                            + Text("sikemux login").font(Theme.monoText).foregroundStyle(palette.ink)
                             + Text(" shows on the computer."))
                             .font(Theme.body).lineSpacing(7).foregroundStyle(palette.secondary)
                             .multilineTextAlignment(.center).padding(.top, 8)
@@ -52,13 +53,16 @@ struct HostSignInScreen: View {
                     .padding(.horizontal, 28)
                     .padding(.top, 32)
                     VStack(spacing: 12) {
-                        Field(placeholder: "BCDF-GHJK", text: $typed, icon: Icons.terminal, autoFocus: true, font: Theme.mono(20))
-                            .tracking(2)
-                            .textInputAutocapitalization(.characters)
-                            .autocorrectionDisabled()
-                            .submitLabel(.go)
-                            .onSubmit { if !entered.isEmpty { look(entered) } }
-                            .accessibilityLabel("Code")
+                        Field(
+                            placeholder: "BCDF-GHJK", text: $typed, icon: Icons.terminal, autoFocus: true,
+                            font: Theme.mono(20)
+                        )
+                        .tracking(2)
+                        .textInputAutocapitalization(.characters)
+                        .autocorrectionDisabled()
+                        .submitLabel(.go)
+                        .onSubmit { if !entered.isEmpty { look(entered) } }
+                        .accessibilityLabel("Code")
                         if let problem { ProblemLine(text: problem) }
                         ActionButton("Continue", kind: .primary, busy: busy == .look) { look(entered) }
                             .disabled(entered.isEmpty || busy != nil)
@@ -74,13 +78,14 @@ struct HostSignInScreen: View {
 
     private func check(_ code: String, _ host: PendingHost) -> some View {
         let near = host.requestedNear ?? host.requestedFrom
-        let platform = switch host.platform {
-        case .ios: "iOS"
-        case .android: "Android"
-        case .macos: "macOS"
-        case .linux: "Linux"
-        case .unknown: "A computer"
-        }
+        let platform =
+            switch host.platform {
+            case .ios: "iOS"
+            case .android: "Android"
+            case .macos: "macOS"
+            case .linux: "Linux"
+            case .unknown: "A computer"
+            }
         return Screen {
             Nav(back: "Back", onBack: { step = .enter }, title: { EmptyView() }, end: { EmptyView() })
             ScrollView(showsIndicators: false) {
@@ -93,17 +98,23 @@ struct HostSignInScreen: View {
                     Rows {
                         Row(title: asked(host.requestedAt)) {
                             IconView(icon: Icons.clock, size: 18).foregroundStyle(palette.secondary)
-                        } end: { EmptyView() }
+                        } end: {
+                            EmptyView()
+                        }
                         Row(
                             title: near.map { "From \($0)" } ?? "From an unknown place",
                             detail: host.requestedNear != nil ? host.requestedFrom : nil
                         ) {
                             IconView(icon: Icons.globe, size: 18).foregroundStyle(palette.secondary)
-                        } end: { EmptyView() }
+                        } end: {
+                            EmptyView()
+                        }
                     }
                     if let removed = host.removedAt.flatMap(Format.date(iso:)) {
-                        Text("This host was removed from your account on \(removed.formatted(.dateTime.day().month(.wide).year())). Add it back only if you are setting it up again yourself.")
-                            .font(Theme.body).foregroundStyle(palette.danger)
+                        Text(
+                            "This host was removed from your account on \(removed.formatted(.dateTime.day().month(.wide).year())). Add it back only if you are setting it up again yourself."
+                        )
+                        .font(Theme.body).foregroundStyle(palette.danger)
                     }
                     if let problem { ProblemLine(text: problem) }
                     ActionButton("Add host", kind: .primary, busy: busy == .add) { add(code, host) }

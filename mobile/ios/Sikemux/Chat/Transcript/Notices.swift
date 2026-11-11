@@ -32,7 +32,8 @@ struct TaskNoticeView: View {
                     IconView(icon: notice.taskType == "workflow" ? Icons.workflow : Icons.timer, size: 12)
                         .foregroundStyle(failed ? palette.danger : palette.inkFaint)
                     Text(notice.name).font(Theme.mono(11.5)).foregroundStyle(palette.ink).lineLimit(1)
-                    Text(notice.state.rawValue).font(Theme.ui(12)).foregroundStyle(failed ? palette.danger : palette.inkFaint)
+                    Text(notice.state.rawValue).font(Theme.ui(12)).foregroundStyle(
+                        failed ? palette.danger : palette.inkFaint)
                 }
                 if let summary {
                     Text(summary).font(Theme.ui(12)).lineSpacing(3).foregroundStyle(palette.inkFaint)
@@ -67,14 +68,17 @@ struct AgentNoticeLine: View {
     let notice: AgentNotice
 
     var body: some View {
-        let tint = notice.severity == .error ? palette.danger : notice.severity == .warning ? palette.warn : palette.inkFaint
+        let tint =
+            notice.severity == .error ? palette.danger : notice.severity == .warning ? palette.warn : palette.inkFaint
         NoticeBox {
             HStack(spacing: 7) {
                 IconView(icon: notice.severity == .info ? Icons.info : Icons.warning, size: 12).foregroundStyle(tint)
-                Text(notice.title).font(Theme.ui(12)).foregroundStyle(notice.severity == .info ? palette.inkFaint : tint)
+                Text(notice.title).font(Theme.ui(12)).foregroundStyle(
+                    notice.severity == .info ? palette.inkFaint : tint)
             }
             if let description = notice.description {
-                Text(description).font(Theme.ui(12)).lineSpacing(3).foregroundStyle(palette.inkFaint).textSelection(.enabled)
+                Text(description).font(Theme.ui(12)).lineSpacing(3).foregroundStyle(palette.inkFaint).textSelection(
+                    .enabled)
             }
         }
         .accessibilityElement(children: .combine)
@@ -90,7 +94,8 @@ struct AccountLine: View {
         NoticeBox {
             HStack(spacing: 7) {
                 IconView(icon: Icons.user, size: 12).foregroundStyle(palette.inkFaint)
-                Text(move.placed != nil ? "Started on" : "Moved to").font(Theme.ui(12)).foregroundStyle(palette.inkFaint)
+                Text(move.placed != nil ? "Started on" : "Moved to").font(Theme.ui(12)).foregroundStyle(
+                    palette.inkFaint)
                 Text(move.label).font(Theme.mono(11.5)).foregroundStyle(palette.ink).lineLimit(1)
             }
             if let why { Text(why).font(Theme.ui(12)).lineSpacing(3).foregroundStyle(palette.inkFaint) }
@@ -194,7 +199,10 @@ struct ContentView: View {
 /// An attachment arrives as bytes and a type, with nothing naming it, so the type is the only thing that can say what
 /// it would be saved as.
 func attachmentName(_ mimeType: String) -> String {
-    let kind = (mimeType.split(separator: "/").last ?? "").split(separator: "+").first.map { String($0).filter { $0.isLetter || $0.isNumber } } ?? ""
+    let kind =
+        (mimeType.split(separator: "/").last ?? "").split(separator: "+").first.map {
+            String($0).filter { $0.isLetter || $0.isNumber }
+        } ?? ""
     return "attachment.\(kind.isEmpty ? "png" : kind)"
 }
 
@@ -206,7 +214,9 @@ struct InlinePicture: View {
     let name: String
 
     var body: some View {
-        Button { context.showImage(image, name) } label: {
+        Button {
+            context.showImage(image, name)
+        } label: {
             Image(uiImage: image)
                 .resizable()
                 .scaledToFit()
@@ -233,7 +243,9 @@ struct HostPicture: View {
             if let image { InlinePicture(image: image, name: name) } else { ResourceChip(name: name, image: true) }
         }
         .task(id: path) {
-            guard let core = context.core, let file = await HostFiles.shared.read(core: core, path: path) else { return }
+            guard let core = context.core, let file = await HostFiles.shared.read(core: core, path: path) else {
+                return
+            }
             image = UIImage(contentsOfFile: file.path)
         }
     }
@@ -261,7 +273,8 @@ struct SubagentRow: View {
                 context.folds.set("subagent/\(subagent.sessionId)", !open)
             } label: {
                 HStack(spacing: 8) {
-                    IconView(icon: Icons.chevron, size: 10).foregroundStyle(palette.inkDim).opacity(0.7).rotationEffect(.degrees(open ? 90 : 0))
+                    IconView(icon: Icons.chevron, size: 10).foregroundStyle(palette.inkDim).opacity(0.7).rotationEffect(
+                        .degrees(open ? 90 : 0))
                     AgentMark(provider: context.provider, size: 15)
                     Text(subagent.name).font(Theme.mono(11.5)).foregroundStyle(palette.ink).lineLimit(1)
                         .frame(maxWidth: 140, alignment: .leading).fixedSize()
@@ -273,7 +286,9 @@ struct SubagentRow: View {
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    if let cost { Text(cost).font(Theme.mono(10.5)).foregroundStyle(palette.inkFaint).lineLimit(1).fixedSize() }
+                    if let cost {
+                        Text(cost).font(Theme.mono(10.5)).foregroundStyle(palette.inkFaint).lineLimit(1).fixedSize()
+                    }
                     mark.frame(width: 14)
                 }
                 .padding(.leading, 10)
@@ -284,12 +299,15 @@ struct SubagentRow: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Subagent \(subagent.name), \(subagentWords[subagent.state] ?? "")\(cost.map { ", \($0)" } ?? "")")
+            .accessibilityLabel(
+                "Subagent \(subagent.name), \(subagentWords[subagent.state] ?? "")\(cost.map { ", \($0)" } ?? "")"
+            )
             .accessibilityValue(open ? "expanded" : "collapsed")
             if open {
                 Group {
                     if parts.isEmpty {
-                        Text("No output yet.").font(Theme.ui(12.5)).foregroundStyle(palette.inkFaint).padding(.vertical, 6)
+                        Text("No output yet.").font(Theme.ui(12.5)).foregroundStyle(palette.inkFaint).padding(
+                            .vertical, 6)
                     } else {
                         Parts(id: "subagent/\(subagent.sessionId)", parts: parts, live: running)
                     }
@@ -324,7 +342,9 @@ func tokenCount(_ count: Int) -> String {
     if count < 1000 { return "\(count)" }
     if count < 1_000_000 {
         let thousands = Double(count) / 1000
-        return thousands < 100 ? "\(String(format: "%.1f", thousands).replacingOccurrences(of: ".0", with: ""))k" : "\(Int(thousands.rounded()))k"
+        return thousands < 100
+            ? "\(String(format: "%.1f", thousands).replacingOccurrences(of: ".0", with: ""))k"
+            : "\(Int(thousands.rounded()))k"
     }
     return "\(String(format: "%.1f", Double(count) / 1_000_000).replacingOccurrences(of: ".0", with: ""))M"
 }
@@ -341,9 +361,11 @@ struct WorktreeLine: View {
                 .frame(width: 30, height: 30)
                 .background(RoundedRectangle(cornerRadius: 7).fill(palette.accent.opacity(0.16)))
             VStack(alignment: .leading, spacing: 2) {
-                (Text("Working in a worktree on ") + Text(worktree.branch).font(Theme.mono(12)).foregroundColor(palette.ink))
+                (Text("Working in a worktree on ")
+                    + Text(worktree.branch).font(Theme.mono(12)).foregroundColor(palette.ink))
                     .font(Theme.ui(12)).foregroundStyle(palette.tertiary).lineLimit(1)
-                Text(worktree.path).font(Theme.mono(11.5)).foregroundStyle(palette.inkFaint).lineLimit(1).truncationMode(.head)
+                Text(worktree.path).font(Theme.mono(11.5)).foregroundStyle(palette.inkFaint).lineLimit(1)
+                    .truncationMode(.head)
             }
         }
         .padding(.top, 12)
@@ -377,9 +399,12 @@ struct FiredTrigger: View {
                 .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(palette.border, lineWidth: 1))
                 .containerRelativeFrame(.horizontal, alignment: .trailing) { width, _ in width * 0.84 }
             if let request = fired.request {
-                Button { context.folds.set("\(id)/request", !open) } label: {
+                Button {
+                    context.folds.set("\(id)/request", !open)
+                } label: {
                     HStack(spacing: 6) {
-                        IconView(icon: Icons.chevron, size: 10).foregroundStyle(palette.inkFaint).rotationEffect(.degrees(open ? 90 : 0))
+                        IconView(icon: Icons.chevron, size: 10).foregroundStyle(palette.inkFaint).rotationEffect(
+                            .degrees(open ? 90 : 0))
                         Text(Self.summary(request)).font(Theme.mono(11)).foregroundStyle(palette.inkFaint).lineLimit(1)
                     }
                     .padding(.vertical, 4).padding(.horizontal, 8)
@@ -396,13 +421,18 @@ struct FiredTrigger: View {
                             }
                         }
                         if let tree = request.bodyTree {
-                            LongText(id: "\(id)/request/body", text: request.body, md: tree, live: false, style: .prose(palette))
+                            LongText(
+                                id: "\(id)/request/body", text: request.body, md: tree, live: false,
+                                style: .prose(palette))
                         }
                     }
                     .padding(10)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(RoundedRectangle(cornerRadius: 8).fill(palette.raised))
-                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(palette.border, lineWidth: 1 / UIScreen.main.scale))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8).strokeBorder(
+                            palette.border, lineWidth: 1 / UIScreen.main.scale)
+                    )
                     .padding(.top, 4)
                 }
             }
@@ -413,10 +443,12 @@ struct FiredTrigger: View {
     }
 
     static func summary(_ request: FiredRequest) -> String {
-        let kind = request.headers.first { $0.name == "content-type" }?.value.split(separator: ";").first?.trimmingCharacters(in: .whitespaces)
+        let kind = request.headers.first { $0.name == "content-type" }?.value.split(separator: ";").first?
+            .trimmingCharacters(in: .whitespaces)
         let bytes = request.body.utf16.count
         let size = bytes < 1024 ? "\(bytes) B" : String(format: "%.1f KB", Double(bytes) / 1024)
-        return [request.method, kind, size, request.query.isEmpty ? nil : "?\(request.query)"].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
+        return [request.method, kind, size, request.query.isEmpty ? nil : "?\(request.query)"].compactMap { $0 }.filter
+        { !$0.isEmpty }.joined(separator: " · ")
     }
 }
 
@@ -436,7 +468,10 @@ struct ActivityLine: View {
             Shimmer(text: label, font: Theme.ui(12.5), color: palette.inkFaint)
             TimelineView(.periodic(from: since, by: 1)) { timeline in
                 let seconds = Int(timeline.date.timeIntervalSince(since).rounded())
-                if seconds > 0 { Text(ChatWords.duration(ms: Double(seconds) * 1000)).font(Theme.mono(10)).foregroundStyle(palette.inkFaint) }
+                if seconds > 0 {
+                    Text(ChatWords.duration(ms: Double(seconds) * 1000)).font(Theme.mono(10)).foregroundStyle(
+                        palette.inkFaint)
+                }
             }
         }
         .padding(.top, 14)
@@ -457,7 +492,8 @@ struct EarlierLine: View {
         Group {
             if failed {
                 Button(action: onRetry) {
-                    (Text("Couldn't load earlier messages ·") + Text(" Retry").font(Theme.ui(12.5, .medium)).foregroundColor(palette.ink))
+                    (Text("Couldn't load earlier messages ·")
+                        + Text(" Retry").font(Theme.ui(12.5, .medium)).foregroundColor(palette.ink))
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Couldn't load earlier messages. Retry")

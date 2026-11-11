@@ -39,9 +39,14 @@ struct LiveWork: Equatable {
 
     var pieces: [Piece] {
         var pieces: [Piece] = []
-        if !subagents.isEmpty { pieces.append(Piece(key: "subagents", count: "\(subagents.count)", word: Format.counted("subagent", subagents.count))) }
+        if !subagents.isEmpty {
+            pieces.append(
+                Piece(key: "subagents", count: "\(subagents.count)", word: Format.counted("subagent", subagents.count)))
+        }
         for (kind, tasks) in tasks {
-            pieces.append(Piece(key: "task-\(kind)", task: kind, count: "\(tasks.count)", word: Format.counted(kind, tasks.count)))
+            pieces.append(
+                Piece(key: "task-\(kind)", task: kind, count: "\(tasks.count)", word: Format.counted(kind, tasks.count))
+            )
         }
         if !queued.isEmpty { pieces.append(Piece(key: "queued", count: "\(queued.count)", word: "queued")) }
         if planOpen {
@@ -58,7 +63,9 @@ struct LiveWork: Equatable {
         subagents.map { "\($0.name) · \(Self.activity($0))" }
             + running.flatMap { task in
                 [[task.name, Self.detail(task)].compactMap { $0 }.joined(separator: " · ")]
-                    + (task.agents ?? []).filter { $0.state == .running }.map { [$0.label, Self.agentDetail($0)].compactMap { $0 }.joined(separator: " · ") }
+                    + (task.agents ?? []).filter { $0.state == .running }.map {
+                        [$0.label, Self.agentDetail($0)].compactMap { $0 }.joined(separator: " · ")
+                    }
             }
     }
 
@@ -66,14 +73,18 @@ struct LiveWork: Equatable {
 
     /// What a subagent is up to: the call it made last says more than the prose it wrote before starting.
     static func activity(_ subagent: SubagentCard) -> String {
-        if let tool = subagent.lastTool { return "\(ChatWords.toolKind(tool)) \(tool.row.target)".trimmingCharacters(in: .whitespaces) }
+        if let tool = subagent.lastTool {
+            return "\(ChatWords.toolKind(tool)) \(tool.row.target)".trimmingCharacters(in: .whitespaces)
+        }
         return subagent.task.components(separatedBy: "\n").first?.trimmingCharacters(in: .whitespaces) ?? ""
     }
 
     /// A task whose description repeats its name would print the same words twice, so the detail takes the first
     /// thing that says more.
     static func detail(_ task: AsyncTask) -> String? {
-        let detail = [task.summary, task.description, task.lastToolName, task.taskType].compactMap { $0 }.first { !$0.isEmpty && $0 != task.name }
+        let detail = [task.summary, task.description, task.lastToolName, task.taskType].compactMap { $0 }.first {
+            !$0.isEmpty && $0 != task.name
+        }
         let joined = [task.owner.map { "from \($0)" }, detail].compactMap { $0 }.joined(separator: " · ")
         return joined.isEmpty ? nil : joined
     }
@@ -85,7 +96,9 @@ struct LiveWork: Equatable {
     }
 
     static func agentCost(_ agent: WorkflowAgent) -> String? {
-        let cost = [agent.tokens.map { "\(tokenCount($0)) tokens" }, agent.toolCalls.map { "\($0) tools" }].compactMap { $0 }
+        let cost = [agent.tokens.map { "\(tokenCount($0)) tokens" }, agent.toolCalls.map { "\($0) tools" }].compactMap {
+            $0
+        }
         return cost.isEmpty ? nil : cost.joined(separator: " · ")
     }
 
@@ -95,7 +108,9 @@ struct LiveWork: Equatable {
     }
 
     static func queuedLabel(_ message: QueuedMessage) -> String {
-        message.text.isEmpty ? (message.paths.map { ($0 as NSString).lastPathComponent } + message.context.map(\.title)).joined(separator: ", ") : message.text
+        message.text.isEmpty
+            ? (message.paths.map { ($0 as NSString).lastPathComponent } + message.context.map(\.title)).joined(
+                separator: ", ") : message.text
     }
 }
 
@@ -150,7 +165,9 @@ struct LiveStrip: View {
             .padding(.trailing, 10)
             .frame(height: 34)
             .background(UnevenRoundedRectangle(topLeadingRadius: 12, topTrailingRadius: 12).fill(palette.composer))
-            .overlay(UnevenRoundedRectangle(topLeadingRadius: 12, topTrailingRadius: 12).stroke(palette.border, lineWidth: 1).padding(.bottom, -2).clipped())
+            .overlay(
+                UnevenRoundedRectangle(topLeadingRadius: 12, topTrailingRadius: 12).stroke(palette.border, lineWidth: 1)
+                    .padding(.bottom, -2).clipped())
         }
         .buttonStyle(.plain)
         .padding(.horizontal, 14)
@@ -203,22 +220,32 @@ struct LiveSheet: View {
             ForEach(work.tasks, id: \.kind) { kind, tasks in
                 SectionLabel(Format.counted(kind, tasks.count), count: tasks.count)
                 ForEach(tasks, id: \.asyncTaskId) { task in
-                    Line(title: task.name, detail: task.state == .paused ? "paused" : LiveWork.detail(task), cost: task.agents.map(LiveWork.agentCount)) {
-                        IconView(icon: taskIcon(kind), size: 15).foregroundStyle(task.state == .paused ? palette.warn : palette.inkDim)
+                    Line(
+                        title: task.name, detail: task.state == .paused ? "paused" : LiveWork.detail(task),
+                        cost: task.agents.map(LiveWork.agentCount)
+                    ) {
+                        IconView(icon: taskIcon(kind), size: 15).foregroundStyle(
+                            task.state == .paused ? palette.warn : palette.inkDim)
                     } end: {
                         if canAct && task.canStop {
-                            SmallButton(label: "Stop", busy: session.stopping.contains(task.asyncTaskId)) { session.stopTask(task.asyncTaskId) }
-                                .accessibilityLabel("Stop \(task.name)")
+                            SmallButton(label: "Stop", busy: session.stopping.contains(task.asyncTaskId)) {
+                                session.stopTask(task.asyncTaskId)
+                            }
+                            .accessibilityLabel("Stop \(task.name)")
                         }
                     }
                     ForEach(task.agents ?? [], id: \.index) { agent in
-                        Line(title: agent.label, detail: LiveWork.agentDetail(agent), cost: LiveWork.agentCost(agent),
-                             faint: agent.state == .queued || agent.state == .completed, nested: true) {
+                        Line(
+                            title: agent.label, detail: LiveWork.agentDetail(agent), cost: LiveWork.agentCost(agent),
+                            faint: agent.state == .queued || agent.state == .completed, nested: true
+                        ) {
                             AgentMark(provider: provider, size: 16)
                         } end: {
                             switch agent.state {
                             case .running: Working()
-                            case .completed: IconView(icon: Icons.check, size: 12).foregroundStyle(palette.live.mixed(with: palette.inkFaint, 0.58))
+                            case .completed:
+                                IconView(icon: Icons.check, size: 12).foregroundStyle(
+                                    palette.live.mixed(with: palette.inkFaint, 0.58))
                             case .failed: IconView(icon: Icons.close, size: 11).foregroundStyle(palette.danger)
                             default: EmptyView()
                             }
@@ -236,14 +263,21 @@ struct LiveSheet: View {
                 ForEach(work.queued, id: \.id) { held in
                     let label = LiveWork.queuedLabel(held)
                     let files = held.paths.count
-                    Line(title: label, detail: !held.text.isEmpty && files > 0 ? "\(files) \(Format.counted("file", files))" : nil) {
+                    Line(
+                        title: label,
+                        detail: !held.text.isEmpty && files > 0 ? "\(files) \(Format.counted("file", files))" : nil
+                    ) {
                         IconView(icon: Icons.clock, size: 15).foregroundStyle(palette.inkDim)
                     } end: {
                         if steerable {
-                            SmallButton(label: "Steer") { steer([held.id]) }.accessibilityLabel("Steer the running turn with \(label)")
+                            SmallButton(label: "Steer") { steer([held.id]) }.accessibilityLabel(
+                                "Steer the running turn with \(label)")
                         }
-                        Button { session.dropQueued(held.id) } label: {
-                            IconView(icon: Icons.close, size: 11).foregroundStyle(palette.inkDim).frame(width: 28, height: 28)
+                        Button {
+                            session.dropQueued(held.id)
+                        } label: {
+                            IconView(icon: Icons.close, size: 11).foregroundStyle(palette.inkDim).frame(
+                                width: 28, height: 28)
                         }
                         .buttonStyle(ActiveFill(radius: 8))
                         .accessibilityLabel("Drop \(label) from the queue")
@@ -253,7 +287,8 @@ struct LiveSheet: View {
             if !work.plan.isEmpty {
                 let done = work.plan.filter { $0.status == .completed }.count
                 SectionLabel(text: "plan") {
-                    Text("\(done) of \(work.plan.count)").font(Theme.ui(11)).monospacedDigit().foregroundStyle(palette.inkDim)
+                    Text("\(done) of \(work.plan.count)").font(Theme.ui(11)).monospacedDigit().foregroundStyle(
+                        palette.inkDim)
                 }
                 ForEach(Array(work.plan.enumerated()), id: \.offset) { _, entry in
                     HStack(alignment: .top, spacing: 10) {
@@ -267,7 +302,10 @@ struct LiveSheet: View {
                         .frame(width: 20, height: 20)
                         Text(entry.content)
                             .font(Theme.ui(14)).lineSpacing(3)
-                            .foregroundStyle(entry.status == .completed ? palette.tertiary : entry.status == .inProgress ? palette.ink : palette.secondary)
+                            .foregroundStyle(
+                                entry.status == .completed
+                                    ? palette.tertiary : entry.status == .inProgress ? palette.ink : palette.secondary
+                            )
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .padding(.horizontal, 8)
@@ -300,11 +338,15 @@ private struct Line<Mark: View, End: View>: View {
         HStack(spacing: 10) {
             mark.frame(width: 20, height: 20).opacity(faint ? 0.6 : 1)
             VStack(alignment: .leading, spacing: 1) {
-                Text(title).font(Theme.ui(14.5, .medium)).tracking(-0.15).foregroundStyle(faint ? palette.tertiary : palette.secondary).lineLimit(1)
+                Text(title).font(Theme.ui(14.5, .medium)).tracking(-0.15).foregroundStyle(
+                    faint ? palette.tertiary : palette.secondary
+                ).lineLimit(1)
                 if detail != nil || cost != nil {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         if let detail { Text(detail).font(Theme.ui(12)).foregroundStyle(palette.tertiary).lineLimit(1) }
-                        if let cost { Text(cost).font(Theme.mono(10.5)).monospacedDigit().foregroundStyle(palette.inkFaint) }
+                        if let cost {
+                            Text(cost).font(Theme.mono(10.5)).monospacedDigit().foregroundStyle(palette.inkFaint)
+                        }
                     }
                 }
             }
@@ -327,7 +369,11 @@ private struct SmallButton: View {
     var body: some View {
         Button(action: action) {
             Group {
-                if busy { ProgressView().controlSize(.small) } else { Text(label).font(Theme.ui(12.5, .medium)).foregroundStyle(palette.ink) }
+                if busy {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Text(label).font(Theme.ui(12.5, .medium)).foregroundStyle(palette.ink)
+                }
             }
             .frame(minWidth: 52, minHeight: 28)
             .padding(.horizontal, 10)

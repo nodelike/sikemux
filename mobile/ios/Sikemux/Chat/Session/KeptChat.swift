@@ -14,9 +14,11 @@ struct KeptChat: Sendable {
     private static let maxChats = 40
     /// A chat drawn bigger than this is opened from the host instead.
     private static let maxBytes = 2 * 1024 * 1024
-    private static let build = (Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "")
+    private static let build =
+        (Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "")
         + "/" + (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")
-    private static let folder = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("chats")
+    private static let folder = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        .appendingPathComponent("chats")
     private static let writing = DispatchQueue(label: "sikemux.kept-chats", qos: .utility)
 
     let file: URL
@@ -55,8 +57,10 @@ struct KeptChat: Sendable {
 
     private static func evictOldest() {
         let keys: Set<URLResourceKey> = [.contentModificationDateKey]
-        guard let files = try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: Array(keys)),
-              files.count > maxChats
+        guard
+            let files = try? FileManager.default.contentsOfDirectory(
+                at: folder, includingPropertiesForKeys: Array(keys)),
+            files.count > maxChats
         else { return }
         let age = { (url: URL) in (try? url.resourceValues(forKeys: keys).contentModificationDate) ?? .distantPast }
         for url in files.sorted(by: { age($0) < age($1) }).prefix(files.count - maxChats) {

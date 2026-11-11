@@ -88,7 +88,8 @@ struct AnsweredQuestion: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if !own { AskedBy(cli: cli, words: named(asker, palette) + Text(" asked you")) }
-            Text(question).font(Theme.ui(14.5)).lineSpacing(23 - 14.5 * 1.2).foregroundStyle(palette.ink).textSelection(.enabled)
+            Text(question).font(Theme.ui(14.5)).lineSpacing(23 - 14.5 * 1.2).foregroundStyle(palette.ink).textSelection(
+                .enabled)
             if secret {
                 Private(text: "Answered, kept private")
             } else {
@@ -130,20 +131,26 @@ private struct SecretAnswer: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .top, spacing: 8) {
-                TextField("", text: $text, prompt: Text("Type or paste the answer").foregroundColor(palette.tertiary), axis: .vertical)
-                    .font(Theme.ui(16))
-                    .foregroundStyle(.clear)
-                    .tint(palette.accent)
-                    .autocorrectionDisabled()
-                    .textInputAutocapitalization(.never)
-                    .textContentType(.oneTimeCode)
-                    .lineLimit(1...5)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .frame(minHeight: 40)
-                    .background(RoundedRectangle(cornerRadius: Radius.row, style: .continuous).fill(palette.sunken))
-                    .overlay(RoundedRectangle(cornerRadius: Radius.row, style: .continuous).strokeBorder(palette.border, lineWidth: 1))
-                    .accessibilityLabel("Private answer to @\(question.name)")
+                TextField(
+                    "", text: $text, prompt: Text("Type or paste the answer").foregroundColor(palette.tertiary),
+                    axis: .vertical
+                )
+                .font(Theme.ui(16))
+                .foregroundStyle(.clear)
+                .tint(palette.accent)
+                .autocorrectionDisabled()
+                .textInputAutocapitalization(.never)
+                .textContentType(.oneTimeCode)
+                .lineLimit(1...5)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .frame(minHeight: 40)
+                .background(RoundedRectangle(cornerRadius: Radius.row, style: .continuous).fill(palette.sunken))
+                .overlay(
+                    RoundedRectangle(cornerRadius: Radius.row, style: .continuous).strokeBorder(
+                        palette.border, lineWidth: 1)
+                )
+                .accessibilityLabel("Private answer to @\(question.name)")
                 Chip(title: "Send", primary: true) {
                     if !text.isEmpty, onKeep(text) { text = "" }
                 }
@@ -159,7 +166,9 @@ private struct SecretAnswer: View {
 
     /// How much a hidden answer holds, so the person can see their typing and paste landed.
     private var hiddenSize: String {
-        let lines = text.hasSuffix("\n") ? String(text.dropLast()).components(separatedBy: "\n").count : text.components(separatedBy: "\n").count
+        let lines =
+            text.hasSuffix("\n")
+            ? String(text.dropLast()).components(separatedBy: "\n").count : text.components(separatedBy: "\n").count
         let characters = "\(text.count) character\(text.count == 1 ? "" : "s") hidden"
         return lines > 1 ? "\(lines) lines, \(characters)" : characters
     }
@@ -197,7 +206,8 @@ struct QuestionDock: View {
             questions.fold(false)
         } label: {
             HStack(spacing: 8) {
-                Text(open.count == 1 ? "QUESTION" : "QUESTIONS").font(Theme.ui(11, .medium)).tracking(0.6).foregroundStyle(palette.inkFaint)
+                Text(open.count == 1 ? "QUESTION" : "QUESTIONS").font(Theme.ui(11, .medium)).tracking(0.6)
+                    .foregroundStyle(palette.inkFaint)
                 Text("\(open.count)").font(Theme.mono(11)).foregroundStyle(palette.inkDim)
                 Text(names).font(Theme.ui(12.5)).foregroundStyle(palette.inkDim).lineLimit(1)
                 Spacer(minLength: 0)
@@ -221,8 +231,9 @@ struct QuestionDock: View {
         let sends = open.count > 1 || current.multi || written != nil
         let via = current.viaNote.map { " · \($0)" } ?? ""
         return VStack(alignment: .leading, spacing: 0) {
-            AskedBy(cli: current.cli, ticket: current.ticket, onFold: { questions.fold(true) },
-                    words: named(current.name, palette) + Text(" asks you\(via)"))
+            AskedBy(
+                cli: current.cli, ticket: current.ticket, onFold: { questions.fold(true) },
+                words: named(current.name, palette) + Text(" asks you\(via)"))
             if open.count > 1 { tabs(current) }
             (Text(current.text) + (current.multi ? Text(" Pick any.").foregroundColor(palette.inkFaint) : Text("")))
                 .font(Theme.ui(14.5))
@@ -233,20 +244,30 @@ struct QuestionDock: View {
                 VStack(spacing: 2) {
                     ForEach(Array(current.choices.enumerated()), id: \.offset) { index, choice in
                         let on = chosen(picked, index)
-                        row(on: on, multi: current.multi, mark: AnyView(Key(multi: current.multi, on: on)),
+                        row(
+                            on: on, multi: current.multi, mark: AnyView(Key(multi: current.multi, on: on)),
                             label: choiceLabel(choice),
-                            a11y: [choice.label, choice.recommended == true ? "recommended" : nil, choice.detail].compactMap { $0 }.joined(separator: ", ")) {
+                            a11y: [choice.label, choice.recommended == true ? "recommended" : nil, choice.detail]
+                                .compactMap { $0 }.joined(separator: ", ")
+                        ) {
                             questions.choose(current, index)
                         }
                     }
                     if !current.secret {
                         if let written {
-                            row(on: true, multi: current.multi, mark: pencil, label: Text(written.shown), a11y: "Your answer, \(written.shown)") { onWrite(current) }
+                            row(
+                                on: true, multi: current.multi, mark: pencil, label: Text(written.shown),
+                                a11y: "Your answer, \(written.shown)"
+                            ) { onWrite(current) }
                         } else {
-                            row(on: writing, multi: current.multi, mark: pencil,
+                            row(
+                                on: writing, multi: current.multi, mark: pencil,
                                 label: Text("Something else…").foregroundColor(palette.inkDim)
-                                    + (writing ? Text("   answering below").font(Theme.ui(13)).foregroundColor(palette.inkDim) : Text("")),
-                                a11y: "Something else") { onWrite(current) }
+                                    + (writing
+                                        ? Text("   answering below").font(Theme.ui(13)).foregroundColor(palette.inkDim)
+                                        : Text("")),
+                                a11y: "Something else"
+                            ) { onWrite(current) }
                         }
                     }
                 }
@@ -285,12 +306,18 @@ struct QuestionDock: View {
 
     private func choiceLabel(_ choice: QuestionChoice) -> Text {
         var label = Text(choice.label)
-        if choice.recommended == true { label = label + Text("  recommended").font(Theme.ui(12)).foregroundColor(palette.inkFaint) }
-        if let detail = choice.detail { label = label + Text("   \(detail)").font(Theme.ui(13)).foregroundColor(palette.inkDim) }
+        if choice.recommended == true {
+            label = label + Text("  recommended").font(Theme.ui(12)).foregroundColor(palette.inkFaint)
+        }
+        if let detail = choice.detail {
+            label = label + Text("   \(detail)").font(Theme.ui(13)).foregroundColor(palette.inkDim)
+        }
         return label
     }
 
-    private func row(on: Bool, multi: Bool, mark: AnyView, label: Text, a11y: String, _ action: @escaping () -> Void) -> some View {
+    private func row(on: Bool, multi: Bool, mark: AnyView, label: Text, a11y: String, _ action: @escaping () -> Void)
+        -> some View
+    {
         Button {
             Haptics.select()
             action()
@@ -335,8 +362,12 @@ struct QuestionDock: View {
                         }
                         .padding(.horizontal, 10)
                         .frame(height: 30)
-                        .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(on ? palette.active : .clear))
-                        .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(on ? .clear : palette.border, lineWidth: 1))
+                        .background(
+                            RoundedRectangle(cornerRadius: 9, style: .continuous).fill(on ? palette.active : .clear)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(
+                                on ? .clear : palette.border, lineWidth: 1))
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("\(title(question, index, open.count))\(answered ? ", answered" : "")")
@@ -357,7 +388,8 @@ private struct QuestionRowStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label.background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous).fill(on || configuration.isPressed ? palette.active : .clear)
+            RoundedRectangle(cornerRadius: 10, style: .continuous).fill(
+                on || configuration.isPressed ? palette.active : .clear)
         )
     }
 }
@@ -403,11 +435,13 @@ struct AssumedQuestion: View {
                 .foregroundStyle(palette.inkDim)
                 .tint(palette.ink)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .environment(\.openURL, OpenURLAction { url in
-                    Haptics.select()
-                    if url.host() == "fine" { onFine() } else { onChange() }
-                    return .handled
-                })
+                .environment(
+                    \.openURL,
+                    OpenURLAction { url in
+                        Haptics.select()
+                        if url.host() == "fine" { onFine() } else { onChange() }
+                        return .handled
+                    })
         }
         .padding(.top, 10)
         .padding(.bottom, 6)

@@ -55,7 +55,8 @@ struct Composer: View {
                 dock ?? strip
                 HStack(spacing: 10) {
                     IconView(icon: Icons.eye, size: 17).foregroundStyle(palette.inkDim)
-                    Text("Watching").font(Theme.ui(13.5)).foregroundStyle(palette.inkDim).frame(maxWidth: .infinity, alignment: .leading)
+                    Text("Watching").font(Theme.ui(13.5)).foregroundStyle(palette.inkDim).frame(
+                        maxWidth: .infinity, alignment: .leading)
                 }
                 .padding(14)
                 .background(composerShape.fill(palette.composer))
@@ -79,13 +80,16 @@ struct Composer: View {
     private var dock: AnyView? {
         let requests = session.permissions
         if !requests.isEmpty {
-            return AnyView(PermissionDock(requests: requests, provider: provider, answering: session.answering, onAnswer: session.answer))
+            return AnyView(
+                PermissionDock(
+                    requests: requests, provider: provider, answering: session.answering, onAnswer: session.answer))
         }
         let holds = holdsHere
         if holds.isEmpty || watchOnly { return nil }
-        return AnyView(HoldDock(holds: holds, answering: self.holds.answering) { hold, how in
-            self.holds.answer(hold, how, core: core, report: session.report)
-        })
+        return AnyView(
+            HoldDock(holds: holds, answering: self.holds.answering) { hold, how in
+                self.holds.answer(hold, how, core: core, report: session.report)
+            })
     }
 
     @ViewBuilder
@@ -101,7 +105,8 @@ struct Composer: View {
         let chips = draft.chips
         let uploading = draft.uploading
         let room = WireLimits.maxAttachments - attachments.count
-        let sendable = !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty || !chips.isEmpty
+        let sendable =
+            !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty || !chips.isEmpty
 
         dock
         if !matches.isEmpty { commands(matches) }
@@ -126,7 +131,9 @@ struct Composer: View {
         VStack(spacing: 0) {
             if let question { answering(question) }
             if !attachments.isEmpty || !chips.isEmpty {
-                ComposerAttachments(attachments: attachments, core: core, onRemove: session.removeAttachment, onRetry: send) {
+                ComposerAttachments(
+                    attachments: attachments, core: core, onRemove: session.removeAttachment, onRetry: send
+                ) {
                     ForEach(chips, id: \.uri) { chip in
                         StashChip(chip: chip) { session.removeChip(chip.uri) }
                     }
@@ -145,7 +152,8 @@ struct Composer: View {
         .simultaneousGesture(
             DragGesture(minimumDistance: Self.pullUp).onChanged { drag in
                 guard text.isEmpty, let onRecent, -drag.translation.height > Self.pullUp,
-                      -drag.translation.height > abs(drag.translation.width) * 2 else { return }
+                    -drag.translation.height > abs(drag.translation.width) * 2
+                else { return }
                 Haptics.select()
                 onRecent()
             },
@@ -160,7 +168,8 @@ struct Composer: View {
             onProblem: { session.report($0) }
         )
         .liftedSheet(shown: $configuring) {
-            ConfigSheet(provider: provider, model: rows.model, effort: rows.effort, usage: rows.usage) { picker, value in
+            ConfigSheet(provider: provider, model: rows.model, effort: rows.effort, usage: rows.usage) {
+                picker, value in
                 session.setConfig(picker.id, value)
                 configuring = false
             }
@@ -171,15 +180,20 @@ struct Composer: View {
         let model = Self.label(rows.model)
         let effort = Self.label(rows.effort)
         return HStack(spacing: 2) {
-            Button { adding = .files } label: {
-                IconView(icon: Icons.plus, size: 17).foregroundStyle(palette.inkDim).frame(width: 34, height: 34).contentShape(Circle())
+            Button {
+                adding = .files
+            } label: {
+                IconView(icon: Icons.plus, size: 17).foregroundStyle(palette.inkDim).frame(width: 34, height: 34)
+                    .contentShape(Circle())
             }
             .buttonStyle(ActiveFill(radius: 17))
             .disabled(uploading || room <= 0)
             .opacity(uploading || room <= 0 ? 0.4 : 1)
             .accessibilityLabel("Add photos or files")
             StashButton { adding = .stash }
-            YoloToggle(core: core, mode: session.permissionMode.flatMap(PermissionMode.init(rawValue:)), provider: provider, locked: modeLocked, onToggle: session.setPermissionMode)
+            YoloToggle(
+                core: core, mode: session.permissionMode.flatMap(PermissionMode.init(rawValue:)), provider: provider,
+                locked: modeLocked, onToggle: session.setPermissionMode)
             if let model {
                 Capped(width: 160) { picker(model, accent: true, label: "Model, \(model)") }
             }
@@ -196,7 +210,9 @@ struct Composer: View {
     }
 
     private func picker(_ value: String, accent: Bool, label: String) -> some View {
-        Button { configuring = true } label: {
+        Button {
+            configuring = true
+        } label: {
             HStack(spacing: 6) {
                 if accent { AgentMark(provider: provider, size: 16) }
                 Text(value).font(Theme.ui(12.5)).foregroundStyle(accent ? palette.accent : palette.inkDim).lineLimit(1)
@@ -236,12 +252,20 @@ struct Composer: View {
             }
             .buttonStyle(PressFade())
             .disabled(uploading)
-            .simultaneousGesture(LongPressGesture().onEnded { _ in
-                guard sendable else { return }
-                heldSend = true
-                stashPrompt()
-            })
-            .accessibilityLabel(uploading ? "Sending files" : offline ? "Send, waiting for \(hostName)" : running ? (steers ? "Send to steer this turn" : "Send after this turn") : "Send")
+            .simultaneousGesture(
+                LongPressGesture().onEnded { _ in
+                    guard sendable else { return }
+                    heldSend = true
+                    stashPrompt()
+                }
+            )
+            .accessibilityLabel(
+                uploading
+                    ? "Sending files"
+                    : offline
+                        ? "Send, waiting for \(hostName)"
+                        : running ? (steers ? "Send to steer this turn" : "Send after this turn") : "Send"
+            )
             .accessibilityHint(sendable ? "Hold to stash this prompt" : "")
         } else {
             Button(action: session.cancel) {
@@ -259,7 +283,9 @@ struct Composer: View {
     private func commands(_ matches: [ChatCommandInfo]) -> some View {
         VStack(spacing: 4) {
             ForEach(matches, id: \.name) { command in
-                Button { session.setDraft("/\(command.name) ") } label: {
+                Button {
+                    session.setDraft("/\(command.name) ")
+                } label: {
                     HStack(spacing: 10) {
                         Text("/\(command.name)").font(Theme.mono(13)).foregroundStyle(palette.accent)
                         Text(command.description).font(Theme.ui(13)).foregroundStyle(palette.tertiary).lineLimit(1)
@@ -268,7 +294,10 @@ struct Composer: View {
                     .padding(.horizontal, 12)
                     .frame(minHeight: 40)
                     .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(palette.overlay))
-                    .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(palette.border, lineWidth: 1))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(
+                            palette.border, lineWidth: 1)
+                    )
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(PressFade())
@@ -281,7 +310,8 @@ struct Composer: View {
     private func answering(_ question: ComposerQuestion) -> some View {
         HStack(spacing: 7) {
             AgentMark(provider: question.cli, size: 13)
-            Text("Answering @\(question.name) · \(question.text)").font(Theme.ui(12)).foregroundStyle(palette.inkDim).lineLimit(1)
+            Text("Answering @\(question.name) · \(question.text)").font(Theme.ui(12)).foregroundStyle(palette.inkDim)
+                .lineLimit(1)
             Button(action: question.onRemove) {
                 IconView(icon: Icons.close, size: 10)
                     .foregroundStyle(palette.ground)
@@ -327,11 +357,12 @@ struct Composer: View {
     }
 
     private func stashPrompt() {
-        prompt.stash({
-            let id = try await session.stashPrompt()
-            focus.clear()
-            return id
-        }, report: session.report)
+        prompt.stash(
+            {
+                let id = try await session.stashPrompt()
+                focus.clear()
+                return id
+            }, report: session.report)
     }
 
     private func fromStash(_ items: [StashItem], base: String? = nil) {

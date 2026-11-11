@@ -27,13 +27,17 @@ struct MessageEditor: View {
                 .focused($focused)
                 .accessibilityLabel("Edit message")
             HStack(spacing: 6) {
-                Button { context.actions.cancelEdit() } label: {
+                Button {
+                    context.actions.cancelEdit()
+                } label: {
                     Text("Cancel").font(Theme.ui(13, .semibold)).foregroundStyle(palette.ink)
                         .padding(.horizontal, 12).frame(height: 30)
                         .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(palette.borderStrong, lineWidth: 1))
                 }
                 .buttonStyle(ActiveFill(radius: 8))
-                Button { context.actions.sendEdit(rowId, words) } label: {
+                Button {
+                    context.actions.sendEdit(rowId, words)
+                } label: {
                     Text("Send").font(Theme.ui(13, .semibold)).foregroundStyle(palette.sunken)
                         .padding(.horizontal, 12).frame(height: 30)
                         .background(RoundedRectangle(cornerRadius: 8).fill(palette.ink))

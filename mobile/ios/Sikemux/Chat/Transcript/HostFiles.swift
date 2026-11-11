@@ -8,7 +8,9 @@ final class HostFiles {
     /// A file that just failed is asked for again only once this has passed.
     private static let retryAfter: TimeInterval = 60
     private nonisolated static let location = #"(?::\d+){1,2}$|#L\d+(?:C\d+)?$"#
-    private nonisolated static let drawn: Set<String> = ["png", "jpg", "jpeg", "gif", "webp", "bmp", "ico", "avif", "tif", "tiff", "heic", "heif"]
+    private nonisolated static let drawn: Set<String> = [
+        "png", "jpg", "jpeg", "gif", "webp", "bmp", "ico", "avif", "tif", "tiff", "heic", "heif",
+    ]
 
     private var fetching: [String: Task<URL?, Never>] = [:]
     private var failedAt: [String: Date] = [:]
@@ -51,10 +53,12 @@ final class HostFiles {
         guard let connection = Hub.shared.live(core).connection else { return nil }
         let task = Task { () -> URL? in
             do {
-                try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try FileManager.default.createDirectory(
+                    at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
                 let params = String(decoding: try JSONEncoder().encode(["path": path]), as: UTF8.self)
                 // The Rust client decodes and writes the file, so its bytes never pass through Swift.
-                _ = try await connection.callToFile(method: "chatFile", paramsJson: params, field: "data", path: file.path)
+                _ = try await connection.callToFile(
+                    method: "chatFile", paramsJson: params, field: "data", path: file.path)
                 return file
             } catch {
                 print("sikemux: could not fetch \(path) from the host: \(error)")
