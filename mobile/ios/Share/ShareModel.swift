@@ -79,6 +79,10 @@ final class ShareModel: ObservableObject {
             }
         }
         items = deduplicated(found)
+        guard !items.isEmpty else {
+            phase = .failed("Nothing in what was shared could be read.")
+            return
+        }
         phase = .ready
         if case .link(let url)? = items.first { await describe(url) }
     }
@@ -89,9 +93,13 @@ final class ShareModel: ObservableObject {
         start(target: target, done: done)
     }
 
-    func retry() {
-        phase = .ready
-        lastSend?()
+    /// Sends again after a failed send; nil when nothing was sent, as a share that could not be read has nothing to send.
+    var retry: (() -> Void)? {
+        guard let lastSend else { return nil }
+        return { [weak self] in
+            self?.phase = .ready
+            lastSend()
+        }
     }
 
     func toChat(_ chat: ShareSnapshot.Chat) {
@@ -207,7 +215,9 @@ final class ShareModel: ObservableObject {
                     try FileManager.default.createDirectory(
                         at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
                     try FileManager.default.copyItem(at: url, to: target)
-                    let size = (try? target.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init) ?? 0
+                    guard let size = try target.resourceValues(forKeys: [.fileSizeKey]).fileSize.map(Int64.init) else {
+                        return done.resume(returning: nil)
+                    }
                     done.resume(returning: (target, name, kind.preferredMIMEType ?? "application/octet-stream", size))
                 } catch {
                     done.resume(returning: nil)
