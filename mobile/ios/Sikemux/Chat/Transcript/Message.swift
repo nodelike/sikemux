@@ -90,9 +90,11 @@ struct TranscriptMessage: View {
         } else if message.role == .user {
             UserMessage(message: message, look: look, tap: tap)
         } else {
-            VStack(alignment: .leading, spacing: 0) {
-                Parts(id: message.id, parts: shownParts, live: look.live)
-                if let strip = look.strip { StripView(strip: strip, mine: false) }
+            Grow(live: look.live) {
+                VStack(alignment: .leading, spacing: 0) {
+                    Parts(id: message.id, parts: shownParts, live: look.live)
+                    if let strip = look.strip { StripView(strip: strip, mine: false) }
+                }
             }
             .contentShape(Rectangle())
             .onTapGesture { tap() }
@@ -343,8 +345,17 @@ struct LongText: View {
         let watched = context.folds.watched(id, live: live)
         let whole = context.folds.isOpen("whole/\(id)", false)
         let cut = whole || found != nil || watched ? nil : Self.cut(blocks)
+        let plain = Array(blocks.map { visibleText($0) }.joined().utf16)
+        let streaming = cut == nil && found == nil && context.reveal.moving(id, total: plain.count, live: live)
         VStack(alignment: .leading, spacing: 0) {
-            MarkdownView(blocks: cut?.blocks ?? blocks, style: style, marks: found)
+            if streaming {
+                TimelineView(.animation(minimumInterval: 1.0 / 60)) { timeline in
+                    let shown = context.reveal.step(id, text: plain, live: live, now: timeline.date)
+                    MarkdownView(blocks: shown.length < plain.count ? revealBlocks(blocks, shown.length) : blocks, style: style, fading: shown.fading)
+                }
+            } else {
+                MarkdownView(blocks: cut?.blocks ?? blocks, style: style, marks: found)
+            }
             if let cut {
                 Button { context.folds.set("whole/\(id)", true) } label: {
                     Text("Show the rest · \(Int((Double(cut.hidden) / 1000).rounded()))k more characters")

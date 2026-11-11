@@ -243,6 +243,8 @@ private struct ToolRowView: View {
         var words = AttributedString(target)
         words.foregroundColor = palette.ink
         if let path = tool.row.path, let url = TranscriptLink.file(path) {
+            words = FileGlyph.mark(size: 11) + AttributedString(" ") + words
+            words.foregroundColor = palette.ink
             words.link = url
         } else if let range = target.range(of: #"https?://[^\s<>"'`]+"#, options: .regularExpression) {
             var raw = String(target[range])
@@ -252,7 +254,7 @@ private struct ToolRowView: View {
                 words[found].foregroundColor = palette.accent
             }
         }
-        var text = Text(words)
+        var text = FileGlyph.text(words, ink: palette.inkDim)
         if let detail = tool.row.detail { text = text + Text(" \(detail)").foregroundColor(palette.inkDim) }
         return text
     }
