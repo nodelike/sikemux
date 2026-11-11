@@ -1603,6 +1603,8 @@ export interface ToolRow {
     intent?: ToolIntent;
     /** What a command read, searched or listed, when `target` is the command as typed. */
     subject?: string;
+    /** The folder a search looked in, when it says. */
+    within?: string;
 }
 
 export type ToolAction = "read" | "edit" | "delete" | "move" | "search" | "execute" | "think" | "fetch" | "switch_mode" | "mcp" | "other";

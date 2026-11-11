@@ -1237,6 +1237,9 @@ pub struct ToolRow {
     /// What a command read, searched or listed, when `target` is the command as typed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub subject: Option<String>,
+    /// The folder a search looked in, when it says.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub within: Option<String>,
 }
 
 impl ToolRow {

@@ -32,6 +32,7 @@ pub(super) struct Kind {
     pub family: ToolFamily,
     pub intent: ToolIntent,
     pub subject: Option<String>,
+    pub within: Option<String>,
 }
 
 pub(super) fn kind(
@@ -50,6 +51,7 @@ pub(super) fn kind(
         family,
         intent,
         subject: None,
+        within: None,
     };
     if HOUSEKEEPING.contains(&name) {
         return plain(ToolFamily::Housekeeping, ToolIntent::Use);
@@ -98,7 +100,14 @@ fn named(name: &str, tool: &ToolCall, args: &Map<String, Value>) -> Option<Kind>
         "WebSearch" => (F::Web, I::Search, arg("query")),
         "WebFetch" => (F::Web, I::Fetch, None),
         "Write" => (F::Files, I::Write, None),
-        "Glob" | "Grep" => (F::Files, I::Search, None),
+        "Glob" | "Grep" => {
+            return Some(Kind {
+                family: F::Files,
+                intent: I::Search,
+                subject: arg("pattern"),
+                within: arg("path").filter(|path| !matches!(path.as_str(), "." | "./")),
+            })
+        }
         "ExitPlanMode" | "EnterPlanMode" => (F::Other, I::Mode, None),
         "agent_send" | "SendMessage" => (F::Agents, I::Message, arg("to").or_else(|| arg("agent"))),
         "agent_spawn" => (F::Agents, I::Start, arg("name")),
@@ -166,6 +175,7 @@ fn named(name: &str, tool: &ToolCall, args: &Map<String, Value>) -> Option<Kind>
         family,
         intent,
         subject,
+        within: None,
     })
 }
 
@@ -264,6 +274,7 @@ pub(super) fn command(tool: &ToolCall) -> Kind {
         family: ToolFamily::Shell,
         intent,
         subject,
+        within: typed.as_deref().and_then(command_within),
     }
 }
 
@@ -286,12 +297,11 @@ fn typed_command(tool: &ToolCall) -> Option<String> {
     }
 }
 
-/// What a command does, read from its first step that is not a `cd` or a setting, and what
-/// it reads, searches for or lists.
-pub(super) fn command_intent(command: &str) -> (ToolIntent, Option<String>) {
+/// The step of a command that does its work: its first that is not a `cd` or a setting, up to
+/// any pipe.
+fn first_step(command: &str) -> Option<Vec<String>> {
     let line = command.lines().next().unwrap_or_default();
-    let step = line
-        .split("&&")
+    line.split("&&")
         .flat_map(|part| part.split(';'))
         .flat_map(|part| part.split("||"))
         .map(|step| step.split('|').next().unwrap_or_default())
@@ -304,8 +314,35 @@ pub(super) fn command_intent(command: &str) -> (ToolIntent, Option<String>) {
                     "cd" | "export" | "set" | "source" | "." | "pushd"
                 )
             })
-        });
-    let Some(step) = step else {
+        })
+}
+
+/// Where a search command looked, when it says.
+pub(super) fn command_within(command: &str) -> Option<String> {
+    let step = first_step(command)?;
+    let program = step[0].rsplit('/').next().unwrap_or_default();
+    let positional: Vec<&str> = step[1..]
+        .iter()
+        .map(String::as_str)
+        .filter(|arg| !arg.starts_with('-'))
+        .collect();
+    let place = match program {
+        "grep" | "rg" | "ag" | "ack" | "egrep" | "fgrep" => {
+            positional.get(1..).and_then(|rest| rest.last()).copied()
+        }
+        "find" | "fd" => positional.first().copied(),
+        "git" if positional.first() == Some(&"grep") => {
+            positional.get(2..).and_then(|rest| rest.last()).copied()
+        }
+        _ => None,
+    }?;
+    (!matches!(place, "." | "./")).then(|| place.to_owned())
+}
+
+/// What a command does, read from its first step that is not a `cd` or a setting, and what
+/// it reads, searches for or lists.
+pub(super) fn command_intent(command: &str) -> (ToolIntent, Option<String>) {
+    let Some(step) = first_step(command) else {
         return (ToolIntent::Run, None);
     };
     let program = step[0].rsplit('/').next().unwrap_or_default();

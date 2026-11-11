@@ -41,7 +41,22 @@ pub(super) fn row(tool: &ToolCall) -> ToolRow {
     row.subject = kind
         .subject
         .filter(|subject| names || *subject != row.target);
+    row.within = kind.within;
+    if let Some(lines) = read_lines(&args) {
+        row.path = row
+            .path
+            .take()
+            .map(|path| format!("{}:{lines}", without_line(&path)));
+    }
     row
+}
+
+/// The lines a read asked for, as `first-last`, when it gave where to start and how many.
+fn read_lines(args: &Map<String, Value>) -> Option<String> {
+    let number = |key: &str| args.get(key).and_then(Value::as_u64);
+    let (from, count) = (number("offset")?, number("limit")?);
+    let from = from.max(1);
+    Some(format!("{from}-{}", from + count.max(1) - 1))
 }
 
 fn spec(title: &str) -> Option<&'static Spec> {

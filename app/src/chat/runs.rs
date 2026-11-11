@@ -319,7 +319,11 @@ fn run_line(
         tint(line.intent, looks)
     };
     let icon = line_icon(line.intent, line.family, Some(first));
-    let command = calls.len() == 1 && first.command().is_some();
+    let said_by_intent = matches!(
+        line.intent,
+        ToolIntent::Read | ToolIntent::View | ToolIntent::Search | ToolIntent::List
+    ) && first.tool.row.subject.is_some();
+    let command = calls.len() == 1 && first.command().is_some() && !said_by_intent;
     let main = if command {
         let typed = first.tool.row.target.clone();
         div()
@@ -381,6 +385,20 @@ fn run_line(
                     .child(if waited { "Waited for" } else { verb }),
             )
             .children(chips)
+            .children(first.tool.row.within.clone().map(|within| {
+                div()
+                    .flex_none()
+                    .flex()
+                    .gap(SPACE_1)
+                    .child(div().text_color(looks.quiet).child("in"))
+                    .child(
+                        div()
+                            .font_family(theme::MONO)
+                            .text_size(theme::ui_text(TEXT_XS))
+                            .text_color(t.text_secondary)
+                            .child(within),
+                    )
+            }))
             .when(more > 0, |main| {
                 main.child(
                     div()
@@ -516,7 +534,9 @@ fn chip(name: &str, path: &str, with_lines: bool, looks: &Drawn, cx: &App) -> An
         .rsplit_once(':')
         .filter(|_| with_lines)
         .map(|(_, lines)| lines)
-        .filter(|lines| !lines.is_empty() && lines.bytes().all(|b| b.is_ascii_digit() || b == b'-'))
+        .filter(|lines| {
+            lines.contains('-') && lines.bytes().all(|b| b.is_ascii_digit() || b == b'-')
+        })
         .map(|lines| lines.replace('-', "–"));
     let file = without_lines(path).to_owned();
     let (agent, files, bench) = (

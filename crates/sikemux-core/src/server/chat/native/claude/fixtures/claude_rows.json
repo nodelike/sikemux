@@ -435,7 +435,7 @@
                     "action": "read",
                     "target": "main.rs",
                     "detail": "Read src/main.rs (10 - 29)",
-                    "path": "/repo/app/src/main.rs:10",
+                    "path": "/repo/app/src/main.rs:10-29",
                     "family": "files",
                     "intent": "read"
                   }
@@ -1442,7 +1442,9 @@
                     "target": "Find `/repo/app/src` `**/*.rs`",
                     "path": "/repo/app/src",
                     "family": "files",
-                    "intent": "search"
+                    "intent": "search",
+                    "subject": "**/*.rs",
+                    "within": "/repo/app/src"
                   }
                 },
                 "startedAt": 1000,
@@ -1499,7 +1501,8 @@
                     "action": "search",
                     "target": "Find `*.md`",
                     "family": "files",
-                    "intent": "search"
+                    "intent": "search",
+                    "subject": "*.md"
                   }
                 },
                 "startedAt": 1000,
@@ -1629,7 +1632,9 @@
                     "action": "search",
                     "target": "grep -i -n -A 2 -B 0 | head -10 --include=\"*.rs\" --type=rust -P \"fn main\" src",
                     "family": "files",
-                    "intent": "search"
+                    "intent": "search",
+                    "subject": "fn main",
+                    "within": "src"
                   }
                 },
                 "startedAt": 1000,
@@ -1688,7 +1693,8 @@
                     "action": "search",
                     "target": "grep -l \"x\"",
                     "family": "files",
-                    "intent": "search"
+                    "intent": "search",
+                    "subject": "x"
                   }
                 },
                 "startedAt": 1000,
@@ -1747,7 +1753,8 @@
                     "action": "search",
                     "target": "grep -c \"x\"",
                     "family": "files",
-                    "intent": "search"
+                    "intent": "search",
+                    "subject": "x"
                   }
                 },
                 "startedAt": 1000,
@@ -5876,7 +5883,8 @@
                     "action": "search",
                     "target": "Find `*`",
                     "family": "files",
-                    "intent": "search"
+                    "intent": "search",
+                    "subject": "*"
                   }
                 },
                 "startedAt": 1000,
@@ -6889,7 +6897,7 @@
                     "action": "read",
                     "target": "README.md",
                     "detail": "Read README.md (3 - 4)",
-                    "path": "/repo/app/README.md:3",
+                    "path": "/repo/app/README.md:3-4",
                     "family": "files",
                     "intent": "read"
                   }
