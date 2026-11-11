@@ -67,7 +67,9 @@ struct Trouble: View {
                     }
                 }
                 .padding(.top, 10)
-                .task(id: "\(failure?.kind.rawValue ?? "")|\(failure?.account ?? "")") { await readAccounts(failure) }
+                .task(id: "\(canAct)|\(failure?.kind.rawValue ?? "")|\(failure?.account ?? "")") {
+                    await readAccounts(failure)
+                }
                 .task(id: failure?.resumesAt) {
                     guard let at = failure?.resumesAt else { return }
                     let wait = Double(at) / 1000 - Date().timeIntervalSince1970
