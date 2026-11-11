@@ -138,6 +138,7 @@ struct ScreenFor: View {
 
 /// With the navigation bar hidden, UIKit stops the swipe back; this keeps it, from anywhere on the screen as the
 /// RN app's stack allowed.
+// swift-format-ignore: AvoidRetroactiveConformances
 extension UINavigationController: @retroactive UIGestureRecognizerDelegate {
     override open func viewDidLoad() {
         super.viewDidLoad()
