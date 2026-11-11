@@ -137,9 +137,9 @@ final class TranscriptController: UIViewController, UICollectionViewDelegate {
         collection = UICollectionView(frame: view.bounds, collectionViewLayout: layout)
         collection.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         collection.backgroundColor = .clear
-        collection.keyboardDismissMode = .interactive
         collection.showsVerticalScrollIndicator = false
         collection.keyboardDismissMode = .interactive
+        collection.alwaysBounceVertical = true
         collection.contentInsetAdjustmentBehavior = .automatic
         collection.selfSizingInvalidation = .enabledIncludingConstraints
         collection.delegate = self
@@ -262,6 +262,13 @@ final class TranscriptController: UIViewController, UICollectionViewDelegate {
     }
 
     // MARK: The reader scrolling
+
+    /// A chat too short to scroll never carries the finger down into the keyboard, so a drag there lets it go at once.
+    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        let room =
+            scrollView.bounds.height - scrollView.adjustedContentInset.top - scrollView.adjustedContentInset.bottom
+        if scrollView.contentSize.height <= room { scrollView.window?.endEditing(true) }
+    }
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         let fromEnd = bottomOffset - scrollView.contentOffset.y
