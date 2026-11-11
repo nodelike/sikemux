@@ -20,6 +20,8 @@ struct NotificationsRow: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityAddTraits(.isLink)
+            } else if notify.on, let problem = notify.syncProblem {
+                ProblemLine(text: problem)
             }
         }
         .task { await notify.checkAllowed() }
