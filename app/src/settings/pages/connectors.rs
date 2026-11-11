@@ -404,14 +404,7 @@ pub fn render(
             .into_any_element(),
     };
     let vault = super::vault::section(&fields.vault, lit("Account vault"), this, cx);
-    let connectors = rows::section(
-        "Connectors",
-        None,
-        None,
-        lit("Connectors"),
-        body,
-        cx,
-    );
+    let connectors = rows::section("Connectors", None, None, lit("Connectors"), body, cx);
     vault.into_iter().chain([connectors]).collect()
 }
 

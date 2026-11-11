@@ -469,7 +469,8 @@ impl GoalsPane {
                     cx.defer(move |cx| {
                         let _ = window.update(cx, |_, window, cx| {
                             let page = crate::settings::Page::Connectors;
-                            let _ = bench.update(cx, |bench, cx| bench.open_settings(page, window, cx));
+                            let _ =
+                                bench.update(cx, |bench, cx| bench.open_settings(page, window, cx));
                         });
                     });
                 }
