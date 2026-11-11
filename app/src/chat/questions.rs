@@ -851,7 +851,7 @@ fn tile(
         .children(picture.clone().map(|picture| {
             img(picture.source_at(px(TILE_PICTURE)))
                 .size_full()
-                .object_fit(ObjectFit::Cover)
+                .object_fit(ObjectFit::Contain)
         }));
     let label = div()
         .flex()
