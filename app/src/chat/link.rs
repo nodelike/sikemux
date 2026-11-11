@@ -25,6 +25,22 @@ pub fn service_mark(href: &str) -> Option<Icon> {
         Icon::Bitbucket
     } else if on("atlassian.net") {
         Icon::Jira
+    } else if on("gitlab.com") {
+        Icon::Gitlab
+    } else if on("linear.app") {
+        Icon::Linear
+    } else if on("vercel.com") || on("vercel.app") {
+        Icon::Vercel
+    } else if on("slack.com") {
+        Icon::Slack
+    } else if on("aws.amazon.com") || on("amazonaws.com") {
+        Icon::Aws
+    } else if on("grok.com") {
+        Icon::Grok
+    } else if on("apple.com") {
+        Icon::Apple
+    } else if on("play.google.com") {
+        Icon::Googleplay
     } else {
         return None;
     })

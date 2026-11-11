@@ -168,6 +168,11 @@ impl Looks {
             selection: Hsla { a: 0.3, ..t.accent },
             mark_ground: Hsla { a: 0.1, ..t.accent },
             code_ink: t.accent,
+            link: theme::mix(t.accent, t.text_primary, 0.5),
+            link_underline: Some(Hsla {
+                a: 0.4,
+                ..theme::mix(t.accent, t.text_primary, 0.5)
+            }),
             found: Hsla {
                 a: 0.28,
                 ..t.accent
@@ -243,6 +248,13 @@ impl Looks {
         let user = Style {
             text_size: px(13.5),
             ..text.clone()
+        };
+        let text = Style {
+            text_size: px(14.5),
+            line_height: 1.7,
+            gap: px(12.),
+            editorial: true,
+            ..text
         };
         let designed = Styles {
             text: Rc::new(text),

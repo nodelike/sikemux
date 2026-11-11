@@ -14,7 +14,7 @@ use gpui::{
     InspectorElementId, InteractiveElement, InteractiveText, IntoElement, LayoutId, MouseButton,
     ParentElement, Pixels, Point, ScrollEvent, ScrollHandle, SharedString, Stateful,
     StatefulInteractiveElement, StrikethroughStyle, Styled, StyledText, TextAlign, TextLayout,
-    Window,
+    UnderlineStyle, Window,
 };
 
 use crate::markdown::{superscript, Kind, Markdown, Marks, Node, Picture, Piece, Rich};
@@ -164,6 +164,9 @@ pub struct Style {
     pub table_ground: Hsla,
     pub table_head: Hsla,
     pub radius: Pixels,
+    /// The colour of a link's words, and of the line under them when they have one.
+    pub link: Hsla,
+    pub link_underline: Option<Hsla>,
     pub on_link: Option<OnLink>,
     /// Makes task boxes clickable.
     pub on_task: Option<OnTask>,
@@ -182,6 +185,9 @@ pub struct Style {
     pub numbered_sections: bool,
     /// Level-one and level-two headings are larger and sit on a rule, as GitHub draws a README.
     pub ruled_headings: bool,
+    /// Reads like an article: section headings larger with room above, level-three headings as
+    /// spaced capital labels, the lead paragraph larger, list markers and quotes in the accent.
+    pub editorial: bool,
     pub italic: bool,
 }
 
@@ -224,6 +230,8 @@ impl Default for Style {
             table_ground: rgba(0x19191eb8).into(),
             table_head: rgba(0xe7e5ef0a).into(),
             radius: px(5.),
+            link: rgb(0xa277ff).into(),
+            link_underline: None,
             on_link: None,
             on_task: None,
             file_of: None,
@@ -236,6 +244,7 @@ impl Default for Style {
             chips: Rc::from(Vec::new()),
             numbered_sections: false,
             ruled_headings: false,
+            editorial: false,
             italic: false,
         }
     }
@@ -377,6 +386,7 @@ impl Blocks {
             depth: 0,
             tasks,
             align: TextAlign::Left,
+            capitals: false,
         };
         draw.block(&self.blocks[ix], ix, window, cx)
     }
@@ -760,6 +770,8 @@ struct Draw<'a> {
     tasks: usize,
     /// The side the blocks being drawn line up to.
     align: TextAlign,
+    /// Draws the text's letters as capitals, for a heading set as a label.
+    capitals: bool,
 }
 
 impl Draw<'_> {
@@ -774,9 +786,11 @@ impl Draw<'_> {
         match &node.kind {
             Kind::Heading(level) => {
                 let ruled = style.ruled_headings && *level <= 2;
-                let scales = match style.ruled_headings {
-                    true => [1.8, 1.4, 1.2, 1., 0.9, 0.85],
-                    false => [1.4, 1.2, 1.07, 1., 1., 1.],
+                let label = style.editorial && *level == 3;
+                let scales = match (style.ruled_headings, style.editorial) {
+                    (true, _) => [1.8, 1.4, 1.2, 1., 0.9, 0.85],
+                    (_, true) => [1.52, 1.24, 0.72, 1., 1., 1.],
+                    _ => [1.4, 1.2, 1.07, 1., 1., 1.],
                 };
                 let scale = scales[usize::from(level.clamp(&1, &6) - 1)];
                 let blocks = &self.on.blocks;
@@ -790,13 +804,25 @@ impl Draw<'_> {
                         .count();
                     format!("{:02}", before + 1)
                 });
+                let room = match (style.editorial, *level) {
+                    (true, 2) => style.text_size * 1.5,
+                    (true, 3) => style.text_size * 0.4,
+                    _ => style.text_size * (scale * 0.4),
+                };
+                self.capitals = label;
+                let words = self.flow(node, window, cx);
+                self.capitals = false;
                 div()
-                    .when(ix > 0, |heading| {
-                        heading.pt(style.text_size * (scale * 0.4))
-                    })
+                    .when(ix > 0, |heading| heading.pt(room))
                     .text_size(style.text_size * scale)
                     .line_height(relative(1.3))
                     .font_weight(FontWeight::SEMIBOLD)
+                    .when(style.editorial && *level <= 2, |heading| {
+                        heading.letter_spacing(if *level == 1 { -0.015 } else { -0.01 })
+                    })
+                    .when(label, |heading| {
+                        heading.letter_spacing(0.16).text_color(style.ink_dim)
+                    })
                     .when(*level >= 5, |heading| heading.text_color(style.ink_dim))
                     .when(ruled, |heading| {
                         heading.pb(px(6.)).border_b_1().border_color(style.line)
@@ -812,14 +838,16 @@ impl Draw<'_> {
                                 .child(number),
                         )
                     })
-                    .child(self.flow(node, window, cx))
+                    .child(words)
                     .into_any_element()
             }
             Kind::Quote => div()
-                .pl(px(12.))
+                .pl(px(if style.editorial { 16. } else { 12. }))
                 .border_l_2()
-                .border_color(style.line)
-                .text_color(style.ink_dim)
+                .map(|quote| match style.editorial {
+                    true => quote.border_color(style.accent).italic(),
+                    false => quote.border_color(style.line).text_color(style.ink_dim),
+                })
                 .child(self.flow(node, window, cx))
                 .into_any_element(),
             Kind::Bullets | Kind::Numbers(_) => self.list(node, window, cx),
@@ -855,6 +883,10 @@ impl Draw<'_> {
             }
             Kind::Paragraph => match node.pictures() {
                 Some(pictures) => self.pictures(pictures, window, cx),
+                None if style.editorial && self.leads(node, ix) => div()
+                    .text_size(style.text_size * 1.07)
+                    .child(self.flow(node, window, cx))
+                    .into_any_element(),
                 None => self.flow(node, window, cx),
             },
             _ => self.flow(node, window, cx),
@@ -862,6 +894,16 @@ impl Draw<'_> {
     }
 
     /// An element's content: its inline runs as text, its blocks as blocks.
+    /// Whether `node` is the paragraph straight under the text's title.
+    fn leads(&self, node: &Node, ix: usize) -> bool {
+        let blocks = &self.on.blocks;
+        ix > 0
+            && blocks
+                .get(ix)
+                .is_some_and(|block| std::ptr::eq(&**block, node))
+            && matches!(blocks[ix - 1].kind, Kind::Heading(1))
+    }
+
     fn flow(&mut self, node: &Node, window: &mut Window, cx: &mut App) -> AnyElement {
         let pieces = node.flow();
         if let [Piece::Text(rich)] = pieces {
@@ -1054,7 +1096,13 @@ impl Draw<'_> {
             };
             (range.clone(), look)
         });
-        let own = hide_chip_words(combine_highlights(file_looks, own).collect(), &chips);
+        let mut own: Vec<_> = combine_highlights(file_looks, own).collect();
+        for (range, look) in &mut own {
+            if files.iter().any(|(file, _, _)| overlap(file, range)) {
+                look.underline = None;
+            }
+        }
+        let own = hide_chip_words(own, &chips);
         let looks = match colours {
             Some(colours) => combine_highlights(colours.iter().cloned(), own).collect(),
             None => own,
@@ -1096,7 +1144,11 @@ impl Draw<'_> {
         gaps.dedup_by_key(|(at, _)| *at);
         #[cfg(feature = "counts")]
         crate::counts::add(&crate::counts::TEXTS, 1);
-        let text = StyledText::new(rich.text.clone())
+        let words = match self.capitals {
+            true => SharedString::from(rich.text.to_ascii_uppercase()),
+            false => rich.text.clone(),
+        };
+        let text = StyledText::new(words)
             .with_highlights(looks)
             .with_font_family_overrides(
                 mono.map(|(range, _)| (range.clone(), style.mono.family.clone())),
@@ -1258,6 +1310,11 @@ impl Draw<'_> {
     fn list(&mut self, node: &Node, window: &mut Window, cx: &mut App) -> AnyElement {
         let style = &*self.on.style;
         let bullet = ["•", "◦", "▪"][self.depth % 3];
+        let editorial = style.editorial;
+        let bullet_ink = match self.depth {
+            0 => style.accent,
+            _ => style.ink_dim,
+        };
         self.depth += 1;
         let items: Vec<_> = node
             .children
@@ -1282,10 +1339,23 @@ impl Draw<'_> {
                             None => tick.into_any_element(),
                         }
                     }
+                    (_, Kind::Numbers(start)) if editorial => div()
+                        .font(style.mono.clone())
+                        .text_size(style.code_size * 0.88)
+                        .line_height(style.text_size * style.line_height)
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(style.accent)
+                        .child(format!("{:02}", start + ix as u64))
+                        .into_any_element(),
                     (_, Kind::Numbers(start)) => div()
                         .text_right()
                         .pr(px(6.))
                         .child(format!("{}.", start + ix as u64))
+                        .into_any_element(),
+                    _ if editorial => div()
+                        .pl(px(6.))
+                        .text_color(bullet_ink)
+                        .child(bullet)
                         .into_any_element(),
                     _ => div().pl(px(6.)).child(bullet).into_any_element(),
                 };
@@ -1299,7 +1369,7 @@ impl Draw<'_> {
         div()
             .flex()
             .flex_col()
-            .gap(px(2.))
+            .gap(px(if editorial { 5. } else { 2. }))
             .children(items)
             .into_any_element()
     }
@@ -1812,7 +1882,12 @@ fn highlight(marks: Marks, style: &Style) -> HighlightStyle {
         highlight.font_scale = Some(gpui::FontScale(0.88));
     }
     if marks.has(Marks::LINK) {
-        highlight.color = Some(style.accent);
+        highlight.color = Some(style.link);
+        highlight.underline = style.link_underline.map(|color| UnderlineStyle {
+            thickness: px(1.),
+            color: Some(color),
+            wavy: false,
+        });
     }
     highlight
 }
