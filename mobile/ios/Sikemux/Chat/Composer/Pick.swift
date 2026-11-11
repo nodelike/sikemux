@@ -195,18 +195,25 @@ final class PhotoLibrary: NSObject, PHPhotoLibraryChangeObserver {
     /// The phone shows its prompt only before the person has answered it.
     var canAsk: Bool { PHPhotoLibrary.authorizationStatus(for: .readWrite) == .notDetermined }
 
+    /// Shows the photos the person already let the app see, without asking.
     func open() {
-        Task {
-            let status = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
-            access =
-                switch status {
-                case .authorized: .all
-                case .limited: .limited
-                case .notDetermined: .asking
-                default: .denied
-                }
-            if sees { reload() }
-        }
+        take(PHPhotoLibrary.authorizationStatus(for: .readWrite))
+    }
+
+    /// Shows the system's prompt for the photos, once the person asks for them.
+    func ask() {
+        Task { take(await PHPhotoLibrary.requestAuthorization(for: .readWrite)) }
+    }
+
+    private func take(_ status: PHAuthorizationStatus) {
+        access =
+            switch status {
+            case .authorized: .all
+            case .limited: .limited
+            case .notDetermined: .asking
+            default: .denied
+            }
+        if sees { reload() }
     }
 
     func close() {
