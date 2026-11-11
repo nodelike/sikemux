@@ -104,7 +104,20 @@ jobs:
         working-directory: mobile/app
         env:
           GH_TOKEN: ${{ github.token }}
+          EXPO_PUBLIC_SENTRY: "1"
         run: node scripts/publish-update.mjs prepare android nightly "$RUNNER_TEMP/update"
+
+      # Sentry finds each map by the id Sentry's Metro config stamps into the bundle, so one upload
+      # serves every build the update reaches.
+      - name: Send the source maps to Sentry
+        if: steps.export.outputs.publish == 'true'
+        working-directory: mobile/app
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: nodelike
+          SENTRY_PROJECT: sikemux-mobile
+          SENTRY_URL: https://sentry.io/
+        run: pnpm exec sentry-expo-upload-sourcemaps "$RUNNER_TEMP/export"
 
       - name: Keep the update for signing
         if: steps.export.outputs.publish == 'true'

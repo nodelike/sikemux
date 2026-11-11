@@ -86,8 +86,12 @@ async function prepare(platform, channel, dir) {
   const expoClient = JSON.parse(run('npx', ['expo', 'config', '--type', 'public', '--json'], { env, stdio }));
   delete expoClient.updates?.requestHeaders;
 
-  const exported = mkdtempSync(join(tmpdir(), 'sikemux-export-'));
-  run('npx', ['expo', 'export', '--platform', platform, '--output-dir', exported], { env, stdio: ['ignore', 'inherit', 'inherit'] });
+  // The source maps stay beside the update, never in it, for CI to send to Sentry.
+  const exported = join(dirname(dir), 'export');
+  run('npx', ['expo', 'export', '--platform', platform, '--source-maps', '--output-dir', exported], {
+    env,
+    stdio: ['ignore', 'inherit', 'inherit'],
+  });
   const files = JSON.parse(readFileSync(join(exported, 'metadata.json'), 'utf8')).fileMetadata[platform];
 
   mkdirSync(join(dir, 'assets'), { recursive: true });

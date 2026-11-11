@@ -33,6 +33,7 @@ jobs:
       version: ${{ steps.plan.outputs.version }}
       channel: ${{ steps.plan.outputs.channel }}
       commit: ${{ steps.plan.outputs.commit }}
+      build: ${{ steps.plan.outputs.build }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -56,10 +57,13 @@ jobs:
               ;;
             *) channel=stable ;;
           esac
+          build="$(cd mobile/app && SIKEMUX_MOBILE_VERSION="$version" APP_VARIANT=production \
+            node -p "require('./app.config.js')({ config: require('./app.json').expo }).android.versionCode")"
           {
             echo "version=$version"
             echo "channel=$channel"
             echo "commit=$(git rev-parse --short=7 HEAD)"
+            echo "build=$build"
           } >>"$GITHUB_OUTPUT"
           echo "Releasing $channel $version from $(git rev-parse HEAD)" >>"$GITHUB_STEP_SUMMARY"
 
@@ -85,6 +89,10 @@ jobs:
       SIKEMUX_MOBILE_CHANNEL: ${{ needs.plan.outputs.channel }}
       # The account sheet shows which commit the build's own code came from.
       EXPO_PUBLIC_COMMIT: ${{ needs.plan.outputs.commit }}
+      # Published builds report crashes, under the release the app names itself.
+      EXPO_PUBLIC_SENTRY: "1"
+      SENTRY_RELEASE: sikemux-mobile@${{ needs.plan.outputs.version }}+${{ needs.plan.outputs.build }}
+      SENTRY_DIST: ${{ needs.plan.outputs.build }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -132,9 +140,12 @@ jobs:
         working-directory: mobile/app
         run: node scripts/run.mjs prebuild android production
 
-      # Without the upload keystore, plugins/release-signing.js leaves both unsigned.
+      # Without the upload keystore, plugins/release-signing.js leaves both unsigned. Each build
+      # sends Sentry its source maps, ProGuard mapping and native symbols.
       - name: Build the unsigned APK and app bundle
         working-directory: mobile/app/android
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
         run: |
           # The generated project gives Gradle 512 MB of metaspace, which a release build outgrows.
           # The file has no newline at its end, so the setting starts on a line of its own.
@@ -323,6 +334,8 @@ jobs:
       SIKEMUX_MOBILE_CHANNEL: ${{ needs.plan.outputs.channel }}
       # The account sheet shows which commit the build's own code came from.
       EXPO_PUBLIC_COMMIT: ${{ needs.plan.outputs.commit }}
+      # This build does not report crashes, so it sends Sentry nothing either.
+      SENTRY_DISABLE_AUTO_UPLOAD: "true"
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
