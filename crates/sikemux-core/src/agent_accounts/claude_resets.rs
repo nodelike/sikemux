@@ -374,19 +374,26 @@ fn organization(config_path: Option<&str>) -> Option<String> {
 async fn token(config_path: Option<&str>) -> Option<String> {
     let folder = named_folder(config_path);
     let stored = if cfg!(target_os = "macos") {
-        let output = Command::from(sikemux_process::user_environment::command(
-            "/usr/bin/security",
-        ))
-        .args([
-            "find-generic-password",
-            "-w",
-            "-s",
-            &keychain_item(folder.as_deref()),
-        ])
-        .output()
-        .await
-        .ok()?;
-        output.status.success().then_some(output.stdout)?
+        let item = keychain_item(folder.as_deref());
+        let read = |owner: Option<String>| {
+            let mut security = Command::from(sikemux_process::user_environment::command(
+                "/usr/bin/security",
+            ));
+            security.args(["find-generic-password", "-w", "-s", &item]);
+            if let Some(owner) = owner {
+                security.args(["-a", &owner]);
+            }
+            async move {
+                let output = security.output().await.ok()?;
+                output.status.success().then_some(output.stdout)
+            }
+        };
+        // Claude Code saves the sign-in under the macOS user's name; an older release left one
+        // under another name beside it, which a lookup by item alone can find first.
+        match read(std::env::var("USER").ok()).await {
+            Some(stored) => stored,
+            None => read(None).await?,
+        }
     } else {
         let folder = folder.unwrap_or_else(|| folders::home().join(".claude"));
         tokio::fs::read(folder.join(".credentials.json"))
