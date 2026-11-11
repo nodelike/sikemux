@@ -1891,6 +1891,7 @@ pub(crate) fn without_attached(text: &str, paths: &[String]) -> String {
 /// its answers in one message, so the first does not start a turn before the
 /// rest arrive.
 pub(crate) async fn answer_all(core: &Arc<Core>, mut params: AnswersParams) -> Result<(), String> {
+    attach_picked_pictures(core, &mut params.answers);
     params
         .answers
         .iter_mut()
@@ -2231,16 +2232,64 @@ fn answer_text(question: &Question, params: &AnswerParams) -> Result<Option<Stri
                     .ok_or("That choice is not one of the question's")
             })
             .collect::<Result<Vec<_>, _>>()?;
-        return Ok(Some(labels.join(", ")));
+        return Ok(Some(with_picked(labels.join(", "), params)));
     }
     if let Some(choice) = params.choice {
         return question
             .choices
             .get(choice)
-            .map(|choice| Some(choice.label.clone()))
+            .map(|choice| Some(with_picked(choice.label.clone(), params)))
             .ok_or_else(|| "That choice is not one of the question's".into());
     }
     reply_text(params).map(Some)
+}
+
+/// A picked choice's label and, when its question showed pictures, the pictures picked.
+fn with_picked(label: String, params: &AnswerParams) -> String {
+    match params.paths.is_empty() {
+        true => label,
+        false => format!("{label}\n\n{}", attached(&params.paths)),
+    }
+}
+
+/// Lists the pictures of the choices picked among the answer's files, copied to where the
+/// chat's files are kept, so the answer shows what was picked once the question is gone.
+fn attach_picked_pictures(core: &Arc<Core>, answers: &mut [AnswerParams]) {
+    let Some(dir) = core.config.attachment_dir.as_deref() else {
+        return;
+    };
+    let shown: Vec<(usize, String)> = {
+        let state = core.harness.questions.state.locked();
+        (answers.iter().enumerate())
+            .filter_map(|(at, given)| {
+                let question = state.open.iter().find(|open| open.id == given.id)?;
+                let picked = given
+                    .choice
+                    .into_iter()
+                    .chain(given.choices.iter().flatten().copied());
+                Some(
+                    picked
+                        .filter_map(|ix| question.choices.get(ix)?.picture.clone())
+                        .map(move |picture| (at, picture))
+                        .collect::<Vec<_>>(),
+                )
+            })
+            .flatten()
+            .collect()
+    };
+    for (at, picture) in shown {
+        let from = Path::new(&picture);
+        let Some(name) = from.file_name() else {
+            continue;
+        };
+        let to = dir.join(name);
+        if std::fs::create_dir_all(dir)
+            .and_then(|()| std::fs::copy(from, &to))
+            .is_ok()
+        {
+            answers[at].paths.push(to.to_string_lossy().into_owned());
+        }
+    }
 }
 
 /// The words the person wrote as their answer.

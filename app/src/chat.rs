@@ -15,10 +15,10 @@ use gpui_kit::base::{Button as BaseButton, Scrollbar};
 use gpui_kit::component::WindowExt;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    actions, div, px, relative, AnyElement, App, AppContext, Context, Div, Entity, Focusable,
-    FontWeight, HighlightStyle, Hsla, InteractiveElement, IntoElement, KeyBinding, ParentElement,
-    Radians, SharedString, StatefulInteractiveElement, StyleRefinement, Styled, StyledText,
-    Subscription, Transformation, WeakEntity, Window,
+    actions, div, px, relative, AnyElement, AnyView, App, AppContext, Context, Div, Entity,
+    Focusable, FontWeight, HighlightStyle, Hsla, InteractiveElement, IntoElement, KeyBinding,
+    ParentElement, Radians, Render, SharedString, StatefulInteractiveElement, StyleRefinement,
+    Styled, StyledText, Subscription, Transformation, WeakEntity, Window,
 };
 use gpui_transcript::{
     AwayChanged, Change, CodeColours, EmptyChanged, FoundChanged, Markdown, Pen, Row, RowsChanged,
@@ -493,6 +493,23 @@ impl Reading {
     }
 }
 
+/// What the transcript draws after its last row.
+struct Footer {
+    pictures: AnyView,
+    activity: AnyView,
+}
+
+impl Render for Footer {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .w_full()
+            .flex()
+            .flex_col()
+            .child(self.pictures.clone())
+            .child(self.activity.clone())
+    }
+}
+
 /// The chats the window holds and what waits on them.
 #[derive(Default)]
 pub struct Chats {
@@ -531,6 +548,8 @@ pub struct Chat {
     plan_open: bool,
     /// The line under the last row saying what the agent is doing.
     activity_line: Entity<status::Activity>,
+    /// The tiles of an open question whose choices show pictures, over the activity line.
+    pictures: Entity<PictureChoices>,
     /// The core of the host the agent runs on, which every ask of the chat goes to.
     pub target: Target,
     /// The head as last changed.
@@ -592,6 +611,7 @@ impl Chat {
         let reader = cx.new(|_| Reading::default());
         let running = reader.read(cx).running.clone();
         let stage = bench.clone();
+        let pictures = cx.new(|_| PictureChoices::new(bench.clone(), agent.clone()));
         let chat = agent.clone();
         let looks = Rc::new(RefCell::new(Rc::new(Looks::new(
             Tokens::get(cx),
@@ -695,8 +715,12 @@ impl Chat {
             }
         });
         let activity_line = cx.new(|_| status::Activity::new(provider));
+        let footer = cx.new(|_| Footer {
+            pictures: pictures.clone().into(),
+            activity: activity_line.clone().into(),
+        });
         transcript.update(cx, |transcript, cx| {
-            transcript.set_footer(activity_line.clone().into(), cx)
+            transcript.set_footer(footer.into(), cx)
         });
         Chat {
             transcript,
@@ -707,6 +731,7 @@ impl Chat {
             finding: None,
             plan_open: false,
             activity_line,
+            pictures,
             target,
             _rows: [emptied, rows_changed],
             state: None,
@@ -1476,6 +1501,19 @@ pub fn pane(
         .questions()
         .filter(|question| question.asks(&agent.id))
         .collect();
+    let tiles = chat
+        .current(&open)
+        .filter(|question| pictured(question))
+        .map(|question| OnShow {
+            question: question.asked.clone(),
+            chosen: chat.chosen(&question.id),
+            cursor: (chat.cursor.as_ref())
+                .filter(|(id, _)| *id == question.id)
+                .map(|(_, at)| *at),
+            sending: chat.sending_answers(),
+        });
+    chat.pictures
+        .update(cx, |pictures, cx| pictures.show(tiles, cx));
     let permissions = chat
         .state
         .as_ref()
