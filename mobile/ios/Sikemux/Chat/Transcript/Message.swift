@@ -139,22 +139,13 @@ private struct UserMessage: View {
                 MessageEditor(rowId: message.id, text: text)
             } else if !text.isEmpty || (attachments.isEmpty && context.isEmpty) {
                 Text(words(text: text, spans: spans, typed: typed))
-                    .font(Theme.ui(14))
-                    .lineSpacing(22 - 14 * 1.22)
-                    .foregroundStyle(palette.ink)
+                    .sentWords(palette)
                     .textSelection(.enabled)
-                    .padding(.vertical, 9)
-                    .padding(.horizontal, 13)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12).fill(
-                            look.lit ? palette.ink.mixed(with: palette.raised, 0.12) : palette.raised)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12).strokeBorder(
-                            failed ? palette.danger : palette.border, lineWidth: 1)
+                    .sentBubble(
+                        fill: look.lit ? palette.ink.mixed(with: palette.raised, 0.12) : palette.raised,
+                        border: failed ? palette.danger : palette.border
                     )
                     .opacity(look.unsent?.state == .sending ? 0.7 : 1)
-                    .containerRelativeFrame(.horizontal, alignment: .trailing) { width, _ in width * 0.84 }
                     .fixedSize(horizontal: false, vertical: true)
                     .onTapGesture { tap() }
                     .accessibilityHint("Tap for copy and the time it was sent")
@@ -547,5 +538,20 @@ struct TeamFoldLine: View {
         if ms < 60_000 { return ChatWords.duration(ms: Double(ms)) }
         let minutes = Int((Double(ms) / 60_000).rounded())
         return minutes < 60 ? "\(minutes)m" : "\(minutes / 60)h \(minutes % 60)m"
+    }
+}
+
+extension View {
+    /// The words of a message the person sent, as its bubble sets them.
+    func sentWords(_ palette: Palette) -> some View {
+        font(Theme.ui(14)).lineSpacing(22 - 14 * 1.22).foregroundStyle(palette.ink)
+    }
+
+    /// The bubble a message the person sent sits in, at the right of the transcript.
+    func sentBubble(fill: Color, border: Color) -> some View {
+        padding(.vertical, 9).padding(.horizontal, 13)
+            .background(RoundedRectangle(cornerRadius: 12).fill(fill))
+            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(border, lineWidth: 1))
+            .containerRelativeFrame(.horizontal, alignment: .trailing) { width, _ in width * 0.84 }
     }
 }

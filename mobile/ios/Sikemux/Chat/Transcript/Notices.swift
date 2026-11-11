@@ -381,11 +381,8 @@ struct FiredTrigger: View {
             }
             .padding(.bottom, 6)
             Text(fired.prompt)
-                .font(Theme.ui(14)).lineSpacing(22 - 14 * 1.22).foregroundStyle(palette.ink).textSelection(.enabled)
-                .padding(.vertical, 9).padding(.horizontal, 13)
-                .background(RoundedRectangle(cornerRadius: 12).fill(palette.raised))
-                .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(palette.border, lineWidth: 1))
-                .containerRelativeFrame(.horizontal, alignment: .trailing) { width, _ in width * 0.84 }
+                .sentWords(palette).textSelection(.enabled)
+                .sentBubble(fill: palette.raised, border: palette.border)
             if let request = fired.request {
                 Button {
                     context.folds.set("\(id)/request", !open)
@@ -512,11 +509,8 @@ struct QueuedLines: View {
                     if !message.paths.isEmpty { SentAttachments(paths: message.paths) }
                     if !message.text.isEmpty {
                         Text(message.text)
-                            .font(Theme.ui(14)).lineSpacing(22 - 14 * 1.22).foregroundStyle(palette.ink)
-                            .padding(.vertical, 9).padding(.horizontal, 13)
-                            .background(RoundedRectangle(cornerRadius: 12).fill(palette.raised))
-                            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(palette.border, lineWidth: 1))
-                            .containerRelativeFrame(.horizontal, alignment: .trailing) { width, _ in width * 0.84 }
+                            .sentWords(palette)
+                            .sentBubble(fill: palette.raised, border: palette.border)
                     }
                 }
                 .opacity(0.55)
