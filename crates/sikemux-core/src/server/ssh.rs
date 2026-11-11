@@ -66,7 +66,7 @@ pub(crate) fn hosts(core: &Core) -> Vec<SshHost> {
     };
     let mut hosts = Vec::new();
     if let Some(path) = config_path() {
-        read_config(&path, None, 0, &reach, &mut hosts);
+        read_config(&path, None, 0, &reach, &mut Vec::new(), &mut hosts);
     }
     hosts
 }
@@ -76,8 +76,14 @@ fn read_config(
     file: Option<String>,
     depth: u8,
     reach: &dyn Fn(&str) -> Reach,
+    read: &mut Vec<PathBuf>,
     hosts: &mut Vec<SshHost>,
 ) {
+    let whole = fs::canonicalize(path).unwrap_or_else(|_| path.to_owned());
+    if read.contains(&whole) {
+        return;
+    }
+    read.push(whole);
     let content = fs::read_to_string(path).unwrap_or_default();
     let mut aliases: Vec<String> = Vec::new();
     let (mut hostname, mut user, mut port, mut at) = (None, None, None, 0);
@@ -126,7 +132,7 @@ fn read_config(
             "include" if depth < INCLUDE_DEPTH => {
                 for included in value.split_whitespace().flat_map(included_files) {
                     let shown = Some(included.to_string_lossy().into_owned());
-                    read_config(&included, shown, depth + 1, reach, hosts);
+                    read_config(&included, shown, depth + 1, reach, read, hosts);
                 }
             }
             _ => {}

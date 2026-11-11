@@ -54,3 +54,10 @@ pub(crate) fn write(remote_file: &Path, account: Option<String>, core_id: Option
         eprintln!("sikemux core: could not write {}: {error}", path.display());
     }
 }
+
+/// Taken away as the core stops, so nothing reads a core that is gone as running.
+pub(crate) fn remove(remote_file: &Path) {
+    if let Some(path) = beside(remote_file) {
+        let _ = std::fs::remove_file(path);
+    }
+}

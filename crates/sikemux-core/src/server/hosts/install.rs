@@ -46,7 +46,7 @@ pub(crate) struct Setup {
     work: SetUpWork,
     /// Which set-up of the host this is, so a late end never settles a newer one.
     run: u64,
-    ended: watch::Sender<Option<Result<(), String>>>,
+    ended: watch::Sender<Option<Done>>,
 }
 
 /// A set-up as the host's row shows it: running, or why it stopped.
@@ -78,10 +78,15 @@ pub struct AliasParams {
     pub alias: String,
 }
 
-/// How a set-up ended: why it stopped short, if it did.
+/// How a set-up ended: the name of the host it added to the account, or why it stopped short.
+type Done = Result<Option<String>, String>;
+
+/// How a set-up ended: why it stopped short, if it did, and the host it added to the account.
 #[derive(Deserialize, Serialize)]
 pub struct SetupEnded {
     pub problem: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub added: Option<String>,
 }
 
 /// An alias from ~/.ssh/config, never something ssh would read as an option.
@@ -177,10 +182,18 @@ pub(crate) async fn host_setup(core: &Arc<Core>, params: AliasParams) -> CoreRes
         .await
         .map_err(|_| "the set-up was dropped")?
         .clone();
-    Ok(SetupEnded {
-        problem: match ended {
-            Some(Err(problem)) => Some(problem),
-            _ => None,
+    Ok(match ended {
+        Some(Err(problem)) => SetupEnded {
+            problem: Some(problem),
+            added: None,
+        },
+        Some(Ok(added)) => SetupEnded {
+            problem: None,
+            added,
+        },
+        None => SetupEnded {
+            problem: None,
+            added: None,
         },
     })
 }
@@ -210,7 +223,7 @@ pub(crate) fn rows(core: &Core) -> Vec<(String, SetupRow)> {
             let problem = match &*setup.ended.borrow() {
                 None => None,
                 Some(Err(problem)) => Some(problem.clone()),
-                Some(Ok(())) => return None,
+                Some(Ok(_)) => return None,
             };
             Some((
                 alias.clone(),
@@ -224,7 +237,7 @@ pub(crate) fn rows(core: &Core) -> Vec<(String, SetupRow)> {
 }
 
 /// Ends set-up `run` of `alias`, unless a newer one has begun.
-fn settle(core: &Core, alias: &str, run: u64, ended: Result<(), String>) {
+fn settle(core: &Core, alias: &str, run: u64, ended: Done) {
     if let Some(setup) = core
         .hosts
         .setups
@@ -242,7 +255,7 @@ async fn set_up(
     alias: &str,
     work: SetUpWork,
     terminal: Option<SessionId>,
-) -> Result<(), String> {
+) -> Done {
     match work {
         SetUpWork::Install => {
             let session = terminal
@@ -266,7 +279,7 @@ async fn set_up(
                 |_| {},
             )
             .await;
-            ended(&ran)
+            ended(&ran).map(|()| None)
         }
         SetUpWork::Start => {
             let ran = probe::run(
@@ -276,7 +289,7 @@ async fn set_up(
                 |_| {},
             )
             .await;
-            ended(&ran)
+            ended(&ran).map(|()| None)
         }
     }
 }
@@ -301,10 +314,14 @@ struct LoginLine {
     account: Option<String>,
 }
 
-/// Runs `login --json` on `alias`, approving the code it prints for this host's account. The
-/// run ends at once when the approval fails, or when the first line is not one a `login --json`
-/// prints, as from a release before it, which polls for a code nobody here approves.
-async fn sign_in(core: &Arc<Core>, alias: &str) -> Result<(), String> {
+/// What a `login` from before `login --json` prints in front of its code.
+const OLD_LOGIN_PROMPT: &str = "enter the code";
+
+/// Runs `login --json` on `alias`, approving the one code it prints for this host's account,
+/// and answers with the name the host was added under. The run ends at once when the approval
+/// fails, when it prints a second code, or when it prompts as a release before `login --json`
+/// does, polling for a code nobody here approves.
+async fn sign_in(core: &Arc<Core>, alias: &str) -> Done {
     let (lines, mut said) = mpsc::unbounded_channel::<String>();
     let (stop, stopped) = oneshot::channel::<()>();
     let script = probe::core_command(&format!("echo {LOGIN_MARK}; $core login --json"));
@@ -321,30 +338,43 @@ async fn sign_in(core: &Arc<Core>, alias: &str) -> Result<(), String> {
     );
     let reading = async {
         let mut stop = Some(stop);
+        let mut added: Option<String> = None;
+        let mut approved = false;
         let mut outcome: Option<Result<(), String>> = None;
         let mut marked = false;
         while let Some(line) = said.recv().await {
-            if !marked || line.trim().is_empty() {
-                marked = marked || line.trim() == LOGIN_MARK;
+            let line = line.trim();
+            if !marked {
+                marked = line == LOGIN_MARK;
                 continue;
             }
             let read = line
-                .trim()
-                .strip_prefix('{')
-                .and_then(|_| serde_json::from_str::<LoginLine>(line.trim()).ok());
+                .starts_with('{')
+                .then(|| serde_json::from_str::<LoginLine>(line).ok())
+                .flatten();
             let failed = match read {
-                None => Some(format!(
+                None if line.contains(OLD_LOGIN_PROMPT) => Some(format!(
                     "the Sikemux on {alias} is too old to be signed in from here; update it, then sign in"
+                )),
+                None => None,
+                Some(LoginLine {
+                    code: Some(_), ..
+                }) if approved => Some(format!(
+                    "{alias} printed a second sign-in code, which was not approved"
                 )),
                 Some(LoginLine {
                     code: Some(code), ..
-                }) => match approve_host_sign_in(core, SignInCodeParams::new(code)).await {
-                    Ok(host) => {
-                        super::listed::note_installed(core, host.key, alias.to_owned());
-                        None
+                }) => {
+                    approved = true;
+                    match approve_host_sign_in(core, SignInCodeParams::new(code)).await {
+                        Ok(host) => {
+                            added = Some(host.name);
+                            super::listed::note_installed(core, host.key, alias.to_owned());
+                            None
+                        }
+                        Err(error) => Some(error.to_string()),
                     }
-                    Err(error) => Some(error.to_string()),
-                },
+                }
                 Some(LoginLine {
                     signed_in: Some(true),
                     account,
@@ -368,12 +398,12 @@ async fn sign_in(core: &Arc<Core>, alias: &str) -> Result<(), String> {
                 break;
             }
         }
-        outcome
+        (outcome, added)
     };
-    let (ran, outcome) = tokio::join!(running, reading);
+    let (ran, (outcome, added)) = tokio::join!(running, reading);
     match outcome {
         Some(Err(failed)) => Err(failed),
-        Some(Ok(())) => ended(&ran),
+        Some(Ok(())) => ended(&ran).map(|()| added),
         None => ended(&ran).and(Err("it ended without saying it signed in".into())),
     }
 }

@@ -70,7 +70,9 @@ pub(crate) fn rows(core: &Core) -> Vec<HostRow> {
             } else {
                 Reach::Away
             };
-            let ssh = installed.get(&link.id).cloned();
+            let ssh = installed.get(&link.id).cloned().filter(|alias| {
+                super::probe::reached(core, alias).is_none_or(|reached| reached == link.id)
+            });
             let mut row = HostRow {
                 setup: ssh.as_ref().and_then(|alias| setups.remove(alias)),
                 ssh: ssh.clone(),
@@ -108,14 +110,22 @@ pub(crate) fn rows(core: &Core) -> Vec<HostRow> {
             *best = reach;
         }
     }
-    let mut reached: Vec<String> = Vec::new();
+    // Each alias that reaches a host already listed folds into its row, with its set-up.
+    let mut reached: BTreeMap<String, usize> = rows
+        .iter()
+        .enumerate()
+        .filter_map(|(at, row)| Some((row.id.clone()?, at)))
+        .collect();
     for (alias, reach) in open {
         let key = super::probe::reached(core, &alias);
-        if let Some(key) = &key {
-            if reached.contains(key) {
-                continue;
+        if let Some(&at) = key.as_ref().and_then(|key| reached.get(key)) {
+            if rows[at].setup.is_none() {
+                rows[at].setup = setups.remove(&alias);
             }
-            reached.push(key.clone());
+            continue;
+        }
+        if let Some(key) = key {
+            reached.insert(key, rows.len());
         }
         let mut row = HostRow {
             id: None,
@@ -201,8 +211,22 @@ pub(crate) fn installed_from(core: &Core, installed: InstalledFrom) -> CoreResul
     Ok(())
 }
 
+/// Notes that `alias` reaches the host `key`, unless another alias of it still does.
+pub(crate) fn note_reached(core: &Core, key: String, alias: String) {
+    let current = core.hosts.installed.locked().get(&key).cloned();
+    let keeps = current.is_some_and(|current| {
+        current == alias
+            || super::probe::reached(core, &current).is_none_or(|reached| reached == key)
+    });
+    if !keeps {
+        note_installed(core, key, alias);
+    }
+}
+
+/// Notes that `alias` reaches the host `key`, which no other host's row is reached at then.
 pub(crate) fn note_installed(core: &Core, key: String, alias: String) {
     let mut map = core.hosts.installed.locked();
+    map.retain(|_, held| *held != alias);
     map.insert(key, alias);
     core.hosts.installed_kept.save(&*map);
     drop(map);

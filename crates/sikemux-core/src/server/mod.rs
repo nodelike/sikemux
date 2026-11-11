@@ -1226,6 +1226,7 @@ pub(crate) async fn run_core(
     }
     drop(listener);
     let _ = std::fs::remove_file(&config.socket);
+    runtime_file::remove(&remote::file_path(&config.socket));
     drop(lock);
     crate::waiting::wake(&config.socket);
     Ok(())

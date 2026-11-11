@@ -42,7 +42,7 @@ pub fn run(command: &str, args: &[String]) -> i32 {
             json: args.iter().any(|arg| arg == "--json"),
         }),
         "logout" => with_core(Work::Logout),
-        "start" => start().map(|_| ()),
+        "start" => start(true).map(|_| ()),
         "stop" => stop(),
         "restart" => restart(),
         "enable" => enable(),
@@ -100,28 +100,39 @@ fn stopped(socket: &Path) -> bool {
 }
 
 /// Starts the core, through the service that starts it at boot when there is
-/// one, so it is never a second core outside it. Answers with its socket.
-fn start() -> Result<PathBuf, String> {
+/// one, so it is never a second core outside it, saying so when `tell` is set. Answers with
+/// its socket.
+fn start(tell: bool) -> Result<PathBuf, String> {
     let launch = launch()?;
     if let Some(pid) = running_pid(&launch.socket) {
-        style::done("The core is already running", &format!("pid {pid}"));
+        if tell {
+            style::done("The core is already running", &format!("pid {pid}"));
+        }
         return Ok(launch.socket);
     }
     if let Some(logs) = launch.log.parent() {
         std::fs::create_dir_all(logs).map_err(|error| error.to_string())?;
     }
     let hello = login_item::start_core(IDENTIFIER, &launch).map_err(|error| error.to_string())?;
-    style::done("Started the core", &format!("pid {}", hello.pid));
+    if tell {
+        style::done("Started the core", &format!("pid {}", hello.pid));
+    }
     Ok(launch.socket)
 }
 
 /// The core's socket, starting the core first when none runs.
 pub(crate) fn running() -> Result<PathBuf, String> {
+    running_telling(true)
+}
+
+/// [`running`], saying it started the core only when `tell` is set, as a command whose output
+/// another program reads keeps quiet.
+fn running_telling(tell: bool) -> Result<PathBuf, String> {
     let socket = launch()?.socket;
     if running_pid(&socket).is_some() {
         return Ok(socket);
     }
-    start()
+    start(tell)
 }
 
 /// Stops the core and everything it runs. A core from another release cannot
@@ -189,7 +200,7 @@ fn terminate(pid: u32, socket: &Path) -> Result<(), String> {
 fn restart() -> Result<(), String> {
     let socket = launch()?.socket;
     if let Err(ProbeError::NotRunning(_)) = probe(&socket, PROBE_TIMEOUT) {
-        return start().map(drop);
+        return start(true).map(drop);
     }
     match client::restart(&socket, RESTART_TIMEOUT).map_err(|error| error.to_string())? {
         client::Restart::Done { pid } => style::done(
@@ -256,7 +267,7 @@ fn with_core(work: Work) -> Result<(), String> {
         }
         socket
     } else {
-        running()?
+        running_telling(!matches!(work, Work::Login { json: true }))?
     };
     runtime()?.block_on(async {
         let (core, _events) = CoreClient::connect(&socket)
@@ -348,6 +359,8 @@ struct Status {
     starts_at_boot: Option<PathBuf>,
     /// Whether the app's window is open, when the app runs at all.
     window: Option<bool>,
+    /// That `login --json` signs this host in, which releases before it lack.
+    login_json: bool,
     account: Option<String>,
     /// The host's public key, which the account and its devices know it by.
     core_id: Option<String>,
@@ -390,6 +403,7 @@ fn status(json: bool) -> i32 {
         window: hello
             .as_ref()
             .and_then(|_| crate::cli_client::window_open()),
+        login_json: true,
         account: remote.as_ref().and_then(|remote| remote.owner.clone()),
         core_id: remote
             .as_ref()

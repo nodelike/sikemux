@@ -43,12 +43,12 @@ const NONE_MARK: &str = "sikemux-none";
 fn probe_script() -> String {
     format!(
         r#"r="$HOME/.config/sikemux/core.sock.runtime.json"
-if [ -r "$r" ]; then
+if [ -r "$r" ] && [ -S "$HOME/.config/sikemux/core.sock" ]; then
   pid=$(sed -n 's/.*"pid"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' "$r" | head -n 1)
   if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
-    case "$(ps -o stat= -p "$pid" 2>/dev/null)" in
+    case "$(ps -o stat= -o comm= -p "$pid" 2>/dev/null)" in
       Z*) ;;
-      *) printf '\n{RUNTIME_MARK}\n'; cat "$r"; printf '\n'; exit 0 ;;
+      *sikemux*) printf '\n{RUNTIME_MARK}\n'; cat "$r"; printf '\n'; exit 0 ;;
     esac
   fi
 fi
@@ -174,13 +174,17 @@ pub(crate) fn ask(core: &Arc<Core>, alias: &str, why: Why) {
     let (core, alias) = (core.clone(), alias.to_owned());
     tokio::spawn(async move {
         let probe = probe(&core, &alias).await;
-        if let (Answer::Found(Found::Same), Some(reached)) = (&probe.answer, &probe.reached) {
-            super::listed::note_installed(&core, reached.key.clone(), alias.clone());
-        }
+        let same = match (&probe.answer, &probe.reached) {
+            (Answer::Found(Found::Same), Some(reached)) => Some(reached.key.clone()),
+            _ => None,
+        };
         let mut probes = core.hosts.probes.locked();
         probes.asking.remove(&alias);
-        probes.answers.insert(alias, probe);
+        probes.answers.insert(alias.clone(), probe);
         drop(probes);
+        if let Some(key) = same {
+            super::listed::note_reached(&core, key, alias);
+        }
         core.changed(What::Read(Topic::Hosts));
     });
 }
@@ -360,6 +364,9 @@ struct Said {
     account: Option<String>,
     /// Only in the runtime file.
     protocol: Option<u32>,
+    /// Only from releases whose `login --json` signs a host in from here.
+    #[serde(default)]
+    login_json: bool,
 }
 
 /// What a probe's run says, for a host whose account is `owner`.
@@ -403,9 +410,9 @@ fn read(ran: &Ran, owner: Option<&str>) -> (Answer, Option<Reached>) {
         return (Answer::Found(Found::Outdated), None);
     };
     let found = match said.account {
-        // A running core that keeps no runtime file predates `login --json`, so signing it in
-        // from here takes an update first.
-        None if !from_runtime => Found::Outdated,
+        // A release whose status does not say it has `login --json` cannot be signed in from
+        // here until it is updated.
+        None if !from_runtime && !said.login_json => Found::Outdated,
         None => Found::SignedOut,
         Some(account) if Some(account.as_str()) == owner => Found::Same,
         Some(_) => Found::Other,
@@ -490,6 +497,12 @@ mod tests {
             "",
         );
         assert_eq!(read(&older, Some("me")).0, Answer::Found(Found::Outdated));
+        let newer = ran(
+            Some(0),
+            "\nsikemux-status\n{\"running\": true, \"coreId\": \"abc\", \"account\": null, \"loginJson\": true}\n",
+            "",
+        );
+        assert_eq!(read(&newer, Some("me")).0, Answer::Found(Found::SignedOut));
         let runtime = ran(
             Some(0),
             "\nsikemux-runtime\n{\"pid\": 7,\"coreId\":\"abc\",\"protocol\":99,\"account\":null}\n",
