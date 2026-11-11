@@ -104,6 +104,12 @@ pub fn top_bar(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoEleme
                 .gap(SPACE_2)
                 .pr(SPACE_4)
                 .children(
+                    crate::overload::chip(bench, cx)
+                        .map(|chip| [chip, separator(cx)])
+                        .into_iter()
+                        .flatten(),
+                )
+                .children(
                     git_chip(bench, cx)
                         .map(|chip| {
                             crate::settings::leaves(div().child(chip), cx).into_any_element()

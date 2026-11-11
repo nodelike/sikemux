@@ -48,6 +48,7 @@ mod new_tab;
 mod notifications;
 mod opening;
 mod overlays;
+mod overload;
 mod page_view;
 mod pairing;
 mod palette;

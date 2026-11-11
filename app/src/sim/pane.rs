@@ -23,7 +23,9 @@ use serde_json::{json, Map, Value};
 #[cfg(target_os = "macos")]
 use sikemux_process::sync::Locked;
 use sikemux_simulator::android::{install, is_android, is_phone};
-use sikemux_simulator::{tools, Host, SimulatorManager, ANDROID_SETUP_EVENT, WATCH_ENDED_EVENT};
+use sikemux_simulator::{
+    tools, Host, SimulatorManager, ANDROID_SETUP_EVENT, LOAD_EVENT, WATCH_ENDED_EVENT,
+};
 use tokio::sync::mpsc;
 
 use crate::icons::Icon;
@@ -127,6 +129,7 @@ enum Heard {
     AndroidReady(Option<String>),
     Frame,
     Ended(u64),
+    Load,
 }
 
 struct WindowHost {
@@ -165,6 +168,7 @@ impl Host for WindowHost {
                 payload["fraction"].as_f64().unwrap_or(0.),
             )),
             WATCH_ENDED_EVENT => payload["id"].as_u64().map(Heard::Ended),
+            LOAD_EVENT => Some(Heard::Load),
             _ => None,
         };
         if let Some(heard) = heard {
@@ -298,7 +302,9 @@ impl Simulators {
                 self.attached.remove(&agent);
                 self.acting.remove(&agent);
                 self.stop_screen(&agent);
+                cx.emit(SimNews::Load);
             }
+            Heard::Load => cx.emit(SimNews::Load),
             Heard::Acting(agent, acting) => {
                 if acting {
                     self.acting.insert(agent);
@@ -1039,6 +1045,8 @@ pub enum SimNews {
     /// The Android Emulator finished setting up.
     AndroidReady,
     Failed(SharedString),
+    /// Which devices agents hold, boot or wait for changed.
+    Load,
 }
 
 impl EventEmitter<SimNews> for Simulators {}
@@ -1060,6 +1068,7 @@ impl Workbench {
                 self.notify(crate::toast::success("The Android Emulator is set up"), cx)
             }
             SimNews::Failed(error) => self.notify(crate::toast::error(error.clone()), cx),
+            SimNews::Load => cx.notify(),
         }
     }
 

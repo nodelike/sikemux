@@ -35,6 +35,8 @@ pub type SimResult<T> = Result<T, String>;
 
 /// How far setting up the Android Emulator has come, or that it finished, and how.
 pub const ANDROID_SETUP_EVENT: &str = "android-setup";
+/// Which devices agents hold, boot or wait for changed.
+pub const LOAD_EVENT: &str = "simulator-load";
 
 /// What the app hosting the simulator gives it.
 pub trait Host: Send + Sync + 'static {
@@ -85,6 +87,8 @@ struct Attachment {
     log_generations: HashMap<Option<String>, i64>,
     /// When the agent last called a simulator tool.
     used: Instant,
+    /// When the agent took the device, in Unix milliseconds.
+    since: u64,
 }
 
 impl Attachment {
@@ -97,6 +101,7 @@ impl Attachment {
             launches: HashMap::new(),
             log_generations: HashMap::new(),
             used: Instant::now(),
+            since: sikemux_process::clock::epoch_ms(),
         }
     }
 }
@@ -116,6 +121,23 @@ pub struct AttachmentInfo {
     pub udid: String,
     pub name: String,
     pub project: String,
+}
+
+/// A device an agent holds, as the person sees what loads the Mac.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Held {
+    pub agent_id: String,
+    pub name: String,
+    pub booting: bool,
+    /// When the agent took it, in Unix milliseconds.
+    pub since: u64,
+}
+
+/// An agent waiting for room to start a simulator, and how many wait ahead of it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Waiting {
+    pub agent_id: String,
+    pub ahead: usize,
 }
 
 /// Which agent held which device, carried across an update's restart.
@@ -710,6 +732,7 @@ impl SimulatorManager {
     fn take_place(&self, agent_id: &str) -> (usize, Instant) {
         let mut shared = self.shared.locked();
         let now = Instant::now();
+        let before = shared.line.len();
         shared
             .line
             .retain(|waiter| waiter.agent_id == agent_id || waiter.seen.elapsed() < PLACE_KEPT);
@@ -728,16 +751,70 @@ impl SimulatorManager {
                 shared.line.len() - 1
             }
         };
+        let moved = shared.line.len() != before;
         let waiter = &mut shared.line[place];
         waiter.seen = now;
-        (place, waiter.joined)
+        let taken = (place, waiter.joined);
+        drop(shared);
+        if moved {
+            self.emit(LOAD_EVENT, json!({}));
+        }
+        taken
     }
 
     pub(crate) fn leave_line(&self, agent_id: &str) {
-        self.shared
-            .locked()
-            .line
-            .retain(|waiter| waiter.agent_id != agent_id);
+        let left = {
+            let mut shared = self.shared.locked();
+            let before = shared.line.len();
+            shared.line.retain(|waiter| waiter.agent_id != agent_id);
+            shared.line.len() != before
+        };
+        if left {
+            self.emit(LOAD_EVENT, json!({}));
+        }
+    }
+
+    /// The devices agents hold, oldest first, and the agents waiting for one, first in line first.
+    pub fn heavy(&self) -> (Vec<Held>, Vec<Waiting>) {
+        let shared = self.shared.locked();
+        let mut held: Vec<Held> = (shared.attachments.iter())
+            .map(|(agent_id, attachment)| Held {
+                agent_id: agent_id.clone(),
+                name: attachment.device.name.clone(),
+                booting: shared.starting.contains(&attachment.device.udid),
+                since: attachment.since,
+            })
+            .collect();
+        held.sort_by_key(|held| held.since);
+        let waiting = (shared.line.iter().enumerate())
+            .filter(|(_, waiter)| waiter.seen.elapsed() < PLACE_KEPT)
+            .map(|(ahead, waiter)| Waiting {
+                agent_id: waiter.agent_id.clone(),
+                ahead,
+            })
+            .collect();
+        (held, waiting)
+    }
+
+    /// The person stopped what the agent does with simulators: its call stops, it leaves the
+    /// line, and the device it holds shuts down now unless another agent takes it up.
+    pub fn stop(&self, agent_id: &str) {
+        self.cancel(agent_id);
+        self.leave_line(agent_id);
+        let Some(device) = self.release(agent_id) else {
+            return;
+        };
+        let Some(manager) = self.me.upgrade().filter(|_| self.helper.is_none()) else {
+            return;
+        };
+        sikemux_base::runtime::spawn(async move {
+            if manager.claims.holder(&device.udid).is_none() {
+                let _ = manager
+                    .request("shutdown", json!({ "udid": device.udid }))
+                    .await;
+                manager.shared.locked().booted.remove(&device.udid);
+            }
+        });
     }
 
     /// Lets go of the devices of agents other than `waiting` that have not used them for a while.
@@ -760,6 +837,7 @@ impl SimulatorManager {
     /// Notes that Sikemux is booting the device until the guard is dropped.
     pub(crate) fn starting(&self, udid: &str) -> Starting<'_> {
         self.shared.locked().starting.insert(udid.to_owned());
+        self.emit(LOAD_EVENT, json!({}));
         Starting {
             manager: self,
             udid: udid.to_owned(),
@@ -882,6 +960,7 @@ pub(crate) struct Starting<'a> {
 impl Drop for Starting<'_> {
     fn drop(&mut self) {
         self.manager.shared.locked().starting.remove(&self.udid);
+        self.manager.emit(LOAD_EVENT, json!({}));
     }
 }
 
