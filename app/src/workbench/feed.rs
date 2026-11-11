@@ -78,7 +78,7 @@ impl Workbench {
                 self.watch_hosts_page();
                 self.parts.redraw_stage(cx);
             }
-            Update::HostsUnavailable(reason) => self.feeds.unavailable = Some(reason),
+            Update::HostsUnavailable(reason) => self.feeds.unavailable = reason,
             Update::HostHome(host, home) => {
                 self.feeds.host_mut(&host).home = Some(home);
             }
