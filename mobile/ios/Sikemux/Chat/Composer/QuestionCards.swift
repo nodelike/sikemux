@@ -127,6 +127,7 @@ private struct SecretAnswer: View {
     let question: AgentQuestion
     let onKeep: (String) -> Bool
     @State private var text = ""
+    @FocusState private var focused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -137,7 +138,9 @@ private struct SecretAnswer: View {
                 )
                 .font(Theme.ui(16))
                 .foregroundStyle(.clear)
-                .tint(palette.accent)
+                // A caret after hidden characters would float mid-field; the size under the field shows the typing.
+                .tint(text.isEmpty ? palette.accent : .clear)
+                .focused($focused)
                 .autocorrectionDisabled()
                 .textInputAutocapitalization(.never)
                 .textContentType(.oneTimeCode)
@@ -148,7 +151,7 @@ private struct SecretAnswer: View {
                 .background(RoundedRectangle(cornerRadius: Radius.row, style: .continuous).fill(palette.sunken))
                 .overlay(
                     RoundedRectangle(cornerRadius: Radius.row, style: .continuous).strokeBorder(
-                        palette.border, lineWidth: 1)
+                        focused ? palette.borderSelected : palette.border, lineWidth: 1)
                 )
                 .accessibilityLabel("Private answer to @\(question.name)")
                 Chip(title: "Send", primary: true) {
