@@ -179,22 +179,11 @@ struct Inline {
 }
 
 func visibleText(_ nodes: [MdNode]) -> String {
-    nodes.map { node in
-        switch node {
-        case .text(let text): text
-        case .element(let element): visibleText(element)
-        }
-    }.joined()
+    nodes.map { FindText.words($0, separated: false) }.joined()
 }
 
 func visibleText(_ element: MdElement) -> String {
-    switch element {
-    case .pre(let pre): pre.v
-    case .code(let code): code.v
-    case .br: "\n"
-    case .table(let table): ((table.head ?? []) + table.rows.flatMap { $0 }).map(visibleText).joined()
-    default: element.children.map(visibleText) ?? ""
-    }
+    FindText.words(.element(element), separated: false)
 }
 
 /// An answer's blocks, each drawn again only when the core changed it, so a streaming message redraws just its tail.
