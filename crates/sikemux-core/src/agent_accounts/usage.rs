@@ -129,6 +129,12 @@ impl Usage {
         (self.windows.iter()).find(|window| window.window_minutes == Some(10_080))
     }
 
+    /// The plan's five-hour session window.
+    pub fn session(&self) -> Option<&UsageWindow> {
+        (self.windows.iter())
+            .find(|window| window.window_minutes == Some(300) && window.scope.is_none())
+    }
+
     /// When the account can be used again, in Unix milliseconds: once each
     /// window it has used up resets. `None` when none reads used up, or one
     /// that does never says when it resets.
