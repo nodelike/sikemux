@@ -18,6 +18,10 @@ const RECOVERY_SERVICE: &str = if cfg!(debug_assertions) {
 #[serde(rename_all = "camelCase")]
 pub(super) struct Local {
     pub account: String,
+    /// The vault this record is of, by its recovery key's public half. An account's vault
+    /// made again starts this host over, rather than taking its old entries for revoked ones.
+    #[serde(default)]
+    pub vault: String,
     /// This host's sign-ins went into the vault once, as it made or joined it.
     pub moved_in: bool,
     pub applied: BTreeMap<String, Applied>,
@@ -44,13 +48,14 @@ fn path(data_dir: &Path) -> PathBuf {
     data_dir.join("vault.json")
 }
 
-pub(super) fn load(data_dir: Option<&Path>, account: &str) -> Local {
+pub(super) fn load(data_dir: Option<&Path>, account: &str, vault: &str) -> Local {
     let read = data_dir
         .and_then(|dir| std::fs::read(path(dir)).ok())
         .and_then(|bytes| serde_json::from_slice::<Local>(&bytes).ok())
-        .filter(|local| local.account == account);
+        .filter(|local| local.account == account && local.vault == vault);
     read.unwrap_or_else(|| Local {
         account: account.to_owned(),
+        vault: vault.to_owned(),
         ..Local::default()
     })
 }
