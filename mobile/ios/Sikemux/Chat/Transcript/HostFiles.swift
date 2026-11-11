@@ -55,10 +55,10 @@ final class HostFiles {
             do {
                 try FileManager.default.createDirectory(
                     at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-                let params = String(decoding: try JSONEncoder().encode(["path": path]), as: UTF8.self)
+                let params = String(decoding: try JSONEncoder().encode(ChatFileParams(path: path)), as: UTF8.self)
                 // The Rust client decodes and writes the file, so its bytes never pass through Swift.
                 _ = try await connection.callToFile(
-                    method: "chatFile", paramsJson: params, field: "data", path: file.path)
+                    method: PhoneCall.ChatFile.method, paramsJson: params, field: "data", path: file.path)
                 return file
             } catch {
                 print("sikemux: could not fetch \(path) from the host: \(error)")
