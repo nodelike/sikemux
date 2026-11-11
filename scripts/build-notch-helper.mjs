@@ -63,6 +63,11 @@ const bundle = dev
   ? join(root, "target", "debug", `${appName}.app`)
   : join(root, "packaging", "binaries", "notch", `${appName}.app`);
 const { version, identifier } = appMetadata();
+// Only builds the release workflow publishes send crashes, and only those it gives the address.
+const sentryDsn = dev ? "" : (process.env.SIKEMUX_NOTCH_SENTRY_DSN ?? "");
+const sentryEnvironment = process.env.SIKEMUX_USAGE_REPORTING
+  ? "production"
+  : "dev";
 const minimumMacos = readFileSync(
   join(packageDir, "Package.swift"),
   "utf8",
@@ -84,7 +89,13 @@ writeFileSync(
   <key>CFBundleVersion</key><string>${version}</string>
   <key>LSMinimumSystemVersion</key><string>${minimumMacos}.0</string>
   <key>LSUIElement</key><true/>
-  <key>NSHighResolutionCapable</key><true/>
+  <key>NSHighResolutionCapable</key><true/>${
+    sentryDsn
+      ? `
+  <key>SikemuxSentryDSN</key><string>${sentryDsn}</string>
+  <key>SikemuxSentryEnvironment</key><string>${sentryEnvironment}</string>`
+      : ""
+  }
 </dict>
 </plist>
 `,
@@ -99,6 +110,11 @@ for (const font of readdirSync(fonts))
 const destination = join(bundle, "Contents", "MacOS", name);
 copyFileSync(built, destination);
 chmodSync(destination, 0o755);
+if (!dev) {
+  const symbols = join(root, "target", "notch", `${name}.dSYM`);
+  rmSync(symbols, { recursive: true, force: true });
+  run("dsymutil", [destination, "-o", symbols]);
+}
 run("strip", ["-x", destination]);
 
 dropToolchainPaths(destination);

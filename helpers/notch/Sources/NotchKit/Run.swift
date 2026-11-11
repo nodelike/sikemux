@@ -15,6 +15,7 @@ public func runNotch(_ arguments: [String]) -> Never {
         exit(2)
     }
     guard Handover.claim(stateDir: options.stateDir, dev: options.dev) else { exit(0) }
+    CrashReports.start()
     Debug.on = FileManager.default.fileExists(atPath: (options.stateDir as NSString).appendingPathComponent("notch.debug"))
     if options.dev, let pid = options.appPid { exitWith(pid) }
     exitOnTerminate()
