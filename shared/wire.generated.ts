@@ -835,7 +835,8 @@ export type InboxKind =
     | "failed"
     | "finished"
     | "working"
-    | "hostAlert";
+    | "hostAlert"
+    | "vault";
 
 /** What the person is needed for, for an item that waits on them. */
 export type InboxNeed = "decide" | "unblock" | "fix";

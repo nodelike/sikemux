@@ -218,6 +218,7 @@ fn call_kind(item: &InboxItem) -> Option<(&'static str, Tone)> {
         (InboxKind::Ship, _) => Some(("Leaves this Mac", Tone::Warn)),
         (InboxKind::Permission, _) => Some(("Access", Tone::Plain)),
         (InboxKind::PullRequest, _) => Some(("Review", Tone::Plain)),
+        (InboxKind::Vault, _) => Some(("Sign-ins", Tone::Warn)),
         (InboxKind::HostAlert, _) => {
             Some(match item.host_alert.as_ref().map(|alert| alert.level) {
                 Some(AlertLevel::Danger) => ("Host", Tone::Failed),
@@ -1179,6 +1180,7 @@ fn call_buttons(
     let (label, variant) = match item.need {
         _ if item.kind == InboxKind::SeededRules => ("Review", Variant::Primary),
         _ if item.kind == InboxKind::HostAlert => ("Host details", Variant::Primary),
+        _ if item.kind == InboxKind::Vault => ("Open Connectors", Variant::Primary),
         Some(InboxNeed::Fix) => ("See why", Variant::Primary),
         Some(InboxNeed::Unblock) => ("Unblock", Variant::Primary),
         _ if item.kind == InboxKind::Question => ("Answer", Variant::Primary),
