@@ -67,6 +67,8 @@ private struct NewChatContent: View {
     @State private var flipped: (project: String, on: Bool)?
     /// The account smart accounts will start the chat on, as the host answers for this launcher and project.
     @State private var smartPick: AccountMove?
+    @StateObject private var focus = ComposerFocus()
+    @State private var focused = false
 
     var body: some View {
         let live = Hub.shared.live(core)
@@ -111,7 +113,7 @@ private struct NewChatContent: View {
                 .contentShape(Rectangle())
                 .onTapGesture(perform: Keyboard.dismiss)
             } else {
-                VStack(spacing: 12) {
+                VStack(spacing: 10) {
                     if noAgents {
                         PromptGlyph(icon: Icons.agentLine, small: true)
                     } else if live.isOpen, workspace != nil, project == nil {
@@ -119,8 +121,10 @@ private struct NewChatContent: View {
                     } else if let launcher {
                         AgentFaceView(agentId: project?.id, provider: launcher.provider, size: 38, logoSize: 40)
                     }
-                    Text(project?.name ?? "New chat").font(Theme.ui(20, .semibold)).tracking(-0.55).foregroundStyle(
-                        palette.ink)
+                    Text("New chat").font(Theme.ui(17, .semibold)).tracking(-0.4).foregroundStyle(palette.ink)
+                    if let launcher, !noAgents, problem == nil, blocked == nil {
+                        Text("\(Catalog.label(launcher.provider, core: core)) on \(hostName)").metaStyle(palette)
+                    }
                     if noAgents { Text("No agents on the host.").metaStyle(palette).multilineTextAlignment(.center) }
                     if let problem {
                         Text(problem).font(Theme.ui(13.5)).foregroundStyle(palette.danger).multilineTextAlignment(
@@ -132,7 +136,9 @@ private struct NewChatContent: View {
                     }
                 }
                 .padding(.horizontal, 28)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(.bottom, 28)
+                // Nothing floats mid-screen: the start sits just above the composer it leads into.
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                 .contentShape(Rectangle())
                 .onTapGesture(perform: Keyboard.dismiss)
             }
@@ -195,44 +201,6 @@ private struct NewChatContent: View {
         launcher: LauncherInfo?, project: ProjectInfo?, worktree: Bool, sendable: Bool, starting: Bool
     ) -> some View {
         VStack(spacing: 0) {
-            if let project {
-                HStack {
-                    Button {
-                        sheet = .project
-                    } label: {
-                        HStack(spacing: 7) {
-                            IconView(icon: Icons.folder, size: 13).foregroundStyle(palette.live)
-                            Text(project.name).font(Theme.ui(13.5, .medium)).foregroundStyle(palette.ink)
-                            IconView(icon: Icons.chevron, size: 10).foregroundStyle(palette.inkFaint).rotationEffect(
-                                .degrees(90))
-                        }
-                        .padding(.vertical, 4)
-                    }
-                    .buttonStyle(PressFade())
-                    .disabled(started != nil)
-                    .accessibilityLabel("Project")
-                    Spacer()
-                    if project.git != nil {
-                        WorktreeSwitch(on: worktree || inWorktree, disabled: starting || inWorktree) {
-                            flipWorktree(project, worktree)
-                        }
-                    }
-                }
-                .padding(.vertical, 5)
-                .padding(.leading, 12)
-                .padding(.trailing, 6)
-                .background(
-                    UnevenRoundedRectangle(topLeadingRadius: 12, topTrailingRadius: 12, style: .continuous).fill(
-                        palette.composer)
-                )
-                .overlay(
-                    UnevenRoundedRectangle(topLeadingRadius: 12, topTrailingRadius: 12, style: .continuous)
-                        .stroke(palette.border, lineWidth: 1)
-                        .mask(Rectangle().padding(.bottom, 1))
-                )
-                .padding(.horizontal, 14)
-                .padding(.bottom, -1)
-            }
             if let toast = prompt.toast {
                 StashedToast(done: toast != .stashing) {
                     prompt.undo(
@@ -250,7 +218,9 @@ private struct NewChatContent: View {
                     ComposerAttachments(
                         attachments: attachments,
                         onRemove: { id in
-                            if !starting { attachments.removeAll { $0.id == id } }
+                            guard !starting, let at = attachments.firstIndex(where: { $0.id == id }) else { return }
+                            attachments.remove(at: at)
+                            draft = ImageTags.removing(at + 1, from: draft)
                         }, onRetry: { start(launcher: launcher, project: project, worktree: worktree) }
                     ) {
                         ForEach(chips, id: \.id) { chip in
@@ -258,7 +228,9 @@ private struct NewChatContent: View {
                         }
                     }
                 }
-                ComposerInput(text: $draft, placeholder: Self.idle, editable: !starting, focusOnShow: true)
+                ComposerInput(
+                    text: $draft, tokens: ImageTags.tokens(in: draft, count: attachments.count), placeholder: Self.idle,
+                    editable: !starting, focus: focus, focusOnShow: true, onFocus: { focused = $0 })
                 HStack(spacing: 2) {
                     let room = WireLimits.maxAttachments - attachments.count
                     Button {
@@ -330,13 +302,62 @@ private struct NewChatContent: View {
                 .padding(.top, 6)
             }
             .padding(6)
-            .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(palette.composer))
-            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(palette.border, lineWidth: 1))
+            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(palette.composer))
+            .overlay {
+                let box = RoundedRectangle(cornerRadius: 10, style: .continuous)
+                if (chosenMode ?? launcher?.permissionMode) == .bypass {
+                    box.strokeBorder(YoloToggle.rainbow(palette, along: .edge), lineWidth: 1)
+                        .opacity(palette.isLight ? 0.6 : 0.45)
+                } else {
+                    box.strokeBorder(focused ? palette.borderSelected : palette.border, lineWidth: 1)
+                }
+            }
+            if let project { place(project, worktree: worktree, starting: starting) }
         }
         .padding(.horizontal, 10)
         .padding(.top, 8)
         .padding(.bottom, 6)
     }
+
+    /// Where the chat will run, picked from the line under the box as on the Mac's new chat: the host, then the
+    /// project with its chevron, and the worktree switch at the right.
+    private func place(_ project: ProjectInfo, worktree: Bool, starting: Bool) -> some View {
+        HStack(spacing: 4) {
+            HStack(spacing: 6) {
+                IconView(icon: Icons.laptop, size: 12).foregroundStyle(palette.tertiary)
+                Text(hostName).font(Theme.ui(12)).foregroundStyle(palette.tertiary).lineLimit(1)
+            }
+            .padding(.horizontal, 4)
+            .layoutPriority(-1)
+            Text("/").font(Theme.ui(13)).foregroundStyle(palette.borderStrong).accessibilityHidden(true)
+            Button {
+                sheet = .project
+            } label: {
+                HStack(spacing: 6) {
+                    IconView(icon: Icons.folder, size: 12).foregroundStyle(palette.live)
+                    Text(project.name).font(Theme.ui(12, .medium)).foregroundStyle(palette.ink).lineLimit(1)
+                    IconView(icon: Icons.chevron, size: 10).foregroundStyle(palette.inkFaint).rotationEffect(
+                        .degrees(90))
+                }
+                .padding(.horizontal, 4)
+                .frame(minHeight: 32)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(PressFade())
+            .disabled(started != nil)
+            .accessibilityLabel("Project, \(project.name)")
+            Spacer(minLength: 4)
+            if project.git != nil {
+                WorktreeSwitch(on: worktree || inWorktree, disabled: starting || inWorktree) {
+                    flipWorktree(project, worktree)
+                }
+            }
+        }
+        .padding(.top, 4)
+        .padding(.horizontal, 8)
+    }
+
+    private var hostName: String { Hub.shared.device(core)?.displayName ?? "the host" }
 
     private var written: Bool {
         !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty || !chips.isEmpty
@@ -396,10 +417,14 @@ private struct NewChatContent: View {
         chips = held.chips + chips.filter { chip in !held.chips.contains { $0.id == chip.id } }
     }
 
+    /// Adds what was picked and names each picture in the words at the caret, as `[Image #n]`.
     private func attach(_ picked: [Attachment]) {
         let (fits, notice) = Uploads.fitting(held: attachments.count, picked)
         if let notice { problem = notice }
+        let held = attachments.count
         attachments += fits
+        let numbers = fits.enumerated().filter { $0.element.kind == .image }.map { held + $0.offset + 1 }
+        draft = ImageTags.written(draft, at: focus.caret, numbers: numbers)
     }
 
     /// Stash items into the message: notes into its words, links and text as chips, files fetched to go with it.

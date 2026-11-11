@@ -14,10 +14,11 @@ import { Message } from '@/chat/Transcript';
 import { Activity } from '@/chat/Activity';
 import { startChat } from '@/chat/start';
 import { AttachSheet } from '@/chat/AttachSheet';
-import { YoloToggle } from '@/chat/YoloToggle';
+import { YoloEdge, YoloToggle } from '@/chat/YoloToggle';
 import { WorktreeSwitch } from '@/chat/Worktree';
 import { ComposerInput } from '@/chat/ComposerInput';
 import { fitting, type Attachment } from '@/chat/uploads';
+import { dropTag, tagTokens, writeTags } from '@/chat/imageTags';
 import { api } from '@/account/api';
 import { stashPrompt, type StashItem } from '@/stash/api';
 import { downloadedFile, intoMessage, stashIdsOf } from '@/stash/attach';
@@ -31,7 +32,8 @@ import { MAX_ATTACHMENTS } from '@shared/wire.generated';
 import { problem as problemOf } from '@/core/problem';
 import { callHost, useHostCall } from '@/core/hostCalls';
 import { SmartPick } from '@/chat/Notices';
-import { useLive } from '@/devices/hub';
+import { useDevices, useLive } from '@/devices/hub';
+import { deviceName } from '@/devices/paired';
 import { ProjectSheet } from '@/devices/ProjectSheet';
 import { haptics } from '@/ui/haptics';
 import { AgentFace } from '@/devices/Buddy';
@@ -177,6 +179,12 @@ export default function NewChat() {
     launcher: linkedLauncher,
   } = useLocalSearchParams<{ core: string; project?: string; launcher?: string }>();
   const live = useLive(core);
+  const { devices } = useDevices();
+  const known = devices.find((device) => device.core === core);
+  const hostName = known ? deviceName(known) : 'the host';
+  const [focused, setFocused] = useState(false);
+  /** Where the caret sits in the draft, where a picked picture's tag goes. */
+  const caret = useRef<number | undefined>(undefined);
   const workspace = live.snapshot?.workspace;
   const [launcherId, setLauncherId] = useState<string | undefined>(linkedLauncher);
   const [chosenMode, setChosenMode] = useState<string>();
@@ -292,7 +300,11 @@ export default function NewChat() {
       .then((picked) => {
         const { fits, notice } = fitting(attachments.length, picked);
         if (notice) setProblem(notice);
+        const held = attachments.length;
         setAttachments((now) => [...now, ...fits]);
+        // Each picture is named in the words at the caret, as `[Image #n]`, where the host puts it.
+        const numbers = fits.flatMap((file, index) => (file.kind === 'image' ? [held + index + 1] : []));
+        setDraft((now) => writeTags(now, caret.current, numbers));
       })
       .catch((error: unknown) => setProblem(`Could not pick: ${problemOf(error)}`));
   };
@@ -384,7 +396,12 @@ export default function NewChat() {
             ) : launcher ? (
               <AgentFace agentId={project?.id} provider={launcher.provider} size={38} logoSize={40} />
             ) : null}
-            <Text style={styles.welcomeTitle}>{project?.name ?? 'New chat'}</Text>
+            <Text style={styles.welcomeTitle}>New chat</Text>
+            {launcher && !noAgents && !problem && !blocked ? (
+              <Text style={type.meta}>
+                {agentLabel(launcher.provider)} on {hostName}
+              </Text>
+            ) : null}
             {smartPick && launcher && !problem && !blocked ? <SmartPick move={smartPick} provider={launcher.provider} /> : null}
             {noAgents ? <Text style={[type.meta, { textAlign: 'center' }]}>No agents on the host.</Text> : null}
             {problem ? <Text style={styles.problem}>{problem}</Text> : null}
@@ -398,28 +415,17 @@ export default function NewChat() {
         <SafeAreaView edges={typing ? [] : ['bottom']} style={styles.wrap}>
           {prompt.toast}
           {mention !== undefined ? <StashMenu query={mention} onPick={(item) => fromStash([item], withoutQuery(draft))} /> : null}
-          {project ? (
-            <View style={styles.strip}>
-              <Pressable
-                style={styles.stripProject}
-                onPress={() => setSheet('project')}
-                disabled={Boolean(started)}
-                accessibilityRole="button"
-                accessibilityLabel="Project">
-                <Icon name="IconFolder" size={13} color={colors.live} />
-                <Text style={styles.stripName}>{project.name}</Text>
-                <View style={{ transform: [{ rotate: '90deg' }] }}>
-                  <Icon name="IconChevron" size={10} color={colors.inkFaint} />
-                </View>
-              </Pressable>
-              {project.git ? <WorktreeSwitch on={worktree || inWorktree} disabled={starting || inWorktree} onFlip={flipWorktree} /> : null}
-            </View>
-          ) : null}
-          <View style={styles.composer}>
+          <View style={[styles.composer, mode === 'bypass' ? styles.yoloComposer : focused && { borderColor: colors.borderSelected }]}>
+            {mode === 'bypass' ? <YoloEdge radius={10} /> : null}
             {attachments.length || chips.length ? (
               <ComposerAttachments
                 attachments={attachments}
-                onRemove={(id) => !starting && setAttachments((now) => now.filter((attachment) => attachment.id !== id))}
+                onRemove={(id) => {
+                  const at = attachments.findIndex((attachment) => attachment.id === id);
+                  if (starting || at < 0) return;
+                  setAttachments((now) => now.filter((attachment) => attachment.id !== id));
+                  setDraft((now) => dropTag(now, at + 1));
+                }}
                 onRetry={start}
                 lead={chips.map((chip) => (
                   <StashChip
@@ -430,7 +436,19 @@ export default function NewChat() {
                 ))}
               />
             ) : null}
-            <ComposerInput value={draft} onChangeText={setDraft} placeholder={IDLE} editable={!starting} autoFocus />
+            <ComposerInput
+              value={draft}
+              tokens={tagTokens(draft, attachments.length)}
+              onChangeText={setDraft}
+              placeholder={IDLE}
+              editable={!starting}
+              autoFocus
+              onFocus={() => setFocused(true)}
+              onBlur={() => setFocused(false)}
+              onSelectionChange={(event) => {
+                caret.current = event.nativeEvent.selection.start;
+              }}
+            />
             <View style={styles.bar}>
               <Pressable
                 onPress={() => setSheet('attach')}
@@ -485,6 +503,36 @@ export default function NewChat() {
               </Pressable>
             </View>
           </View>
+          {project ? (
+            <View style={styles.place}>
+              <View style={styles.placeHost}>
+                <Icon name="IconLaptop" size={12} color={colors.tertiary} />
+                <Text style={styles.placeQuiet} numberOfLines={1}>
+                  {hostName}
+                </Text>
+              </View>
+              <Text style={styles.slash} importantForAccessibility="no" accessibilityElementsHidden>
+                /
+              </Text>
+              <Pressable
+                style={styles.placeProject}
+                onPress={() => setSheet('project')}
+                disabled={Boolean(started)}
+                hitSlop={6}
+                accessibilityRole="button"
+                accessibilityLabel={`Project, ${project.name}`}>
+                <Icon name="IconFolder" size={12} color={colors.live} />
+                <Text style={styles.placeName} numberOfLines={1}>
+                  {project.name}
+                </Text>
+                <View style={{ transform: [{ rotate: '90deg' }] }}>
+                  <Icon name="IconChevron" size={10} color={colors.inkFaint} />
+                </View>
+              </Pressable>
+              <View style={{ flex: 1 }} />
+              {project.git ? <WorktreeSwitch on={worktree || inWorktree} disabled={starting || inWorktree} onFlip={flipWorktree} /> : null}
+            </View>
+          ) : null}
         </SafeAreaView>
       </KeyboardAvoidingView>
       <AttachSheet
@@ -538,33 +586,25 @@ const makeStyles = (colors: Palette) => {
     welcome: {
       flex: 1,
       alignItems: 'center',
-      justifyContent: 'center',
-      gap: 12,
+      // Nothing floats mid-screen: the start sits just above the composer it leads into.
+      justifyContent: 'flex-end',
+      gap: 10,
       paddingHorizontal: 28,
+      paddingBottom: 28,
     },
     sending: { flex: 1, justifyContent: 'flex-end', paddingHorizontal: 18, paddingBottom: 28 },
-    welcomeTitle: { fontFamily: fonts.uiSemibold, fontSize: 20, letterSpacing: -0.55, color: colors.ink },
+    welcomeTitle: { fontFamily: fonts.uiSemibold, fontSize: 17, letterSpacing: -0.4, color: colors.ink },
     problem: { fontFamily: fonts.ui, fontSize: 13.5, color: colors.danger, textAlign: 'center' },
     wrap: { paddingHorizontal: 10, paddingTop: 8, paddingBottom: 6 },
-    strip: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      marginHorizontal: 14,
-      marginBottom: -1,
-      paddingVertical: 5,
-      paddingLeft: 12,
-      paddingRight: 6,
-      borderWidth: 1,
-      borderBottomWidth: 0,
-      borderColor: colors.border,
-      borderTopLeftRadius: 12,
-      borderTopRightRadius: 12,
-      backgroundColor: colors.composer,
-    },
-    stripProject: { flexDirection: 'row', alignItems: 'center', gap: 7, paddingVertical: 4 },
-    stripName: { fontFamily: fonts.uiMedium, fontSize: 13.5, color: colors.ink },
-    composer: { padding: 6, borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.composer },
+    // Where the chat will run, picked from the line under the box as on the Mac's new chat.
+    place: { flexDirection: 'row', alignItems: 'center', gap: 4, minHeight: 36, marginTop: 4, paddingHorizontal: 8 },
+    placeHost: { flexShrink: 1, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 4 },
+    placeQuiet: { flexShrink: 1, fontFamily: fonts.ui, fontSize: 12, color: colors.tertiary },
+    placeProject: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 4, paddingVertical: 6 },
+    placeName: { fontFamily: fonts.uiMedium, fontSize: 12, color: colors.ink },
+    slash: { fontFamily: fonts.ui, fontSize: 13, color: colors.borderStrong },
+    composer: { padding: 6, borderRadius: 10, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.composer },
+    yoloComposer: { borderColor: 'transparent' },
     bar: { flexDirection: 'row', alignItems: 'center', gap: 2, paddingTop: 6 },
     add: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
     picker: { flexDirection: 'row', alignItems: 'center', gap: 6, height: 34, paddingHorizontal: 7 },
