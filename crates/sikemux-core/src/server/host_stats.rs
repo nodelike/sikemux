@@ -88,6 +88,8 @@ struct State {
     pressure: Option<Pressure>,
     /// Since when the pressure has been what it is now.
     pressure_since: u64,
+    /// How bad the system's pressure has counted, apart from how much memory is used.
+    pressed: Option<AlertLevel>,
     busy_since: Option<u64>,
     alerts: Vec<HostAlert>,
     offline: Vec<(String, u64)>,
@@ -158,7 +160,7 @@ pub(crate) fn read(core: &Core, params: HostStatsParams) -> HostStats {
         watch.watch();
     }
     let mut about = about(core).clone();
-    about.name = Some(super::host::shown_name());
+    about.name = Some(super::host::shown_name(core));
     let state = watch.state.locked();
     let history = match params.span {
         StatsSpan::Now => Vec::new(),
@@ -236,7 +238,7 @@ pub(crate) fn alerts(core: &Core) -> Vec<HostAlerted> {
 
 /// Every alert the inbox lists, as [`alerts`] has them, with what to call the host each is about.
 pub(crate) fn inbox_alerts(core: &Core) -> Vec<(Option<String>, String, HostAlert)> {
-    let here = super::host::shown_name();
+    let here = super::host::shown_name(core);
     alerts_named(core)
         .into_iter()
         .map(|(alerted, name)| {
@@ -878,10 +880,7 @@ impl State {
     fn judge(&mut self, at: u64) -> bool {
         let memory_percent = percent(self.now.memory_used, self.memory_total);
         let held = at.saturating_sub(self.pressure_since);
-        let was_pressed = self
-            .alert(HostAlertKind::Memory)
-            .filter(|alert| alert.pressure)
-            .map(|alert| alert.level);
+        let was_pressed = self.pressed;
         let pressed = match self.pressure {
             Some(Pressure::Critical) => Some(AlertLevel::Danger),
             Some(Pressure::Warn) if held >= PRESSURE_FOR_MS => Some(AlertLevel::Warn),
@@ -894,6 +893,7 @@ impl State {
             &MEMORY_LIMITS,
             self.alert(HostAlertKind::Memory).map(|alert| alert.level),
         );
+        self.pressed = pressed;
         let memory = worse(pressed, by_use);
         let memory_pressed = pressed.is_some() && worse(pressed, by_use) != by_use;
         let disk_percent = percent(self.now.disk_used, self.disk_total);

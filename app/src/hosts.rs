@@ -102,20 +102,21 @@ pub struct Feed {
     pub home: Option<String>,
     /// How busy it is, while the Hosts page watches it, and what was last read once it is not.
     pub stats: Option<sikemux_view::host_stats::HostStats>,
-    /// When this window last received `stats`, in Unix milliseconds.
+    /// When this window last received `stats`, in Unix milliseconds to show, and by the
+    /// steady clock to judge whether they are still current.
     pub stats_at: Option<u64>,
+    pub stats_seen: Option<std::time::Instant>,
     /// When this window saw an account host go out of reach, while it stays out of reach.
     pub away_since: Option<u64>,
 }
 
 /// How long numbers a host sent last count as now; it sends them every few seconds while watched.
-const STATS_FRESH_MS: u64 = 30_000;
+pub const STATS_FRESH: std::time::Duration = std::time::Duration::from_secs(30);
 
 impl Feed {
     /// The host's numbers while they are recent, from a host this window reaches.
     pub fn fresh_stats(&self) -> Option<&sikemux_view::host_stats::HostStats> {
-        let at = self.stats_at?;
-        let recent = crate::ui::time::now_ms().saturating_sub(at) < STATS_FRESH_MS;
+        let recent = self.stats_seen?.elapsed() < STATS_FRESH;
         self.stats.as_ref().filter(|_| recent)
     }
 

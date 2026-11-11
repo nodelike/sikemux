@@ -208,7 +208,9 @@ impl Workbench {
     ) {
         let feed = self.feeds.at_mut(&place);
         feed.stats_at = Some(crate::ui::time::now_ms());
+        feed.stats_seen = Some(std::time::Instant::now());
         if feed.stats.as_ref() == Some(&stats) {
+            self.redraw_once_stale(cx);
             return;
         }
         let apps: Vec<String> = (stats.top.iter())
@@ -216,6 +218,7 @@ impl Workbench {
             .filter(|app| !self.hosts_page.app_icons.contains_key(app))
             .collect();
         feed.stats = Some(stats);
+        self.redraw_once_stale(cx);
         for app in apps {
             self.ask_app_icon(&place, app, cx);
         }
@@ -223,6 +226,21 @@ impl Workbench {
             self.parts.redraw_stage(cx);
         }
         self.redraw_glance(cx);
+    }
+
+    /// Draws the page again just after numbers received now stop counting as current, so a
+    /// host that goes quiet shows "as of" without waiting for something else to redraw.
+    fn redraw_once_stale(&self, cx: &mut Context<Self>) {
+        let stale_after = crate::hosts::STATS_FRESH + std::time::Duration::from_millis(500);
+        cx.spawn(async move |bench, cx| {
+            cx.background_executor().timer(stale_after).await;
+            let _ = bench.update(cx, |bench, cx| {
+                if bench.hosts_page_in_front() {
+                    bench.parts.redraw_stage(cx);
+                }
+            });
+        })
+        .detach();
     }
 
     fn redraw_glance(&self, cx: &mut Context<Self>) {

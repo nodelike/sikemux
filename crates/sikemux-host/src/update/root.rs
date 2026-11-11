@@ -23,6 +23,11 @@ use sikemux_view::updates::{UpdateOutcome, UpdateOutcomeState};
 const CORE: &str = sikemux_process::names::CORE_PROGRAM;
 const GROUP: &CStr = c"sikemux";
 const MAX_REQUEST_BYTES: u64 = 4096;
+/// How long a caller has to say what it wants, so idle connections cannot hold the service.
+const REQUEST_WAIT: libc::timeval = libc::timeval {
+    tv_sec: 10,
+    tv_usec: 0,
+};
 /// How much of a failure's output an outcome keeps as evidence.
 const EVIDENCE_LINES: usize = 20;
 const MAX_ARCHIVE_BYTES: u64 = 256 << 20;
@@ -68,6 +73,17 @@ pub fn serve() -> i32 {
 }
 
 fn request() -> Result<HostRequest, String> {
+    let wait = REQUEST_WAIT;
+    // SAFETY: SO_RCVTIMEO reads one timeval, valid for its size, for the socket on stdin.
+    unsafe {
+        libc::setsockopt(
+            io::stdin().as_raw_fd(),
+            libc::SOL_SOCKET,
+            libc::SO_RCVTIMEO,
+            (&raw const wait).cast(),
+            std::mem::size_of::<libc::timeval>() as libc::socklen_t,
+        );
+    }
     let mut line = String::new();
     io::stdin()
         .lock()

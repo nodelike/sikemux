@@ -29,22 +29,21 @@ pub fn name() -> String {
 /// What the account calls this host, once the core has heard it.
 static ACCOUNT_NAME: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 
-/// Keeps the name the account has for this host, as the account last said.
+/// Keeps the name the account has for this host, as the account last said; none once the
+/// account no longer lists it.
 pub(crate) fn note_account_name(name: Option<String>) {
-    if let Some(name) = name {
-        *ACCOUNT_NAME
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(name);
-    }
+    *ACCOUNT_NAME
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = name;
 }
 
 /// What this host is called where the person sees it: its name on the account, which the
 /// person may have chosen, else what the computer was called when the core started.
-pub(crate) fn shown_name() -> String {
-    let named = ACCOUNT_NAME
-        .lock()
+pub(crate) fn shown_name(core: &super::Core) -> String {
+    let named = (ACCOUNT_NAME.lock())
         .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .clone();
+        .clone()
+        .filter(|_| core.remote.owner().is_some());
     named.unwrap_or_else(|| info().name)
 }
 
