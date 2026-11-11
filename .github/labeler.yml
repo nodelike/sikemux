@@ -1,0 +1,31 @@
+app:
+  - changed-files:
+      - any-glob-to-any-file: ["app/**", "shared/**"]
+
+core:
+  - changed-files:
+      - any-glob-to-any-file: ["crates/**", "tools/**"]
+
+browser:
+  - changed-files:
+      - any-glob-to-any-file: ["browser/**", "crates/sikemux-browser/**"]
+
+mobile:
+  - changed-files:
+      - any-glob-to-any-file: ["mobile/**", "crates/sikemux-mobile/**"]
+
+server:
+  - changed-files:
+      - any-glob-to-any-file: ["server/**"]
+
+notch:
+  - changed-files:
+      - any-glob-to-any-file: ["helpers/notch/**"]
+
+docs:
+  - changed-files:
+      - any-glob-to-any-file: ["docs/**", "docs-site/**", "*.md"]
+
+ci:
+  - changed-files:
+      - any-glob-to-any-file: [".github/**", "scripts/**", "packaging/**"]
