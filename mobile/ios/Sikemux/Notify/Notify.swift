@@ -190,6 +190,17 @@ final class Notify {
         try keepSent(next)
     }
 
+    /// The server drops this phone's token when the phone leaves the account, so a token sent before the phone was
+    /// last added is not there any more and goes again.
+    func phoneAdded(at createdAt: String) async {
+        if let syncing { _ = try? await syncing.value }
+        guard let added = Format.date(iso: createdAt), let sent = readSent(),
+            sent.at / 1000 < added.timeIntervalSince1970
+        else { return }
+        Keychain.app.delete(Self.sentItem)
+        do { try await syncPushToken() } catch { print("sikemux: could not send the push token again: \(error)") }
+    }
+
     /// Takes this phone's token off the server. Throws when the server can't be reached, so signing out can ask first.
     func stopPush() async throws {
         let device = try Identity.shared.deviceIdentity().id()
