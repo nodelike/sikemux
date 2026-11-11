@@ -8,9 +8,10 @@ use std::time::Duration;
 use gpui_kit::base::Popover;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    canvas, div, fill, point, px, size, Anchor, Animation, AnimationExt, AnyElement, App, Bounds,
-    Context, Div, FontWeight, Hsla, InteractiveElement, IntoElement, ParentElement, SharedString,
-    Stateful, StatefulInteractiveElement, Styled, Task, Transformation, WeakEntity, Window,
+    anchored, canvas, deferred, div, fill, img, point, px, size, Anchor, AnchoredPositionMode,
+    Animation, AnimationExt, AnyElement, App, Bounds, Context, Div, FontWeight, Hsla,
+    InteractiveElement, IntoElement, ParentElement, SharedString, Stateful,
+    StatefulInteractiveElement, Styled, Task, Transformation, WeakEntity, Window,
 };
 use sikemux_core::agent_accounts::usage::{ResetKind, ResetOutcome, UsageWindow};
 use sikemux_core::agent_accounts::Profile;
@@ -23,8 +24,8 @@ use crate::core::Target;
 use crate::icons::Icon;
 use crate::rail::Edge;
 use crate::theme::{
-    Tokens, RADIUS_2, RADIUS_4, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, TEXT_2XS, TEXT_3XS,
-    TEXT_3XS_H,
+    Tokens, RADIUS_1, RADIUS_2, RADIUS_3, RADIUS_4, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, TEXT_2XS,
+    TEXT_2XS_H, TEXT_3XS, TEXT_3XS_H,
 };
 use crate::ui::IconButton;
 use crate::workbench::Workbench;
@@ -40,19 +41,23 @@ const ROW: f32 = 30.;
 const ROW_COMPACT: f32 = 28.;
 const ROW_GAP: f32 = 2.;
 const HEADER: f32 = 24.;
-const AGENT_HEAD: f32 = 22.;
-const AGENT_GAP: f32 = 4.;
+const AGENT_HEAD: f32 = 34.;
 const ACCOUNT_LINE: f32 = 24.;
 const NAME_LINE: f32 = 20.;
-const WINDOW_LINE: f32 = 16.;
-const ACCOUNT_PAD: f32 = 3.;
+const NAME_GAP: f32 = 5.;
+const WINDOW_LINE: f32 = 17.;
+const ACCOUNT_PAD: f32 = 8.;
+const RESETS_HEAD: f32 = 22.;
+const RESET_ROW: f32 = 24.;
+const RESET_ASKING: f32 = 84.;
+const LABEL_WIDTH: f32 = 44.;
+const AVATAR: f32 = 18.;
 const FLOAT_GAP: f32 = 6.;
-const FLOAT_PAD: f32 = 6.;
 /// The smallest float worth scrolling, and what it leaves of the rail above it.
 const FLOAT_LEAST: f32 = 120.;
 const RAIL_HEAD: f32 = 41.;
 const FLOAT_MARGIN: f32 = 52.;
-const POPOVER_WIDTH: f32 = 288.;
+const POPOVER_WIDTH: f32 = 300.;
 const POPOVER_MARGIN: f32 = 60.;
 
 /// What the Limits float and popover hold while they are on screen.
@@ -115,12 +120,16 @@ impl Shown<'_> {
         let Some(usage) = self.usage.and_then(|usage| usage.usage.as_ref()) else {
             return Vec::new();
         };
-        let plan = [("5H", usage.session()), ("7D", usage.week())]
+        let plan = [("Session", usage.session()), ("Week", usage.week())]
             .into_iter()
             .filter_map(|(label, window)| Some((label.to_owned(), window?)));
-        let models = (usage.windows.iter())
-            .filter_map(|window| Some((window.scope.as_ref()?.to_uppercase(), window)));
+        let models =
+            (usage.windows.iter()).filter_map(|window| Some((window.scope.clone()?, window)));
         plan.chain(models).collect()
+    }
+
+    fn tier(&self) -> Option<&str> {
+        self.usage?.usage.as_ref()?.tier.as_deref()
     }
 
     fn resets(&self) -> &[ResetKind] {
@@ -329,28 +338,34 @@ pub(crate) fn limits(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<i
                     .children(rest_rows(&view, &agents, cx)),
             )
             .when(open, |panel| {
+                let float = div()
+                    .id("limits-float")
+                    .w(px(POPOVER_WIDTH))
+                    .pb(px(FLOAT_GAP))
+                    .occlude()
+                    .on_hover(hovered(view.this.clone(), |reveal| &mut reveal.over_float))
+                    .child(
+                        floating(cx)
+                            .child(every_account(&view, &agents, cx))
+                            .with_animation(
+                                "limits-float-in",
+                                motion::entrance(motion::POP_UP),
+                                |float, shown| {
+                                    float.opacity(shown).relative().top(px(4. * (1. - shown)))
+                                },
+                            ),
+                    );
                 panel.child(
-                    div()
-                        .id("limits-float")
-                        .absolute()
-                        .left_0()
-                        .right_0()
-                        .bottom_full()
-                        .pb(px(FLOAT_GAP))
-                        .occlude()
-                        .on_hover(hovered(view.this.clone(), |reveal| &mut reveal.over_float))
-                        .child(
-                            floating(cx)
-                                .p(px(FLOAT_PAD))
-                                .child(every_account(&view, &agents, cx))
-                                .with_animation(
-                                    "limits-float-in",
-                                    motion::entrance(motion::POP_UP),
-                                    |float, shown| {
-                                        float.opacity(shown).relative().top(px(4. * (1. - shown)))
-                                    },
-                                ),
-                        ),
+                    div().absolute().top_0().right_0().child(
+                        deferred(
+                            anchored()
+                                .position_mode(AnchoredPositionMode::Local)
+                                .anchor(Anchor::BottomRight)
+                                .snap_to_window_with_margin(px(8.))
+                                .child(float),
+                        )
+                        .with_priority(1),
+                    ),
                 )
             }),
     )
@@ -538,7 +553,7 @@ impl Total {
 fn totals(agent: &Agent, now: u64) -> Vec<(&'static str, Total)> {
     let session: Pick = |shown| shown.session();
     let week: Pick = |shown| shown.week();
-    [("5H", session), ("7D", week)]
+    [("Session", session), ("Week", week)]
         .into_iter()
         .filter_map(|(label, window)| Some((label, Total::of(agent, now, window)?)))
         .collect()
@@ -650,7 +665,7 @@ fn rest_row(view: &View, agent: &Agent, totals: &[(&'static str, Total)], cx: &A
             .flex()
             .items_center()
             .gap(SPACE_2)
-            .child(window_label(*label, 16., cx))
+            .child(window_label(*label, LABEL_WIDTH, cx))
             .child(ruler(Some(total.used()), t).flex_1().min_w_0().h(px(10.)))
             .child(total_sum(total, cx))
     });
@@ -760,17 +775,29 @@ fn sign_in_row(view: &View, agent: &Agent, cx: &App) -> AnyElement {
         .into_any_element()
 }
 
-/// Every account of every agent, the one in use lifted.
+/// Every account of every agent, each across the float's full width between hairlines, the one
+/// in use lifted.
 fn every_account(view: &View, agents: &[Agent], cx: &App) -> Stateful<Div> {
+    let t = Tokens::get(cx);
+    let hairline = || div().h(px(1.)).flex_none().bg(t.border);
     let mut heights = Vec::new();
     let mut items: Vec<AnyElement> = Vec::new();
     for (at, agent) in agents.iter().enumerate() {
-        let gap = if at == 0 { 0. } else { AGENT_GAP };
-        heights.push(AGENT_HEAD + gap);
-        items.push(agent_head(view, agent, gap, cx).into_any_element());
+        if at > 0 {
+            heights.push(1.);
+            items.push(hairline().into_any_element());
+        }
+        heights.push(AGENT_HEAD + 1.);
+        items.push(agent_head(view, agent, cx).into_any_element());
+        items.push(hairline().into_any_element());
         for (index, shown) in agent.accounts.iter().enumerate() {
+            if index > 0 {
+                heights.push(1.);
+                items.push(hairline().into_any_element());
+            }
+            let last = at + 1 == agents.len() && index + 1 == agent.accounts.len();
             heights.push(account_height(view, shown));
-            items.push(account_line(view, agent, shown, index == agent.in_use, cx));
+            items.push(account_line(view, agent, shown, index, last, cx));
         }
     }
     let total: f32 = heights.iter().sum();
@@ -796,12 +823,11 @@ fn every_account(view: &View, agents: &[Agent], cx: &App) -> Stateful<Div> {
         .children(items)
 }
 
-fn agent_head(view: &View, agent: &Agent, gap: f32, cx: &App) -> Div {
+fn agent_head(view: &View, agent: &Agent, cx: &App) -> Div {
     let t = Tokens::get(cx);
     div()
         .h(px(AGENT_HEAD))
-        .mt(px(gap))
-        .pl(SPACE_1H)
+        .px(SPACE_2H)
         .flex()
         .items_center()
         .gap(SPACE_1H)
@@ -832,58 +858,91 @@ fn one_line(view: &View, shown: &Shown) -> bool {
 }
 
 fn account_height(view: &View, shown: &Shown) -> f32 {
-    match one_line(view, shown) {
-        true => ACCOUNT_LINE,
-        false => NAME_LINE + shown.windows().len().max(1) as f32 * WINDOW_LINE + ACCOUNT_PAD * 2.,
+    if one_line(view, shown) {
+        return ACCOUNT_LINE + ACCOUNT_PAD;
     }
+    let resets = shown.resets();
+    let asking =
+        (resets.iter()).any(|kind| view.arming.as_deref() == Some(reset_key(shown, kind).as_str()));
+    let resets_height = match resets.is_empty() {
+        true => 0.,
+        false => {
+            RESETS_HEAD
+                + resets.len() as f32 * RESET_ROW
+                + if asking { RESET_ASKING - RESET_ROW } else { 0. }
+        }
+    };
+    NAME_LINE
+        + NAME_GAP
+        + shown.windows().len().max(1) as f32 * WINDOW_LINE
+        + resets_height
+        + ACCOUNT_PAD * 2.
 }
 
-/// An account: its name, then a ruler for each window, the session's over the week's. Clicking
-/// one not in use moves the agent's chats onto it; while smart accounts is on, clicking one pins
-/// new chats to it, or unpins it.
-fn account_line(view: &View, agent: &Agent, shown: &Shown, in_use: bool, cx: &App) -> AnyElement {
+/// An account: its avatar, name and plan, a ruler for each of its limits, then the limit resets
+/// it holds. Clicking one not in use moves the agent's chats onto it; while smart accounts is on,
+/// clicking one pins new chats to it, or unpins it.
+fn account_line(
+    view: &View,
+    agent: &Agent,
+    shown: &Shown,
+    place: usize,
+    last: bool,
+    cx: &App,
+) -> AnyElement {
     let t = Tokens::get(cx);
+    let in_use = place == agent.in_use;
     let key = shown.key(agent.provider);
     let id = SharedString::from(format!("limits-account-{}-{key}", agent.provider));
     let group = SharedString::from(format!("limits-line-{key}"));
     let line = |height: f32| div().h(px(height)).flex().items_center().gap(SPACE_2);
     let name = |text: String| {
-        ui::text(text, TEXT_2XS, FontWeight::MEDIUM)
+        ui::text(text, TEXT_2XS_H, FontWeight::SEMIBOLD)
             .min_w_0()
             .truncate()
             .text_color(t.text_primary)
     };
-    let side = || div().flex_1().min_w_0().flex().items_baseline().gap(px(5.));
     let meta = |text: String| {
         ui::text(text, TEXT_3XS, FontWeight::NORMAL)
             .flex_none()
             .text_color(t.text_tertiary)
     };
+    let frame = || {
+        div()
+            .id(id.clone())
+            .px(SPACE_2H)
+            .py(px(ACCOUNT_PAD))
+            .flex()
+            .flex_col()
+            .when(last, |account| account.rounded_b(RADIUS_4))
+    };
     if one_line(view, shown) {
-        let frame = line(ACCOUNT_LINE).id(id).px(SPACE_1H).rounded(RADIUS_2);
+        let short = line(ACCOUNT_LINE);
         if shown.signed_out {
             let names = match agent.unnamed(shown) && in_use {
-                true => side().child(name("Signed out".into())),
-                false => side()
+                true => short.child(name("Signed out".into()).flex_1()),
+                false => short
                     .child(name(shown.name.clone()))
-                    .child(meta("Signed out".into())),
+                    .child(meta("Signed out".into()).flex_1()),
             };
-            return frame
+            return frame()
+                .py(px(ACCOUNT_PAD / 2.))
                 .cursor_pointer()
-                .hover(|line| line.bg(t.surface_hover))
+                .hover(|account| account.bg(t.surface_hover))
                 .on_click(sign_in(view, agent.provider, shown))
-                .child(names)
-                .child(go("Sign in", cx))
+                .child(names.child(go("Sign in", cx)))
                 .into_any_element();
         }
-        return frame
-            .child(side().child(name(shown.name.clone())))
+        return frame()
+            .py(px(ACCOUNT_PAD / 2.))
             .child(
-                go("Undo", cx)
-                    .id(SharedString::from(format!("limits-undo-{key}")))
-                    .cursor_pointer()
-                    .hover(|link| link.text_color(t.text_primary))
-                    .on_click(view.on(move |bench, _, cx| undo_pick(bench, cx))),
+                short.child(name(shown.name.clone()).flex_1()).child(
+                    go("Undo", cx)
+                        .id(SharedString::from(format!("limits-undo-{key}")))
+                        .cursor_pointer()
+                        .hover(|link| link.text_color(t.text_primary))
+                        .on_click(view.on(move |bench, _, cx| undo_pick(bench, cx))),
+                ),
             )
             .into_any_element();
     }
@@ -903,19 +962,11 @@ fn account_line(view: &View, agent: &Agent, shown: &Shown, in_use: bool, cx: &Ap
         (Some(status), Some(tip)) => Some(format!("{status}. {tip}")),
         (status, tip) => tip.or(status),
     };
-    let label_width = match windows.iter().any(|(label, _)| label.len() > 2) {
-        true => 40.,
-        false => 16.,
-    };
-    let resets = shown.resets();
     let window_line = |label: Option<&str>, window: Option<&UsageWindow>| {
-        let reset = window.and_then(|window| {
-            (resets.iter()).find(|kind| kind.window.as_deref() == Some(window.label.as_str()))
-        });
         line(WINDOW_LINE)
             .font_features(theme::tabular())
             .when_some(label, |line, label| {
-                line.child(window_label(label.to_owned(), label_width, cx))
+                line.child(window_label(label.to_owned(), LABEL_WIDTH, cx))
             })
             .child(
                 ruler(window.map(|window| window.used_at(view.now)), t)
@@ -937,7 +988,6 @@ fn account_line(view: &View, agent: &Agent, shown: &Shown, in_use: bool, cx: &Ap
                     ),
                 None => line.child(note(shown.nothing(), cx)),
             })
-            .children(reset.map(|kind| reset_button(view, shown, kind, true, cx)))
     };
     let lines: Vec<Div> = match windows.is_empty() {
         true => vec![window_line(None, None)],
@@ -961,9 +1011,21 @@ fn account_line(view: &View, agent: &Agent, shown: &Shown, in_use: bool, cx: &Ap
     };
     let provider = agent.provider.to_owned();
     let names = line(NAME_LINE)
+        .mb(px(NAME_GAP))
         .child(
-            side()
+            img(super::marble::avatar(&shown.name, place))
+                .size(px(AVATAR))
+                .flex_none(),
+        )
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .flex()
+                .items_center()
+                .gap(px(6.))
                 .child(name(shown.name.clone()))
+                .children(shown.tier().map(|tier| tier_pill(tier, cx)))
                 .when(smart && pinned, |names| names.child(meta("Pinned".into()))),
         )
         .when(pickable, |names| {
@@ -974,23 +1036,9 @@ fn account_line(view: &View, agent: &Agent, shown: &Shown, in_use: bool, cx: &Ap
                     .opacity(0.)
                     .group_hover(group.clone(), |offer| offer.opacity(1.)),
             )
-        })
-        .children(
-            (resets.iter())
-                .filter(|kind| {
-                    !(windows.iter())
-                        .any(|(_, window)| kind.window.as_deref() == Some(&window.label))
-                })
-                .map(|kind| reset_button(view, shown, kind, false, cx)),
-        );
-    div()
-        .id(id)
+        });
+    frame()
         .group(group.clone())
-        .px(SPACE_1H)
-        .py(px(ACCOUNT_PAD))
-        .flex()
-        .flex_col()
-        .rounded(RADIUS_2)
         .when(in_use && agent.accounts.len() > 1, |account| {
             account.bg(t.surface_chosen)
         })
@@ -1006,87 +1054,268 @@ fn account_line(view: &View, agent: &Agent, shown: &Shown, in_use: bool, cx: &Ap
         })
         .child(names)
         .children(lines)
+        .children(resets_list(view, shown, &windows, cx))
         .into_any_element()
 }
 
-/// One kind of the account's limit resets as a button: at the end of the line of the window it
-/// refills, or by the name when it refills them all. The first press asks, the second spends one.
-fn reset_button(
+/// The plan an account is on, as its provider names it.
+fn tier_pill(tier: &str, cx: &App) -> Div {
+    let t = Tokens::get(cx);
+    ui::text(tier.to_owned(), TEXT_3XS, FontWeight::MEDIUM)
+        .flex_none()
+        .h(px(16.))
+        .px(px(5.))
+        .flex()
+        .items_center()
+        .rounded(RADIUS_1)
+        .border_1()
+        .border_color(t.border)
+        .bg(t.surface_hover)
+        .text_color(t.text_secondary)
+}
+
+/// The account's limit resets under its rulers: one row for each kind, with how many it holds,
+/// until when, and Use.
+fn resets_list(
+    view: &View,
+    shown: &Shown,
+    windows: &[(String, &UsageWindow)],
+    cx: &App,
+) -> Option<Div> {
+    let resets = shown.resets();
+    if resets.is_empty() {
+        return None;
+    }
+    let t = Tokens::get(cx);
+    let left: u32 = resets.iter().map(|kind| kind.left).sum();
+    let head = div()
+        .h(px(RESETS_HEAD))
+        .flex()
+        .items_center()
+        .gap(SPACE_2)
+        .child(
+            ui::text("RESETS", TEXT_3XS, FontWeight::MEDIUM)
+                .letter_spacing(0.08)
+                .text_color(t.text_tertiary),
+        )
+        .child(div().flex_1().h(px(1.)).bg(t.border))
+        .child(
+            ui::text(format!("{left} left"), TEXT_3XS, FontWeight::NORMAL)
+                .text_color(t.text_tertiary),
+        );
+    Some(
+        div().flex().flex_col().child(head).children(
+            resets
+                .iter()
+                .map(|kind| reset_row(view, shown, kind, windows, cx)),
+        ),
+    )
+}
+
+fn reset_key(shown: &Shown, kind: &ResetKind) -> String {
+    let launcher = shown.usage.map_or("", |usage| usage.launcher.as_str());
+    format!("{launcher}/{}", kind.label)
+}
+
+/// A reset kind as the person says it: Weekly, Fable, Full.
+fn short_kind(kind: &ResetKind) -> &str {
+    match kind.label.strip_suffix(" reset") {
+        Some("5-hour") => "Session",
+        Some(short) => short,
+        None => &kind.label,
+    }
+}
+
+/// The colour of a reset's last day: red within a week, amber within a month, else quiet.
+fn expiry_ink(use_by: u64, now: u64, t: &Tokens) -> Hsla {
+    const DAY: u64 = 86_400_000;
+    match use_by.saturating_sub(now) / DAY {
+        ..7 => t.danger,
+        ..31 => t.warn,
+        _ => t.text_tertiary,
+    }
+}
+
+fn until(use_by: Option<u64>, now: u64, cx: &App) -> Option<Div> {
+    let t = Tokens::get(cx);
+    let at = chrono::DateTime::from_timestamp_millis(i64::try_from(use_by?).ok()?)?;
+    let day = at.with_timezone(&chrono::Local).format("%b %-d");
+    Some(
+        ui::text(format!("until {day}"), TEXT_3XS_H, FontWeight::NORMAL)
+            .flex_none()
+            .text_color(expiry_ink(use_by?, now, t)),
+    )
+}
+
+/// What spending one reset of `kind` does, said before it is spent, and what its button says.
+fn reset_says(kind: &ResetKind, windows: &[(String, &UsageWindow)], now: u64) -> (String, String) {
+    let refilled = (kind.window.as_deref())
+        .and_then(|label| windows.iter().find(|(_, window)| window.label == label))
+        .map(|(name, window)| (name.as_str(), *window));
+    let after = match kind.left {
+        1 => format!(
+            "No {} resets will be left.",
+            short_kind(kind).to_lowercase()
+        ),
+        left => format!("{} will be left.", left - 1),
+    };
+    let (does, button) = match refilled {
+        Some((name, window)) if window.scope.is_some() => (
+            format!("Refills your {name} allowance and gives back what {name} used of your week."),
+            format!("Reset {name}"),
+        ),
+        Some((name, window)) => {
+            let left = (100. - window.used_at(now)).round();
+            let what = name.to_lowercase();
+            (
+                format!("Refills your whole {what} now, {left}% → 100% left."),
+                format!("Reset {what}"),
+            )
+        }
+        None => (
+            "Starts every used-up limit over.".to_owned(),
+            "Reset all".to_owned(),
+        ),
+    };
+    (format!("{does} {after}"), button)
+}
+
+/// One kind of reset: its name and count, until when, and Use. Use opens the row to say what
+/// spending one does, with Cancel and the button that spends it.
+fn reset_row(
     view: &View,
     shown: &Shown,
     kind: &ResetKind,
-    on_line: bool,
+    windows: &[(String, &UsageWindow)],
     cx: &App,
 ) -> AnyElement {
     let t = Tokens::get(cx);
-    let launcher = shown
-        .usage
-        .map_or_else(String::new, |usage| usage.launcher.clone());
-    let key = format!("{launcher}/{}", kind.label);
-    let armed = view.arming.as_deref() == Some(key.as_str());
+    let key = reset_key(shown, kind);
+    let asking = view.arming.as_deref() == Some(key.as_str());
     let busy = view.resetting.as_deref() == Some(key.as_str());
-    let text = match (busy, armed, on_line) {
-        (true, _, _) => "Resetting…".to_owned(),
-        (false, true, _) => "Reset now?".to_owned(),
-        (false, false, true) => kind.left.to_string(),
-        (false, false, false) => format!("Reset · {} left", kind.left),
-    };
-    let what = match &kind.window {
-        Some(_) if on_line => "Refills this limit.",
-        Some(_) => "Refills one limit.",
-        None => "Starts every used-up limit over.",
-    };
-    let tip = match (kind.use_by)
-        .and_then(|at| chrono::DateTime::from_timestamp_millis(i64::try_from(at).ok()?))
-    {
-        Some(at) => format!(
-            "{}: {} left, the first to use by {}. {what}",
-            kind.label,
-            kind.left,
-            day_and_time(at)
-        ),
-        None => format!("{}: {} left. {what}", kind.label, kind.left),
-    };
-    let ink = if armed { t.on_accent } else { t.accent };
-    let this = view.this.clone();
     let spend = Spend {
-        launcher,
+        launcher: shown
+            .usage
+            .map_or_else(String::new, |usage| usage.launcher.clone()),
         kind: kind.id.clone(),
         account: shown.name.clone(),
         what: kind.label.clone(),
     };
-    div()
-        .id(SharedString::from(format!("limits-reset-{key}")))
-        .flex_none()
-        .h(px(if on_line { 14. } else { 18. }))
-        .px(px(if on_line { 4. } else { 6. }))
+    let title = div()
+        .flex_1()
+        .min_w_0()
         .flex()
-        .items_center()
-        .gap(px(3.))
-        .rounded(RADIUS_2)
-        .bg(Hsla {
-            a: if armed { 1. } else { 0.16 },
-            ..t.accent
-        })
-        .text_color(ink)
-        .cursor_pointer()
-        .tooltip(ui::tooltip(tip))
-        .child(ui::icon(Icon::Refresh, 10.).text_color(ink))
-        .child(ui::text(text, TEXT_3XS, FontWeight::MEDIUM))
-        .on_click(move |_, _, cx| {
+        .items_baseline()
+        .child(
+            ui::text(short_kind(kind).to_owned(), TEXT_2XS, FontWeight::MEDIUM)
+                .text_color(t.text_primary),
+        )
+        .child(
+            ui::text(format!(" ×{}", kind.left), TEXT_2XS, FontWeight::NORMAL)
+                .text_color(t.text_tertiary),
+        );
+    let this = view.this.clone();
+    let tap = move |act: fn(&mut Workbench, String, Spend, &mut Context<Workbench>)| {
+        let (this, key, spend) = (this.clone(), key.clone(), spend.clone());
+        move |_: &gpui_kit::ClickEvent, _: &mut Window, cx: &mut App| {
             cx.stop_propagation();
-            if busy {
-                return;
-            }
             let (key, spend) = (key.clone(), spend.clone());
-            let _ = this.update(cx, |bench, cx| match armed {
-                false => {
+            let _ = this.update(cx, |bench, cx| act(bench, key, spend, cx));
+        }
+    };
+    if !asking {
+        let action = match busy {
+            true => ui::text("Resetting…", TEXT_2XS, FontWeight::MEDIUM)
+                .text_color(t.text_tertiary)
+                .into_any_element(),
+            false => ui::text("Use", TEXT_2XS, FontWeight::MEDIUM)
+                .id(SharedString::from(format!(
+                    "limits-use-{}",
+                    reset_key(shown, kind)
+                )))
+                .px(px(2.))
+                .text_color(t.accent)
+                .cursor_pointer()
+                .on_click(tap(|bench, key, _, cx| {
                     bench.accounts.limits.arming = Some(key);
                     redraw(bench, cx);
-                }
-                true => use_reset(bench, key, spend, cx),
-            });
+                }))
+                .into_any_element(),
+        };
+        return div()
+            .h(px(RESET_ROW))
+            .flex()
+            .items_center()
+            .gap(SPACE_2)
+            .child(title)
+            .children(until(kind.use_by, view.now, cx))
+            .child(action)
+            .into_any_element();
+    }
+    let (says, button) = reset_says(kind, windows, view.now);
+    div()
+        .my(px(2.))
+        .mx(px(-6.))
+        .p(SPACE_2)
+        .flex()
+        .flex_col()
+        .gap(px(4.))
+        .rounded(RADIUS_3)
+        .bg(Hsla {
+            a: 0.08,
+            ..t.accent
         })
+        .border_1()
+        .border_color(Hsla {
+            a: 0.25,
+            ..t.accent
+        })
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap(SPACE_2)
+                .child(title)
+                .children(until(kind.use_by, view.now, cx)),
+        )
+        .child(
+            ui::text(says, TEXT_3XS_H, FontWeight::NORMAL)
+                .whitespace_normal()
+                .line_height(px(15.))
+                .text_color(t.text_secondary),
+        )
+        .child(
+            div()
+                .mt(px(4.))
+                .flex()
+                .justify_end()
+                .items_center()
+                .gap(SPACE_2)
+                .child(
+                    ui::text("Cancel", TEXT_2XS, FontWeight::NORMAL)
+                        .id(SharedString::from(format!(
+                            "limits-cancel-{}",
+                            reset_key(shown, kind)
+                        )))
+                        .px(px(4.))
+                        .text_color(t.text_secondary)
+                        .cursor_pointer()
+                        .hover(|cancel| cancel.text_color(t.text_primary))
+                        .on_click(tap(|bench, _, _, cx| {
+                            bench.accounts.limits.arming = None;
+                            redraw(bench, cx);
+                        })),
+                )
+                .child(
+                    ui::Button::new(
+                        SharedString::from(format!("limits-spend-{}", reset_key(shown, kind))),
+                        button,
+                        ui::Variant::Primary,
+                    )
+                    .sized(22., 9., TEXT_2XS)
+                    .on_click(tap(use_reset)),
+                ),
+        )
         .into_any_element()
 }
 
@@ -1331,7 +1560,8 @@ pub(crate) fn chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<imp
                     .child(
                         div()
                             .mt(SPACE_1H)
-                            .pt(SPACE_1)
+                            .mx(-SPACE_1H)
+                            .mb(-SPACE_1H)
                             .border_t_1()
                             .border_color(t.border)
                             .child(every_account(&view, &agents, cx)),

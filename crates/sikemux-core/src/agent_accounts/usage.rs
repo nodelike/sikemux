@@ -42,6 +42,9 @@ pub struct UsageWindow {
 pub struct Usage {
     pub provider: String,
     pub plan: Option<String>,
+    /// The plan as its provider names it to the person, such as Claude's "Ultra" or Codex's "Pro".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tier: Option<String>,
     pub windows: Vec<UsageWindow>,
     pub unavailable_reason: Option<String>,
     /// The limit resets the account holds; none when its provider offers it none.
@@ -388,6 +391,7 @@ pub(crate) fn note_live(provider: &str, config_path: Option<&str>, live: Vec<Usa
             usage: Usage {
                 provider: provider.to_owned(),
                 plan: None,
+                tier: None,
                 windows: Vec::new(),
                 unavailable_reason: None,
                 resets: None,
@@ -631,7 +635,27 @@ pub(crate) async fn claude_usage(
     if usage.unavailable_reason.is_none() {
         usage.resets = super::claude_resets::read(executable, config_path, &usage.windows).await;
     }
+    usage.tier = claude_plan_name(config_path);
     Ok(usage)
+}
+
+/// What Claude calls the account's plan to the person, kept in its config by the CLI.
+fn claude_plan_name(config_path: Option<&str>) -> Option<String> {
+    let file = super::folders::claude_config_file(config_path, &BTreeMap::new());
+    let config: Value = serde_json::from_slice(&std::fs::read(file).ok()?).ok()?;
+    let name = config
+        .pointer("/oauthAccount/planDisplayName")?
+        .as_str()?
+        .trim();
+    (!name.is_empty()).then(|| name.to_owned())
+}
+
+fn capitalized(word: &str) -> String {
+    let mut letters = word.chars();
+    letters
+        .next()
+        .map(|first| first.to_uppercase().chain(letters).collect())
+        .unwrap_or_default()
 }
 
 pub(crate) async fn use_claude_reset(
@@ -885,6 +909,7 @@ fn parse_claude_usage(text: &str, request_id: &str) -> Option<Usage> {
     Some(Usage {
         provider: "claude".to_owned(),
         plan,
+        tier: None,
         windows,
         unavailable_reason,
         resets: None,
@@ -985,6 +1010,7 @@ fn parse_codex_usage_result(result: &Value) -> Usage {
 
     Usage {
         provider: "codex".to_owned(),
+        tier: plan.as_deref().map(capitalized),
         plan,
         unavailable_reason: windows.is_empty().then(|| "This account did not report subscription limits. API-key accounts do not provide plan usage.".to_string()),
         windows,

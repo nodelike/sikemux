@@ -47,6 +47,7 @@ pub const TAB_RAIL: RailWidth = RailWidth {
 
 pub mod card;
 pub(crate) mod limits;
+pub(crate) mod marble;
 pub mod menu;
 pub mod palette;
 pub(crate) mod retitle;
