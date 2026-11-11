@@ -75,6 +75,15 @@ export function syncPushToken(token: TokenSource): Promise<void> {
   return syncing;
 }
 
+/**
+ * The server drops this phone's token when the phone leaves the account, so a token sent before the phone was
+ * last added is not there any more and goes again on the next sync.
+ */
+export async function phoneAdded(createdAt: string): Promise<void> {
+  const sent = await readSent();
+  if (sent && sent.at < Date.parse(createdAt)) await SecureStore.deleteItemAsync(ITEM);
+}
+
 /** Takes this phone's token off the server. Throws when the server can't be reached, so signing out can ask first. */
 export async function stopPush(token: TokenSource): Promise<void> {
   if (!notifier) return;

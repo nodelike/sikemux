@@ -17,7 +17,7 @@ import { hostsArrived } from '@/devices/arrivals';
 import { joinShowing } from '@/devices/joining';
 import { pairedDevices } from '@/devices/paired';
 import { onNetworkChange } from '@/network/connectivity';
-import { syncPushToken } from '@/notify/token';
+import { phoneAdded, syncPushToken } from '@/notify/token';
 import { stashChanged } from '@/stash/store';
 import { accountDevice, accountHosts, registerPhone, removeAccountDevice, type TokenSource } from './api';
 import { apiUrl } from './config';
@@ -157,7 +157,8 @@ export function useAccountSequence() {
     runLive(live);
     const sequence = new AccountSequence({
       register: async () => {
-        await registerPhone(() => token(), userId);
+        const phone = await registerPhone(() => token(), userId);
+        await phoneAdded(phone.createdAt);
       },
       syncPush: () => syncPushToken(() => token()),
       live,
