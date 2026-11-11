@@ -670,6 +670,7 @@
   .dev-ask .body span { color: var(--text-tertiary); }
   .dev-ask code { font-family: var(--mono); font-size: 12px; color: var(--text-secondary); }
   .dev-ask .dot { margin-right: 4px; }
+  .dev-ask:last-child { margin-bottom: 8px; }
   .dev-work { display: flex; align-items: center; gap: 10px; padding: 12px 16px 14px; font-size: 13px; color: var(--text-secondary); }
   .dev-work .loader { margin-left: auto; }
   .faces { display: flex; }
@@ -1297,8 +1298,13 @@
           <div class="device">
             <div class="dev-head">
               <span class="dev-glyph">{{IconDesktop:30}}<i class="presence live"></i></span>
-              <div class="body"><div class="dev-name">Studio</div><div class="dev-meta">Nothing running · last agent 40m ago</div></div>
+              <div class="body"><div class="dev-name">Studio</div><div class="dev-meta">1 agent · last agent 40m ago</div></div>
               <span class="chev">{{IconChevron:14}}</span>
+            </div>
+            <div class="dev-ask">
+              <span class="claude">{{IconClaude:16}}</span>
+              <div class="body"><b>Release notes</b><span>Asks you a question</span></div>
+              <span class="dot warn"></span>
             </div>
           </div>
 
@@ -1321,7 +1327,7 @@
         </div>
       </div>
       <div class="home-bar"></div></div>
-      <figcaption><b>Devices</b><div class="note">Each card is a device with its own glyph and a presence dot. The busy one says the first thing its inbox says needs you, then who is working, with the rail's logos and squares, and how many subagents and shells their agents still have running in the background. A device that is asleep keeps its place but drops to an outline. A host signed in to the same account but not paired with this phone comes last, outlined, with Connect in place of the chevron: it asks that host to let this phone in, with no code. The account's picture sits at the top right and opens the account sheet. Beside it, + adds the waiting slot and the steps from "Waiting for a host" under the list, for one more host; the host that fills it takes its place, and the slot's × puts it away. A card stays lit while its host is being reached again and drops to an outline only once a try fails, so it doesn't flicker. Pulling the list down reads the saved hosts again and reaches every host at once.</div></figcaption>
+      <figcaption><b>Devices</b><div class="note">Each card is a device with its own glyph and a presence dot. The busy one says the first thing its inbox says needs you, inset from the card's edges on every side, then who is working, with the rail's logos and squares, and how many subagents and shells their agents still have running in the background. A device that is asleep keeps its place but drops to an outline. A host signed in to the same account but not paired with this phone comes last, outlined, with Connect in place of the chevron: it asks that host to let this phone in, with no code. The account's picture sits at the top right and opens the account sheet. Beside it, + adds the waiting slot and the steps from "Waiting for a host" under the list, for one more host; the host that fills it takes its place, and the slot's × puts it away. A card stays lit while its host is being reached again and drops to an outline only once a try fails, so it doesn't flicker. Pulling the list down reads the saved hosts again and reaches every host at once.</div></figcaption>
     </figure>
 
     <figure><div class="phone"><div class="island"></div>
