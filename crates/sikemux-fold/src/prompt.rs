@@ -214,6 +214,29 @@ pub(super) fn agent_letters(text: &str) -> Option<Vec<AgentLetter>> {
     (!letters.is_empty() && outside.trim().is_empty()).then_some(letters)
 }
 
+/// `text` without the `[@name](file://path)` links at its end, and their paths. A saved
+/// Claude session keeps the files sent with a message as such links after its text.
+pub(super) fn split_trailing_file_links(text: &str) -> (&str, Vec<String>) {
+    let mut rest = text.trim_end();
+    let mut paths = Vec::new();
+    while let Some(inner) = rest.strip_suffix(')') {
+        let Some(open) = inner.rfind("](file://") else {
+            break;
+        };
+        let Some(start) = inner[..open].rfind("[@") else {
+            break;
+        };
+        let path = &inner[open + "](file://".len()..];
+        if path.is_empty() || path.contains([')', '\n']) || inner[start..open].contains('\n') {
+            break;
+        }
+        paths.push(path.to_owned());
+        rest = inner[..start].trim_end();
+    }
+    paths.reverse();
+    (rest, paths)
+}
+
 /// An answer's typed text and the files listed under the `Attached:` the core wrote after it,
 /// with the `[Image #n]` tags that stood for those files taken out of the text.
 fn split_attached(answer: &str) -> (String, Vec<String>) {
@@ -462,4 +485,18 @@ fn sent_chips(text: &str, names: &SentNames<'_>) -> Vec<(String, SentChip)> {
     }
     found.retain(|(written, _)| text.contains(written.as_str()));
     found
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reads_a_resumed_answer_whose_image_follows_it_as_a_link() {
+        let saved = "<question-answer asker=\"Zouken\" asker-id=\"agent-1\" cli=\"claude\" question=\"Keep it?\" note=\"\">\nKeep the App line\n</question-answer>[@shot.png](file:///Users/me/shot.png)";
+        let (lettered, linked) = split_trailing_file_links(saved);
+        let letters = agent_letters(lettered).expect("an answer");
+        assert_eq!(letters[0].text, "Keep the App line");
+        assert_eq!(linked, ["/Users/me/shot.png"]);
+    }
 }

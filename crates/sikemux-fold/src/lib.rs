@@ -2391,13 +2391,17 @@ fn read_sent(row: &mut Row, commands: &[ChatCommandInfo]) {
     let only_text = parts
         .iter()
         .all(|part| matches!(part, ChatPart::Text { .. }));
+    let (lettered, linked) = prompt::split_trailing_file_links(&whole);
     let mut letters = only_text
-        .then(|| prompt::agent_letters(&whole))
+        .then(|| prompt::agent_letters(lettered))
         .flatten()
         .unwrap_or_default();
     let answer = (letters.iter_mut()).find(|letter| letter.kind == LetterKind::Answer);
     if let Some(answer) = answer.filter(|answer| answer.attachments.is_empty()) {
-        answer.attachments = row.msg.attachments.clone();
+        answer.attachments = match row.msg.attachments.is_empty() {
+            true => linked,
+            false => row.msg.attachments.clone(),
+        };
         answer.text = prompt::without_image_tags(&answer.text, answer.attachments.len());
     }
     for (at, part) in parts.iter_mut().enumerate() {
