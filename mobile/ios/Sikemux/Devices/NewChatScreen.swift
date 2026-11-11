@@ -240,7 +240,7 @@ private struct NewChatContent: View {
                         }
                     }
                 }
-                ComposerInput(text: $draft, placeholder: Self.idle, editable: !starting)
+                ComposerInput(text: $draft, placeholder: Self.idle, editable: !starting, focusOnShow: true)
                 HStack(spacing: 2) {
                     let room = WireLimits.maxAttachments - attachments.count
                     Button {
