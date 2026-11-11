@@ -62,6 +62,9 @@ struct AccountSheet: View {
             phone
             NotificationsRow()
             LockRow()
+            SwitchRow(icon: Icons.shield, title: "Share crash reports", isOn: Bindable(CrashReports.shared).on) {
+                Text(Self.crashReports).font(Theme.meta).lineSpacing(3).foregroundStyle(palette.tertiary)
+            }
             if let unconfirmed {
                 Text(unconfirmed)
                     .font(Theme.ui(15, .semibold)).foregroundStyle(palette.ink)
@@ -166,6 +169,8 @@ struct AccountSheet: View {
             shown = false
         }
     }
+
+    private static let crashReports = "When the app crashes or hits an error, sends what went wrong and where in the code, with the app version, phone model and system version, and a one-way hash of your account. Never your hosts, chats, prompts, files or projects."
 
     /// The installed release and the commit it was built from: `0.1.0-nightly.5 · cef3bae`.
     static let version: String = {
