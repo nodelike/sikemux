@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// Files a chat's messages name on the host, copied to this phone once each.
@@ -36,10 +37,14 @@ final class HostFiles {
             || body.range(of: #"^~?/[^/\s]+/[^/\s]"#, options: .regularExpression) != nil
     }
 
+    /// A folder of its own for each path, so two files with one name never share a copy, keeping the name for
+    /// whatever opens it.
     private func saved(_ core: String, _ path: String) -> URL {
-        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        let folder = SHA256.hash(data: Data(path.utf8)).prefix(8).map { String(format: "%02x", $0) }.joined()
+        return FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("chat-files")
             .appendingPathComponent(String(core.prefix(16)))
+            .appendingPathComponent(folder)
             .appendingPathComponent((path as NSString).lastPathComponent)
     }
 
