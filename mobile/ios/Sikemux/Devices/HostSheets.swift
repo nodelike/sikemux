@@ -223,39 +223,20 @@ extension ProjectSheet where Tail == EmptyView {
     }
 }
 
-/// What was just snoozed or settled from this phone, with how to take it back, for a few seconds.
-@MainActor @Observable
-final class AwayNote {
-    struct Said {
-        let text: String
-        let undo: () -> Void
-    }
+/// What was just snoozed or settled from this phone, with how to take it back.
+struct AwayNote {
+    let text: String
+    let undo: () -> Void
 
-    static let shared = AwayNote()
-    private(set) var said: Said?
-    @ObservationIgnored private var clearing: Task<Void, Never>?
-
-    func tell(_ text: String, undo: @escaping () -> Void) {
-        clearing?.cancel()
-        said = Said(text: text, undo: undo)
-        clearing = Task {
-            try? await Task.sleep(for: .seconds(6))
-            if !Task.isCancelled { said = nil }
-        }
-    }
-
-    func clear() {
-        clearing?.cancel()
-        said = nil
-    }
+    @MainActor static let shown = Offer<AwayNote>()
 }
 
 struct AwayNoteView: View {
     @Environment(\.palette) private var palette
-    private let note = AwayNote.shared
+    private let note = AwayNote.shown
 
     var body: some View {
-        if let said = note.said {
+        if let said = note.current {
             HStack(spacing: 8) {
                 Text(said.text).font(Theme.ui(13.5, .medium)).foregroundStyle(palette.ink)
                 Button {
@@ -421,7 +402,7 @@ struct AwaySheet: View {
         Task {
             do {
                 try await work(connection)
-                if let said { AwayNote.shared.tell(said.text) { said.undo(connection) } }
+                if let said { AwayNote.shown.offer(AwayNote(text: said.text) { said.undo(connection) }) }
                 onClose()
                 onDone?()
             } catch {

@@ -247,28 +247,20 @@ final class PromptStash {
         case stashed(id: String)
     }
 
-    /// How long Undo stays offered after a prompt went to the stash.
-    private static let undoFor: Duration = .seconds(6)
-
-    private(set) var toast: Toast?
-    @ObservationIgnored private var hiding: Task<Void, Never>?
+    private let shown = Offer<Toast>()
+    var toast: Toast? { shown.current }
 
     /// `work` stashes the prompt and answers the new item's id; `report` hears a failure in words.
     func stash(_ work: @escaping () async throws -> String, report: @escaping (String) -> Void) {
         Haptics.tap()
-        hiding?.cancel()
-        toast = .stashing
+        shown.hold(.stashing)
         Task {
             do {
                 let id = try await work()
                 Haptics.success()
-                toast = .stashed(id: id)
-                hiding = Task {
-                    try? await Task.sleep(for: Self.undoFor)
-                    if !Task.isCancelled { toast = nil }
-                }
+                shown.offer(.stashed(id: id))
             } catch {
-                toast = nil
+                shown.clear()
                 report("could not stash it: \(problem(error))")
             }
         }
@@ -277,8 +269,7 @@ final class PromptStash {
     /// Puts the prompt back with `undo`, which takes the stashed item's id.
     func undo(_ undo: @escaping (String) async throws -> Void, report: @escaping (String) -> Void) {
         guard case .stashed(let id) = toast else { return }
-        hiding?.cancel()
-        toast = nil
+        shown.clear()
         Task {
             do { try await undo(id) } catch { report("could not put it back: \(problem(error))") }
         }
