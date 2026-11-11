@@ -14,27 +14,38 @@ use sikemux_process::sync::Locked;
 use tokio::process::Command;
 
 use super::folders;
-use super::usage::{ResetOutcome, Resets};
+use super::usage::{ResetKind, ResetOutcome, Resets, UsageWindow};
 
 const API: &str = "https://api.anthropic.com";
 const PROGRAM: &str = "cedar_ember";
 const SPEND_TIMEOUT: Duration = Duration::from_secs(25);
 
 /// The resets the account holds, or none when Claude offers it none or could not be asked.
-pub(crate) async fn read(program: &Path, config_path: Option<&str>) -> Option<Resets> {
+pub(crate) async fn read(
+    program: &Path,
+    config_path: Option<&str>,
+    windows: &[UsageWindow],
+) -> Option<Resets> {
     let grants = grants(program, config_path).await.ok()??;
-    Some(grants.resets())
+    Some(grants.resets(windows))
 }
 
-/// Spends the reset Claude would use next.
+/// Spends the grant `grant` names, else the one Claude would use next.
 pub(crate) async fn spend(
     program: &Path,
     config_path: Option<&str>,
+    grant: Option<&str>,
 ) -> Result<ResetOutcome, String> {
     let Some(grants) = grants(program, config_path).await? else {
         return Ok(ResetOutcome::NoReset);
     };
-    let Some(grant) = grants.next else {
+    let grant = match grant {
+        Some(id) => (grants.live.iter())
+            .find(|live| live.id == id)
+            .map(|live| live.id.clone()),
+        None => grants.next.clone(),
+    };
+    let Some(grant) = grant else {
         return Ok(ResetOutcome::NoReset);
     };
     let organization = organization(config_path).ok_or(SIGNED_OUT)?;
@@ -68,19 +79,34 @@ const SIGNED_OUT: &str = "Sign in to Claude again to use resets";
 #[derive(Deserialize)]
 struct Grant {
     id: String,
+    #[serde(default)]
+    label: String,
     resets_left: u32,
     ends_at: Option<String>,
     #[serde(default)]
     paused: bool,
     #[serde(default)]
     usable_now: bool,
+    #[serde(default)]
+    clears: Vec<String>,
+    #[serde(rename = "type")]
+    kind: Option<String>,
 }
 
-/// The account's usable grants and the one Claude spends next.
+/// A grant Claude would spend now.
+struct Live {
+    id: String,
+    label: String,
+    left: u32,
+    ends: Option<u64>,
+    clears: Vec<String>,
+    kind: Option<String>,
+}
+
+/// The account's usable grants, in Claude's order, and the one Claude spends next.
 struct Grants {
-    live: Vec<(u32, Option<u64>)>,
+    live: Vec<Live>,
     next: Option<String>,
-    next_ends: Option<u64>,
 }
 
 impl Grants {
@@ -89,43 +115,105 @@ impl Grants {
             return None;
         }
         let next_id = block.get("next_grant_id").and_then(Value::as_str);
-        let mut grants = Self {
-            live: Vec::new(),
-            next: None,
-            next_ends: None,
-        };
         let listed = block
             .get("grants")
             .and_then(Value::as_array)
             .into_iter()
             .flatten();
+        let mut live = Vec::new();
         for grant in listed.filter_map(|grant| Grant::deserialize(grant).ok()) {
             let ends = grant
                 .ends_at
                 .as_deref()
                 .map(crate::accounts::live::parse_rfc3339);
             let expired = ends.is_some_and(|ends| ends.is_none_or(|ends| ends <= now_ms));
-            if grant.paused || !grant.usable_now || expired {
+            if grant.paused || !grant.usable_now || expired || grant.resets_left == 0 {
                 continue;
             }
-            let ends = ends.flatten();
-            if next_id == Some(grant.id.as_str()) {
-                (grants.next, grants.next_ends) = (Some(grant.id), ends);
-            }
-            grants.live.push((grant.resets_left, ends));
+            live.push(Live {
+                label: match grant.label.trim() {
+                    "" => "Reset".to_owned(),
+                    label => label.to_owned(),
+                },
+                id: grant.id,
+                left: grant.resets_left,
+                ends: ends.flatten(),
+                clears: grant.clears,
+                kind: grant.kind,
+            });
         }
-        Some(grants)
+        let next = next_id
+            .filter(|id| live.iter().any(|grant| grant.id == *id))
+            .map(str::to_owned);
+        Some(Self { live, next })
     }
 
-    fn resets(&self) -> Resets {
+    /// The grants added up by kind, each matched to the window it refills.
+    fn resets(&self, windows: &[UsageWindow]) -> Resets {
+        let mut kinds: Vec<ResetKind> = Vec::new();
+        for grant in &self.live {
+            let window = refills(grant, windows);
+            match kinds.iter_mut().find(|kind| kind.window == window) {
+                Some(kind) => {
+                    kind.left += grant.left;
+                    if grant.ends.unwrap_or(u64::MAX) < kind.use_by.unwrap_or(u64::MAX) {
+                        (kind.id, kind.use_by) = (Some(grant.id.clone()), grant.ends);
+                    }
+                }
+                None => kinds.push(ResetKind {
+                    id: Some(grant.id.clone()),
+                    label: kind_name(window.as_deref(), windows),
+                    left: grant.left,
+                    use_by: grant.ends,
+                    window,
+                }),
+            }
+        }
         Resets {
-            left: match self.next {
-                Some(_) => self.live.iter().map(|(left, _)| left).sum(),
-                None => 0,
-            },
-            use_by: self.next_ends,
+            left: kinds.iter().map(|kind| kind.left).sum(),
+            kinds,
         }
     }
+}
+
+/// What Claude's own screen calls resets refilling `window`: weekly, a model's, or full.
+fn kind_name(window: Option<&str>, windows: &[UsageWindow]) -> String {
+    let refilled = window.and_then(|label| windows.iter().find(|window| window.label == label));
+    match refilled {
+        Some(UsageWindow {
+            scope: Some(scope), ..
+        }) => format!("{scope} reset"),
+        Some(UsageWindow {
+            window_minutes: Some(300),
+            ..
+        }) => "5-hour reset".to_owned(),
+        Some(_) => "Weekly reset".to_owned(),
+        None => "Full reset".to_owned(),
+    }
+}
+
+/// The window a grant refills: one whose model it names, such as Fable, else the session or the
+/// week its type says. None for a grant that starts every used-up window over.
+fn refills(grant: &Live, windows: &[UsageWindow]) -> Option<String> {
+    let named = grant.label.to_lowercase();
+    if let Some(window) = windows.iter().find(|window| {
+        (window.scope.as_deref()).is_some_and(|scope| {
+            named
+                .split_whitespace()
+                .any(|word| word == scope.to_lowercase())
+        })
+    }) {
+        return Some(window.label.clone());
+    }
+    let minutes = match (grant.kind.as_deref(), grant.clears.as_slice()) {
+        (Some("session"), _) => 300,
+        (_, clears) if clears.iter().any(|clear| clear == "five_hour") && clears.len() == 1 => 300,
+        (Some("full"), _) => return None,
+        _ => 10_080,
+    };
+    (windows.iter())
+        .find(|window| window.scope.is_none() && window.window_minutes == Some(minutes))
+        .map(|window| window.label.clone())
 }
 
 async fn grants(program: &Path, config_path: Option<&str>) -> Result<Option<Grants>, String> {

@@ -238,6 +238,7 @@ pub(crate) trait AgentOps: Sync {
         &self,
         _program: &'a Path,
         _config_path: Option<&'a str>,
+        _kind: Option<&'a str>,
     ) -> Option<Pending<'a, Result<ResetOutcome, String>>> {
         None
     }

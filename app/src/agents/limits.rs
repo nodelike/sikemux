@@ -12,7 +12,7 @@ use gpui_kit::{
     Context, Div, FontWeight, Hsla, InteractiveElement, IntoElement, ParentElement, SharedString,
     Stateful, StatefulInteractiveElement, Styled, Task, Transformation, WeakEntity, Window,
 };
-use sikemux_core::agent_accounts::usage::{ResetOutcome, UsageWindow};
+use sikemux_core::agent_accounts::usage::{ResetKind, ResetOutcome, UsageWindow};
 use sikemux_core::agent_accounts::Profile;
 use sikemux_core::server::agent_accounts::{AccountUsage, Unpicking, UsedReset, UsingReset};
 use sikemux_core::server::call;
@@ -66,9 +66,9 @@ pub struct Reveal {
     popover: bool,
     undo: Option<Undo>,
     reading: Option<Task<()>>,
-    /// The launcher whose Reset was pressed once, waiting for the press that spends it.
+    /// The reset pressed once, by account and kind, waiting for the press that spends it.
     arming: Option<String>,
-    /// The launcher a reset is being spent on.
+    /// The reset being spent, by account and kind.
     resetting: Option<String>,
     /// Whether the rail's last draw held the panel, which only drawing it can say.
     panel_drawn: Cell<bool>,
@@ -110,12 +110,23 @@ impl Shown<'_> {
         self.usage?.usage.as_ref()?.session()
     }
 
-    /// The windows an account line draws, labelled, shortest first.
-    fn windows(&self) -> Vec<(&'static str, &UsageWindow)> {
-        [("5H", self.session()), ("7D", self.week())]
+    /// The windows an account draws, labelled: the session's, the week's, then each model's.
+    fn windows(&self) -> Vec<(String, &UsageWindow)> {
+        let Some(usage) = self.usage.and_then(|usage| usage.usage.as_ref()) else {
+            return Vec::new();
+        };
+        let plan = [("5H", usage.session()), ("7D", usage.week())]
             .into_iter()
-            .filter_map(|(label, window)| Some((label, window?)))
-            .collect()
+            .filter_map(|(label, window)| Some((label.to_owned(), window?)));
+        let models = (usage.windows.iter())
+            .filter_map(|window| Some((window.scope.as_ref()?.to_uppercase(), window)));
+        plan.chain(models).collect()
+    }
+
+    fn resets(&self) -> &[ResetKind] {
+        (self.usage)
+            .and_then(|usage| usage.usage.as_ref()?.resets.as_ref())
+            .map_or(&[], |resets| resets.kinds.as_slice())
     }
 
     /// How long ago its numbers were read, once that is worth saying.
@@ -579,10 +590,10 @@ fn rest_frame(view: &View, agent: &Agent, used: Option<f64>, end: Div, cx: &App)
 }
 
 /// A window's short name, such as 5H, at the start of its line.
-fn window_label(label: &'static str, cx: &App) -> Div {
-    ui::text(label, TEXT_3XS, FontWeight::MEDIUM)
+fn window_label(label: impl Into<SharedString>, width: f32, cx: &App) -> Div {
+    ui::text(label.into(), TEXT_3XS, FontWeight::MEDIUM)
         .flex_none()
-        .w(px(16.))
+        .w(px(width))
         .text_color(Tokens::get(cx).text_tertiary)
 }
 
@@ -639,7 +650,7 @@ fn rest_row(view: &View, agent: &Agent, totals: &[(&'static str, Total)], cx: &A
             .flex()
             .items_center()
             .gap(SPACE_2)
-            .child(window_label(label, cx))
+            .child(window_label(*label, 16., cx))
             .child(ruler(Some(total.used()), t).flex_1().min_w_0().h(px(10.)))
             .child(total_sum(total, cx))
     });
@@ -892,10 +903,20 @@ fn account_line(view: &View, agent: &Agent, shown: &Shown, in_use: bool, cx: &Ap
         (Some(status), Some(tip)) => Some(format!("{status}. {tip}")),
         (status, tip) => tip.or(status),
     };
-    let window_line = |label: Option<&'static str>, window: Option<&UsageWindow>| {
+    let label_width = match windows.iter().any(|(label, _)| label.len() > 2) {
+        true => 40.,
+        false => 16.,
+    };
+    let resets = shown.resets();
+    let window_line = |label: Option<&str>, window: Option<&UsageWindow>| {
+        let reset = window.and_then(|window| {
+            (resets.iter()).find(|kind| kind.window.as_deref() == Some(window.label.as_str()))
+        });
         line(WINDOW_LINE)
             .font_features(theme::tabular())
-            .when_some(label, |line, label| line.child(window_label(label, cx)))
+            .when_some(label, |line, label| {
+                line.child(window_label(label.to_owned(), label_width, cx))
+            })
             .child(
                 ruler(window.map(|window| window.used_at(view.now)), t)
                     .flex_1()
@@ -916,11 +937,12 @@ fn account_line(view: &View, agent: &Agent, shown: &Shown, in_use: bool, cx: &Ap
                     ),
                 None => line.child(note(shown.nothing(), cx)),
             })
+            .children(reset.map(|kind| reset_button(view, shown, kind, true, cx)))
     };
     let lines: Vec<Div> = match windows.is_empty() {
         true => vec![window_line(None, None)],
         false => (windows.iter())
-            .map(|(label, window)| window_line(Some(label), Some(window)))
+            .map(|(label, window)| window_line(Some(label.as_str()), Some(*window)))
             .collect(),
     };
     let smart = view.smart && agent.accounts.len() > 1;
@@ -944,7 +966,14 @@ fn account_line(view: &View, agent: &Agent, shown: &Shown, in_use: bool, cx: &Ap
                 .child(name(shown.name.clone()))
                 .when(smart && pinned, |names| names.child(meta("Pinned".into()))),
         )
-        .children(reset_pill(view, shown, cx));
+        .children(
+            (resets.iter())
+                .filter(|kind| {
+                    !(windows.iter())
+                        .any(|(_, window)| kind.window.as_deref() == Some(&window.label))
+                })
+                .map(|kind| reset_button(view, shown, kind, false, cx)),
+        );
     let windows = div()
         .relative()
         .child(
@@ -997,93 +1026,107 @@ fn account_line(view: &View, agent: &Agent, shown: &Shown, in_use: bool, cx: &Ap
         .into_any_element()
 }
 
-/// The account's limit resets as a button by its name: the first press asks, the second spends
-/// one. Nothing shows while it holds none.
-fn reset_pill(view: &View, shown: &Shown, cx: &App) -> Option<AnyElement> {
-    let usage = shown.usage?;
-    let resets = usage
-        .usage
-        .as_ref()?
-        .resets
-        .as_ref()
-        .filter(|resets| resets.left > 0)?;
+/// One kind of the account's limit resets as a button: at the end of the line of the window it
+/// refills, or by the name when it refills them all. The first press asks, the second spends one.
+fn reset_button(
+    view: &View,
+    shown: &Shown,
+    kind: &ResetKind,
+    on_line: bool,
+    cx: &App,
+) -> AnyElement {
     let t = Tokens::get(cx);
-    let launcher = usage.launcher.clone();
-    let armed = view.arming.as_deref() == Some(launcher.as_str());
-    let busy = view.resetting.as_deref() == Some(launcher.as_str());
-    let text = match (busy, armed) {
-        (true, _) => "Resetting…".to_owned(),
-        (false, true) => "Reset now?".to_owned(),
-        (false, false) => format!("Reset · {} left", resets.left),
+    let launcher = shown
+        .usage
+        .map_or_else(String::new, |usage| usage.launcher.clone());
+    let key = format!("{launcher}/{}", kind.label);
+    let armed = view.arming.as_deref() == Some(key.as_str());
+    let busy = view.resetting.as_deref() == Some(key.as_str());
+    let text = match (busy, armed, on_line) {
+        (true, _, _) => "Resetting…".to_owned(),
+        (false, true, _) => "Reset now?".to_owned(),
+        (false, false, true) => kind.left.to_string(),
+        (false, false, false) => format!("Reset · {} left", kind.left),
     };
-    let plural = if resets.left == 1 { "" } else { "s" };
-    let tip = match resets
-        .use_by
+    let what = match &kind.window {
+        Some(_) if on_line => "Refills this limit.",
+        Some(_) => "Refills one limit.",
+        None => "Starts every used-up limit over.",
+    };
+    let tip = match (kind.use_by)
         .and_then(|at| chrono::DateTime::from_timestamp_millis(i64::try_from(at).ok()?))
     {
         Some(at) => format!(
-            "{} reset{plural}, the first to use by {}. A reset starts the used-up windows over.",
-            resets.left,
+            "{}: {} left, the first to use by {}. {what}",
+            kind.label,
+            kind.left,
             day_and_time(at)
         ),
-        None => format!(
-            "{} reset{plural}. A reset starts the used-up windows over.",
-            resets.left
-        ),
+        None => format!("{}: {} left. {what}", kind.label, kind.left),
     };
+    let ink = if armed { t.on_accent } else { t.accent };
     let this = view.this.clone();
-    let label = shown.name.clone();
-    let tint = Hsla {
-        a: if armed { 1. } else { 0.16 },
-        ..t.accent
+    let spend = Spend {
+        launcher,
+        kind: kind.id.clone(),
+        account: shown.name.clone(),
+        what: kind.label.clone(),
     };
-    Some(
-        div()
-            .id(SharedString::from(format!("limits-reset-{launcher}")))
-            .flex_none()
-            .h(px(18.))
-            .px(px(6.))
-            .flex()
-            .items_center()
-            .gap(px(3.))
-            .rounded(RADIUS_2)
-            .bg(tint)
-            .text_color(if armed { t.on_accent } else { t.accent })
-            .cursor_pointer()
-            .tooltip(ui::tooltip(tip))
-            .child(ui::icon(Icon::Refresh, 10.).text_color(if armed {
-                t.on_accent
-            } else {
-                t.accent
-            }))
-            .child(ui::text(text, TEXT_3XS, FontWeight::MEDIUM))
-            .on_click(move |_, _, cx| {
-                cx.stop_propagation();
-                if busy {
-                    return;
+    div()
+        .id(SharedString::from(format!("limits-reset-{key}")))
+        .flex_none()
+        .h(px(if on_line { 14. } else { 18. }))
+        .px(px(if on_line { 4. } else { 6. }))
+        .flex()
+        .items_center()
+        .gap(px(3.))
+        .rounded(RADIUS_2)
+        .bg(Hsla {
+            a: if armed { 1. } else { 0.16 },
+            ..t.accent
+        })
+        .text_color(ink)
+        .cursor_pointer()
+        .tooltip(ui::tooltip(tip))
+        .child(ui::icon(Icon::Refresh, 10.).text_color(ink))
+        .child(ui::text(text, TEXT_3XS, FontWeight::MEDIUM))
+        .on_click(move |_, _, cx| {
+            cx.stop_propagation();
+            if busy {
+                return;
+            }
+            let (key, spend) = (key.clone(), spend.clone());
+            let _ = this.update(cx, |bench, cx| match armed {
+                false => {
+                    bench.accounts.limits.arming = Some(key);
+                    redraw(bench, cx);
                 }
-                let launcher = launcher.clone();
-                let label = label.clone();
-                let _ = this.update(cx, |bench, cx| match armed {
-                    false => {
-                        bench.accounts.limits.arming = Some(launcher);
-                        redraw(bench, cx);
-                    }
-                    true => use_reset(bench, launcher, label, cx),
-                });
-            })
-            .into_any_element(),
-    )
+                true => use_reset(bench, key, spend, cx),
+            });
+        })
+        .into_any_element()
+}
+
+/// A reset to spend, and the names a toast says it by.
+#[derive(Clone)]
+struct Spend {
+    launcher: String,
+    kind: Option<String>,
+    account: String,
+    what: String,
 }
 
 /// Spends one of the account's resets and says how it went. The core reads its limits again.
-fn use_reset(bench: &mut Workbench, launcher: String, label: String, cx: &mut Context<Workbench>) {
+fn use_reset(bench: &mut Workbench, key: String, spend: Spend, cx: &mut Context<Workbench>) {
     let limits = &mut bench.accounts.limits;
     limits.arming = None;
-    limits.resetting = Some(launcher.clone());
+    limits.resetting = Some(key);
     redraw(bench, cx);
-    let asked =
-        Target::here(&bench.asks).request_typed::<call::UseAgentReset>(UsingReset { launcher });
+    let asked = Target::here(&bench.asks).request_typed::<call::UseAgentReset>(UsingReset {
+        launcher: spend.launcher,
+        kind: spend.kind,
+    });
+    let Spend { account, what, .. } = spend;
     cx.spawn(async move |bench, cx| {
         let answer = asked.await;
         let _ = bench.update(cx, |bench, cx| {
@@ -1093,18 +1136,20 @@ fn use_reset(bench: &mut Workbench, launcher: String, label: String, cx: &mut Co
                     outcome: ResetOutcome::Reset,
                     left,
                 }) => toast::success(match left {
-                    Some(left) => format!("{label} reset · {left} left"),
-                    None => format!("{label} reset"),
+                    Some(left) => format!("{what} used on {account} · {left} left"),
+                    None => format!("{what} used on {account}"),
                 }),
                 Ok(UsedReset {
                     outcome: ResetOutcome::NothingToReset,
                     ..
-                }) => toast::info(format!("Nothing to reset on {label} yet, so none was used")),
+                }) => toast::info(format!(
+                    "Nothing to reset on {account} yet, so none was used"
+                )),
                 Ok(UsedReset {
                     outcome: ResetOutcome::NoReset,
                     ..
-                }) => toast::info(format!("{label} has no resets left")),
-                Err(error) => toast::error(format!("Couldn't reset {label}: {error}")),
+                }) => toast::info(format!("{account} has no {what}s left")),
+                Err(error) => toast::error(format!("Couldn't reset {account}: {error}")),
             };
             bench.notify(note, cx);
             redraw(bench, cx);

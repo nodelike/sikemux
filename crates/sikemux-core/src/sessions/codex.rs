@@ -544,6 +544,7 @@ impl AgentOps for Codex {
         &self,
         program: &'a Path,
         config_path: Option<&'a str>,
+        _kind: Option<&'a str>,
     ) -> Option<Pending<'a, Result<usage::ResetOutcome, String>>> {
         Some(Box::pin(usage::use_codex_reset(program, config_path)))
     }

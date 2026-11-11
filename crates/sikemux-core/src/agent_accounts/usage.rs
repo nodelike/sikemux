@@ -49,13 +49,26 @@ pub struct Usage {
     pub resets: Option<Resets>,
 }
 
-/// Limit resets an account was given, each of which starts its used-up windows over at once.
+/// Limit resets an account was given, by kind.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Resets {
     pub left: u32,
+    pub kinds: Vec<ResetKind>,
+}
+
+/// Resets of one kind, such as Claude's weekly or Fable resets.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ResetKind {
+    /// The grant spending one uses: the kind's first to run out. None when the agent chooses.
+    pub id: Option<String>,
+    pub label: String,
+    pub left: u32,
     /// When the first of them expires, in Unix milliseconds; none when none do.
     pub use_by: Option<u64>,
+    /// The label of the window one refills; none when one starts every used-up window over.
+    pub window: Option<String>,
 }
 
 /// What spending a reset did.
@@ -616,7 +629,7 @@ pub(crate) async fn claude_usage(
 ) -> Result<Usage, String> {
     let mut usage = claude_plan_usage(executable, config_path).await?;
     if usage.unavailable_reason.is_none() {
-        usage.resets = super::claude_resets::read(executable, config_path).await;
+        usage.resets = super::claude_resets::read(executable, config_path, &usage.windows).await;
     }
     Ok(usage)
 }
@@ -624,8 +637,9 @@ pub(crate) async fn claude_usage(
 pub(crate) async fn use_claude_reset(
     executable: &Path,
     config_path: Option<&str>,
+    kind: Option<&str>,
 ) -> Result<ResetOutcome, String> {
-    super::claude_resets::spend(executable, config_path).await
+    super::claude_resets::spend(executable, config_path, kind).await
 }
 
 async fn claude_plan_usage(executable: &Path, config_path: Option<&str>) -> Result<Usage, String> {
@@ -988,9 +1002,19 @@ fn codex_resets(result: &Value) -> Option<Resets> {
         .filter(|credit| credit.get("status").and_then(Value::as_str) == Some("available"))
         .filter_map(|credit| credit.get("expiresAt")?.as_u64()?.checked_mul(1000))
         .min();
+    let left = u32::try_from(left).unwrap_or(u32::MAX);
     Some(Resets {
-        left: u32::try_from(left).unwrap_or(u32::MAX),
-        use_by,
+        left,
+        kinds: (left > 0)
+            .then(|| ResetKind {
+                id: None,
+                label: "Reset".to_owned(),
+                left,
+                use_by,
+                window: None,
+            })
+            .into_iter()
+            .collect(),
     })
 }
 

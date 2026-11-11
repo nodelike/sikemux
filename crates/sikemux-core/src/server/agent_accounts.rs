@@ -725,6 +725,9 @@ pub(super) async fn usage(core: &Arc<Core>, account: Account) -> CoreResult<usag
 #[derive(Serialize, Deserialize)]
 pub struct UsingReset {
     pub launcher: String,
+    /// The reset to spend, by its kind's id; none spends the one the agent would.
+    #[serde(default)]
+    pub kind: Option<String>,
 }
 
 /// What spending a reset did, and the resets the account holds after it.
@@ -748,7 +751,11 @@ pub(super) async fn use_reset(core: &Arc<Core>, using: UsingReset) -> CoreResult
     let program = program(core, &account).await?;
     let config_path = account.config_path.as_deref();
     let spend = crate::agent_catalog::AgentKind::from_name(&account.provider)
-        .and_then(|kind| kind.ops().use_reset(&program, config_path))
+        .and_then(|agent| {
+            agent
+                .ops()
+                .use_reset(&program, config_path, using.kind.as_deref())
+        })
         .ok_or("This agent offers no limit resets")?;
     let outcome = spend.await?;
     usage::forget_lookup(&account.provider, config_path);
