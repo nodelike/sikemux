@@ -4,13 +4,21 @@ import { durationLabel } from '@shared/chat/durationLabel';
 import type { AgentNotice, GoalMarker, SliceState } from '@shared/wire.generated';
 import { fonts, type Palette, translucent, useColors, useStyles } from '@/ui/theme';
 
-const WORDS: Record<SliceState, string> = {
-  moving: 'Goal',
-  done: 'Goal done',
-  failed: 'Goal stopped',
-  needsYou: 'Goal needs you',
-  waiting: 'Goal waiting',
-};
+/** What the line says and the state its mark takes, from the moment of the goal it marks. */
+function said(goal: GoalMarker): { state: SliceState; word: string } {
+  switch (goal.moment ?? 'started') {
+    case 'step':
+      return { state: 'done', word: 'Step done' };
+    case 'done':
+      return { state: 'done', word: 'Goal done' };
+    case 'stopped':
+      return { state: goal.state === 'failed' ? 'failed' : 'waiting', word: 'Goal stopped' };
+    default:
+      if (goal.state === 'needsYou') return { state: 'needsYou', word: 'Goal needs you' };
+      if (goal.state === 'waiting') return { state: 'waiting', word: 'Goal waiting' };
+      return { state: goal.state, word: 'Goal' };
+  }
+}
 
 const STEP_WIDTH = 14;
 const STEP_GAP = 3;
@@ -31,16 +39,17 @@ function progress(goal: GoalMarker): string | null {
   return `${done} of ${steps.length} ${goal.ofGates ? 'gates' : 'done'}`;
 }
 
-/** Where a goal starts or ends, as a milestone: its mark and state in its colour, its name, then its steps and time. */
+/** Where a goal starts, takes a step, ends or stops, as a milestone: its mark and state in its colour, its name, then its steps and time. */
 export function GoalLine({ notice, goal }: { notice: AgentNotice; goal: GoalMarker }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
   const words = progress(goal);
-  const ink = stateInk(goal.state, colors);
+  const { state, word } = said(goal);
+  const ink = stateInk(state, colors);
   return (
-    <View style={styles.line} accessibilityLabel={[WORDS[goal.state], goal.name || notice.title, words].filter(Boolean).join(', ')}>
-      <StateMark state={goal.state} />
-      <Text style={[styles.word, { color: ink }]}>{WORDS[goal.state]}</Text>
+    <View style={styles.line} accessibilityLabel={[word, goal.name || notice.title, words].filter(Boolean).join(', ')}>
+      <StateMark state={state} />
+      <Text style={[styles.word, { color: ink }]}>{word}</Text>
       <Text style={styles.name} numberOfLines={1}>
         {goal.name || notice.title}
       </Text>
