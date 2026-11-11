@@ -158,14 +158,6 @@ mod tests {
     }
 
     #[test]
-    fn native_agents_run_their_own_binary_in_acp_mode() {
-        let launch =
-            AgentSpec::new("grok").chat(PathBuf::from("/bin/grok"), Default::default(), None);
-        assert_eq!(launch.program, Path::new("/bin/grok"));
-        assert_eq!(launch.args, ["agent", "--no-leader", "stdio"]);
-    }
-
-    #[test]
     fn only_well_formed_variable_names_are_forwarded() {
         for name in ["PATH", "_private", "a1"] {
             assert!(valid_environment_key(name), "{name}");

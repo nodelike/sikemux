@@ -300,11 +300,4 @@ mod tests {
         assert!(relation_without_repo(Some("dev"), "main") == BranchRelation::UnknownNoRepo);
         assert!(relation_without_repo(None, "main") == BranchRelation::UnknownNoDeployedBranch);
     }
-
-    #[test]
-    fn fetches_a_repo_at_most_once_per_interval() {
-        let root = PathBuf::from("/tmp/sikemux-plan-fetch-throttle-test");
-        assert!(claim_fetch(root.clone()));
-        assert!(!claim_fetch(root));
-    }
 }

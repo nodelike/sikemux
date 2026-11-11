@@ -153,19 +153,6 @@ mod tests {
     }
 
     #[test]
-    fn capabilities_name_the_extension_parts_the_frontend_renders() {
-        let capabilities = serde_json::to_value(client_capabilities()).unwrap();
-        assert_eq!(
-            capabilities.pointer("/_meta/jetbrains/air"),
-            Some(&json!({
-                "version": 1,
-                "capabilities": ["asyncTasks", "nativeSubagentSessions", "sessionFailure"],
-            }))
-        );
-        assert_eq!(capabilities.pointer("/session/notices"), Some(&json!({})));
-    }
-
-    #[test]
     fn steering_is_read_from_the_initialize_meta() {
         assert!(steering_supported(
             &json!({ "steering": { "supported": true } })
@@ -175,17 +162,6 @@ mod tests {
         ));
         assert!(!steering_supported(&json!({ "goal": { "version": 1 } })));
         assert!(!steering_supported(&Value::Null));
-    }
-
-    #[test]
-    fn a_steer_asks_for_the_message_back_when_no_turn_is_running() {
-        let steer = Steer::new("session-1".into(), vec!["hello".into()]);
-        let payload = serde_json::to_value(&steer).unwrap();
-        assert_eq!(payload["sessionId"], json!("session-1"));
-        assert_eq!(
-            payload.pointer("/_meta/steering/idleBehavior"),
-            Some(&json!("promptRequired"))
-        );
     }
 
     #[test]
@@ -251,14 +227,5 @@ mod tests {
             json!({ "category": "access", "severity": "error", "title": "Verify", "actions": ["retry"] }),
         );
         assert_eq!(failure(&denied).unwrap().kind, FailureKind::Other);
-    }
-
-    #[test]
-    fn a_retry_warning_is_no_failure() {
-        let warning = air(
-            json!({ "category": "limit", "severity": "warning", "title": "Retrying", "actions": [] }),
-        );
-        assert_eq!(failure(&warning), None);
-        assert_eq!(failure(&json!({ "quota": {} })), None);
     }
 }

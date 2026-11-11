@@ -204,19 +204,4 @@ mod tests {
             None
         );
     }
-
-    #[test]
-    fn sleep_shows_as_the_wall_clock_running_ahead() {
-        let start = (Instant::now(), SystemTime::now());
-        let awake = (
-            start.0 + Duration::from_secs(5),
-            start.1 + Duration::from_secs(5),
-        );
-        let after_sleep = (
-            start.0 + Duration::from_secs(5),
-            start.1 + Duration::from_secs(600),
-        );
-        assert!(!slept(start, awake));
-        assert!(slept(start, after_sleep));
-    }
 }

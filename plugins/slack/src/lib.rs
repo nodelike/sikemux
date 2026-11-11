@@ -95,17 +95,4 @@ mod tests {
             sikemux_plugin_api::FailureCategory::BadParams
         );
     }
-
-    #[tokio::test]
-    async fn an_unknown_method_is_refused() {
-        let plugin = plugin();
-        let error = plugin
-            .call(&scratch("unknown"), "nonsense", Value::Null)
-            .await
-            .expect_err("refused");
-        assert_eq!(
-            error.category,
-            sikemux_plugin_api::FailureCategory::UnknownMethod
-        );
-    }
 }

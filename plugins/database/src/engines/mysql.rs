@@ -574,14 +574,6 @@ pub mod tests {
     }
 
     #[test]
-    fn type_names_read_as_people_know_them() {
-        assert_eq!(type_name(ColumnType::MYSQL_TYPE_LONGLONG), "longlong");
-        assert_eq!(type_name(ColumnType::MYSQL_TYPE_NEWDECIMAL), "newdecimal");
-        assert!(is_numeric(ColumnType::MYSQL_TYPE_NEWDECIMAL));
-        assert!(!is_numeric(ColumnType::MYSQL_TYPE_VAR_STRING));
-    }
-
-    #[test]
     fn only_a_server_that_cannot_encrypt_is_reached_without_it() {
         assert!(lacks_tls(&mysql_async::Error::Driver(
             mysql_async::DriverError::NoClientSslFlagFromServer

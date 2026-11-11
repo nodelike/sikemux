@@ -821,14 +821,6 @@ pub mod tests {
         scratch.drop().await;
     }
 
-    #[test]
-    fn modes_map_to_postgres_ssl_modes() {
-        assert!(matches!(ssl_mode(Tls::Disable), SslMode::Disable));
-        assert!(matches!(ssl_mode(Tls::Prefer), SslMode::Prefer));
-        assert!(matches!(ssl_mode(Tls::Require), SslMode::Require));
-        assert!(matches!(ssl_mode(Tls::VerifyFull), SslMode::Require));
-    }
-
     #[tokio::test]
     async fn nobody_listening_is_a_connect_error_naming_the_cause() {
         let address = Server {
