@@ -9,7 +9,7 @@ Connectors give your agents tools for the services you work with: GitHub, GitLab
 
 **Settings → Connectors** lists every connector with whether it's signed in and as whom.
 
-- **Sign in** opens the connector's sign-in: **Continue with** the service in your browser where it offers one, or the token form, with **Create a token** to make one on the service's site. Sikemux keeps the sign-in in the macOS Keychain.
+- **Sign in** opens the connector's sign-in: **Continue with** the service in your browser where it offers one, or the token form, with **Create a token** to make one on the service's site. Sikemux keeps the sign-in in the macOS Keychain, and in your account's vault when you're signed in.
 - **Sign out** forgets it.
 - The switch turns a connector off. Agents lose its tools, and it costs nothing until you turn it back on.
 
@@ -24,4 +24,22 @@ A few connectors keep settings that only you change, never an agent:
 
 An agent that finds a connector signed out asks you to sign in here. It can't sign in for you.
 
-Sign-ins stay on the host you made them on. A worker on another host uses that host's connectors, as [Linked hosts](/agents/linked-hosts/) explains.
+## Account vault
+
+Once your computer is signed in to your Sikemux account, its connector sign-ins and saved database logins move into the account's vault. Each one is sealed with a key the accounts server never sees, so the server keeps them for you but can't read them. The computer keeps its own copy in the Keychain, and Sikemux updates that copy whenever a sign-in changes.
+
+The first computer on your account makes the vault and shows **Account vault** at the top of **Settings → Connectors**, with a recovery key. It's shown once. Save it somewhere only you can reach: if every computer that holds the vault is lost, it's the only way back in. **I saved it** hides it. A computer that joins later gets the vault's key from one that already holds it. Until then it says it's waiting and offers a box for the recovery key.
+
+When you sign a computer in, the sign-ins it already has move into the vault once. Each stays usable by every agent on that computer, as before. If two computers are signed in to the same account on the same service, the newer token is kept. Different accounts stay separate sign-ins.
+
+Other computers can't use a sign-in until you allow them. Under each connector, a sign-in from the vault shows where it came from and how many computers may use it. **Hosts** lists your computers:
+
+- **Allow** lets every agent on that computer use it. The project picker beside it narrows that to one project's agents.
+- **Revoke** takes it away, and that computer forgets its copy. Revoking the last computer removes the sign-in from the vault.
+- The line under the list shows the sign-in's latest use here. **Use log** lists every use in the last 30 days, with the agent, the computer and the time. The same log is under **Sign-ins** at [app.sikemux.com](https://app.sikemux.com).
+
+The inbox tells you when a computer can't use any of your sign-ins until you allow it, and when the recovery key hasn't been saved yet.
+
+Some services, such as Atlassian, void a sign-in's old token each time they hand out a new one. Only the computer that made the sign-in, or last signed in to it again, renews it. It shares the fresh token with the others, so they never sign each other out. If that computer leaves your account, another one takes over. Removing a computer from your account also replaces the vault's key, so the removed computer can't open the vault again.
+
+AWS profiles stay in the AWS CLI's own files on each computer, and agent sign-ins such as Claude Code's or Codex's are never put in the vault. A computer that isn't signed in to an account keeps its sign-ins in its own Keychain only.
