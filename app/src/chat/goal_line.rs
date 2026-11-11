@@ -1,5 +1,5 @@
-//! A chat and its goal, as the composer shows them: the Undo right after its agent tracks one,
-//! and the goal on the strip. The core decides all of it; this only draws it.
+//! A chat and its goal: a toast with Undo right after its agent tracks one, and the goal on
+//! the strip. The core decides all of it; this only draws it.
 
 use std::rc::Rc;
 
@@ -9,11 +9,11 @@ use gpui_kit::{
 };
 use sikemux_core::server::board::chat_goal::ChatGoalParams;
 use sikemux_core::server::call;
-use sikemux_view::chat::{ChatGoal, ChatHead};
+use sikemux_view::chat::ChatGoal;
 use sikemux_view::slice::SliceState;
 use sikemux_wire::protocol::NoticeGoal;
 
-use super::composer::{Act, Notice};
+use super::composer::Act;
 use crate::theme::{Tokens, SPACE_1, SPACE_1H, TEXT_XS};
 use crate::ui;
 use crate::workbench::Workbench;
@@ -36,18 +36,14 @@ fn undo(this: &WeakEntity<Workbench>, agent: &str) -> Act {
     })
 }
 
-/// The line under the composer right after the chat's agent tracked its work, with how to take
-/// that back.
-pub(super) fn notice(
-    head: Option<&ChatHead>,
-    agent: &str,
-    this: &WeakEntity<Workbench>,
-) -> Option<Notice> {
-    let goal = head?.goal.as_ref().filter(|goal| goal.undoable)?;
-    Some(Notice::Done(
-        format!("Tracking as “{}”", goal.name).into(),
-        ("Undo".into(), undo(this, agent)),
-    ))
+/// Says so in a toast, with Undo, when the chat's agent has just tracked its work as a goal.
+pub(super) fn tracked(goal: &ChatGoal, agent: &str, this: &WeakEntity<Workbench>, cx: &mut App) {
+    let undo = undo(this, agent);
+    let note = crate::toast::undoable(
+        format!("Tracking as “{}”", goal.name),
+        move |window, cx| undo(window, cx),
+    );
+    crate::toast::show(this, note, cx);
 }
 
 /// How far along a goal is, in the words its steps count in.

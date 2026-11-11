@@ -528,7 +528,6 @@ pub(super) fn composer(
         composer = composer.notice(Some(installing));
     }
     composer = composer
-        .notice_unless_any(goal_line::notice(head, &agent.id, &this))
         .text_scale(chat.scale)
         .strip(strip)
         .ready(head.is_some_and(|head| head.connection == ChatConnection::Ready))

@@ -246,11 +246,6 @@ impl Composer {
     }
 
     /// Says `notice` when the composer has nothing more pressing to say.
-    pub fn notice_unless_any(mut self, notice: Option<Notice>) -> Self {
-        self.notice = self.notice.or(notice);
-        self
-    }
-
     pub fn stash(mut self, fresh: usize, open: bool, toggle: Act) -> Self {
         self.stash = Some((fresh, open, toggle));
         self

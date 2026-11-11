@@ -1302,9 +1302,23 @@ impl Chat {
         for change in changes {
             match change {
                 Changed::Head { set, .. } => {
+                    let attached = self.state.is_some();
                     let head = self.state.get_or_insert_with(ChatHead::default);
+                    let was = head
+                        .goal
+                        .as_ref()
+                        .filter(|goal| goal.undoable)
+                        .map(|goal| goal.card);
                     for field in set {
                         field(head);
+                    }
+                    let tracked = head
+                        .goal
+                        .clone()
+                        .filter(|goal| attached && goal.undoable && Some(goal.card) != was);
+                    if let Some(goal) = tracked {
+                        let looks = self.looks.borrow().clone();
+                        goal_line::tracked(&goal, &looks.agent, &looks.bench, cx);
                     }
                     self.head_moved = true;
                     self.follow_head(cx);
