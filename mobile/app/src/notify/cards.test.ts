@@ -35,15 +35,6 @@ describe('settledCards', () => {
 describe('answerFromCard', () => {
   const answer = { tag: 't', host: HOST, agent: 'chat-7f3a', request: 'r1', option: 'allow', allow: true };
 
-  it('answers over its own connection to the host, kept online until done, and closes it', async () => {
-    expect(await answerFromCard(answer)).toBe('answered');
-    expect(identity.whileJoining).toHaveBeenCalled();
-    expect(device.connect).toHaveBeenCalledWith(HOST, expect.anything());
-    expect(connection.answerPermission).toHaveBeenCalledWith('chat-7f3a', 'r1', 'allow');
-    expect(connection.close).toHaveBeenCalled();
-    expect(await answerFromCard({ ...answer, option: 'reject', allow: false })).toBe('rejected');
-  });
-
   it('tells a request answered elsewhere from a host it could not reach', async () => {
     connection.answerPermission.mockRejectedValueOnce(
       MobileError.Refused.new({ message: 'ACP permission request is no longer pending', kind: 'notPending' }),

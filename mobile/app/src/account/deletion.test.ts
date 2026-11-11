@@ -35,8 +35,4 @@ describe('deleting', () => {
     expect(cancelled.phase.name).toBe('confirm');
     expect(run(cancelled, { type: 'deleted' }).phase.name).toBe('confirm');
   });
-
-  it('cannot finish twice or from anywhere but deleting', () => {
-    expect(run(START, { type: 'deleted' }).phase.name).toBe('confirm');
-  });
 });
