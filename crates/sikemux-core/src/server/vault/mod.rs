@@ -63,7 +63,7 @@ pub(crate) enum Status {
     Failed(String),
 }
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, Serialize, Deserialize)]
 struct Tally {
     count: i64,
     first: u64,
@@ -131,6 +131,8 @@ impl State {
 pub(crate) struct Vault {
     state: Mutex<State>,
     wake: Arc<Notify>,
+    /// A use was logged that the disk does not hold yet.
+    used: Arc<Notify>,
 }
 
 impl Vault {
@@ -168,7 +170,7 @@ fn not_allowed(label: &str) -> String {
 
 impl Keeper for HostKeeper {
     fn using(&self, service: &str, account: &str, caller: Option<&Caller>) -> Result<(), String> {
-        self.with(Ok(()), |_, state| {
+        self.with(Ok(()), |core, state| {
             let Some(me) = state.me.clone() else {
                 return Ok(());
             };
@@ -198,6 +200,7 @@ impl Keeper for HostKeeper {
             tally.count += 1;
             tally.last = now;
             state.latest.insert(id, (actor, now));
+            core.vault.used.notify_one();
             Ok(())
         })
     }
@@ -260,6 +263,7 @@ pub(crate) fn start(core: &Arc<Core>) {
     let keeper: &'static HostKeeper = Box::leak(Box::new(HostKeeper(Arc::downgrade(core))));
     sikemux_plugin_api::vault::keep(keeper);
     tokio::spawn(sync::run(Arc::downgrade(core)));
+    tokio::spawn(sync::keep_uses(Arc::downgrade(core)));
 }
 
 fn announce(core: &Core) {

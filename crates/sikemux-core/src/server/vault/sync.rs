@@ -26,7 +26,7 @@ use super::super::plugins::Provided;
 use super::super::{connection::blocking, Core, CoreError, CoreResult};
 use super::local::{self, Applied, Local};
 use super::seal::{self, Key};
-use super::{announce, Body, Entry, Scope, State, Status};
+use super::{announce, Body, Entry, Scope, State, Status, Tally};
 
 /// How often the vault is read again with nothing to wake it, its uses sent and the access
 /// tokens this host hands on renewed.
@@ -103,12 +103,24 @@ async fn round(core: &Arc<Core>) -> CoreResult<()> {
     let moved = core.vault.state.locked().account.as_deref() != Some(account.as_str());
     if moved {
         let reading = account.clone();
-        let recovery_text = blocking(move || Ok(local::recovery(&reading))).await?;
+        let data_dir = core.config.data_dir.clone();
+        let (recovery_text, kept) = blocking(move || {
+            let kept = local::kept_uses::<KeptUse>(data_dir.as_deref())
+                .filter(|kept| kept.account == reading)
+                .map(|kept| kept.uses)
+                .unwrap_or_default();
+            Ok((local::recovery(&reading), kept))
+        })
+        .await?;
         *core.vault.state.locked() = State {
             account: Some(account.clone()),
             me: Some(me.clone()),
             recovery_text,
             opened_at: epoch_ms(),
+            uses: kept
+                .into_iter()
+                .map(|kept| ((kept.entry, kept.actor), kept.tally))
+                .collect(),
             ..State::default()
         };
     }
@@ -468,12 +480,41 @@ fn plan(
             });
         }
     }
+    let mut changed = Vec::new();
+    for write in writes {
+        let entry = entries
+            .get(&write.id)
+            .filter(|entry| entry.revision == write.revision);
+        match entry {
+            Some(entry) if same_contents(&entry.body, &write.body) => {
+                if let Some(digest) = write.holds {
+                    local.applied.insert(
+                        write.id.clone(),
+                        Applied {
+                            revision: entry.revision,
+                            plugin: entry.body.plugin.clone(),
+                            identity: entry.body.sign_in.identity.clone(),
+                            digest,
+                        },
+                    );
+                }
+            }
+            _ => changed.push(write),
+        }
+    }
     local.moved_in = true;
     Ok(Plan {
-        writes,
+        writes: changed,
         deletes,
         local,
     })
+}
+
+/// Whether two bodies seal the same sign-in for the same hosts, whenever each was written.
+fn same_contents(one: &Body, other: &Body) -> bool {
+    let mut other = other.clone();
+    other.written_at = one.written_at;
+    *one == other
 }
 
 /// Takes in each entry allowed here that changed elsewhere, and lets go of each that is no
@@ -699,6 +740,56 @@ async fn reconcile(
 }
 
 /// Sends the uses logged since the last time, keeping them for next time if it fails.
+/// One entry's unsent uses by one actor, as the disk keeps them.
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct KeptUse {
+    entry: String,
+    actor: String,
+    tally: Tally,
+}
+
+/// Writes the unsent uses to disk a moment after each new one, and again once they are sent.
+pub(super) async fn keep_uses(core: Weak<Core>) {
+    let Some(used) = core.upgrade().map(|core| core.vault.used.clone()) else {
+        return;
+    };
+    loop {
+        used.notified().await;
+        tokio::time::sleep(SETTLE).await;
+        let Some(core) = core.upgrade() else { return };
+        save_uses(&core).await;
+    }
+}
+
+async fn save_uses(core: &Core) {
+    let unsent = {
+        let state = core.vault.state.locked();
+        let Some(account) = state.account.clone() else {
+            return;
+        };
+        local::Unsent {
+            account,
+            uses: state
+                .uses
+                .iter()
+                .map(|((entry, actor), tally)| KeptUse {
+                    entry: entry.clone(),
+                    actor: actor.clone(),
+                    tally: *tally,
+                })
+                .collect(),
+        }
+    };
+    let data_dir = core.config.data_dir.clone();
+    let saved =
+        blocking(move || local::keep_uses(data_dir.as_deref(), &unsent).map_err(CoreError::from))
+            .await;
+    if let Err(error) = saved {
+        eprintln!("sikemux core: the account vault's uses were not kept: {error}");
+    }
+}
+
 async fn send_uses(core: &Arc<Core>) {
     let (taken, uses) = {
         let mut state = core.vault.state.locked();
@@ -746,7 +837,9 @@ async fn send_uses(core: &Arc<Core>) {
             kept.count += tally.count;
             kept.last = kept.last.max(tally.last);
         }
+        return;
     }
+    save_uses(core).await;
 }
 
 /// Renews the access token of each sign-in this host refreshes and another host may use,
@@ -841,7 +934,11 @@ pub(super) async fn set_access(
     let (Some(key), Some(mut entry)) = (key, entry) else {
         return Err("the account vault is not open on this host".into());
     };
+    let before = entry.body.clone();
     change(&mut entry.body);
+    if same_contents(&before, &entry.body) {
+        return Ok(());
+    }
     let path = format!("/v1/vault/entries/{id}");
     if entry.body.access.is_empty() {
         let path = format!("{path}?revision={}", entry.revision);
