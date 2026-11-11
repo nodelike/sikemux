@@ -24,23 +24,6 @@ private func onBoard(_ cards: [BoardCard]) -> [BoardCard] {
     cards.filter { $0.asideAt == nil }
 }
 
-/// A host call read while the board shows, and again whenever `seen` changes.
-@MainActor @Observable
-private final class Reading<Answer> {
-    var data: Answer?
-    var problem: String?
-
-    func read(_ live: HostLive, _ ask: (Connection) async throws -> Answer) async {
-        guard let connection = live.connection else { return }
-        do {
-            data = try await ask(connection)
-            problem = nil
-        } catch {
-            problem = Sikemux.problem(error)
-        }
-    }
-}
-
 /// A project's board, read only: cards move on the Mac or by the agents themselves. Unscoped, a row per board.
 struct BoardTab: View {
     let core: String
