@@ -14,9 +14,6 @@ use gpui_kit::{
 
 use crate::theme::{Tokens, SPACE_1, SPACE_2H, TEXT_XS};
 use crate::workbench::{Strip, Workbench};
-use sikemux_core::server::call;
-use sikemux_core::server::workspace::MoveProjectParams;
-use sikemux_view::prefs::ProjectSort;
 
 #[derive(Clone)]
 pub struct DraggedTab {
@@ -406,23 +403,7 @@ pub fn project(
         })
         .on_drop(move |dropped: &DraggedProject, _, cx| {
             let (id, target) = (dropped.id.clone(), target.clone());
-            this.update(cx, |bench, cx| {
-                let Some(index) = (bench.this_view().into_iter())
-                    .flat_map(|view| &view.workspace.projects)
-                    .position(|project| project.id == target)
-                else {
-                    return;
-                };
-                if id == target {
-                    return;
-                }
-                crate::core::Target::here(&bench.asks)
-                    .call_typed::<call::MoveProject>(MoveProjectParams { id, index });
-                if bench.project_sort() != ProjectSort::Manual {
-                    let note = crate::toast::info("Projects now keep the order you drag them in");
-                    bench.notify(note, cx);
-                }
-            })
+            this.update(cx, |bench, cx| bench.drop_project(&id, &target, cx))
         })
         .child(row)
 }

@@ -1019,19 +1019,16 @@ fn project_tree(
     .children(crate::copies::where_held(folded, cx))
     .status(rollup(bench, folded, cx))
     .into_any_element();
-    let row = match &folded.own {
-        Some(own) => crate::drag::project(
-            row,
-            crate::drag::DraggedProject {
-                id: own.id.clone(),
-                label: own.name.clone().into(),
-            },
-            &cx.entity(),
-            cx,
-        )
-        .into_any_element(),
-        None => row,
-    };
+    let row = crate::drag::project(
+        row,
+        crate::drag::DraggedProject {
+            id: key.clone(),
+            label: folded.name.clone().into(),
+        },
+        &cx.entity(),
+        cx,
+    )
+    .into_any_element();
     let row = div()
         .id(SharedString::from(format!("project-menu-{key}")))
         .group(PROJECT_ROW)

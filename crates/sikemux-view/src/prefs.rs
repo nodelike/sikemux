@@ -172,6 +172,9 @@ pub struct Preferences {
     /// The space of each project only other hosts hold (ADR 0023), by its identity, so it
     /// keeps its space wherever its copies are.
     pub elsewhere_spaces: BTreeMap<String, String>,
+    /// The side rail's projects in the order the person dragged them (ADR 0023), each by its
+    /// identity, else its id, so a project only other hosts hold keeps its place too.
+    pub project_order: Vec<String>,
     /// How many builds agents start may run at once on this host; 0 sizes it from the
     /// host's cores and memory.
     pub build_runs: u32,
@@ -269,6 +272,7 @@ preference_changes! {
     RecentCommandKeys recent_command_keys: Vec<String>,
     FrontCopies front_copies: BTreeMap<String, String>,
     ElsewhereSpaces elsewhere_spaces: BTreeMap<String, String>,
+    ProjectOrder project_order: Vec<String>,
     BuildRuns build_runs: u32,
 }
 
@@ -425,6 +429,7 @@ impl Default for Preferences {
             recent_command_keys: Vec::new(),
             front_copies: BTreeMap::new(),
             elsewhere_spaces: BTreeMap::new(),
+            project_order: Vec::new(),
             build_runs: 0,
         }
     }

@@ -2636,6 +2636,11 @@ export interface Preferences {
      */
     elsewhereSpaces: Record<string, string>;
     /**
+     * The side rail's projects in the order the person dragged them (ADR 0023), each by its
+     * identity, else its id, so a project only other hosts hold keeps its place too.
+     */
+    projectOrder: string[];
+    /**
      * How many builds agents start may run at once on this host; 0 sizes it from the
      * host's cores and memory.
      */

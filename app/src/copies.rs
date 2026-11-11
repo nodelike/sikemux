@@ -12,8 +12,9 @@ use gpui_kit::{
 use sikemux_core::server::call;
 use sikemux_core::server::hosts::chat_move::MoveChatToHostParams;
 use sikemux_core::server::layout::ActivateProjectParams;
+use sikemux_core::server::workspace::MoveProjectParams;
 use sikemux_view::layout::{At, OpenTab, PaneKind};
-use sikemux_view::prefs::PreferenceChange;
+use sikemux_view::prefs::{PreferenceChange, ProjectSort};
 use sikemux_view::workspace::{ProjectGit, ProjectInfo};
 use std::f32::consts::FRAC_PI_2;
 
@@ -64,6 +65,11 @@ pub struct Folded {
 }
 
 impl Folded {
+    /// What the person's order keeps it by: its identity, else its row's key.
+    pub fn order_key(&self) -> String {
+        self.identity.clone().unwrap_or_else(|| self.key())
+    }
+
     /// What tells its rows apart: this host's project, else the first copy's.
     pub fn key(&self) -> String {
         match (&self.own, self.copies.first()) {
@@ -114,7 +120,53 @@ impl Workbench {
             copies: project.copies.iter().map(copy_of).collect(),
         });
         folded.extend(elsewhere);
+        let order = &self.preferences().project_order;
+        if self.project_sort() == ProjectSort::Manual && !order.is_empty() {
+            let at = |row: &Folded| {
+                let key = row.order_key();
+                order
+                    .iter()
+                    .position(|kept| *kept == key)
+                    .unwrap_or(usize::MAX)
+            };
+            folded.sort_by_key(at);
+        }
         folded
+    }
+
+    /// The person dropped the project row `dragged` on the row `target`: it takes that row's
+    /// place in the order the rail keeps, and this host's own list moves with it when both
+    /// rows are this host's.
+    pub fn drop_project(&mut self, dragged: &str, target: &str, cx: &mut Context<Self>) {
+        if dragged == target {
+            return;
+        }
+        let listed = self.folded();
+        let Some(to) = listed.iter().position(|row| row.key() == target) else {
+            return;
+        };
+        let mut order: Vec<String> = listed.iter().map(Folded::order_key).collect();
+        let Some(from) = listed.iter().position(|row| row.key() == dragged) else {
+            return;
+        };
+        let moved = order.remove(from);
+        order.insert(to, moved);
+        let own_index = (self.this_view().into_iter())
+            .flat_map(|view| &view.workspace.projects)
+            .position(|project| project.id == target);
+        let both_own = listed[from].own.is_some();
+        if let (Some(index), true) = (own_index, both_own) {
+            Target::here(&self.asks).call_typed::<call::MoveProject>(MoveProjectParams {
+                id: dragged.to_owned(),
+                index,
+            });
+        }
+        if self.project_sort() != ProjectSort::Manual {
+            crate::settings::set(self, PreferenceChange::ProjectSort(ProjectSort::Manual));
+            let note = crate::toast::info("Projects now keep the order you drag them in");
+            self.notify(note, cx);
+        }
+        crate::settings::set(self, PreferenceChange::ProjectOrder(order));
     }
 
     /// The copy of `folded` that is the project in front, if one is.
