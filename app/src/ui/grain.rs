@@ -291,6 +291,12 @@ fn bake(path: &Path, glow_size: f32) -> Option<Arc<RenderImage>> {
     Some(Arc::new(RenderImage::new([image::Frame::new(pixels)])))
 }
 
+/// Whether panes show the picture now, so text over it can keep a ground of its own.
+pub fn picture_shown(cx: &App) -> bool {
+    cx.try_global::<Grain>()
+        .is_some_and(|grain| grain.shown && grain.strength > 0. && grain.picture.is_some())
+}
+
 /// What fills a pane's frame behind everything the pane shows.
 pub fn field(cx: &App) -> Option<impl IntoElement> {
     let grain = cx

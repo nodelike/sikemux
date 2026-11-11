@@ -21,6 +21,9 @@ use crate::theme::{
 pub type OnClick = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App)>;
 type OnSelect = Rc<dyn Fn(&usize, &mut Window, &mut App)>;
 
+/// The height of a header's controls: buttons, a small field and a row of choices.
+pub const TOOLBAR_HEIGHT: f32 = 28.;
+
 /// How much of its colour an icon button keeps while it can't be pressed, low enough to tell
 /// at a glyph's size from one that can.
 const DISABLED_STRENGTH: f32 = 0.4;
@@ -367,7 +370,7 @@ impl RenderOnce for Button {
             .whitespace_nowrap();
         let base = match self.variant {
             Variant::Outline | Variant::Ghost => base
-                .h(px(28.))
+                .h(px(TOOLBAR_HEIGHT))
                 .px(SPACE_3)
                 .border_1()
                 .border_color(fade(
@@ -687,8 +690,8 @@ impl RenderOnce for Segmented {
             .when_some(self.disabled, |track, reason| {
                 track.opacity(0.5).tooltip(super::tooltip(reason))
             })
-            .h(px(30.))
-            .p(px(3.))
+            .h(px(TOOLBAR_HEIGHT))
+            .p(px(2.))
             .rounded(RADIUS_2)
             .border_1()
             .border_color(t.border)
@@ -852,7 +855,7 @@ impl RenderOnce for Field {
                 .border_b_1()
                 .border_color(t.border),
             false => field
-                .h(px(if self.small { 26. } else { 34. }))
+                .h(px(if self.small { TOOLBAR_HEIGHT } else { 34. }))
                 .px(px(if self.small { 8. } else { 10. }))
                 .border_1()
                 .border_color(t.line)

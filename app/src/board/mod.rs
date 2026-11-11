@@ -34,7 +34,7 @@ use crate::core::{self, Ask};
 use crate::drag::{ghost, DraggedCard};
 use crate::icons::Icon;
 use crate::theme::{
-    self, Tokens, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, TEXT_2XS, TEXT_2XS_H, TEXT_SM,
+    self, Tokens, SPACE_1, SPACE_1H, SPACE_2, SPACE_3, TEXT_2XS, TEXT_2XS_H, TEXT_SM,
 };
 use crate::toast;
 use crate::ui::{self, Button, Field, Group, IconButton, Row, Segmented, Tone, Variant};
@@ -52,6 +52,8 @@ const GROUPS: [(BoardColumn, &str); 4] = [
 /// The width of a row's reason, its gates and its agent, so they line up down a lane.
 const REASON_WIDTH: f32 = 200.;
 const GATES_WIDTH: f32 = 108.;
+/// How much of the pane picture the board's list hides, so its quieter text stays readable.
+const PICTURE_VEIL: f32 = 0.72;
 const OWNER_WIDTH: f32 = 112.;
 
 /// The column a card moving to `status` shows in until the core answers.
@@ -382,10 +384,14 @@ impl BoardPane {
     fn shown(&self, card: &BoardCard) -> bool {
         let wanted = self.words.trim().to_lowercase();
         let matches = |text: &str| text.to_lowercase().contains(&wanted);
+        let numbered = (wanted.strip_prefix('#').unwrap_or(&wanted))
+            .parse::<u64>()
+            .is_ok_and(|number| number == card.id);
         (card.aside_at.is_some() == (self.show == Show::Later))
             && (self.show != Show::Tickets || card.ticket.is_some())
             && (self.show != Show::Needs || self.column_of(card) == BoardColumn::Needs)
             && (wanted.is_empty()
+                || numbered
                 || matches(&card.title)
                 || matches(&card.details)
                 || card.owner_name.as_deref().is_some_and(matches)
@@ -676,7 +682,8 @@ impl Focusable for BoardPane {
 impl Render for BoardPane {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if self.find.is_none() {
-            let find = cx.new(|cx| InputState::new(window, cx).placeholder("Find a card"));
+            let find =
+                cx.new(|cx| InputState::new(window, cx).placeholder("Find a card or #number"));
             self._typing = Some(cx.subscribe(&find, |pane, find, event: &InputEvent, cx| {
                 if let InputEvent::Change = event {
                     pane.words = find.read(cx).value().to_string();
@@ -754,35 +761,39 @@ fn head(pane: &BoardPane, cx: &mut Context<BoardPane>) -> impl IntoElement {
         .as_ref()
         .and_then(|board| board.auto_note.clone())
         .unwrap_or_else(|| if auto_on { "Auto is on" } else { "Auto is off" }.to_owned());
-    let header_button =
-        |id: &'static str, label: String, icon: Option<Icon>, pressed: bool, open: Open| {
-            let mut button = Button::new(id, label, Variant::Outline).pressed(pressed);
-            if let Some(icon) = icon {
-                button = button.icon(icon);
-            }
-            button.on_click(cx.listener(move |pane, _, window, cx| {
+    let count = |count: String| {
+        div()
+            .opacity(0.7)
+            .font_weight(FontWeight::NORMAL)
+            .font_features(crate::theme::tabular())
+            .child(count)
+    };
+    let header_button = |id: &'static str, label: &'static str, variant, open: Open| {
+        Button::new(id, label, variant)
+            .pressed(pane.open == Some(open))
+            .on_click(cx.listener(move |pane, _, window, cx| {
                 let next = (pane.open != Some(open)).then_some(open);
                 pane.select(next, window, cx);
             }))
-        };
+    };
     div()
         .flex_none()
+        .min_h(px(44.))
         .flex()
         .flex_wrap()
         .items_center()
         .gap_x(SPACE_2)
         .gap_y(SPACE_1H)
         .px(SPACE_3)
-        .pt(SPACE_2H)
-        .pb(SPACE_2)
+        .py(SPACE_2)
         .bg(crate::see_through::ground(t.surface, cx))
         .border_b_1()
         .border_color(t.border)
         .child(
-            div().w(px(200.)).children(
+            div().w(px(210.)).children(
                 pane.find
                     .as_ref()
-                    .map(|find| Field::new(find).icon(Icon::Search)),
+                    .map(|find| Field::new(find).icon(Icon::Search).small()),
             ),
         )
         .child(
@@ -795,61 +806,27 @@ fn head(pane: &BoardPane, cx: &mut Context<BoardPane>) -> impl IntoElement {
         )
         .child(div().flex_1())
         .child(
-            header_button(
-                "board-auto",
-                "Auto".to_owned(),
-                None,
-                pane.open == Some(Open::Auto),
-                Open::Auto,
-            )
-            .when_some(auto_count, |button, count| {
-                button.trail(
-                    div()
-                        .opacity(0.7)
-                        .font_weight(FontWeight::NORMAL)
-                        .font_features(crate::theme::tabular())
-                        .child(count),
-                )
-            })
-            .lead(div().size(px(6.)).rounded_full().bg(if auto_on {
-                t.live
-            } else {
-                t.text_tertiary
-            }))
-            .tooltip(auto_tip),
+            header_button("board-auto", "Auto", Variant::Ghost, Open::Auto)
+                .lead(ui::icon(Icon::Bolt, 11.).text_color(if auto_on {
+                    t.live
+                } else {
+                    t.text_tertiary
+                }))
+                .when_some(auto_count, |button, running| button.trail(count(running)))
+                .tooltip(auto_tip),
         )
         .when(triggers > 0, |head| {
             head.child(
-                header_button(
-                    "board-triggers",
-                    "Triggers".into(),
-                    None,
-                    pane.open == Some(Open::Triggers),
-                    Open::Triggers,
-                )
-                .trail(
-                    div()
-                        .opacity(0.7)
-                        .font_weight(FontWeight::NORMAL)
-                        .font_features(crate::theme::tabular())
-                        .child(triggers.to_string()),
-                ),
+                header_button("board-triggers", "Triggers", Variant::Ghost, Open::Triggers)
+                    .icon(Icon::Timer)
+                    .trail(count(triggers.to_string())),
             )
         })
-        .child(header_button(
-            "board-messages",
-            "Messages".into(),
-            None,
-            pane.open == Some(Open::Messages),
-            Open::Messages,
-        ))
-        .child(header_button(
-            "board-add",
-            "Add card".into(),
-            Some(Icon::Plus),
-            pane.open == Some(Open::New),
-            Open::New,
-        ))
+        .child(
+            header_button("board-messages", "Messages", Variant::Ghost, Open::Messages)
+                .icon(Icon::Message),
+        )
+        .child(header_button("board-add", "Add card", Variant::Outline, Open::New).icon(Icon::Plus))
 }
 
 fn body(pane: &BoardPane, cx: &mut Context<BoardPane>) -> AnyElement {
@@ -889,6 +866,9 @@ fn body(pane: &BoardPane, cx: &mut Context<BoardPane>) -> AnyElement {
         .id("board-lanes")
         .flex_1()
         .min_h_0()
+        .when(ui::grain::picture_shown(cx), |lanes| {
+            lanes.bg(t.surface.opacity(PICTURE_VEIL))
+        })
         .overflow_y_scroll()
         .px(SPACE_3)
         .pt(SPACE_1)

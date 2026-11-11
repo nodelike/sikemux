@@ -840,21 +840,24 @@ pub fn trigger_row(
         .child(ui::icon(Icon::Timer, 12.).flex_none().text_color(t.cmd))
         .child(
             div()
-                .flex_1()
+                .flex_auto()
                 .min_w_0()
                 .truncate()
                 .text_size(crate::theme::ui_text(TEXT_XS))
                 .text_color(t.text_secondary)
                 .child(trigger.title.clone()),
         )
-        .child(
-            div()
-                .flex_none()
+        .child({
+            let mut when = div()
+                .min_w_0()
+                .truncate()
                 .font_family(theme::MONO)
                 .text_size(crate::theme::ui_text(TEXT_3XS))
                 .text_color(t.text_disabled)
-                .child(fires(trigger)),
-        )
+                .child(fires(trigger));
+            when.style().flex_shrink = Some(4.);
+            when
+        })
         .children(copy)
         .child(remove)
         .into_any_element()

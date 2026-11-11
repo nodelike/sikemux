@@ -403,11 +403,11 @@ fn card_panel(pane: &BoardPane, card: BoardCard, cx: &mut Context<BoardPane>) ->
         Some(ticket) => crate::board::ticket_line(ticket, cx).into_any_element(),
         None => ui::meta(
             format!(
-                "Added by {}",
+                "#{id} · Added by {}",
                 if card.created_by.is_some() {
-                    card.created_by_name.as_str()
+                    format!("@{}", card.created_by_name)
                 } else {
-                    "you"
+                    "you".to_owned()
                 }
             ),
             cx,
