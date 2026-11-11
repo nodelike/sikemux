@@ -4,12 +4,14 @@ import Foundation
 enum StashProblem: LocalizedError {
     case signedOut
     case unreachable
+    case unsigned
     case refused(String)
 
     var errorDescription: String? {
         switch self {
         case .signedOut: return "Open Sikemux and sign in, then share again."
         case .unreachable: return "Check the phone is online."
+        case .unsigned: return "This phone could not sign the share with its key. Open Sikemux, then share again."
         case .refused(let message): return message
         }
     }
@@ -43,7 +45,7 @@ final class StashUpload: Sendable {
         at url: URL, name: String, mime: String, note: String?, target: StashTarget?,
         progress: @escaping @Sendable @MainActor (Double) -> Void
     ) async throws {
-        var request = signed(body: try Self.sha256(of: url))
+        var request = try signed(body: try Self.sha256(of: url))
         let targetJson = try target.map { String(decoding: try JSONEncoder().encode($0), as: UTF8.self) }
         for (field, value) in StashRules.headers(mime: mime, name: name, note: note, target: targetJson) {
             request.setValue(value, forHTTPHeaderField: field)
@@ -57,17 +59,23 @@ final class StashUpload: Sendable {
         if let note { body["note"] = note }
         if let target { body["target"] = try JSONSerialization.jsonObject(with: try JSONEncoder().encode(target)) }
         let data = try JSONSerialization.data(withJSONObject: body)
-        var request = signed(body: Self.hex(SHA256.hash(data: data)))
+        var request = try signed(body: Self.hex(SHA256.hash(data: data)))
         request.setValue("application/json", forHTTPHeaderField: "content-type")
         try answer(try await perform { try await self.session.upload(for: request, from: data) })
     }
 
     /// A POST to /v1/stash with the phone's signature over its method, path, time and body.
-    private func signed(body bodyHash: String) -> URLRequest {
+    private func signed(body bodyHash: String) throws -> URLRequest {
         let url = api.appendingPathComponent("v1/stash")
         let time = String(Int(Date().timeIntervalSince1970))
         let message = "sikemux-device-request|POST|\(url.path)|\(time)|\(bodyHash)"
-        let signature = (try? key.signature(for: Data(message.utf8))).map { Self.hex($0) } ?? ""
+        let signature: String
+        do {
+            signature = Self.hex(try key.signature(for: Data(message.utf8)))
+        } catch {
+            print("sikemux: could not sign the share with this phone's key: \(error)")
+            throw StashProblem.unsigned
+        }
         let publicKey = Self.hex(key.publicKey.rawRepresentation)
         var request = URLRequest(url: url, timeoutInterval: 60)
         request.httpMethod = "POST"
