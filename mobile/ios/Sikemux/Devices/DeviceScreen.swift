@@ -17,6 +17,7 @@ private struct DeviceContent: View {
     private let hub = Hub.shared
 
     @State private var tab: Route.DeviceTab = .agents
+    @State private var followedLink = false
     @State private var picking = false
     @State private var options = false
     @State private var filter: String?
@@ -65,7 +66,12 @@ private struct DeviceContent: View {
         .sheet(shown: $options) {
             if let device { ForgetSheet(device: device) { options = false } }
         }
-        .onAppear { follow(linkedTab) }
+        .onAppear {
+            // Coming back from a chat shows this screen again; the tab switched to then stays.
+            guard !followedLink else { return }
+            followedLink = true
+            follow(linkedTab)
+        }
         .onChange(of: linkedTab) { _, next in follow(next) }
     }
 
