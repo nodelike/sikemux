@@ -1064,6 +1064,7 @@ fn load(keeper: &Keeper, path: &Path) -> CoreResult<(Stored, HostKey, String)> {
             )?;
             stored.distrust();
             stored.require_approval = true;
+            stored.owner.clone_from(&key.account);
             key
         }
         None => {
@@ -1170,7 +1171,8 @@ mod tests {
                 })
                 .unwrap();
             let (edited, _, _) = load(&keeper, &path).unwrap();
-            assert!(edited.owner.is_none() && edited.devices.is_empty());
+            assert!(edited.devices.is_empty() && !edited.enabled);
+            assert_eq!(edited.owner.as_deref(), Some("user_2nightly"));
         }
     }
 
@@ -1231,7 +1233,7 @@ mod tests {
         assert_eq!(keeper.load().unwrap().unwrap().written, None);
         std::fs::write(&path, before).unwrap();
         let (put_back, _, _) = load(&keeper, &path).unwrap();
-        assert!(put_back.owner.is_none() && put_back.links.is_empty());
+        assert!(put_back.links.is_empty() && !put_back.enabled);
     }
 
     #[test]
