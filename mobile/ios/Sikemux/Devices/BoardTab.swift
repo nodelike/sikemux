@@ -210,7 +210,7 @@ private struct BetweenAgents: View {
     /// Who sent or got a message: a sender that is not an agent by what it is, an agent by its name.
     private static func who(_ id: String?, _ name: String?) -> String {
         guard let id else { return "An agent" }
-        return senders[id] ?? name ?? "A closed agent"
+        return senders[id] ?? name.map { "@\($0)" } ?? "A closed agent"
     }
 
     private static func kind(_ kind: MessageKind?) -> String {
@@ -259,7 +259,7 @@ private struct CardRow: View {
         let reviewing = card.auto?.stage == .reviewing ? card.auto?.note : nil
         let acceptance = !card.acceptance.isEmpty && card.status != .done ? "Done when: \(card.acceptance)" : nil
         let detail: Text? = question.map {
-            Text($0.name).font(Theme.ui(12, .medium)).foregroundColor(palette.secondary) + Text(" asks: \($0.text)")
+            Text("@\($0.name)").font(Theme.ui(12, .medium)).foregroundColor(palette.secondary) + Text(" asks: \($0.text)")
         } ?? (handedBack ?? reviewing ?? acceptance).map { Text($0) }
 
         Row(
@@ -288,7 +288,7 @@ private struct CardRow: View {
         let waits = card.waitsOn.compactMap { byId[$0] }
         let after = waits.first ?? card.dependsOn.first.flatMap { byId[$0] }
         let parent = card.parent.flatMap { byId[$0] }
-        var parts: [Text] = [owner.map { Text($0).font(Theme.ui(12, .medium)).foregroundColor(palette.secondary) } ?? Text("Nobody yet")]
+        var parts: [Text] = [owner.map { Text("@\($0)").font(Theme.ui(12, .medium)).foregroundColor(palette.secondary) } ?? Text("Nobody yet")]
         if let ticket = card.ticket {
             parts.append(key(ticket.key) + Text(ticket.source.map { " \($0)" } ?? ""))
         } else if let filed = card.ticketAbove {
