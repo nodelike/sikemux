@@ -28,8 +28,8 @@ pub struct Chrome {
     bottom: f32,
     right: f32,
     bezel: RgbaImage,
-    /// Where the screen shows, by its alpha, at the screen's own size.
-    mask: Option<RgbaImage>,
+    /// The screen's corner radius as a share of its width, measured from the device's mask.
+    pub corner: f32,
     buttons: Vec<Button>,
     turned: RefCell<HashMap<(i32, u32, u32), Rc<Turned>>>,
 }
@@ -54,8 +54,6 @@ pub struct Turned {
     pub size: (f32, f32),
     pub bezel: (Rect, Arc<RenderImage>),
     pub screen: Rect,
-    /// The bezel's own pixels wherever the screen's outline hides the screen, to draw over it.
-    pub cap: Option<Arc<RenderImage>>,
     pub buttons: Vec<TurnedButton>,
 }
 
@@ -102,7 +100,9 @@ impl Chrome {
             bottom: number(&padding["bottom"]).unwrap_or(0.),
             right: number(&padding["right"]).unwrap_or(0.),
             bezel: picture(chrome["image"].as_str()?)?,
-            mask: mask.and_then(picture),
+            corner: mask
+                .and_then(picture)
+                .map_or(0., |mask| corner_share(&mask)),
             buttons,
             turned: RefCell::new(HashMap::new()),
         })
@@ -200,37 +200,18 @@ impl Chrome {
             size,
             bezel: (turn(bezel), render(turn_image(&self.bezel, degrees))),
             screen: turn(shown),
-            cap: self.cap(shown).map(|cap| render(turn_image(&cap, degrees))),
             buttons,
         }
     }
+}
 
-    /// The bezel's pixels over the upright screen `shown` wherever the mask hides the screen.
-    fn cap(&self, shown: Rect) -> Option<RgbaImage> {
-        let mask = self.mask.as_ref()?;
-        let (wide, high) = mask.dimensions();
-        let per_point = (
-            self.bezel.width() as f32 / self.art.0,
-            self.bezel.height() as f32 / self.art.1,
-        );
-        Some(RgbaImage::from_fn(wide, high, |x, y| {
-            let hidden = 255 - mask.get_pixel(x, y)[3];
-            if hidden == 0 {
-                return image::Rgba([0, 0, 0, 0]);
-            }
-            let point = (
-                shown.x - self.left + (x as f32 + 0.5) / wide as f32 * shown.w,
-                shown.y - self.top + (y as f32 + 0.5) / high as f32 * shown.h,
-            );
-            let pixel = (
-                ((point.0 * per_point.0) as u32).min(self.bezel.width() - 1),
-                ((point.1 * per_point.1) as u32).min(self.bezel.height() - 1),
-            );
-            let mut under = *self.bezel.get_pixel(pixel.0, pixel.1);
-            under[3] = ((u16::from(under[3]) * u16::from(hidden)) / 255) as u8;
-            under
-        }))
-    }
+/// A rounded corner's radius as a share of `mask`'s width, from how far its transparent corner
+/// reaches along the diagonal, which for a circle is the radius times one minus a half root two.
+fn corner_share(mask: &RgbaImage) -> f32 {
+    let reach = (0..mask.width().min(mask.height()))
+        .take_while(|&i| mask.get_pixel(i, i)[3] < 128)
+        .count();
+    reach as f32 / (1. - std::f32::consts::FRAC_1_SQRT_2) / mask.width() as f32
 }
 
 /// How far clockwise the screen turns for each way the device is held, as the helper names them.

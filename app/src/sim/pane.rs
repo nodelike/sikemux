@@ -1469,14 +1469,23 @@ pub fn body(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> AnyE
     let Some(screen) = sims.screens.get(agent) else {
         return div().into_any_element();
     };
+    let corner = screen.chrome.as_ref().map(|chrome| chrome.corner);
     #[cfg(target_os = "macos")]
-    let picture = screen
-        .picture
-        .locked()
-        .as_ref()
-        .map(|frame| gpui::surface(frame.buffer()).size_full());
-    #[cfg(not(target_os = "macos"))]
-    let picture: Option<gpui::Empty> = None;
+    let buffer = screen.picture.locked().as_ref().map(|frame| frame.buffer());
+    let picture = canvas(
+        |_, _, _| {},
+        move |bounds, _, window, _| {
+            let radii =
+                gpui::Corners::all(corner.map_or(px(28.), |corner| bounds.size.width * corner));
+            window.paint_quad(gpui::fill(bounds, gpui::black()).corner_radii(radii));
+            #[cfg(target_os = "macos")]
+            if let Some(buffer) = buffer {
+                window.paint_surface(bounds, radii, buffer);
+            }
+        },
+    )
+    .absolute()
+    .size_full();
     let ratio = screen
         .size
         .map_or(9. / 19.5, |(width, height)| width / height);
@@ -1495,7 +1504,6 @@ pub fn body(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> AnyE
         .track_focus(&focus)
         .key_context("SimulatorScreen")
         .overflow_hidden()
-        .bg(gpui::black())
         .on_mouse_down(
             MouseButton::Left,
             cx.listener(move |bench, event, window, cx| {
@@ -1534,7 +1542,7 @@ pub fn body(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> AnyE
                 .absolute()
                 .size_full(),
         )
-        .children(picture);
+        .child(picture);
     let framed = bench.preferences().simulator_frame;
     let frame = framed
         .then(|| screen.chrome.as_ref().zip(screen.size))
@@ -1553,7 +1561,6 @@ pub fn body(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> AnyE
             .h_full()
             .max_w_full()
             .aspect_ratio(ratio)
-            .rounded(px(28.))
             .into_any_element(),
     };
     div()
@@ -1577,8 +1584,7 @@ fn place<E: Styled>(element: E, rect: Rect, size: (f32, f32)) -> E {
 }
 
 /// The live screen inside the device's own frame: the side buttons under the bezel, sliding
-/// out under the pointer, then the bezel, the screen, and the bezel again where its outline
-/// covers the screen's corners.
+/// out under the pointer, then the bezel and the screen over it.
 fn framed_device(
     agent: &str,
     live: gpui::Stateful<gpui::Div>,
@@ -1657,11 +1663,5 @@ fn framed_device(
         .children(buttons)
         .child(place(img(bezel.clone()), *bezel_at, size))
         .child(place(live, frame.screen, size))
-        .children(
-            frame
-                .cap
-                .clone()
-                .map(|cap| place(img(cap), frame.screen, size)),
-        )
         .into_any_element()
 }
