@@ -15,7 +15,7 @@ use sikemux_process::vars;
 use super::footer;
 
 /// The build tools besides cargo the shim stands in for, so their builds take turns too.
-pub(crate) const PROGRAMS: &[&str] = &["xcodebuild", "gradle", "swift"];
+pub(crate) const PROGRAMS: &[&str] = &["xcodebuild", "gradle", "gradlew", "swift"];
 /// What `xcodebuild` and `gradle` are asked that only reads, and builds nothing.
 const ASKING: &[&str] = &[
     "-h",
@@ -38,14 +38,21 @@ const COMPILING: &[&str] = &[
 const COMPILING_THEN_RUNNING: &[&str] = &["bench", "r", "run", "t", "test"];
 const GLOBAL_OPTIONS_WITH_VALUE: &[&str] = &["--color", "--config", "--explain", "-C", "-Z"];
 const BUILD_STEPS: &[&str] = &[
+    "ar",
     "bash",
+    "clang",
+    "clang++",
     "clippy-driver",
     "git",
     "kache",
+    "ld",
+    "libtool",
     "rustc",
     "rustdoc",
+    "sandbox-exec",
     "sccache",
     "sh",
+    "xcrun",
 ];
 /// Compiler caches a build hands rustc to, the first one installed.
 const CACHES: &[&str] = &["kache", "sccache"];
@@ -62,11 +69,31 @@ pub(super) fn of_program(program: &str, words: &[String]) -> Option<Build> {
     let asking = || words.iter().any(|word| ASKING.contains(&word.as_str()));
     match program {
         "cargo" => of_cargo(words),
-        "xcodebuild" | "gradle" if !asking() => Some(Build::Compiles),
-        "swift" => matches!(words.first().map(String::as_str), Some("build" | "test"))
-            .then_some(Build::Compiles),
+        "xcodebuild" if !asking() && !xcode_tests(words) => Some(Build::Compiles),
+        "gradle" | "gradlew" if !asking() && !gradle_runs(words) => Some(Build::Compiles),
+        "swift" => match words.first().map(String::as_str) {
+            Some("build") => Some(Build::Compiles),
+            Some("test" | "run") => Some(Build::CompilesThenRuns),
+            _ => None,
+        },
         _ => None,
     }
+}
+
+/// Tests run on a simulator, outside the build's own processes, so their turn could
+/// not end once compiling is done; they wait for none.
+fn xcode_tests(words: &[String]) -> bool {
+    words
+        .iter()
+        .any(|word| word == "test" || word == "test-without-building")
+}
+
+/// Whether gradle runs the app or keeps watching, either of which lasts until it is stopped.
+fn gradle_runs(words: &[String]) -> bool {
+    words.iter().any(|word| {
+        let task = word.rsplit(':').next().unwrap_or(word);
+        word == "-t" || word == "--continuous" || task == "run" || task.ends_with("Run")
+    })
 }
 
 fn of_cargo(words: &[String]) -> Option<Build> {
@@ -162,10 +189,11 @@ pub(super) fn run(
     if matches!(build, Build::CompilesThenRuns) && turn.locked().is_some() {
         let root = child.id();
         let turn = turn.clone();
+        let tool = program.to_owned();
         std::thread::spawn(move || {
             while turn.locked().is_some() {
                 std::thread::sleep(LOOK_EVERY);
-                if program_started(root) {
+                if program_started(root, &tool) {
                     turn.locked().take();
                 }
             }
@@ -245,20 +273,20 @@ fn queued_line(ahead: usize, building: usize, limit: usize) -> String {
     )
 }
 
-/// Whether a program cargo built is running under the cargo started as
+/// Whether a program `tool` built is running under the `tool` started as
 /// `root`, such as a test binary, so its compiling is over.
-fn program_started(root: u32) -> bool {
+fn program_started(root: u32, tool: &str) -> bool {
     let below = sikemux_process::procs::descendants(root);
     let names: HashMap<u32, String> = below
         .keys()
         .filter_map(|pid| Some((*pid, sikemux_process::procs::name(*pid)?)))
         .collect();
-    let is_cargo =
-        |pid: &u32| *pid == root || names.get(pid).is_some_and(|name| name.starts_with("cargo"));
+    let is_tool =
+        |pid: &u32| *pid == root || names.get(pid).is_some_and(|name| name.starts_with(tool));
     below.iter().any(|(pid, parent)| {
-        is_cargo(parent)
+        is_tool(parent)
             && names.get(pid).is_some_and(|name| {
-                !name.starts_with("cargo")
+                !name.starts_with(tool)
                     && !name.starts_with("build-script")
                     && !BUILD_STEPS.contains(&name.as_str())
             })

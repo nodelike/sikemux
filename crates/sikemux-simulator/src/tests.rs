@@ -144,7 +144,7 @@ mod tools {
         Device, Element, Numbered, Numbering, Pick,
     };
     use sikemux_process::sync::Locked;
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
 
     fn numbered(elements: &[Element]) -> Vec<Numbered> {
         Numbering::default().assign(elements)
@@ -250,7 +250,14 @@ mod tools {
         let devices = [ours.clone(), booted.clone(), taken.clone(), picked.clone()];
         let held: HashMap<String, Claim> = [(taken.udid.clone(), claim("agent-b"))].into();
         let pick = |desk: Option<&str>, remembered: Option<&str>, held: &HashMap<String, Claim>| {
-            pick_device(&devices, held, desk, remembered, "Sikemux · shop")
+            pick_device(
+                &devices,
+                held,
+                desk,
+                remembered,
+                "Sikemux · shop",
+                &HashSet::new(),
+            )
         };
 
         assert_eq!(
@@ -270,7 +277,14 @@ mod tools {
         );
         let without_booted = [ours.clone(), taken.clone(), picked.clone()];
         assert_eq!(
-            pick_device(&without_booted, &held, None, None, "Sikemux · shop"),
+            pick_device(
+                &without_booted,
+                &held,
+                None,
+                None,
+                "Sikemux · shop",
+                &HashSet::new()
+            ),
             Pick::Use(&ours)
         );
         let all_held: HashMap<String, Claim> = [ours.clone(), booted.clone(), taken.clone()]
@@ -278,12 +292,26 @@ mod tools {
             .map(|device| (device.udid.clone(), claim("agent-b")))
             .collect();
         assert_eq!(
-            pick_device(&devices[..3], &all_held, None, None, "Sikemux · shop"),
+            pick_device(
+                &devices[..3],
+                &all_held,
+                None,
+                None,
+                "Sikemux · shop",
+                &HashSet::new()
+            ),
             Pick::Create
         );
         let without_ours = [booted.clone(), taken.clone()];
         assert_eq!(
-            pick_device(&without_ours, &held, None, None, "Sikemux · shop"),
+            pick_device(
+                &without_ours,
+                &held,
+                None,
+                None,
+                "Sikemux · shop",
+                &HashSet::new()
+            ),
             Pick::Use(&booted),
             "a booted iPhone nobody holds"
         );
@@ -293,7 +321,8 @@ mod tools {
                 &held,
                 None,
                 None,
-                "Sikemux · shop"
+                "Sikemux · shop",
+                &HashSet::new(),
             ),
             Pick::Create,
             "an iPhone that is off is not taken; the project gets its own"
