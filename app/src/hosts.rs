@@ -664,10 +664,12 @@ impl Workbench {
                     let listed = hosts
                         .iter()
                         .find(|host| Some(&host.alias) == alias.as_ref())?;
-                    u32::try_from(listed.line).ok()
+                    Some((u32::try_from(listed.line).ok()?, listed.file.clone()))
                 }),
                 None => None,
             };
+            let (line, included) = line.map_or((None, None), |(line, file)| (Some(line), file));
+            let file = file.map(|main| included.unwrap_or(main));
             let _ = bench.update(cx, |bench, cx| match file {
                 Ok(path) => {
                     bench.choose_host(HostChoice::This, cx);

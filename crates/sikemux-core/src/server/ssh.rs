@@ -3,7 +3,7 @@
 
 use crate::server::changed::What;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Weak;
 
 use notify::{RecursiveMode, Watcher};
@@ -34,6 +34,9 @@ pub struct SshHost {
     pub port: Option<u16>,
     /// The config's line, from 0, whose `Host` names it.
     pub line: usize,
+    /// The file an `Include` brought it from, when it is not ~/.ssh/config.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file: Option<String>,
     pub status: Reach,
 }
 
@@ -41,13 +44,13 @@ fn config_path() -> Option<PathBuf> {
     std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".ssh/config"))
 }
 
-/// The hosts in the config, wildcard patterns left out since nothing
-/// connects to them. `Include` is not followed.
+/// How deep `Include`s may nest, as ssh allows.
+const INCLUDE_DEPTH: u8 = 16;
+
+/// The hosts in the config and the files it includes, wildcard patterns left out since
+/// nothing connects to them.
 pub(crate) fn hosts(core: &Core) -> Vec<SshHost> {
     watch(core);
-    let content = config_path()
-        .and_then(|path| fs::read_to_string(path).ok())
-        .unwrap_or_default();
     let reach = |alias: &str| {
         core.ssh_links()
             .into_iter()
@@ -62,21 +65,43 @@ pub(crate) fn hosts(core: &Core) -> Vec<SshHost> {
             .unwrap_or(Reach::Idle)
     };
     let mut hosts = Vec::new();
+    if let Some(path) = config_path() {
+        read_config(&path, None, 0, &reach, &mut hosts);
+    }
+    hosts
+}
+
+fn read_config(
+    path: &Path,
+    file: Option<String>,
+    depth: u8,
+    reach: &dyn Fn(&str) -> Reach,
+    hosts: &mut Vec<SshHost>,
+) {
+    let content = fs::read_to_string(path).unwrap_or_default();
     let mut aliases: Vec<String> = Vec::new();
     let (mut hostname, mut user, mut port, mut at) = (None, None, None, 0);
-    let mut flush =
-        |aliases: &[String], hostname: &Option<String>, user: &Option<String>, port, line| {
-            for alias in aliases.iter().filter(|alias| !alias.contains(['*', '?'])) {
-                hosts.push(SshHost {
-                    alias: alias.clone(),
-                    hostname: hostname.clone(),
-                    user: user.clone(),
-                    port,
-                    line,
-                    status: reach(alias),
-                });
+    let flush = |hosts: &mut Vec<SshHost>,
+                 aliases: &[String],
+                 hostname: &Option<String>,
+                 user: &Option<String>,
+                 port,
+                 line| {
+        for alias in aliases.iter().filter(|alias| !alias.contains(['*', '?'])) {
+            if hosts.iter().any(|host| host.alias == *alias) {
+                continue;
             }
-        };
+            hosts.push(SshHost {
+                alias: alias.clone(),
+                hostname: hostname.clone(),
+                user: user.clone(),
+                port,
+                line,
+                file: file.clone(),
+                status: reach(alias),
+            });
+        }
+    };
     for (number, line) in content.lines().enumerate() {
         let line = line.split('#').next().unwrap_or("").trim();
         let mut split = line.splitn(2, |c: char| c.is_whitespace() || c == '=');
@@ -91,18 +116,59 @@ pub(crate) fn hosts(core: &Core) -> Vec<SshHost> {
         }
         match key.as_str() {
             "host" => {
-                flush(&aliases, &hostname, &user, port, at);
+                flush(hosts, &aliases, &hostname, &user, port, at);
                 aliases = value.split_whitespace().map(String::from).collect();
                 (hostname, user, port, at) = (None, None, None, number);
             }
             "hostname" => hostname = Some(value.to_owned()),
             "user" => user = Some(value.to_owned()),
             "port" => port = value.parse().ok(),
+            "include" if depth < INCLUDE_DEPTH => {
+                for included in value.split_whitespace().flat_map(included_files) {
+                    let shown = Some(included.to_string_lossy().into_owned());
+                    read_config(&included, shown, depth + 1, reach, hosts);
+                }
+            }
             _ => {}
         }
     }
-    flush(&aliases, &hostname, &user, port, at);
-    hosts
+    flush(hosts, &aliases, &hostname, &user, port, at);
+}
+
+/// The files an `Include` names: from ~/.ssh when relative, with `~` for the home folder
+/// and wildcards in the file's name.
+fn included_files(pattern: &str) -> Vec<PathBuf> {
+    let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
+        return Vec::new();
+    };
+    let path = match pattern.strip_prefix("~/") {
+        Some(rest) => home.join(rest),
+        None if Path::new(pattern).is_absolute() => PathBuf::from(pattern),
+        None => home.join(".ssh").join(pattern),
+    };
+    let name = path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned());
+    let (Some(folder), Some(name)) = (path.parent(), name) else {
+        return Vec::new();
+    };
+    if !name.contains(['*', '?', '[']) {
+        return vec![path];
+    }
+    let Ok(matcher) = globset::Glob::new(&name).map(|glob| glob.compile_matcher()) else {
+        return Vec::new();
+    };
+    let mut found: Vec<PathBuf> = fs::read_dir(folder)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.is_file() && path.file_name().is_some_and(|name| matcher.is_match(name))
+        })
+        .collect();
+    found.sort();
+    found
 }
 
 /// Starts watching the config once, the first time a client lists the hosts.
