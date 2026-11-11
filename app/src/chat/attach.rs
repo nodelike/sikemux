@@ -34,7 +34,7 @@ use crate::core::ChatAsk;
 use crate::drag::{DraggedChat, DraggedPath};
 use crate::hosts::Place;
 use crate::icons::Icon;
-use crate::theme::{self, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, TEXT_SM, TEXT_XS};
+use crate::theme::{self, Tokens, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, TEXT_SM, TEXT_XS};
 use crate::ui;
 use crate::workbench::Workbench;
 
@@ -957,22 +957,13 @@ pub fn tiles(
                 open(path.clone(), window, cx)
             }
         });
-        let name = match is_image(path) {
-            true if is_snip(path) => picture_label(index + 1, path),
-            true => format!(
-                "#{} {}",
-                index + 1,
-                SharedString::from(crate::ui::path::file_name(path))
-            ),
-            false => SharedString::from(crate::ui::path::file_name(path)).to_string(),
+        let number = is_image(path).then_some(index + 1);
+        let name = match is_snip(path) {
+            true => picture_label(index + 1, path),
+            false => crate::ui::path::file_name(path).to_string(),
         };
-        Attachment::new()
-            .id(SharedString::from(format!("attachment-{index}")))
+        framed(format!("attachment-{index}"), path, number, name, &t, cx)
             .when_some(opens, |tile, opens| tile.on_click(opens))
-            .with_size(gpui_kit::component::Size::Small)
-            .tooltip(path.to_string_lossy().into_owned())
-            .media(chip_media(path, &t, cx))
-            .content(AttachmentContent::new().title(AttachmentTitle::new(name)))
             .on_remove(move |_, window, cx| remove(index, window, cx))
     });
     let shown = context.iter().enumerate();
@@ -990,25 +981,54 @@ pub fn tiles(
             .items_center()
             .gap(px(7.))
             .px(SPACE_2H)
-            .pt(SPACE_2H)
+            .pt(SPACE_1)
             .children(tiles)
             .children(chips),
     )
 }
 
-/// A file's mark in a draft's chip: a picture's own thumbnail, else its kind's icon.
-fn chip_media(path: &Path, t: &Tokens, cx: &App) -> AttachmentMedia {
-    if is_image(path) {
-        return AttachmentMedia::new()
-            .src(crate::picture::Picture::File(path.to_path_buf()).source_at(px(48.)));
-    }
-    let icon = crate::file_icons::icon(&SharedString::from(crate::ui::path::file_name(path)), cx)
-        .map(|icon| gpui_kit::img(icon).size(px(14.)).into_any_element());
-    AttachmentMedia::new().child(icon.unwrap_or_else(|| {
-        ui::icon(Icon::File, 13.)
-            .text_color(t.text_tertiary)
-            .into_any_element()
-    }))
+/// A file as a draft and a sent message both show it: a small framed card with its preview, or its
+/// kind's icon, over a picture's `#n` and the file's name.
+fn framed(
+    id: impl Into<SharedString>,
+    path: &Path,
+    number: Option<usize>,
+    name: String,
+    t: &Tokens,
+    cx: &App,
+) -> Attachment {
+    Attachment::new()
+        .id(id.into())
+        .axis(Axis::Vertical)
+        .with_size(gpui_kit::component::Size::XSmall)
+        .w(px(FRAMED_WIDTH))
+        .p(px(3.))
+        .gap(px(3.))
+        .bg(t.surface_chosen)
+        .border_color(gpui_kit::transparent_black())
+        .tooltip(path.to_string_lossy().into_owned())
+        .media(media(path, t, cx).h(px(FRAMED_PREVIEW)))
+        .content(AttachmentContent::new().child(caption(number, name, t, cx)))
+}
+
+const FRAMED_WIDTH: f32 = 64.;
+const FRAMED_PREVIEW: f32 = 40.;
+
+/// The line under a draft's framed card: a picture's `#n`, then the file's name.
+fn caption(number: Option<usize>, name: String, t: &Tokens, cx: &App) -> Div {
+    div()
+        .flex()
+        .items_center()
+        .gap(px(3.))
+        .min_w_0()
+        .text_size(px(theme::TEXT_3XS))
+        .text_color(t.text_secondary)
+        .children(number.map(|number| {
+            ui::mono(format!("#{number}"), 9., cx)
+                .flex_none()
+                .text_color(t.text_tertiary)
+        }))
+        .child(div().min_w_0().truncate().child(name))
 }
 
 fn media(path: &Path, t: &Tokens, cx: &App) -> AttachmentMedia {
@@ -1029,24 +1049,6 @@ fn media(path: &Path, t: &Tokens, cx: &App) -> AttachmentMedia {
         a: 0.48,
         ..t.surface_sunken
     })
-}
-
-/// The number a picture goes by in the text, `#n`, over the corner of its tile.
-fn badge(number: usize, t: &Tokens, cx: &App) -> Div {
-    div().size_full().relative().child(
-        div()
-            .absolute()
-            .left(px(3.))
-            .bottom(px(3.))
-            .px(SPACE_1)
-            .py(SPACE_0)
-            .rounded(theme::RADIUS_1)
-            .bg(Hsla {
-                a: 0.72,
-                ..t.surface_sunken
-            })
-            .child(ui::mono(format!("#{number}"), 9.5, cx).text_color(t.text_primary)),
-    )
 }
 
 /// The mark and number of the issue or pull request at `uri`, when it names one.
@@ -1216,9 +1218,9 @@ fn carried(
     t: &Tokens,
     cx: &App,
 ) -> gpui_kit::AnyElement {
-    let id = SharedString::from(id);
+    let name = crate::ui::path::file_name(&path).to_string();
     if !is_image(&path) {
-        let (name, menu_name) = (
+        let (full, menu_full) = (
             path.to_string_lossy().into_owned(),
             path.to_string_lossy().into_owned(),
         );
@@ -1230,33 +1232,15 @@ fn carried(
                 } else {
                     FilePress::Open
                 };
-                file(&name, press, window, cx);
+                file(&full, press, window, cx);
             })
             .on_mouse_down(MouseButton::Right, move |event, window, cx| {
-                menu_file(&menu_name, FilePress::Menu(event.position), window, cx);
+                menu_file(&menu_full, FilePress::Menu(event.position), window, cx);
             })
-            .child(
-                Attachment::new()
-                    .id(id)
-                    .with_size(gpui_kit::component::Size::Small)
-                    .tooltip(path.to_string_lossy().into_owned())
-                    .media(media(&path, t, cx))
-                    .content(AttachmentContent::new().title(AttachmentTitle::new(
-                        SharedString::from(crate::ui::path::file_name(&path)),
-                    ))),
-            )
+            .child(framed(id, &path, None, name, t, cx))
             .into_any_element();
     }
-    let mut tile = media(&path, t, cx);
-    if let Some(number) = tag {
-        tile = tile.overlay(badge(number, t, cx));
-    }
-    Attachment::new()
-        .id(id)
-        .axis(Axis::Vertical)
-        .with_size(gpui_kit::component::Size::Size(px(16.6)))
-        .tooltip(path.to_string_lossy().into_owned())
-        .media(tile)
+    framed(id, &path, tag, name, t, cx)
         .on_click(move |_, window, cx| open(path.clone(), window, cx))
         .into_any_element()
 }
