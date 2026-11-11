@@ -200,6 +200,39 @@ fn said(kind: &str, message: &str, text: &str) -> ChatEvent {
     )
 }
 
+/// What an agent does before it answers, with `CHAT_BENCH_WORK` set: a thought, then a run
+/// of commands that read, search, test and fail, as a long working chat holds.
+fn work(ix: usize) -> Vec<ChatEvent> {
+    let update = |update: Value| {
+        event(
+            "session_update",
+            json!({ "sessionId": format!("session-{FEED}"), "update": update }),
+        )
+    };
+    let mut events = vec![update(json!({
+        "sessionUpdate": "agent_thought_chunk",
+        "messageId": format!("{FEED}-think-{ix}"),
+        "content": { "type": "text", "text": "Reading the fold before changing where a run is counted, then the tests." },
+    }))];
+    let commands = [
+        "sed -n 1,80p crates/sikemux-fold/src/lib.rs",
+        "rg -n times crates/sikemux-fold/src",
+        "ls crates/sikemux-fold/src",
+        "cat crates/sikemux-fold/src/row.rs",
+        "cargo test -p sikemux-fold",
+        "git status --short",
+    ];
+    for (at, command) in commands.iter().enumerate() {
+        let id = format!("{FEED}-tool-{ix}-{at}");
+        events.push(update(json!({
+            "sessionUpdate": "tool_call", "toolCallId": id, "title": command, "kind": "execute",
+            "status": if at == 4 { "failed" } else { "completed" },
+            "rawInput": { "command": command },
+        })));
+    }
+    events
+}
+
 /// The chat folded as the core folds it: every event with its index, its head,
 /// all its rows, and the answer's changes, one list for each flush.
 struct Folded {
@@ -219,13 +252,24 @@ impl Folded {
             json!({ "sessionId": format!("session-{FEED}"), "capabilities": {}, "setup": { "configOptions": [] } }),
         );
         let mut events = vec![(0, ready)];
+        let worked = std::env::var_os("CHAT_BENCH_WORK").is_some();
         for (ix, text) in Words(7).rows(ROWS).iter().enumerate() {
             let kind = if ix % 2 == 0 {
                 "user_message_chunk"
             } else {
                 "agent_message_chunk"
             };
-            events.push((ix as u64 + 1, said(kind, &format!("{FEED}-{ix}"), text)));
+            if worked && ix % 2 == 1 {
+                let at = events.len() as u64;
+                events.extend(
+                    work(ix)
+                        .into_iter()
+                        .zip(at..)
+                        .map(|(event, at)| (at, event)),
+                );
+            }
+            let at = events.len() as u64;
+            events.push((at, said(kind, &format!("{FEED}-{ix}"), text)));
         }
         for (index, event) in &events {
             fold.apply(*index, event.kind, &event.payload, 0);
@@ -235,7 +279,7 @@ impl Folded {
         let rows = fold
             .page_of(&events, PageOf::Before(u64::MAX), usize::MAX, None, None)
             .rows;
-        assert_eq!(rows.len(), ROWS, "the fold made {} rows", rows.len());
+        assert!(rows.len() >= ROWS, "the fold made {} rows", rows.len());
         let answer = Words(11).answer(TOKENS);
         let mut folded = Folded {
             fold,
