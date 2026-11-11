@@ -64,7 +64,7 @@ struct AccountSheet: View {
             NotificationsRow()
             LockRow()
             SwitchRow(icon: Icons.shield, title: "Share crash reports", isOn: Bindable(CrashReports.shared).on) {
-                Text(Self.crashReports).font(Theme.meta).lineSpacing(3).foregroundStyle(palette.tertiary)
+                Text(Self.crashReports).font(Theme.meta).foregroundStyle(palette.tertiary).lineLimit(1)
             }
             if let unconfirmed {
                 Text(unconfirmed)
