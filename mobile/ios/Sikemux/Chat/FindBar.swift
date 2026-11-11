@@ -42,6 +42,8 @@ final class ChatFind {
     @ObservationIgnored private var counting = false
     private var counted = 0
     private var complete = false
+    /// The last ask failed, so the bar says so rather than that nothing was found.
+    private(set) var failed = false
     @ObservationIgnored private var typing: Task<Void, Never>?
 
     init(session: ChatSession, show: @escaping (FindHit) -> Void) {
@@ -52,6 +54,7 @@ final class ChatFind {
     /// `3/41…` while the host goes on counting, or why there is nothing to step to.
     var label: String {
         guard !text.isEmpty else { return "" }
+        if failed { return "Could not search" }
         if counted == 0 { return complete && found.isEmpty ? "No results" : "…" }
         if counted >= Self.mostCounted { return "\((at ?? 0) + 1)/999+" }
         let place = at.map { counted - $0 } ?? counted
@@ -106,6 +109,7 @@ final class ChatFind {
         stepping = false
         counted = 0
         complete = false
+        failed = false
         asked += 1
         if !text.isEmpty { ask(from: nil, countOnly: false) }
         mark()
@@ -124,6 +128,8 @@ final class ChatFind {
             } catch {
                 guard asked == self.asked else { return }
                 complete = true
+                failed = true
+                Haptics.failure()
                 mark()
             }
         }
@@ -133,6 +139,7 @@ final class ChatFind {
     /// that waited for more.
     private func took(_ asked: Int, _ answer: FindAnswer) {
         guard asked == self.asked else { return }
+        failed = false
         if !counting {
             found += answer.hits
             next = answer.next
@@ -207,7 +214,8 @@ struct FindBar: View {
                     }
                     .accessibilityLabel("Find in chat")
                 if !find.label.isEmpty {
-                    Text(find.label).font(Theme.mono(10.5)).monospacedDigit().foregroundStyle(palette.inkDim)
+                    Text(find.label).font(Theme.mono(10.5)).monospacedDigit().foregroundStyle(
+                        find.failed ? palette.danger : palette.inkDim)
                 }
             }
             .padding(.horizontal, 8)
