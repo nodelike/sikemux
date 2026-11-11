@@ -339,6 +339,7 @@ pub struct Group {
     first: bool,
     fold: Option<(bool, OnClick)>,
     total: Option<usize>,
+    counted: bool,
     rows: SmallVec<[AnyElement; 8]>,
 }
 
@@ -352,6 +353,7 @@ impl Group {
             first: false,
             fold: None,
             total: None,
+            counted: false,
             rows: SmallVec::new(),
         }
     }
@@ -389,6 +391,12 @@ impl Group {
         self.total = total;
         self
     }
+
+    /// Its heading says how many rows it holds while open too.
+    pub fn counted(mut self) -> Self {
+        self.counted = true;
+        self
+    }
 }
 
 impl ParentElement for Group {
@@ -414,7 +422,7 @@ impl RenderOnce for Group {
             .pl(SPACE_2)
             .rounded(RADIUS_2)
             .child(caps(self.label, cx).flex_none())
-            .when(folded && count > 0, |heading| {
+            .when((folded || self.counted) && count > 0, |heading| {
                 heading.child(
                     mono(count.to_string(), TEXT_2XS, cx)
                         .flex_none()

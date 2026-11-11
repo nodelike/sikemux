@@ -1,7 +1,7 @@
-//! The agent board of a project: its cards in columns by where they stand, a lane for
-//! each card that has cards under it, and beside the board one card to read and change,
-//! Auto's settings, or the messages between the project's agents. The core keeps the
-//! board and says which column each card is in; the pane only draws and asks.
+//! The agent board of a project: a lane for each card that has cards under it, listing them
+//! as rows grouped by where they stand, and beside the board one card to read and change,
+//! Auto's settings, the messages between the project's agents, or the board's triggers. The
+//! core keeps the board and says which column each card is in; the pane only draws and asks.
 
 use std::collections::{HashMap, HashSet};
 
@@ -27,28 +27,32 @@ use sikemux_core::server::calls::NoParams;
 use sikemux_core::server::hosts::LinkedHost;
 use sikemux_core::server::messages::log::MessageRow;
 use sikemux_core::server::messages::AgentMessagesParams;
-use sikemux_core::server::triggers::TriggerParams;
+use sikemux_view::slice::{GateState, Passer};
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::core::{self, Ask};
 use crate::drag::{ghost, DraggedCard};
 use crate::icons::Icon;
 use crate::theme::{
-    self, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_3H, TEXT_2XS,
-    TEXT_2XS_H, TEXT_3XS, TEXT_SM, TEXT_XS_H,
+    self, Tokens, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, TEXT_2XS, TEXT_2XS_H, TEXT_SM,
 };
 use crate::toast;
-use crate::ui::{self, Button, Field, IconButton, Segmented, Variant};
+use crate::ui::{self, Button, Field, Group, IconButton, Row, Segmented, Tone, Variant};
 use crate::workbench::Workbench;
 
 pub mod panels;
 
-const COLUMNS: [(BoardColumn, &str); 4] = [
-    (BoardColumn::Open, "Open"),
-    (BoardColumn::Progress, "In progress"),
+/// The groups a lane lists its cards in, those waiting on the person first.
+const GROUPS: [(BoardColumn, &str); 4] = [
     (BoardColumn::Needs, "Needs you"),
+    (BoardColumn::Progress, "In progress"),
+    (BoardColumn::Open, "Open"),
     (BoardColumn::Done, "Done"),
 ];
+/// The width of a row's reason, its gates and its agent, so they line up down a lane.
+const REASON_WIDTH: f32 = 200.;
+const GATES_WIDTH: f32 = 108.;
+const OWNER_WIDTH: f32 = 112.;
 
 /// The column a card moving to `status` shows in until the core answers.
 fn column_moving_to(status: CardStatus) -> BoardColumn {
@@ -94,6 +98,7 @@ pub(crate) enum Open {
     New,
     Auto,
     Messages,
+    Triggers,
 }
 
 /// The fields of the card open beside the board, or of a new one.
@@ -232,6 +237,8 @@ pub struct BoardPane {
     places: Places,
     moving: HashMap<u64, CardStatus>,
     folded: HashSet<String>,
+    /// Lanes whose done cards show, by lane.
+    done_shown: HashSet<String>,
     pub(crate) messages: Option<Vec<MessageRow>>,
     pub(crate) busy: bool,
     /// The hosts linked with this one, once the Auto panel has asked.
@@ -273,6 +280,7 @@ impl BoardPane {
             places: Places::default(),
             moving: HashMap::new(),
             folded: HashSet::new(),
+            done_shown: HashSet::new(),
             messages: None,
             busy: false,
             links: Vec::new(),
@@ -698,7 +706,6 @@ impl Render for BoardPane {
                     .flex()
                     .flex_col()
                     .child(head(self, cx))
-                    .children(triggers(self, cx))
                     .child(body(self, cx)),
             )
             .children(panel.map(|panel| ui::floating_panel("board-panel", cx).child(panel)))
@@ -737,6 +744,7 @@ fn head(pane: &BoardPane, cx: &mut Context<BoardPane>) -> impl IntoElement {
         .board
         .as_ref()
         .map(|board| (&board.settings, board.running));
+    let triggers = pane.board.as_ref().map_or(0, |board| board.triggers.len());
     let auto_on = settings.is_some_and(|(settings, _)| settings.auto);
     let auto_count = settings
         .filter(|(settings, _)| settings.auto)
@@ -810,6 +818,24 @@ fn head(pane: &BoardPane, cx: &mut Context<BoardPane>) -> impl IntoElement {
             }))
             .tooltip(auto_tip),
         )
+        .when(triggers > 0, |head| {
+            head.child(
+                header_button(
+                    "board-triggers",
+                    "Triggers".into(),
+                    None,
+                    pane.open == Some(Open::Triggers),
+                    Open::Triggers,
+                )
+                .trail(
+                    div()
+                        .opacity(0.7)
+                        .font_weight(FontWeight::NORMAL)
+                        .font_features(crate::theme::tabular())
+                        .child(triggers.to_string()),
+                ),
+            )
+        })
         .child(header_button(
             "board-messages",
             "Messages".into(),
@@ -824,58 +850,6 @@ fn head(pane: &BoardPane, cx: &mut Context<BoardPane>) -> impl IntoElement {
             pane.open == Some(Open::New),
             Open::New,
         ))
-}
-
-/// The triggers that add cards to this board when their time comes, each of which the person
-/// can remove.
-fn triggers(pane: &BoardPane, cx: &mut Context<BoardPane>) -> Option<AnyElement> {
-    let set = &pane.board.as_ref()?.triggers;
-    if set.is_empty() {
-        return None;
-    }
-    let t = Tokens::get(cx).clone();
-    let rows: Vec<AnyElement> = set
-        .iter()
-        .map(|trigger| {
-            let id = trigger.id;
-            crate::chat::live::trigger_row(
-                trigger,
-                &t,
-                cx.listener(move |pane, _, _, cx| {
-                    let asked = core::Target::here(&pane.asks)
-                        .request_typed::<call::RemoveTrigger>(TriggerParams { trigger: id });
-                    cx.spawn(async move |_, _| drop(asked.await)).detach();
-                }),
-            )
-        })
-        .collect();
-    Some(
-        div()
-            .flex_none()
-            .pt(SPACE_1H)
-            .pb(SPACE_1)
-            .px(SPACE_1)
-            .border_b_1()
-            .border_color(t.border)
-            .child(
-                div()
-                    .pl(px(11.))
-                    .pb(SPACE_0)
-                    .flex()
-                    .gap(SPACE_1H)
-                    .text_size(crate::theme::ui_text(TEXT_3XS))
-                    .text_color(t.text_disabled)
-                    .child("TRIGGERS")
-                    .child(
-                        div()
-                            .font_family(crate::theme::MONO)
-                            .text_color(t.text_tertiary)
-                            .child(set.len().to_string()),
-                    ),
-            )
-            .children(rows)
-            .into_any_element(),
-    )
 }
 
 fn body(pane: &BoardPane, cx: &mut Context<BoardPane>) -> AnyElement {
@@ -917,11 +891,11 @@ fn body(pane: &BoardPane, cx: &mut Context<BoardPane>) -> AnyElement {
         .min_h_0()
         .overflow_y_scroll()
         .px(SPACE_3)
-        .pt(SPACE_2H)
+        .pt(SPACE_1)
         .pb(SPACE_3)
         .flex()
         .flex_col()
-        .gap(SPACE_3H)
+        .gap(SPACE_2)
         .children(
             lanes
                 .into_iter()
@@ -950,7 +924,7 @@ fn lane_view(
     let lead_owner = lead
         .filter(|parent| parent.owner.is_some())
         .map(|parent| owner(parent, cx));
-    let (title, meta, select): (String, String, Option<u64>) = match lead {
+    let (title, meta, select, under) = match lead {
         Some(parent) => {
             let under = pane.under_card(parent.id);
             let above = parent
@@ -966,7 +940,7 @@ fn lane_view(
             .flatten()
             .collect::<Vec<_>>()
             .join(" · ");
-            (parent.title.clone(), meta, Some(parent.id))
+            (parent.title.clone(), meta, Some(parent.id), Some(under))
         }
         None => {
             let auto = pane.board.as_ref().is_some_and(|board| board.settings.auto);
@@ -975,21 +949,27 @@ fn lane_view(
             } else {
                 count(lane.cards.len())
             };
-            ("On their own".to_owned(), meta, None)
+            ("On their own".to_owned(), meta, None, None)
         }
     };
+    let progress = under
+        .filter(|under| under.total > 0)
+        .map(|under| 100. * under.done as f64 / under.total as f64);
     div()
+        .id(SharedString::from(format!("lane-{}", lane.key)))
         .flex()
         .flex_col()
-        .gap(SPACE_2)
         .child(
             div()
+                .h(px(34.))
                 .flex()
                 .items_center()
                 .gap(SPACE_1H)
+                .border_b_1()
+                .border_color(t.border)
                 .child(
                     IconButton::new(
-                        SharedString::from(format!("fold-{key}")),
+                        "lane-fold",
                         Icon::Chevron,
                         if folded {
                             "Show its cards"
@@ -1012,7 +992,8 @@ fn lane_view(
                 )
                 .child(
                     div()
-                        .id(SharedString::from(format!("lane-{}", lane.key)))
+                        .id("lane-title")
+                        .min_w_0()
                         .flex()
                         .items_center()
                         .gap(SPACE_2)
@@ -1025,83 +1006,117 @@ fn lane_view(
                         })
                         .child(
                             ui::text(title, TEXT_SM, FontWeight::SEMIBOLD)
-                                .text_color(t.text_primary),
+                                .text_color(t.text_primary)
+                                .truncate(),
                         )
-                        .child(ui::meta(meta, cx)),
+                        .children(
+                            progress.map(|percent| {
+                                ui::ring(Some((percent, t.live)), 12., 2., t.border)
+                            }),
+                        )
+                        .child(ui::meta(meta, cx).flex_none()),
                 )
-                .children(lead_owner),
+                .child(div().flex_1())
+                .children(lead_owner.map(|owner| div().pr(SPACE_2).child(owner))),
         )
         .when(!folded, |lane_view| {
-            lane_view.child(columns(pane, &lane.cards, undrawn, cx))
+            lane_view.child(groups(pane, &lane, undrawn, cx))
         })
         .into_any_element()
 }
 
-fn columns(
+/// A lane's cards in their groups, those that need the person first and the done ones folded
+/// away until asked for. While a card is dragged, every group a card can be dropped in shows.
+fn groups(
     pane: &BoardPane,
-    ids: &[u64],
+    lane: &Lane,
     undrawn: &HashSet<u64>,
     cx: &mut Context<BoardPane>,
 ) -> impl IntoElement {
     let t = Tokens::get(cx).clone();
-    div()
-        .flex()
-        .gap(SPACE_2H)
-        .children(COLUMNS.iter().map(|&(column, name)| {
-            let cards: Vec<&BoardCard> = ids
-                .iter()
-                .filter_map(|id| pane.card(*id))
-                .filter(|card| pane.column_of(card) == column)
-                .collect();
+    let dragging = cx.has_active_drag();
+    let mut first = true;
+    let mut drawn = Vec::new();
+    for &(column, name) in &GROUPS {
+        let cards: Vec<&BoardCard> = (lane.cards.iter())
+            .filter_map(|id| pane.card(*id))
+            .filter(|card| pane.column_of(card) == column)
+            .collect();
+        let dropped = status_dropped_in(column);
+        if cards.is_empty() && !(dragging && dropped.is_some()) {
+            continue;
+        }
+        let shown = column != BoardColumn::Done || pane.done_shown.contains(&lane.key);
+        let mut group = Group::new(name, "Drop a card here")
+            .total(Some(cards.len()))
+            .counted();
+        if first {
+            group = group.first();
+            first = false;
+        }
+        if column == BoardColumn::Done {
+            let key = lane.key.clone();
+            group = group.folds(
+                !shown,
+                cx.listener(move |pane, _, _, cx| {
+                    if !pane.done_shown.remove(&key) {
+                        pane.done_shown.insert(key.clone());
+                    }
+                    cx.notify();
+                }),
+            );
+        }
+        let rows: Vec<AnyElement> = if shown {
+            (cards.into_iter())
+                .filter(|card| !undrawn.contains(&card.id))
+                .map(|card| card_row(pane, card, column, cx))
+                .collect()
+        } else {
+            Vec::new()
+        };
+        drawn.push(
             div()
-                .id(SharedString::from(format!(
-                    "column-{column:?}-{}",
-                    ids.first().copied().unwrap_or(0)
-                )))
-                .flex_1()
-                .min_w_0()
-                .flex()
-                .flex_col()
-                .gap(SPACE_1H)
-                .px(SPACE_1H)
-                .when(!cards.is_empty(), |column| column.pb(SPACE_1H))
-                .rounded(theme::RADIUS_3)
-                .bg(t.surface_sunken)
-                .when_some(status_dropped_in(column), |column, status| {
-                    column
+                .id(SharedString::from(format!("group-{column:?}")))
+                .rounded(theme::RADIUS_2)
+                .when_some(dropped, |group, status| {
+                    group
                         .drag_over::<DraggedCard>(move |style, _, _, _| style.bg(t.surface_hover))
                         .on_drop(cx.listener(move |pane, dragged: &DraggedCard, _, cx| {
                             pane.move_card(dragged.id, status, cx)
                         }))
                 })
-                .child(
-                    div()
-                        .flex_none()
-                        .h(px(34.))
-                        .flex()
-                        .items_center()
-                        .justify_between()
-                        .px(SPACE_1H)
-                        .child(ui::caps(name, cx))
-                        .child(ui::meta(cards.len().to_string(), cx)),
-                )
-                .children(
-                    (cards.into_iter())
-                        .filter(|card| !undrawn.contains(&card.id))
-                        .map(|card| card_view(pane, card, cx)),
-                )
-        }))
+                .child(group.children(rows)),
+        );
+    }
+    div()
+        .flex()
+        .flex_col()
+        .pl(px(18.))
+        .pt(SPACE_1H)
+        .pb(SPACE_2)
+        .children(drawn)
 }
 
-fn card_view(pane: &BoardPane, card: &BoardCard, cx: &mut Context<BoardPane>) -> AnyElement {
+/// One card as a row: how it stands, its title, the line that says why, its gates, its agent
+/// and how long since it changed.
+fn card_row(
+    pane: &BoardPane,
+    card: &BoardCard,
+    column: BoardColumn,
+    cx: &mut Context<BoardPane>,
+) -> AnyElement {
     let t = Tokens::get(cx).clone();
     let id = card.id;
     let question = (card.question.as_deref()).and_then(|id| {
         let bench = pane.bench.upgrade()?;
         let bench = bench.read(cx);
         let asked = bench.feeds.questions().find(|question| question.id == id)?;
-        Some(format!("{} asks: {}", asked.name, asked.text))
+        Some(format!("@{} asks: {}", asked.name, asked.text))
     });
+    let under = pane.under_card(id);
+    let after = (card.waits_on.first())
+        .or_else(|| card.depends_on.first())
+        .and_then(|id| pane.card(*id));
     let line = question
         .or_else(|| {
             card.auto
@@ -1109,35 +1124,62 @@ fn card_view(pane: &BoardPane, card: &BoardCard, cx: &mut Context<BoardPane>) ->
                 .filter(|_| card.status != CardStatus::Done)
                 .and_then(|run| run.note.clone())
         })
-        .or_else(|| (card.aside_at).map(|at| format!("Put aside {}", crate::ui::time::ago(at))));
-    let under = pane.under_card(id);
-    let waits: Vec<&BoardCard> = card
-        .waits_on
-        .iter()
-        .filter_map(|id| pane.card(*id))
-        .collect();
-    let after = waits
-        .first()
-        .copied()
-        .or_else(|| card.depends_on.first().and_then(|id| pane.card(*id)));
+        .or_else(|| (card.aside_at).map(|at| format!("Put aside {}", crate::ui::time::ago(at))))
+        .or_else(|| after.map(|after| format!("after {}", short_title(&after.title))))
+        .or_else(|| {
+            (under.total > 0).then(|| format!("{} of {} under it done", under.done, under.total))
+        });
     let chosen = pane.open == Some(Open::Card(id));
     let moving = pane.moving.contains_key(&id);
     let label: SharedString = card.title.clone().into();
+    let mark = match column {
+        BoardColumn::Needs => ui::dot(Tone::Pending, cx).into_any_element(),
+        BoardColumn::Progress => ui::dot(Tone::Ok, cx).into_any_element(),
+        BoardColumn::Open => ui::dot(Tone::Idle, cx).into_any_element(),
+        BoardColumn::Done => ui::icon(Icon::Check, 12.)
+            .text_color(t.live)
+            .into_any_element(),
+    };
+    let mut row = Row::new(SharedString::from(format!("card-{id}")), label.clone())
+        .mark(14., mark)
+        .chosen(chosen)
+        .on_click(
+            cx.listener(move |pane, _, window, cx| pane.select(Some(Open::Card(id)), window, cx)),
+        );
+    if column == BoardColumn::Done {
+        row = row.quiet();
+    }
+    let row = row
+        .child(
+            div()
+                .w(px(REASON_WIDTH))
+                .flex_none()
+                .min_w_0()
+                .children(line.map(|line| ui::meta(line, cx).truncate())),
+        )
+        .children(
+            card.ticket
+                .as_ref()
+                .map(|ticket| ui::mono(ticket.key.clone(), TEXT_2XS, cx).flex_none()),
+        )
+        .child(gates(card, &t))
+        .child(
+            div()
+                .w(px(OWNER_WIDTH))
+                .flex_none()
+                .min_w_0()
+                .overflow_hidden()
+                .children(card.owner.as_ref().map(|_| owner(card, cx))),
+        )
+        .child(
+            ui::meta(crate::ui::time::age(card.updated_at), cx)
+                .w(px(28.))
+                .flex_none()
+                .text_right(),
+        );
     div()
-        .id(SharedString::from(format!("card-{id}")))
-        .flex()
-        .flex_col()
-        .gap(px(5.))
-        .p(SPACE_2)
-        .rounded(theme::RADIUS_2)
-        .border_1()
-        .border_color(if chosen { t.border_strong } else { t.border })
-        .bg(if chosen { t.surface_chosen } else { t.surface })
-        .when(moving || card.status == CardStatus::Done, |card| {
-            card.opacity(0.6)
-        })
-        .cursor_pointer()
-        .hover(move |style| style.border_color(t.border_strong))
+        .id(SharedString::from(format!("card-drag-{id}")))
+        .when(moving, |row| row.opacity(0.6))
         .on_drag(
             DraggedCard {
                 id,
@@ -1145,57 +1187,58 @@ fn card_view(pane: &BoardPane, card: &BoardCard, cx: &mut Context<BoardPane>) ->
             },
             |dragged: &DraggedCard, _, _, cx| ghost(dragged.label.clone(), cx),
         )
-        .on_click(
-            cx.listener(move |pane, _, window, cx| pane.select(Some(Open::Card(id)), window, cx)),
-        )
-        .child(
-            ui::text(label, TEXT_XS_H, FontWeight::MEDIUM)
-                .whitespace_normal()
-                .text_color(t.text_primary),
-        )
-        .when_some(line, |view, line| {
-            view.child(ui::meta(line, cx).whitespace_normal())
-        })
-        .when(under.total > 0 || after.is_some(), |view| {
-            view.child(
-                div()
-                    .flex()
-                    .gap(SPACE_2)
-                    .when(under.total > 0, |row| {
-                        row.child(ui::meta(format!("{}/{}", under.done, under.total), cx))
-                    })
-                    .when_some(after, |row, after| {
-                        row.child(
-                            div()
-                                .flex()
-                                .items_center()
-                                .gap(px(3.))
-                                .child(ui::icon(Icon::Link, 10.).text_color(t.text_tertiary))
-                                .child(ui::meta(
-                                    format!("after {}", short_title(&after.title)),
-                                    cx,
-                                )),
-                        )
-                    }),
-            )
-        })
-        .when(card.ticket.is_some() || card.owner.is_some(), |view| {
-            view.child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(SPACE_1H)
-                    .when_some(card.ticket.as_ref(), |foot, ticket| {
-                        foot.child(ui::mono(ticket.key.clone(), TEXT_2XS, cx))
-                            .when_some(ticket.source.clone(), |foot, source| {
-                                foot.child(ui::meta(source, cx))
-                            })
-                    })
-                    .child(div().flex_1())
-                    .children(card.owner.as_ref().map(|_| owner(card, cx))),
-            )
-        })
+        .child(row)
         .into_any_element()
+}
+
+/// A slice's gates in a line, each a dot that fills once it passed; the one waiting on the
+/// person rings in amber. Nothing for a card that is no slice.
+fn gates(card: &BoardCard, t: &Tokens) -> gpui_kit::Div {
+    div()
+        .w(px(GATES_WIDTH))
+        .flex_none()
+        .overflow_hidden()
+        .flex()
+        .items_center()
+        .gap(SPACE_2)
+        .children(
+            card.slice
+                .iter()
+                .flat_map(|slice| &slice.gates)
+                .map(|gate| {
+                    let you = gate.state == GateState::Waiting && gate.passer == Passer::Person;
+                    let node = div().size(px(6.)).rounded_full().flex_none();
+                    let node = match gate.state {
+                        GateState::Passed => node.bg(t.live),
+                        GateState::Waiting => {
+                            node.border_1()
+                                .border_color(if you { t.warn } else { t.live })
+                        }
+                        GateState::Ahead => node.border_1().border_color(t.text_tertiary),
+                    };
+                    div()
+                        .flex_none()
+                        .flex()
+                        .items_center()
+                        .gap(px(3.))
+                        .child(node)
+                        .child(
+                            ui::text(
+                                crate::goals::step_name(gate).to_owned(),
+                                TEXT_2XS,
+                                FontWeight::NORMAL,
+                            )
+                            .whitespace_nowrap()
+                            .text_color(
+                                if gate.state == GateState::Passed {
+                                    t.text_secondary
+                                } else {
+                                    t.text_tertiary
+                                },
+                            ),
+                        )
+                }),
+        )
 }
 
 /// A card's ticket: its key, what it is in its tracker, and a link to it there.
@@ -1230,11 +1273,14 @@ pub(crate) fn owner(card: &BoardCard, cx: &gpui_kit::App) -> AnyElement {
         })
         .child(
             ui::text(
-                card.owner_name.clone().unwrap_or_else(|| "An agent".into()),
+                (card.owner_name.as_ref())
+                    .map_or_else(|| "An agent".to_owned(), |name| format!("@{name}")),
                 TEXT_2XS_H,
                 FontWeight::MEDIUM,
             )
-            .text_color(t.text_secondary),
+            .text_color(t.text_secondary)
+            .min_w_0()
+            .truncate(),
         )
         .when_some(card.paid_by.clone(), |owner, paid| {
             owner.child(ui::meta(paid, cx))

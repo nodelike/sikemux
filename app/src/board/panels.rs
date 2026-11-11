@@ -1,5 +1,5 @@
 //! What opens beside a board: one card to read and change or a new one to add,
-//! Auto's settings, and the messages between the project's agents.
+//! Auto's settings, the messages between the project's agents, and the triggers that add cards.
 
 use crate::board::ChangesBoards;
 use std::rc::Rc;
@@ -23,9 +23,11 @@ use sikemux_core::server::messages::log::MessageOutcome;
 use sikemux_core::server::messages::log::MessageRow;
 use sikemux_core::server::messages::log::MessageTone;
 use sikemux_core::server::messages::MessageKind;
+use sikemux_core::server::triggers::TriggerParams;
 
 use crate::board::{owner, short_title, BoardPane, Open};
 use crate::chat::model_picker;
+use crate::core;
 use crate::icons::Icon;
 use crate::settings::rows;
 use crate::theme::{
@@ -82,6 +84,7 @@ pub(crate) fn panel(pane: &BoardPane, cx: &mut Context<BoardPane>) -> Option<Any
         Open::New => new_panel(pane, cx),
         Open::Auto => auto_panel(pane, cx),
         Open::Messages => messages_panel(pane, cx),
+        Open::Triggers => triggers_panel(pane, cx),
     })
 }
 
@@ -1063,5 +1066,46 @@ fn messages_panel(pane: &BoardPane, cx: &mut Context<BoardPane>) -> AnyElement {
             }));
         }
     }
+    view.into_any_element()
+}
+
+/// The triggers that add cards to this board when their time comes, each of which the person
+/// can remove.
+fn triggers_panel(pane: &BoardPane, cx: &mut Context<BoardPane>) -> AnyElement {
+    let t = Tokens::get(cx).clone();
+    let set = pane
+        .board
+        .as_ref()
+        .map(|board| board.triggers.clone())
+        .unwrap_or_default();
+    let title = ui::text("Triggers", TEXT_SM, FontWeight::SEMIBOLD).into_any_element();
+    let mut view =
+        div()
+            .flex()
+            .flex_col()
+            .child(head(title, cx))
+            .child(
+                div().px(SPACE_3H).py(SPACE_2).child(
+                    ui::meta("Each adds a card to this board when its time comes.", cx)
+                        .whitespace_normal(),
+                ),
+            );
+    if set.is_empty() {
+        return view
+            .child(div().px(SPACE_3H).child(ui::meta("No triggers left.", cx)))
+            .into_any_element();
+    }
+    view = view.child(div().px(SPACE_1).children(set.iter().map(|trigger| {
+        let id = trigger.id;
+        crate::chat::live::trigger_row(
+            trigger,
+            &t,
+            cx.listener(move |pane, _, _, cx| {
+                let asked = core::Target::here(&pane.asks)
+                    .request_typed::<call::RemoveTrigger>(TriggerParams { trigger: id });
+                cx.spawn(async move |_, _| drop(asked.await)).detach();
+            }),
+        )
+    })));
     view.into_any_element()
 }

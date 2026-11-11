@@ -5,13 +5,13 @@ description: "Cards your agents work from, and slices that only pass on evidence
 
 Each project has a board of cards, open with `⌘⌥6`. You and your agents add cards, an agent claims one and works it, and a card can sit under another or wait on others. A card that waits on a slice can start as soon as that slice is **Built** on the project's branch, without waiting for you to look at it, and a change you ask for after that is new work it doesn't wait for. Whoever added a waiting card, or else its goal's lead, hears when it can be claimed. Agents use the `board_add`, `board_claim`, `board_update` and `board_list` tools.
 
-The Done column draws its newest 200 cards, and its count includes the rest. **Find a card** searches all of them.
+The board lists each card under the card it sits under, one row per card, grouped by where it stands: **Needs you** first, then **In progress**, **Open** and **Done**. A row shows how the card stands, its title, why it waits, a slice's gates, the agent holding it and how long since it changed. Done stays folded until you open it, and draws its newest 200 cards, while its count includes the rest. Drag a row onto a group to move it there. **Find a card** searches all of them.
 
 The board tidies itself without asking you:
 
 - A finished card moves to the project's archive three days after it finished, once nothing is under it, nothing runs on it and its ticket knows it's done.
 - A card whose cards under it are all done is marked done too, saying so, unless an agent is working it, it has a ticket, or its goal still waits for you to look at it.
-- An open card nobody holds that hasn't changed for seven days moves to **Later** and leaves the board, on the Mac and the phone, along with the counts of cards under a card. Pick **Later** next to **Needs you** to see those cards and how long each has been aside. A card comes back once someone claims or changes it, a card that waits on it gets an agent, or you drag it to a column. Nothing in Later is ever deleted.
+- An open card nobody holds that hasn't changed for seven days moves to **Later** and leaves the board, on the Mac and the phone, along with the counts of cards under a card. Pick **Later** next to **Needs you** to see those cards and how long each has been aside. A card comes back once someone claims or changes it, a card that waits on it gets an agent, or you drag it to a group. Nothing in Later is ever deleted.
 
 While an agent holds a card, only it and the agents above it can change it or take it. Once that agent closes, its card counts as nobody's, so any agent can finish it or claim it and it never stays stuck. A card under another goes back to Open by itself when its agent closes, stops, or sits idle with it for 30 minutes while nothing it waits on can bring it back, with a line such as "@Thistle left it unfinished." A slice goes further and tells you: see [when an owner stalls](/agents/goals/#when-an-owner-stalls).
 
@@ -104,6 +104,6 @@ A slice keeps its latest 24 pieces of evidence, and every piece you wrote a note
 
 ## When a slice needs you
 
-A slice waiting at a gate only you pass, such as **Landed** where you land slices or an environment's step, shows in the inbox as something to decide, with its promise and recordings, and in the board's **Needs you** column. Pass it once it is ready. If it needs more work, write a note on the slice, or on one piece of its evidence: the note goes to the agent whose work that piece shows, else to the agent that holds the card, as a message from you. The slice then goes back to the agent that holds it and leaves **Needs you**: it climbs again from Built once the agent commits what you asked, or answers you, and marks it done again.
+A slice waiting at a gate only you pass, such as **Landed** where you land slices or an environment's step, shows in the inbox as something to decide, with its promise and recordings, and in the board's **Needs you** group. Pass it once it is ready. If it needs more work, write a note on the slice, or on one piece of its evidence: the note goes to the agent whose work that piece shows, else to the agent that holds the card, as a message from you. The slice then goes back to the agent that holds it and leaves **Needs you**: it climbs again from Built once the agent commits what you asked, or answers you, and marks it done again.
 
-A goal whose work changes what people see waits for you to look at it once, on its own card in the **Needs you** column; see [looking once at a goal](/agents/goals/#looking-once-at-a-goal).
+A goal whose work changes what people see waits for you to look at it once, on its own card in the board's **Needs you** group; see [looking once at a goal](/agents/goals/#looking-once-at-a-goal).
