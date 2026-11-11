@@ -19,9 +19,7 @@ struct MessageEditor: View {
         let words = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         VStack(alignment: .trailing, spacing: 8) {
             TextField("", text: $draft, axis: .vertical)
-                .font(Theme.ui(14))
-                .lineSpacing(22 - 14 * 1.22)
-                .foregroundStyle(palette.ink)
+                .sentWords(palette)
                 .tint(palette.accent)
                 .lineLimit(1...12)
                 .focused($focused)
