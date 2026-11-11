@@ -73,6 +73,7 @@ impl Remote {
         self.change(|stored| {
             stored.forget(&link.id);
             stored.declined_links.remove(&link.id);
+            stored.removed_here.remove(&link.id);
             stored.links.push(link);
             Ok(())
         })
@@ -99,6 +100,12 @@ impl Remote {
         if let Err(error) = undeclined {
             eprintln!("sikemux core: could not save asking a host to link again: {error}");
         }
+    }
+
+    /// Whether the person removed the host `id` from this one, which then
+    /// links again only when the person says so.
+    pub(crate) fn removed_here(&self, id: &str) -> bool {
+        self.inner.locked().stored.removed_here.contains_key(id)
     }
 
     /// When the host `id` may next be asked to link, after failing lately.

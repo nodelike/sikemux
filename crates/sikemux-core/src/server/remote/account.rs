@@ -418,14 +418,32 @@ pub(super) fn let_go(core: &Core, reason: Option<RevokeReason>) {
     core.remote.left.notify_waiters();
 }
 
-/// Takes a device or linked host off this host only. A device removed here
-/// waits for the person the next time it asks to join, and comes back with no
-/// more than it had.
+/// Takes a device or linked host off this host only, as the person chose. A
+/// device removed here waits for the person the next time it asks to join,
+/// and comes back with no more than it had; a host removed here waits for the
+/// person on either side before it links again.
 pub(crate) fn revoke(core: &Core, id: &str) -> CoreResult<RemoteStatus> {
+    take_off(core, id, true)
+}
+
+/// Forgets a device that left this host by itself, as on signing out, which
+/// may join again as any device on the account does.
+pub(crate) fn forget_leaving(core: &Core, id: &str) -> CoreResult<RemoteStatus> {
+    take_off(core, id, false)
+}
+
+fn take_off(core: &Core, id: &str, by_the_person: bool) -> CoreResult<RemoteStatus> {
     let linked = core.remote.change(|stored| {
         let linked = stored.links.iter().any(|link| link.id == id);
-        if let Some(device) = stored.forget(id) {
-            stored.removed_here.insert(device.id, device.access);
+        let device = stored.forget(id);
+        if by_the_person {
+            if let Some(device) = device {
+                stored.removed_here.insert(device.id, device.access);
+            } else if linked {
+                stored
+                    .removed_here
+                    .insert(id.to_owned(), DeviceAccess::Full);
+            }
         }
         Ok(linked)
     })?;

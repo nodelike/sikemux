@@ -571,7 +571,7 @@ pub(super) async fn run(
                 tokio::spawn(async move {
                     client.answer::<ask::Unpair>(request_id, Ok(()));
                     client.wait_flushed(SHUTDOWN_FLUSH).await;
-                    if let Err(error) = remote::revoke(&core, &id) {
+                    if let Err(error) = remote::forget_leaving(&core, &id) {
                         eprintln!("sikemux core: could not unpair {id}: {error}");
                     }
                 });

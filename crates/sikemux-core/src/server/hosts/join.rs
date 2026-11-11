@@ -188,7 +188,7 @@ pub(super) async fn answer(core: Arc<Core>, connection: Connection) {
     let name = clean(&hello.name, NAME_LIMIT);
     let platform = clean(&hello.platform, PLATFORM_LIMIT);
     let addresses = addresses_of(&hello.addresses);
-    if core.remote.requires_approval() {
+    if core.remote.requires_approval_of(&host) {
         core.remote.forget_device_requests(&host);
         let request = PendingDevice {
             id: uuid::Uuid::new_v4().to_string(),
