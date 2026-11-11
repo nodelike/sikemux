@@ -53,6 +53,7 @@ const DRAWN = {
   command: [ICONS, "IconCommand"],
   contrast: [ICONS, "IconContrast"],
   focus: [ICONS, "IconFocus"],
+  snip: [ICONS, "IconSnip"],
   pencil: [ICONS, "IconPencil"],
   server: [ICONS, "IconServer"],
   window: [ICONS, "IconWindow"],

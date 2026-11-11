@@ -563,9 +563,9 @@
         ".tag { position: absolute; left: -2px; bottom: 100%; margin-bottom: 2px; padding: 1px 5px; border-radius: 3px; background: #ff4f7b; color: #fff; white-space: nowrap; max-width: 320px; overflow: hidden; text-overflow: ellipsis; }",
         ".box.marks .tag { bottom: auto; top: 0; margin: 0; padding: 0 3px; font-size: 10px; border-radius: 0 0 3px 0; }",
         ".snip { position: absolute; inset: 0; pointer-events: auto; cursor: crosshair; }",
-        ".snip-box { position: absolute; border: 1.5px solid #a277ff; border-radius: 2px; background: rgba(162, 119, 255, .08); box-shadow: 0 0 0 100vmax rgba(0, 0, 0, .12); }",
+        ".snip-box { position: absolute; border: 1.5px solid var(--snip); border-radius: 2px; background: color-mix(in srgb, var(--snip) 8%, transparent); box-shadow: 0 0 0 100vmax rgba(0, 0, 0, .12); }",
         ".snip-box.taken { box-shadow: none; animation: taken 520ms ease-out forwards; }",
-        "@keyframes taken { from { background: rgba(162, 119, 255, .4); } to { background: rgba(162, 119, 255, 0); border-color: rgba(162, 119, 255, 0); } }",
+        "@keyframes taken { from { background: color-mix(in srgb, var(--snip) 40%, transparent); } to { background: transparent; border-color: transparent; } }",
         ".caption { position: absolute; left: 50%; bottom: 28px; transform: translateX(-50%); max-width: 80%; padding: 10px 16px; border-radius: 8px; background: rgba(17, 17, 20, .86); color: #fff; font-size: 15px; font-weight: 500; text-align: center; }",
     ].join("\n");
     const POINTER_SVG =
@@ -666,6 +666,16 @@
             if (rect.left <= area.left && rect.top <= area.top && rect.right >= area.right && rect.bottom >= area.bottom) break;
         }
         return holder ? { ...found, holder: snipEntry(holder) } : found;
+    };
+    // A thin crosshair in the app's accent, outlined in white so it shows on any page.
+    const snipCursor = (accent) => {
+        const arms = "M12 2v7M12 15v7M2 12h7M15 12h7";
+        const svg =
+            `<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'>` +
+            `<path d='${arms}' stroke='white' stroke-width='3' stroke-linecap='round'/>` +
+            `<path d='${arms}' stroke='${accent}' stroke-width='1.5' stroke-linecap='round'/>` +
+            `<circle cx='12' cy='12' r='1.2' fill='${accent}'/></svg>`;
+        return `url("data:image/svg+xml;utf8,${encodeURIComponent(svg)}") 12 12, crosshair`;
     };
     const endOnEscape = (event) => {
         if (event.key !== "Escape") return;
@@ -1102,9 +1112,10 @@
         contentHeight() {
             return Math.ceil(document.documentElement.getBoundingClientRect().height);
         },
-        // Turns snip mode on or off. On, it flashes `taken`, the box answered last, and waits for
-        // the next box the person drags, or Escape; a later call takes the wait over.
-        snip(on, taken) {
+        // Turns snip mode on or off. On, it draws in `accent`, flashes `taken`, the box answered
+        // last, and waits for the next box the person drags, or Escape; a later call takes the
+        // wait over.
+        snip(on, taken, accent) {
             const missed = snipMissed;
             snipMissed = null;
             if (snipWaiter) answerSnip(null);
@@ -1114,6 +1125,9 @@
             }
             if (missed && missed.ended) return missed;
             snipLayer();
+            const color = /^#[0-9a-f]{6}$/i.test(accent || "") ? accent : "#a277ff";
+            overlay.layer.style.setProperty("--snip", color);
+            overlay.layer.querySelector(".snip").style.cursor = snipCursor(color);
             overlay.layer.classList.remove("quiet");
             if (taken) flashTaken(taken);
             if (missed) return missed;

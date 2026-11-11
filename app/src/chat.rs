@@ -74,7 +74,7 @@ mod looks;
 mod mention;
 mod mermaid;
 mod moving;
-pub(crate) use attach::{named, named_agents, pill, site_icon, Mention};
+pub(crate) use attach::{named, named_agents, pill, site_icon, Mention, SNIP_NAME};
 pub use mention::Tray;
 pub use moving::yolo_mode;
 mod meta;

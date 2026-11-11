@@ -13,7 +13,9 @@ use sikemux_browser::BrowserManager;
 use tokio::sync::{mpsc, oneshot, Notify};
 
 use super::{Desks, Heard};
+use crate::chat::SNIP_NAME;
 use crate::send_to::{self, Recipient};
+use crate::theme::Tokens;
 use crate::toast;
 use crate::workbench::Workbench;
 
@@ -48,9 +50,17 @@ impl Desks {
                 on: Arc::new(AtomicBool::new(true)),
                 poke: Arc::new(Notify::new()),
             };
+            let accent = Tokens::get(cx).accent.to_rgb();
+            let accent = format!(
+                "#{:02x}{:02x}{:02x}",
+                (accent.r * 255.).round() as u8,
+                (accent.g * 255.).round() as u8,
+                (accent.b * 255.).round() as u8
+            );
             super::spawn(waiting(
                 engine,
                 agent.to_owned(),
+                accent,
                 snipper.on.clone(),
                 snipper.poke.clone(),
                 self.told.clone(),
@@ -73,6 +83,7 @@ impl Desks {
 async fn waiting(
     engine: Arc<BrowserManager>,
     agent: String,
+    accent: String,
     on: Arc<AtomicBool>,
     poke: Arc<Notify>,
     told: mpsc::UnboundedSender<Heard>,
@@ -91,7 +102,7 @@ async fn waiting(
         armed = shown;
         let flash = taken.take();
         let waited = tokio::select! {
-            waited = snip::wait(&engine, &agent, flash.as_ref()) => Some(waited),
+            waited = snip::wait(&engine, &agent, flash.as_ref(), &accent) => Some(waited),
             () = poke.notified() => None,
         };
         match waited {
@@ -140,7 +151,7 @@ impl Workbench {
     /// Hands a box the person took to the project's front chat, starting one when none is open.
     pub(crate) fn snipped(&mut self, snip: Snip, window: &mut Window, cx: &mut Context<Self>) {
         let name = format!(
-            "snip-{}.jpg",
+            "{SNIP_NAME}{}.jpg",
             chrono::Local::now().format("%Y%m%d-%H%M%S%3f")
         );
         let held = self

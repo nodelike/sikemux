@@ -1755,7 +1755,7 @@ fn snip_toggle(bench: &Workbench, agent: &str, cx: &Context<Workbench>) -> IconB
         None => "Snip to chat".to_owned(),
     };
     let agent = agent.to_owned();
-    IconButton::new("desk-snip", Icon::Focus, label)
+    IconButton::new("desk-snip", Icon::Snip, label)
         .glyph(13.)
         .pressed(bench.desks.read(cx).snipping(&agent))
         .on_click(cx.listener(move |bench, _, _, cx| bench.toggle_snip(&agent, cx)))

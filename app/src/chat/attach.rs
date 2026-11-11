@@ -149,12 +149,29 @@ fn about_uri(path: &Path) -> String {
     format!("{FOR_AGENT_URI}picture{}", path.to_string_lossy())
 }
 
+/// How the name of a picture snipped from a page starts, which the draft calls a selection.
+pub const SNIP_NAME: &str = "snip-";
+
+fn is_snip(path: &Path) -> bool {
+    path.file_name()
+        .is_some_and(|name| name.to_string_lossy().starts_with(SNIP_NAME))
+}
+
+/// What the draft calls picture `number`. The message itself still says `[Image #n]`, which is
+/// where the core puts the picture.
+fn picture_label(number: usize, path: &Path) -> String {
+    match is_snip(path) {
+        true => format!("Selection {number}"),
+        false => format!("Image {number}"),
+    }
+}
+
 fn image_tag(number: usize, path: &Path) -> InlineToken {
     InlineToken::new(
         format!("{IMAGE}{}", path.to_string_lossy()),
         format!("[Image #{number}]"),
     )
-    .with_label(format!("Image {number}"))
+    .with_label(picture_label(number, path))
 }
 
 impl Composing {
@@ -941,6 +958,7 @@ pub fn tiles(
             }
         });
         let name = match is_image(path) {
+            true if is_snip(path) => picture_label(index + 1, path),
             true => format!(
                 "#{} {}",
                 index + 1,

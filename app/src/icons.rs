@@ -82,6 +82,7 @@ icons!(
     FilePlus => "file-plus",
     Flask => "flask",
     Focus => "focus",
+    Snip => "snip",
     Folder => "folder",
     FolderPlus => "folder-plus",
     Git => "git",

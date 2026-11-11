@@ -298,6 +298,12 @@ export function IconAws({ size = 16, className, mono }: IconProps & { mono?: boo
 }
 
 export const IconFocus = makeSvgIcon(<path d="M2 5.5V2.5h3M14 5.5V2.5h-3M2 10.5v3h3M14 10.5v3h-3" />);
+export const IconSnip = makeSvgIcon(
+    <>
+        <path d="M2.5 5V3.5a1 1 0 0 1 1-1H5M7.5 2.5h1.5M11 2.5h1.5a1 1 0 0 1 1 1V5M2.5 7.5V9M2.5 11v1.5a1 1 0 0 0 1 1H5M7.5 13.5H8" />
+        <path d="M9 9l5 1.9-2.2.7-.7 2.2z" />
+    </>,
+);
 export const IconPointer = makeSvgIcon(<path d="M3.5 2.5 12.5 7.6 8.6 8.6 6.9 12.5Z" strokeLinejoin="round" />);
 export const IconChevron = makeSvgIcon(<path d="M6 4l4 4-4 4" />);
 export const IconPanelLeft = makeSvgIcon(

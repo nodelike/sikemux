@@ -42,17 +42,19 @@ pub enum Snipped {
     Nothing,
 }
 
-/// Puts the agent's shown page in snip mode and waits for the person's next box, flashing
-/// `taken`, the box taken last, first.
+/// Puts the agent's shown page in snip mode, its box and cursor drawn in `accent` (`#rrggbb`),
+/// and waits for the person's next box, flashing `taken`, the box taken last, first.
 pub async fn wait(
     manager: &BrowserManager,
     agent_id: &str,
     taken: Option<&Value>,
+    accent: &str,
 ) -> Result<Snipped, String> {
     let (tab_id, view) = active(manager, agent_id)?;
     let taken = taken.map_or_else(|| "null".to_owned(), Value::to_string);
+    let accent = Value::from(accent);
     let body = format!(
-        "{PAGE_SCRIPT}\nreturn JSON.stringify(await window.__sikemux.snip(true, {taken}));"
+        "{PAGE_SCRIPT}\nreturn JSON.stringify(await window.__sikemux.snip(true, {taken}, {accent}));"
     );
     let Some(answer) = native::wait_helper(&view, &body, WAIT).await? else {
         return Ok(Snipped::Nothing);

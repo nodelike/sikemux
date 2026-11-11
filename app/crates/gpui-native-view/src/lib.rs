@@ -234,6 +234,8 @@ impl Placement {
         let _ = (focus, window, cx);
         #[cfg(target_os = "macos")]
         macos::reclaim_keyboard_on_click();
+        #[cfg(target_os = "macos")]
+        macos::keep_cursor_rects_off_native_views();
         Self {
             surface: surface.clone(),
             mark,
