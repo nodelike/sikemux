@@ -80,7 +80,7 @@ struct DevicesScreen: View {
         .onAppear {
             guard !Self.launched else { return }
             Self.launched = true
-            if devices.count == 1 { Router.shared.push(.device(core: devices[0].core)) }
+            if devices.count == 1, Router.shared.path.isEmpty { Router.shared.push(.device(core: devices[0].core)) }
         }
     }
 }
