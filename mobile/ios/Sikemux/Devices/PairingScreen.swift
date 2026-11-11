@@ -175,7 +175,7 @@ private struct PairingContent: View {
     }
 
     private func note(_ text: String) -> Text {
-        Text(text).font(Theme.ui(13)).foregroundColor(palette.tertiary)
+        Text(text).font(Theme.ui(13)).foregroundStyle(palette.tertiary)
     }
 
     private func answer(_ id: String, _ access: DeviceAccess?) {

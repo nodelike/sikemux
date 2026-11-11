@@ -70,7 +70,7 @@ private struct AskedBy: View {
 }
 
 private func named(_ name: String, _ palette: Palette) -> Text {
-    Text("@\(name)").font(Theme.ui(11.5, .semibold)).foregroundColor(palette.ink)
+    Text("@\(name)").font(Theme.ui(11.5, .semibold)).foregroundStyle(palette.ink)
 }
 
 /// A question as it reads once answered: its words, and the answer in one line, or only that it was answered when
@@ -87,13 +87,13 @@ struct AnsweredQuestion: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if !own { AskedBy(cli: cli, words: named(asker, palette) + Text(" asked you")) }
+            if !own { AskedBy(cli: cli, words: Text("\(named(asker, palette)) asked you")) }
             Text(question).font(Theme.ui(14.5)).lineSpacing(23 - 14.5 * 1.2).foregroundStyle(palette.ink).textSelection(
                 .enabled)
             if secret {
                 Private(text: "Answered, kept private")
             } else {
-                (Text("You answered: ") + Text(answer).foregroundColor(palette.ink))
+                Text("You answered: \(Text(answer).foregroundStyle(palette.ink))")
                     .font(Theme.ui(13))
                     .lineSpacing(19 - 13 * 1.2)
                     .foregroundStyle(palette.inkDim)
@@ -132,7 +132,7 @@ private struct SecretAnswer: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .top, spacing: 8) {
                 TextField(
-                    "", text: $text, prompt: Text("Type or paste the answer").foregroundColor(palette.tertiary),
+                    "", text: $text, prompt: Text("Type or paste the answer").foregroundStyle(palette.tertiary),
                     axis: .vertical
                 )
                 .font(Theme.ui(16))
@@ -233,9 +233,9 @@ struct QuestionDock: View {
         return VStack(alignment: .leading, spacing: 0) {
             AskedBy(
                 cli: current.cli, ticket: current.ticket, onFold: { questions.fold(true) },
-                words: named(current.name, palette) + Text(" asks you\(via)"))
+                words: Text("\(named(current.name, palette)) asks you\(via)"))
             if open.count > 1 { tabs(current) }
-            (Text(current.text) + (current.multi ? Text(" Pick any.").foregroundColor(palette.inkFaint) : Text("")))
+            Text("\(current.text)\(current.multi ? Text(" Pick any.").foregroundStyle(palette.inkFaint) : Text(""))")
                 .font(Theme.ui(14.5))
                 .lineSpacing(23 - 14.5 * 1.2)
                 .foregroundStyle(palette.ink)
@@ -262,10 +262,9 @@ struct QuestionDock: View {
                         } else {
                             row(
                                 on: writing, multi: current.multi, mark: pencil,
-                                label: Text("Something else…").foregroundColor(palette.inkDim)
-                                    + (writing
-                                        ? Text("   answering below").font(Theme.ui(13)).foregroundColor(palette.inkDim)
-                                        : Text("")),
+                                label: Text(
+                                    "\(Text("Something else…"))\(writing ? Text("   answering below").font(Theme.ui(13)) : Text(""))"
+                                ).foregroundStyle(palette.inkDim),
                                 a11y: "Something else"
                             ) { onWrite(current) }
                         }
@@ -307,10 +306,10 @@ struct QuestionDock: View {
     private func choiceLabel(_ choice: QuestionChoice) -> Text {
         var label = Text(choice.label)
         if choice.recommended == true {
-            label = label + Text("  recommended").font(Theme.ui(12)).foregroundColor(palette.inkFaint)
+            label = Text("\(label)\(Text("  recommended").font(Theme.ui(12)).foregroundStyle(palette.inkFaint))")
         }
         if let detail = choice.detail {
-            label = label + Text("   \(detail)").font(Theme.ui(13)).foregroundColor(palette.inkDim)
+            label = Text("\(label)\(Text("   \(detail)").font(Theme.ui(13)).foregroundStyle(palette.inkDim))")
         }
         return label
     }

@@ -298,9 +298,9 @@ private struct BringItIn: View {
         VStack(alignment: .leading, spacing: 0) {
             Text("Bring it in").font(Theme.ui(15, .semibold)).foregroundStyle(palette.ink)
             VStack(alignment: .leading, spacing: 9) {
-                step(1, Text("Get Sikemux from ") + strong("sikemux.com"))
-                step(2, Text("Sign in with ") + strong(account.isEmpty ? "this account" : account))
-                step(3, Text("Click ") + strong("Allow") + Text(" when it asks"))
+                step(1, Text("Get Sikemux from \(strong("sikemux.com"))"))
+                step(2, Text("Sign in with \(strong(account.isEmpty ? "this account" : account))"))
+                step(3, Text("Click \(strong("Allow")) when it asks"))
             }
             .padding(.top, 10)
             Wrap {
@@ -336,7 +336,7 @@ private struct BringItIn: View {
     }
 
     private func strong(_ text: String) -> Text {
-        Text(text).font(Theme.ui(14, .semibold)).foregroundColor(palette.ink)
+        Text(text).font(Theme.ui(14, .semibold)).foregroundStyle(palette.ink)
     }
 
     private func step(_ number: Int, _ text: Text) -> some View {

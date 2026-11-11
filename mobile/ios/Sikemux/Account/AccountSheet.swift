@@ -131,9 +131,10 @@ struct AccountSheet: View {
             IconView(icon: Icons.phone, size: 18).foregroundStyle(palette.secondary)
             VStack(alignment: .leading, spacing: 0) {
                 Text(UIDevice.current.name).font(Theme.ui(15, .medium)).tracking(-0.15).foregroundStyle(palette.ink)
-                (Text(id == nil ? "This phone" : "This phone · ")
-                    + Text(id.map { String($0.prefix(8)) } ?? "").font(Theme.mono(12)))
-                    .metaStyle(palette)
+                Text(
+                    "\(id == nil ? "This phone" : "This phone · ")\(Text(id.map { String($0.prefix(8)) } ?? "").font(Theme.mono(12)))"
+                )
+                .metaStyle(palette)
                 if case .failed(let problem, _) = session.status {
                     Text("Not on your account yet: \(problem)").font(Theme.meta).foregroundStyle(palette.danger)
                 }
@@ -218,7 +219,7 @@ struct RestoreAccountScreen: View {
                 Text("Your account is being deleted")
                     .font(Theme.ui(22, .semibold)).tracking(-0.7).foregroundStyle(palette.ink)
                     .multilineTextAlignment(.center).padding(.top, 20)
-                (Text("It will be deleted for good on ") + Text(day).foregroundStyle(palette.ink) + Text("."))
+                Text("It will be deleted for good on \(Text(day).foregroundStyle(palette.ink)).")
                     .font(Theme.body).lineSpacing(7).foregroundStyle(palette.secondary)
                     .multilineTextAlignment(.center).padding(.top, 8)
                 if let problem { ProblemLine(text: problem, centred: true).padding(.top, 8) }

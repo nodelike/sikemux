@@ -613,10 +613,11 @@ enum FileGlyph: AttributedStringKey {
         var out = Text("")
         for run in words.runs {
             if let size = run[FileGlyph.self], let image = image(size, scale: scale) {
-                out =
-                    out + Text(Image(uiImage: image).renderingMode(.template)).foregroundColor(ink).baselineOffset(-1.5)
+                let glyph = Text(Image(uiImage: image).renderingMode(.template)).foregroundStyle(ink).baselineOffset(
+                    -1.5)
+                out = Text("\(out)\(glyph)")
             } else {
-                out = out + Text(AttributedString(words[run.range]))
+                out = Text("\(out)\(Text(AttributedString(words[run.range])))")
             }
         }
         return out
