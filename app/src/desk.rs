@@ -71,6 +71,9 @@ pub struct Desks {
     placed_runs: HashSet<String>,
     /// Whether the runs have been read once; runs going by then join their desks behind.
     runs_read: bool,
+    /// The agents whose desks the layout held when the app started, each shut once looked at
+    /// if it came back with nothing on it.
+    restored: Option<HashSet<String>>,
     /// The agent whose address ⌘L asked for, floated once its desk has drawn it.
     address_wanted: Option<String>,
     pub(crate) floating: Option<address::Floating>,
@@ -276,6 +279,7 @@ impl Desks {
             favicons: Default::default(),
             placed_runs: HashSet::new(),
             runs_read: false,
+            restored: None,
             address_wanted: None,
             floating: None,
             tab_scrolls: Default::default(),
@@ -1597,6 +1601,49 @@ pub fn install(cx: &mut App) {
     address::install(cx);
 }
 
+/// Shuts the desks that came back from the last run with no pages, files or terminals on them,
+/// once the terminals have been read, since only a tab closing in sight shuts a desk otherwise.
+fn shut_desks_restored_empty(
+    bench: &mut Workbench,
+    engine: &BrowserManager,
+    cx: &mut Context<Workbench>,
+) {
+    let Some(view) = bench.this_view() else {
+        return;
+    };
+    if bench.desks.read(cx).restored.is_none() {
+        let held: HashSet<String> = (view.layout.projects.values())
+            .flat_map(|strip| strip.tabs.iter())
+            .flat_map(|tab| crate::panes::views(&tab.pane))
+            .filter(|view| view.kind == PaneKind::Desk)
+            .map(|view| view.target.clone())
+            .collect();
+        bench
+            .desks
+            .update(cx, |desks, _| desks.restored = Some(held));
+    }
+    if !bench.desks.read(cx).runs_read {
+        return;
+    }
+    let restored = bench
+        .desks
+        .update(cx, |desks, _| desks.restored.replace(HashSet::new()))
+        .unwrap_or_default();
+    for agent in restored {
+        if !bench.desks.read(cx).strips.contains_key(&agent) {
+            let Ok(strip) = engine.snapshot(&agent) else {
+                continue;
+            };
+            let tabs = strip.tabs.iter().map(|tab| tab.id.clone()).collect();
+            bench.desks.update(cx, |desks, _| {
+                desks.known.insert(agent.clone(), tabs);
+                desks.strips.insert(agent.clone(), Arc::new(strip));
+            });
+        }
+        bench.shut_empty_desk(&agent, cx);
+    }
+}
+
 /// Makes the page areas and address bars of the desks the tab in front shows.
 pub fn prepare(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench>) {
     let agents: Vec<String> = bench.tab().map_or_else(Vec::new, |tab| {
@@ -1621,6 +1668,7 @@ pub fn prepare(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Work
     let Some(engine) = bench.desks.read(cx).engine.clone() else {
         return;
     };
+    shut_desks_restored_empty(bench, &engine, cx);
     for agent in agents {
         if bench.desks.read(cx).pages.contains_key(&agent) {
             continue;
