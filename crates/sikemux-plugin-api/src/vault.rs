@@ -181,6 +181,11 @@ pub trait Listing: DeserializeOwned {
     /// The secret store account its secret is under; none when it keeps none there.
     fn secret_account(&self) -> Option<String>;
     fn label(&self) -> String;
+    /// What it signs in as, the same on every host that signs in the same way. Records with
+    /// the same identity make one sign-in.
+    fn identity(&self) -> Option<String> {
+        self.secret_account()
+    }
 }
 
 /// A plugin whose settings file lists its accounts, each with its secret under one service.
@@ -229,10 +234,25 @@ impl<A: Listing> Listed<A> {
             .unwrap_or_default()
     }
 
-    fn secret_of(record: &Value) -> Option<String> {
-        serde_json::from_value::<A>(record.clone())
-            .ok()?
-            .secret_account()
+    fn read(record: &Value) -> Option<A> {
+        serde_json::from_value::<A>(record.clone()).ok()
+    }
+
+    fn identity_of(record: &Value) -> Option<String> {
+        Self::read(record)?.identity()
+    }
+
+    /// Where the secrets of the records with `identity` are kept here.
+    fn secrets_of(settings: &Map<String, Value>, list: &str, identity: &str) -> Vec<String> {
+        let mut accounts: Vec<String> = Self::records(settings, list)
+            .iter()
+            .filter_map(Self::read)
+            .filter(|record| record.identity().as_deref() == Some(identity))
+            .filter_map(|record| record.secret_account())
+            .collect();
+        accounts.sort();
+        accounts.dedup();
+        accounts
     }
 
     fn keep_default(&self, settings: &mut Map<String, Value>) {
@@ -253,7 +273,7 @@ impl<A: Listing> Listed<A> {
     fn without(&self, settings: &mut Map<String, Value>, identity: &str) {
         let kept: Vec<Value> = Self::records(settings, self.list)
             .into_iter()
-            .filter(|record| Self::secret_of(record).as_deref() != Some(identity))
+            .filter(|record| Self::identity_of(record).as_deref() != Some(identity))
             .collect();
         settings.insert(self.list.to_owned(), Value::Array(kept));
     }
@@ -264,30 +284,36 @@ impl<A: Listing> Book for Listed<A> {
         let settings = read_settings(&data_dir.join(self.file))?;
         let mut grouped: Vec<(String, String, Vec<Value>)> = Vec::new();
         for record in Self::records(&settings, self.list) {
-            let Ok(read) = serde_json::from_value::<A>(record.clone()) else {
+            let Some(read) = Self::read(&record) else {
                 continue;
             };
-            let Some(account) = read.secret_account() else {
+            let (Some(identity), Some(_)) = (read.identity(), read.secret_account()) else {
                 continue;
             };
-            match grouped.iter_mut().find(|(kept, _, _)| *kept == account) {
+            match grouped.iter_mut().find(|(kept, _, _)| *kept == identity) {
                 Some((_, _, records)) => records.push(record),
-                None => grouped.push((account, read.label(), vec![record])),
+                None => grouped.push((identity, read.label(), vec![record])),
             }
         }
         let mut found = Vec::new();
-        for (account, label, records) in grouped {
-            let Some(secret) = read_raw(self.secrets, &account)? else {
+        for (identity, label, records) in grouped {
+            let mut secrets = Vec::new();
+            for account in Self::secrets_of(&settings, self.list, &identity) {
+                if let Some(secret) = read_raw(self.secrets, &account)? {
+                    secrets.push(Kept {
+                        service: self.secrets.service().to_owned(),
+                        account,
+                        secret,
+                    });
+                }
+            }
+            if secrets.is_empty() {
                 continue;
-            };
+            }
             found.push(SignIn {
-                identity: account.clone(),
+                identity,
                 label,
-                secrets: vec![Kept {
-                    service: self.secrets.service().to_owned(),
-                    account,
-                    secret,
-                }],
+                secrets,
                 records: Value::Array(records),
             });
         }
@@ -298,8 +324,14 @@ impl<A: Listing> Book for Listed<A> {
         let _turn = store::CHANGING.locked();
         let path = data_dir.join(self.file);
         let mut settings = read_settings(&path)?;
+        let replaced = Self::secrets_of(&settings, self.list, &sign_in.identity);
         for kept in &sign_in.secrets {
             write_kept(kept)?;
+        }
+        for account in replaced {
+            if !sign_in.secrets.iter().any(|kept| kept.account == account) {
+                delete_raw(self.secrets.service(), &account)?;
+            }
         }
         self.without(&mut settings, &sign_in.identity);
         let incoming = sign_in.records.as_array().cloned().unwrap_or_default();
@@ -325,10 +357,14 @@ impl<A: Listing> Book for Listed<A> {
         let _turn = store::CHANGING.locked();
         let path = data_dir.join(self.file);
         let mut settings = read_settings(&path)?;
+        let kept = Self::secrets_of(&settings, self.list, identity);
         self.without(&mut settings, identity);
         self.keep_default(&mut settings);
         write_settings(&path, &settings)?;
-        delete_raw(self.secrets.service(), identity)
+        for account in kept {
+            delete_raw(self.secrets.service(), &account)?;
+        }
+        Ok(())
     }
 
     fn renewer(&self) -> Option<&'static dyn Renew> {
