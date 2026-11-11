@@ -20,7 +20,8 @@ import { Screen, useBottomGap } from '@/ui/screen';
 import { NeedsYou, Working } from '@/devices/AgentMarks';
 import { fonts, type Palette, radius, typeFor, useColors, useStyles } from '@/ui/theme';
 
-function DeviceCard({ device }: { device: PairedDevice }) {
+/** `onAccount` is the host as the account lists it; `offAccount` says the account no longer lists it, as after a reinstall. */
+function DeviceCard({ device, onAccount, offAccount }: { device: PairedDevice; onAccount?: Device; offAccount: boolean }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
   // Every host on the list streams its view while the list shows; one opened keeps its own connection.
@@ -37,7 +38,7 @@ function DeviceCard({ device }: { device: PairedDevice }) {
   const busy = (snapshot?.inbox.agents ?? []).filter((agent) => agent.group === 'working' || agent.background);
   const work = [working ? `${working} working` : null, background ? `${background} in the background` : null].filter(Boolean).join(' · ');
   const channel = channelLabel(device.channel);
-  const meta = snapshot ? summary(snapshot) : status.online ? 'Connecting…' : status.line;
+  const meta = offAccount ? 'Not on your account' : snapshot ? summary(snapshot) : status.online ? 'Connecting…' : status.line;
 
   return (
     <Pressable
@@ -51,7 +52,7 @@ function DeviceCard({ device }: { device: PairedDevice }) {
         </View>
         <View style={{ flex: 1 }}>
           <Text style={[styles.name, away && { color: colors.tertiary }]} numberOfLines={1}>
-            {deviceName(device)}
+            {onAccount?.name || deviceName(device)}
           </Text>
           <Text style={styles.meta} numberOfLines={1}>
             {channel ? `${channel} · ${meta}` : meta}
@@ -237,6 +238,7 @@ export function DevicesList({ devices }: { devices: PairedDevice[] }) {
   const [account, setAccount] = useState(false);
   const { hosts, loaded, problem } = useAccountHosts();
   const unpaired = hosts.filter((host) => !devices.some((device) => device.core === host.key));
+  const listed = loaded && !problem;
   const count = devices.length + unpaired.length;
   // The slot stays while the list is as long as when + was pressed, so the host that fills it takes its place.
   const [addingAt, setAddingAt] = useState<number>();
@@ -281,9 +283,10 @@ export function DevicesList({ devices }: { devices: PairedDevice[] }) {
           reveal.current = false;
           list.current?.scrollToEnd({ animated: true });
         }}>
-        {devices.map((device) => (
-          <DeviceCard key={device.core} device={device} />
-        ))}
+        {devices.map((device) => {
+          const onAccount = hosts.find((host) => host.key === device.core);
+          return <DeviceCard key={device.core} device={device} onAccount={onAccount} offAccount={listed && !onAccount} />;
+        })}
         {unpaired.map((host) => (
           <AccountHostCard key={host.key} host={host} />
         ))}

@@ -291,8 +291,8 @@ async function connect(core: string, found: Entry) {
   hostOf(connection)
     .then((host) => {
       const known = knownDevices().find((device) => device.core === core);
-      if (known?.name === host.name && known.model === host.model && known.channel === host.channel) return;
-      return updateDevice(core, { name: host.name, model: host.model, channel: host.channel }).then(reloadDevices);
+      if (known?.model === host.model && known.channel === host.channel) return;
+      return updateDevice(core, { model: host.model, channel: host.channel }).then(reloadDevices);
     })
     .catch((error: unknown) => console.warn('sikemux: could not keep what the host says it is', error));
 }

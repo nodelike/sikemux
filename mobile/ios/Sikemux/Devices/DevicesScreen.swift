@@ -28,6 +28,7 @@ struct DevicesScreen: View {
         let count = devices.count + unpaired.count
         let adding = addingAt == count
         let empty = count == 0 && accountHosts.loaded
+        let listed = accountHosts.loaded && accountHosts.problem == nil
         return Screen {
             HStack(spacing: 8) {
                 Text("Devices")
@@ -56,7 +57,12 @@ struct DevicesScreen: View {
             ScrollViewReader { scroller in
                 ScrollView(showsIndicators: false) {
                     VStack(spacing: 10) {
-                        ForEach(devices) { DeviceCard(device: $0) }
+                        ForEach(devices) { device in
+                            DeviceCard(
+                                device: device,
+                                onAccount: accountHosts.hosts.first { $0.key == device.core },
+                                offAccount: listed && !accountHosts.hosts.contains { $0.key == device.core })
+                        }
                         ForEach(unpaired, id: \.key) { AccountHostCard(host: $0) }
                         if count == 0 && !accountHosts.loaded { AccountNote(problem: accountHosts.problem) }
                         if empty || adding {
@@ -90,6 +96,10 @@ struct DevicesScreen: View {
 private struct DeviceCard: View {
     @Environment(\.palette) private var palette
     let device: PairedDevice
+    /// The host as the account lists it, whose name the person chose.
+    let onAccount: WireDevice?
+    /// The account no longer lists it, as after the host was reinstalled.
+    let offAccount: Bool
 
     var body: some View {
         let live = Hub.shared.live(device.core)
@@ -103,7 +113,9 @@ private struct DeviceCard: View {
         let busy = (view?.inbox.agents ?? []).filter { $0.group == .working || $0.background }
         let work = [working > 0 ? "\(working) working" : nil, background > 0 ? "\(background) in the background" : nil]
             .compactMap { $0 }.joined(separator: " · ")
-        let meta = view.map(HostStatus.summary) ?? (status.online ? "Connecting…" : status.line)
+        let meta = offAccount
+            ? "Not on your account"
+            : view.map(HostStatus.summary) ?? (status.online ? "Connecting…" : status.line)
 
         Button {
             Router.shared.push(.device(core: device.core))
@@ -121,7 +133,7 @@ private struct DeviceCard: View {
                                 .offset(x: 1, y: -3)
                         }
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(device.displayName)
+                        Text(onAccount.map(\.name).flatMap { $0.isEmpty ? nil : $0 } ?? device.displayName)
                             .headingStyle(palette)
                             .foregroundStyle(away ? palette.tertiary : palette.ink)
                             .lineLimit(1)

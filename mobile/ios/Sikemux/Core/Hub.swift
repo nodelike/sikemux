@@ -323,11 +323,8 @@ final class Hub {
         else { return }
         found.host = host
         let known = device(found.core)
-        guard known?.name != host.name || known?.model != host.model || known?.channel != host.channel else {
-            return
-        }
+        guard known?.model != host.model || known?.channel != host.channel else { return }
         await update(found.core) {
-            $0.name = host.name
             $0.model = host.model
             $0.channel = host.channel
         }
