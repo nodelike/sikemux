@@ -572,6 +572,10 @@ pub struct Chat {
     pub composer: Option<Composing>,
     /// The answers picked for the agent's open questions, sent once each has one.
     picks: HashMap<String, Pick>,
+    /// What the person typed for each open question and left unsent, put back when it shows again.
+    typed: HashMap<String, String>,
+    /// The question the composer's draft belongs to.
+    drafted_for: Option<String>,
     /// The open question on show, once the person chose one.
     shown: Option<String>,
     /// The first open question when the person folded them away; another coming first unfolds them.
@@ -746,6 +750,8 @@ impl Chat {
             asked_later: false,
             composer: None,
             picks: HashMap::new(),
+            typed: HashMap::new(),
+            drafted_for: None,
             shown: None,
             folded: None,
             groups_folded: HashSet::new(),

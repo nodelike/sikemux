@@ -825,6 +825,7 @@ impl Render for Workbench {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         use crate::keymap::SHELL;
         self.settle_limits();
+        self.follow_question_drafts(window, cx);
         let asked = self.asked(window, cx);
         #[cfg(feature = "drive")]
         if asked.is_some() {

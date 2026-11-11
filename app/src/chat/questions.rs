@@ -842,17 +842,45 @@ fn tile(
         .picture
         .as_deref()
         .map(|path| Picture::File(std::path::PathBuf::from(path)));
+    let (bench, agent, id) = (bench.clone(), agent.to_owned(), shown.question.id.clone());
+    let enlarge = picture.clone().map(|picture| {
+        let (bench, title) = (bench.clone(), SharedString::from(choice.label.clone()));
+        div()
+            .absolute()
+            .top(SPACE_1H)
+            .right(SPACE_1H)
+            .rounded(theme::RADIUS_2)
+            .bg(t.surface_raised)
+            .child(
+                IconButton::new(
+                    SharedString::from(format!("question-tile-view-{id}-{ix}")),
+                    Icon::Eye,
+                    "View full size",
+                )
+                .small()
+                .on_click(move |_, window, cx| {
+                    cx.stop_propagation();
+                    bench
+                        .update(cx, |bench, cx| {
+                            bench.show_picture_titled(picture.clone(), title.clone(), window, cx)
+                        })
+                        .ok();
+                }),
+            )
+    });
     let shot = div()
+        .relative()
         .w_full()
         .aspect_ratio(TILE_RATIO)
         .rounded(theme::RADIUS_2)
         .overflow_hidden()
         .bg(t.surface_sunken)
-        .children(picture.clone().map(|picture| {
+        .children(picture.map(|picture| {
             img(picture.source_at(px(TILE_PICTURE)))
                 .size_full()
                 .object_fit(ObjectFit::Contain)
-        }));
+        }))
+        .children(enlarge);
     let named = div()
         .flex_grow(1.)
         .min_w_0()
@@ -895,8 +923,6 @@ fn tile(
             .line_clamp(2)
             .child(note)
     });
-    let (bench, agent, id) = (bench.clone(), agent.to_owned(), shown.question.id.clone());
-    let title = SharedString::from(choice.label.clone());
     let hover = theme::over(t.surface_hover, t.surface_raised);
     BaseButton::new(SharedString::from(format!("question-tile-{id}-{ix}")))
         .bg(t.surface_raised)
@@ -934,25 +960,15 @@ fn tile(
         .on_click(move |_, window, cx| {
             bench
                 .update(cx, |bench, cx| {
-                    let again = (bench.chats.open.get(&agent))
-                        .and_then(|chat| chat.picks.get(&id))
-                        .is_some_and(|pick| matches!(pick.answer, Answer::Choice(at) if at == ix));
-                    match (again, picture.clone()) {
-                        (true, Some(picture)) => {
-                            bench.show_picture_titled(picture, title.clone(), window, cx)
-                        }
-                        _ => {
-                            bench.answer(
-                                &agent,
-                                |chat, open| chat.choose(&id, ix, open).map(Into::into),
-                                cx,
-                            );
-                            let draft = (bench.chats.open.get(&agent))
-                                .and_then(|chat| Some(chat.composer.as_ref()?.draft.clone()));
-                            if let Some(draft) = draft {
-                                draft.read(cx).focus_handle(cx).focus(window, cx);
-                            }
-                        }
+                    bench.answer(
+                        &agent,
+                        |chat, open| chat.choose(&id, ix, open).map(Into::into),
+                        cx,
+                    );
+                    let draft = (bench.chats.open.get(&agent))
+                        .and_then(|chat| Some(chat.composer.as_ref()?.draft.clone()));
+                    if let Some(draft) = draft {
+                        draft.read(cx).focus_handle(cx).focus(window, cx);
                     }
                     cx.notify();
                 })
@@ -1391,6 +1407,59 @@ impl Chat {
             })
             .collect();
         Some(Answers::All(AnswersParams { answers }))
+    }
+}
+
+impl Workbench {
+    /// Gives each question in the front chat its own draft: what was typed for the question
+    /// left is kept, and the one now on show gets back its unsent words or its typed answer.
+    pub fn follow_question_drafts(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(agent) = self.agent().map(|agent| agent.id.clone()) else {
+            return;
+        };
+        let open: Vec<&Question> = self
+            .feeds
+            .questions()
+            .filter(|question| question.asks(&agent))
+            .collect();
+        let Some(chat) = self.chats.open.get_mut(&agent) else {
+            return;
+        };
+        let now = chat
+            .current(&open)
+            .filter(|question| !question.secret && !chat.is_folded(&open))
+            .map(|question| question.id.clone());
+        if now == chat.drafted_for {
+            return;
+        }
+        let was = std::mem::replace(&mut chat.drafted_for, now.clone());
+        let (Some(was), Some(now)) = (was, now) else {
+            return;
+        };
+        let Some(draft) = chat
+            .composer
+            .as_ref()
+            .map(|composing| composing.draft.clone())
+        else {
+            return;
+        };
+        let typed = draft.read(cx).value().to_string();
+        let answered = |chat: &Chat, id: &str| match chat.picks.get(id).map(|pick| &pick.answer) {
+            Some(Answer::Text { text, .. }) => Some(text.clone()),
+            _ => None,
+        };
+        if typed.trim().is_empty() || answered(chat, &was).as_deref() == Some(typed.as_str()) {
+            chat.typed.remove(&was);
+        } else {
+            chat.typed.insert(was, typed.clone());
+        }
+        let shown = (chat.typed.remove(&now))
+            .or_else(|| answered(chat, &now))
+            .unwrap_or_default();
+        if shown != typed {
+            draft.update(cx, |draft, cx| draft.set_value(shown, window, cx));
+            self.typed_draft(&agent, cx);
+        }
     }
 }
 
