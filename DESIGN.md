@@ -1,30 +1,23 @@
 # sikemux design
 
-Quiet, dense and beautiful, in the spirit of shadcn: neutral surfaces, one
-hairline where two things meet, and colour only where it means something. Every
-value lives in the app's `Tokens` (`app/src/theme.rs`); the share page
-carries the same values as the CSS variables named below. Each component builds
-its own look from those tokens.
+Premium and dense, in the spirit of shadcn. Every value lives in the app's
+`Tokens` (`app/src/theme.rs`); the share page carries the same values as the
+CSS variables named below. This covers Sikemux's own UI, not pages or mockups
+made for other apps.
 
-## Principles
+## Settled
 
-- **The chosen item is a grey lift.** A chosen row, tab, menu item or chip gets
-  `--surface-chosen` across the whole item, with no colour and no edge. Hover is
-  `--surface-hover`, one step lighter. A chosen card on a dark ground, such as a
-  host card, lifts only slightly and takes a faint accent border instead.
-- **Purple is rare.** The accent is for keyboard focus, an on switch, a ticked
-  checkbox or radio, a link, the HEAD badge, resize handles under the pointer
-  and the one primary action on a surface. A choice from a set (a segmented
-  button, a filter, a nav item, a choice card) is chosen, so it gets the grey
-  lift; a chosen tab's underline is ink.
-- **Hairlines, not shadows.** Flat surfaces separate with `--border`. Only things
-  that float (menus, palettes, dialogs) get a shadow and may blur what is behind
-  them.
-- **Dense on purpose.** This is a tool people keep open all day. The type and
-  spacing scales are small; let things fit rather than breathe. Sizes under 11px
-  are deliberate, so do not round them up.
-- **Tokens, not literals.** A hex or a one-off size in a component sheet should
-  be rare and obviously bespoke. Every theme has to look right without it.
+- A chosen row, tab or menu item gets `--surface-chosen` across the whole item;
+  hover is `--surface-hover`. Never a coloured stripe down the left edge.
+- Agent and provider marks keep their brand colour everywhere, whatever the
+  agent's state.
+- Group labels are spaced capitals with a hairline after them (PROJECTS, LIMITS).
+- The project tree stays a tree: spine, tick, bare icons, and the current page
+  in the accent, not filled pills.
+- Picker rows stay one line.
+- Chat transcript text is reading text at full ink; don't mute it.
+- Sizes under 11px in the rails and lists are deliberate; don't round them up.
+- Colours come from the tokens, so every theme looks right.
 
 ## Tokens
 
