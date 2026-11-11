@@ -267,7 +267,7 @@ struct SubagentRow: View {
         let parts = rows.flatMap(\.parts)
         let cost = Self.cost(subagent)
         let running = subagent.state == .running
-        let task = subagent.task.components(separatedBy: "\n").first?.trimmingCharacters(in: .whitespaces) ?? ""
+        let task = subagent.headline
         VStack(alignment: .leading, spacing: 0) {
             Button {
                 context.folds.set("subagent/\(subagent.sessionId)", !open)

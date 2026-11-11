@@ -55,7 +55,7 @@ struct ShareView: View {
                     Preview(model: model, progress: sending)
                     if !model.tooBig.isEmpty {
                         Text(
-                            "\(model.tooBig.count == 1 ? model.tooBig[0] : "\(model.tooBig.count) files") \(model.tooBig.count == 1 ? "is" : "are") over 25 MB, too big to stash"
+                            "\(model.tooBig.count == 1 ? model.tooBig[0] : "\(model.tooBig.count) files") \(model.tooBig.count == 1 ? "is" : "are") over \(StashRules.mostBytes / 1024 / 1024) MB, too big to stash"
                         )
                         .font(Theme.ui(13.5)).foregroundColor(palette.danger).padding(.top, 8)
                     }

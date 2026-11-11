@@ -82,7 +82,7 @@ struct LiveWork: Equatable {
         if let tool = subagent.lastTool {
             return "\(ChatWords.toolKind(tool)) \(tool.row.target)".trimmingCharacters(in: .whitespaces)
         }
-        return subagent.task.components(separatedBy: "\n").first?.trimmingCharacters(in: .whitespaces) ?? ""
+        return subagent.headline
     }
 
     /// A task whose description repeats its name would print the same words twice, so the detail takes the first
@@ -386,5 +386,12 @@ private struct SmallButton: View {
         }
         .buttonStyle(ActiveFill(radius: 8))
         .disabled(busy)
+    }
+}
+
+extension SubagentCard {
+    /// The first line of the task it was given.
+    var headline: String {
+        task.components(separatedBy: "\n").first?.trimmingCharacters(in: .whitespaces) ?? ""
     }
 }

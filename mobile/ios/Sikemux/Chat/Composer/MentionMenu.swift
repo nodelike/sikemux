@@ -29,7 +29,7 @@ struct MentionRow: Identifiable {
 @MainActor @Observable
 final class MentionSearch {
     private struct Item: Decodable {
-        let kind: String
+        let kind: TrackedKind
         let number: Int
         let title: String
         let url: String
@@ -252,7 +252,7 @@ final class MentionSearch {
             let connection = live.connection
             let rows: [MentionRow] =
                 items
-                .filter { $0.kind == (pulls ? "pull" : "issue") }
+                .filter { $0.kind == (pulls ? .pull : .issue) }
                 .filter {
                     digits ? String($0.number).hasPrefix(query) : words.allSatisfy($0.title.lowercased().contains)
                 }

@@ -80,9 +80,7 @@ struct Inline {
             let from = max(range.lowerBound - start, 0)
             let to = min(range.upperBound - start, length)
             guard to > from, let found = Range(NSRange(location: from, length: to - from), in: run) else { continue }
-            let current = marks.current == range.lowerBound
-            run[found].backgroundColor = current ? palette.accent : palette.accent.opacity(0.34)
-            run[found].foregroundColor = current ? palette.sunken : palette.ink
+            run.markFound(found, current: marks.current == range.lowerBound, palette)
         }
         return run
     }
