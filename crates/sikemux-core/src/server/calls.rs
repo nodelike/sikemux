@@ -323,7 +323,7 @@ calls! { core, client, method, params;
     "shares" Shares (NoParams) -> Vec<share::ShareView>: Full, any_program => share::list(&core),
     "pairing" RemotePairing (NoParams) -> remote::RemotePairing: Owner, any_program => remote::pairing(&core),
     "deviceChallenge": Owner => answer(super::account::devices::device_challenge(&core).await?),
-    "approveHostSignIn": Owner => {
+    "approveHostSignIn": NoDevice => {
         answer(super::account::devices::approve_host_sign_in(&core, parse(params)?).await?)
     },
     "deviceJoinTicket": Owner => {
