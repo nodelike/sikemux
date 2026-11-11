@@ -324,36 +324,6 @@
   .activity .lbl { font-weight: 500; font-size: 13px; color: transparent; }
   .activity .what { min-width: 0; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .activity .el { font-family: var(--mono); font-size: 10px; color: color-mix(in oklab, var(--ink-faint) 68%, transparent); }
-  .strip { margin: 4px 0; border-radius: 10px; background: color-mix(in oklab, var(--surface-raised) 55%, transparent); font-family: var(--ui); font-size: 12.5px; color: var(--text-secondary); }
-  .strip-head { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 12px; }
-  .strip-head > span:first-child { display: grid; }
-  .strip-head .said { flex: 0 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .strip-head .said.live, .rl .shim { color: transparent; background: linear-gradient(90deg, var(--text-secondary) 0%, var(--ink) 45%, var(--text-secondary) 90%) 0 0 / 200% 100%; -webkit-background-clip: text; background-clip: text; animation: shimmer 2.2s linear infinite; }
-  .strip-head .add, .rl .add { flex: none; color: var(--git-added); }
-  .strip-head .del, .rl .del { flex: none; color: var(--git-deleted); }
-  .strip-head .fl { flex: none; color: var(--danger); }
-  .strip-head .sp { flex: 1; }
-  .strip-head .t { flex: none; font-size: 12px; font-variant-numeric: tabular-nums; color: var(--ink-faint); }
-  .strip-head .chev { display: grid; color: var(--ink-dim); }
-  .strip.open .strip-head .chev .ico { transform: rotate(90deg); }
-  .strip-body { padding: 0 12px 10px; }
-  .rl { display: grid; grid-template-columns: 14px minmax(0, 1fr) auto; align-items: center; gap: 10px; min-height: 28px; }
-  .rl > span:first-child { display: grid; place-items: center; }
-  .rl .main { display: flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; white-space: nowrap; }
-  .rl .typed { min-width: 0; font-family: var(--mono); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .rl .typed.fail { color: var(--danger); }
-  .rl .nm { font-family: var(--mono); font-size: 12px; color: var(--ink); }
-  .rl .in { color: var(--ink-dim); }
-  .rl .end { display: flex; align-items: center; gap: 8px; font-size: 12px; font-variant-numeric: tabular-nums; color: var(--ink-faint); }
-  .rl .end .ok { display: grid; color: var(--git-added); }
-  .rl .end .no { display: grid; color: var(--danger); }
-  .fail-i { color: var(--danger); }
-  .chip-f { flex: none; display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 8px; border-radius: 5px; background: color-mix(in oklab, var(--ink) 6%, transparent); font-family: var(--mono); font-size: 12px; color: var(--ink); }
-  .chip-f .ico { color: var(--ink-dim); }
-  .chip-f small { font-family: var(--ui); font-size: 11px; color: var(--ink-dim); }
-  .rl-fail { margin: 0 0 4px 24px; padding: 4px 10px; border-radius: 5px; background: color-mix(in oklab, var(--danger) 8%, transparent); font-family: var(--mono); font-size: 11.5px; line-height: 17px; color: var(--danger); white-space: pre-wrap; }
-  .rl-detail { margin: 1px 0 6px 24px; }
-  .raw-toggle { display: inline-flex; align-items: center; gap: 4px; height: 26px; margin-top: 4px; font-size: 12px; color: var(--ink-dim); }
   .qdiff { padding: 4px 0; border-radius: 8px; background: var(--surface-sunken); font-family: var(--mono); font-size: 11px; line-height: 20px; white-space: pre; overflow: hidden; }
   .qdiff .ln { display: grid; grid-template-columns: 28px 28px 14px minmax(0, 1fr); color: var(--ink-dim); }
   .qdiff .ln i { padding-right: 6px; font-style: normal; font-size: 10px; text-align: right; color: color-mix(in oklab, var(--ink-faint) 50%, var(--surface-sunken)); }
@@ -367,6 +337,8 @@
   .qdiff mark { color: inherit; border-radius: 3px; background: color-mix(in oklab, var(--git-added) 26%, transparent); }
   .qdiff .ln.d mark { background: color-mix(in oklab, var(--git-deleted) 26%, transparent); }
   .qdiff .gap { display: flex; align-items: center; gap: 6px; height: 26px; padding-left: 70px; font-family: var(--ui); color: var(--ink-dim); }
+  .open-detail { margin: 4px 0 6px 24px; }
+  .otail .note-q { padding-top: 4px; font-size: 10.5px; color: var(--ink-faint); }
   .otail .h { display: flex; align-items: center; gap: 10px; height: 26px; font-size: 12px; color: var(--ink-faint); }
   .otail .exit { padding: 1px 7px; border-radius: 10px; background: color-mix(in oklab, var(--danger) 12%, transparent); font-family: var(--mono); font-size: 11px; color: color-mix(in oklab, var(--danger) 70%, var(--ink)); }
   .otail .all { display: flex; align-items: center; gap: 5px; margin-left: auto; color: var(--ink-dim); }
@@ -2328,7 +2300,14 @@
           <div class="prose">The channel could deliver bytes already inside the attach snapshot. The controller now drops channel output until the snapshot is written, which passes 100 out of 100 runs.</div>
           <div class="msg-user">Good. Run the whole terminal suite, then commit it.</div>
           <div class="thought">Running every terminal test before the commit, since the change touches attach and detach.</div>
-          <div class="strip open"><div class="strip-head"><span class="k-run">{{IconCommand:13}}</span><span class="said live">Running 1 command, edited 1 file, ran tests</span><span class="add">+14</span><span class="del">−3</span><span class="sp"></span><span class="t">9s</span><span class="chev">{{IconChevron:11}}</span></div><div class="strip-body"><div class="rl"><span class="k-run">{{IconCommand:12}}</span><span class="typed">pnpm vitest run src/terminal</span><span class="end">6s<span class="ok">{{IconCheck:11}}</span></span></div><div class="rl"><span class="k-edit">{{IconPencil:12}}</span><span class="main">Edited <span class="chip-f">{{IconFile:11}}ptyController.ts</span></span><span class="end"><span class="add">+14</span><span class="del">−3</span>1.2s</span></div><div class="rl"><span class="k-run">{{IconGit:12}}</span><span class="typed">git commit -m "fix(pty): drop channel bytes…"</span><span class="end">1s</span></div></div></div>
+          <div class="tools">
+            <span class="tools-sum open">3 tool calls <span class="time">7s</span>{{IconChevron:11}}</span>
+            <div class="tools-body">
+              <div class="tool"><span class="tick"></span><span class="k-run">{{IconCommand:12}}</span><span class="kind k-run">run</span><span class="target">pnpm vitest run src/terminal</span><span class="end">6s<span class="chev">{{IconChevron:10}}</span></span></div>
+              <div class="tool"><span class="tick"></span><span class="k-edit">{{IconPencil:12}}</span><span class="kind k-edit">edit</span><span class="target"><span class="fref"><span class="g">{{IconFile:11}}</span>ptyController.ts</span></span><span class="end"><span class="add">+14</span><span class="del">−3</span><span class="chev">{{IconChevron:10}}</span></span></div>
+              <div class="tool running"><span class="tick"></span><span class="k-run">{{IconCommand:12}}</span><span class="kind k-run">run</span><span class="target">git commit -m "fix(pty): drop channel bytes…"</span><span class="end">1s<span class="chev">{{IconChevron:10}}</span></span></div>
+            </div>
+          </div>
           <div class="activity"><span class="glyph codex">{{IconCodex:20}}</span><span class="lbl">Running</span><span class="el">9s</span></div>
         </div>
         <div class="composer-wrap">
@@ -2347,7 +2326,7 @@
         </div>
       </div>
       <div class="home-bar"></div></div>
-      <figcaption><b>Chat, while it works</b><div class="note">Same placeholder as the Mac. What is sent mid-turn goes as the host's "Sending while an agent works" setting says, read again as each turn starts: by default it steers into the turn ("Send to steer this turn", which send also reads to a screen reader), shown queued until the host takes it; set to queue, or with an agent that can't steer, it waits behind the turn ("Send to queue behind the running turn"). The same white stop button. While a run is live its strip stays open and its sentence leads with what it is doing now, swept, its seconds counting up; the line under it then keeps only the verb and the time, since the strip already names the call. Thinking runs the full column in the reply's size, upright and quieter only in colour, and the agent's own words come after it with room above; while a turn streams, its older thoughts fold behind "Earlier thinking · N thoughts". The context ring sits beside send, in the agent's colour, then warm past 70% and red past 90%; a tap opens the model sheet. YOLO is a switch where the host can change it mid-chat (Claude, Codex, Hermes), dimmed while a turn runs, since the host refuses a switch then.</div></figcaption>
+      <figcaption><b>Chat, while it works</b><div class="note">Same placeholder as the Mac. What is sent mid-turn goes as the host's "Sending while an agent works" setting says, read again as each turn starts: by default it steers into the turn ("Send to steer this turn", which send also reads to a screen reader), shown queued until the host takes it; set to queue, or with an agent that can't steer, it waits behind the turn ("Send to queue behind the running turn"). The same white stop button. While a command runs, the group's header says what the agent said it is for, and its seconds count up; the line under the chat sweeps its verb and names what it is on, keeping only the verb and the time while the open group already shows the call. Thinking runs the full column in the reply's size, upright and quieter only in colour, and the agent's own words come after it with room above; while a turn streams, its older thoughts fold behind "Earlier thinking · N thoughts". The context ring sits beside send, in the agent's colour, then warm past 70% and red past 90%; a tap opens the model sheet. YOLO is a switch where the host can change it mid-chat (Claude, Codex, Hermes), dimmed while a turn runs, since the host refuses a switch then.</div></figcaption>
     </figure>
 
     <figure><div class="phone"><div class="island"></div>
@@ -2356,7 +2335,13 @@
         <div class="nav"><span class="back">{{IconChevron:18}}</span><span class="mid"><span class="claude">{{IconClaude:17}}</span><span class="named"><b>@Otter</b><i>·</i><em>Remote pairing screen</em></span></span><span class="icon-btn">{{IconMoreVertical:16}}</span></div>
         <div class="chat">
           <div class="prose">The pairing screen builds and the Devices page shows the waiting phone. Before I commit, I want the settings tests green.</div>
-          <div class="strip"><div class="strip-head"><span class="k-read">{{IconFile:13}}</span><span class="said">Read 1 file, edited 1 file</span><span class="add">+18</span><span class="del">−4</span><span class="sp"></span><span class="t">1s</span><span class="chev">{{IconChevron:11}}</span></div></div>
+          <div class="tools">
+            <span class="tools-sum open">2 tool calls <span class="time">1s</span>{{IconChevron:11}}</span>
+            <div class="tools-body">
+              <div class="tool"><span class="tick"></span><span class="k-read">{{IconFile:12}}</span><span class="kind k-read">read</span><span class="target">src/settings/DevicesPage.tsx</span><span class="end">12ms</span></div>
+              <div class="tool"><span class="tick"></span><span class="k-edit">{{IconPencil:12}}</span><span class="kind k-edit">edit</span><span class="target">PairingQr.tsx</span><span class="end"><span class="add">+18</span><span class="del">−4</span></span></div>
+            </div>
+          </div>
         </div>
         <div class="composer-wrap">
           <div class="docked">
@@ -2388,7 +2373,13 @@
         <div class="nav"><span class="back">{{IconChevron:18}}</span><span class="mid"><span class="claude">{{IconClaude:17}}</span><span class="named"><b>@Otter</b><i>·</i><em>Ship the web fix to dev</em></span></span><span class="icon-btn">{{IconMoreVertical:16}}</span></div>
         <div class="chat">
           <div class="prose">The fix is on main and CI is green. Deploying it to dev so you can try it.</div>
-          <div class="strip"><div class="strip-head"><span class="k-read">{{IconFile:13}}</span><span class="said">Read 1 file, edited 1 file</span><span class="add">+18</span><span class="del">−4</span><span class="sp"></span><span class="t">1s</span><span class="chev">{{IconChevron:11}}</span></div></div>
+          <div class="tools">
+            <span class="tools-sum open">2 tool calls <span class="time">1s</span>{{IconChevron:11}}</span>
+            <div class="tools-body">
+              <div class="tool"><span class="tick"></span><span class="k-read">{{IconFile:12}}</span><span class="kind k-read">read</span><span class="target">src/settings/DevicesPage.tsx</span><span class="end">12ms</span></div>
+              <div class="tool"><span class="tick"></span><span class="k-edit">{{IconPencil:12}}</span><span class="kind k-edit">edit</span><span class="target">PairingQr.tsx</span><span class="end"><span class="add">+18</span><span class="del">−4</span></span></div>
+            </div>
+          </div>
         </div>
         <div class="composer-wrap">
           <div class="docked">
@@ -2983,8 +2974,16 @@
       <div class="screen">
         <div class="nav"><span class="back">{{IconChevron:18}}</span><span class="mid"><span class="codex">{{IconCodex:17}}</span><span class="named"><b>@Flint</b><i>·</i><em>Fix the flaky PTY replay test</em></span></span><span class="icon-btn">{{IconMoreVertical:16}}</span></div>
         <div class="chat">
-          <div class="strip open"><div class="strip-head"><span class="k-edit">{{IconPencil:13}}</span><span class="said">Edited 1 file, ran tests</span><span class="add">+2</span><span class="del">−1</span><span class="fl">1 failed</span><span class="sp"></span><span class="t">7s</span><span class="chev">{{IconChevron:11}}</span></div><div class="strip-body"><div class="rl"><span class="fail-i">{{IconCommand:12}}</span><span class="typed fail">pnpm vitest run src/terminal</span><span class="end">6s<span class="no">{{IconClose:11}}</span></span></div><div class="rl-fail">FAIL usePty.test.tsx &gt; replays the snapshot once
-expected 1 write, got 2</div><div class="rl"><span class="k-edit">{{IconPencil:12}}</span><span class="main">Edited <span class="chip-f">{{IconFile:11}}ptyController.ts<small>42–48</small></span></span><span class="end"><span class="add">+2</span><span class="del">−1</span>48ms</span></div><div class="rl-detail"><div class="qdiff"><div class="gap">{{IconChevron:9}}41 more lines</div><div class="ln"><i>42</i><i>42</i><b></b><span>  onData(bytes: Uint8Array) {</span></div><div class="ln"><i>43</i><i>43</i><b></b><span>    if (this.snapshotPending) {</span></div><div class="ln d"><i>44</i><i></i><b>−</b><span>      this.<mark>write</mark>(bytes);</span></div><div class="ln a"><i></i><i>44</i><b>+</b><span>      this.<mark>held.push</mark>(bytes);</span></div><div class="ln a"><i></i><i>45</i><b>+</b><span>      return;</span></div><div class="ln"><i>45</i><i>46</i><b></b><span>    }</span></div><div class="ln"><i>46</i><i>47</i><b></b><span>    this.emit(bytes);</span></div><div class="gap">{{IconChevron:9}}12 more lines</div></div></div></div></div>
+          <div class="tools">
+            <span class="tools-sum open">2 tool calls <span class="time">7s</span>{{IconChevron:11}}</span>
+            <div class="tools-body">
+              <div class="tool"><span class="tick"></span><span class="k-edit">{{IconPencil:12}}</span><span class="kind k-edit">edit</span><span class="target"><span class="fref"><span class="g">{{IconFile:11}}</span>ptyController.ts</span></span><span class="end"><span class="add">+2</span><span class="del">−1</span><span class="chev open">{{IconChevron:10}}</span></span></div>
+              <div class="qdiff open-detail"><div class="gap">{{IconChevron:9}}41 more lines</div><div class="ln"><i>42</i><i>42</i><b></b><span>  onData(bytes: Uint8Array) {</span></div><div class="ln"><i>43</i><i>43</i><b></b><span>    if (this.snapshotPending) {</span></div><div class="ln d"><i>44</i><i></i><b>−</b><span>      this.<mark>write</mark>(bytes);</span></div><div class="ln a"><i></i><i>44</i><b>+</b><span>      this.<mark>held.push</mark>(bytes);</span></div><div class="ln a"><i></i><i>45</i><b>+</b><span>      return;</span></div><div class="ln"><i>45</i><i>46</i><b></b><span>    }</span></div><div class="ln"><i>46</i><i>47</i><b></b><span>    this.emit(bytes);</span></div><div class="gap">{{IconChevron:9}}12 more lines</div></div>
+              <div class="tool"><span class="tick"></span><span style="color:var(--danger)">{{IconWarning:12}}</span><span class="kind" style="color:var(--danger)">run</span><span class="target">pnpm vitest run src/terminal</span><span class="end">6s<span class="chev open">{{IconChevron:10}}</span></span></div>
+              <div class="tool-detail failure">FAIL usePty.test.tsx &gt; replays the snapshot once
+expected 1 write, got 2</div>
+            </div>
+          </div>
         </div>
         <div class="composer-wrap">
           <div class="reconnect"><span class="no">{{IconWarning:13}}</span><span>Could not stop the turn: the host is not connected.</span><span>{{IconClose:13}}</span></div>
@@ -3003,7 +3002,7 @@ expected 1 write, got 2</div><div class="rl"><span class="k-edit">{{IconPencil:1
         </div>
       </div>
       <div class="home-bar"></div></div>
-      <figcaption><b>Opening a tool call</b><div class="note">Each run of calls is one flat strip, as on the Mac: the sentence the core counted ("Explored: read 3 files, searched twice", "Edited 1 file, ran tests"), in the phone's own words, then the lines added and removed, how many failed, the time and a chevron. Only the live run opens by itself. Opened, it lists what the run did: failed calls first, a command as typed with ✓ or ✗ and its time, neighbours that did the same thing merged into one line naming their files as chips with the lines they touched, and the pictures a run looked at as small thumbnails. A failed call's last words sit under its line. A line of one call opens on a tap: a change as a quiet unified diff (old and new line numbers, a +/− gutter, tinted text, three lines around each change and "N more lines" that unfold the rest), a command as what it printed. "All N calls" shows every call as the tree it was before, with housekeeping calls only counted. Strips and lines stay as they were left while the list scrolls. Something the phone asked for that did not happen, like a stop or a setting, shows over the composer until it is dismissed. Stop also hands a queued message back to the composer instead of sending it.</div></figcaption>
+      <figcaption><b>Opening a tool call</b><div class="note">A row that opens carries the Mac's chevron at its end, turned down while open. A row that changed a file, printed something or failed opens on a tap, and so does a command while it runs. A change opens as the Mac's quiet unified diff on a sunken ground: old and new line numbers, a +/− gutter, text tinted by sign with the changed words marked, three lines around each change, and "N more lines" that unfold the rest on a tap; past 120 rows the rest waits behind "Show N more lines". A file the call touched reads as the Mac's file ref, a picture among them opening over the whole screen, a web address as a link, and a picture the call returned opens over the whole screen too. Calls from Sikemux's AWS and Rundeck plugins wear the plugin's mark. A command opens as what it printed: the exit code in a red pill when it failed and how many lines, then its last 8 lines with a copy button, and Show all for the rest; the whole command shows above it, with its own copy button, when the row had to cut it short. Groups and rows stay as they were left while the list scrolls. Something the phone asked for that did not happen, like a stop or a setting, shows over the composer until it is dismissed. Stop also hands a queued message back to the composer instead of sending it.</div></figcaption>
     </figure>
 
     <figure><div class="phone"><div class="island"></div>
@@ -3247,7 +3246,13 @@ expected 1 write, got 2</div><div class="rl"><span class="k-edit">{{IconPencil:1
           <div class="msg-user">Get the e2e suite green on CI, and keep an eye on the preview deploy while you work.</div>
           <div class="sub"><div class="sub-head"><span class="claude">{{IconClaude:16}}</span><span class="nm">Explore</span><span class="tk">Find where the flaky checkout selector lives</span><span class="doing">CheckoutButton.tsx</span><span class="sp"></span><span class="calls">18.4K tokens · 6 calls</span><span class="chev">{{IconChevron:11}}</span></div></div>
           <div class="sub"><div class="sub-head"><span class="claude">{{IconClaude:16}}</span><span class="nm">Review</span><span class="tk">Read the last three CI runs for the same failure</span><span class="doing">gh run view 8812 --log</span><span class="sp"></span><span class="calls">9.1K tokens · 3 calls</span><span class="chev">{{IconChevron:11}}</span></div></div>
-          <div class="strip open"><div class="strip-head"><span class="k-run">{{IconCommand:13}}</span><span class="said live">Running tests, read 1 file</span><span class="sp"></span><span class="t">14s</span><span class="chev">{{IconChevron:11}}</span></div><div class="strip-body"><div class="rl"><span class="k-read">{{IconFile:12}}</span><span class="main">Read <span class="chip-f">{{IconFile:11}}playwright.config.ts</span></span><span class="end">9ms</span></div><div class="rl"><span class="k-run">{{IconCommand:12}}</span><span class="typed"><span class="shim">pnpm e2e --project=chromium</span></span><span class="end">14s</span></div></div></div>
+          <div class="tools">
+            <span class="tools-sum open"><span class="said">Run the e2e suite against the preview</span><span class="time">2 calls</span><span class="time">14s</span>{{IconChevron:11}}</span>
+            <div class="tools-body">
+              <div class="tool"><span class="tick"></span><span class="k-read">{{IconFile:12}}</span><span class="kind k-read">read</span><span class="target">playwright.config.ts</span><span class="end">9ms</span></div>
+              <div class="tool running"><span class="tick"></span><span class="k-run">{{IconCommand:12}}</span><span class="kind k-run">run</span><span class="target">pnpm e2e --project=chromium</span><span class="end">14s</span></div>
+            </div>
+          </div>
           <div class="activity"><span class="glyph claude">{{IconClaude:20}}</span><span class="lbl">Running</span><span class="el">31s</span></div>
         </div>
         <div class="composer-wrap">
@@ -3278,7 +3283,13 @@ expected 1 write, got 2</div><div class="rl"><span class="k-edit">{{IconPencil:1
           <div class="msg-user">Get the e2e suite green on CI, and keep an eye on the preview deploy while you work.</div>
           <div class="sub"><div class="sub-head"><span class="claude">{{IconClaude:16}}</span><span class="nm">Explore</span><span class="tk">Find where the flaky checkout selector lives</span><span class="doing">CheckoutButton.tsx</span><span class="sp"></span><span class="calls">18.4K tokens · 6 calls</span><span class="chev">{{IconChevron:11}}</span></div></div>
           <div class="sub"><div class="sub-head"><span class="claude">{{IconClaude:16}}</span><span class="nm">Review</span><span class="tk">Read the last three CI runs for the same failure</span><span class="doing">gh run view 8812 --log</span><span class="sp"></span><span class="calls">9.1K tokens · 3 calls</span><span class="chev">{{IconChevron:11}}</span></div></div>
-          <div class="strip open"><div class="strip-head"><span class="k-run">{{IconCommand:13}}</span><span class="said live">Running tests, read 1 file</span><span class="sp"></span><span class="t">14s</span><span class="chev">{{IconChevron:11}}</span></div><div class="strip-body"><div class="rl"><span class="k-read">{{IconFile:12}}</span><span class="main">Read <span class="chip-f">{{IconFile:11}}playwright.config.ts</span></span><span class="end">9ms</span></div><div class="rl"><span class="k-run">{{IconCommand:12}}</span><span class="typed"><span class="shim">pnpm e2e --project=chromium</span></span><span class="end">14s</span></div></div></div>
+          <div class="tools">
+            <span class="tools-sum open"><span class="said">Run the e2e suite against the preview</span><span class="time">2 calls</span><span class="time">14s</span>{{IconChevron:11}}</span>
+            <div class="tools-body">
+              <div class="tool"><span class="tick"></span><span class="k-read">{{IconFile:12}}</span><span class="kind k-read">read</span><span class="target">playwright.config.ts</span><span class="end">9ms</span></div>
+              <div class="tool running"><span class="tick"></span><span class="k-run">{{IconCommand:12}}</span><span class="kind k-run">run</span><span class="target">pnpm e2e --project=chromium</span><span class="end">14s</span></div>
+            </div>
+          </div>
           <div class="activity"><span class="glyph claude">{{IconClaude:20}}</span><span class="lbl">Running</span><span class="el">31s</span></div>
         </div>
         <div class="composer-wrap">
@@ -3338,7 +3349,7 @@ expected 1 write, got 2</div><div class="rl"><span class="k-edit">{{IconPencil:1
         <div class="nav"><span class="back">{{IconChevron:18}}</span><span class="mid"><span class="claude">{{IconClaude:17}}</span><span class="named"><b>@Otter</b><i>·</i><em>Remote pairing screen</em></span></span><span class="icon-btn">{{IconMoreVertical:16}}</span></div>
         <div class="chat">
           <div class="prose">The pairing screen builds. Three cleanups next, then the tests.</div>
-          <div class="strip"><div class="strip-head"><span class="k-read">{{IconFile:13}}</span><span class="said">Explored: read 3 files, searched once</span><span class="sp"></span><span class="t">2s</span><span class="chev">{{IconChevron:11}}</span></div></div>
+          <div class="tools"><span class="tools-sum">4 tool calls <span class="time">2s</span>{{IconChevron:11}}</span></div>
         </div>
         <div class="composer-wrap">
           <div class="docked">
@@ -3369,14 +3380,23 @@ expected 1 write, got 2</div><div class="rl"><span class="k-edit">{{IconPencil:1
       <div class="screen">
         <div class="nav"><span class="back">{{IconChevron:18}}</span><span class="mid"><span class="codex">{{IconCodex:17}}</span><span class="named"><b>@Flint</b><i>·</i><em>Fix the flaky PTY replay test</em></span></span><span class="icon-btn">{{IconMoreVertical:16}}</span></div>
         <div class="chat">
-          <div class="strip open"><div class="strip-head"><span class="k-mcp">{{IconPlug:13}}</span><span class="said">Asked Linear, ran tests, edited 1 file</span><span class="add">+2</span><span class="del">−1</span><span class="fl">1 failed</span><span class="sp"></span><span class="t">8s</span><span class="chev">{{IconChevron:11}}</span></div><div class="strip-body"><div class="rl"><span class="fail-i">{{IconCommand:12}}</span><span class="typed fail">pnpm vitest run src/terminal</span><span class="end">6s<span class="no">{{IconClose:11}}</span></span></div><div class="rl-detail"><div class="otail"><div class="h"><span class="exit">exit 1</span><span>38 lines</span><span class="all">{{IconChevron:9}}Show all</span></div><div class="out"> ❯ src/terminal/usePty.test.tsx (12)
+          <div class="tools">
+            <span class="tools-sum open">3 tool calls <span class="time">8s</span>{{IconChevron:11}}</span>
+            <div class="tools-body">
+              <div class="tool"><span class="tick"></span><span class="k-mcp">{{IconPlug:12}}</span><span class="kind k-mcp">linear</span><span class="target">get issue <span class="arg">SKX-142</span></span><span class="end">412ms</span></div>
+              <div class="tool"><span class="tick"></span><span style="color:var(--danger)">{{IconWarning:12}}</span><span class="kind" style="color:var(--danger)">run</span><span class="target">pnpm vitest run src/terminal</span><span class="end">6s</span></div>
+            </div>
+            <div class="otail open-detail"><div class="h"><span class="exit">exit 1</span><span>38 lines</span><span class="all">{{IconChevron:9}}Show all</span></div><div class="out"> ✓ src/terminal/keys.test.ts (41)
+ ✓ src/terminal/links.test.ts (18)
+ ❯ src/terminal/usePty.test.tsx (12)
    × replays the snapshot once
      → expected 1 write, got 2
-
  Test Files  1 failed | 11 passed (12)
-      Tests  1 failed | 213 passed (214)
-   Start at  09:41:07
-   Duration  6.12s<span class="cp">{{IconCopy:12}}</span></div></div></div><div class="rl"><span class="k-mcp">{{IconPlug:12}}</span><span class="main">Asked <span class="nm">SKX-142</span></span><span class="end">412ms</span></div><div class="rl"><span class="k-run">{{IconGit:12}}</span><span class="typed">git status --short</span><span class="end">30ms<span class="ok">{{IconCheck:11}}</span></span></div><div class="rl"><span class="k-edit">{{IconPencil:12}}</span><span class="main">Edited <span class="chip-f">{{IconFile:11}}ptyController.ts</span></span><span class="end"><span class="add">+2</span><span class="del">−1</span>40ms</span></div><div class="raw-toggle">All 4 calls{{IconChevron:9}}</div></div></div>
+      Tests  1 failed | 213 passed (214)<span class="cp">{{IconCopy:12}}</span></div></div>
+            <div class="otail open-detail"><div class="note-q">No output</div></div>
+            <div class="otail open-detail"><div class="note-q">The rest of the output was not kept</div></div>
+            <div class="tools-body" style="padding-top:0"><div class="tool"><span class="tick"></span><span class="k-edit">{{IconPencil:12}}</span><span class="kind k-edit">edit</span><span class="target">ptyController.ts</span><span class="end"><span class="add">+2</span><span class="del">−1</span></span></div></div>
+          </div>
           <div class="notice"><div class="h">{{IconTimer:12}}<span class="nm">pnpm dev --port 5174</span><span class="w">stopped</span><span class="sm">Served the preview for 14 minutes; last request GET /checkout 200</span></div></div>
         </div>
         <div class="composer-wrap">
@@ -3395,7 +3415,7 @@ expected 1 write, got 2</div><div class="rl"><span class="k-edit">{{IconPencil:1
         </div>
       </div>
       <div class="home-bar"></div></div>
-      <figcaption><b>Commands, servers and tasks</b><div class="note">A command opens as what it printed: the exit code in a red pill when it failed and how many lines, then its last 8 lines on a sunken ground with a copy button, and Show all for the rest. A call to another MCP server reads by what it did ("Asked Linear"), wearing the plugin's mark where the phone draws one. A search or listing reads by what it did, not the command: "Searched data-test in src/". The command as typed stays under "All N calls". A background task that ends is a plain icon line: its name, how it ended and its summary, marked with the Mac's workflow icon when it was a workflow; a tap opens the summary in full.</div></figcaption>
+      <figcaption><b>Commands, servers and tasks</b><div class="note">A call to another MCP server is named for the server, in the Mac's green, with its first short argument after the target. A command opens as what it printed: the exit code in a red pill when it failed and how many lines, its last 8 lines on a sunken ground with a copy button, and Show all for the rest. A background task that ends is a plain icon line: its name, how it ended and its summary, marked with the Mac's workflow icon when it was a workflow; a tap opens the summary in full.</div></figcaption>
     </figure>
 
     <figure><div class="phone"><div class="island"></div>
@@ -3405,7 +3425,14 @@ expected 1 write, got 2</div><div class="rl"><span class="k-edit">{{IconPencil:1
         <div class="chat">
           <div class="sub"><div class="sub-head open"><span class="claude">{{IconClaude:16}}</span><span class="nm">Explore</span><span class="tk">Find where the flaky checkout selector lives</span><span class="end-st"><span class="done">{{IconCheck:12}}</span>done</span><span class="sp"></span><span class="calls">9.1K tokens · 3 calls</span><span class="chev">{{IconChevron:11}}</span></div>
             <div class="sub-body">
-              <div class="strip open"><div class="strip-head"><span class="k-read">{{IconSearch:13}}</span><span class="said">Explored: searched once, read 2 files</span><span class="sp"></span><span class="t">2s</span><span class="chev">{{IconChevron:11}}</span></div><div class="strip-body"><div class="rl"><span class="k-read">{{IconSearch:12}}</span><span class="main">Searched <span class="nm">data-test="checkout"</span> <span class="in">in</span> <span class="nm">src/</span></span><span class="end">88ms</span></div><div class="rl"><span class="k-read">{{IconFile:12}}</span><span class="main">Read <span class="chip-f">{{IconFile:11}}CheckoutButton.tsx</span><span class="chip-f">{{IconFile:11}}checkout.spec.ts</span></span><span class="end">2 calls</span></div></div></div>
+              <div class="tools">
+                <span class="tools-sum open">3 tool calls <span class="time">2s</span>{{IconChevron:11}}</span>
+                <div class="tools-body">
+                  <div class="tool"><span class="tick"></span><span class="k-read">{{IconSearch:12}}</span><span class="kind k-read">search</span><span class="target">data-test="checkout"</span><span class="end">88ms</span></div>
+                  <div class="tool"><span class="tick"></span><span class="k-read">{{IconFile:12}}</span><span class="kind k-read">read</span><span class="target">CheckoutButton.tsx</span><span class="end">7ms</span></div>
+                  <div class="tool"><span class="tick"></span><span class="k-read">{{IconFile:12}}</span><span class="kind k-read">read</span><span class="target">checkout.spec.ts</span><span class="end">6ms</span></div>
+                </div>
+              </div>
               <div class="prose" style="font-size:13.5px">The test waits on <code class="chip">networkidle</code>, but the button mounts after a second fetch.</div>
             </div>
           </div>
@@ -3429,7 +3456,7 @@ expected 1 write, got 2</div><div class="rl"><span class="k-edit">{{IconPencil:1
         </div>
       </div>
       <div class="home-bar"></div></div>
-      <figcaption><b>A subagent's own thread</b><div class="note">Each subagent is a strip like a run's: the agent's mark, its name, the first line of its task, then what it is doing now, swept while it works, or how it ended (done, failed, lost or stopped), and at the end the tokens and calls it has spent and a chevron. A tap opens what it did, drawn the way the chat draws everything else, indented under it. When a background subagent reports back, its notice shows that subagent's strip rather than a task line, as on the Mac.</div></figcaption>
+      <figcaption><b>A subagent's own thread</b><div class="note">Each subagent is one flat strip: the agent's mark, its name, the first line of its task, then what it is doing now, swept while it works, or how it ended (done, failed, lost or stopped), and at the end the tokens and calls it has spent and a chevron. A tap opens what it did, drawn the way the chat draws everything else, indented under it. When a background subagent reports back, its notice shows that subagent's strip rather than a task line, as on the Mac.</div></figcaption>
     </figure>
 
     <figure><div class="phone"><div class="island"></div>
@@ -3619,7 +3646,7 @@ expected 1 write, got 2</div><div class="rl"><span class="k-edit">{{IconPencil:1
         <div class="nav"><span class="back">{{IconChevron:18}}</span><span class="mid"><span class="codex">{{IconCodex:17}}</span><span class="named"><b>@Flint</b><i>·</i><em>Fix the flaky PTY replay test</em></span></span><span class="icon-btn">{{IconMoreVertical:16}}</span></div>
         <div class="chat">
           <div class="msg-user">Good. Run the whole terminal suite, then commit it.</div>
-          <div class="strip"><div class="strip-head"><span class="k-run">{{IconCommand:13}}</span><span class="said">Ran tests</span><span class="sp"></span><span class="t">7s</span><span class="chev">{{IconChevron:11}}</span></div></div>
+          <div class="tools"><span class="tools-sum">3 tool calls <span class="time">7s</span>{{IconChevron:11}}</span></div>
           <div class="prose">All 214 terminal tests pass, and the fix is committed.</div>
         </div>
         <div class="composer-wrap">
@@ -4474,7 +4501,12 @@ expected 1 write, got 2</div><div class="rl"><span class="k-edit">{{IconPencil:1
           <div class="work"><span class="work-sum"><span class="claude">{{IconClaude:17}}</span>Worked for 1m 0s <span class="calls">· 2 tool calls</span>{{IconChevron:10}}</span></div>
           <div class="prose">Found it. The dialog re-mounts on every poll, because the store hands it a new list each time.</div>
           <div class="msg-user">Great, fix it and run the tests.</div>
-          <div class="strip open"><div class="strip-head"><span class="k-run">{{IconCommand:13}}</span><span class="said live">Running tests</span><span class="sp"></span><span class="t">2s</span><span class="chev">{{IconChevron:11}}</span></div><div class="strip-body"><div class="rl"><span class="k-run">{{IconCommand:12}}</span><span class="typed"><span class="shim">pnpm test src/share</span></span><span class="end">2s</span></div></div></div>
+          <div class="tools">
+            <span class="tools-sum open">1 tool call <span class="time">2s</span>{{IconChevron:11}}</span>
+            <div class="tools-body">
+              <div class="tool running"><span class="tick"></span><span class="k-run">{{IconCommand:12}}</span><span class="kind k-run">run</span><span class="target">pnpm test src/share</span><span class="end">2s</span></div>
+            </div>
+          </div>
           <div class="activity"><span class="glyph claude">{{IconClaude:20}}</span><span class="lbl">Running</span><span class="el">2s</span></div>
         </div>
         <div class="composer-wrap">

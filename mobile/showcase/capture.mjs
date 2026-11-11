@@ -42,7 +42,6 @@ const SCENES = [
   { name: 'question', route: `/device/${CORE}/chat/chat-release` },
   { name: 'assumed', route: `/device/${CORE}/chat/chat-login-check` },
   { name: 'new-chat', route: `/device/${CORE}/new` },
-  { name: 'work', route: `/device/${CORE}/chat/chat-login-fix`, taps: [/^Worked for/, /ran tests|^5 tool calls/] },
   {
     name: 'work-opened',
     route: `/device/${CORE}/chat/chat-login-fix`,

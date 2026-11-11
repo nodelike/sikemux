@@ -35,7 +35,7 @@ import { ImageViewer } from './ImageViewer';
 import type { Strip as StripMeta } from './messageMeta';
 import type { Unsent } from './outbox';
 import type { Attachment } from './uploads';
-import { RunStrip } from './Tools';
+import { ToolGroup } from './Tools';
 import { AnsweredQuestions } from './Question';
 import { Bubble, From, makeBubbleStyles } from './Bubble';
 import { AgentContext, EarlierThoughtsContext, ProviderContext, SubagentsContext } from '@/chat/transcriptContext';
@@ -164,7 +164,7 @@ function Parts({ id, parts, live }: { id: string; parts: ChatPart[]; live: boole
     <>
       {groups.map((group, index) => {
         const last = live && index === groups.length - 1;
-        if ('tools' in group) return <RunStrip key={group.id} id={`${id}/${group.id}`} parts={group.tools} live={last} />;
+        if ('tools' in group) return <ToolGroup key={group.id} id={`${id}/${group.id}`} parts={group.tools} live={last} />;
         const run = group.part;
         switch (run.kind) {
           case 'text':
