@@ -3521,8 +3521,8 @@ struct RunClause: Codable, Hashable, Sendable {
 struct RunLine: Codable, Hashable, Sendable {
     var intent: ToolIntent
     var family: ToolFamily
-    /// The calls it stands for, by `toolCallId`.
-    var calls: [String]
+    /// The calls it stands for, by their place in the run, its first call 0.
+    var calls: [Int]
     var failed: Bool?
 }
 
@@ -3570,10 +3570,16 @@ enum NoticeSeverity: String, Codable, Hashable, Sendable {
     }
 }
 
-/// Where a goal began or ended in a chat.
+/// Where a goal began or ended in a chat, and how it stood then.
 struct GoalMarker: Codable, Hashable, Sendable {
     var card: Int
     var state: SliceState
+    var name: String?
+    /// A step for each gate or slice, as `ChatGoal` counts them.
+    var steps: [SliceState]?
+    var ofGates: Bool?
+    /// How long the chat worked on it, in milliseconds, once it ended.
+    var took: Int?
 }
 
 /// A stretch of a sent message's text: its words, or a chip its draft wrote there.
