@@ -7,9 +7,11 @@ struct HostStatus: Equatable {
     var connecting: Bool
     /// What is shown is from a connection that has ended, so it may be out of date.
     var stale: Bool
-    /// The host no longer knows this phone; only forgetting it and joining again helps.
-    var unpaired: Bool
-    var outdated: Outdated?
+    var blocked: HostLive.Blocked?
+    var unpaired: Bool { blocked == .unpaired }
+    var outdated: Outdated? {
+        if case .outdated(let side) = blocked { side } else { nil }
+    }
     var line: String
     var problem: String?
 
@@ -17,8 +19,7 @@ struct HostStatus: Equatable {
     init(_ live: HostLive, device: PairedDevice?, now: Date = Date()) {
         online = live.status == .open
         stale = !online && live.view != nil
-        unpaired = false
-        outdated = nil
+        blocked = nil
         problem = nil
         connecting = false
         let offline =
@@ -33,14 +34,14 @@ struct HostStatus: Equatable {
             problem = failed
             // Trying again after a failure still reads as offline, so the line does not flicker on every try.
             line = failed != nil ? offline : stale ? "Reconnecting…" : "Connecting…"
-        case .closed(let reason, let outdatedBy, let unpairedNow):
-            outdated = outdatedBy
-            unpaired = unpairedNow
+        case .closed(let reason, let why):
+            blocked = why
             problem = reason
-            switch outdatedBy {
-            case .host: line = "Needs a newer Sikemux"
-            case .phone: line = "Update this app to connect"
-            case nil: line = unpairedNow ? "No longer knows this phone" : offline
+            switch why {
+            case .outdated(.host): line = "Needs a newer Sikemux"
+            case .outdated(.phone): line = "Update this app to connect"
+            case .unpaired: line = "No longer knows this phone"
+            case nil: line = offline
             }
         }
     }
