@@ -784,7 +784,7 @@ impl Remote {
                 addresses,
             };
             if let Err(error) = self.add_link(added) {
-                let _ = pending.answer.send(None);
+                drop(pending.answer);
                 return Err(error);
             }
         } else if let Some(access) = access {
@@ -798,7 +798,7 @@ impl Remote {
                 last_seen: None,
             };
             if let Err(error) = self.add_device(added, Some(pending.account.clone())) {
-                let _ = pending.answer.send(None);
+                drop(pending.answer);
                 return Err(error);
             }
         }
@@ -1053,7 +1053,7 @@ fn load(keeper: &Keeper, path: &Path) -> CoreResult<(Stored, HostKey, String)> {
         Some(key) if vouches(&key, &file, &trusted)? => key,
         Some(key) => {
             eprintln!(
-                "sikemux core: {} was changed by something other than this host, so remote access is off and the devices and hosts it names wait for the person to trust them again; the file is kept as {}",
+                "sikemux core: {} was changed by something other than this host, so remote access is off, each new device waits for approval, and the devices and hosts it names wait for the person to trust them again; the file is kept as {}",
                 path.display(),
                 held_path(path).display()
             );
@@ -1063,6 +1063,7 @@ fn load(keeper: &Keeper, path: &Path) -> CoreResult<(Stored, HostKey, String)> {
                 true,
             )?;
             stored.distrust();
+            stored.require_approval = true;
             key
         }
         None => {

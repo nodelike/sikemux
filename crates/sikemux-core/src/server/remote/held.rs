@@ -2,6 +2,9 @@
 //! until the person trusts what it named again or lets it go.
 
 use super::*;
+use crate::accounts::protocol::DeviceList;
+use crate::server::account::api::as_host;
+use reqwest::Method;
 
 /// The remote file set aside beside `path`, and when it was, if there is one.
 pub(super) fn read_held(path: &Path) -> Option<(Stored, u64)> {
@@ -24,36 +27,73 @@ pub(super) fn read_held(path: &Path) -> Option<(Stored, u64)> {
     }
 }
 
-/// Trusts the devices, hosts and account the set-aside file named again, as
-/// the person chose, and turns remote access back on if it was on.
+/// Brings back the devices and hosts the set-aside file named that the
+/// account still lists, as the person chose, beside whatever is paired now.
+/// Nothing else in that file is trusted: not its account, shares, settings or
+/// removals, and not a device or host removed or revoked here since.
 pub(crate) async fn trust_held(core: &Arc<Core>) -> CoreResult<RemoteStatus> {
-    let enabled = {
-        let mut inner = core.remote.inner.locked();
-        let (mut held, _) = inner
-            .held
-            .take()
-            .ok_or_else(|| CoreError::from("nothing waits to be trusted again"))?;
-        held.secret_key = None;
-        if held.owner.is_some() && inner.bound.is_some() && held.owner != inner.bound {
-            held.owner = None;
-            held.enabled = false;
-        }
-        held.network = inner.stored.network.take();
-        inner.stored = held;
-        if let Err(error) = core.remote.save(&mut inner) {
-            let restored = std::mem::take(&mut inner.stored);
-            inner.held = Some((restored, epoch_ms()));
-            return Err(error);
-        }
-        inner.stored.enabled
+    let owner = core.remote.owner().ok_or_else(|| {
+        CoreError::from("sign in first, so the account can say which devices are still yours")
+    })?;
+    let Some((held, _)) = core
+        .remote
+        .inner
+        .locked()
+        .held
+        .as_ref()
+        .map(|(held, at)| ((held.devices.clone(), held.links.clone()), *at))
+    else {
+        return Err("nothing waits to be trusted again".into());
     };
-    forget_held_file(core);
-    if enabled {
-        if let Err(error) = listen(core).await {
-            eprintln!("sikemux core: remote access did not start: {error}");
+    let (devices, links) = held;
+    let phones: DeviceList = as_host(core, Method::GET, "/v1/devices?role=client", None).await?;
+    let hosts: DeviceList = as_host(core, Method::GET, "/v1/devices?role=host", None).await?;
+    let own = core.remote.core_id();
+    core.remote.change(|stored| {
+        if stored.owner.as_ref() != Some(&owner) {
+            return Err("the account changed meanwhile; try again".into());
         }
+        let kept = |stored: &Stored, id: &str| {
+            !stored.removed_here.contains_key(id)
+                && !stored.revoked.contains_key(id)
+                && !stored.devices.iter().any(|device| device.id == id)
+                && !stored.links.iter().any(|link| link.id == id)
+        };
+        for device in devices {
+            if phones.devices.iter().any(|phone| phone.key == device.id) && kept(stored, &device.id)
+            {
+                stored
+                    .joined_through
+                    .insert(device.id.clone(), owner.clone());
+                stored.devices.push(DeviceInfo {
+                    last_seen: None,
+                    ..device
+                });
+            }
+        }
+        for link in links {
+            let Some(host) = hosts.devices.iter().find(|host| host.key == link.id) else {
+                continue;
+            };
+            if Some(&link.id) != own.as_ref() && kept(stored, &link.id) {
+                stored.links.push(StoredLink {
+                    name: host.name.clone(),
+                    last_seen: None,
+                    addresses: Vec::new(),
+                    ..link
+                });
+            }
+        }
+        stored.enabled = true;
+        Ok(())
+    })?;
+    core.remote.inner.locked().held = None;
+    forget_held_file(core);
+    if let Err(error) = listen(core).await {
+        eprintln!("sikemux core: remote access did not start: {error}");
     }
     ensure_live(core);
+    core.hosts.relink.now();
     Ok(announce(core))
 }
 
