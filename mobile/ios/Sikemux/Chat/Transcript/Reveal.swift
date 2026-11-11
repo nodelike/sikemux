@@ -59,26 +59,3 @@ extension AttributedString {
         return out
     }
 }
-
-/// The answer being written opens up to each new line rather than stepping, so what is drawn under it holds still.
-struct Grow<Content: View>: View {
-    @Environment(\.accessibilityReduceMotion) private var still
-    let live: Bool
-    @ViewBuilder let content: Content
-    @State private var height: CGFloat?
-
-    var body: some View {
-        let growing = live && !still
-        content
-            .fixedSize(horizontal: false, vertical: true)
-            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { next in
-                if growing, let shown = height, next > shown {
-                    withAnimation(.easeOut(duration: 0.22)) { height = next }
-                } else {
-                    height = next
-                }
-            }
-            .frame(height: growing ? height : nil, alignment: .top)
-            .clipped()
-    }
-}

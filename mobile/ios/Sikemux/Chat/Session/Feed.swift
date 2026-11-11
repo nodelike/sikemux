@@ -25,6 +25,20 @@ final class Feed {
     /// Some changes never arrived, so the chat must be attached again from what was taken.
     var fellBehind: () -> Void = {}
 
+    /// Characters in the newest row past which laying it out every frame costs a frame, so changes are drawn every
+    /// other frame instead.
+    private static let longRow = 4000
+
+    private func drawingIsLong() -> Bool {
+        guard let last = chat.messages.last else { return false }
+        var length = 0
+        for part in last.parts {
+            if case .text(let text) = part { length += text.text.utf16.count }
+            if length > Self.longRow { return true }
+        }
+        return false
+    }
+
     /// The last change taken, applied or not yet.
     private var taken: UInt64?
     private var pending: [ChatChange] = []
@@ -117,8 +131,8 @@ final class Feed {
             pending.append(contentsOf: changes)
             taken = delivery.seq
         }
-        // A stream of tokens is drawn once a frame, not once a change.
-        if frame == nil { frame = FrameOnce { [weak self] in self?.applyPending() } }
+        // A stream of tokens is drawn at most once a frame, not once a change.
+        if frame == nil { frame = FrameOnce(skipping: drawingIsLong() ? 1 : 0) { [weak self] in self?.applyPending() } }
     }
 
     /// Whether a delivery that catches this phone up after it fell behind starts from `taken`.
@@ -200,14 +214,17 @@ struct ChatProblem: LocalizedError {
     init(_ text: String) { errorDescription = text }
 }
 
-/// Runs once, just before the next frame is drawn.
+/// Runs once, just before a coming frame is drawn.
 @MainActor
 final class FrameOnce {
     private var link: CADisplayLink?
     private let run: () -> Void
+    /// Frames to let pass first.
+    private var skipping: Int
 
-    init(_ run: @escaping () -> Void) {
+    init(skipping: Int = 0, _ run: @escaping () -> Void) {
         self.run = run
+        self.skipping = skipping
         let link = CADisplayLink(target: Target(self), selector: #selector(Target.fire))
         link.add(to: .main, forMode: .common)
         self.link = link
@@ -220,6 +237,10 @@ final class FrameOnce {
 
     fileprivate func fire() {
         guard link != nil else { return }
+        if skipping > 0 {
+            skipping -= 1
+            return
+        }
         cancel()
         run()
     }
