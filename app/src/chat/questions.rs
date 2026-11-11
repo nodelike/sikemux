@@ -1108,8 +1108,6 @@ pub(super) fn answered_questions(
             )
             .child(
                 div()
-                    .flex_1()
-                    .min_w_0()
                     .flex()
                     .flex_col()
                     .items_end()
