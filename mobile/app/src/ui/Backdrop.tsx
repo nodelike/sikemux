@@ -4,12 +4,14 @@ import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import { GLView, type ExpoWebGLRenderingContext } from 'expo-gl';
 import { File, Paths } from 'expo-file-system';
 import { useIsFocused } from 'expo-router';
-import { ditheringFragmentShader, getShaderColorFromString, imageDitheringFragmentShader } from '@paper-design/shaders';
+import { ditheringFragmentShader, getShaderColorFromString } from '@paper-design/shaders';
+import type { BackdropLook } from '@shared/wire.generated';
 
 import type { DeviceBackdrop } from '@/devices/backdrop';
 import { useAppActive, useBackdropPaused, useStill } from './motion';
 import { useColors, type Palette } from './theme';
 import { uploadPicture } from './picture';
+import { copyFragmentShader, coverVertexShader, glowMap, pictureFragmentShader, readPicture } from './pictureShader';
 import { vertexShaderSource } from './vertexShader.generated';
 
 /** What the host a screen belongs to draws behind its panes; absent outside a device's screens. */
@@ -26,6 +28,23 @@ const FRAME_MS = 80;
 const FADE_MS = 400;
 /** Where the grain rests when motion is reduced, as on the Mac. */
 const STILL_MS = 2500;
+/** As on the Mac: the grain's dots are its only paint, so it shows strongly, and the picture less so. */
+const GRAIN_OPACITY = 0.85;
+const PICTURE_OPACITY = 0.6;
+
+/** The Mac's own look, for a host that does not say. */
+const STANDARD_LOOK: BackdropLook = {
+  strength: 1,
+  inks: [],
+  ownColours: false,
+  pattern: 'bayer8',
+  dotSize: 2,
+  contrast: 0,
+  brightness: 0,
+  glow: 0.4,
+  glowSize: 0.4,
+  coverage: 'band',
+};
 
 /** Each picture's shape, measured once, and the backdrops already shown, so a screen opened later draws at once. */
 const aspects = new Map<string, number>();
@@ -50,36 +69,20 @@ type Uniform = number | boolean | number[];
 
 type Loop = { start: () => void; stop: () => void };
 
-/** The `ambient` and `image` presets of the Mac's pane backdrop. */
-function preset(colors: Palette, image: boolean): { fragment: string; speed: number; uniforms: Record<string, Uniform> } {
-  const sizing = { u_originX: 0.5, u_originY: 0.5, u_worldWidth: 0, u_worldHeight: 0, u_rotation: 0, u_offsetX: 0, u_offsetY: 0 };
-  const clear = [0, 0, 0, 0];
-  if (image) {
-    const ink = getShaderColorFromString(colors.ink);
-    return {
-      fragment: imageDitheringFragmentShader,
-      speed: 0,
-      uniforms: {
-        ...sizing,
-        u_colorBack: clear,
-        u_colorFront: ink,
-        u_colorHighlight: ink,
-        u_originalColors: true,
-        u_inverted: false,
-        u_type: 4,
-        u_pxSize: 2,
-        u_colorSteps: 4,
-        u_fit: 2,
-        u_scale: 1,
-      },
-    };
-  }
+/** The `ambient` preset of the Mac's pane grain. */
+function grainPreset(colors: Palette): { fragment: string; speed: number; uniforms: Record<string, Uniform> } {
   return {
     fragment: ditheringFragmentShader,
     speed: 0.5,
     uniforms: {
-      ...sizing,
-      u_colorBack: clear,
+      u_originX: 0.5,
+      u_originY: 0.5,
+      u_worldWidth: 0,
+      u_worldHeight: 0,
+      u_rotation: 0,
+      u_offsetX: 0,
+      u_offsetY: 0,
+      u_colorBack: [0, 0, 0, 0],
       u_colorFront: getShaderColorFromString(colors.shaderDot),
       u_shape: 1,
       u_type: 4,
@@ -87,6 +90,31 @@ function preset(colors: Palette, image: boolean): { fragment: string; speed: num
       u_fit: 0,
       u_scale: 2.4,
     },
+  };
+}
+
+/** The host's look as the picture shader takes it. */
+function pictureUniforms(look: BackdropLook, colors: Palette, aspect: number): Record<string, Uniform> {
+  const ink = (at: number): number[] => {
+    const value = look.inks.length ? look.inks[at] : [undefined, colors.accent, colors.ink][at];
+    if (!value) return [0, 0, 0, 0];
+    const [r, g, b] = getShaderColorFromString(value);
+    return [r, g, b, 1];
+  };
+  const pattern = { bayer2: 2, bayer4: 4, bayer8: 8, noise: 0 }[look.pattern] ?? 8;
+  return {
+    u_aspect: aspect,
+    u_dotSize: look.dotSize,
+    u_pattern: pattern,
+    u_contrast: look.contrast,
+    u_brightness: look.brightness,
+    u_glow: look.glow,
+    u_ownColours: look.ownColours ? 1 : 0,
+    u_full: look.coverage === 'full' ? 1 : 0,
+    u_strength: Math.min(PICTURE_OPACITY * look.strength, 1),
+    u_dark: ink(0),
+    u_middle: ink(1),
+    u_light: ink(2),
   };
 }
 
@@ -119,18 +147,27 @@ type Surface = {
   size: [number, number];
 };
 
-function mount(gl: ExpoWebGLRenderingContext, fragment: string, uniforms: Record<string, Uniform>): Surface | null {
-  const vertex = compile(gl, gl.VERTEX_SHADER, vertexShaderSource);
+function link(gl: ExpoWebGLRenderingContext, vertexSource: string, fragment: string): WebGLProgram | null {
+  const vertex = compile(gl, gl.VERTEX_SHADER, vertexSource);
   const pixels = compile(gl, gl.FRAGMENT_SHADER, fragment);
   const program = gl.createProgram();
   if (!vertex || !pixels || !program) return null;
   gl.attachShader(program, vertex);
   gl.attachShader(program, pixels);
   gl.linkProgram(program);
-  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-    console.warn('Backdrop shader did not link:', gl.getProgramInfoLog(program));
-    return null;
-  }
+  if (gl.getProgramParameter(program, gl.LINK_STATUS)) return program;
+  console.warn('Backdrop shader did not link:', gl.getProgramInfoLog(program));
+  return null;
+}
+
+function mount(
+  gl: ExpoWebGLRenderingContext,
+  fragment: string,
+  uniforms: Record<string, Uniform>,
+  vertexSource = vertexShaderSource,
+): Surface | null {
+  const program = link(gl, vertexSource, fragment);
+  if (!program) return null;
   gl.useProgram(program);
   const position = gl.getAttribLocation(program, 'a_position');
   const buffer = gl.createBuffer();
@@ -188,7 +225,7 @@ function draw(surface: Surface, frameMs: number) {
 
 /**
  * The Mac's pane backdrop at the top of a device's screen: its moving dithered
- * grain, or its picture dithered in place, faded out down the screen as on the Mac.
+ * grain, or its picture dithered in place as the host's look says, faded out down the screen as on the Mac.
  */
 export function Backdrop() {
   const backdrop = useContext(BackdropContext);
@@ -198,12 +235,15 @@ export function Backdrop() {
   const paused = useBackdropPaused();
   const still = useStill();
   const picture = backdrop?.texture ? backdrop.image : undefined;
+  const look = backdrop?.look ?? STANDARD_LOOK;
+  const lookKey = JSON.stringify(look);
   const window = useWindowDimensions();
   const frameKey = backdrop?.texture
     ? [
         picture ? picture.slice(picture.lastIndexOf('/') + 1) : 'grain',
         colors.ground,
         colors.shaderDot,
+        picture ? `${colors.accent}${colors.ink}${lookKey}` : look.strength,
         Math.round(window.width),
         Math.round(window.height),
       ].join('|')
@@ -255,27 +295,44 @@ export function Backdrop() {
   }, []);
 
   if (!backdrop?.texture || (picture && !aspect && !frame)) return null;
-  const { fragment, speed, uniforms } = preset(colors, Boolean(picture));
-  const strength = picture ? 0.38 : 0.85;
-  const band = picture ? '60%' : '50%';
+  const { fragment, speed, uniforms } = grainPreset(colors);
+  const strength = picture ? 1 : Math.min(GRAIN_OPACITY * look.strength, 1);
+  const band = !picture ? '50%' : look.coverage === 'full' ? '100%' : '60%';
 
   const ready = (gl: ExpoWebGLRenderingContext) => {
-    const extra: Record<string, Uniform> = picture && aspect ? { u_imageAspectRatio: aspect, u_image: 0 } : {};
     // Only the newest surface is on screen; one a remount left behind stops drawing.
     loops.current.forEach((loop) => loop.stop());
     loops.current.clear();
-    const surface = mount(gl, fragment, { ...uniforms, ...extra });
+    const surface =
+      picture && aspect
+        ? mount(gl, pictureFragmentShader, pictureUniforms(look, colors, aspect), coverVertexShader)
+        : mount(gl, fragment, uniforms);
     if (!surface) return;
-    if (picture) {
-      const texture = gl.createTexture();
-      gl.activeTexture(gl.TEXTURE0);
-      gl.bindTexture(gl.TEXTURE_2D, texture);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    if (picture && aspect) {
+      const texture = (unit: number) => {
+        const made = gl.createTexture();
+        gl.activeTexture(unit);
+        gl.bindTexture(gl.TEXTURE_2D, made);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      };
+      texture(gl.TEXTURE0);
       const loading = uploadPicture(gl, picture);
       const reveal = () => {
+        const copy = link(gl, coverVertexShader, copyFragmentShader);
+        if (copy) {
+          const glow = glowMap(aspect, look.glowSize, (width, height) => readPicture(gl, copy, width, height));
+          texture(gl.TEXTURE1);
+          gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, glow.width, glow.height, 0, gl.RGBA, gl.UNSIGNED_BYTE, glow.pixels);
+          gl.activeTexture(gl.TEXTURE0);
+          gl.deleteProgram(copy);
+        }
+        gl.useProgram(surface.program);
+        gl.uniform1i(gl.getUniformLocation(surface.program, 'u_image'), 0);
+        gl.uniform1i(gl.getUniformLocation(surface.program, 'u_glowMap'), 1);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
         draw(surface, 0);
         show();
         if (frameKey) {
@@ -320,27 +377,23 @@ export function Backdrop() {
     <View pointerEvents="none" style={[styles.band, { height: band }]}>
       <Animated.View style={[StyleSheet.absoluteFill, { opacity: Animated.multiply(shown, strength) }]}>
         {frame ? <Image source={{ uri: frame }} style={StyleSheet.absoluteFill} resizeMode="stretch" /> : null}
-        {drawing ? (
-          <GLView
-            key={`${picture ?? 'grain'}:${colors.ground}:${colors.shaderDot}`}
-            style={StyleSheet.absoluteFill}
-            msaaSamples={0}
-            onContextCreate={ready}
-          />
-        ) : null}
+        {drawing ? <GLView key={frameKey} style={StyleSheet.absoluteFill} msaaSamples={0} onContextCreate={ready} /> : null}
       </Animated.View>
-      {/* The Mac masks the field out by the band's end; covering it with the ground does the same on an opaque screen. */}
-      <Svg style={StyleSheet.absoluteFill} width="100%" height="100%">
-        <Defs>
-          <LinearGradient id="fade" x1="0" y1="0" x2="0" y2="1">
-            <Stop offset="0" stopColor={colors.ground} stopOpacity={0} />
-            <Stop offset="0.4" stopColor={colors.ground} stopOpacity={0.55} />
-            <Stop offset="0.76" stopColor={colors.ground} stopOpacity={0.92} />
-            <Stop offset="1" stopColor={colors.ground} stopOpacity={1} />
-          </LinearGradient>
-        </Defs>
-        <Rect x="0" y="0" width="100%" height="100%" fill="url(#fade)" />
-      </Svg>
+      {/* The Mac masks the grain out by the band's end; covering it with the ground does the same on an opaque screen.
+          The picture fades itself. */}
+      {picture ? null : (
+        <Svg style={StyleSheet.absoluteFill} width="100%" height="100%">
+          <Defs>
+            <LinearGradient id="fade" x1="0" y1="0" x2="0" y2="1">
+              <Stop offset="0" stopColor={colors.ground} stopOpacity={0} />
+              <Stop offset="0.4" stopColor={colors.ground} stopOpacity={0.55} />
+              <Stop offset="0.76" stopColor={colors.ground} stopOpacity={0.92} />
+              <Stop offset="1" stopColor={colors.ground} stopOpacity={1} />
+            </LinearGradient>
+          </Defs>
+          <Rect x="0" y="0" width="100%" height="100%" fill="url(#fade)" />
+        </Svg>
+      )}
     </View>
   );
 }
