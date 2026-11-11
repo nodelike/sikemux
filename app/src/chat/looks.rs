@@ -82,7 +82,6 @@ pub(super) struct Tints {
     pub(super) tick: Hsla,
     pub(super) line_soft: Hsla,
     pub(super) well: Hsla,
-    pub(super) composer: Hsla,
 }
 
 impl Tints {
@@ -120,7 +119,6 @@ impl Tints {
                 a: 0.62,
                 ..t.surface_sunken
             },
-            composer: t.surface_composer,
         }
     }
 }
