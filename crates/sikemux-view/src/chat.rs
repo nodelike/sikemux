@@ -1555,11 +1555,13 @@ pub struct AgentNotice {
     pub goal: Option<GoalMarker>,
 }
 
-/// Where a goal began or ended in a chat, and how it stood then.
+/// Where a goal began, passed a step or ended in a chat, and how it stood then.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GoalMarker {
     pub card: u64,
+    #[serde(default)]
+    pub moment: GoalMoment,
     pub state: SliceState,
     #[serde(default)]
     pub name: String,
@@ -1568,9 +1570,22 @@ pub struct GoalMarker {
     pub steps: Vec<SliceState>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub of_gates: bool,
-    /// How long the chat worked on it, in milliseconds, once it ended.
+    /// How long the chat had worked on it, in milliseconds, past its start.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub took: Option<u64>,
+}
+
+/// What happened to a goal where its line sits.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum GoalMoment {
+    #[default]
+    Started,
+    /// One more of its steps is done, and it goes on.
+    Step,
+    Done,
+    /// The chat no longer works on it, though it is not done.
+    Stopped,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

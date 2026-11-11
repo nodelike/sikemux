@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
-use sikemux_view::chat::{ChatGoal, GoalMarker};
+use sikemux_view::chat::{ChatGoal, GoalMarker, GoalMoment};
 use sikemux_view::slice::{SliceState, Wait, WaitOn};
 
 use super::{holder, lease, slice, waits, Board, Card, CardStatus};
@@ -114,6 +114,9 @@ struct Attached {
     /// When the chat took it on.
     #[serde(default)]
     began: u64,
+    /// How many of its steps were done when the chat last said so.
+    #[serde(default)]
+    steps_done: usize,
     /// The agent only just added it, and the person can still take that back.
     undoable: bool,
     /// Its line in the chat waits until that has passed, so the chat never shows a goal that was
@@ -267,7 +270,7 @@ pub(crate) fn turn_started(core: &Core, agent: &str) {
         lease::back_at_work(core, &goal.project, goal.card, agent);
     }
     if let (Some(goal), Some(chat)) = (settled, core.chats.get(agent)) {
-        started_line(core, &chat, &goal);
+        goal_line(core, &chat, &goal, GoalMoment::Started);
         push_head(core, agent);
     }
 }
@@ -374,40 +377,44 @@ fn say(chat: &Chat, title: String, marker: GoalMarker) {
     );
 }
 
-/// The goal as it stands now, for the line that marks where it began or ended.
-fn marker(core: &Core, goal: &Attached, state: SliceState, took: Option<u64>) -> GoalMarker {
-    let (steps, of_gates) = {
+/// The line in the chat that marks `moment` of the goal, as it stands now.
+fn goal_line(core: &Core, chat: &Chat, goal: &Attached, moment: GoalMoment) {
+    let (steps, of_gates, state) = {
         let boards = core.boards.state.locked();
-        (boards.boards.get(&goal.project))
-            .and_then(|board| Some((board, board.card(goal.card).ok()?)))
-            .map(|(board, card)| slice::goal_steps(core, board, card))
-            .unwrap_or_default()
+        let found = (boards.boards.get(&goal.project))
+            .and_then(|board| Some((board, board.card(goal.card).ok()?)));
+        let (steps, of_gates) =
+            (found.map(|(board, card)| slice::goal_steps(core, board, card))).unwrap_or_default();
+        let state = found.and_then(|(board, card)| goal_state(core, board, card));
+        (steps, of_gates, state)
     };
-    GoalMarker {
-        card: goal.card,
-        state,
-        name: goal.name.clone(),
-        steps,
-        of_gates,
-        took,
-    }
-}
-
-fn started_line(core: &Core, chat: &Chat, goal: &Attached) {
+    let (title, state) = match moment {
+        GoalMoment::Started => ("Goal started", SliceState::Moving),
+        GoalMoment::Step => ("Goal step done", SliceState::Moving),
+        GoalMoment::Done => ("Goal done", SliceState::Done),
+        GoalMoment::Stopped => ("Goal stopped", state.unwrap_or(SliceState::Waiting)),
+    };
+    let took = (moment != GoalMoment::Started && goal.began > 0)
+        .then(|| epoch_ms().saturating_sub(goal.began));
     say(
         chat,
-        format!("Goal started: {}", goal.name),
-        marker(core, goal, SliceState::Moving, None),
+        format!("{title}: {}", goal.name),
+        GoalMarker {
+            card: goal.card,
+            moment,
+            state,
+            name: goal.name.clone(),
+            steps,
+            of_gates,
+            took,
+        },
     );
 }
 
-fn done_line(core: &Core, chat: &Chat, goal: &Attached) {
-    let took = (goal.began > 0).then(|| epoch_ms().saturating_sub(goal.began));
-    say(
-        chat,
-        format!("Goal done: {}", goal.name),
-        marker(core, goal, SliceState::Done, took),
-    );
+fn steps_done(goal: &ChatGoal) -> usize {
+    (goal.steps.iter())
+        .filter(|step| **step == SliceState::Done)
+        .count()
 }
 
 /// How the goal `goal` stands for a chat: its state, and a step for each gate or slice.
@@ -511,7 +518,7 @@ pub(super) fn settle(core: &Arc<Core>) {
     );
     let added_itself = added_itself(core, &held);
     let goals = &core.boards.chat_goals;
-    let mut lines: Vec<(Arc<Chat>, Option<Attached>, Option<Attached>)> = Vec::new();
+    let mut lines: Vec<(Arc<Chat>, Attached, GoalMoment)> = Vec::new();
     let mut earlier_work = Vec::new();
     {
         let mut chats = goals.chats.locked();
@@ -533,7 +540,15 @@ pub(super) fn settle(core: &Arc<Core>) {
                     if held.unshown && !held.undoable {
                         held.unshown = false;
                         changed = true;
-                        lines.push((chat.clone(), Some(held.clone()), None));
+                        lines.push((chat.clone(), held.clone(), GoalMoment::Started));
+                    }
+                    let done_now = steps_done(now);
+                    if done_now != held.steps_done {
+                        if done_now > held.steps_done && !held.unshown {
+                            lines.push((chat.clone(), held.clone(), GoalMoment::Step));
+                        }
+                        held.steps_done = done_now;
+                        changed = true;
                     }
                     continue;
                 }
@@ -541,9 +556,9 @@ pub(super) fn settle(core: &Arc<Core>) {
                 _ => {}
             }
             changed = true;
-            let done = was.as_ref().filter(|was| finished(core, was)).cloned();
+            let done = was.as_ref().is_some_and(|was| finished(core, was));
             if was.is_some() {
-                record.ended(done.is_some());
+                record.ended(done);
             }
             let undoable = added_itself.contains(agent);
             let started = now.map(|now| Attached {
@@ -551,6 +566,7 @@ pub(super) fn settle(core: &Arc<Core>) {
                 card: now.card,
                 name: now.name.clone(),
                 began: epoch_ms(),
+                steps_done: steps_done(now),
                 undoable,
                 unshown: undoable,
             });
@@ -564,13 +580,22 @@ pub(super) fn settle(core: &Arc<Core>) {
                     commits,
                 ));
             }
-            // A goal still waiting out its Undo has shown no line yet, so its end shows both.
-            let unshown = was.filter(|was| was.unshown && done.is_some());
-            if let Some(unshown) = unshown {
-                lines.push((chat.clone(), Some(unshown), None));
+            if let Some(was) = was {
+                match (done, was.unshown) {
+                    // A goal still waiting out its Undo has shown no line yet, so its end shows
+                    // both.
+                    (true, true) => {
+                        lines.push((chat.clone(), was.clone(), GoalMoment::Started));
+                        lines.push((chat.clone(), was, GoalMoment::Done));
+                    }
+                    (true, false) => lines.push((chat.clone(), was, GoalMoment::Done)),
+                    (false, true) => {}
+                    (false, false) => lines.push((chat.clone(), was, GoalMoment::Stopped)),
+                }
             }
-            let started = started.filter(|started| !started.unshown);
-            lines.push((chat.clone(), started, done));
+            if let Some(started) = started.filter(|started| !started.unshown) {
+                lines.push((chat.clone(), started, GoalMoment::Started));
+            }
         }
         if changed {
             goals.save(&mut chats);
@@ -584,13 +609,8 @@ pub(super) fn settle(core: &Arc<Core>) {
             }
         });
     }
-    for (chat, started, done) in lines {
-        if let Some(done) = &done {
-            done_line(core, &chat, done);
-        }
-        if let Some(started) = &started {
-            started_line(core, &chat, started);
-        }
+    for (chat, goal, moment) in lines {
+        goal_line(core, &chat, &goal, moment);
     }
     for chat in &open {
         apply_head(

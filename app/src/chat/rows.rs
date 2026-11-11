@@ -2,6 +2,7 @@
 //! fired triggers, and subagents. Runs of messages between agents are in `team`.
 
 use super::*;
+use sikemux_view::chat::GoalMoment;
 use sikemux_view::slice::SliceState;
 
 use crate::theme::{
@@ -794,20 +795,21 @@ pub(super) fn runs<'a>(parts: impl Iterator<Item = &'a ChatPart>) -> Vec<Shown<'
     shown
 }
 
-/// Where a goal began or ended: a quiet line across the column with its state's mark.
-/// Where a goal began or ended, as a milestone: its state in its colour, its name, and at the
-/// right its steps then and, once ended, how long it took.
+/// Where a goal began, passed a step or ended, as a milestone: its state in its colour, its
+/// name, and at the right its steps then and, past its start, how long it had taken.
 fn goal_marker(notice: &AgentNotice, looks: &Drawn, cx: &App) -> AnyElement {
     let Some(goal) = notice.goal.as_ref() else {
         return div().into_any_element();
     };
     let t = Tokens::get(cx);
-    let word = match goal.state {
-        SliceState::Moving => "Goal",
-        SliceState::Done => "Goal done",
-        SliceState::Failed => "Goal stopped",
-        SliceState::NeedsYou => "Goal needs you",
-        SliceState::Waiting => "Goal waiting",
+    let (state, word) = match (goal.moment, goal.state) {
+        (GoalMoment::Step, _) => (SliceState::Done, "Step done"),
+        (GoalMoment::Done, _) => (SliceState::Done, "Goal done"),
+        (GoalMoment::Stopped, SliceState::Failed) => (SliceState::Failed, "Goal stopped"),
+        (GoalMoment::Stopped, _) => (SliceState::Waiting, "Goal stopped"),
+        (GoalMoment::Started, SliceState::NeedsYou) => (SliceState::NeedsYou, "Goal needs you"),
+        (GoalMoment::Started, SliceState::Waiting) => (SliceState::Waiting, "Goal waiting"),
+        (GoalMoment::Started, state) => (state, "Goal"),
     };
     let name = match goal.name.is_empty() {
         true => notice.title.clone(),
@@ -821,12 +823,12 @@ fn goal_marker(notice: &AgentNotice, looks: &Drawn, cx: &App) -> AnyElement {
         .gap(px(9.))
         .min_w_0()
         .text_size(crate::theme::ui_text(TEXT_XS_H))
-        .child(crate::goals::state_mark(goal.state, cx))
+        .child(crate::goals::state_mark(state, cx))
         .child(
             div()
                 .flex_none()
                 .font_weight(FontWeight::SEMIBOLD)
-                .text_color(crate::goals::state_ink(goal.state, t))
+                .text_color(crate::goals::state_ink(state, t))
                 .child(word),
         )
         .child(
