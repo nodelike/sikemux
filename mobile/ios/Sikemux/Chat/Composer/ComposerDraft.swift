@@ -39,7 +39,7 @@ final class ComposerDraft {
         self.held = held
         self.live = live
         self.emit = emit
-        guard let unsaved = DraftStore.load(key) else { return }
+        guard let unsaved = DraftStore.load(key, as: DraftStore.Unsaved.self) else { return }
         text = unsaved.text
         attachments = unsaved.attachments.filter { $0.path != nil || FileManager.default.fileExists(atPath: $0.uri.path) }
         tokens = Mentions.tokens(unsaved.text, unsaved.tokens)
@@ -215,7 +215,7 @@ final class ComposerDraft {
     }
 }
 
-/// Writing not saved on the host yet, kept on this phone so it outlives the app quitting.
+/// Writing not saved on the host yet, or a new chat's not started, kept on this phone so it outlives the app quitting.
 enum DraftStore {
     struct Unsaved: Codable {
         var text: String
@@ -234,18 +234,18 @@ enum DraftStore {
         folder.appending(path: "\(key.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? key).json")
     }
 
-    static func load(_ key: String) -> Unsaved? {
+    static func load<Value: Decodable>(_ key: String, as kind: Value.Type) -> Value? {
         let file = file(key)
         guard FileManager.default.fileExists(atPath: file.path) else { return nil }
         do {
-            return try JSONDecoder().decode(Unsaved.self, from: Data(contentsOf: file))
+            return try JSONDecoder().decode(kind, from: Data(contentsOf: file))
         } catch {
             log.error("unsaved draft unreadable: \(problem(error), privacy: .public)")
             return nil
         }
     }
 
-    static func save(_ key: String, _ unsaved: Unsaved) {
+    static func save<Value: Encodable>(_ key: String, _ unsaved: Value) {
         do {
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             try JSONEncoder().encode(unsaved).write(to: file(key), options: .atomic)
