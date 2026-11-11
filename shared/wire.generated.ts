@@ -1272,6 +1272,24 @@ export interface HostLoad {
     cpu: number;
     /** Memory in use, in bytes, where the host says. */
     memoryUsed: number | null;
+    /** More threads want to run than its cores take, so agents' simulators and builds wait. */
+    overloaded?: boolean;
+    /** The one-minute load average, rounded, while it is overloaded. */
+    loadAverage?: number;
+    cores?: number;
+    /** The builds agents run or wait to run, oldest first, while it is overloaded. */
+    builds?: AgentBuild[];
+}
+
+/** A build an agent started, such as `xcodebuild` or `cargo build`, running or waiting its turn. */
+export interface AgentBuild {
+    id: number;
+    agentId?: string;
+    command: string;
+    /** When it started, or began to wait, in Unix milliseconds. */
+    since: number;
+    /** How many builds wait ahead of it, while it waits. */
+    ahead?: number;
 }
 
 /** An alert about this host, or about the linked host `host` names. */

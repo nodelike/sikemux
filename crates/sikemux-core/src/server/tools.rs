@@ -357,7 +357,7 @@ async fn build(
     writer: &mut OwnedWriteHalf,
     request: crate::cli::protocol::BuildRequest,
 ) {
-    let turn = super::builds::Turn::ask(core, request.agent_id);
+    let turn = super::builds::Turn::ask(core, request);
     let mut told = false;
     loop {
         match turn.place() {

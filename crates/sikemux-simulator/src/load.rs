@@ -8,8 +8,6 @@ use std::path::PathBuf;
 const CORES_PER_SIMULATOR: usize = 3;
 /// About what a booted iPhone simulator holds in memory with an app running.
 const BYTES_PER_SIMULATOR: u64 = 5 << 29;
-/// Past this many runnable threads per core, the Mac is too busy to start another simulator.
-const BUSY_LOAD_PER_CORE: f64 = 1.5;
 /// The program each running simulator's own launchd runs as, named for its device's folder.
 const SIMULATOR_LAUNCHD: &str = "launchd_sim";
 
@@ -27,7 +25,7 @@ impl Machine {
             cores: std::thread::available_parallelism().map_or(1, |cores| cores.get()),
             free_memory: sikemux_process::machine::memory()
                 .map(|memory| memory.total.saturating_sub(memory.used)),
-            load: load_average(),
+            load: sikemux_process::machine::load_average(),
         }
     }
 
@@ -48,8 +46,7 @@ impl Machine {
     }
 
     pub fn busy(&self) -> bool {
-        self.load
-            .is_some_and(|load| load > self.cores as f64 * BUSY_LOAD_PER_CORE)
+        sikemux_process::machine::overloaded(self.load, self.cores)
     }
 }
 
@@ -73,13 +70,6 @@ pub(crate) fn room(running: usize, starting: usize, cold: bool, limit: usize) ->
         return Err(Wait::Starting);
     }
     Ok(())
-}
-
-fn load_average() -> Option<f64> {
-    let mut loads = [0f64; 3];
-    // SAFETY: the buffer holds the one sample asked for.
-    let read = unsafe { libc::getloadavg(loads.as_mut_ptr(), 1) };
-    (read == 1).then_some(loads[0])
 }
 
 /// The udids of every simulator running or starting on this Mac, from each one's launchd.

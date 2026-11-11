@@ -47,6 +47,28 @@ pub fn memory() -> Option<Memory> {
     system::memory()
 }
 
+/// Past this many runnable threads per core, the computer is overloaded and agents' heavy work waits.
+pub const OVERLOADED_PER_CORE: f64 = 1.5;
+
+/// The one-minute load average: how many threads were running or waiting to run.
+#[cfg(unix)]
+pub fn load_average() -> Option<f64> {
+    let mut loads = [0f64; 3];
+    // SAFETY: the buffer holds the one sample asked for.
+    let read = unsafe { libc::getloadavg(loads.as_mut_ptr(), 1) };
+    (read == 1).then_some(loads[0])
+}
+
+#[cfg(not(unix))]
+pub fn load_average() -> Option<f64> {
+    None
+}
+
+/// Whether the load average is past what `cores` take.
+pub fn overloaded(load: Option<f64>, cores: usize) -> bool {
+    load.is_some_and(|load| load > cores as f64 * OVERLOADED_PER_CORE)
+}
+
 /// How full the volume `path` is on.
 #[cfg(unix)]
 // statvfs's fields are of different widths on each system.

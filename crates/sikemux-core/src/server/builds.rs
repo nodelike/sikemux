@@ -8,6 +8,9 @@ use std::sync::{Arc, Mutex};
 use sikemux_process::sync::Locked;
 use tokio::sync::Notify;
 
+use crate::cli::protocol::BuildRequest;
+use sikemux_view::device::AgentBuild;
+
 use super::changed::What;
 use super::Core;
 
@@ -27,13 +30,16 @@ pub(crate) struct Builds {
 #[derive(Default)]
 struct State {
     next: u64,
-    building: Vec<u64>,
-    waiting: VecDeque<Waiting>,
+    building: Vec<Build>,
+    waiting: VecDeque<Build>,
 }
 
-struct Waiting {
+struct Build {
     id: u64,
     agent_id: Option<String>,
+    command: String,
+    pid: Option<u32>,
+    /// When it began to wait, then when it started, in Unix milliseconds.
     since: u64,
 }
 
@@ -58,11 +64,50 @@ impl Builds {
             .map(|waiting| waiting.since)
     }
 
+    /// Every build running, then every one waiting in line, as clients show them.
+    pub(crate) fn shown(&self) -> Vec<AgentBuild> {
+        let state = self.state.locked();
+        let running = state.building.iter().map(|build| (build, None));
+        let waiting =
+            (state.waiting.iter().enumerate()).map(|(ahead, build)| (build, Some(ahead as u32)));
+        running
+            .chain(waiting)
+            .map(|(build, ahead)| AgentBuild {
+                id: build.id,
+                agent_id: build.agent_id.clone(),
+                command: build.command.clone(),
+                since: build.since,
+                ahead,
+            })
+            .collect()
+    }
+
+    /// Stops the build `id`, running or waiting: what it started, then the build itself.
+    pub(crate) fn stop(&self, id: u64) -> Result<(), String> {
+        let pid = {
+            let state = self.state.locked();
+            let build = (state.building.iter().chain(&state.waiting))
+                .find(|build| build.id == id)
+                .ok_or("that build has finished")?;
+            build
+                .pid
+                .ok_or("that build did not say which process it is")?
+        };
+        let below = sikemux_process::procs::descendants(pid);
+        for target in below.keys().copied().chain([pid]) {
+            if let Ok(target) = libc::pid_t::try_from(target) {
+                // SAFETY: kill only sends a signal; the pids come from the build's own tree.
+                unsafe { libc::kill(target, libc::SIGTERM) };
+            }
+        }
+        Ok(())
+    }
+
     /// Where the build `id` stands, starting it when it is first in line and
     /// fewer than `limit` build.
     fn place(&self, id: u64, limit: impl FnOnce(usize) -> usize) -> Place {
         let mut state = self.state.locked();
-        if state.building.contains(&id) {
+        if state.building.iter().any(|build| build.id == id) {
             return Place::Building;
         }
         let ahead = state
@@ -73,8 +118,10 @@ impl Builds {
         let building = state.building.len();
         let limit = limit(building);
         if ahead == 0 && building < limit {
-            state.waiting.pop_front();
-            state.building.push(id);
+            if let Some(mut build) = state.waiting.pop_front() {
+                build.since = sikemux_process::clock::epoch_ms();
+                state.building.push(build);
+            }
             return Place::Building;
         }
         Place::Waiting {
@@ -94,16 +141,20 @@ pub(crate) struct Turn {
 }
 
 impl Turn {
-    pub(crate) fn ask(core: &Arc<Core>, agent_id: Option<String>) -> Self {
-        let agent = agent_id.is_some();
+    pub(crate) fn ask(core: &Arc<Core>, request: BuildRequest) -> Self {
+        let agent = request.agent_id.is_some();
         let mut state = core.builds.state.locked();
         state.next += 1;
         let id = state.next;
-        state.waiting.push_back(Waiting {
+        state.waiting.push_back(Build {
             id,
-            agent_id,
+            agent_id: request.agent_id,
+            command: request.command,
+            pid: request.pid,
             since: sikemux_process::clock::epoch_ms(),
         });
+        drop(state);
+        show_while_overloaded(core);
         Turn {
             core: core.clone(),
             id,
@@ -115,10 +166,14 @@ impl Turn {
     /// Where it stands now, sized by the person's limit, else the host's.
     pub(crate) fn place(&self) -> Place {
         let chosen = self.core.preferences.get().build_runs as usize;
-        self.core.builds.place(self.id, |building| match chosen {
+        let place = self.core.builds.place(self.id, |building| match chosen {
             0 => host_limit(building),
             chosen => chosen,
-        })
+        });
+        if matches!(place, Place::Building) {
+            show_while_overloaded(&self.core);
+        }
+        place
     }
 
     /// Waits until a build ends or a little while passes, as memory frees up too.
@@ -142,13 +197,23 @@ impl Turn {
 impl Drop for Turn {
     fn drop(&mut self) {
         let mut state = self.core.builds.state.locked();
-        state.building.retain(|id| *id != self.id);
-        state.waiting.retain(|waiting| waiting.id != self.id);
+        state.building.retain(|build| build.id != self.id);
+        state.waiting.retain(|build| build.id != self.id);
         drop(state);
         self.core.builds.turned.notify_waiters();
         if self.shown.load(Ordering::Relaxed) {
             self.core.changed(What::View);
+        } else {
+            show_while_overloaded(&self.core);
         }
+    }
+}
+
+/// Tells clients the builds moved, while the host is overloaded and they list them.
+fn show_while_overloaded(core: &Core) {
+    let cores = std::thread::available_parallelism().map_or(1, |cores| cores.get());
+    if sikemux_process::machine::overloaded(sikemux_process::machine::load_average(), cores) {
+        core.changed(What::View);
     }
 }
 

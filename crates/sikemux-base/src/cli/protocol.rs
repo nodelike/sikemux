@@ -156,6 +156,9 @@ pub struct BuildRequest {
     pub agent_id: Option<String>,
     /// The command, as the person would read it, such as `cargo check -p core`.
     pub command: String,
+    /// The process asking, which the person can stop.
+    #[serde(default)]
+    pub pid: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
