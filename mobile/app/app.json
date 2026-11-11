@@ -99,6 +99,15 @@
             "extraProguardRules": "-keep, includedescriptorclasses class org.rustls.platformverifier.** { *; }\n-keep class expo.modules.gl.** { *; }\n-dontwarn kotlin.MustUseReturnValues"
           }
         }
+      ],
+      [
+        "@sentry/react-native/expo",
+        {
+          "organization": "nodelike",
+          "project": "sikemux-mobile",
+          "url": "https://sentry.io/",
+          "experimental_android": { "enableAndroidGradlePlugin": true, "includeNativeSources": false }
+        }
       ]
     ],
     "experiments": {

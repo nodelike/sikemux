@@ -1,3 +1,4 @@
+import './src/crashes/reports';
 import 'expo-router/entry';
 import { AppRegistry, Platform } from 'react-native';
 

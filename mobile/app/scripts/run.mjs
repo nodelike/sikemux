@@ -69,6 +69,8 @@ await generate();
 
 const env = { ...process.env, APP_VARIANT: variant };
 if (platform === 'android' && variant === 'production' && !prebuildOnly) Object.assign(env, uploadKey());
+// Release builds send their symbols and source maps to Sentry only from CI, which has the token.
+if (!env.SENTRY_AUTH_TOKEN) env.SENTRY_DISABLE_AUTO_UPLOAD = 'true';
 // A clean prebuild deletes android/local.properties, which is where Gradle found the SDK.
 const androidStudioSdk = join(homedir(), 'Library/Android/sdk');
 if (!env.ANDROID_HOME && existsSync(androidStudioSdk)) env.ANDROID_HOME = androidStudioSdk;

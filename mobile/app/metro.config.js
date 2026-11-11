@@ -1,8 +1,10 @@
 const fs = require('node:fs');
 const path = require('node:path');
-const { getDefaultConfig } = require('expo/metro-config');
+const { getSentryExpoConfig } = require('@sentry/react-native/metro');
 
-const config = getDefaultConfig(__dirname);
+// Sentry's config stamps each bundle with an id its uploaded source map carries too, and leaves out
+// its session replay and feedback form, which the app does not use.
+const config = getSentryExpoConfig(__dirname, { includeWebReplay: false, includeWebFeedback: false });
 
 // The chat transcript, the agent catalog and the share format come from shared/, which the share page uses too.
 config.watchFolders = [...config.watchFolders, path.resolve(__dirname, '../../shared')];

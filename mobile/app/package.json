@@ -26,6 +26,7 @@
     "@paper-design/shaders": "0.0.81",
     "@react-native-community/netinfo": "12.0.1",
     "@react-native-masked-view/masked-view": "0.3.2",
+    "@sentry/react-native": "8.34.0",
     "@shopify/flash-list": "2.3.3",
     "@sikemux/native": "workspace:*",
     "expo": "~57.0.26",

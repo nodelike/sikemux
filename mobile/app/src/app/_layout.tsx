@@ -24,6 +24,7 @@ import { useNotificationResponses } from '@/notify/responses';
 import { currentRelays, useUpdateRequired } from '@/network/network';
 import { useOverTheAirUpdates } from '@/updates/overTheAir';
 import { Crashed } from '@/ui/Crashed';
+import { appReady, useCrashReportsAccount, withCrashReports } from '@/crashes/reports';
 import { Unreachable } from '@/account/Unreachable';
 import { useShareExtension } from '@/stash/extension';
 import { useShareIntake } from '@/stash/incoming';
@@ -43,7 +44,9 @@ export const ErrorBoundary = Crashed;
 /** How long the splash waits for the account before saying it can't be reached. */
 const ACCOUNT_WAIT_MS = 10_000;
 
-export default function RootLayout() {
+export default withCrashReports(RootLayout);
+
+function RootLayout() {
   const colors = useColors();
   // Phones have the fonts built in; only a browser, which runs the showcase, loads them.
   const [loaded, failed] = useFonts(
@@ -94,7 +97,8 @@ export default function RootLayout() {
 
 /** The screens, once the account and the paired hosts are known; the splash stays up until then. */
 function Routes({ background }: { background: string }) {
-  const { isLoaded, isSignedIn } = useAuth();
+  const { isLoaded, isSignedIn, userId } = useAuth();
+  useCrashReportsAccount(userId);
   const devices = useDevices();
   const ready = isLoaded && (!isSignedIn || devices.loaded);
   const [late, setLate] = useState(false);
@@ -107,7 +111,9 @@ function Routes({ background }: { background: string }) {
   }, [ready]);
 
   useEffect(() => {
-    if (ready || late) SplashScreen.hideAsync().catch(() => {});
+    if (!ready && !late) return;
+    SplashScreen.hideAsync().catch(() => {});
+    appReady();
   }, [ready, late]);
 
   useEffect(() => {
