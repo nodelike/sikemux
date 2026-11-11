@@ -1,6 +1,5 @@
-# 0.2.0-nightly.20
-• Snooze and settle chats, as on the Mac. They fold under SNOOZED and SETTLED below the list.
-• A new chat shows the account it will start on before you send.
-• Your last prompt no longer pins to the top of the chat.
-• Crashes are reported so we can fix them, with no IP address attached.
+# 0.2.0-nightly.22
+• iPhone: Sikemux is now a native Swift app, drawn like the Mac. Join a host on your account, find in a chat, edit a sent message and open shared chats.
+• Replies read like an article, your messages are clean bubbles, and the agent's work reads as short strips.
+• A stashed prompt no longer comes back into the message box when you start typing.
 • Works with hosts on the Sikemux 0.6.1 nightlies, not stable 0.6.0.
