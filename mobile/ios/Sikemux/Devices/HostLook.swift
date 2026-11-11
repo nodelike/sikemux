@@ -5,6 +5,7 @@ import SwiftUI
 struct HostBackdrop: Equatable {
     var texture: Bool
     var image: URL?
+    var look: BackdropLook?
 }
 
 extension EnvironmentValues {
@@ -42,7 +43,9 @@ enum HostLook {
         let remembered = device?.backdrop
         let current = published.map { $0.image } ?? remembered?.image?.id
         let image = current.flatMap { id in remembered?.image.flatMap { $0.id == id ? saved(live.core, $0) : nil } }
-        return HostBackdrop(texture: published?.texture ?? remembered?.texture ?? false, image: image)
+        return HostBackdrop(
+            texture: published?.texture ?? remembered?.texture ?? false, image: image,
+            look: published?.look ?? remembered?.look)
     }
 
     /// Keeps what the host publishes with the paired host, and saves a new backdrop picture.
@@ -55,15 +58,16 @@ enum HostLook {
         }
         let texture = view.workspace.backdrop.texture
         let wanted = view.workspace.backdrop.image
+        let look = view.workspace.backdrop.look
         let remembered = device.backdrop
         if let wanted, wanted != remembered?.image?.id {
-            fetch(live, wanted: wanted, texture: texture, remembered: remembered)
+            fetch(live, wanted: wanted, texture: texture, look: look, remembered: remembered)
             return
         }
         if wanted == nil, let image = remembered?.image { delete(core, image) }
-        if texture != remembered?.texture || (wanted == nil && remembered?.image != nil) {
+        if texture != remembered?.texture || look != remembered?.look || (wanted == nil && remembered?.image != nil) {
             let image = wanted == nil ? nil : remembered?.image
-            Task { await Hub.shared.update(core) { $0.backdrop = .init(texture: texture, image: image) } }
+            Task { await Hub.shared.update(core) { $0.backdrop = .init(texture: texture, image: image, look: look) } }
         }
     }
 
@@ -72,7 +76,9 @@ enum HostLook {
         if let image = device.backdrop?.image { delete(device.core, image) }
     }
 
-    private static func fetch(_ live: HostLive, wanted: String, texture: Bool, remembered: PairedDevice.Backdrop?) {
+    private static func fetch(
+        _ live: HostLive, wanted: String, texture: Bool, look: BackdropLook?, remembered: PairedDevice.Backdrop?
+    ) {
         let core = live.core
         let key = "\(core)/\(wanted)"
         latest[core] = wanted
@@ -95,7 +101,8 @@ enum HostLook {
                 failedAt[key] = nil
                 if let old = remembered?.image { delete(core, old) }
                 await Hub.shared.update(core) {
-                    $0.backdrop = .init(texture: texture, image: .init(id: wanted, uri: file.absoluteString))
+                    $0.backdrop = .init(
+                        texture: texture, image: .init(id: wanted, uri: file.absoluteString), look: look)
                 }
             } catch {
                 failedAt[key] = Date()

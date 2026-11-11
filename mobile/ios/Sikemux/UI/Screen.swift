@@ -13,7 +13,7 @@ struct Screen<Content: View>: View {
             .background(alignment: .top) {
                 ZStack(alignment: .top) {
                     palette.ground
-                    if let backdrop, backdrop.texture { PaneBackdrop(texture: backdrop.texture, image: backdrop.image) }
+                    if let backdrop, backdrop.texture { PaneBackdrop(image: backdrop.image, look: backdrop.look ?? .standard) }
                 }
                 .ignoresSafeArea()
             }

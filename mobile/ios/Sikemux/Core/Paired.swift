@@ -9,6 +9,7 @@ struct PairedDevice: Codable, Hashable, Identifiable {
         }
         var texture: Bool
         var image: Image?
+        var look: BackdropLook?
     }
 
     let core: String

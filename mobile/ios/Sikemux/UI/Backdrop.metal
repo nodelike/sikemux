@@ -2,8 +2,8 @@
 #include <SwiftUI/SwiftUI_Metal.h>
 using namespace metal;
 
-// The Mac's pane backdrop, after paper-design's dithering and image-dithering shaders with the Mac's
-// `ambient` and `image` presets fixed in: a moving simplex-noise field, or a picture, through an 8×8 Bayer matrix.
+// The Mac's pane backdrop: paper-design's dithering shader with the Mac's
+// `ambient` preset fixed in, a moving simplex-noise field through an 8×8 Bayer matrix, and the Mac's own picture shader.
 
 constant int bayer8x8[64] = {
     0, 32, 8, 40, 2, 34, 10, 42,
@@ -64,23 +64,88 @@ static float snoise(float2 v) {
     return half4(ink.rgb * ink.a * lit, ink.a * lit);
 }
 
-/// The picture, covering the band and dithered in its own colours to four steps.
-[[ stitchable ]] half4 backdropPicture(float2 position, half4 color, float2 size, float scale, float aspect, texture2d<half> picture) {
+// The picture as the Mac's `picture` shader draws it: each dot takes one of three inks by its brightness, or the
+// picture's own colour in four steps, through the host's pattern, with a glow over the light parts.
+
+static float bayerBits8(float2 cell) {
+    uint2 at = uint2(fract(cell / 8.0) * 8.0);
+    uint a = at.x ^ at.y;
+    uint b = at.y;
+    uint value = ((a & 1u) << 5u) | ((b & 1u) << 4u) | ((a & 2u) << 2u) | ((b & 2u) << 1u) | ((a & 4u) >> 1u)
+        | ((b & 4u) >> 2u);
+    return float(value) / 64.0;
+}
+
+static float bayerBits4(float2 cell) {
+    uint2 at = uint2(fract(cell / 4.0) * 4.0);
+    uint a = at.x ^ at.y;
+    uint b = at.y;
+    return float(((a & 1u) << 3u) | ((b & 1u) << 2u) | (a & 2u) | ((b & 2u) >> 1u)) / 16.0;
+}
+
+static float bayerBits2(float2 cell) {
+    uint2 at = uint2(fract(cell / 2.0) * 2.0);
+    return float(((at.x ^ at.y) << 1u) | at.y) / 4.0;
+}
+
+static float threshold(float2 cell, float pattern) {
+    if (pattern > 6.0) return bayerBits8(cell);
+    if (pattern > 3.0) return bayerBits4(cell);
+    if (pattern > 1.0) return bayerBits2(cell);
+    return fract(sin(dot(floor(cell), float2(12.9898, 78.233))) * 43758.5453);
+}
+
+static float fadeDown(float y) {
+    if (y < 0.4) return mix(1.0, 0.45, y / 0.4);
+    if (y < 0.76) return mix(0.45, 0.08, (y - 0.4) / 0.36);
+    return mix(0.08, 0.0, min((y - 0.76) / 0.24, 1.0));
+}
+
+/// Where `point`, in points from the middle with y up, falls on a picture of `aspect` covering `size`.
+static float2 pictureAt(float2 point, float2 size, float aspect) {
+    float2 covered = max(size.x / aspect, size.y) * float2(aspect, 1.0);
+    float2 at = point / covered + 0.5;
+    return clamp(float2(at.x, 1.0 - at.y), 0.002, 0.998);
+}
+
+/// `atlas` holds the picture in its top half and how much each place glows in its bottom half. Inks with no opacity
+/// are none, and leave their dots clear.
+[[ stitchable ]] half4 backdropPicture(
+    float2 position, half4 color, float2 size, float aspect, float dotSize, float pattern, float contrast,
+    float brightness, float glow, float ownColours, float full, float strength, half4 dark, half4 middle,
+    half4 light, texture2d<half> atlas
+) {
     constexpr sampler linear(filter::linear, address::clamp_to_edge);
-    float2 resolution = size * scale;
-    float2 spot = position * scale;
-    float pixel = 2.0 * scale;
-    float2 cells = (spot - 0.5 * resolution) / pixel;
-    float2 normalized = (floor(cells) + 0.5) * pixel / resolution;
-    float boxWidth = max(resolution.x / aspect, resolution.y) * aspect;
-    float2 box = float2(boxWidth, boxWidth / aspect);
-    float2 uv = normalized * (resolution / box) + 0.5;
-    float4 image = float4(picture.sample(linear, uv));
-    float lum = dot(float3(0.2126, 0.7152, 0.0722), image.rgb);
-    const float steps = 4.0;
-    float brightness = clamp(lum + (bayer(cells) - 0.5) / steps, 0.0, 1.0) * image.a;
-    float level = floor(brightness * steps + 0.5) / steps;
-    float3 tint = image.rgb / max(lum, 0.001) * level;
-    float alpha = mix(level, 1.0, floor(image.a * steps + 0.5) / steps);
-    return half4(half3(tint), half(alpha));
+    float2 point = float2(position.x, size.y - position.y) - 0.5 * size;
+    float2 cell = point / dotSize;
+    float2 uv = pictureAt((floor(cell) + 0.5) * dotSize, size, aspect);
+    float3 texel = float3(atlas.sample(linear, float2(uv.x, uv.y * 0.5)).rgb);
+    float raw = dot(float3(0.2126, 0.7152, 0.0722), texel);
+    float lum = clamp((raw - 0.5) * (1.0 + contrast) + 0.5 + 0.5 * brightness, 0.0, 1.0);
+    float edge = threshold(cell, pattern);
+
+    float3 ink;
+    float opacity;
+    if (ownColours > 0.5) {
+        const float steps = 4.0;
+        float level = floor(clamp(lum + (edge - 0.5) / steps, 0.0, 1.0) * steps + 0.5) / steps;
+        ink = texel / max(raw, 0.04) * level;
+        opacity = level;
+    } else {
+        half4 inks[3] = { dark, middle, light };
+        float along = lum * 2.0;
+        float lower = min(floor(along), 1.0);
+        int chosen = int(lower + step(edge, along - lower));
+        ink = float3(inks[chosen].rgb);
+        opacity = inks[chosen].a > 0.0h ? 1.0 : 0.0;
+    }
+
+    float3 glowTint = ownColours > 0.5 ? texel / max(raw, 0.04) : float3(middle.rgb);
+    float2 glowAt = pictureAt(point, size, aspect);
+    float glowing = float(atlas.sample(linear, float2(glowAt.x, 0.5 + glowAt.y * 0.5)).r) * glow;
+    float fade = full > 0.5 ? 1.0 : fadeDown(position.y / size.y);
+    float shown = fade * strength;
+    float3 lit = ink * opacity + glowTint * glowing;
+    float alpha = clamp(opacity + glowing, 0.0, 1.0) * shown;
+    return half4(half3(min(lit * shown, float3(alpha))), half(alpha));
 }
