@@ -131,6 +131,7 @@ private struct ChatPane: View {
                 onAway: watchOnly || listed == nil ? nil : { away = true },
                 onStop: watchOnly || session.attached != .live ? nil : { await session.stopChat() })
         }
+        .onChange(of: provider) { _, provider in context.provider = provider }
         .onChange(of: rows.subagentRows) { _, rows in context.subagentRows = rows }
         .onChange(of: rows.running, initial: true) { was, running in
             if was && !running { Haptics.success() }
