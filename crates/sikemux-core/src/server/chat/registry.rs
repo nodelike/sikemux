@@ -361,6 +361,7 @@ impl Chats {
             at_rest: AtomicBool::new(false),
             releasing: AtomicBool::new(false),
             offline_failed: AtomicBool::new(false),
+            moving_on: AtomicBool::new(false),
             edits: Default::default(),
             cli_version: Mutex::new(None),
             keeper,

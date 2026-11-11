@@ -1256,6 +1256,7 @@ impl<B: Backend> Running<'_, B> {
             }
             if moves || self.state.switching.is_some() {
                 let carry_on = self.state.switching.as_ref().is_none_or(|was| was.carry_on);
+                chat.moving_on.store(carry_on, Ordering::Release);
                 self.state.switching = Some(Switching { account, carry_on });
             }
             say(Ok(()));
@@ -1367,6 +1368,7 @@ impl<B: Backend> Running<'_, B> {
         if let Some(switching) = self.state.switching.as_mut() {
             switching.carry_on = false;
         }
+        self.chat.moving_on.store(false, Ordering::Release);
         if self.chat.prompted() {
             self.state.stopping = Some(self.state.turn);
         }
@@ -1401,6 +1403,7 @@ impl Switching {
 
     /// Moves the chat to the account, now that its turn has stopped.
     fn carry_out(self, chat: &Arc<Chat>, provider: &str, launch: &ChatLaunch) -> Option<Outcome> {
+        chat.moving_on.store(false, Ordering::Release);
         let replay = self.carry_on.then(Self::carry_on_prompt);
         switch_to(chat, provider, launch, &self.account, replay)
     }

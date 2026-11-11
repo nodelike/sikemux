@@ -245,6 +245,9 @@ pub(crate) struct Chat {
     /// The last turn failed for want of the network, and its prompt goes
     /// again once the network is back.
     pub(crate) offline_failed: AtomicBool,
+    /// The turn at work is being stopped only to go on under another account, so its lead
+    /// is not told it stopped.
+    pub(crate) moving_on: AtomicBool,
     edits: super::edits::Open,
     /// The version of the agent's CLI, once the agent has said it.
     cli_version: Mutex<Option<String>>,
@@ -462,6 +465,9 @@ impl Chat {
     /// What follows a turn's end or a failure: the core hears of it, then the lead of `ending`
     /// when there is one, and messages waiting for the turn to end go in unless it was stopped.
     fn tell_of_ending(&self, activity: Activity<'_>, ending: Option<Ending>) {
+        let ending = ending.filter(|ending| {
+            !(matches!(ending, Ending::Stopped) && self.moving_on.swap(false, Ordering::AcqRel))
+        });
         let carries_on = ending
             .as_ref()
             .is_some_and(|ending| !matches!(ending, Ending::Stopped));

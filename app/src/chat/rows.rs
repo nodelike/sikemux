@@ -1231,8 +1231,24 @@ pub(super) fn part(
                 .as_ref()
                 .filter(|_| moved.reason == MoveReason::Limit)
                 .map(|from| format!("{from} reached its usage limit"));
+            let face = looks
+                .bench
+                .upgrade()
+                .and_then(|bench| {
+                    let bench = bench.read(cx);
+                    let profile = crate::accounts::named(bench, &looks.provider, &moved.label)?;
+                    let picture = bench.accounts.avatar(profile);
+                    Some(
+                        crate::accounts::face(picture, &looks.provider, 14., cx).into_any_element(),
+                    )
+                })
+                .unwrap_or_else(|| {
+                    ui::icon(Icon::User, 12.)
+                        .text_color(looks.quiet)
+                        .into_any_element()
+                });
             notice_box(looks)
-                .child(ui::icon(Icon::User, 12.).text_color(looks.quiet))
+                .child(face)
                 .child(div().flex_none().child("Moved to"))
                 .child(notice_name(moved.label.clone(), false, looks))
                 .children(why.map(notice_summary))
