@@ -2069,7 +2069,8 @@ mod tests {
     }
 
     #[test]
-    fn each_chat_agent_is_offered_once_or_once_per_account_built_in_included_in_a_mode_it_supports() {
+    fn each_chat_agent_is_offered_once_or_once_per_account_built_in_included_in_a_mode_it_supports()
+    {
         let profile = |id: &str, name: &str, provider: &str| crate::agent_accounts::Profile {
             id: id.into(),
             name: name.into(),
