@@ -604,8 +604,8 @@ fn left_ink(used: f64, t: &Tokens, quiet: Hsla) -> Hsla {
     }
 }
 
-/// A resting row: an account's face and name, its session over its week, and what is left of
-/// each, every ruler as long as the others so the accounts compare at a glance.
+/// A resting row: an account's face and name, its session over its week, and how much of
+/// each is used, every ruler as long as the others so the accounts compare at a glance.
 fn rest_row(view: &View, agent: &Agent, place: usize, numbers: f32, cx: &App) -> AnyElement {
     let t = Tokens::get(cx);
     let shown = &agent.accounts[place];
@@ -671,7 +671,7 @@ fn rest_row(view: &View, agent: &Agent, place: usize, numbers: f32, cx: &App) ->
         .gap(px(2.))
         .child(ruler(Some(main.used_at(view.now)), t).h(px(8.)))
         .children(second.map(|window| ruler(Some(window.used_at(view.now)), t).h(px(3.))));
-    let percent = |window: &UsageWindow| format!("{}%", (100. - window.used_at(view.now)).round());
+    let percent = |window: &UsageWindow| format!("{}%", window.used_at(view.now).round());
     let figures = div()
         .flex_none()
         .w(px(numbers))
@@ -716,7 +716,7 @@ fn window_label(label: impl Into<SharedString>, width: f32, cx: &App) -> Div {
 fn percent_cell(window: &UsageWindow, now: u64, cx: &App) -> Div {
     let t = Tokens::get(cx);
     let used = window.used_at(now);
-    ui::text(left(used), TEXT_2XS, FontWeight::NORMAL)
+    ui::text(used_label(used), TEXT_2XS, FontWeight::NORMAL)
         .flex_none()
         .text_color(match used {
             used if used < 70. => t.text_primary,
@@ -724,11 +724,11 @@ fn percent_cell(window: &UsageWindow, now: u64, cx: &App) -> Div {
         })
 }
 
-/// How much of a window is left, as every limit says it.
-fn left(used: f64) -> String {
+/// How much of a window is used, as every limit says it.
+fn used_label(used: f64) -> String {
     match used >= 100. {
         true => "used up".to_owned(),
-        false => format!("{}% left", (100. - used).round()),
+        false => format!("{}% used", used.round()),
     }
 }
 
@@ -1133,10 +1133,10 @@ fn reset_says(kind: &ResetKind, windows: &[(String, &UsageWindow)], now: u64) ->
             format!("Reset {name}"),
         ),
         Some((name, window)) => {
-            let left = (100. - window.used_at(now)).round();
+            let used = window.used_at(now).round();
             let what = name.to_lowercase();
             (
-                format!("Refills your whole {what} now, {left}% → 100% left."),
+                format!("Refills your whole {what} now, from {used}% used back to 0%."),
                 format!("Reset {what}"),
             )
         }
@@ -1430,7 +1430,7 @@ pub(crate) fn usage_read(bench: &mut Workbench, cx: &mut App) {
     }
 }
 
-/// The top bar's chip: each agent's last reading, opening the same rows and accounts in a
+/// The top bar's chip: how much of its week each agent has used, opening the accounts card in a
 /// popover. It only draws what was read already.
 pub(crate) fn chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<impl IntoElement> {
     let agents = agents(bench, true);
@@ -1455,7 +1455,7 @@ pub(crate) fn chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<imp
                     let (text, ink) = match &week {
                         Some(week) => {
                             let used = week.used();
-                            let text = format!("{}%", week.left.round());
+                            let text = format!("{}%", used.round());
                             let ink = if used < 70. {
                                 t.text_secondary
                             } else {
@@ -1509,35 +1509,15 @@ pub(crate) fn chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<imp
                 let agents = self::agents(bench, true);
                 let room = f32::from(window.viewport_size().height) - POPOVER_MARGIN;
                 let view = self::view(bench, false, false, room.max(FLOAT_LEAST), this.clone());
-                let t = Tokens::get(cx);
                 floating(cx)
                     .w(px(POPOVER_WIDTH))
-                    .pt(SPACE_2)
-                    .px(SPACE_1H)
-                    .pb(SPACE_1H)
-                    .child(header(&view, &agents, cx))
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .gap(px(ROW_GAP))
-                            .children(rest_rows(&view, &agents, cx)),
-                    )
-                    .child(
-                        div()
-                            .mt(SPACE_1H)
-                            .mx(-SPACE_1H)
-                            .mb(-SPACE_1H)
-                            .border_t_1()
-                            .border_color(t.border)
-                            .child(every_account(&view, &agents, cx)),
-                    )
+                    .child(every_account(&view, &agents, cx))
                     .into_any_element()
             }),
     )
 }
 
-/// One window's ruler: a tick for each 4 points, lit for as much as is left, or none lit when
+/// One window's ruler: a tick for each 4 points, lit for as much as is used, or none lit when
 /// nothing was read.
 fn ruler(used: Option<f64>, t: &Tokens) -> gpui_kit::Canvas<()> {
     let color = signal(used.unwrap_or(0.), t);
@@ -1545,11 +1525,11 @@ fn ruler(used: Option<f64>, t: &Tokens) -> gpui_kit::Canvas<()> {
         a: 0.10,
         ..t.text_primary
     };
-    let left = used.map_or(0., |used| (100. - used).clamp(0., 100.));
+    let used = used.map_or(0., |used| used.clamp(0., 100.));
     canvas(
         |_, _, _| {},
         move |bounds, _, window, _| {
-            let lit = f32::from(bounds.size.width) * (left / 100.) as f32;
+            let lit = f32::from(bounds.size.width) * (used / 100.) as f32;
             let mut x = 0.;
             while x < f32::from(bounds.size.width) - 1. {
                 window.paint_quad(fill(
