@@ -161,7 +161,7 @@ fn report(
             Ok(()) => toast::success(done),
             Err(error) => toast::error(error),
         };
-        let _ = cx.update(|cx| toast::show(&bench, note, cx));
+        cx.update(|cx| toast::show(&bench, note, cx));
     })
     .detach();
 }
