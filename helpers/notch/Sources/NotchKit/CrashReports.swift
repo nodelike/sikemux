@@ -4,6 +4,8 @@ import Sentry
 /// Sends the helper's crashes, hangs and sessions to Sentry. Only builds the release workflow
 /// publishes carry its address in their Info.plist, and they send only while the person shares
 /// usage data and `DO_NOT_TRACK` is unset. Paths are sent with the home folder written `~`.
+/// The SDK starts its own sessions when an app becomes active, which this accessory never does,
+/// so each run starts and ends its session here.
 enum CrashReports {
     static func start() {
         let info = Bundle.main.infoDictionary ?? [:]
@@ -15,6 +17,7 @@ enum CrashReports {
             options.environment = info["SikemuxSentryEnvironment"] as? String ?? "dev"
             options.sendDefaultPii = false
             options.maxBreadcrumbs = 50
+            options.enableAutoSessionTracking = false
             options.beforeSend = { event in
                 guard allowed() else { return nil }
                 event.serverName = nil
@@ -27,6 +30,14 @@ enum CrashReports {
                 return withoutHome(event)
             }
         }
+        SentrySDK.startSession()
+    }
+
+    /// Ends this run's session as one that exited well, and sends what is waiting.
+    static func stop() {
+        guard SentrySDK.isEnabled else { return }
+        SentrySDK.endSession()
+        SentrySDK.flush(timeout: 2)
     }
 
     private static func allowed() -> Bool {

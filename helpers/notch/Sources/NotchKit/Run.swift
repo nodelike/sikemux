@@ -24,14 +24,19 @@ public func runNotch(_ arguments: [String]) -> Never {
     let delegate = AppDelegate(options: options)
     app.delegate = delegate
     app.run()
+    leave()
+}
+
+private func leave() -> Never {
+    CrashReports.stop()
     exit(0)
 }
 
 /// Ends this helper when the dev app that started it ends.
 private func exitWith(_ pid: pid_t) {
-    guard kill(pid, 0) == 0 else { exit(0) }
+    guard kill(pid, 0) == 0 else { leave() }
     let source = DispatchSource.makeProcessSource(identifier: pid, eventMask: .exit, queue: .main)
-    source.setEventHandler { exit(0) }
+    source.setEventHandler { leave() }
     source.resume()
     appWatch = source
 }
@@ -43,7 +48,7 @@ private var appWatch: DispatchSourceProcess?
 private func exitOnTerminate() {
     signal(SIGTERM, SIG_IGN)
     let source = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .global())
-    source.setEventHandler { exit(0) }
+    source.setEventHandler { leave() }
     source.resume()
     terminateWatch = source
 }
