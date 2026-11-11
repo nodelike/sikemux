@@ -172,7 +172,7 @@ async fn pass_over_activity(data_dir: &Path) -> Result<(), String> {
 
 /// Counts this install active once a UTC day while the person shares usage: an
 /// app's core on a day one of its windows is open, a host's core on a day it
-/// runs. `DO_NOT_TRACK` in the core's environment turns it off as well.
+/// runs. `DO_NOT_TRACK` or `CI` in the core's environment turns it off as well.
 pub(crate) async fn serve(core: Arc<Core>, data_dir: PathBuf) {
     let Some(install) = [Install::App, Install::Host]
         .into_iter()
@@ -225,9 +225,13 @@ pub(crate) async fn serve(core: Arc<Core>, data_dir: PathBuf) {
     }
 }
 
-/// `DO_NOT_TRACK` is set in the environment, which turns off everything that reports.
+/// `DO_NOT_TRACK` is set in the environment, or `CI` is, as every CI service sets it, which
+/// turns off everything that reports. A build that runs on CI machines is never a person's install.
 pub fn do_not_track() -> bool {
-    std::env::var_os("DO_NOT_TRACK").is_some_and(|value| !value.is_empty() && value != "0")
+    ["DO_NOT_TRACK", "CI"].into_iter().any(|name| {
+        std::env::var_os(name)
+            .is_some_and(|value| !value.is_empty() && value != "0" && value != "false")
+    })
 }
 
 /// The channel today's use counts under, or none when nothing may be sent: the person
