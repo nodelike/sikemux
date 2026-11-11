@@ -246,7 +246,7 @@ impl Looks {
             ..text.clone()
         };
         let user = Style {
-            text_size: px(13.5),
+            text_size: px(crate::theme::TEXT_MD),
             ..text.clone()
         };
         let text = Style {
@@ -267,8 +267,8 @@ impl Looks {
             scale: Cell::new(1.),
             line: Hsla { a: 0.8, ..t.line },
             bubble: Hsla {
-                a: 0.72,
-                ..t.line_soft
+                a: 0.075,
+                ..theme::mix(t.accent, t.text_primary, 0.25)
             },
             quiet: t.text_tertiary,
             faint: t.text_disabled,

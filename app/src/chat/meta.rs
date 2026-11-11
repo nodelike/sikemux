@@ -2,7 +2,6 @@
 //! it, when it was sent or how long its turn took, and how fast the answer came.
 
 use chrono::{DateTime, Datelike, Local, TimeZone};
-use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     div, px, AnyElement, App, ClipboardItem, InteractiveElement, IntoElement, ParentElement,
     SharedString, Styled,
@@ -11,7 +10,7 @@ use sikemux_view::chat::{ChatMessage, ChatPart, ChatRole};
 
 use super::{ChatRow, Drawn};
 use crate::icons::Icon;
-use crate::theme::{Tokens, SPACE_1, SPACE_2, TEXT_3XS_H};
+use crate::theme::{Tokens, SPACE_1, SPACE_2, TEXT_2XS, TEXT_3XS_H};
 use crate::ui::{self, IconButton};
 
 /// What a reader means by copying a message: its prose, the reasoning it showed, and the
@@ -51,8 +50,8 @@ fn copied(rows: &[ChatRow], ix: usize) -> Option<String> {
 }
 
 /// When a message was sent, as a reader scanning the chat wants it: "Today, 21:07",
-/// "Yesterday, 14:02", "29 Sep, 09:15".
-fn sent(at: u64) -> Option<String> {
+/// "Yesterday, 14:02", "29 Sep, 09:15", or under the person's own message today, "21:07".
+fn sent(at: u64, mine: bool) -> Option<String> {
     let at: DateTime<Local> = Local.timestamp_millis_opt(at as i64).single()?;
     let now = Local::now();
     let days = now
@@ -61,6 +60,7 @@ fn sent(at: u64) -> Option<String> {
         .num_days();
     let time = at.format("%H:%M");
     Some(match days {
+        0 if mine => time.to_string(),
         0 => format!("Today, {time}"),
         1 => format!("Yesterday, {time}"),
         _ if at.year() == now.year() => format!("{}, {time}", at.format("%-d %b")),
@@ -130,13 +130,38 @@ pub fn line(
     let at = meta
         .and_then(|meta| meta.at)
         .or(message.sent_at)
-        .and_then(sent);
+        .and_then(|at| sent(at, user));
     let took = meta.and_then(|meta| meta.took);
     let when = at.map(|at| match took {
         Some(took) => format!("{at} · took {}", crate::ui::time::took(took)),
         None => at,
     });
     let speed = meta.and_then(|meta| meta.rate).map(rate);
+    if user {
+        let actions = div()
+            .flex()
+            .items_center()
+            .invisible()
+            .group_hover(group.clone(), |actions| actions.visible())
+            .children(edit)
+            .children(copy);
+        return Some(
+            div()
+                .h(px(24.))
+                .flex()
+                .items_center()
+                .justify_end()
+                .gap(SPACE_1)
+                .child(actions)
+                .children(when.map(|when| {
+                    div()
+                        .text_size(crate::theme::ui_text(TEXT_2XS))
+                        .text_color(t.text_disabled)
+                        .child(when)
+                }))
+                .into_any_element(),
+        );
+    }
     Some(
         div()
             .h(px(24.))
@@ -144,10 +169,8 @@ pub fn line(
             .flex()
             .items_center()
             .gap(SPACE_2)
-            .when(user, |line| line.justify_end())
             .invisible()
             .group_hover(group.clone(), |line| line.visible())
-            .children(edit)
             .children(copy)
             .children(when.map(|when| ui::mono(when, TEXT_3XS_H, cx).text_color(t.text_disabled)))
             .children(

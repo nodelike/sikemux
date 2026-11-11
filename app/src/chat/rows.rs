@@ -4,8 +4,8 @@
 use super::*;
 
 use crate::theme::{
-    SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_3H, TEXT_2XS, TEXT_2XS_H,
-    TEXT_3XS_H, TEXT_XS, TEXT_XS_H,
+    SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_3H, SPACE_5, TEXT_2XS,
+    TEXT_2XS_H, TEXT_3XS_H, TEXT_XS, TEXT_XS_H,
 };
 
 /// The chat's looks with what the reader has open, for drawing its rows once.
@@ -102,6 +102,8 @@ pub(super) fn row(
         }
     }
     let live = ix + 1 == rows.len() && looks.reading.running.get();
+    let follows_own = user && ix > 0 && plainly_sent(&rows[ix - 1]);
+    let followed_by_own = user && rows.get(ix + 1).is_some_and(plainly_sent);
     let summed = if user {
         0.
     } else {
@@ -224,20 +226,12 @@ pub(super) fn row(
                     .items_end()
                     .children(attach::sent(message, open, looks.file_pressed(), cx))
                     .when(!parts.is_empty(), |column| {
-                        column.child(
-                            div()
-                                .max_w_full()
-                                .px(SPACE_3)
-                                .py(SPACE_2)
-                                .border_1()
-                                .border_color(looks.line)
-                                .rounded(theme::RADIUS_3)
-                                .bg(looks.bubble)
-                                .children(parts),
-                        )
+                        column.child(bubble(looks).children(parts))
                     })
                     .children(gestures::reactions(message, looks))
-                    .children(meta::line(rows, ix, &group, looks, cx))
+                    .when(!followed_by_own, |column| {
+                        column.children(meta::line(rows, ix, &group, looks, cx))
+                    })
             }
         }
     } else {
@@ -274,7 +268,13 @@ pub(super) fn row(
                 .px(px(22.))
                 .map(|row| {
                     if user {
-                        row.pt(px(17.)).pb(SPACE_2H).flex().justify_end()
+                        let row = match follows_own {
+                            true => row.pt(SPACE_1),
+                            false => row.pt(SPACE_5),
+                        };
+                        row.when(!followed_by_own, |row| row.pb(SPACE_2H))
+                            .flex()
+                            .justify_end()
                     } else {
                         row.py(px(5.))
                     }
@@ -293,6 +293,25 @@ pub(super) fn row(
         false => motion::folded(key, work_shown, drawn, window, cx),
     }
 }
+
+/// A message the person sent themselves, as opposed to letters or a trigger's prompt.
+fn plainly_sent(row: &ChatRow) -> bool {
+    row.message.role == ChatRole::User && row.message.letters.is_empty()
+}
+
+/// The person's bubble: no border, its tail at the bottom right.
+pub(super) fn bubble(looks: &Looks) -> Div {
+    div()
+        .max_w_full()
+        .px(px(14.))
+        .py(SPACE_2H)
+        .rounded(BUBBLE_RADIUS)
+        .rounded_br(SPACE_1H)
+        .bg(looks.bubble)
+}
+
+/// How round a bubble is, but for the corner its tail sits at.
+pub(super) const BUBBLE_RADIUS: gpui_kit::Pixels = px(16.);
 
 /// How far below its place the way back to the latest message starts as it comes up.
 pub(super) const LATEST_RISE: f32 = 6.;
