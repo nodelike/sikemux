@@ -437,7 +437,7 @@ fn sign_in_row(
         .flex()
         .flex_col()
         .gap(SPACE_1)
-        .pl(px(48.))
+        .pl(px(60.))
         .pr(SPACE_4)
         .py(SPACE_2)
         .border_b_1()
