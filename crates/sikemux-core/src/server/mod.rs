@@ -27,7 +27,7 @@ mod connection;
 pub mod custom_command;
 mod data_format;
 mod device_view;
-mod diagnosis;
+pub mod diagnosis;
 pub mod diagrams;
 mod display;
 pub mod drafts;

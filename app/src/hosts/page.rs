@@ -5,6 +5,7 @@ mod board;
 mod chart;
 mod detail;
 mod devices;
+mod diagnosis;
 pub mod glance;
 pub mod model;
 

@@ -41,6 +41,10 @@ A host raises an alert when:
 - its CPU stays at 90% or more for 10 minutes
 - a linked host stays out of reach for 2 minutes
 
+When a linked host is out of reach, its card lists what Sikemux checked on the way to it, in order: remote access here, this computer online, your account, a path to the host (straight there or through a relay), its core answering, and the host letting this computer in. The first step that failed says why, the ones after it say they were not checked, and the card offers the fix it can make, such as **Turn on remote access** or **Start Sikemux** over SSH, with **Copy diagnosis** for the whole list. Once this computer is signed in, its own detail shows the same list when your devices cannot reach it.
+
+When a host's last update failed or was undone, or its set-up over SSH stopped, a card says why, shows the last lines the tool printed, and offers **Try again** and **Copy output**.
+
 Its alerts show here first, and also under **Your calls** in Goals, and at the top of the notch's list. Clicking either opens this page on that host. In the side rail, a host with a serious alert only turns its dot red. When an alert comes from an agent's work, it names the agent using the most. If another host has room, it offers **Move @Name to** that host, which sends the agent's project, with its chats, tabs and uncommitted changes, to the healthy host with the most memory free, in gigabytes, once you confirm. When other agents work in the same project, the button names the project instead, since they all go with it. With no host to move to, the alert only explains.
 
 ### Resources

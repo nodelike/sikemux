@@ -106,6 +106,10 @@ pub struct Feed {
     /// steady clock to judge whether they are still current.
     pub stats_at: Option<u64>,
     pub stats_seen: Option<std::time::Instant>,
+    /// Why it is out of reach, or for this host whether it can be reached, as this host's
+    /// core last found, and when this window last asked.
+    pub diagnosis: Option<sikemux_view::host_stats::HostDiagnosis>,
+    pub diagnosis_asked: Option<std::time::Instant>,
     /// When this window saw an account host go out of reach, while it stays out of reach.
     pub away_since: Option<u64>,
 }
@@ -568,6 +572,42 @@ impl Workbench {
         });
     }
 
+    /// Asks this host's core why `host` is out of reach, or, with none, whether this host can be
+    /// reached, at most every so often.
+    pub fn read_diagnosis(&mut self, host: Option<String>, cx: &mut Context<Self>) {
+        const ASK_EVERY: std::time::Duration = std::time::Duration::from_secs(10);
+        let place = host.clone().map_or(Place::This, Place::Account);
+        let feed = self.feeds.at_mut(&place);
+        if feed
+            .diagnosis_asked
+            .is_some_and(|asked| asked.elapsed() < ASK_EVERY)
+        {
+            return;
+        }
+        feed.diagnosis_asked = Some(std::time::Instant::now());
+        let asked = Target::here(&self.asks).request_typed::<call::HostDiagnosis>(
+            sikemux_core::server::diagnosis::DiagnosisParams { host },
+        );
+        cx.spawn(async move |bench, cx| {
+            let Ok(diagnosis) = asked.await else {
+                return;
+            };
+            let _ = bench.update(cx, |bench, cx| {
+                bench.feeds.at_mut(&place).diagnosis = Some(diagnosis);
+                if bench.hosts_page_in_front() {
+                    bench.parts.redraw_stage(cx);
+                }
+            });
+            cx.background_executor().timer(ASK_EVERY).await;
+            let _ = bench.update(cx, |bench, cx| {
+                if bench.hosts_page_in_front() {
+                    bench.parts.redraw_stage(cx);
+                }
+            });
+        })
+        .detach();
+    }
+
     /// Reads whether `host`, this one when none, asks the person before a new device joins.
     pub fn read_approval(&self, host: Option<String>, cx: &mut Context<Self>) {
         let place = host.clone().map_or(Place::This, Place::Account);
@@ -958,7 +998,7 @@ pub fn host_updates(view: &sikemux_view::device::DeviceView) -> Option<UpdateSta
 
 /// How a host's last update ended, once it ended badly: a written outcome
 /// outlives the core that wrote it, so a failure nobody was watching still shows.
-fn failed_update(updates: &UpdateStatus) -> Option<(UpdateOutcomeState, Option<&str>)> {
+pub(crate) fn failed_update(updates: &UpdateStatus) -> Option<(UpdateOutcomeState, Option<&str>)> {
     if updates.state == UpdateState::Failed {
         return Some((UpdateOutcomeState::Failed, updates.error.as_deref()));
     }

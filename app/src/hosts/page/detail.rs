@@ -14,10 +14,12 @@ use sikemux_view::host_stats::{
     ProcessUse, StatsSpan,
 };
 use sikemux_view::inbox::AgentShown;
+use sikemux_view::updates::UpdateOutcomeState;
 use sikemux_wire::protocol::AgentStatus;
 
 use super::board::tile;
 use super::chart::{history, Series};
+use super::diagnosis;
 use super::model::{self, Listed, State};
 use super::{card, hair, ink, wash};
 use crate::hosts::{HostChoice, Place, Sending};
@@ -250,6 +252,118 @@ fn as_of(host: &Listed, cx: &mut Context<Workbench>) -> Option<AnyElement> {
     Some(ui::mono(words, TEXT_3XS, cx).into_any_element())
 }
 
+/// Asks this host's core again why `host` is out of reach, or whether this one can be reached,
+/// once the last answer is old enough.
+fn ask_diagnosis(host: &Listed, cx: &mut Context<Workbench>) {
+    let recent = (host.feed)
+        .and_then(|feed| feed.diagnosis_asked)
+        .is_some_and(|asked| asked.elapsed() < std::time::Duration::from_secs(10));
+    if recent {
+        return;
+    }
+    let key = match &host.place {
+        Place::This => None,
+        Place::Account(key) => Some(key.clone()),
+    };
+    cx.spawn(async move |bench, cx| {
+        let _ = bench.update(cx, |bench, cx| bench.read_diagnosis(key, cx));
+    })
+    .detach();
+}
+
+/// A host's last update, when it failed, with what the tool said and a way to try again.
+fn update_failed(host: &Listed, t: &Tokens, cx: &mut Context<Workbench>) -> Option<AnyElement> {
+    let updates = host.view().and_then(crate::hosts::host_updates)?;
+    let (state, reason) = crate::hosts::failed_update(&updates)?;
+    let outcome = updates.outcome.as_ref();
+    let to = outcome.and_then(|outcome| outcome.to.clone()).or_else(|| {
+        updates
+            .available
+            .as_ref()
+            .map(|release| release.version.clone())
+    });
+    let title = match (state, to) {
+        (UpdateOutcomeState::RolledBack, Some(to)) => format!("Update to {to} was undone"),
+        (UpdateOutcomeState::RolledBack, None) => "The last update was undone".to_owned(),
+        (_, Some(to)) => format!("Update to {to} failed"),
+        (_, None) => "The last update failed".to_owned(),
+    };
+    let said = format!(
+        "{} stays on {}. {}",
+        host.name,
+        updates.current,
+        reason.unwrap_or("Its update did not finish.")
+    );
+    let evidence = outcome.and_then(|outcome| outcome.evidence.clone());
+    let mut fixes = Vec::new();
+    let alias = host.row.and_then(|row| row.ssh.clone());
+    if let Some(alias) = alias {
+        fixes.push(
+            Button::new("update-try-again", "Try again", Variant::Primary)
+                .on_click(cx.listener(move |bench, _, _, cx| {
+                    bench.set_up_host(&alias, crate::hosts::install_pane::SetUp::Update, cx)
+                }))
+                .into_any_element(),
+        );
+    }
+    let copied = [said.clone(), evidence.clone().unwrap_or_default()].join("\n");
+    fixes.push(diagnosis::copy_button(
+        "update-copy",
+        "Copy output",
+        copied,
+        cx,
+    ));
+    Some(alert_card(
+        t.warn,
+        Icon::Warning,
+        title,
+        outcome.map(|outcome| crate::hosts::lasted(outcome.at)),
+        said,
+        evidence.map(|evidence| diagnosis::evidence(&evidence, t, cx)),
+        fixes,
+        t,
+        cx,
+    ))
+}
+
+/// A set-up over SSH that stopped short, with what ssh said and a way to try again.
+fn set_up_stopped(
+    bench: &Workbench,
+    host: &Listed,
+    t: &Tokens,
+    cx: &mut Context<Workbench>,
+) -> Option<AnyElement> {
+    let row = host.row?;
+    let problem = row.setup.as_ref()?.problem.clone()?;
+    let alias = row.ssh.clone()?;
+    let mut fixes = Vec::new();
+    if let Some(set_up) = bench.set_up_offered(&alias) {
+        let retry = alias.clone();
+        fixes.push(
+            Button::new("set-up-try-again", "Try again", Variant::Primary)
+                .on_click(cx.listener(move |bench, _, _, cx| bench.set_up_host(&retry, set_up, cx)))
+                .into_any_element(),
+        );
+    }
+    fixes.push(diagnosis::copy_button(
+        "set-up-copy",
+        "Copy output",
+        problem.clone(),
+        cx,
+    ));
+    Some(alert_card(
+        t.warn,
+        Icon::Warning,
+        format!("Set-up on {} stopped", host.name),
+        None,
+        String::new(),
+        Some(diagnosis::evidence(&problem, t, cx)),
+        fixes,
+        t,
+        cx,
+    ))
+}
+
 /// A fix the page offers for what needs the person, and what it does when pressed.
 struct Fix {
     words: String,
@@ -266,14 +380,21 @@ fn needs_you(
     cx: &mut Context<Workbench>,
 ) -> Option<Div> {
     let mut shown: Vec<AnyElement> = Vec::new();
+    let offline = matches!(host.state, State::Offline { .. });
+    if offline || host.is_this() {
+        ask_diagnosis(host, cx);
+    }
+    let diagnosis = host.feed.and_then(|feed| feed.diagnosis.as_ref());
     if let State::Offline { since } = host.state {
         let agents = host.agents().count();
-        let said = match agents {
-            0 => "Sikemux keeps trying to reach it.".to_owned(),
-            1 => "1 agent was on it when it went. Sikemux keeps trying to reach it.".to_owned(),
-            count => {
-                format!("{count} agents were on it when it went. Sikemux keeps trying to reach it.")
-            }
+        let went = match agents {
+            0 => String::new(),
+            1 => "1 agent was on it when it went. ".to_owned(),
+            count => format!("{count} agents were on it when it went. "),
+        };
+        let said = match diagnosis {
+            Some(diagnosis) => format!("{went}{}", diagnosis::summary(diagnosis, &host.name)),
+            None => format!("{went}Sikemux keeps trying to reach it."),
         };
         let title = format!("{} is out of reach", host.name);
         shown.push(alert_card(
@@ -281,12 +402,33 @@ fn needs_you(
             Icon::Power,
             title,
             since.map(crate::hosts::lasted),
-            said,
-            Vec::new(),
+            said.trim().to_owned(),
+            diagnosis.map(|diagnosis| diagnosis::steps(diagnosis, &host.name, t)),
+            diagnosis.map_or_else(Vec::new, |diagnosis| {
+                diagnosis::fixes(bench, host, diagnosis, cx)
+            }),
             t,
             cx,
         ));
     }
+    let signed_in = (bench.this_view()).is_some_and(|view| view.account.is_some());
+    let own = diagnosis
+        .filter(|diagnosis| host.is_this() && signed_in && diagnosis::failed(diagnosis).is_some());
+    if let Some(diagnosis) = own {
+        shown.push(alert_card(
+            t.danger,
+            Icon::Power,
+            "Out of reach from your devices".to_owned(),
+            None,
+            diagnosis::summary(diagnosis, &host.name),
+            Some(diagnosis::steps(diagnosis, &host.name, t)),
+            diagnosis::fixes(bench, host, diagnosis, cx),
+            t,
+            cx,
+        ));
+    }
+    shown.extend(update_failed(host, t, cx));
+    shown.extend(set_up_stopped(bench, host, t, cx));
     let alerts = host
         .fresh_stats()
         .into_iter()
@@ -318,6 +460,7 @@ fn needs_you(
             title_of(alert, host.stats()),
             Some(crate::hosts::lasted(alert.since)),
             said,
+            None,
             fixes,
             t,
             cx,
@@ -406,7 +549,7 @@ fn explain(
     if alert.kind == HostAlertKind::Disk {
         if let Some(part) = stats.disk_parts.first() {
             said.push_str(&format!(
-                "{} take the most, {}.",
+                "{} takes the most, {}.",
                 part_words(part.kind),
                 model::size(part.bytes)
             ));
@@ -495,6 +638,7 @@ fn alert_card(
     title: String,
     lasted: Option<String>,
     said: String,
+    body: Option<AnyElement>,
     fixes: Vec<AnyElement>,
     t: &Tokens,
     cx: &mut Context<Workbench>,
@@ -551,6 +695,7 @@ fn alert_card(
                             .child(said),
                     )
                 })
+                .children(body)
                 .when(!fixes.is_empty(), |text| {
                     text.child(
                         div()
