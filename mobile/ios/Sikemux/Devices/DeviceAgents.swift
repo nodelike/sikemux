@@ -350,7 +350,7 @@ struct Terminals: View {
         return VStack(spacing: 0) {
             if order.isEmpty {
                 EmptyState(
-                    icon: Icons.command, text: scope.map { "No terminals in \($0.name)." } ?? "No terminals open.")
+                    icon: Icons.terminal, text: scope.map { "No terminals in \($0.name)." } ?? "No terminals open.")
             }
             ForEach(order, id: \.self) { project in
                 if scope == nil { SectionLabel(project) } else { Color.clear.frame(height: 8) }
@@ -370,8 +370,8 @@ private struct TerminalRow: View {
             title: title, name: session.task == nil ? session.agentName : nil,
             detailText: Text(detail).font(Theme.mono(12)), dim: !session.running,
             mark: {
-                IconView(icon: session.task != nil ? Icons.run : Icons.command, size: session.task != nil ? 15 : 18)
-                    .foregroundStyle(session.running ? palette.secondary : palette.tertiary)
+                IconView(icon: Icons.terminal, size: 15)
+                    .foregroundStyle(session.running ? palette.live : palette.tertiary)
             },
             end: {
                 if session.running {

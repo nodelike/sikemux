@@ -30,13 +30,7 @@ const TerminalRow = memo(function TerminalRow({ session }: { session: SessionInf
   return (
     <Row
       dim={!session.running}
-      mark={
-        <Icon
-          name={session.task ? 'IconRun' : 'IconCommand'}
-          size={session.task ? 15 : 18}
-          color={session.running ? colors.secondary : colors.tertiary}
-        />
-      }
+      mark={<Icon name="IconTerminal" size={15} color={session.running ? colors.live : colors.tertiary} />}
       name={session.task ? undefined : session.agentName}
       title={terminalTitle(session)}
       detail={<Text style={type.mono}>{terminalDetail(session)}</Text>}
@@ -52,7 +46,7 @@ export function Terminals({ snapshot, scope }: { snapshot: Snapshot; scope?: Pro
     const project = snapshot.workspace.projects.find((known) => known.id === session.project)?.name ?? 'Other';
     groups.set(project, [...(groups.get(project) ?? []), session]);
   }
-  if (!groups.size) return <EmptyState icon="IconCommand" text={scope ? `No terminals in ${scope.name}.` : 'No terminals open.'} />;
+  if (!groups.size) return <EmptyState icon="IconTerminal" text={scope ? `No terminals in ${scope.name}.` : 'No terminals open.'} />;
   return (
     <>
       {[...groups].map(([project, sessions]) => (
