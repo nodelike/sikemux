@@ -16,10 +16,12 @@ use super::super::{Core, CoreResult};
 use super::calls::{self as asks, params_of, HostAsk};
 use super::code::{self, Code, Opened};
 use super::link::{Answer, Received};
-use super::{ask, find, StoredLink};
+use super::transfer::call_once;
+use super::{find, StoredLink};
 
-/// Long enough to clone a large repository, or to take one from a bundle.
-const OPEN_WAIT: Duration = Duration::from_secs(10 * 60);
+/// The longest an opening may take while git keeps working on the other host, which ends a
+/// clone or fetch itself once git goes quiet.
+const OPEN_WAIT: Duration = Duration::from_secs(6 * 60 * 60);
 
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -60,13 +62,10 @@ pub(crate) async fn open_there(
     uncommitted: bool,
     how: OpenAs,
 ) -> CoreResult<Value> {
-    let packed = blocking(move || code::package(&path).map_err(Into::into)).await?;
-    let patch = packed.code.patch.clone().filter(|_| uncommitted);
+    let packed =
+        blocking(move || code::package_for(&path, uncommitted).map_err(Into::into)).await?;
     let opening = OpenParams {
-        code: Code {
-            patch,
-            ..packed.code.clone()
-        },
+        code: packed.code.clone(),
         copy: how == OpenAs::Copy,
         into: None,
         abandon: None,
@@ -77,7 +76,7 @@ pub(crate) async fn open_there(
         let body = body.map(Path::to_path_buf);
         async move {
             let method = asks::OpenProject::METHOD;
-            ask(core, &link.id, method, params, body.as_deref(), OPEN_WAIT).await
+            call_once(core, &link.id, method, params, body.as_deref(), OPEN_WAIT).await
         }
     };
     let answer = asked(&opening, None)

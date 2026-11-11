@@ -129,6 +129,7 @@ pub struct Git<'a> {
     input: Option<&'a [u8]>,
     timeout: Duration,
     limit: usize,
+    cancellation: Option<&'a sikemux_process::ProcessCancellation>,
 }
 
 impl<'a> Git<'a> {
@@ -138,6 +139,7 @@ impl<'a> Git<'a> {
             input: None,
             timeout: GIT_COMMAND_TIMEOUT,
             limit: MAX_COMMAND_OUTPUT_BYTES,
+            cancellation: None,
         }
     }
 
@@ -181,6 +183,12 @@ impl<'a> Git<'a> {
         self
     }
 
+    /// Ends the run early once `cancellation` is cancelled.
+    pub fn cancel_on(mut self, cancellation: &'a sikemux_process::ProcessCancellation) -> Self {
+        self.cancellation = Some(cancellation);
+        self
+    }
+
     /// Runs `git args`, whatever it exits with.
     pub fn output(mut self, args: &[&str]) -> Result<Output, String> {
         self.command.args(args);
@@ -189,7 +197,7 @@ impl<'a> Git<'a> {
             self.input,
             self.timeout,
             self.limit,
-            None,
+            self.cancellation,
         )
         .map_err(|error| format!("git did not run: {error}"))
     }

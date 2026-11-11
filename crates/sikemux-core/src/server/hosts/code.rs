@@ -82,6 +82,12 @@ fn has_commit(repo: &Path, commit: &str) -> bool {
 
 /// What the lead working in `cwd` would hand a worker on another host.
 pub(crate) fn package(cwd: &Path) -> Result<Packed, String> {
+    package_for(cwd, true)
+}
+
+/// What another host needs to open the project at `cwd`, with what is not committed only when
+/// `uncommitted` asks for it.
+pub(crate) fn package_for(cwd: &Path, uncommitted: bool) -> Result<Packed, String> {
     let repo = PathBuf::from(
         Git::quick(cwd)
             .trimmed(&["rev-parse", "--path-format=absolute", "--show-toplevel"])
@@ -108,7 +114,10 @@ pub(crate) fn package(cwd: &Path) -> Result<Packed, String> {
             .trimmed(&["symbolic-ref", "--quiet", "--short", "HEAD"])
             .ok(),
         inside: inside(cwd, &repo).to_string_lossy().into_owned(),
-        patch: uncommitted(&repo)?,
+        patch: match uncommitted {
+            true => self::uncommitted(&repo)?,
+            false => None,
+        },
         commit,
     };
     Ok(Packed { repo, code })
@@ -144,7 +153,7 @@ fn uncommitted(repo: &Path) -> Result<Option<String>, String> {
     let text = std::fs::read_to_string(patch.path()).unwrap_or_default();
     if text.len() > MAX_PATCH_BYTES {
         return Err(format!(
-            "your uncommitted changes come to {} MB, more than a worker on another host is sent; commit them first",
+            "your uncommitted changes come to {} MB, more than goes to another host; commit them first, or leave them out",
             text.len() / (1024 * 1024)
         ));
     }
@@ -189,15 +198,70 @@ fn fetch(repo: &Path, bundle: &Path, into: &str) -> Result<(), String> {
         .map_err(|error| format!("the bundle does not fit this repository: {error}"))?;
     let reference = bundled_ref(repo, bundle)?;
     let refspec = format!("+{reference}:{into}");
-    Git::slow(repo)
-        .trimmed(&[
-            "fetch",
-            "--quiet",
-            "--no-write-fetch-head",
-            &bundle.to_string_lossy(),
-            &refspec,
-        ])
-        .map(drop)
+    let args = [
+        "fetch",
+        "--quiet",
+        "--no-write-fetch-head",
+        &bundle.to_string_lossy(),
+        &refspec,
+    ];
+    watched(Git::at(repo), &args, &repo.join(".git")).map(drop)
+}
+
+/// How long git may write nothing before a clone or fetch is judged stalled.
+const STALLED: Duration = Duration::from_secs(5 * 60);
+/// The longest a clone or fetch that keeps writing may run.
+const LONGEST: Duration = Duration::from_secs(6 * 60 * 60);
+
+/// How many bytes the files under `dir` hold.
+fn written(dir: &Path) -> u64 {
+    let mut total = 0;
+    let mut folders = vec![dir.to_owned()];
+    while let Some(folder) = folders.pop() {
+        for entry in std::fs::read_dir(&folder).into_iter().flatten().flatten() {
+            match entry.file_type() {
+                Ok(kind) if kind.is_dir() => folders.push(entry.path()),
+                Ok(_) => total += entry.metadata().map_or(0, |meta| meta.len()),
+                Err(_) => {}
+            }
+        }
+    }
+    total
+}
+
+/// Runs `git args` for as long as it keeps writing into `dir`, ending it once nothing has
+/// been written there for [`STALLED`].
+fn watched(git: Git, args: &[&str], dir: &Path) -> Result<String, String> {
+    let cancel = sikemux_process::ProcessCancellation::new();
+    let (finished, wait) = std::sync::mpsc::channel::<()>();
+    let stalled = std::thread::scope(|scope| {
+        let cancel = &cancel;
+        let watcher = scope.spawn(move || {
+            let mut last = (written(dir), std::time::Instant::now());
+            while let Err(std::sync::mpsc::RecvTimeoutError::Timeout) =
+                wait.recv_timeout(Duration::from_secs(10))
+            {
+                let now = written(dir);
+                if now != last.0 {
+                    last = (now, std::time::Instant::now());
+                } else if last.1.elapsed() > STALLED {
+                    cancel.cancel();
+                    return true;
+                }
+            }
+            false
+        });
+        let ran = git.timeout(LONGEST).cancel_on(&cancel).trimmed(args);
+        drop(finished);
+        (watcher.join().unwrap_or(false), ran)
+    });
+    match stalled {
+        (true, _) => Err(format!(
+            "git wrote nothing for {} minutes, so it was stopped",
+            STALLED.as_secs() / 60
+        )),
+        (false, ran) => ran,
+    }
 }
 
 /// The checkout of a project here whose `origin` is `remote`.
@@ -370,9 +434,8 @@ fn claim(core: &Core, code: &Code, bundle: Option<&Path>) -> Result<PathBuf, Str
         let target = dir.to_string_lossy().into_owned();
         let ssh = sikemux_process::user_environment::var("GIT_SSH_COMMAND")
             .unwrap_or_else(|| "ssh -o BatchMode=yes -o ConnectTimeout=20".into());
-        let cloned = Git::slow(parent)
-            .env("GIT_SSH_COMMAND", &ssh)
-            .trimmed(&["clone", "--quiet", "--", remote, &target])
+        let clone = Git::at(parent).env("GIT_SSH_COMMAND", &ssh);
+        let cloned = watched(clone, &["clone", "--quiet", "--", remote, &target], &dir)
             .and_then(|_| Git::quick(&dir).trimmed(&["config", OPENING, "true"]));
         if cloned.is_ok() {
             return Ok(dir);

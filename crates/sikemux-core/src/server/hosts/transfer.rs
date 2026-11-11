@@ -22,7 +22,7 @@ use super::calls::{self as asks, params_of, HostAsk};
 use super::code::Scratch;
 use super::link::{Answer, Received};
 use super::open::{self, OpenAs};
-use super::{ask, call, call_id, find, Failed, ASK_WAIT};
+use super::{ask, call, call_id, find, receipt, Failed, Stands, ASK_WAIT};
 use crate::agent_catalog::{self, AgentKind};
 use crate::sessions::{carry, delete, SavedRef};
 use sikemux_view::layout::Tab;
@@ -280,8 +280,9 @@ pub(crate) async fn send_session(core: &Arc<Core>, params: SendParams) -> CoreRe
     })
 }
 
-/// Makes the call `method` on `host` once: when its answer is lost on the way, asks again with
-/// the same id, which answers what the first ask did rather than doing it twice.
+/// Makes the call `method` on `host` once and waits for it as long as that host is at it:
+/// when the answer is lost on the way, it asks how the call stands, waiting while it runs, and
+/// asks again with the same id when that host never heard of it, which never does it twice.
 pub(super) async fn call_once(
     core: &Arc<Core>,
     host: &str,
@@ -293,12 +294,27 @@ pub(super) async fn call_once(
     let id = call_id();
     let mut tries = 0;
     loop {
-        match call(core, host, method, params.clone(), body, limit, &id).await {
-            Err(Failed::Unknown(_)) if tries < 2 => tries += 1,
+        let why = match call(core, host, method, params.clone(), body, limit, &id).await {
+            Err(Failed::Unknown(why)) => why,
             done => return done,
+        };
+        loop {
+            match receipt(core, host, &id).await {
+                Ok(Stands::Running) => tokio::time::sleep(STANDS_EVERY).await,
+                Ok(Stands::Done(answer)) => return answer.map_err(Failed::Refused),
+                Ok(Stands::Unknown) | Err(Failed::Refused(_)) => break,
+                Err(_) => return Err(Failed::Unknown(why)),
+            }
+        }
+        tries += 1;
+        if tries > 2 {
+            return Err(Failed::Unknown(why));
         }
     }
 }
+
+/// How often a call whose answer was lost is asked after while the other host is at it.
+const STANDS_EVERY: Duration = Duration::from_secs(15);
 
 /// The chats of `agents` that can go, their files written one after another into a scratch
 /// file to send as the body, and the rest with why they stay.
