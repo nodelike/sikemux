@@ -133,11 +133,17 @@ struct Finding: Equatable {
             guard from >= last, to > from, let found = Range(NSRange(location: from, length: to - from), in: out) else {
                 continue
             }
-            let current = marks.current == range.lowerBound
-            out[found].backgroundColor = current ? palette.accent : palette.accent.opacity(0.34)
-            out[found].foregroundColor = current ? palette.sunken : palette.ink
+            out.markFound(found, current: marks.current == range.lowerBound, palette)
             last = to
         }
         return out
+    }
+}
+
+extension AttributedString {
+    /// Lights one match of the chat's find, the current one more strongly than the rest.
+    mutating func markFound(_ range: Range<AttributedString.Index>, current: Bool, _ palette: Palette) {
+        self[range].backgroundColor = current ? palette.accent : palette.accent.opacity(0.34)
+        self[range].foregroundColor = current ? palette.sunken : palette.ink
     }
 }
