@@ -93,8 +93,43 @@ fn status_of(happened: Happened) -> AgentStatus {
     }
 }
 
-/// Something happened to an agent here: the hosts its teammates run on hear.
+/// What a teammate on another host hears when an agent here stopped running but may run
+/// again, such as after a crash. A host that does not know it only takes the status.
+const ENDED: &str = "agent.ended";
+/// What it hears when the agent's chat went to sleep, to wake when it is written to.
+const ASLEEP: &str = "agent.asleep";
+
+/// Something happened to an agent here: the hosts its teammates run on hear. An agent that
+/// stopped running stays their teammate until it is closed.
 pub(crate) fn happened(core: &Core, agent_id: &str, happened: Happened) {
+    let kind = match happened {
+        Happened::Gone => ENDED,
+        happened => happened.kind(),
+    };
+    tell_watchers(core, agent_id, kind, status_of(happened), false);
+}
+
+/// An agent here went to sleep.
+pub(crate) fn asleep(core: &Core, agent_id: &str) {
+    tell_watchers(core, agent_id, ASLEEP, AgentStatus::Asleep, false);
+}
+
+/// The person closed these agents here: their teammates elsewhere let them go, and so does
+/// this host.
+pub(crate) fn closed(core: &Core, agent_ids: &[&String]) {
+    for agent_id in agent_ids {
+        tell_watchers(
+            core,
+            agent_id,
+            Happened::Gone.kind(),
+            AgentStatus::Stopped,
+            true,
+        );
+        local_gone(core, agent_id);
+    }
+}
+
+fn tell_watchers(core: &Core, agent_id: &str, kind: &str, status: AgentStatus, keep: bool) {
     for host in watchers(core, agent_id) {
         post(
             core,
@@ -103,22 +138,19 @@ pub(crate) fn happened(core: &Core, agent_id: &str, happened: Happened) {
                 method: asks::Happened::METHOD,
                 params: params_of::<asks::Happened>(&HappenedParams {
                     agent_id: agent_id.to_owned(),
-                    kind: happened.kind().to_owned(),
-                    status: status_of(happened),
+                    kind: kind.to_owned(),
+                    status,
                 }),
                 key: Some(format!("happened:{agent_id}")),
                 body: None,
-                keep: false,
+                keep,
             },
         );
     }
-    if happened == Happened::Gone {
-        local_gone(core, agent_id);
-    }
 }
 
-/// An agent here stopped running: its checkout's record goes, and so does a
-/// lead on another host that has no other worker here.
+/// An agent here was closed: its checkout's record goes, and so does a lead on another host
+/// that has no other worker here.
 fn local_gone(core: &Core, agent_id: &str) {
     core.hosts.team.remove_tree(agent_id);
     let Some(lead) = core.names.get(agent_id).and_then(|named| named.parent) else {
@@ -132,8 +164,8 @@ fn local_gone(core: &Core, agent_id: &str) {
     else {
         return;
     };
-    let running = core.running_agents();
-    let others = running.iter().any(|other| {
+    let open = core.open_agents();
+    let others = open.iter().any(|other| {
         other != agent_id
             && core
                 .names
@@ -163,7 +195,12 @@ pub(super) fn happened_here(core: &Core, host: &str, params: HappenedParams) -> 
     else {
         return Ok(Value::Null);
     };
-    let happened = Happened::of(&params.kind);
+    let happened = match params.kind.as_str() {
+        ENDED => Some(Happened::Gone),
+        ASLEEP => None,
+        kind => Happened::of(kind),
+    };
+    let closed = params.kind == Happened::Gone.kind();
     core.hosts.team.update(&foreign.agent_id, |foreign| {
         foreign.status = params.status;
         foreign.active_at = Some(epoch_ms());
@@ -179,9 +216,7 @@ pub(super) fn happened_here(core: &Core, host: &str, params: HappenedParams) -> 
         {
             core.note_linked_turn_ended(&foreign.agent_id);
         }
-        if happened == Happened::Gone
-            && !super::super::board::elsewhere::holds(core, &foreign.agent_id)
-        {
+        if closed && !super::super::board::elsewhere::holds(core, &foreign.agent_id) {
             core.hosts.team.remove(&foreign.agent_id);
             pin(core);
         }
@@ -676,9 +711,13 @@ pub(crate) fn stop_worker(core: &Core, agent_id: &str) {
 
 pub(super) fn stop_here(core: &Core, host: &str, params: AboutAgent) -> CoreResult<Value> {
     let agent_id = params.agent_id.as_str();
-    if lead_host(core, agent_id).as_deref() == Some(host) && core.chats.stop(agent_id) {
+    if lead_host(core, agent_id).as_deref() != Some(host) {
+        return Ok(Value::Null);
+    }
+    if core.chats.stop(agent_id) {
         core.note_agent_gone(agent_id);
     }
+    local_gone(core, agent_id);
     Ok(Value::Null)
 }
 

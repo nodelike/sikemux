@@ -1600,7 +1600,11 @@ async fn handed(
     match target.reach {
         Reach::Chat | Reach::Terminal => {}
         Reach::Asleep if notice => held = Some("is asleep"),
-        Reach::Asleep if !core.window.is_open() => held = Some("is asleep while Sikemux is closed"),
+        Reach::Asleep
+            if !core.window.is_open() && core.hosts.team.get(&letter.from_id).is_none() =>
+        {
+            held = Some("is asleep while Sikemux is closed")
+        }
         Reach::Asleep if core.workspaces.held(&target.agent_id) && !lifts_hold(core, &letter) => {
             held = Some("was put to sleep when the person stopped everything")
         }

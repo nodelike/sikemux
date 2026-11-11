@@ -131,11 +131,23 @@ impl Core {
             .is_some_and(|lead| self.open_agents().contains(&lead))
     }
 
+    /// The agent's chat went to sleep. Here it stopped running as for
+    /// [`Self::note_agent_gone`]; teammates on other hosts hear it sleeps, and wakes for them.
+    pub(crate) fn note_agent_asleep(&self, agent_id: &str) {
+        self.journal_here(agent_id, Happened::Gone);
+        super::hosts::route::asleep(self, agent_id);
+        self.changed(What::Agents);
+    }
+
     fn journal_agent(&self, agent_id: &str, happened: Happened) {
+        self.journal_here(agent_id, happened);
+        super::hosts::route::happened(self, agent_id, happened);
+    }
+
+    fn journal_here(&self, agent_id: &str, happened: Happened) {
         if let Some(named) = self.names.get(agent_id) {
             self.harness
                 .note_agent(&named.project, happened.kind(), agent_id);
         }
-        super::hosts::route::happened(self, agent_id, happened);
     }
 }

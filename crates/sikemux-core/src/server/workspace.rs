@@ -1675,6 +1675,7 @@ fn agents_closed(core: &Core, before: HashSet<String>) {
         core.chats.stop(agent_id);
         core.chats.forget_rest(agent_id);
     }
+    super::hosts::route::closed(core, &gone);
     if let (Some(core), Ok(runtime), false) = (
         core.arc(),
         tokio::runtime::Handle::try_current(),

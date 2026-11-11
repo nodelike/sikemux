@@ -125,7 +125,7 @@ pub(crate) fn sleep(core: &Core, agent_id: &str) -> bool {
     if let Some(chat) = chat.filter(|_| stopped) {
         core.chats.rest(&chat);
         core.workspaces.set_asleep(agent_id, true);
-        core.note_agent_gone(agent_id);
+        core.note_agent_asleep(agent_id);
     }
     stopped
 }
@@ -170,7 +170,7 @@ pub(crate) fn sleep_agent(core: &Core, agent_id: &str) -> CoreResult<()> {
         agent.pty_id = None;
         agent.asleep = true;
     })?;
-    core.note_agent_gone(agent_id);
+    core.note_agent_asleep(agent_id);
     Ok(())
 }
 
