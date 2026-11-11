@@ -219,10 +219,6 @@ impl<'a> Agent<'a> {
         }
     }
 
-    fn current(&self) -> &Shown<'a> {
-        &self.accounts[self.in_use]
-    }
-
     /// Whether the account goes unnamed, because it is only the agent's own.
     fn unnamed(&self, shown: &Shown) -> bool {
         shown.profile.is_none() || shown.name == self.name
@@ -301,13 +297,9 @@ pub(crate) fn limits(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<i
     }
     bench.accounts.limits.panel_drawn.set(true);
     let compact = bench.rail_compact();
-    let now = ui::time::now_ms();
-    let rows = rest_slots(&agents, !every);
-    let tall = HEADER
-        + (agents[..rows].iter())
-            .map(|agent| rest_height(agent, compact, now))
-            .sum::<f32>()
-        + (rows as f32 - 1.) * ROW_GAP;
+    let rows = rest_accounts(&agents, !every).len();
+    let row = if compact { ROW_COMPACT } else { ROW };
+    let tall = HEADER + rows as f32 * row + (rows as f32 - 1.) * ROW_GAP;
     let room = (bench.rails.frame.get()[3] - RAIL_HEAD - tall - FLOAT_MARGIN).max(FLOAT_LEAST);
     let view = view(bench, !every, compact, room, cx.weak_entity());
     let open = bench.accounts.limits.open;
@@ -398,15 +390,6 @@ fn view(
     }
 }
 
-/// How many rows the panel holds: one per agent shown.
-fn rest_slots(agents: &[Agent], solo: bool) -> usize {
-    if solo {
-        1
-    } else {
-        agents.len()
-    }
-}
-
 fn floating(cx: &App) -> Div {
     let t = Tokens::get(cx);
     div()
@@ -441,8 +424,39 @@ fn header(view: &View, agents: &[Agent], cx: &App) -> Div {
                 .text_color(t.text_tertiary),
         )
         .child(div().flex_1().h(px(1.)).bg(t.border))
+        .children(resets_badge(view, agents, cx))
         .child(refresh_button(view, agents, cx))
         .children(add)
+}
+
+/// How many limit resets the accounts shown hold between them, when any.
+fn resets_badge(view: &View, agents: &[Agent], cx: &App) -> Option<Stateful<Div>> {
+    let left: u32 = (rest_accounts(agents, view.solo).into_iter())
+        .flat_map(|(agent, place)| agent.accounts[place].resets())
+        .map(|kind| kind.left)
+        .sum();
+    if left == 0 {
+        return None;
+    }
+    let t = Tokens::get(cx);
+    let plural = if left == 1 { "" } else { "s" };
+    Some(
+        div()
+            .id("limits-resets")
+            .h(px(18.))
+            .px(px(5.))
+            .flex()
+            .items_center()
+            .gap(px(3.))
+            .rounded(RADIUS_1)
+            .bg(t.surface_hover)
+            .text_color(t.text_secondary)
+            .tooltip(ui::tooltip(format!(
+                "{left} limit reset{plural} across these accounts"
+            )))
+            .child(ui::icon(Icon::Refresh, 10.).text_color(t.text_secondary))
+            .child(ui::text(left.to_string(), TEXT_3XS_H, FontWeight::MEDIUM)),
+    )
 }
 
 fn add_button(view: &View, agent: &Agent) -> IconButton {
@@ -551,37 +565,157 @@ impl Total {
     }
 }
 
-/// The agent's windows as its resting row adds them up: the session's, then the week's.
-fn totals(agent: &Agent, now: u64) -> Vec<(&'static str, Total)> {
-    let session: Pick = |shown| shown.session();
-    let week: Pick = |shown| shown.week();
-    [("Session", session), ("Week", week)]
-        .into_iter()
-        .filter_map(|(label, window)| Some((label, Total::of(agent, now, window)?)))
+/// The accounts the rail lists, each by its agent and its place among that agent's accounts.
+fn rest_accounts<'b, 'a>(agents: &'b [Agent<'a>], solo: bool) -> Vec<(&'b Agent<'a>, usize)> {
+    let shown = if solo { &agents[..1] } else { agents };
+    (shown.iter())
+        .flat_map(|agent| (0..agent.accounts.len()).map(move |place| (agent, place)))
         .collect()
 }
 
-/// How tall an agent's resting row is: one line per window it adds up.
-fn rest_height(agent: &Agent, compact: bool, now: u64) -> f32 {
-    match totals(agent, now).len() {
-        0 | 1 if compact => ROW_COMPACT,
-        0 | 1 => ROW,
-        lines => lines as f32 * WINDOW_LINE + 4.,
-    }
+/// What an account's rail row draws: its session over its week, else its week alone. A model's
+/// own week, such as Fable's, is left to the card.
+fn rail_limits<'s>(shown: &'s Shown) -> Vec<(&'static str, &'s UsageWindow)> {
+    [("Session", shown.session()), ("Week", shown.week())]
+        .into_iter()
+        .filter_map(|(name, window)| Some((name, window?)))
+        .collect()
 }
 
 fn rest_rows(view: &View, agents: &[Agent], cx: &App) -> Vec<AnyElement> {
-    let shown = if view.solo { &agents[..1] } else { agents };
-    (shown.iter())
-        .map(|agent| {
-            let totals = totals(agent, view.now);
-            match totals.is_empty() {
-                false => rest_row(view, agent, &totals, cx),
-                true if agent.current().signed_out => sign_in_row(view, agent, cx),
-                true => nothing_row(view, agent, cx),
-            }
-        })
+    let accounts = rest_accounts(agents, view.solo);
+    let two =
+        (accounts.iter()).any(|(agent, place)| rail_limits(&agent.accounts[*place]).len() > 1);
+    let numbers = if two { 66. } else { 36. };
+    (accounts.into_iter())
+        .map(|(agent, place)| rest_row(view, agent, place, numbers, cx))
         .collect()
+}
+
+/// An account's avatar with its agent's mark on its corner.
+fn face(provider: &str, name: &str, place: usize, cx: &App) -> Div {
+    let t = Tokens::get(cx);
+    div()
+        .relative()
+        .flex_none()
+        .size(px(16.))
+        .child(img(super::marble::avatar(name, place)).size(px(16.)))
+        .child(
+            div()
+                .absolute()
+                .right(px(-3.))
+                .bottom(px(-3.))
+                .size(px(11.))
+                .rounded_full()
+                .bg(t.surface)
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(ui::mark(provider, 8.)),
+        )
+}
+
+/// How low a limit is, in the colour of its number: quiet until it nears its end.
+fn left_ink(used: f64, t: &Tokens, quiet: Hsla) -> Hsla {
+    match used {
+        used if used < 70. => quiet,
+        used => signal(used, t),
+    }
+}
+
+/// A resting row: an account's face and name, its session over its week, and what is left of
+/// each, every ruler as long as the others so the accounts compare at a glance.
+fn rest_row(view: &View, agent: &Agent, place: usize, numbers: f32, cx: &App) -> AnyElement {
+    let t = Tokens::get(cx);
+    let shown = &agent.accounts[place];
+    let limits = rail_limits(shown);
+    let id = SharedString::from(format!(
+        "limit-{}-{}",
+        agent.provider,
+        shown.key(agent.provider)
+    ));
+    let in_use = place == agent.in_use && agent.accounts.len() > 1;
+    let name = ui::text(shown.name.clone(), TEXT_2XS, FontWeight::NORMAL)
+        .flex_none()
+        .w(px(76.))
+        .truncate()
+        .text_color(t.text_secondary);
+    let row = div()
+        .id(id)
+        .h(px(row_height(view)))
+        .px(SPACE_1H)
+        .flex()
+        .items_center()
+        .gap(SPACE_2)
+        .rounded(RADIUS_2)
+        .when(in_use, |row| row.bg(t.surface_chosen))
+        .child(face(agent.provider, &shown.name, place, cx))
+        .child(name);
+    if shown.signed_out {
+        return row
+            .cursor_pointer()
+            .hover(|row| row.bg(t.surface_hover))
+            .on_click(sign_in(view, agent.provider, shown))
+            .child(div().flex_1())
+            .child(go("Sign in", cx))
+            .into_any_element();
+    }
+    let Some((_, main)) = limits.first() else {
+        return row
+            .tooltip(ui::tooltip(
+                shown.no_limits_reason().unwrap_or_else(|| shown.nothing()),
+            ))
+            .child(ruler(None, t).flex_1().min_w_0().h(px(8.)))
+            .child(
+                div()
+                    .flex_none()
+                    .w(px(numbers))
+                    .flex()
+                    .justify_end()
+                    .child(note("–".into(), cx)),
+            )
+            .into_any_element();
+    };
+    let second = limits.get(1).map(|(_, window)| *window);
+    let tip = (limits.iter())
+        .map(|(name, window)| format!("{name} {}", left(window.used_at(view.now))))
+        .collect::<Vec<_>>()
+        .join(" · ");
+    let rulers = div()
+        .flex_1()
+        .min_w_0()
+        .flex()
+        .flex_col()
+        .gap(px(2.))
+        .child(ruler(Some(main.used_at(view.now)), t).h(px(8.)))
+        .children(second.map(|window| ruler(Some(window.used_at(view.now)), t).h(px(3.))));
+    let percent = |window: &UsageWindow| format!("{}%", (100. - window.used_at(view.now)).round());
+    let figures = div()
+        .flex_none()
+        .w(px(numbers))
+        .flex()
+        .justify_end()
+        .items_baseline()
+        .gap(px(4.))
+        .font_features(theme::tabular())
+        .child(
+            ui::text(percent(main), TEXT_2XS, FontWeight::MEDIUM).text_color(left_ink(
+                main.used_at(view.now),
+                t,
+                t.text_primary,
+            )),
+        )
+        .children(second.map(|window| {
+            ui::text(percent(window), TEXT_2XS, FontWeight::NORMAL).text_color(left_ink(
+                window.used_at(view.now),
+                t,
+                t.text_tertiary,
+            ))
+        }));
+    row.tooltip(ui::tooltip(tip))
+        .child(rulers)
+        .child(figures)
+        .into_any_element()
 }
 
 fn row_height(view: &View) -> f32 {
@@ -592,96 +726,12 @@ fn row_height(view: &View) -> f32 {
     }
 }
 
-/// A resting row: the agent's mark, a ruler and what ends the line.
-fn rest_frame(view: &View, agent: &Agent, used: Option<f64>, end: Div, cx: &App) -> Div {
-    div()
-        .h(px(row_height(view)))
-        .px(SPACE_1H)
-        .flex()
-        .items_center()
-        .gap(SPACE_2)
-        .rounded(RADIUS_2)
-        .child(ui::mark(agent.provider, 18.))
-        .child(ruler(used, Tokens::get(cx)).flex_1().min_w_0().h(px(14.)))
-        .child(end)
-}
-
-/// A window's short name, such as 5H, at the start of its line.
+/// A window's short name, such as Week, at the start of its line.
 fn window_label(label: impl Into<SharedString>, width: f32, cx: &App) -> Div {
     ui::text(label.into(), TEXT_3XS, FontWeight::MEDIUM)
         .flex_none()
         .w(px(width))
         .text_color(Tokens::get(cx).text_tertiary)
-}
-
-fn total_sum(total: &Total, cx: &App) -> Div {
-    let t = Tokens::get(cx);
-    let used = total.used();
-    div()
-        .flex_none()
-        .min_w(px(76.))
-        .flex()
-        .justify_end()
-        .items_baseline()
-        .gap(px(4.))
-        .font_features(theme::tabular())
-        .child(
-            ui::text(
-                format!("{}%", total.left.round()),
-                TEXT_2XS,
-                FontWeight::MEDIUM,
-            )
-            .text_color(match used {
-                used if used < 70. => t.text_primary,
-                used => signal(used, t),
-            }),
-        )
-        .child(
-            ui::text(
-                format!("/ {}%", total.accounts * 100),
-                TEXT_3XS,
-                FontWeight::NORMAL,
-            )
-            .text_color(t.text_tertiary),
-        )
-}
-
-fn rest_row(view: &View, agent: &Agent, totals: &[(&'static str, Total)], cx: &App) -> AnyElement {
-    let id = SharedString::from(format!("limit-{}", agent.provider));
-    if let [(_, total)] = totals {
-        return div()
-            .id(id)
-            .child(rest_frame(
-                view,
-                agent,
-                Some(total.used()),
-                total_sum(total, cx),
-                cx,
-            ))
-            .into_any_element();
-    }
-    let t = Tokens::get(cx);
-    let lines = totals.iter().map(|(label, total)| {
-        div()
-            .h(px(WINDOW_LINE))
-            .flex()
-            .items_center()
-            .gap(SPACE_2)
-            .child(window_label(*label, LABEL_WIDTH, cx))
-            .child(ruler(Some(total.used()), t).flex_1().min_w_0().h(px(10.)))
-            .child(total_sum(total, cx))
-    });
-    div()
-        .id(id)
-        .h(px(rest_height(agent, view.compact, view.now)))
-        .px(SPACE_1H)
-        .flex()
-        .items_center()
-        .gap(SPACE_2)
-        .rounded(RADIUS_2)
-        .child(ui::mark(agent.provider, 18.))
-        .child(div().flex_1().min_w_0().flex().flex_col().children(lines))
-        .into_any_element()
 }
 
 fn percent_cell(window: &UsageWindow, now: u64, cx: &App) -> Div {
@@ -724,17 +774,6 @@ fn when_cell(window: &UsageWindow, now: u64, age: Option<&str>, cx: &App) -> Div
         })
 }
 
-fn nothing_row(view: &View, agent: &Agent, cx: &App) -> AnyElement {
-    let shown = agent.current();
-    div()
-        .id(SharedString::from(format!("limit-{}-none", agent.provider)))
-        .when_some(shown.no_limits_reason(), |row, reason| {
-            row.tooltip(ui::tooltip(reason))
-        })
-        .child(rest_frame(view, agent, None, note(shown.nothing(), cx), cx))
-        .into_any_element()
-}
-
 fn note(text: String, cx: &App) -> Div {
     ui::text(text, TEXT_3XS_H, FontWeight::NORMAL)
         .flex_none()
@@ -759,22 +798,6 @@ fn sign_in(
     view.on(move |bench, window, cx| {
         crate::accounts::open_sign_in(bench, &provider, id.as_deref(), window, cx);
     })
-}
-
-fn sign_in_row(view: &View, agent: &Agent, cx: &App) -> AnyElement {
-    let t = Tokens::get(cx);
-    let shown = agent.current();
-    div()
-        .id(SharedString::from(format!(
-            "limits-sign-in-{}",
-            shown.key(agent.provider)
-        )))
-        .rounded(RADIUS_2)
-        .cursor_pointer()
-        .hover(|row| row.bg(t.surface_hover))
-        .on_click(sign_in(view, agent.provider, shown))
-        .child(rest_frame(view, agent, None, go("Sign in", cx), cx))
-        .into_any_element()
 }
 
 /// Every account of every agent, each across the float's full width between hairlines, the one
