@@ -750,7 +750,7 @@ function scaledPath(d, { sx, sy, tx, ty }) {
     const at = index % count;
     index += 1;
     const value = Number(token);
-    let axis = null;
+    let axis;
     if (lower === "h") axis = "x";
     else if (lower === "v") axis = "y";
     else if (lower === "a")
@@ -780,7 +780,6 @@ function scaledPath(d, { sx, sy, tx, ty }) {
   return out.join(" ");
 }
 
-const serviceLines = [];
 for (const [name, file] of Object.entries(SERVICE_FILES)) {
   const svg = await readFile(resolve(serviceDir, file), "utf8");
   const box = svg.match(/viewBox="([^"]+)"/)?.[1];
