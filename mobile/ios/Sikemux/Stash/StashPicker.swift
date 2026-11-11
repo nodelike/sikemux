@@ -15,6 +15,7 @@ struct StashPicker: View {
 
     @State private var fresh = Set(StashStore.shared.new.map(\.id))
     @State private var removing: StashItem?
+    @State private var failure: Failure?
 
     /// How far the list is pulled down past its top before it goes back to the tiles.
     private static let pullDown: CGFloat = 70
@@ -76,12 +77,18 @@ struct StashPicker: View {
         ) { item in
             Button("Remove", role: .destructive) {
                 Task {
-                    do { try await store.remove(item.id) } catch { Haptics.failure() }
+                    do {
+                        try await store.remove(item.id)
+                    } catch {
+                        Haptics.failure()
+                        failure = Failure("Couldn't remove it", error)
+                    }
                 }
             }
         } message: { item in
             Text(StashWords.title(item))
         }
+        .failureAlert($failure)
     }
 
     @ViewBuilder private var content: some View {

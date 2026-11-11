@@ -120,3 +120,30 @@ struct ProblemLine: View {
             .padding(.top, 4)
     }
 }
+
+/// Something the person asked for that failed, with why, for `failureAlert`.
+struct Failure: Identifiable {
+    let id = UUID()
+    let title: String
+    let detail: String
+
+    init(_ title: String, _ error: Error) {
+        self.title = title
+        detail = problem(error)
+    }
+}
+
+extension View {
+    /// An alert saying what failed and why, as the Mac says it when an action it was asked for fails.
+    func failureAlert(_ failure: Binding<Failure?>) -> some View {
+        alert(
+            failure.wrappedValue?.title ?? "",
+            isPresented: Binding(get: { failure.wrappedValue != nil }, set: { if !$0 { failure.wrappedValue = nil } }),
+            presenting: failure.wrappedValue
+        ) { _ in
+            Button("OK", role: .cancel) {}
+        } message: { shown in
+            Text(shown.detail)
+        }
+    }
+}
