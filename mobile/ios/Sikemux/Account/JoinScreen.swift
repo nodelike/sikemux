@@ -50,8 +50,8 @@ struct JoinScreen: View {
             Text("\(name) just signed in")
                 .font(Theme.ui(25, .semibold)).tracking(-0.75).foregroundStyle(palette.ink)
                 .multilineTextAlignment(.center).padding(.top, 28)
-            (Text("Click ") + Text("Allow").font(Theme.ui(15, .semibold)).foregroundStyle(palette.ink)
-                + Text(" on \(name) to let this phone in."))
+            let allow = Text("Allow").font(Theme.ui(15, .semibold)).foregroundStyle(palette.ink)
+            Text("Click \(allow) on \(name) to let this phone in.")
                 .font(Theme.body).lineSpacing(7).foregroundStyle(palette.secondary)
                 .multilineTextAlignment(.center).padding(.top, 10)
         }

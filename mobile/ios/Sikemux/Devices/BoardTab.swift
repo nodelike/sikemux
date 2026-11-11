@@ -172,10 +172,9 @@ private struct BetweenAgents: View {
                         let cli = row.from.flatMap(cliOf)
                         Row(
                             title: "\(Self.who(row.from, row.fromName)) to \(Self.who(row.to, row.toName))",
-                            detailText: Text("\(Self.kind(row.kind)) · ")
-                                + Text(Self.outcome(row)).foregroundColor(
-                                    row.tone == .held
-                                        ? palette.warn : row.tone == .failed ? palette.danger : palette.tertiary),
+                            detailText: Text(
+                                "\(Self.kind(row.kind)) · \(Text(Self.outcome(row)).foregroundStyle(row.tone == .held ? palette.warn : row.tone == .failed ? palette.danger : palette.tertiary))"
+                            ),
                             mark: {
                                 if let cli {
                                     AgentMark(provider: cli, size: 20)
@@ -256,8 +255,9 @@ private struct CardRow: View {
         let acceptance = !card.acceptance.isEmpty && card.status != .done ? "Done when: \(card.acceptance)" : nil
         let detail: Text? =
             question.map {
-                Text("@\($0.name)").font(Theme.ui(12, .medium)).foregroundColor(palette.secondary)
-                    + Text(" asks: \($0.text)")
+                Text(
+                    "\(Text("@\($0.name)").font(Theme.ui(12, .medium)).foregroundStyle(palette.secondary)) asks: \($0.text)"
+                )
             } ?? (handedBack ?? reviewing ?? acceptance).map { Text($0) }
 
         Row(
@@ -292,19 +292,19 @@ private struct CardRow: View {
         let after = waits.first ?? card.dependsOn.first.flatMap { byId[$0] }
         let parent = card.parent.flatMap { byId[$0] }
         var parts: [Text] = [
-            owner.map { Text("@\($0)").font(Theme.ui(12, .medium)).foregroundColor(palette.secondary) }
+            owner.map { Text("@\($0)").font(Theme.ui(12, .medium)).foregroundStyle(palette.secondary) }
                 ?? Text("Nobody yet")
         ]
         if let ticket = card.ticket {
-            parts.append(key(ticket.key) + Text(ticket.source.map { " \($0)" } ?? ""))
+            parts.append(Text("\(key(ticket.key))\(ticket.source.map { " \($0)" } ?? "")"))
         } else if let filed = card.ticketAbove {
-            parts.append(Text("under ") + key(filed))
+            parts.append(Text("under \(key(filed))"))
         } else if let parent {
             parts.append(Text("under \(shortTitle(parent.title))"))
         }
         if !children.isEmpty { parts.append(key("\(done)/\(children.count)")) }
         if let after { parts.append(Text("after \(shortTitle(after.title))")) }
-        return parts.dropFirst().reduce(parts[0]) { $0 + Text(" · ") + $1 }
+        return parts.dropFirst().reduce(parts[0]) { Text("\($0) · \($1)") }
     }
 }
 

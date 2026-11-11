@@ -200,7 +200,7 @@ struct FindBar: View {
         HStack(spacing: 2) {
             HStack(spacing: 7) {
                 IconView(icon: Icons.search, size: 14).foregroundStyle(palette.inkFaint)
-                TextField("", text: $find.text, prompt: Text("Find in chat").foregroundColor(palette.inkFaint))
+                TextField("", text: $find.text, prompt: Text("Find in chat").foregroundStyle(palette.inkFaint))
                     .font(Theme.ui(14.5))
                     .foregroundStyle(palette.ink)
                     .tint(palette.accent)

@@ -158,9 +158,10 @@ struct LiveStrip: View {
                     ForEach(pieces, id: \.kind) { piece in
                         HStack(spacing: 5) {
                             pieceIcon(piece)
-                            (Text(piece.kind == .plan && worded ? "\(piece.word) " : "")
-                                + Text(piece.count).font(Theme.ui(12, .medium)).foregroundColor(palette.ink)
-                                + Text(piece.kind != .plan && worded ? " \(piece.word)" : ""))
+                            let count = Text(piece.count).font(Theme.ui(12, .medium)).foregroundStyle(palette.ink)
+                            let before = piece.kind == .plan && worded ? "\(piece.word) " : ""
+                            let after = piece.kind != .plan && worded ? " \(piece.word)" : ""
+                            Text("\(before)\(count)\(after)")
                                 .font(Theme.ui(12)).foregroundStyle(palette.tertiary).monospacedDigit().lineLimit(1)
                         }
                     }
