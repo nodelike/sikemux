@@ -20,6 +20,9 @@
       {
         "op": "head",
         "set": {
+          "activity": {
+            "kind": "connecting"
+          },
           "error": null,
           "failure": null,
           "running": true
@@ -63,6 +66,9 @@
       {
         "op": "head",
         "set": {
+          "activity": {
+            "kind": "thinking"
+          },
           "turnOpening": null
         }
       },
@@ -235,9 +241,7 @@
       {
         "op": "head",
         "set": {
-          "activity": {
-            "kind": "connecting"
-          },
+          "activity": null,
           "permissions": [],
           "retrying": null,
           "running": false,
@@ -286,10 +290,7 @@
       "runningSubagents": [],
       "queued": [],
       "triggers": [],
-      "earlierLost": false,
-      "activity": {
-        "kind": "connecting"
-      }
+      "earlierLost": false
     },
     "rows": [
       {

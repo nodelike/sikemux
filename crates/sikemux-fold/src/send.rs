@@ -496,37 +496,34 @@ impl Fold {
         })?
     }
 
-    /// What a client says the chat is doing, from what the head and the last row hold.
+    /// What a client says the chat is doing, from what the head and the last row hold: while
+    /// the person's message waits for an agent still on its way, that it starts or connects.
     fn activity(&self) -> Option<ChatActivity> {
-        if !self.head.permissions.is_empty() {
+        if !self.head.permissions.is_empty() || !self.head.running {
             return None;
         }
-        if self.head.running {
-            if let Some(retrying) = &self.head.retrying {
-                return Some(ChatActivity::Retrying {
-                    attempt: retrying.attempt,
-                    connection: retrying.connection,
-                });
-            }
-            let running = self.head.active_tool.as_ref().and_then(|active| {
-                let row = self.main.rows.last()?;
-                row.msg.parts.iter().find_map(|part| match part {
-                    ChatPart::Tool { id, tool, .. } if id == active => Some(tool.row.clone()),
-                    _ => None,
-                })
+        if let Some(retrying) = &self.head.retrying {
+            return Some(ChatActivity::Retrying {
+                attempt: retrying.attempt,
+                connection: retrying.connection,
             });
-            return Some(running.map_or(ChatActivity::Thinking, |row| ChatActivity::Call { row }));
         }
-        if self.main.rows.is_empty() {
-            return None;
-        }
+        let waits = (self.main.rows.last()).is_some_and(|row| row.msg.role == ChatRole::User);
         match self.head.connection {
-            ChatConnection::Starting => Some(ChatActivity::Starting),
-            ChatConnection::Connecting | ChatConnection::Initializing => {
-                Some(ChatActivity::Connecting)
+            ChatConnection::Starting if waits => return Some(ChatActivity::Starting),
+            ChatConnection::Connecting | ChatConnection::Initializing if waits => {
+                return Some(ChatActivity::Connecting)
             }
-            _ => None,
+            _ => {}
         }
+        let running = self.head.active_tool.as_ref().and_then(|active| {
+            let row = self.main.rows.last()?;
+            row.msg.parts.iter().find_map(|part| match part {
+                ChatPart::Tool { id, tool, .. } if id == active => Some(tool.row.clone()),
+                _ => None,
+            })
+        });
+        Some(running.map_or(ChatActivity::Thinking, |row| ChatActivity::Call { row }))
     }
 
     fn settle_active_tool(&mut self) {

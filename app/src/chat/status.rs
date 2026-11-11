@@ -141,8 +141,8 @@ const END_SPACE: f32 = 27.;
 
 impl Chat {
     /// What the line under the last row says: nothing while a permission card already says
-    /// what the turn waits on, else the running call's words, a retry, or that it thinks;
-    /// and while no turn runs, that the agent is still on its way to a message sent to it.
+    /// what the turn waits on, else the running call's words, a retry, that it thinks,
+    /// or that the agent is still on its way to a message sent to it.
     pub(super) fn activity(&self) -> Option<SharedString> {
         let head = self.state.as_ref()?;
         Some(match head.activity.as_ref()? {
@@ -160,9 +160,8 @@ impl Chat {
             }
             ChatActivity::Call { row } => doing(row),
             ChatActivity::Thinking => "Thinking…".into(),
-            ChatActivity::Starting if self.awaits_agent => "Starting agent…".into(),
-            ChatActivity::Connecting if self.awaits_agent => "Connecting to agent session…".into(),
-            ChatActivity::Starting | ChatActivity::Connecting => return None,
+            ChatActivity::Starting => "Starting agent…".into(),
+            ChatActivity::Connecting => "Connecting to agent session…".into(),
         })
     }
 }
