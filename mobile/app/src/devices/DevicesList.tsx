@@ -60,7 +60,7 @@ function DeviceCard({ device }: { device: PairedDevice }) {
         <Icon name="IconChevron" size={14} color={colors.rest} />
       </View>
       {needs ? (
-        <View style={styles.ask}>
+        <View style={[styles.ask, !busy.length && styles.askLast]}>
           <AgentIcon provider={needs.cli ?? ''} size={16} />
           <View style={{ flex: 1 }}>
             <Text style={styles.askTitle} numberOfLines={1}>
@@ -339,6 +339,7 @@ const makeStyles = (colors: Palette) => {
       borderColor: colors.borderStrong,
       backgroundColor: colors.overlay,
     },
+    askLast: { marginBottom: 8 },
     askTitle: { fontFamily: fonts.uiMedium, fontSize: 13.5, color: colors.ink },
     askDetail: { ...type.meta, fontSize: 12.5, marginTop: 1 },
     work: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 14 },

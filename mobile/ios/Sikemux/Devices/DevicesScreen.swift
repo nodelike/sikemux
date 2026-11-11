@@ -162,6 +162,7 @@ private struct DeviceCard: View {
                             palette.borderStrong, lineWidth: 1)
                     )
                     .padding(.horizontal, 8)
+                    .padding(.bottom, busy.isEmpty ? 8 : 0)
                 }
                 if !busy.isEmpty {
                     HStack(spacing: 10) {
