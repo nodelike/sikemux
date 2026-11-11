@@ -485,9 +485,4 @@ final class Folds {
     func isOpen(_ id: String, _ otherwise: Bool) -> Bool { open[id] ?? otherwise }
 
     func set(_ id: String, _ value: Bool) { open[id] = value }
-
-    /// Which folds under `prefix` are open.
-    func openUnder(_ prefix: String) -> Set<String> {
-        Set(open.compactMap { id, isOpen in isOpen && id.hasPrefix(prefix) ? id : nil })
-    }
 }

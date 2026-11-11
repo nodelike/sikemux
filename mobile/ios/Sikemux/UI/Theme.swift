@@ -101,7 +101,6 @@ enum Theme {
 
     static func mono(_ size: CGFloat) -> Font { .custom("JetBrainsMono-Regular", fixedSize: size) }
 
-    static let title = ui(24, .semibold)
     static let heading = ui(17, .semibold)
     static let body = ui(15)
     static let row = ui(15.5, .medium)
@@ -119,17 +118,8 @@ enum Radius {
 }
 
 extension Text {
-    /// The title style with the tracking the Mac sets it in.
-    func titleStyle(_ palette: Palette) -> some View {
-        font(Theme.title).tracking(-0.7).foregroundStyle(palette.ink)
-    }
-
     func headingStyle(_ palette: Palette) -> some View {
         font(Theme.heading).tracking(-0.35).foregroundStyle(palette.ink)
-    }
-
-    func bodyStyle(_ palette: Palette) -> some View {
-        font(Theme.body).lineSpacing(7).foregroundStyle(palette.secondary)
     }
 
     func metaStyle(_ palette: Palette) -> some View {
