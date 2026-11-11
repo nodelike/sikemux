@@ -415,6 +415,8 @@ struct Status {
     waiting: usize,
     /// How this host keeps its core current, on a host that updates itself.
     updates: Option<Value>,
+    /// What is wrong with this host, worst first, each with what fixes it.
+    problems: Vec<crate::problems::Problem>,
 }
 
 fn status(json: bool) -> i32 {
@@ -468,6 +470,19 @@ fn status(json: bool) -> i32 {
             .and_then(|remote| remote.update_required.as_ref())
             .map(|required| required.minimum.clone()),
         updates,
+        problems: Vec::new(),
+    };
+    let status = Status {
+        problems: crate::problems::find(&crate::problems::Found {
+            running: status.running,
+            other_release: older.is_some(),
+            account: status.account.as_deref(),
+            account_connection: status.account_connection,
+            remote_access: status.remote_access,
+            update_required: status.update_required.as_deref(),
+            updates: status.updates.as_ref(),
+        }),
+        ..status
     };
     if json {
         println!(
@@ -552,6 +567,10 @@ fn print_status(status: &Status) {
     }
     if let Some(updates) = &status.updates {
         row("Updates", updates_row(updates));
+    }
+    let rolled_back = (status.problems.iter()).find(|problem| problem.name == "update-rolled-back");
+    if let Some(problem) = rolled_back {
+        row("Problem", format!("{}; {}", problem.says, problem.fix));
     }
 }
 

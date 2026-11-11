@@ -39,7 +39,7 @@ The host needs no open ports: it connects out to Sikemux's relays over HTTPS and
 
 Later:
 
-- `sikemux status` shows whether the core runs, whether it starts at boot, which account it is on, and how it updates.
+- `sikemux status` shows whether the core runs, whether it starts at boot, which account it is on, and how it updates. `sikemux status --json` also lists `problems`, each with a fixed `name`, what it `says` and the command or step that `fix`es it, such as `core-stopped` with `sikemux start`.
 - `sikemux login` signs the host in, if you skipped it, and `sikemux logout` takes it off your account.
 - Once signed in, a host stays with that account: after `sikemux logout` it signs back in only to the same one. To move it to another account, remove it from its account on any of your devices while it is still signed in, or run `sudo sikemux login`.
 - The server keeps its core up to date by itself, as [Updates](/getting-started/updates/#on-a-server) describes; `sikemux update` updates it now.
