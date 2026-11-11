@@ -95,6 +95,11 @@ private struct ChatPane: View {
                         Spacer()
                         status
                     }.frame(maxWidth: .infinity)
+                } else if rows.messages.isEmpty, let placed = rows.head.placed {
+                    VStack {
+                        SmartPick(move: placed, provider: provider)
+                        Spacer()
+                    }
                 } else {
                     transcript(rows)
                         .overlay(alignment: .bottom) { JumpToLatest(scroll: scroll) }

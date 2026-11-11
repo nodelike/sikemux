@@ -179,6 +179,7 @@ enum PhoneCall {
     enum SetRequireApproval {}
     enum SetWorktreeDefault {}
     enum SettleAgents {}
+    enum SmartPick {}
     enum SnoozeAgents {}
     enum SnoozePresets {}
     enum StashPrompt {}
@@ -417,6 +418,12 @@ extension PhoneCall.SettleAgents: PhoneCallable {
     static let method = "settleAgents"
     typealias Params = SettleParams
     typealias Answer = WireNull
+}
+
+extension PhoneCall.SmartPick: PhoneCallable {
+    static let method = "smartPick"
+    typealias Params = SmartPickParams
+    typealias Answer = AccountMove?
 }
 
 extension PhoneCall.SnoozeAgents: PhoneCallable {
@@ -2178,6 +2185,8 @@ struct ChatHead: Codable, Hashable, Sendable {
     var usage: ContextUsage?
     /// How often the agent has compacted the conversation to free its context, once it has.
     var compactions: Compactions?
+    /// The account smart accounts started the chat on, and why, shown before its first message.
+    var placed: AccountMove?
     /// The steps the agent plans for the turn, once it has said them.
     var plan: [PlanEntry]?
     var commands: [ChatCommandInfo]
@@ -2291,6 +2300,26 @@ struct Compactions: Codable, Hashable, Sendable {
     var count: Int
     /// When the last one finished, in Unix milliseconds.
     var lastAt: Int
+}
+
+/// The chat moved to another of the person's accounts.
+struct AccountMove: Codable, Hashable, Sendable {
+    var label: String
+    var from: String?
+    var reason: MoveReason
+    /// Why smart accounts started the chat on this account, as a person reads it.
+    var placed: String?
+}
+
+enum MoveReason: String, Codable, Hashable, Sendable {
+    case limit
+    case chosen
+    /// One added after this build.
+    case unknown
+
+    init(from decoder: any Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
 }
 
 struct PlanEntry: Codable, Hashable, Sendable {
@@ -2456,6 +2485,9 @@ struct ToolRow: Codable, Hashable, Sendable {
     var icon: String?
     /// What it is doing while it runs, for a call whose action does not say.
     var activity: String?
+    /// How many calls one after another this row stands for, when more than one:
+    /// an agent waiting on the same thing again and again shows as one row.
+    var times: Int?
 }
 
 enum ToolAction: String, Codable, Hashable, Sendable {
@@ -3423,26 +3455,6 @@ enum NoticeSeverity: String, Codable, Hashable, Sendable {
 struct GoalMarker: Codable, Hashable, Sendable {
     var card: Int
     var state: SliceState
-}
-
-/// The chat moved to another of the person's accounts.
-struct AccountMove: Codable, Hashable, Sendable {
-    var label: String
-    var from: String?
-    var reason: MoveReason
-    /// Why smart accounts started the chat on this account, as a person reads it.
-    var placed: String?
-}
-
-enum MoveReason: String, Codable, Hashable, Sendable {
-    case limit
-    case chosen
-    /// One added after this build.
-    case unknown
-
-    init(from decoder: any Decoder) throws {
-        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
-    }
 }
 
 /// A stretch of a sent message's text: its words, or a chip its draft wrote there.
@@ -5283,45 +5295,16 @@ struct BoardSettings: Codable, Hashable, Sendable {
     var provider: String?
     var model: String?
     var landing: Landing
-    /// Auto also takes cards agents added, once their team is through with them.
-    var agentCards: Bool
     /// Who reviews each change before it merges; none for any signed-in
     /// agent on another CLI than its builder's.
     var reviewer: ReviewerChoice?
-    /// The reviewer builds and uses the change, rather than only reading it.
-    var reviewerRuns: Bool
-    /// Each builder proposes a contract, reviewed blind, before it builds.
-    var contract: Bool
     /// Where the project deploys, in the order its slices reach them. None
     /// gives slices the usual ladder and holds every deploy for the person.
     var environments: [WireEnvironment]?
-    /// A card's agent that fails, dies or hangs is brought back without the person, and a
-    /// stalled slice Auto can run is taken on.
-    var recover: Bool
-    /// The project's `fastCheck`, when it names one, stands in for its check on most commits.
-    var fastCheck: Bool
-    /// A failed check is traced to the commit that broke it, and one agent mends it.
-    var culpritFinding: Bool
-    /// A card that spends without progress, or keeps failing the same way, is held.
-    var progressGuard: Bool
     /// Whole dollars of Auto's spending in the project past which it starts no new cards.
     var spendCeiling: Int?
-    /// A change merges only after its check passed on top of the latest base.
-    var mergeQueue: Bool
-    /// The project's `reservoir`, when it names one, keeps cards on the board.
-    var reservoir: Bool
-    /// A small change away from anything sensitive gets a read review and no contract round.
-    var scaledReview: Bool
-    /// Each card's commits are kept on the remote, so a lost worktree can be made again.
-    var branchBackup: Bool
     /// The linked hosts cards go to past this host's places, by key, the first with room first.
     var hosts: [String]?
-    /// Its slices' pull requests carry their proof in their descriptions, each written the
-    /// first time only once the person posts it.
-    var pullProof: Bool
-    /// That proof's picture is kept on the code host: on GitHub a `sikemux-evidence` branch
-    /// of the repository, on GitLab its uploads, on Bitbucket its downloads.
-    var pullPictures: Bool
 }
 
 /// Who passes a slice's Landed gate in a project, and so whether anything
@@ -6677,6 +6660,11 @@ struct WorktreeDefaultParams: Codable, Hashable, Sendable {
 struct SettleParams: Codable, Hashable, Sendable {
     var agentIds: [String]
     var settled: Bool
+}
+
+struct SmartPickParams: Codable, Hashable, Sendable {
+    var launcher: String
+    var project: String
 }
 
 struct SnoozeParams: Codable, Hashable, Sendable {
