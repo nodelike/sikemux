@@ -58,7 +58,7 @@ impl Secrets {
     /// Whether the caller may use the secret under `account`, logged as a use when it may. A
     /// plugin that keeps what the secret opened, such as a connection, asks this each time.
     pub fn check(self, account: &str) -> Result<(), KeychainError> {
-        vault::using(self.0, account).map_err(KeychainError::Failed)
+        vault::using(self.0, account).map_err(KeychainError::Refused)
     }
 
     pub fn write(self, account: &str, secret: &str) -> Result<(), KeychainError> {

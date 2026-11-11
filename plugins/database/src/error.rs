@@ -8,6 +8,8 @@ pub enum DatabaseError {
     BadArg(String),
     NotFound(String),
     Keychain(String),
+    /// The account vault does not let this caller use the database's password.
+    Refused(String),
     /// The database could not be reached, or refused the sign-in.
     Connect(String),
     /// The database ran the statement and answered with an error.
@@ -19,9 +21,10 @@ impl fmt::Display for DatabaseError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::BadArg(message) => write!(formatter, "invalid argument: {message}"),
-            Self::NotFound(message) | Self::Connect(message) | Self::Query(message) => {
-                formatter.write_str(message)
-            }
+            Self::NotFound(message)
+            | Self::Connect(message)
+            | Self::Query(message)
+            | Self::Refused(message) => formatter.write_str(message),
             Self::Keychain(message) => write!(formatter, "keychain: {message}"),
             Self::Storage(message) => write!(formatter, "saving connections: {message}"),
         }
@@ -33,6 +36,7 @@ impl From<KeychainError> for DatabaseError {
         match error {
             KeychainError::Invalid(message) => Self::BadArg(message),
             KeychainError::Failed(message) => Self::Keychain(message),
+            KeychainError::Refused(message) => Self::Refused(message),
         }
     }
 }
@@ -61,6 +65,7 @@ impl From<DatabaseError> for PluginError {
             DatabaseError::BadArg(_) => FailureCategory::BadParams,
             DatabaseError::NotFound(_) => FailureCategory::NotFound,
             DatabaseError::Keychain(_) => FailureCategory::Keychain,
+            DatabaseError::Refused(_) => FailureCategory::Forbidden,
             DatabaseError::Connect(_) => FailureCategory::own("connect"),
             DatabaseError::Query(_) => FailureCategory::own("query"),
             DatabaseError::Storage(_) => FailureCategory::own("storage"),
