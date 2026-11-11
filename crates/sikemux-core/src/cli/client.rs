@@ -103,7 +103,16 @@ impl Session {
             .by_ref()
             .take(MAX_CLI_RESPONSE_BYTES + 1)
             .read_until(b'\n', &mut frame)
-            .map_err(|error| format!("Sikemux did not answer: {error}"))?;
+            .map_err(|error| match error.kind() {
+                std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut => {
+                    let waited = self.reader.get_ref().read_timeout().ok().flatten();
+                    format!(
+                        "Sikemux did not answer within {} s, so the call was given up; it may still have happened, so check before trying it again",
+                        waited.map_or(0, |waited| waited.as_secs())
+                    )
+                }
+                _ => format!("Sikemux did not answer: {error}"),
+            })?;
         if frame.is_empty() {
             return Err("Sikemux closed the CLI connection".into());
         }
