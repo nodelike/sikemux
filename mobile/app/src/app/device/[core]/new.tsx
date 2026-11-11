@@ -29,7 +29,8 @@ import { usePromptStash } from '@/stash/usePromptStash';
 import { contextChip, stashQuery, withContext, withoutQuery } from '@/stash/words';
 import { MAX_ATTACHMENTS } from '@shared/wire.generated';
 import { problem as problemOf } from '@/core/problem';
-import { callHost } from '@/core/hostCalls';
+import { callHost, useHostCall } from '@/core/hostCalls';
+import { SmartPick } from '@/chat/Notices';
 import { useLive } from '@/devices/hub';
 import { ProjectSheet } from '@/devices/ProjectSheet';
 import { haptics } from '@/ui/haptics';
@@ -304,6 +305,13 @@ export default function NewChat() {
     void takeStash(put.restored);
   };
 
+  const smartPick = useHostCall(
+    launcher && project && live.status === 'open' ? live.connection : undefined,
+    'smartPick',
+    { launcher: launcher?.id ?? '', project: project?.id ?? '' },
+    '',
+  ).data;
+
   const start = async () => {
     const text = withContext(draft.trim(), chips.map(contextChip));
     if (busy.current || (!text && !attachments.length) || !launcher || !project || live.status !== 'open') return;
@@ -377,6 +385,7 @@ export default function NewChat() {
               <AgentFace agentId={project?.id} provider={launcher.provider} size={38} logoSize={40} />
             ) : null}
             <Text style={styles.welcomeTitle}>{project?.name ?? 'New chat'}</Text>
+            {smartPick && launcher && !problem && !blocked ? <SmartPick move={smartPick} provider={launcher.provider} /> : null}
             {noAgents ? <Text style={[type.meta, { textAlign: 'center' }]}>No agents on the host.</Text> : null}
             {problem ? <Text style={styles.problem}>{problem}</Text> : null}
             {!problem && blocked ? (

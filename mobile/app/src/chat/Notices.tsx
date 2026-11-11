@@ -1,7 +1,7 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import type { AccountMove, AgentNotice, ChatPart, TaskNotice as Notice } from '@shared/wire.generated';
-import { Icon } from '@/ui/Icon';
+import { AgentIcon, Icon } from '@/ui/Icon';
 import { fonts, type Palette, useColors, useStyles } from '@/ui/theme';
 import { useFold } from './folds';
 
@@ -60,8 +60,8 @@ export function AgentNoticeLine({ notice }: { notice: AgentNotice }) {
 export function AccountLine({ move }: { move: AccountMove }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
-  const why = move.reason === 'limit' && move.from ? `${move.from} reached its usage limit` : (move.placed ?? null);
-  const said = move.placed ? 'Started on' : 'Moved to';
+  const why = move.reason === 'limit' && move.from ? `${move.from} reached its usage limit` : null;
+  const said = 'Moved to';
   return (
     <View style={styles.notice} accessible accessibilityLabel={`${said} ${move.label}${why ? `. ${why}` : ''}`}>
       <View style={styles.noticeHead}>
@@ -72,6 +72,23 @@ export function AccountLine({ move }: { move: AccountMove }) {
         </Text>
       </View>
       {why ? <Text style={styles.noticeSummary}>{why}</Text> : null}
+    </View>
+  );
+}
+
+/** The account smart accounts picked for a chat about to start, and why, in one quiet centred line. */
+export function SmartPick({ move, provider }: { move: AccountMove; provider: string }) {
+  const styles = useStyles(makeStyles);
+  return (
+    <View style={styles.pick} accessible accessibilityLabel={`Smart pick: ${move.label}${move.placed ? `. ${move.placed}` : ''}`}>
+      <View style={styles.pickHead}>
+        <AgentIcon provider={provider} size={12} />
+        <Text style={styles.pickName} numberOfLines={1}>
+          {move.label}
+        </Text>
+        <Text style={styles.pickCaps}>Smart pick</Text>
+      </View>
+      {move.placed ? <Text style={styles.pickWhy}>{move.placed}</Text> : null}
     </View>
   );
 }
@@ -123,6 +140,11 @@ const makeStyles = (colors: Palette) => {
       borderColor: colors.border,
     },
     noticeHead: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+    pick: { alignItems: 'center', gap: 4, paddingTop: 40, paddingHorizontal: 16 },
+    pickHead: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+    pickName: { flexShrink: 1, fontFamily: fonts.uiMedium, fontSize: 12.5, color: colors.ink },
+    pickCaps: { fontFamily: fonts.uiMedium, fontSize: 10, letterSpacing: 1.6, textTransform: 'uppercase', color: colors.tertiary },
+    pickWhy: { fontFamily: fonts.ui, fontSize: 12, color: colors.inkFaint, textAlign: 'center' },
     noticeName: { flexShrink: 1, fontFamily: fonts.mono, fontSize: 11.5, color: colors.ink },
     noticeState: { fontFamily: fonts.ui, fontSize: 12, color: colors.inkFaint },
     noticeSummary: { fontFamily: fonts.ui, fontSize: 12, lineHeight: 17, color: colors.inkFaint },

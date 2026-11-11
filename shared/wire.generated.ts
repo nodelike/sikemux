@@ -4252,6 +4252,11 @@ export interface SettleParams {
     settled: boolean;
 }
 
+export interface SmartPickParams {
+    launcher: string;
+    project: string;
+}
+
 export interface SnoozeParams {
     agentIds: string[];
     /** When it wakes, in Unix milliseconds; none wakes it now, unless `typed` names a time. */
@@ -4314,6 +4319,7 @@ export interface CoreCalls {
     setRequireApproval: { params: ApprovalSetting; answer: RemoteStatus };
     setWorktreeDefault: { params: WorktreeDefaultParams; answer: null };
     settleAgents: { params: SettleParams; answer: null };
+    smartPick: { params: SmartPickParams; answer: AccountMove | null };
     snoozeAgents: { params: SnoozeParams; answer: null };
     snoozePresets: { params: NoParams; answer: SnoozePreset[] };
     stashPrompt: { params: StashPromptParams; answer: StashedPrompt };

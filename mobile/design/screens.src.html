@@ -544,6 +544,11 @@
   .project-sheet mark { background: none; color: var(--text-primary); font-weight: 600; }
 
   /* the Mac's new-chat welcome: project activity */
+  .wc-pick { display: flex; flex-direction: column; align-items: center; gap: 4px; padding-top: 14px; }
+  .wc-pick .h { display: flex; align-items: center; gap: 7px; }
+  .wc-pick .h b { font-weight: 500; font-size: 12.5px; color: var(--text-primary); }
+  .wc-pick .h i { font-style: normal; font-weight: 500; font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--text-tertiary); }
+  .wc-pick .sm { font-size: 12px; color: var(--text-tertiary); text-align: center; }
   .welcome-chat { flex: 1; min-height: 0; padding: 0 28px 40px; display: flex; flex-direction: column; justify-content: center; gap: 26px; }
   .wc-head { display: flex; flex-direction: column; align-items: center; gap: 10px; }
   .wc-head b { font-size: 20px; font-weight: 600; letter-spacing: -0.028em; color: var(--text-primary); }
@@ -3523,7 +3528,6 @@ expected 1 write, got 2</div>
           <div class="md-task"><span class="box"></span><span>Add a link tool</span></div>
           <div class="notice"><div class="h">{{IconWarning:12}}<span class="w" style="color:var(--warn)">Context almost full</span></div><div class="sm">Older turns will be summarised soon</div></div>
           <div class="notice"><div class="h">{{IconUser:12}}<span class="w">Moved to</span><span class="nm">Work</span></div><div class="sm">Personal reached its usage limit</div></div>
-          <div class="notice"><div class="h">{{IconUser:12}}<span class="w">Started on</span><span class="nm">Personal</span></div><div class="sm">Its week ends soonest, with 40% still unused</div></div>
         </div>
         <div class="composer-wrap">
           <div class="composer">
@@ -4099,7 +4103,7 @@ expected 1 write, got 2</div>
       <div class="screen">
         <div class="nav"><span class="back">{{IconChevron:18}}</span><span class="mid"><span class="claude">{{IconClaude:17}}</span><span class="named"><b>@New Claude chat</b></span></span><span class="end"></span></div>
         <div class="welcome-chat">
-          <div class="wc-head"><span class="claude">{{IconClaude:36}}</span><b>sikemux</b></div>
+          <div class="wc-head"><span class="claude">{{IconClaude:36}}</span><b>sikemux</b><span class="wc-pick"><span class="h"><span class="claude">{{IconClaude:12}}</span><b>Personal</b><i>Smart pick</i></span><span class="sm">Its week ends soonest, with 40% still unused</span></span></div>
           <div class="wc-cal">
             <div class="wc-heat"><div class="wc-cells"><i data-level="2"></i><i data-level="1"></i><i></i><i data-level="2"></i><i data-level="3"></i><i></i><i></i><i data-level="2"></i><i></i><i data-level="3"></i><i data-level="2"></i><i data-level="3"></i><i data-level="2"></i><i data-level="1"></i><i data-level="1"></i><i data-level="2"></i><i data-level="2"></i><i data-level="3"></i><i data-level="4"></i><i></i><i data-level="2"></i><i data-level="1"></i><i data-level="1"></i><i data-level="3"></i><i data-level="4"></i><i data-level="2"></i><i data-level="1"></i><i></i><i data-level="2"></i><i data-level="2"></i><i></i><i data-level="3"></i><i data-level="4"></i><i></i><i data-level="1"></i><i></i><i data-level="2"></i><i data-level="3"></i><i data-level="4"></i><i></i><i data-level="1"></i><i></i><i data-level="3"></i><i data-level="3"></i><i></i><i></i><i data-level="4"></i><i data-level="1"></i><i data-level="1"></i><i data-level="4"></i><i data-level="2"></i><i data-level="4"></i><i data-level="3"></i><i data-level="3"></i><i></i><i></i><i data-level="2"></i><i data-level="3"></i><i data-level="3"></i><i></i><i data-level="3"></i><i></i><i></i><i data-level="3"></i><i data-level="3"></i><i data-level="4"></i><i data-level="2"></i><i data-level="2"></i><i></i><i data-level="1"></i><i data-level="3"></i><i data-level="2"></i><i></i><i data-level="2"></i><i data-level="2"></i><i data-level="2"></i><i data-level="2"></i><i data-level="4"></i><i></i><i data-level="4"></i><i data-level="3"></i><i data-level="3"></i><i></i><i data-level="1"></i><i data-level="2"></i><i data-level="1"></i><i data-level="1"></i><i></i><i data-level="3"></i><i></i><i></i><i></i><i data-level="3"></i><i data-level="4"></i><i data-level="2"></i><i data-level="3"></i><i></i><i data-level="1"></i><i data-level="2"></i><i></i><i></i><i data-level="2"></i><i data-level="4"></i><i></i><i></i><i data-level="3"></i><i data-level="4"></i><i data-level="1"></i><i data-level="2"></i><i data-level="1"></i><i data-level="1"></i><i data-level="1"></i><i data-level="2"></i><i data-level="3"></i><i data-level="2"></i><i data-level="2"></i><i data-level="3"></i><i data-level="1"></i><i></i><i data-level="4"></i><i></i><i></i><i data-level="2"></i><i data-level="3"></i><i data-level="1"></i><i data-level="2"></i><i data-level="2"></i><i></i><i></i><i data-level="2"></i><i data-level="3"></i><i data-level="2"></i><i data-level="1"></i><i data-level="2"></i><i data-level="1"></i><i data-level="1"></i><i data-level="4"></i><i class="future"></i><i class="future"></i><i class="future"></i></div></div>
             <div class="wc-caption">96 active days in the last 20 weeks</div>
@@ -4125,7 +4129,7 @@ expected 1 write, got 2</div>
         </div>
       </div>
       <div class="home-bar"></div></div>
-      <figcaption><b>New chat</b><div class="note">The Mac's new-chat welcome, cut to what reads at a glance: the agent, the project, and the last twenty weeks of its activity calendar with one line under it. The composer takes the keyboard as the screen opens, so the first message can be typed at once. The project strip docks on the composer until the first message; the agent is chosen from the model picker. Its header is the chat's own, with no rule under it, and the first message turns it into that chat in place, with no slide. Send draws the message at once, dimmed with Sending… and Starting under it while the agent comes up; if the chat can't start, the message goes back into the composer with the reason.</div></figcaption>
+      <figcaption><b>New chat</b><div class="note">The Mac's new-chat welcome, cut to what reads at a glance: the agent, the project, and the last twenty weeks of its activity calendar with one line under it. When the agent has two or more accounts and smart accounts would pick one, a quiet line under the project names the account the chat will start on, marked Smart pick, and why, as the host's core works it out before anything is sent; an account chosen in the chat's settings shows none. The composer takes the keyboard as the screen opens, so the first message can be typed at once. The project strip docks on the composer until the first message; the agent is chosen from the model picker. Its header is the chat's own, with no rule under it, and the first message turns it into that chat in place, with no slide. Send draws the message at once, dimmed with Sending… and Starting under it while the agent comes up; if the chat can't start, the message goes back into the composer with the reason.</div></figcaption>
     </figure>
 
     <figure><div class="phone"><div class="island"></div>

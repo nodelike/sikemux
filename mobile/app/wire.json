@@ -38,6 +38,7 @@
     "setRequireApproval",
     "setWorktreeDefault",
     "settleAgents",
+    "smartPick",
     "snoozeAgents",
     "snoozePresets",
     "stashPrompt",

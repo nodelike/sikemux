@@ -34,6 +34,7 @@ import { ToolDetailContext } from '@/chat/Tools';
 import { Trouble } from '@/chat/Trouble';
 import { AskedStrip, Message, TeamFold, WorkSummary } from '@/chat/Transcript';
 import { Activity } from '@/chat/Activity';
+import { SmartPick } from '@/chat/Notices';
 import { Earlier, EarlierLost, Queued } from '@/chat/TranscriptEdges';
 import { AgentContext, ProviderContext, SubagentsContext } from '@/chat/transcriptContext';
 import { useChat } from '@/chat/useChat';
@@ -329,6 +330,7 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
                                 </>
                               );
                             }}
+                            ListEmptyComponent={state.placed ? <SmartPick move={state.placed} provider={provider} /> : null}
                             ListHeaderComponent={
                               chat.hasEarlier ? (
                                 <Earlier

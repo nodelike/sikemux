@@ -518,6 +518,7 @@ calls! { core, client, method, params;
     "addTask" AddTask (super::tasks::AddParams) -> super::tasks::TaskAdded: Owner => super::tasks::add(&core, params, super::tasks::answered_by(&core, &client.peer)).await?,
     "removeTask" RemoveTask (super::tasks::RemoveTaskParams) -> Value: Owner => super::tasks::remove(&core, params).await?,
     "setCheck" SetCheck (super::tasks::SetCheckParams) -> Value: Owner => super::tasks::set_check(&core, params).await?,
+    "smartPick" SmartPick (super::launching::SmartPickParams) -> Option<sikemux_view::chat::AccountMove>: Watch => super::launching::smart_pick(&core, params).await?,
     "agentModels": NoDevice => answer(super::chat::models_of(&core, &parse::<super::chat::AgentModelsParams>(params)?.agent)),
     "plugin" Plugin (plugins::PluginCall) -> plugins::PluginOutcome: Owner, counted_by("plugin") => plugins::window_call(&core, params).await,
     "pluginManifests": Owner => answer(plugins::manifests(&core)),

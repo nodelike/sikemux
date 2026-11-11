@@ -339,6 +339,47 @@ pub(crate) async fn start(
     Ok(started)
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct SmartPickParams {
+    pub launcher: String,
+    pub project: String,
+}
+
+/// The account smart accounts would start a new chat of `launcher` in `project` on, and why, so a
+/// client can say it before the chat exists. None when the launcher names its account or smart
+/// accounts would not pick one.
+pub(crate) async fn smart_pick(
+    core: &Arc<Core>,
+    params: SmartPickParams,
+) -> CoreResult<Option<sikemux_view::chat::AccountMove>> {
+    let kind = LauncherId::parse(&params.launcher).kind.to_owned();
+    let mut chosen = Launch {
+        agent_id: String::new(),
+        launcher: params.launcher,
+        cwd: core.workspaces.project_path(&params.project)?,
+        permission_mode: None,
+        model: core
+            .workspaces
+            .model_pick(&kind)
+            .and_then(|pick| pick.model),
+        model_provider: None,
+        effort: None,
+        resume_id: None,
+        account: None,
+        fallbacks: Vec::new(),
+        program: None,
+        waits_for_person: true,
+    };
+    Ok(place(core, &mut chosen)
+        .await
+        .map(|notice| sikemux_view::chat::AccountMove {
+            label: notice["label"].as_str().unwrap_or_default().to_owned(),
+            from: None,
+            reason: sikemux_view::chat::MoveReason::Chosen,
+            placed: notice["why"].as_str().map(str::to_owned),
+        }))
+}
+
 /// Puts a chat that names only its agent on the account smart accounts picks for it, and
 /// answers what the chat says of that once its agent is up. A chat that names its account, as
 /// one the person picked or one woken on the account it ran on, keeps it. One shown to the person
