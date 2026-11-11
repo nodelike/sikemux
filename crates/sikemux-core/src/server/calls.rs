@@ -127,6 +127,7 @@ calls! { core, client, method, params;
     "keepPasted" KeepPasted (attachments::KeepPastedParams) -> attachments::Kept: Full => attachments::keep_pasted(&core, params).await?,
     "page" ReadPage (super::harness::pages::PageParams) -> super::harness::pages::PageHtml: Watch, any_program => super::harness::read_page(&core, params).await?,
     "nameAgent": NoDevice => answer(names::name_agent(&core, parse(params)?).await?),
+    "appDeviceKey": NoDevice => answer(super::account::devices::app_device_key(parse(params)?).await?),
     "renameAgent" RenameAgent (names::RenameAgentParams) -> names::AgentName: Full, counted => names::rename_agent(&core, params).await?,
     "promptChat" PromptChat (chat_calls::PromptChatParams) -> (): Full => chat_calls::prompt_chat(&core, params).await?,
     "closedAgents" ClosedAgents (names::ClosedAgentsParams) -> Vec<names::ClosedAgent>: Full => names::closed_agents(&core, params).await?,

@@ -147,6 +147,28 @@ pub struct DeviceParams {
     pub name: Option<String>,
 }
 
+/// The key this host's app goes on the network with, offered by the app the first time.
+#[derive(Deserialize)]
+pub(crate) struct AppKeyParams {
+    offered: String,
+}
+
+/// Keeps the app's network key for an app that may keep no secrets of its own, as on Linux,
+/// where only the core reaches the guarded store. Answers with the key kept before, if any.
+pub(crate) async fn app_device_key(params: AppKeyParams) -> CoreResult<String> {
+    const SERVICE: &str = "sikemux-device";
+    const ACCOUNT: &str = "app";
+    let failed = |error: sikemux_keychain::KeychainError| CoreError::from(error.to_string());
+    super::super::connection::blocking(move || {
+        if let Some(kept) = sikemux_keychain::read(SERVICE, ACCOUNT).map_err(failed)? {
+            return Ok(kept);
+        }
+        sikemux_keychain::write(SERVICE, ACCOUNT, &params.offered).map_err(failed)?;
+        Ok(params.offered)
+    })
+    .await
+}
+
 /// The name this host last gave itself on the account, kept beside the core's data.
 const NAME_SENT_FILE: &str = "account-host-name";
 

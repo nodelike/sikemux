@@ -716,6 +716,18 @@ fn device_key() -> Result<SecretKey, String> {
     Ok(key)
 }
 
+/// The app's network key as its core keeps it, for an app that may keep no secrets itself.
+async fn device_key_from_core(client: &CoreClient) -> Result<SecretKey, String> {
+    let offered = sikemux_linked::key_text(&sikemux_linked::new_key());
+    let kept = client
+        .call("appDeviceKey", serde_json::json!({ "offered": offered }))
+        .await
+        .map_err(|error| error.to_string())?;
+    kept.as_str()
+        .and_then(sikemux_linked::key_from_text)
+        .ok_or_else(|| "the core kept no key for this app".to_owned())
+}
+
 /// Goes on the network as this app's own device, once the core's host is on an account.
 async fn reach_hosts(
     client: &CoreClient,
@@ -731,14 +743,17 @@ async fn reach_hosts(
     let unavailable = |reason: String| {
         let _ = updates.send(Update::HostsUnavailable(reason));
     };
-    let key = match tokio::task::spawn_blocking(device_key).await {
-        Ok(Ok(key)) => key,
-        Ok(Err(reason)) => {
+    let key = if sikemux_keychain::ready().is_ok() {
+        tokio::task::spawn_blocking(device_key)
+            .await
+            .unwrap_or_else(|error| Err(error.to_string()))
+    } else {
+        device_key_from_core(client).await
+    };
+    let key = match key {
+        Ok(key) => key,
+        Err(reason) => {
             unavailable(reason);
-            return None;
-        }
-        Err(error) => {
-            unavailable(error.to_string());
             return None;
         }
     };
