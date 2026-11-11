@@ -13,9 +13,8 @@ use std::sync::Arc;
 
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::{
-    div, px, relative, AnyElement, AppContext, Context, Entity, Hsla, Image, ImageFormat,
-    InteractiveElement, IntoElement, ParentElement, StatefulInteractiveElement, Styled,
-    Subscription, Window,
+    div, AnyElement, AppContext, Context, Entity, Hsla, Image, ImageFormat, InteractiveElement,
+    IntoElement, ParentElement, StatefulInteractiveElement, Styled, Subscription, Window,
 };
 use sikemux_core::server::call;
 use sikemux_core::server::host_stats::apps::AppIconParams;
@@ -25,13 +24,11 @@ use sikemux_view::layout::{OpenTab, PaneKind};
 use crate::core::Target;
 use crate::hosts::Place;
 use crate::reads::Read;
-use crate::theme::{self, Tokens, RADIUS_4, SPACE_3};
+use crate::theme::{self, Tokens};
 use crate::ui;
 use crate::workbench::Workbench;
 
 /// The narrowest and widest the chosen host's detail is drawn.
-const DETAIL_MIN: f32 = 360.;
-const DETAIL_MAX: f32 = 540.;
 
 /// What this window keeps of the Hosts page while it is open: which host is chosen, how the
 /// hosts are laid out and narrowed, and what is watched for it.
@@ -88,7 +85,6 @@ pub fn pane(
     _window: &Window,
     cx: &mut Context<Workbench>,
 ) -> AnyElement {
-    let t = Tokens::get(cx).clone();
     let listed = model::hosts(bench);
     let chosen = chosen_key(bench, &listed);
     let host = listed
@@ -112,25 +108,9 @@ pub fn pane(
                         .overflow_y_scroll()
                         .child(board.body),
                 )
-                .children(detail.map(|detail| {
-                    div()
-                        .id("hosts-detail")
-                        .absolute()
-                        .top(SPACE_3)
-                        .right(SPACE_3)
-                        .bottom(SPACE_3)
-                        .w(relative(0.42))
-                        .min_w(px(DETAIL_MIN))
-                        .max_w(px(DETAIL_MAX))
-                        .occlude()
-                        .overflow_y_scroll()
-                        .rounded(RADIUS_4)
-                        .border_1()
-                        .border_color(t.border_strong)
-                        .bg(t.surface_sunken)
-                        .shadow(t.shadow_float())
-                        .child(detail)
-                })),
+                .children(
+                    detail.map(|detail| ui::floating_panel("hosts-detail", cx).child(detail)),
+                ),
         )
         .into_any_element()
 }

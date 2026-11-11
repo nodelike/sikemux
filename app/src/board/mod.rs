@@ -682,12 +682,12 @@ impl Render for BoardPane {
                 self.fields = Some(self.fields_for(Some(&card), window, cx));
             }
         }
-        let t = Tokens::get(cx).clone();
         let panel = crate::board::panels::panel(self, cx);
         div()
             .id("board")
             .key_context("AgentBoard")
             .track_focus(&self.focus)
+            .relative()
             .size_full()
             .flex()
             .min_h_0()
@@ -701,18 +701,7 @@ impl Render for BoardPane {
                     .children(triggers(self, cx))
                     .child(body(self, cx)),
             )
-            .when_some(panel, |pane, panel| {
-                pane.child(
-                    div()
-                        .id("board-panel")
-                        .w(px(340.))
-                        .flex_none()
-                        .border_l_1()
-                        .border_color(t.border)
-                        .overflow_y_scroll()
-                        .child(panel),
-                )
-            })
+            .children(panel.map(|panel| ui::floating_panel("board-panel", cx).child(panel)))
     }
 }
 

@@ -32,7 +32,7 @@ pub use floats::{
 };
 pub(crate) use lists::relist;
 pub use lists::{close_button, gives_way, hover_actions, Group, Row, Tab, ROW};
-pub use pane::{pane, PaneHeader, AGENT_INSET};
+pub use pane::{floating_panel, pane, PaneHeader, AGENT_INSET};
 pub use select::{select, Pick};
 pub use state_mark::status_mark;
 

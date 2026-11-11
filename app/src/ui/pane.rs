@@ -2,13 +2,16 @@ use std::rc::Rc;
 
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    div, px, AnyElement, App, ClickEvent, Div, FontWeight, InteractiveElement, IntoElement,
-    ParentElement, RenderOnce, SharedString, StatefulInteractiveElement, Styled, Window,
+    div, px, relative, AnyElement, App, ClickEvent, Div, ElementId, FontWeight, InteractiveElement,
+    IntoElement, ParentElement, RenderOnce, SharedString, Stateful, StatefulInteractiveElement,
+    Styled, Window,
 };
 use smallvec::SmallVec;
 
 use super::{mark_box, meta, text};
-use crate::theme::{Tokens, RADIUS_3, SPACE_0, SPACE_2, SPACE_3H, TEXT_SM, TEXT_XS};
+use crate::theme::{
+    Tokens, RADIUS_3, RADIUS_4, SPACE_0, SPACE_2, SPACE_3, SPACE_3H, TEXT_SM, TEXT_XS,
+};
 
 /// How far an agent pane's contents sit inside its frame, as on the Mac.
 pub const AGENT_INSET: f32 = 6.;
@@ -23,6 +26,28 @@ pub fn pane(cx: &App) -> Div {
         .border_color(Tokens::get(cx).border)
         .rounded(RADIUS_3)
         .children(super::grain::field(cx))
+}
+
+/// A detail panel that floats over the right of a page, which stays in view behind it.
+/// The page's frame must be `relative`.
+pub fn floating_panel(id: impl Into<ElementId>, cx: &App) -> Stateful<Div> {
+    let t = Tokens::get(cx);
+    div()
+        .id(id)
+        .absolute()
+        .top(SPACE_3)
+        .right(SPACE_3)
+        .bottom(SPACE_3)
+        .w(relative(0.42))
+        .min_w(px(360.))
+        .max_w(px(540.))
+        .occlude()
+        .overflow_y_scroll()
+        .rounded(RADIUS_4)
+        .border_1()
+        .border_color(t.border_strong)
+        .bg(t.surface_sunken)
+        .shadow(t.shadow_float())
 }
 
 /// An agent pane's header: a bar across the top of the frame, what the pane is on the left
