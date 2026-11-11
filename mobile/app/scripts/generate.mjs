@@ -19,6 +19,18 @@ const shaderSource = resolve(app, 'node_modules/@paper-design/shaders/dist/verte
 
 const mtime = (path) => (existsSync(path) ? statSync(path).mtimeMs : null);
 const LOGO_FILES = { IconCodex: 'codex.svg', IconOmp: 'omp.svg', IconMuse: 'muse.svg' };
+/** The marks the Mac puts on a link to these services, from its own icons. */
+const SERVICE_FILES = {
+  IconGithub: 'github.svg',
+  IconBitbucket: 'bitbucket.svg',
+  IconJira: 'jira.svg',
+  IconGitlab: 'gitlab.svg',
+  IconLinear: 'linear.svg',
+  IconVercel: 'vercel.svg',
+  IconSlack: 'slack.svg',
+  IconApple: 'apple.svg',
+  IconGoogleplay: 'googleplay.svg',
+};
 
 function iconsUpToDate() {
   if (!existsSync(iconsOut) || !existsSync(iconsStamp)) return false;
@@ -55,7 +67,10 @@ export const rendered = Object.fromEntries(
   const { rendered } = await import(`${pathToFileURL(bundle).href}?${Date.now()}`);
   rmSync(bundle);
 
-  const logos = Object.entries(LOGO_FILES).map(([name, file]) => [name, resolve(shared, 'assets/agent-logos', file)]);
+  const logos = [
+    ...Object.entries(LOGO_FILES).map(([name, file]) => [name, resolve(shared, 'assets/agent-logos', file)]),
+    ...Object.entries(SERVICE_FILES).map(([name, file]) => [name, resolve(app, '../../app/assets/icons', file)]),
+  ];
   for (const [name, path] of logos) rendered[name] = readFileSync(path, 'utf8');
 
   const markup = Object.fromEntries(

@@ -117,7 +117,7 @@ export function mixed(first: string, second: string, weight: number): string {
   const [a, b] = [channels(first), channels(second)];
   if (!a || !b) return first;
   const [red, green, blue] = a.map((value, index) => Math.round(value * weight + b[index] * (1 - weight)));
-  return `rgb(${red}, ${green}, ${blue})`;
+  return `#${[red, green, blue].map((value) => value.toString(16).padStart(2, '0')).join('')}`;
 }
 
 /** Whether a palette's ground is light, so the status bar's text turns dark on it. */
