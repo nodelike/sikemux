@@ -4,15 +4,16 @@
 use sikemux_wire::protocol::ask;
 use std::time::Duration;
 
+use reqwest::Response;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use sikemux_process::clock::epoch_ms;
 use sikemux_client::client::CoreClient;
 use sikemux_core::accounts::host::{
     HostSignIn, HostSignInFinish, HostSignInPoll, HostSignInStart, HostSignInState,
     HostSignInStatus,
 };
 use sikemux_core::accounts::protocol::Device;
+use sikemux_process::clock::epoch_ms;
 
 /// Signs this host in without a browser. `show` gets the code its person
 /// approves on a device already signed in. Answers with the account.
@@ -75,7 +76,9 @@ async fn wait_for_approval(
     loop {
         tokio::time::sleep(wait).await;
         if epoch_ms() >= expires {
-            return Err("the code expired before it was approved; run `sikemux login` again".into());
+            return Err(
+                "the code expired before it was approved; run `sikemux login` again".into(),
+            );
         }
         wait = interval;
         match send("/v1/host-sign-ins/poll", poll).await {
@@ -88,7 +91,7 @@ async fn wait_for_approval(
                     return Ok((account, nonce));
                 }
             }
-            Ok(response) if passing(response.status()) => {
+            Ok(response) if passing(response.status().as_u16()) => {
                 wait = retry_after(&response).unwrap_or(interval).max(interval);
             }
             Ok(response) => return Err(sikemux_core::accounts::refusal(response).await),
@@ -99,14 +102,14 @@ async fn wait_for_approval(
 
 /// A refusal that says nothing about the code: the server is busy or asks
 /// for fewer requests.
-fn passing(status: reqwest::StatusCode) -> bool {
-    status.is_server_error() || status == reqwest::StatusCode::TOO_MANY_REQUESTS
+fn passing(status: u16) -> bool {
+    status >= 500 || status == 429
 }
 
-fn retry_after(response: &reqwest::Response) -> Option<Duration> {
+fn retry_after(response: &Response) -> Option<Duration> {
     let seconds = response
         .headers()
-        .get(reqwest::header::RETRY_AFTER)?
+        .get("retry-after")?
         .to_str()
         .ok()?
         .trim()
@@ -115,7 +118,7 @@ fn retry_after(response: &reqwest::Response) -> Option<Duration> {
     Some(Duration::from_secs(seconds))
 }
 
-async fn send(path: &str, body: &impl Serialize) -> Result<reqwest::Response, String> {
+async fn send(path: &str, body: &impl Serialize) -> Result<Response, String> {
     let base = sikemux_core::accounts::api_base();
     sikemux_core::accounts::client()?
         .post(format!("{}{path}", base.trim_end_matches('/')))

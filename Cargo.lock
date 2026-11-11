@@ -9943,6 +9943,7 @@ dependencies = [
  "hex",
  "libc",
  "log",
+ "reqwest",
  "rustls",
  "semver",
  "sentry",
