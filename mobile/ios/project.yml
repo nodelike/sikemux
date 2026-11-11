@@ -20,6 +20,7 @@ settings:
     MARKETING_VERSION: 0.2.0
     CURRENT_PROJECT_VERSION: "1"
     SIKEMUX_COMMIT: ""
+    SIKEMUX_SENTRY_DSN: ""
   configs:
     Debug:
       SIKEMUX_VARIANT: dev
@@ -35,6 +36,11 @@ settings:
       DEAD_CODE_STRIPPING: true
       STRIP_INSTALLED_PRODUCT: true
       DEBUG_INFORMATION_FORMAT: dwarf-with-dsym
+
+packages:
+  Sentry:
+    url: https://github.com/getsentry/sentry-cocoa
+    exactVersion: 9.33.0
 
 targets:
   SikemuxCore:
@@ -97,6 +103,8 @@ targets:
       - target: SikemuxNotifications
       - target: SikemuxShare
       - sdk: SystemConfiguration.framework
+      - package: Sentry
+        product: Sentry
     info:
       path: Sikemux/Resources/Info.plist
       properties:
@@ -105,6 +113,7 @@ targets:
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         SikemuxVariant: $(SIKEMUX_VARIANT)
         SikemuxCommit: $(SIKEMUX_COMMIT)
+        SikemuxSentryDSN: $(SIKEMUX_SENTRY_DSN)
         LSRequiresIPhoneOS: true
         SikemuxKeychainGroup: $(DEVELOPMENT_TEAM).$(SIKEMUX_BUNDLE_ID).notify
         SikemuxAppGroup: group.$(SIKEMUX_BUNDLE_ID)
