@@ -42,6 +42,21 @@ impl<'a> Listed<'a> {
         self.feed?.stats.as_ref()
     }
 
+    /// Its numbers while they are current: received lately, from a host in reach.
+    pub fn fresh_stats(&self) -> Option<&'a HostStats> {
+        self.feed?.fresh_stats().filter(|_| self.online())
+    }
+
+    /// When its numbers were received, once they are no longer current.
+    pub fn stats_as_of(&self) -> Option<u64> {
+        let feed = self.feed?;
+        feed.stats.as_ref()?;
+        self.fresh_stats()
+            .is_none()
+            .then_some(feed.stats_at)
+            .flatten()
+    }
+
     pub fn online(&self) -> bool {
         !matches!(self.state, State::Offline { .. })
     }
@@ -137,7 +152,7 @@ impl<'a> Listed<'a> {
 
     /// How a meter of `kind` is coloured: as its alert says, else warning when nearly full.
     pub fn level(&self, kind: HostAlertKind) -> Option<AlertLevel> {
-        let alerts = self.stats().into_iter().flat_map(|stats| &stats.alerts);
+        let alerts = self.fresh_stats()?.alerts.iter();
         if let Some(alert) = alerts
             .filter(|alert| alert.kind == kind)
             .max_by_key(|alert| alert.level == AlertLevel::Danger)
@@ -319,7 +334,7 @@ fn state(feed: Option<&Feed>, reached: bool, alert: Option<&HostAlert>) -> State
     if updating {
         return State::Updating;
     }
-    let stats = feed.and_then(|feed| feed.stats.as_ref());
+    let stats = feed.and_then(Feed::fresh_stats);
     let worst = alert
         .or_else(|| crate::hosts::worst_alert(stats.into_iter().flat_map(|stats| &stats.alerts)));
     match worst {

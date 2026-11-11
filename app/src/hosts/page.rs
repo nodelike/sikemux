@@ -207,6 +207,7 @@ impl Workbench {
         cx: &mut Context<Self>,
     ) {
         let feed = self.feeds.at_mut(&place);
+        feed.stats_at = Some(crate::ui::time::now_ms());
         if feed.stats.as_ref() == Some(&stats) {
             return;
         }

@@ -55,7 +55,7 @@ pub fn detail(
             detail.child(about(host, stats, &t, cx))
         })
         .children(needs_you(bench, host, listed, &t, cx))
-        .when_some(stats.filter(|_| host.online()), |detail, stats| {
+        .when_some(stats, |detail, stats| {
             detail.child(resources(bench, host, stats, &t, cx))
         })
         .when_some(
@@ -243,6 +243,13 @@ fn section(
         .children(aside.map(|aside| div().ml_auto().child(aside)))
 }
 
+/// "as of 14:02" at a section's end, once the numbers under it are no longer current.
+fn as_of(host: &Listed, cx: &mut Context<Workbench>) -> Option<AnyElement> {
+    let at = host.stats_as_of()?;
+    let words = format!("as of {}", crate::ui::time::clock(at));
+    Some(ui::mono(words, TEXT_3XS, cx).into_any_element())
+}
+
 /// A fix the page offers for what needs the person, and what it does when pressed.
 struct Fix {
     words: String,
@@ -280,7 +287,10 @@ fn needs_you(
             cx,
         ));
     }
-    let alerts = host.stats().into_iter().flat_map(|stats| &stats.alerts);
+    let alerts = host
+        .fresh_stats()
+        .into_iter()
+        .flat_map(|stats| &stats.alerts);
     for (at, alert) in alerts.enumerate() {
         let (said, fixes) = explain(bench, host, listed, alert);
         let tint = crate::hosts::alert_tint(alert.level, t);
@@ -409,8 +419,8 @@ fn explain(
 /// The host other than `host` with the most memory free, among those that can take a project.
 fn roomiest_other<'a>(host: &Listed, listed: &'a [Listed]) -> Option<&'a Listed<'a>> {
     (listed.iter())
-        .filter(|other| other.key != host.key && other.online())
-        .filter(|other| other.stats().is_some())
+        .filter(|other| other.key != host.key)
+        .filter(|other| other.fresh_stats().is_some())
         .filter(|other| other.state == State::Healthy)
         .min_by(|a, b| {
             let used = |host: &Listed| host.percent(HostAlertKind::Memory).unwrap_or(100.);
@@ -803,7 +813,14 @@ fn resources(
     div()
         .flex()
         .flex_col()
-        .child(section(Icon::Gauge, "Resources", None, None, t, cx))
+        .child(section(
+            Icon::Gauge,
+            "Resources",
+            None,
+            as_of(host, cx),
+            t,
+            cx,
+        ))
         .child(div().flex().gap(SPACE_2H).children(gauges))
         .child(fold)
         .when(open, |section| {
@@ -1370,7 +1387,8 @@ fn top(
                     TEXT_3XS,
                     cx,
                 )),
-        );
+        )
+        .children(as_of(host, cx).map(|as_of| div().ml(SPACE_2).child(as_of)));
     let head = div()
         .mt(px(28.))
         .mb(SPACE_3)
