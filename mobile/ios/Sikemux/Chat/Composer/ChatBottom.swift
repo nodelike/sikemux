@@ -24,7 +24,7 @@ struct ChatBottom: View {
             provider: context.provider,
             running: rows.running && !session.stoppingTurn,
             steers: context.steers,
-            placeholder: composing.map { "Answer \($0.name)" } ?? placeholder(rows),
+            placeholder: composing.map { "Answer @\($0.name)" } ?? placeholder(rows),
             modeLocked: rows.running || !session.permissions.isEmpty || rows.head.connection != .ready || context.offline,
             watchOnly: context.watchOnly,
             offline: context.offline,
