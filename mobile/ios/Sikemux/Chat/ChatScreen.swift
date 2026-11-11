@@ -114,7 +114,7 @@ private struct ChatPane: View {
             LiveSheet(work: LiveWork(rows), provider: provider, steerable: steerable(rows), canAct: !watchOnly, session: session) { scroll.toEnd() }
         }
         .sheet(shown: $away) {
-            if let listed { AwaySheet(core: core, shown: listed) { away = false } }
+            if let listed { AwaySheet(core: core, shown: listed, onClose: { away = false }, onDone: { Router.shared.back() }) }
         }
         .sheet(shown: $menu) {
             ChatMenu(
