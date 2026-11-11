@@ -216,10 +216,9 @@ final class Hub {
                 await beforeUnpair?(connection)
                 try? await connection.unpair()
             }
-            let timeout = Task { try? await Task.sleep(for: Self.unpairWait) }
             await withTaskGroup(of: Void.self) { group in
                 group.addTask { await goodbye.value }
-                group.addTask { await timeout.value }
+                group.addTask { try? await Task.sleep(for: Self.unpairWait) }
                 await group.next()
                 group.cancelAll()
             }
