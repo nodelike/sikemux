@@ -86,10 +86,12 @@ fn named(name: &str, tool: &ToolCall, args: &Map<String, Value>) -> Option<Kind>
     use ToolFamily as F;
     use ToolIntent as I;
     let arg = |key: &str| {
-        args.get(key)
-            .and_then(Value::as_str)
-            .map(|text| text.trim().trim_start_matches('@').to_owned())
-            .filter(|text| !text.is_empty())
+        let text = match args.get(key)? {
+            Value::Array(items) => items.iter().find_map(Value::as_str)?,
+            value => value.as_str()?,
+        };
+        let text = text.trim().trim_start_matches('@');
+        (!text.is_empty()).then(|| text.to_owned())
     };
     let (family, intent, subject) = match name {
         "Bash" | "PowerShell" => return Some(command(tool)),

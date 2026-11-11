@@ -12,7 +12,9 @@ use gpui_kit::{
 };
 use sikemux_core::server::agent_accounts::{Authenticate, ChatAccountsParams};
 use sikemux_core::server::call::{self, Call};
-use sikemux_view::chat::{ChatActivity, ChatConnection, FailureKind, ToolAction};
+use sikemux_view::chat::{
+    ChatActivity, ChatConnection, FailureKind, ToolAction, ToolFamily, ToolIntent, ToolRow,
+};
 use sikemux_wire::protocol::AgentStatus;
 
 use super::Chat;
@@ -20,7 +22,9 @@ use crate::agents::rows::AgentRow;
 use crate::core::ChatAsk;
 use crate::icons::Icon;
 use crate::motion;
-use crate::theme::{Tokens, SPACE_1H, SPACE_2, SPACE_3, TEXT_2XS, TEXT_3XS_H, TEXT_SM, TEXT_XS};
+use crate::theme::{
+    Tokens, SPACE_1H, SPACE_2, SPACE_3, TEXT_2XS, TEXT_3XS_H, TEXT_SM, TEXT_XS, TEXT_XS_H,
+};
 use crate::ui::{self, Button, Variant};
 use crate::workbench::Workbench;
 
@@ -31,10 +35,46 @@ pub struct Activity {
     provider: String,
     /// The chat's agent as the pane last drew it, whose face the line wears.
     agent: Option<AgentRow>,
-    label: Option<SharedString>,
+    label: Option<Doing>,
     /// The words the label had before, fading out as the new ones fade in, and since when.
     before: Option<(SharedString, Instant)>,
     since: Instant,
+}
+
+/// What the agent is doing, said as a verb and what it is on: the command it runs, the agent
+/// it waits for, why it retries.
+#[derive(Clone, PartialEq)]
+pub struct Doing {
+    verb: SharedString,
+    what: Option<SharedString>,
+    /// `what` is a command, set as typed.
+    typed: bool,
+}
+
+impl Doing {
+    fn said(verb: impl Into<SharedString>) -> Self {
+        Doing {
+            verb: verb.into(),
+            what: None,
+            typed: false,
+        }
+    }
+
+    fn on(verb: impl Into<SharedString>, what: impl Into<SharedString>, typed: bool) -> Self {
+        let what: SharedString = what.into();
+        Doing {
+            verb: verb.into(),
+            what: (!what.trim().is_empty()).then_some(what),
+            typed,
+        }
+    }
+
+    fn whole(&self) -> SharedString {
+        match &self.what {
+            Some(what) => format!("{} {what}", self.verb).into(),
+            None => self.verb.clone(),
+        }
+    }
 }
 
 impl Activity {
@@ -61,14 +101,17 @@ impl Activity {
         }
     }
 
-    pub fn set(&mut self, label: Option<SharedString>, cx: &mut Context<Self>) {
+    pub fn set(&mut self, label: Option<Doing>, cx: &mut Context<Self>) {
         if label == self.label {
             return;
         }
         if self.label.is_none() {
             self.since = Instant::now();
         }
-        self.before = self.label.take().map(|before| (before, Instant::now()));
+        self.before = self
+            .label
+            .take()
+            .map(|before| (before.whole(), Instant::now()));
         self.label = label;
         cx.notify();
     }
@@ -92,14 +135,41 @@ impl Render for Activity {
             window.request_animation_frame();
         }
         let shown = through.map_or(1., |through| swap.at(through));
+        let what = label.what.clone().map(|what| {
+            let what = div()
+                .min_w_0()
+                .truncate()
+                .text_color(t.text_secondary)
+                .child(what);
+            if label.typed {
+                what.font_family(crate::theme::MONO)
+                    .text_size(crate::theme::ui_text(TEXT_XS))
+            } else {
+                what.text_size(crate::theme::ui_text(TEXT_XS_H))
+            }
+        });
         let words = div()
             .relative()
             .min_w_0()
             .text_size(crate::theme::ui_text(TEXT_SM))
-            .child(div().opacity(shown).child(crate::ui::shimmer::shimmer(
-                format!("activity:{}", cx.entity_id()),
-                label,
-            )))
+            .child(
+                div()
+                    .opacity(shown)
+                    .flex()
+                    .items_center()
+                    .gap(SPACE_2)
+                    .min_w_0()
+                    .child(
+                        div()
+                            .flex_none()
+                            .font_weight(gpui_kit::FontWeight::MEDIUM)
+                            .child(crate::ui::shimmer::shimmer(
+                                format!("activity:{}", cx.entity_id()),
+                                label.verb.clone(),
+                            )),
+                    )
+                    .children(what),
+            )
             .children(through.and(self.before.as_ref()).map(|(before, _)| {
                 div()
                     .absolute()
@@ -125,7 +195,9 @@ impl Render for Activity {
                 .child(words)
                 .when(seconds > 0, |line| {
                     line.child(
-                        ui::mono(crate::ui::time::elapsed(seconds), TEXT_3XS_H, cx)
+                        div()
+                            .flex_none()
+                            .child(ui::mono(crate::ui::time::elapsed(seconds), TEXT_3XS_H, cx))
                             .text_color(t.text_disabled),
                     )
                 }),
@@ -143,48 +215,82 @@ impl Chat {
     /// What the line under the last row says: nothing while a permission card already says
     /// what the turn waits on, else the running call's words, a retry, that it thinks,
     /// or that the agent is still on its way to a message sent to it.
-    pub(super) fn activity(&self) -> Option<SharedString> {
+    pub(super) fn activity(&self) -> Option<Doing> {
         let head = self.state.as_ref()?;
         Some(match head.activity.as_ref()? {
             ChatActivity::Retrying {
                 attempt,
                 connection,
-                ..
+                reason,
             } => {
-                let what = if *connection {
-                    "Reconnecting…"
-                } else {
-                    "Retrying…"
+                let verb = match (connection, attempt) {
+                    (true, _) => "Reconnecting".to_owned(),
+                    (false, Some(attempt)) => format!("Retrying, attempt {attempt}"),
+                    (false, None) => "Retrying".to_owned(),
                 };
-                let attempt = attempt.map(|attempt| format!(" (attempt {attempt})"));
-                format!("{what}{}", attempt.unwrap_or_default()).into()
+                Doing::on(verb, reason.clone().unwrap_or_default(), false)
             }
             ChatActivity::Call { row } => doing(row),
-            ChatActivity::Thinking => "Thinking…".into(),
-            ChatActivity::Starting => "Starting agent…".into(),
-            ChatActivity::Connecting => "Connecting to agent session…".into(),
+            ChatActivity::Thinking => Doing::said("Thinking"),
+            ChatActivity::Starting => Doing::said("Starting agent"),
+            ChatActivity::Connecting => Doing::said("Connecting to agent session"),
         })
     }
 }
 
-/// What a running call is doing, in its row's words.
-fn doing(row: &sikemux_view::chat::ToolRow) -> SharedString {
-    if let Some(activity) = &row.activity {
-        return activity.clone().into();
+/// What a running call is doing: its verb, and what it is on in its row's words.
+fn doing(row: &ToolRow) -> Doing {
+    use ToolFamily as F;
+    use ToolIntent as I;
+    let target = row.target.as_str();
+    let subject = row.subject.as_deref().unwrap_or(target);
+    let agent = |name: &str| {
+        if name.is_empty() || name.starts_with('@') {
+            name.to_owned()
+        } else {
+            format!("@{name}")
+        }
+    };
+    match (row.intent, row.family) {
+        (I::Run | I::Test | I::Build | I::Git | I::Commit, F::Shell) => {
+            Doing::on("Running", target, true)
+        }
+        (I::Commit, _) => Doing::on("Committing", target, false),
+        (I::Wait, F::Waiting) if row.subject.is_some() => {
+            Doing::on("Waiting for", agent(subject), false)
+        }
+        (I::Wait, _) => Doing::on("Waiting", target, false),
+        (I::Message, _) => Doing::on("Messaging", agent(subject), false),
+        (I::Start, F::Agents) => Doing::on("Starting", agent(subject), false),
+        (I::Start, _) => Doing::on("Starting", subject, false),
+        (I::Read, F::Files | F::Shell) | (I::View, _) => Doing::on("Reading", subject, false),
+        (I::Search, F::Web) => Doing::on("Searching the web for", subject, false),
+        (I::Search, _) => Doing::on("Searching for", subject, true),
+        (I::List, _) => Doing::on("Listing", subject, false),
+        (I::Edit, _) => Doing::on("Editing", target, false),
+        (I::Write, _) => Doing::on("Writing", target, false),
+        (I::Open, _) => Doing::on("Opening", target, false),
+        (I::Click, F::Simulator) => Doing::on("Tapping", target, false),
+        (I::Click, _) => Doing::on("Clicking", target, false),
+        (I::Type, _) => Doing::on("Typing", target, false),
+        (I::Look, _) => Doing::said("Taking a screenshot"),
+        (I::Fetch, _) => Doing::on("Reading", target, false),
+        _ => match &row.activity {
+            Some(activity) => Doing::said(activity.clone()),
+            None => Doing::said(match row.action {
+                ToolAction::Read => "Reading",
+                ToolAction::Edit => "Editing",
+                ToolAction::Delete => "Deleting",
+                ToolAction::Move => "Moving",
+                ToolAction::Search => "Searching",
+                ToolAction::Execute => "Running a command",
+                ToolAction::Think => "Thinking",
+                ToolAction::Fetch => "Fetching",
+                ToolAction::SwitchMode => "Switching mode",
+                ToolAction::Mcp | ToolAction::Other => "Working",
+            }),
+        },
     }
-    match row.action {
-        ToolAction::Read => "Reading…",
-        ToolAction::Edit => "Editing…",
-        ToolAction::Delete => "Deleting…",
-        ToolAction::Move => "Moving…",
-        ToolAction::Search => "Searching…",
-        ToolAction::Execute => "Running a command…",
-        ToolAction::Think => "Thinking…",
-        ToolAction::Fetch => "Fetching…",
-        ToolAction::SwitchMode => "Switching mode…",
-        ToolAction::Mcp | ToolAction::Other => "Working…",
-    }
-    .into()
 }
 
 impl Workbench {

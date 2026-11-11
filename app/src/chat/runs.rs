@@ -363,7 +363,13 @@ fn run_line(
             .flex()
             .items_center()
             .gap(SPACE_1)
-            .child(div().flex_none().text_color(t.text_secondary).child(verb))
+            .child(div().flex_none().text_color(t.text_secondary).child(
+                if line.intent == ToolIntent::Wait && !names.is_empty() {
+                    "Waited for"
+                } else {
+                    verb
+                },
+            ))
             .children(names.into_iter().map(|name| {
                 div()
                     .flex_none()
@@ -449,7 +455,7 @@ fn run_line(
         });
     let failure = line
         .failed
-        .then(|| first.failure)
+        .then_some(first.failure)
         .flatten()
         .filter(|_| !open)
         .map(|failure| {
@@ -485,12 +491,12 @@ fn run_line(
 /// What a line names a call by: the file or pattern it touched, else its target.
 fn named(call: &Call) -> String {
     let row = &call.tool.row;
-    let name = row.subject.as_deref().unwrap_or(&row.target);
-    match row.family {
-        ToolFamily::Agents | ToolFamily::Waiting if !name.is_empty() && !name.starts_with('@') => {
+    match (&row.subject, row.family) {
+        (Some(name), ToolFamily::Agents | ToolFamily::Waiting) if !name.starts_with('@') => {
             format!("@{name}")
         }
-        _ => name.to_owned(),
+        (Some(name), _) => name.clone(),
+        (None, _) => row.target.clone(),
     }
 }
 
