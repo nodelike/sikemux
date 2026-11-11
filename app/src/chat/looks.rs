@@ -282,10 +282,13 @@ impl Looks {
             designed,
             scale: Cell::new(1.),
             line: Hsla { a: 0.8, ..t.line },
-            bubble: Hsla {
-                a: 0.075,
-                ..theme::mix(t.accent, t.text_primary, 0.25)
-            },
+            bubble: theme::over(
+                Hsla {
+                    a: 0.1,
+                    ..theme::mix(t.accent, t.text_primary, 0.25)
+                },
+                t.surface_sunken,
+            ),
             asked: t.surface_composer,
             quiet: t.text_tertiary,
             faint: t.text_disabled,
