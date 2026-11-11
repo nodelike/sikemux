@@ -154,13 +154,19 @@ private struct RestoreButton: View {
     @Environment(\.palette) private var palette
     let core: String
     let shown: AgentShown
+    @State private var failure: Failure?
 
     var body: some View {
         if let connection = Hub.shared.live(core).connection, Hub.shared.live(core).isOpen {
             Button {
                 Haptics.tap()
                 Task {
-                    do { try await AwaySheet.settle(connection, [shown.agentId], false) } catch { Haptics.failure() }
+                    do {
+                        try await AwaySheet.settle(connection, [shown.agentId], false)
+                    } catch {
+                        Haptics.failure()
+                        failure = Failure("Couldn't restore it", error)
+                    }
                 }
             } label: {
                 Text("Restore")
@@ -176,6 +182,7 @@ private struct RestoreButton: View {
             .buttonStyle(PressFade())
             .padding(.leading, 6)
             .accessibilityLabel("Restore \(shown.title)")
+            .failureAlert($failure)
         }
     }
 }
