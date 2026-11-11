@@ -1,6 +1,8 @@
 {
   "fields": {
-    "DeviceView": "workspace attentions inbox faceStyle",
+    "DeviceView": "workspace attentions inbox faceStyle load",
+    "HostLoad": "overloaded loadAverage cores builds",
+    "AgentBuild": "agentId command",
     "Workspace": "projects launchers",
     "ProjectInfo": "id name path",
     "LauncherInfo": "id provider label permissionMode model effort",

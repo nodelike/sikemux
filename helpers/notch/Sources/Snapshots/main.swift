@@ -138,10 +138,15 @@ let agents = faces.isEmpty ? decoded.inbox.agents : decoded.inbox.agents.enumera
 let full = DeviceView(
     workspace: decoded.workspace, attentions: decoded.attentions,
     inbox: Inbox(items: decoded.inbox.items.filter { $0.kind != .hostAlert }, working: decoded.inbox.working, agents: agents, rollup: decoded.inbox.rollup),
-    faceStyle: decoded.faceStyle
+    faceStyle: decoded.faceStyle, load: nil
 )
 
-func view(keeping ids: Set<String>?) -> DeviceView {
+let overloaded = HostLoad(overloaded: true, loadAverage: 180, cores: 10, builds: [
+    AgentBuild(agentId: "a2", command: "xcodebuild -scheme App"), AgentBuild(agentId: "a3", command: "xcodebuild -scheme Widgets"),
+    AgentBuild(agentId: "a5", command: "cargo build"),
+])
+
+func view(keeping ids: Set<String>?, load: HostLoad? = nil) -> DeviceView {
     guard let ids else { return full }
     let items = decoded.inbox.items.filter { $0.agentId.map(ids.contains) ?? ids.contains($0.id) }
     let agents = full.inbox.agents.filter { ids.contains($0.agentId) }
@@ -153,7 +158,7 @@ func view(keeping ids: Set<String>?) -> DeviceView {
             agents: agents,
             rollup: AgentRollup(subagents: agents.reduce(0) { $0 + $1.subagents }, tasks: agents.reduce(0) { $0 + $1.tasks })
         ),
-        faceStyle: full.faceStyle
+        faceStyle: full.faceStyle, load: load
     )
 }
 
@@ -166,13 +171,13 @@ let questions = [AgentQuestion(
 let notch = NotchGeometry(notchWidth: 221, height: 38, centerX: 0)
 let plain = NotchGeometry(notchWidth: 0, height: 24, centerX: 0)
 
-func render(_ name: String, agents: Set<String>? = nil, geometry: NotchGeometry = notch, height: CGFloat = 140, dev: Bool = false,
-            devices: [PendingDevice] = [], setup: (IslandModel) -> Void = { _ in })
+func render(_ name: String, agents: Set<String>? = nil, load: HostLoad? = nil, geometry: NotchGeometry = notch, height: CGFloat = 140,
+            dev: Bool = false, devices: [PendingDevice] = [], setup: (IslandModel) -> Void = { _ in })
 {
     var options = Options()
     options.dev = dev
     let store = NotchStore(options: options)
-    store.apply(view(keeping: agents))
+    store.apply(view(keeping: agents, load: load))
     store.apply(questions)
     store.apply(devices, now: Date().addingTimeInterval(-8))
     let island = IslandModel(geometry: geometry)
@@ -269,6 +274,7 @@ render("C1-idle", agents: [])
 render("C7-subagents-and-shells", agents: ["a2", "a5"])
 render("O5-finished", agents: ["a2", "a4", "a10", "a11"], height: 340) { $0.mode = .open }
 render("O6-host-alerts", agents: ["a2", "a4", "a11", "host-alert:here:memory", "host-alert:forge:cpu"], height: 320) { $0.mode = .open }
+render("O7-mac-busy", agents: ["a2", "a4", "a11"], load: overloaded, height: 300) { $0.mode = .open }
 render("C2-working", agents: ["a2", "a3"])
 render("C3-needs-you")
 render("C4-done", agents: ["a4", "a10", "a11"])

@@ -4,7 +4,7 @@ extension DeviceView {
     static let empty = DeviceView(
         workspace: Workspace(projects: [], launchers: []), attentions: [],
         inbox: Inbox(items: [], working: 0, agents: [], rollup: nil),
-        faceStyle: FaceStyle(motion: true)
+        faceStyle: FaceStyle(motion: true), load: nil
     )
 }
 
@@ -112,6 +112,15 @@ func agentName(_ provider: String) -> String {
 }
 
 extension DeviceView {
+    /// The load against the cores and agents' builds while this Mac is overloaded, as its row says them.
+    var busy: String? {
+        guard let load, load.overloaded == true else { return nil }
+        let builds = load.builds?.count ?? 0
+        let average = load.loadAverage.map { "load \($0) on \(load.cores) cores" }
+        let counted = builds == 0 ? nil : builds == 1 ? "1 build" : "\(builds) builds"
+        return [average, counted].compactMap { $0 }.joined(separator: " · ")
+    }
+
     /// What about a host on the account needs the person, each its own row above the agents.
     var hostAlerts: [Entry] {
         inbox.items.filter { $0.kind == .hostAlert }.map { Entry(item: $0, agent: nil, ask: nil) }

@@ -313,6 +313,8 @@ struct DeviceView: Codable, Hashable {
     /// What waits on the person, ranked.
     let inbox: Inbox
     let faceStyle: FaceStyle
+    /// How busy this host is, while a client that shows it is attached.
+    let load: HostLoad?
 }
 
 struct Workspace: Codable, Hashable {
@@ -605,6 +607,23 @@ struct AgentRollup: Codable, Hashable {
 struct FaceStyle: Codable, Hashable {
     /// Faces move with what their agents are doing.
     let motion: Bool
+}
+
+/// How busy a host is, for the rows clients show it in.
+struct HostLoad: Codable, Hashable {
+    /// More threads want to run than its cores take, so agents' simulators and builds wait.
+    let overloaded: Bool?
+    /// The one-minute load average, rounded, while it is overloaded.
+    let loadAverage: Int?
+    let cores: Int
+    /// The builds agents run or wait to run, oldest first, while it is overloaded.
+    let builds: [AgentBuild]?
+}
+
+/// A build an agent started, such as `xcodebuild` or `cargo build`, running or waiting its turn.
+struct AgentBuild: Codable, Hashable {
+    let agentId: String?
+    let command: String
 }
 
 /// What a call that takes nothing is sent; whatever a client sends reads as nothing.
