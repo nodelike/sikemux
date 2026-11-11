@@ -107,3 +107,13 @@ mod tests {
         Ok(())
     }
 }
+
+pub static BOOK: sikemux_plugin_api::vault::Listed<config::Site> =
+    sikemux_plugin_api::vault::Listed::new(
+        "config.json",
+        "sites",
+        "host",
+        Some("default"),
+        config::KEYCHAIN,
+    )
+    .renewed_by(&ACCESS);

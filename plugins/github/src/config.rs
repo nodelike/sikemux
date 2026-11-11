@@ -347,3 +347,22 @@ mod tests {
         }
     }
 }
+
+impl sikemux_plugin_api::vault::Listing for Account {
+    fn secret_account(&self) -> Option<String> {
+        matches!(self.source, TokenSource::Keychain).then(|| self.id.clone())
+    }
+
+    fn label(&self) -> String {
+        format!("{} on {}", self.login, self.host)
+    }
+}
+
+pub static BOOK: sikemux_plugin_api::vault::Listed<Account> =
+    sikemux_plugin_api::vault::Listed::new(
+        "config.json",
+        "accounts",
+        "id",
+        Some("default"),
+        KEYCHAIN,
+    );

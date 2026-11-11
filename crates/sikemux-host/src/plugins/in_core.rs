@@ -3,14 +3,14 @@
 //! board does on code hosts and trackers goes on while the app is closed.
 
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 use serde_json::{json, Value};
 use sikemux_core::server::plugins::{
     AgentTool, Answer, Gated, Listing, Manifest, Plugins, Provided, Sink,
 };
-use sikemux_plugin_api::StreamSink;
+use sikemux_plugin_api::{vault, StreamSink};
 use sikemux_process::user_environment::UserEnvironment;
 
 use super::host::PluginHost;
@@ -71,6 +71,10 @@ impl Plugins for PluginHost {
 
     fn call_agent_tool<'a>(&'a self, name: &'a str, arguments: Value) -> Answer<'a, Value> {
         Box::pin(async move { self.call_agent_tool(name, arguments).await })
+    }
+
+    fn vault_books(&self) -> Vec<(String, PathBuf, &'static dyn vault::Book)> {
+        PluginHost::vault_books(self)
     }
 }
 

@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use sikemux_process::sync::Locked;
 
 use crate::service::ServiceError;
+use crate::vault;
 
 pub use sikemux_keychain::KeychainError;
 
@@ -41,16 +42,33 @@ impl Secrets {
         Self(service)
     }
 
+    pub const fn service(self) -> &'static str {
+        self.0
+    }
+
+    /// A secret the caller may not use reads as an error saying why.
     pub fn read(self, account: &str) -> Result<Option<String>, KeychainError> {
-        sikemux_keychain::read(self.0, account)
+        let Some(secret) = sikemux_keychain::read(self.0, account)? else {
+            return Ok(None);
+        };
+        self.may_use(account)?;
+        Ok(Some(secret))
+    }
+
+    pub(crate) fn may_use(self, account: &str) -> Result<(), KeychainError> {
+        vault::using(self.0, account).map_err(KeychainError::Failed)
     }
 
     pub fn write(self, account: &str, secret: &str) -> Result<(), KeychainError> {
-        sikemux_keychain::write(self.0, account, secret)
+        sikemux_keychain::write(self.0, account, secret)?;
+        vault::changed(self.0, account);
+        Ok(())
     }
 
     pub fn delete(self, account: &str) -> Result<(), KeychainError> {
-        sikemux_keychain::delete(self.0, account)
+        sikemux_keychain::delete(self.0, account)?;
+        vault::changed(self.0, account);
+        Ok(())
     }
 }
 
@@ -63,7 +81,7 @@ where
     T: Send + 'static,
     S: 'static,
 {
-    tokio::task::spawn_blocking(work)
+    tokio::task::spawn_blocking(vault::carry(work))
         .await
         .map_err(|error| ServiceError::Transport(error.to_string()))?
 }
@@ -124,7 +142,7 @@ pub fn save<T: Serialize>(data_dir: &Path, settings: &T) -> Result<(), SettingsE
 }
 
 /// One settings change at a time, so one is never written over by another.
-static CHANGING: Mutex<()> = Mutex::new(());
+pub(crate) static CHANGING: Mutex<()> = Mutex::new(());
 
 /// Reads the settings, changes them and saves them, all on a blocking thread,
 /// so a change made meanwhile by another call is never written over.
@@ -168,6 +186,7 @@ impl Held<String> {
         entry: String,
     ) -> Result<String, ServiceError<S>> {
         if let Some(secret) = self.get(key) {
+            secrets.may_use(&entry)?;
             return Ok(secret);
         }
         let secret = blocking(move || Ok(secrets.read(&entry)?))

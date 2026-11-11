@@ -93,3 +93,32 @@ pub fn entry(account: &Account, team: Option<&str>) -> String {
         None => account.id.clone(),
     }
 }
+
+impl sikemux_plugin_api::vault::Whole for VercelConfig {
+    fn identity(&self) -> Option<String> {
+        self.account.as_ref().map(|account| account.id.clone())
+    }
+
+    fn label(&self) -> String {
+        self.account
+            .as_ref()
+            .map(|account| account.username.clone())
+            .unwrap_or_default()
+    }
+
+    fn secrets(&self) -> Vec<(Secrets, String)> {
+        let Some(account) = &self.account else {
+            return Vec::new();
+        };
+        let mut secrets = vec![(KEYCHAIN, entry(account, None))];
+        for install in &self.installs {
+            if let Some(team) = &install.team {
+                secrets.push((KEYCHAIN, entry(account, Some(team))));
+            }
+        }
+        secrets
+    }
+}
+
+pub static BOOK: sikemux_plugin_api::vault::Single<VercelConfig> =
+    sikemux_plugin_api::vault::Single::new("config.json");

@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use serde_json::Value;
 use sikemux_plugin_api::{
-    FailureCategory, Plugin, PluginContext, PluginError, PluginResult, StreamSink,
+    vault, FailureCategory, Plugin, PluginContext, PluginError, PluginResult, StreamSink,
 };
 use sikemux_process::sync::{Locked, Shared};
 use tokio::runtime::{Handle, Runtime};
@@ -187,6 +187,17 @@ impl PluginHost {
             .collect()
     }
 
+    /// Each plugin's sign-ins, for the account vault, with the folder the plugin keeps them in.
+    pub fn vault_books(&self) -> Vec<(String, PathBuf, &'static dyn vault::Book)> {
+        self.plugins
+            .iter()
+            .filter_map(|(id, loaded)| {
+                let book = loaded.plugin.vault()?;
+                Some((id.clone(), loaded.context.data_dir().to_path_buf(), book))
+            })
+            .collect()
+    }
+
     pub fn manifests(&self) -> impl Iterator<Item = &Manifest> {
         self.plugins.values().map(|loaded| &loaded.manifest)
     }
@@ -295,9 +306,10 @@ impl PluginHost {
         let context = Arc::clone(&loaded.context);
         let call_timeout = loaded.call_timeout;
         let owned_method = method.to_owned();
-        let task = self
-            .spawner
-            .spawn(async move { plugin.call(&context, &owned_method, params).await });
+        let caller = vault::caller().unwrap_or_default();
+        let task = self.spawner.spawn(vault::as_caller(caller, async move {
+            plugin.call(&context, &owned_method, params).await
+        }));
         let abort = task.abort_handle();
         let outcome = match tokio::time::timeout(call_timeout, task).await {
             Ok(Ok(result)) => result,
@@ -331,9 +343,10 @@ impl PluginHost {
         let plugin = Arc::clone(&loaded.plugin);
         let context = Arc::clone(&loaded.context);
         let method = method.to_owned();
-        let task = self
-            .spawner
-            .spawn(async move { plugin.stream(&context, &method, params, sink).await });
+        let caller = vault::caller().unwrap_or_default();
+        let task = self.spawner.spawn(vault::as_caller(caller, async move {
+            plugin.stream(&context, &method, params, sink).await
+        }));
         let _stopping = StopOnDrop(task.abort_handle());
         let outcome = match task.await {
             Ok(Err(error)) if error.category == FailureCategory::StreamClosed => Ok(()),

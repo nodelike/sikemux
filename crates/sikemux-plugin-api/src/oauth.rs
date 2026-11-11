@@ -16,7 +16,9 @@ pub use sikemux_loopback::new_state;
 use crate::http::{read_body, Http};
 use crate::service::{Service, ServiceError};
 use crate::store::{blocking, Secrets};
-use crate::StreamSink;
+use crate::vault::{self, Refresh, Renew, SharedAccess};
+use crate::{PluginFuture, StreamSink};
+use sikemux_process::clock::epoch_ms;
 
 /// Long enough to sign up or find a password, short enough that a forgotten
 /// sign-in does not hold the shared port all day.
@@ -243,15 +245,27 @@ pub struct Access {
 
 impl Access {
     fn of(tokens: &Tokens) -> Self {
+        Self::new(
+            &tokens.access_token,
+            &tokens.scopes,
+            Duration::from_secs(tokens.expires_in),
+        )
+    }
+
+    fn shared(shared: &SharedAccess) -> Self {
+        let left = shared.expires_at.saturating_sub(epoch_ms());
+        Self::new(&shared.token, &shared.scopes, Duration::from_millis(left))
+    }
+
+    fn new(token: &str, scopes: &str, life: Duration) -> Self {
         Self {
-            token: tokens.access_token.clone(),
-            scopes: tokens
-                .scopes
+            token: token.to_owned(),
+            scopes: scopes
                 .split([' ', ','])
                 .filter(|scope| !scope.is_empty())
                 .map(str::to_owned)
                 .collect(),
-            expires: Instant::now() + Duration::from_secs(tokens.expires_in),
+            expires: Instant::now() + life,
         }
     }
 }
@@ -295,6 +309,19 @@ impl<S: Service> Refreshing<S> {
     /// One refresh at a time: the lock is held across it, because spending a
     /// refresh token twice would sign the account out.
     pub async fn access(&self, account: &str, entry: String) -> Result<Access, ServiceError<S>> {
+        let service = self.secrets.service();
+        match vault::refresh(service, &entry) {
+            Refresh::Here => {}
+            Refresh::Use(shared) => {
+                let secrets = self.secrets;
+                blocking(move || Ok(secrets.may_use(&entry)?)).await?;
+                return Ok(Access::shared(&shared));
+            }
+            Refresh::Wait(why) => return Err(ServiceError::Auth(why)),
+        }
+        let secrets = self.secrets;
+        let checking = entry.clone();
+        blocking(move || Ok(secrets.may_use(&checking)?)).await?;
         let mut held = self.held.lock().await;
         if let Some(access) = held
             .get(account)
@@ -302,19 +329,36 @@ impl<S: Service> Refreshing<S> {
         {
             return Ok(access.clone());
         }
+        let access = self.refresh_now(entry).await?;
+        held.insert(account.to_owned(), access.clone());
+        Ok(access)
+    }
+
+    /// Spends the refresh token kept under `entry`, keeps the one it is traded for, and hands
+    /// the new access token to the vault for the hosts that only read this sign-in.
+    async fn refresh_now(&self, entry: String) -> Result<Access, ServiceError<S>> {
         let secrets = self.secrets;
         let reading = entry.clone();
-        let refresh_token = blocking(move || Ok(secrets.read(&reading)?))
-            .await?
-            .ok_or(ServiceError::Unconfigured)?;
+        let refresh_token =
+            blocking(move || Ok(sikemux_keychain::read(secrets.service(), &reading)?))
+                .await?
+                .ok_or(ServiceError::Unconfigured)?;
         let tokens = self.app.refresh(self.http, &refresh_token).await?;
         if tokens.refresh_token != refresh_token {
             let replacement = tokens.refresh_token.clone();
-            blocking(move || Ok(secrets.write(&entry, &replacement)?)).await?;
+            let writing = entry.clone();
+            blocking(move || Ok(secrets.write(&writing, &replacement)?)).await?;
         }
-        let access = Access::of(&tokens);
-        held.insert(account.to_owned(), access.clone());
-        Ok(access)
+        vault::refreshed(
+            secrets.service(),
+            &entry,
+            SharedAccess {
+                token: tokens.access_token.clone(),
+                scopes: tokens.scopes.clone(),
+                expires_at: epoch_ms().saturating_add(tokens.expires_in.saturating_mul(1000)),
+            },
+        );
+        Ok(Access::of(&tokens))
     }
 
     /// The service refused `rejected`, so it is dropped and a fresh one
@@ -358,5 +402,18 @@ impl<S: Service> Refreshing<S> {
             }
             answered => answered,
         }
+    }
+}
+
+impl<S: Service + Sync> Renew for Refreshing<S> {
+    /// Waits for any refresh under way, so the refresh token is never spent twice.
+    fn renew<'a>(&'a self, identity: &'a str) -> PluginFuture<'a, ()> {
+        Box::pin(async move {
+            let _turn = self.held.lock().await;
+            self.refresh_now(identity.to_owned())
+                .await
+                .map(drop)
+                .map_err(crate::PluginError::from)
+        })
     }
 }

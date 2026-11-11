@@ -17,6 +17,10 @@ use sikemux_plugin_api::{
 sikemux_plugin_api::plugin!(Linear);
 
 impl Plugin for Linear {
+    fn vault(&self) -> Option<&'static dyn sikemux_plugin_api::vault::Book> {
+        Some(&oauth::BOOK)
+    }
+
     fn call<'a>(
         &'a self,
         ctx: &'a PluginContext,

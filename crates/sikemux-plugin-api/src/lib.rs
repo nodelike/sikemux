@@ -15,6 +15,7 @@ pub mod service;
 pub mod signin;
 pub mod store;
 pub mod terminal;
+pub mod vault;
 
 use std::collections::BTreeMap;
 use std::future::Future;
@@ -95,6 +96,11 @@ pub trait Plugin: Manifested + Send + Sync {
     /// answer at once.
     fn agent_environment(&self, _ctx: &PluginContext, _project: &Path) -> BTreeMap<String, String> {
         BTreeMap::new()
+    }
+
+    /// Where the plugin keeps its sign-ins, for the account vault. None keeps them out of it.
+    fn vault(&self) -> Option<&'static dyn vault::Book> {
+        None
     }
 }
 

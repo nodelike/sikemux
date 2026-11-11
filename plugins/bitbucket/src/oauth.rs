@@ -23,3 +23,13 @@ pub static APP: OAuthApp = OAuthApp {
 };
 
 pub static ACCESS: Refreshing<Bitbucket> = Refreshing::new(&APP, &HTTP, config::KEYCHAIN);
+
+pub static BOOK: sikemux_plugin_api::vault::Listed<config::Account> =
+    sikemux_plugin_api::vault::Listed::new(
+        "config.json",
+        "accounts",
+        "id",
+        Some("default"),
+        config::KEYCHAIN,
+    )
+    .renewed_by(&ACCESS);

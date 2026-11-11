@@ -62,6 +62,10 @@ async fn signed_in(data_dir: &Path, outcome: GithubResult<String>) -> Result<Val
 }
 
 impl Plugin for Github {
+    fn vault(&self) -> Option<&'static dyn sikemux_plugin_api::vault::Book> {
+        Some(&config::BOOK)
+    }
+
     fn call<'a>(
         &'a self,
         ctx: &'a PluginContext,
