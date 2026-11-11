@@ -138,6 +138,31 @@ impl Remote {
         })
     }
 
+    /// Forgets every phone that joined through the account this host is
+    /// signed in to and that `account`, the account's phones, no longer
+    /// holds. A ticket issued before now is refused for each.
+    pub(crate) fn forget_phones_off(&self, account: &[String]) -> CoreResult<Vec<DeviceInfo>> {
+        self.change(|stored| {
+            let Some(owner) = stored.owner.clone() else {
+                return Ok(Vec::new());
+            };
+            let gone: Vec<String> = stored
+                .devices
+                .iter()
+                .filter(|device| stored.joined_through.get(&device.id) == Some(&owner))
+                .filter(|device| !account.contains(&device.id))
+                .map(|device| device.id.clone())
+                .collect();
+            let now = epoch_ms();
+            let mut forgotten = Vec::new();
+            for id in gone {
+                forgotten.extend(stored.forget(&id));
+                stored.revoked.insert(id, now);
+            }
+            Ok(forgotten)
+        })
+    }
+
     /// Whether a device or host with a good ticket waits for the person.
     pub(crate) fn requires_approval(&self) -> bool {
         self.inner.locked().stored.require_approval

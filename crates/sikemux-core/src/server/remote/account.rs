@@ -196,6 +196,14 @@ impl live::Account for HostAccount {
             announce(&core);
         }
         if link == Link::Live {
+            let reconciling = core.clone();
+            tokio::spawn(async move {
+                let forgotten =
+                    crate::server::account::devices::forget_phones_off_account(&reconciling).await;
+                if let Err(error) = forgotten {
+                    eprintln!("sikemux core: could not check the account's phones: {error}");
+                }
+            });
             core.hosts.relink.now();
             core.vault.wake();
             crate::server::stash::catch_up(&core);

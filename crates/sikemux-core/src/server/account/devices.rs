@@ -254,6 +254,28 @@ pub(crate) async fn remove_device(core: &Core, params: DeviceParams) -> CoreResu
     Ok(())
 }
 
+/// Forgets the phones paired through the account that the account no longer
+/// has, which it may have revoked while this host was away and never told it.
+pub(crate) async fn forget_phones_off_account(core: &Core) -> CoreResult<()> {
+    if core.remote.owner().is_none() {
+        return Ok(());
+    }
+    let list: DeviceList = as_host(core, Method::GET, "/v1/devices?role=client", None).await?;
+    let keys: Vec<String> = list.devices.into_iter().map(|device| device.key).collect();
+    let forgotten = core.remote.forget_phones_off(&keys)?;
+    for device in &forgotten {
+        core.close_device_clients(Some(&device.id));
+        eprintln!(
+            "sikemux core: forgot a device ({}): the account no longer has it",
+            device.id.get(..8).unwrap_or(&device.id)
+        );
+    }
+    if !forgotten.is_empty() {
+        crate::server::remote::announce(core);
+    }
+    Ok(())
+}
+
 /// The phones on the account this host has not paired, newest first, so the
 /// person can let them in right after signing in.
 pub(crate) async fn phones(core: &Core) -> CoreResult<Vec<Device>> {
