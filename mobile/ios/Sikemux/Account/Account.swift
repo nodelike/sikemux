@@ -37,7 +37,7 @@ final class Account {
 
     func load() async {
         guard Clerk.hasClient,
-            let text = try? Keychain.read(Self.savedItem),
+            let text = try? Keychain.app.read(Self.savedItem),
             let saved = try? JSONDecoder().decode(Saved.self, from: Data(text.utf8))
         else {
             state = .signedOut
@@ -101,7 +101,7 @@ final class Account {
     }
 
     private func signedOutHere() {
-        Keychain.delete(Self.savedItem)
+        Keychain.app.delete(Self.savedItem)
         Clerk.forget()
         session = nil
         cached = nil
@@ -112,7 +112,7 @@ final class Account {
     private func keep(session id: String, user: Clerk.User) {
         do {
             let data = try JSONEncoder().encode(Saved(session: id, user: user))
-            try Keychain.write(Self.savedItem, String(decoding: data, as: UTF8.self))
+            try Keychain.app.write(Self.savedItem, String(decoding: data, as: UTF8.self))
         } catch {
             print("sikemux: could not keep the sign-in in the Keychain: \(error)")
         }

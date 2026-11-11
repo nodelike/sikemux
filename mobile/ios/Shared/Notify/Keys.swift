@@ -1,19 +1,19 @@
 import Foundation
-import Security
 
 /// The notification key this phone gave each host, in a Keychain group the app shares with its
 /// notification extension. Each can only read notifications, so it opens whenever a push arrives,
 /// locked or not, once the phone has been unlocked since it started.
 final class Keys {
-    private static let service = "sikemux.notify"
     private static let phoneAccount = "phone"
     private static let hostPrefix = "host:"
     private static let unreadablePrefix = "unreadable:"
 
-    private let group: String?
+    private let keychain: Keychain
 
     init(bundle: Bundle = .main) {
-        group = bundle.object(forInfoDictionaryKey: "SikemuxKeychainGroup") as? String
+        keychain = Keychain(
+            service: "sikemux.notify", group: bundle.object(forInfoDictionaryKey: "SikemuxKeychainGroup") as? String,
+            opens: .afterFirstUnlock)
     }
 
     var phone: String? {
@@ -35,20 +35,14 @@ final class Keys {
     }
 
     func all() -> [HostKey] {
-        var query = base()
-        query[kSecMatchLimit as String] = kSecMatchLimitAll
-        query[kSecReturnAttributes as String] = true
-        query[kSecReturnData as String] = true
-        var found: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &found) == errSecSuccess, let items = found as? [[String: Any]]
-        else {
+        do {
+            return try keychain.all().compactMap { item in
+                guard item.account.hasPrefix(Self.hostPrefix) else { return nil }
+                return Self.hostKey(host: String(item.account.dropFirst(Self.hostPrefix.count)), stored: item.data)
+            }
+        } catch {
+            print("sikemux: could not read the notification keys: \(error)")
             return []
-        }
-        return items.compactMap { item in
-            guard let account = item[kSecAttrAccount as String] as? String, account.hasPrefix(Self.hostPrefix),
-                let data = item[kSecValueData as String] as? Data
-            else { return nil }
-            return Self.hostKey(host: String(account.dropFirst(Self.hostPrefix.count)), stored: data)
         }
     }
 
@@ -62,7 +56,7 @@ final class Keys {
     }
 
     func clear() {
-        SecItemDelete(base() as CFDictionary)
+        keychain.clear()
     }
 
     /// The key id, big-endian, then the 32-byte key.
@@ -77,42 +71,21 @@ final class Keys {
         return HostKey(host: host, keyId: keyId, key: Data(bytes[4...]))
     }
 
-    private func base() -> [String: Any] {
-        var query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: Self.service,
-        ]
-        if let group { query[kSecAttrAccessGroup as String] = group }
-        return query
-    }
-
     private func read(_ account: String) -> Data? {
-        var query = base()
-        query[kSecAttrAccount as String] = account
-        query[kSecReturnData as String] = true
-        var found: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &found) == errSecSuccess else { return nil }
-        return found as? Data
+        do {
+            return try keychain.data(account)
+        } catch {
+            print("sikemux: could not read a notification key: \(error)")
+            return nil
+        }
     }
 
     private func write(_ account: String, _ data: Data) {
-        var query = base()
-        query[kSecAttrAccount as String] = account
-        let update: [String: Any] = [
-            kSecValueData as String: data,
-            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
-        ]
-        var status = SecItemUpdate(query as CFDictionary, update as CFDictionary)
-        if status == errSecItemNotFound {
-            query.merge(update) { $1 }
-            status = SecItemAdd(query as CFDictionary, nil)
-        }
-        if status != errSecSuccess { print("sikemux: could not keep a notification key: \(status)") }
+        do { try keychain.write(account, data) } catch { print("sikemux: could not keep a notification key: \(error)") }
     }
 
     private func delete(_ account: String) {
-        var query = base()
-        query[kSecAttrAccount as String] = account
-        SecItemDelete(query as CFDictionary)
+        keychain.delete(account)
     }
+
 }

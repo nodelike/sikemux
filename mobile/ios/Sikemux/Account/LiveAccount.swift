@@ -36,7 +36,7 @@ final class LiveAccount {
     }
 
     static func forgetCursor() {
-        Keychain.delete(cursorItem)
+        Keychain.app.delete(cursorItem)
     }
 
     func start() {
@@ -166,7 +166,7 @@ final class LiveAccount {
     }
 
     private func read(_ events: [AccountEvent]) -> (ack: EventId, gone: RevokeReason?) {
-        let mark = (try? Keychain.read(Self.cursorItem)).flatMap { $0 }.flatMap(Int.init) ?? 0
+        let mark = (try? Keychain.app.read(Self.cursorItem)).flatMap { $0 }.flatMap(Int.init) ?? 0
         var newest = 0
         var handled = mark
         var hosts = false
@@ -195,7 +195,7 @@ final class LiveAccount {
         }
         if handled > mark {
             do {
-                try Keychain.write(Self.cursorItem, String(handled))
+                try Keychain.app.write(Self.cursorItem, String(handled))
             } catch {
                 print("sikemux: could not keep the account's event cursor: \(error)")
             }
