@@ -450,9 +450,7 @@ impl RenderOnce for Composer {
                     .max_w(px(WIDTH))
                     .rounded(theme::RADIUS_3)
                     .when(yolo_on, |outer| {
-                        outer
-                            .p(px(1.))
-                            .child(ui::yolo::edge(theme::RADIUS_3, YOLO_EDGE))
+                        outer.p(px(1.)).child(ui::yolo::edge(theme::RADIUS_3, &t))
                     })
                     .child(
                         div()
@@ -837,7 +835,7 @@ fn yolo(
         )
         .when(room >= Room::Compact, |toggle| {
             toggle.child(match on {
-                true => ui::yolo::wordmark(10.5).into_any_element(),
+                true => ui::yolo::wordmark(10.5, &t).into_any_element(),
                 false => ui::text("SAFE", TEXT_3XS_H, FontWeight::SEMIBOLD)
                     .letter_spacing(0.08)
                     .text_color(t.text_tertiary)
@@ -1203,8 +1201,6 @@ fn context_card(
 }
 
 /// How the composer's edge changes colour as it takes and loses the keys.
-/// How strongly the rainbow shows on the box's edge while YOLO is on.
-const YOLO_EDGE: f32 = 0.4;
 const FOCUS_EDGE: Ease = Ease::new(140, Curve::OUT);
 
 /// How the send button's new mark turns in.
