@@ -42,6 +42,8 @@ What you typed but did not send comes with you. A draft in the composer waits at
 
 To swap the two, set **Settings → Chats → Sending while an agent works** to **Queue**. An agent that can't be steered always queues. Sending from your phone follows the same setting.
 
+The line under the reply says what the agent is on: the command it runs, the agent it waits for, or why it retries. Each run of tool calls is one strip that says what it did, such as "Explored: read 3 files, searched twice" or "Ran 3 commands · 1 failed". Only the run still going is open. Click a strip to see a line for each thing it did, failures first; **All N calls** lists every call. Calls that only load tools or skills are left out and counted there.
+
 ## Triggers
 
 An agent can set a trigger on its own chat, to be sent a prompt later: once, such as "check the deploy in 20 minutes", or on a schedule, such as every hour or each weekday at 9:00. Ask it to, in your own words.
