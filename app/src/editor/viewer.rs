@@ -408,7 +408,7 @@ pub(super) fn pane(
         .size_full()
         .flex()
         .flex_col()
-        .child(bar(this, key, viewer, cx))
+        .child(bar(bench, this, key, viewer, cx))
         .child(div().flex_1().min_h_0().child(body))
         .into_any_element()
 }
@@ -609,7 +609,13 @@ fn pin_button(
         .into_any_element()
 }
 
-fn bar(this: &Entity<Workbench>, key: &FileKey, viewer: &Viewer, cx: &App) -> impl IntoElement {
+fn bar(
+    bench: &Workbench,
+    this: &Entity<Workbench>,
+    key: &FileKey,
+    viewer: &Viewer,
+    cx: &App,
+) -> impl IntoElement {
     let t = Tokens::get(cx).clone();
     let path = key.path.as_path();
     let name = crate::ui::path::file_name(path);
@@ -639,7 +645,7 @@ fn bar(this: &Entity<Workbench>, key: &FileKey, viewer: &Viewer, cx: &App) -> im
     let open = openable(viewer, key);
     let reveal = (key.place == Place::This).then(|| path.to_owned());
     let this_reload = this.clone();
-    let pinning = (this.read(cx).editors.read(cx).pinning.get(path).cloned())
+    let pinning = (bench.editors.read(cx).pinning.get(path).cloned())
         .map(|pinning| pin_button(this, viewer, pinning));
     div()
         .flex()
