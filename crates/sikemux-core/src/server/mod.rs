@@ -256,6 +256,8 @@ pub(crate) struct CoreError {
     message: String,
     kind: Option<ErrorKind>,
     detail: Option<Value>,
+    /// The network failed, not the other side, so asking again later may well work.
+    unreachable: bool,
 }
 
 impl std::fmt::Display for CoreError {
@@ -275,6 +277,7 @@ impl CoreError {
             message: message.into(),
             kind: Some(kind),
             detail: None,
+            unreachable: false,
         }
     }
 
@@ -283,6 +286,25 @@ impl CoreError {
             detail: Some(detail),
             ..self
         }
+    }
+
+    /// The network failed on the way to `what`, with every cause it gave.
+    pub(crate) fn unreachable(what: &str, error: &dyn std::error::Error) -> Self {
+        let mut message = format!("{what}: {error}");
+        let mut cause = error.source();
+        while let Some(inner) = cause {
+            message.push_str(": ");
+            message.push_str(&inner.to_string());
+            cause = inner.source();
+        }
+        Self {
+            unreachable: true,
+            ..Self::from(message)
+        }
+    }
+
+    pub(crate) fn is_unreachable(&self) -> bool {
+        self.unreachable
     }
 
     pub(crate) fn unknown_method(method: &str) -> Self {
@@ -305,6 +327,7 @@ impl From<String> for CoreError {
             message,
             kind: None,
             detail: None,
+            unreachable: false,
         }
     }
 }
@@ -315,6 +338,7 @@ impl From<crate::files::Error> for CoreError {
             message: error.message,
             kind: error.kind,
             detail: None,
+            unreachable: false,
         }
     }
 }

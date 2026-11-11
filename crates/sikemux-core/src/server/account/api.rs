@@ -23,11 +23,18 @@ pub(crate) async fn as_host<T: DeserializeOwned>(
     path: &str,
     body: Option<Value>,
 ) -> CoreResult<T> {
-    host_request(core, method, path, body)
-        .await?
-        .json()
-        .await
-        .map_err(|error| CoreError::from(error.to_string()))
+    let answer = host_request(core, method, path, body).await?;
+    let body = answer.bytes().await.map_err(|error| {
+        CoreError::unreachable(
+            &format!("the accounts server's answer to {path} broke off"),
+            &error,
+        )
+    })?;
+    serde_json::from_slice(&body).map_err(|error| {
+        CoreError::from(format!(
+            "the accounts server's answer to {path} is not what this build reads: {error}"
+        ))
+    })
 }
 
 /// The second to sign a request with. The same request signed twice in one second would carry
@@ -132,9 +139,12 @@ pub(crate) async fn host_send_any(
         }
         sent = sent.body(body.bytes);
     }
-    sent.send()
-        .await
-        .map_err(|error| CoreError::from(error.to_string()))
+    sent.send().await.map_err(|error| {
+        CoreError::unreachable(
+            &format!("the accounts server did not answer {path}"),
+            &error,
+        )
+    })
 }
 
 /// How long a refusal asks to wait before asking again, from its Retry-After.
