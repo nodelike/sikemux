@@ -14,7 +14,7 @@ use sikemux_plugin_api::codehost::{Pull, PullState};
 use crate::core::Target;
 use crate::icons::Icon;
 use crate::reads::Read;
-use crate::theme::{self, Tokens, SPACE_1H, SPACE_2, TEXT_XS};
+use crate::theme::{self, Tokens, SPACE_1H, TEXT_2XS};
 use crate::ui;
 use crate::workbench::Workbench;
 
@@ -109,8 +109,8 @@ pub fn badges(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> Op
     let chip = |id: &'static str| {
         div()
             .id(id)
-            .h(px(24.))
-            .px(SPACE_2)
+            .h(px(20.))
+            .px(SPACE_1H)
             .flex()
             .flex_none()
             .items_center()
@@ -118,7 +118,7 @@ pub fn badges(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> Op
             .rounded(theme::RADIUS_2)
             .border_1()
             .cursor_pointer()
-            .text_size(crate::theme::ui_text(TEXT_XS))
+            .text_size(crate::theme::ui_text(TEXT_2XS))
             .hover(|style| style.bg(t.surface_hover).border_color(t.border_strong))
     };
     let badge = pull.map(|pull| {
@@ -135,7 +135,7 @@ pub fn badges(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> Op
             .text_color(color)
             .tooltip(ui::tooltip(format!("#{number} {title}")))
             .child(ui::icon(Icon::PullRequest, 12.).text_color(color))
-            .child(ui::mono(format!("#{number}"), TEXT_XS, cx))
+            .child(ui::mono(format!("#{number}"), TEXT_2XS, cx).text_color(color))
             .child(word)
             .on_click(cx.listener(move |bench, _, _, cx| {
                 bench.open_on_desk(&opened, &url, cx);
@@ -143,13 +143,11 @@ pub fn badges(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> Op
     });
     let removed = agent.to_owned();
     let remove = can_remove.then(|| {
-        chip("agent-worktree-remove")
-            .border_color(t.border)
-            .text_color(t.text_tertiary)
+        ui::sign_in::link("agent-worktree-remove", "Remove worktree", cx)
+            .underline()
             .tooltip(ui::tooltip(format!(
                 "{branch} is merged. Remove its worktree at {path}."
             )))
-            .child("Remove worktree")
             .on_click(cx.listener(move |bench, _, window, cx| {
                 bench.remove_worktree(&removed, pull_merged, window, cx)
             }))
