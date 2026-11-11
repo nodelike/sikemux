@@ -31,8 +31,7 @@ private struct PairingContent: View {
     @Environment(\.palette) private var palette
     @Environment(\.scenePhase) private var phase
     let core: String
-    @State private var pairing: RemotePairing?
-    @State private var problem: String?
+    @State private var pairing = Reading<RemotePairing>()
     @State private var busy: String?
     @State private var editing: String?
     @State private var reads = 0
@@ -49,10 +48,10 @@ private struct PairingContent: View {
                     VStack(spacing: 0) {
                         ApprovalRow(core: core)
                         rows(now)
-                        if pairing == nil && problem == nil {
+                        if pairing.data == nil && pairing.problem == nil {
                             note("Asking \(hostName)…")
                         }
-                        if let problem { note(problem).foregroundStyle(palette.danger) }
+                        if let problem = pairing.problem { note(problem).foregroundStyle(palette.danger) }
                     }
                 }
                 .padding(.horizontal, 16)
@@ -61,7 +60,9 @@ private struct PairingContent: View {
             .refreshable { reads += 1 }
             .pausesBackdrop()
         }
-        .task(id: "\(live.isOpen) \(reads)") { await read(live) }
+        .task(id: "\(live.isOpen) \(reads)") {
+            await pairing.read(live) { try await $0.call(PhoneCall.Pairing.self, NoParams()) }
+        }
         .task {
             do {
                 phone = try Identity.shared.deviceIdentity().id()
@@ -73,7 +74,7 @@ private struct PairingContent: View {
         .onAppear { arrivals = Cards.onArrive(host: core, kind: .pairing) { reads += 1 } }
         .onDisappear { arrivals?.cancel() }
         .sheet(shown: Binding(get: { editing != nil }, set: { if !$0 { editing = nil } })) {
-            if let device = pairing?.devices.first(where: { $0.id == editing }) {
+            if let device = pairing.data?.devices.first(where: { $0.id == editing }) {
                 DeviceSheet(device: device) { access in
                     if access == nil { editing = nil }
                     change(device.id) {
@@ -86,9 +87,9 @@ private struct PairingContent: View {
 
     @ViewBuilder
     private func rows(_ now: Date) -> some View {
-        let pending = pairing?.pending.filter { Double($0.expiresAt) / 1000 > now.timeIntervalSince1970 } ?? []
-        let asking = pairing?.pendingLinks.filter { Double($0.expiresAt) / 1000 > now.timeIntervalSince1970 } ?? []
-        let links = pairing?.links ?? []
+        let pending = pairing.data?.pending.filter { Double($0.expiresAt) / 1000 > now.timeIntervalSince1970 } ?? []
+        let asking = pairing.data?.pendingLinks.filter { Double($0.expiresAt) / 1000 > now.timeIntervalSince1970 } ?? []
+        let links = pairing.data?.links ?? []
         if !pending.isEmpty {
             SectionLabel("Asking to connect")
             Rows {
@@ -108,7 +109,7 @@ private struct PairingContent: View {
                 }
             }
         }
-        if let pairing {
+        if let pairing = pairing.data {
             SectionLabel("Paired")
             Rows {
                 ForEach(pairing.devices, id: \.id) { paired in
@@ -177,16 +178,6 @@ private struct PairingContent: View {
         Text(text).font(Theme.ui(13)).foregroundColor(palette.tertiary)
     }
 
-    private func read(_ live: HostLive) async {
-        guard let connection = live.connection else { return }
-        do {
-            pairing = try await connection.call(PhoneCall.Pairing.self, NoParams())
-            problem = nil
-        } catch {
-            problem = Sikemux.problem(error)
-        }
-    }
-
     private func answer(_ id: String, _ access: DeviceAccess?) {
         change(id) {
             try await $0.call(
@@ -200,12 +191,12 @@ private struct PairingContent: View {
         Task {
             defer { busy = nil }
             do {
-                pairing = try await ask(connection)
-                problem = nil
+                pairing.data = try await ask(connection)
+                pairing.problem = nil
                 Haptics.success()
             } catch {
                 Haptics.failure()
-                problem = Sikemux.problem(error)
+                pairing.problem = Sikemux.problem(error)
                 reads += 1
             }
         }
