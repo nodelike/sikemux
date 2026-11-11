@@ -969,7 +969,7 @@ fn failed_update(updates: &UpdateStatus) -> Option<(UpdateOutcomeState, Option<&
         UpdateOutcomeState::Failed | UpdateOutcomeState::RolledBack
     );
     (settled && bad && outcome.to.as_deref() != Some(updates.current.as_str()))
-        .then(|| (outcome.state, outcome.reason.as_deref()))
+        .then_some((outcome.state, outcome.reason.as_deref()))
 }
 
 /// What a host's row says of its updates while one is under way or has failed.

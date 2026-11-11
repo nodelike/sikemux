@@ -555,7 +555,11 @@ async fn settle_own_update(core: Arc<Core>) {
     if let UpdateStep::Failed { message } = &answer {
         eprintln!("sikemux core: could not settle the update: {message}");
     }
-    let _ = blocking(|| Ok(forget_starts())).await;
+    let _ = blocking(|| {
+        forget_starts();
+        Ok(())
+    })
+    .await;
     refresh_outcome(&core).await;
 }
 
