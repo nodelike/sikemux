@@ -284,7 +284,7 @@ private struct ChatPane: View {
                 .padding(.horizontal, 18)
                 .frame(height: 32)
                 .background(palette.raised)
-                .overlay(alignment: .bottom) { Rectangle().fill(palette.border).frame(height: 1 / UIScreen.main.scale) }
+                .overlay(alignment: .bottom) { Hairline(color: palette.border) }
             }
             .buttonStyle(.plain)
             .accessibilityLabel("You asked: \(text). Go to it")

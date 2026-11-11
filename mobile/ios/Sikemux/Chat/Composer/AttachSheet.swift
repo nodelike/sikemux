@@ -271,6 +271,7 @@ struct AttachSheet: ViewModifier {
 /// A photo in the gallery, numbered in the order it was chosen.
 private struct PhotoCell: View {
     @Environment(\.palette) private var palette
+    @Environment(\.displayScale) private var scale
     let asset: PHAsset
     let side: CGFloat
     /// Its place among the chosen, from 1, or 0 when it is not chosen.
@@ -310,7 +311,7 @@ private struct PhotoCell: View {
         .accessibilityLabel("Photo")
         .accessibilityAddTraits(order > 0 ? .isSelected : [])
         .task(id: asset.localIdentifier) {
-            let pixels = side * UIScreen.main.scale
+            let pixels = side * scale
             let options = PHImageRequestOptions()
             options.deliveryMode = .opportunistic
             options.isNetworkAccessAllowed = true
