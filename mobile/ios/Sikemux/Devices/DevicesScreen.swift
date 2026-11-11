@@ -203,7 +203,7 @@ private struct AccountHostCard: View {
     let host: WireDevice
 
     var body: some View {
-        let channel = PairedDevice.channelLabel(host.channel?.rawValue)
+        let channel = host.channel.flatMap { BuildChannel(rawValue: $0.rawValue) }?.label
         Button {
             Haptics.tap()
             Router.shared.push(.join(core: host.key, name: host.name))

@@ -17,7 +17,7 @@ struct PairedDevice: Codable, Hashable, Identifiable {
     var pairedAt: Double
     var name: String?
     var model: String?
-    var channel: String?
+    var channel: BuildChannel?
     /// The project the device screen is scoped to; absent shows them all.
     var project: String?
     /// The host's theme colours as last seen, so its screens open in them before it connects.
@@ -30,16 +30,7 @@ struct PairedDevice: Codable, Hashable, Identifiable {
 
     var displayName: String { name ?? "Host \(core.prefix(8))" }
 
-    var channelLabel: String? { Self.channelLabel(channel) }
-
-    /// Builds other than the stable release are named, since one host pairs once per channel.
-    static func channelLabel(_ channel: String?) -> String? {
-        switch channel {
-        case "dev": "Dev"
-        case "nightly": "Nightly"
-        default: nil
-        }
-    }
+    var channelLabel: String? { channel?.label }
 
     enum Kind { case laptop, desktop, mini }
 
@@ -114,5 +105,16 @@ actor PairedStore {
         try? FileManager.default.removeItem(at: aside)
         try? FileManager.default.moveItem(at: file, to: aside)
         return []
+    }
+}
+
+extension BuildChannel {
+    /// Builds other than the stable release are named, since one host pairs once per channel.
+    var label: String? {
+        switch self {
+        case .dev: "Dev"
+        case .nightly: "Nightly"
+        case .stable, .unknown: nil
+        }
     }
 }
