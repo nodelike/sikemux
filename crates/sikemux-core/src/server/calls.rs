@@ -423,6 +423,7 @@ calls! { core, client, method, params;
     "hostSetup": Owner => answer(super::hosts::install::host_setup(&core, parse(params)?).await?),
     "linkHost": Owner, counted => answer(super::hosts::link_host(&core, parse(params)?).await?),
     "openOnHost" OpenOnHost (super::hosts::open::OpenOnParams) -> Value: Owner, counted => super::hosts::open::open_on(&core, params).await?,
+    "moveChatToHost" MoveChatToHost (super::hosts::chat_move::MoveChatParams) -> super::hosts::chat_move::ChatMoved: Owner, counted => super::hosts::chat_move::move_chat(&core, params).await?,
     "sendSession" SendSession (super::hosts::transfer::SendParams) -> super::hosts::transfer::SessionSent: Owner, counted => super::hosts::transfer::send_session(&core, params).await?,
     "requireApproval" RequireApproval (NoParams) -> remote::ApprovalSetting: Owner => remote::ApprovalSetting {
         require_approval: core.remote.requires_approval(),

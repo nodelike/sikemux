@@ -303,7 +303,11 @@ impl Workbench {
             .request_typed::<call::OpenOnHost>(params);
         let (name, label) = (copying.name(), copying.label.clone());
         self.notify(toast::info(format!("Copying {name} to {label}…")), cx);
-        let (host, identity) = (copying.host.clone(), copying.identity.clone());
+        let (host, identity, chat) = (
+            copying.host.clone(),
+            copying.identity.clone(),
+            copying.chat.clone(),
+        );
         cx.spawn(async move |bench, cx| {
             let opened = opening.await;
             let _ = bench.update(cx, |bench, cx| match opened {
@@ -319,7 +323,10 @@ impl Workbench {
                         git: None,
                         away: false,
                     };
-                    bench.go_to_copy(&copy, identity.as_deref(), cx);
+                    match &chat {
+                        Some(chat) => bench.move_chat_to_copy(chat, &copy, identity.as_deref(), cx),
+                        None => bench.go_to_copy(&copy, identity.as_deref(), cx),
+                    }
                 }
                 Err(error) => bench.notify(
                     toast::error(format!("It did not copy to {label}: {error}")),
@@ -683,6 +690,8 @@ pub struct Copying {
     pub label: SharedString,
     /// What is not committed goes too, as a commit on top.
     pub uncommitted: bool,
+    /// The new chat that moves onto the copy once it exists.
+    pub chat: Option<String>,
 }
 
 impl Copying {

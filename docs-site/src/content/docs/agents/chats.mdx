@@ -138,6 +138,10 @@ Right-click an agent's tab or its row in the tab rail and choose **Move to Proje
 
 A Claude Code or Codex chat that has already started moves too, with its history: Sikemux stops it, files its saved conversation under the new project, and resumes it there. Wait for it to finish its reply first. Other agents can move only before their first message.
 
+## Moving a new chat to another host
+
+Before its first message, a chat can also move to another host on your account: click the host name under its composer. **Has** lists the hosts that hold a copy of the project, with each copy's folder and branch; pick one and the chat starts there, in that copy, keeping what you typed, its agent, model and effort. **Copy to** lists your other hosts; picking one copies the project there first, then moves the chat onto the copy. Hosts out of reach are greyed out. After the first message the host is fixed.
+
 ## If something stops it mid-reply
 
 An agent's reply finishes even if Sikemux's background process crashes, your computer restarts, or the agent's own process dies, and nobody has to be watching. Sikemux opens the agent's saved conversation again, says so in the chat, and asks the agent to check what got done before carrying on, since a step cut off mid-way may not have finished. After a few stops in a row the agent is left stopped, with **Retry**.

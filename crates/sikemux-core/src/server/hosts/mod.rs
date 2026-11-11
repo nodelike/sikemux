@@ -10,6 +10,7 @@
 
 pub(crate) mod account;
 mod calls;
+pub mod chat_move;
 pub(crate) mod code;
 pub(crate) mod copies;
 pub mod install;

@@ -12,9 +12,7 @@ use gpui_kit::{
 
 use crate::core;
 use crate::icons::Icon;
-use crate::theme::{
-    self, Tokens, SPACE_0, SPACE_1, SPACE_2, TEXT_2XS_H, TEXT_3XS_H, TEXT_XS, TEXT_XS_H,
-};
+use crate::theme::{Tokens, SPACE_0, SPACE_2, TEXT_XS};
 use crate::toast;
 use crate::ui;
 use crate::ui::list_picker::{self, Choose, Close, Dismiss, Next, Previous};
@@ -191,66 +189,45 @@ impl Render for ProjectSwitcher {
             let heading = (grouped
                 && (at == 0 || choices[at - 1].project.is_some() != choice.project.is_some()))
             .then(|| {
-                div()
-                    .px(SPACE_2)
-                    .pt(SPACE_2)
-                    .pb(SPACE_0)
-                    .text_size(crate::theme::ui_text(TEXT_3XS_H))
-                    .text_color(t.text_tertiary)
-                    .child(if choice.project.is_some() {
+                list_picker::heading(
+                    if choice.project.is_some() {
                         "Open"
                     } else {
                         "Found on disk"
-                    })
+                    },
+                    cx,
+                )
             });
             let here = choice.path == self.cwd;
             let (this, picked) = (this.clone(), choice.clone());
             div().children(heading).child(
-                div()
-                    .id(("project-choice", at))
-                    .flex()
-                    .items_center()
-                    .gap(SPACE_2)
-                    .h(px(28.))
-                    .px(SPACE_2)
-                    .rounded(theme::RADIUS_2)
-                    .cursor_pointer()
-                    .when(at == self.chosen, |row| row.bg(t.surface_hover))
-                    .map(|row| {
-                        list_picker::hover_chooses(row, at, &this, |list, at| list.chosen = at)
-                    })
-                    .on_click(move |_, window, cx| {
-                        let picked = picked.clone();
-                        this.update(cx, |switcher, cx| switcher.pick(picked, window, cx))
-                    })
-                    .child(ui::icon(Icon::Folder, 12.).text_color(t.live))
-                    .child(
-                        div()
-                            .flex_none()
-                            .text_size(crate::theme::ui_text(TEXT_XS_H))
-                            .text_color(if here {
-                                t.text_primary
-                            } else {
-                                t.text_secondary
-                            })
-                            .child(ui::found(name(&choice.path), &typed, cx)),
-                    )
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .truncate()
-                            .text_size(crate::theme::ui_text(TEXT_2XS_H))
-                            .text_color(t.text_tertiary)
-                            .child(tilde(parent(&choice.path), choice.home.as_deref())),
-                    )
-                    .when(here, |row| {
-                        row.child(ui::icon(Icon::Check, 12.).text_color(t.text_secondary))
-                    }),
+                list_picker::row(
+                    ("project-choice", at),
+                    at,
+                    at == self.chosen,
+                    &this,
+                    |list, at| list.chosen = at,
+                    cx,
+                )
+                .on_click(move |_, window, cx| {
+                    let picked = picked.clone();
+                    this.update(cx, |switcher, cx| switcher.pick(picked, window, cx))
+                })
+                .child(ui::icon(Icon::Folder, 12.).text_color(t.live))
+                .child(list_picker::label(
+                    ui::found(name(&choice.path), &typed, cx),
+                    here,
+                    cx,
+                ))
+                .child(list_picker::detail(
+                    tilde(parent(&choice.path), choice.home.as_deref()),
+                    cx,
+                ))
+                .when(here, |row| row.child(list_picker::check(cx))),
             )
         });
         let empty = choices.is_empty();
-        div()
+        list_picker::popup(360., cx)
             .key_context(format!("{CONTEXT} Modal").as_str())
             .on_action(cx.listener(|switcher, _: &Previous, _, cx| switcher.step(-1, cx)))
             .on_action(cx.listener(|switcher, _: &Next, _, cx| switcher.step(1, cx)))
@@ -260,16 +237,6 @@ impl Render for ProjectSwitcher {
                 }
             }))
             .on_action(cx.listener(|switcher, _: &Close, window, cx| (switcher.close)(window, cx)))
-            .w(px(360.))
-            .flex()
-            .flex_col()
-            .gap(SPACE_1)
-            .p(px(ui::PANEL_INSET))
-            .bg(t.surface_overlay)
-            .border_1()
-            .border_color(t.border)
-            .rounded(theme::RADIUS_3)
-            .shadow(t.shadow_float())
             .child(
                 div()
                     .mx(px(-ui::PANEL_INSET))

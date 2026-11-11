@@ -26,7 +26,7 @@ use tokio::sync::oneshot;
 
 use super::GoalsPane;
 use crate::account_picker;
-use crate::chat::composer::{Act, AsideRoom, Notice, ProjectMenu, Strip};
+use crate::chat::composer::{Act, AsideRoom, ChipMenu, Notice, Strip};
 use crate::chat::model_picker::{self, Moving, Picked};
 use crate::chat::{yolo_mode, START};
 use crate::core::{ChatAsk, Target};
@@ -699,7 +699,7 @@ fn strip(
         };
         account_picker::picker(bench, chat, false, false, cx)
     });
-    let moves: ProjectMenu = {
+    let moves: ChipMenu = {
         let (cwd, this) = (folder.clone(), cx.entity());
         let on_pick = project_switcher::activates(cx.weak_entity());
         Box::new(move |trigger| {
@@ -715,6 +715,7 @@ fn strip(
     };
     Strip {
         host: None,
+        hosts: None,
         project: project.name.clone().into(),
         path: crate::ui::path::tilde(&folder, crate::ui::path::this_home().as_deref()).into(),
         branch: (project.git.as_ref()).map(|git| git.branch.clone().into()),

@@ -4,11 +4,14 @@
 use std::rc::Rc;
 
 use gpui_kit::component::popover::PopoverState;
+use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    actions, App, Div, Entity, Hsla, KeyBinding, Stateful, StatefulInteractiveElement, Window,
+    actions, div, px, App, Div, ElementId, Entity, Hsla, InteractiveElement, IntoElement,
+    KeyBinding, ParentElement, Stateful, StatefulInteractiveElement, Styled, Window,
 };
 
-use crate::theme::Tokens;
+use crate::icons::Icon;
+use crate::theme::{self, Tokens, SPACE_0, SPACE_1, SPACE_2, TEXT_2XS_H, TEXT_3XS_H, TEXT_XS_H};
 
 actions!(
     list_picker,
@@ -85,4 +88,85 @@ pub fn backdrop_color(t: &Tokens) -> Hsla {
         a: BACKDROP,
         ..t.surface_sunken
     }
+}
+
+/// The floating panel a picker in a popover is drawn on, `width` wide.
+pub fn popup(width: f32, cx: &App) -> Div {
+    let t = Tokens::get(cx);
+    div()
+        .w(px(width))
+        .flex()
+        .flex_col()
+        .gap(SPACE_1)
+        .p(px(crate::ui::PANEL_INSET))
+        .bg(t.surface_overlay)
+        .border_1()
+        .border_color(t.border)
+        .rounded(theme::RADIUS_3)
+        .shadow(t.shadow_float())
+}
+
+/// The quiet name over a group of rows.
+pub fn heading(words: impl IntoElement, cx: &App) -> Div {
+    div()
+        .px(SPACE_2)
+        .pt(SPACE_2)
+        .pb(SPACE_0)
+        .text_size(theme::ui_text(TEXT_3XS_H))
+        .text_color(Tokens::get(cx).text_tertiary)
+        .child(words)
+}
+
+/// A row of a picker, `id`, at `at` in its `list`, lit while it is the `chosen` one, which the
+/// pointer coming over it makes it.
+pub fn row<V: 'static>(
+    id: impl Into<ElementId>,
+    at: usize,
+    chosen: bool,
+    list: &Entity<V>,
+    choose: fn(&mut V, usize),
+    cx: &App,
+) -> Stateful<Div> {
+    let t = Tokens::get(cx);
+    let row = div()
+        .id(id)
+        .flex()
+        .items_center()
+        .gap(SPACE_2)
+        .h(px(28.))
+        .px(SPACE_2)
+        .rounded(theme::RADIUS_2)
+        .cursor_pointer()
+        .when(chosen, |row| row.bg(t.surface_hover));
+    hover_chooses(row, at, list, choose)
+}
+
+/// A row's name, brighter on the one in use now.
+pub fn label(name: impl IntoElement, current: bool, cx: &App) -> Div {
+    let t = Tokens::get(cx);
+    div()
+        .flex_none()
+        .text_size(theme::ui_text(TEXT_XS_H))
+        .text_color(if current {
+            t.text_primary
+        } else {
+            t.text_secondary
+        })
+        .child(name)
+}
+
+/// What a row says after its name, such as where it is, cut short to fit.
+pub fn detail(words: impl IntoElement, cx: &App) -> Div {
+    div()
+        .flex_1()
+        .min_w_0()
+        .truncate()
+        .text_size(theme::ui_text(TEXT_2XS_H))
+        .text_color(Tokens::get(cx).text_tertiary)
+        .child(words)
+}
+
+/// The tick at the end of the row in use now.
+pub fn check(cx: &App) -> impl IntoElement {
+    crate::ui::icon(Icon::Check, 12.).text_color(Tokens::get(cx).text_secondary)
 }

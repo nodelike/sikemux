@@ -272,5 +272,6 @@ pub(super) fn install(asks: mpsc::UnboundedSender<Ask>, cx: &mut App) {
     crate::search::install(cx);
     crate::settings::install(cx);
     crate::pickers::project_switcher::install(cx);
+    crate::pickers::host_picker::install(cx);
     crate::chat::model_picker::install(cx);
 }

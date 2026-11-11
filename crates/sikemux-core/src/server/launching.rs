@@ -579,6 +579,12 @@ pub(crate) async fn resume_session(
     Ok(SessionTaken { agent_id, project })
 }
 
+/// Starts a new chat that waits for the person, and answers with its agent.
+pub(crate) async fn start_waiting(core: &Arc<Core>, choice: ChatChoice) -> CoreResult<String> {
+    let (agent_id, _) = start_new(core, None, choice).await?;
+    Ok(agent_id)
+}
+
 /// The provider a saved session of `kind` last ran on, and its model unless `model` is
 /// chosen, so taking the session up again keeps running there.
 async fn resumed_on(

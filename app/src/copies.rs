@@ -10,6 +10,7 @@ use gpui_kit::{
     ParentElement, SharedString, Styled, Transformation, Window,
 };
 use sikemux_core::server::call;
+use sikemux_core::server::hosts::chat_move::MoveChatParams;
 use sikemux_core::server::layout::ActivateProjectParams;
 use sikemux_view::layout::{At, OpenTab, PaneKind};
 use sikemux_view::prefs::PreferenceChange;
@@ -142,6 +143,44 @@ impl Workbench {
         self.remember_copy(identity, copy.choice());
     }
 
+    /// Moves the new chat `agent` onto `copy`, on its host, and puts it in front there. The
+    /// chat's own core hands it over, with its draft, agent, model and effort.
+    pub fn move_chat_to_copy(
+        &mut self,
+        agent: &str,
+        copy: &HostCopy,
+        identity: Option<&str>,
+        cx: &mut Context<Self>,
+    ) {
+        let host = match &copy.place {
+            Place::Account(key) => key.clone(),
+            Place::This => match &self.remote {
+                Some(remote) => remote.core_id.clone(),
+                None => return,
+            },
+        };
+        self.keep_draft(agent, cx);
+        let moving = self
+            .chat_target(agent)
+            .request_typed::<call::MoveChatToHost>(MoveChatParams {
+                agent_id: agent.to_owned(),
+                host,
+                project: copy.project.clone(),
+            });
+        let (copy, identity) = (copy.clone(), identity.map(str::to_owned));
+        cx.spawn(async move |bench, cx| {
+            let moved = moving.await;
+            let _ = bench.update(cx, |bench, cx| match moved {
+                Ok(_) => bench.go_to_copy(&copy, identity.as_deref(), cx),
+                Err(error) => bench.notify(
+                    crate::toast::error(format!("The chat stayed where it was: {error}")),
+                    cx,
+                ),
+            });
+        })
+        .detach();
+    }
+
     /// Notes that the person works on the project known as `identity` on `choice`, so its row
     /// goes there next time.
     pub fn remember_copy(&self, identity: Option<&str>, choice: HostChoice) {
@@ -266,6 +305,7 @@ pub fn copy_menu(
                             host: key,
                             label,
                             uncommitted: !leaves,
+                            chat: None,
                         };
                         let _ = this.update(cx, |bench, cx| bench.copy_to(copying, cx));
                     }),

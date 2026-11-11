@@ -42,8 +42,8 @@ type Paste = Rc<dyn Fn(&ClipboardItem, &mut Window, &mut App) -> bool>;
 type Chip = Rc<dyn Fn(&InlineTokenContext, &mut Window, &mut App) -> AnyElement>;
 type DrawAside = Box<dyn FnOnce(bool) -> AnyElement>;
 
-/// Wraps the project's name in the switcher it opens.
-pub type ProjectMenu = Box<dyn FnOnce(BaseButton) -> Popover>;
+/// Wraps a chip of the strip, such as the project's name, in the picker it opens.
+pub type ChipMenu = Box<dyn FnOnce(BaseButton) -> Popover>;
 
 /// How much room a control at the end of the bar needs.
 #[derive(Clone, Copy)]
@@ -59,12 +59,14 @@ pub struct AsideRoom {
 pub struct Strip {
     /// The account host the chat runs on, or none for this one.
     pub host: Option<SharedString>,
+    /// The picker the host opens, until the first message says where the work is.
+    pub hosts: Option<ChipMenu>,
     pub project: SharedString,
     /// The project's folder, which its name's tooltip gives.
     pub path: SharedString,
     pub branch: Option<SharedString>,
     /// The switcher the project's name opens, until the first message says where the work is.
-    pub moves: Option<ProjectMenu>,
+    pub moves: Option<ChipMenu>,
     pub worktree: Option<AnyElement>,
     /// A worktree agent's pull request and its Remove worktree, beside the worktree.
     pub pull: Option<AnyElement>,
@@ -574,6 +576,55 @@ fn context_line(strip: Strip, cx: &App) -> impl IntoElement {
             .child(name(false))
             .into_any_element(),
     };
+    let host_name = |chevron: bool| {
+        div()
+            .h(px(24.))
+            .min_w_0()
+            .max_w(px(180.))
+            .px(SPACE_1H)
+            .flex()
+            .items_center()
+            .gap(SPACE_1H)
+            .rounded_full()
+            .child(match strip.host {
+                Some(_) => ui::icon(Icon::Server, 12.).flex_none().text_color(t.host),
+                None => ui::icon(Icon::Laptop, 12.)
+                    .flex_none()
+                    .text_color(t.text_tertiary),
+            })
+            .child(
+                ui::text(
+                    strip.host.clone().unwrap_or_else(|| "This host".into()),
+                    TEXT_XS,
+                    FontWeight::NORMAL,
+                )
+                .min_w_0()
+                .truncate()
+                .text_color(match chevron {
+                    true => t.text_secondary,
+                    false => t.text_tertiary,
+                }),
+            )
+            .when(chevron, |name| {
+                name.child(
+                    ui::icon(Icon::Chevron, 10.)
+                        .with_transformation(Transformation::rotate(radians(FRAC_PI_2)))
+                        .text_color(t.text_tertiary),
+                )
+            })
+    };
+    let host = match strip.hosts {
+        Some(menu) => menu(
+            BaseButton::new("composer-host")
+                .accessibility_label("Host")
+                .min_w_0()
+                .rounded_full()
+                .hover(move |style| style.bg(t.surface_hover))
+                .child(host_name(true)),
+        )
+        .into_any_element(),
+        None => host_name(false).into_any_element(),
+    };
     let line = div()
         .w_full()
         .max_w(px(WIDTH))
@@ -583,31 +634,7 @@ fn context_line(strip: Strip, cx: &App) -> impl IntoElement {
         .flex()
         .items_center()
         .gap(SPACE_1)
-        .child(
-            div()
-                .min_w_0()
-                .max_w(px(180.))
-                .px(SPACE_1H)
-                .flex()
-                .items_center()
-                .gap(SPACE_1H)
-                .child(match strip.host {
-                    Some(_) => ui::icon(Icon::Server, 12.).flex_none().text_color(t.host),
-                    None => ui::icon(Icon::Laptop, 12.)
-                        .flex_none()
-                        .text_color(t.text_tertiary),
-                })
-                .child(
-                    ui::text(
-                        strip.host.clone().unwrap_or_else(|| "This host".into()),
-                        TEXT_XS,
-                        FontWeight::NORMAL,
-                    )
-                    .min_w_0()
-                    .truncate()
-                    .text_color(t.text_tertiary),
-                ),
-        )
+        .child(host)
         .child(project)
         .children(strip.branch.map(|branch| {
             div()

@@ -673,8 +673,25 @@ pub(super) fn strip(
         let ready = unstarted || head.is_some_and(|head| head.connection == ChatConnection::Ready);
         crate::account_picker::picker(bench, chat, running, !ready, cx)
     });
+    let any_other = (bench.host_choices().iter())
+        .any(|option| matches!(option.choice, crate::hosts::HostChoice::Account(_)));
+    let hosts = (fresh && any_other && saved.worktree.is_none() && !saved.terminal).then(|| {
+        let here = crate::copies::HostCopy {
+            place: place.clone(),
+            project: saved.project.clone(),
+            host: host.clone().unwrap_or_else(|| "This host".into()),
+            path: folder.to_path_buf(),
+            git: project.and_then(|project| project.git.clone()),
+            away: false,
+        };
+        let (agent, this) = (agent.id.clone(), cx.entity());
+        Box::new(move |trigger: gpui_kit::base::Button| {
+            crate::pickers::host_picker::around(trigger, &agent, here, &this)
+        }) as super::composer::ChipMenu
+    });
     Strip {
         host,
+        hosts,
         project: folder
             .file_name()
             .map_or_else(|| folder.to_string_lossy(), |name| name.to_string_lossy())
@@ -692,7 +709,7 @@ pub(super) fn strip(
             );
             Box::new(move |trigger: gpui_kit::base::Button| {
                 crate::pickers::project_switcher::around(trigger, &agent, &cwd, &this)
-            }) as super::composer::ProjectMenu
+            }) as super::composer::ChipMenu
         }),
         worktree,
         pull: crate::worktrees::head::badges(bench, &agent.id, cx),
