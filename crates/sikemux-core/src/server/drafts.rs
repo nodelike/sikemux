@@ -156,10 +156,12 @@ impl Drafts {
     }
 
     /// Keeps `text` and `extra` as the draft for `key`; an empty text with no extra
-    /// drops it.
+    /// drops it. What the core delivered to the draft before is part of this write, so
+    /// no app's later save puts it back.
     pub(crate) fn set(&self, key: &str, text: String, extra: Option<DraftExtra>) -> CoreResult<()> {
         let mut drafts = self.0.drafts.locked();
         self.put(&mut drafts, key, text, extra)?;
+        self.0.delivered.locked().remove(key);
         drop(drafts);
         self.save_soon();
         Ok(())
@@ -317,4 +319,27 @@ pub(crate) fn set(core: &Core, params: SetDraftParams) -> CoreResult<()> {
         .save(&params.key, params.text, params.extra, params.rev)?;
     changed(core, vec![params.key]);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A stashed prompt came back into the phone's draft: the stash emptied the draft, which
+    /// left no revision for the phone to name, and its next save brought back what the core
+    /// had delivered before the stash.
+    #[test]
+    fn a_draft_the_core_empties_keeps_no_delivery_for_the_next_save() {
+        let drafts = Drafts::new(None);
+        let key = "chat:agent";
+        let delivery = Delivery {
+            paths: Vec::new(),
+            context: None,
+            words: "a prompt worth keeping".into(),
+        };
+        drafts.deliver(key, delivery).unwrap();
+        drafts.set(key, String::new(), None).unwrap();
+        drafts.save(key, "see".into(), None, None).unwrap();
+        assert_eq!(drafts.get(Some(&[key.to_owned()]))[key].text, "see");
+    }
 }
