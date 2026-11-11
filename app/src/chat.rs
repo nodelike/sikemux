@@ -971,9 +971,55 @@ impl Chat {
     /// Says on the line under the last row what the agent is doing, from the head and the
     /// rows as they stand; the rows land only when the transcript draws, so this runs again then.
     fn follow_activity(&self, cx: &mut App) {
-        let doing = self.activity();
+        let doing = self.activity().map(|doing| {
+            if self.live_run_shown(cx) {
+                doing.without_what()
+            } else {
+                doing
+            }
+        });
         self.activity_line
             .update(cx, |activity, cx| activity.set(doing, cx));
+    }
+
+    /// Whether the run holding the running call is open, so its line already says what runs.
+    fn live_run_shown(&self, cx: &App) -> bool {
+        let Some(active) = self
+            .state
+            .as_ref()
+            .and_then(|head| head.active_tool.as_deref())
+        else {
+            return false;
+        };
+        let transcript = self.transcript.read(cx);
+        let Some(row) = transcript.rows().last() else {
+            return false;
+        };
+        let parts = &row.message.parts;
+        let Some(at) = parts.iter().position(|part| part.id() == active) else {
+            return false;
+        };
+        let head = parts[..=at]
+            .iter()
+            .rev()
+            .take_while(|part| {
+                matches!(
+                    part,
+                    ChatPart::Tool {
+                        page: None,
+                        gif: None,
+                        ..
+                    }
+                )
+            })
+            .last();
+        head.is_some_and(|head| {
+            self.reader
+                .read(cx)
+                .tools
+                .run_open(head.id())
+                .unwrap_or(true)
+        })
     }
 
     /// While the find bar looks for something, long texts show all of themselves so every

@@ -61,6 +61,11 @@ struct Asked {
 }
 
 impl Opened {
+    /// Whether the reader opened or closed the run starting at `head`, if they touched it.
+    pub fn run_open(&self, head: &str) -> Option<bool> {
+        self.runs.get(head).copied()
+    }
+
     /// The open call this part is, when its detail was asked for before it ended, to ask again.
     pub fn stale(&self, part: &ChatPart) -> Option<String> {
         let ChatPart::Tool { tool, ended_at, .. } = part else {

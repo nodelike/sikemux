@@ -69,6 +69,11 @@ impl Doing {
         }
     }
 
+    /// Only the verb, when what it is on already shows above it.
+    pub fn without_what(self) -> Self {
+        Doing { what: None, ..self }
+    }
+
     fn whole(&self) -> SharedString {
         match &self.what {
             Some(what) => format!("{} {what}", self.verb).into(),
