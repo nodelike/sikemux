@@ -21,6 +21,16 @@ struct NewChatScreen: View {
 private struct NewChatContent: View {
     enum SheetShown { case agent, project, settings, attach, stash }
 
+    /// What the screen held when it was left, so coming back to it finds it as it was.
+    struct Kept: Codable {
+        var text: String
+        var attachments: [Attachment]
+        var chips: [StashItem]
+    }
+
+    /// How long typing rests before the draft is written down.
+    private static let keepAfter: Duration = .milliseconds(400)
+
     /// What was sent, drawn as the chat will draw it while the agent starts.
     struct Sending {
         let message: ChatMessage
@@ -39,6 +49,10 @@ private struct NewChatContent: View {
     @State private var draft = ""
     @State private var attachments: [Attachment] = []
     @State private var chips: [StashItem] = []
+    @State private var prompt = PromptStash()
+    /// What the composer held when its prompt went to the stash, to put back on Undo.
+    @State private var stashedFrom: Kept?
+    @State private var heldStart = false
     @State private var sheet: SheetShown?
     @State private var sending: Sending?
     @State private var context: TranscriptContext?
@@ -60,7 +74,6 @@ private struct NewChatContent: View {
         let project = workspace.flatMap { space in space.projects.first { $0.id == projectId } ?? space.projects.first }
         let worktree = (flipped?.project == project?.id ? flipped?.on : nil) ?? project?.worktreeDefault ?? false
         let starting = sending != nil
-        let written = !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty || !chips.isEmpty
         let sendable = written && launcher != nil && project != nil && live.isOpen && !starting
         let blocked: String? = !live.isOpen
             ? (live.view != nil ? "Reconnecting to the host…" : "Not connected to the host yet.")
@@ -123,10 +136,20 @@ private struct NewChatContent: View {
                 }
             }
         }
+        .onAppear(perform: restore)
+        .task(id: keptPrint) {
+            do {
+                try await Task.sleep(for: Self.keepAfter)
+                keep()
+            } catch {
+                return
+            }
+        }
+        .onDisappear { if sending == nil { keep() } }
         .attachSheet(
             shown: Binding(get: { sheet == .attach || sheet == .stash }, set: { if !$0 { sheet = nil } }),
             stash: sheet == .stash, room: WireLimits.maxAttachments - attachments.count,
-            onAttach: attach, onStash: { fromStash($0) }, onStashPrompt: nil, onProblem: { problem = $0 }
+            onAttach: attach, onStash: { fromStash($0) }, onStashPrompt: stashable ? { stashPrompt() } : nil, onProblem: { problem = $0 }
         )
         .sheet(shown: Binding(get: { sheet == .project }, set: { if !$0 { sheet = nil } }), tall: (workspace?.projects.count ?? 0) > 6) {
             ProjectSheet(projects: workspace?.projects ?? [], chosen: project?.id) {
@@ -169,6 +192,14 @@ private struct NewChatContent: View {
                 .padding(.horizontal, 14)
                 .padding(.bottom, -1)
             }
+            if let toast = prompt.toast {
+                StashedToast(done: toast != .stashing) {
+                    prompt.undo({ id in
+                        if let held = stashedFrom { putBack(held) }
+                        try await StashAPI.delete(id)
+                    }, report: { problem = $0 })
+                }
+            }
             if let query = StashWords.query(in: draft) {
                 StashMenu(query: query) { fromStash([$0], base: StashWords.withoutQuery(draft)) }
             }
@@ -210,7 +241,14 @@ private struct NewChatContent: View {
                         .accessibilityLabel("Agent")
                     }
                     Spacer()
-                    Button { start(launcher: launcher, project: project, worktree: worktree) } label: {
+                    Button {
+                        // A finger lifted after holding Start has already stashed the prompt.
+                        if heldStart {
+                            heldStart = false
+                        } else {
+                            start(launcher: launcher, project: project, worktree: worktree)
+                        }
+                    } label: {
                         Group {
                             if starting { Working() } else { IconView(icon: Icons.arrowUp, size: 16).foregroundStyle(palette.ground) }
                         }
@@ -219,7 +257,12 @@ private struct NewChatContent: View {
                         .opacity(sendable ? 1 : 0.28)
                     }
                     .buttonStyle(PressFade())
-                    .disabled(!sendable)
+                    .simultaneousGesture(LongPressGesture().onEnded { _ in
+                        guard stashable else { return }
+                        heldStart = true
+                        stashPrompt()
+                    })
+                    .disabled(!sendable && !stashable)
                     .accessibilityLabel("Start")
                 }
                 .padding(.top, 6)
@@ -231,6 +274,62 @@ private struct NewChatContent: View {
         .padding(.horizontal, 10)
         .padding(.top, 8)
         .padding(.bottom, 6)
+    }
+
+    private var written: Bool {
+        !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty || !chips.isEmpty
+    }
+
+    private var stashable: Bool { written && sending == nil }
+
+    private var keptKey: String { "\(core):new" }
+
+    private var kept: Kept? {
+        written ? Kept(text: draft, attachments: attachments, chips: chips) : nil
+    }
+
+    /// Changes whenever what would be kept does, so the draft is written down once typing rests.
+    private var keptPrint: String {
+        "\(draft)|\(attachments.map(\.id))|\(chips.map(\.id))"
+    }
+
+    private func restore() {
+        guard draft.isEmpty, attachments.isEmpty, chips.isEmpty,
+              let held = DraftStore.load(keptKey, as: Kept.self)
+        else { return }
+        draft = held.text
+        attachments = held.attachments.filter { FileManager.default.fileExists(atPath: $0.uri.path) }
+        chips = held.chips
+    }
+
+    private func keep() {
+        if let kept { DraftStore.save(keptKey, kept) } else { DraftStore.clear(keptKey) }
+    }
+
+    /// Stashes what the composer holds as one prompt and empties it; Undo puts it back.
+    private func stashPrompt() {
+        let held = Kept(text: draft, attachments: attachments, chips: chips)
+        stashedFrom = held
+        draft = ""
+        attachments = []
+        chips = []
+        prompt.stash({
+            let words = StashWords.withContext(held.text.trimmingCharacters(in: .whitespacesAndNewlines), held.chips.map(StashWords.contextChip))
+            let text = words.isEmpty ? held.attachments.map(\.name).joined(separator: ", ") : words
+            do {
+                let files = held.attachments.map { StashFile(url: $0.uri, name: $0.name, mime: $0.mime) }
+                return try await StashAPI.stashPrompt(text: text, files: files).id
+            } catch {
+                putBack(held)
+                throw error
+            }
+        }, report: { problem = $0 })
+    }
+
+    private func putBack(_ held: Kept) {
+        draft = [held.text, draft].filter { !$0.isEmpty }.joined(separator: "\n\n")
+        attachments = held.attachments + attachments
+        chips = held.chips + chips.filter { chip in !held.chips.contains { $0.id == chip.id } }
     }
 
     private func attach(_ picked: [Attachment]) {
@@ -321,6 +420,7 @@ private struct NewChatContent: View {
                 let taken = sent.compactMap(\.stashId) + chips.map(\.id)
                 if !taken.isEmpty { Task { await StashStore.shared.take(taken) } }
                 chips = []
+                DraftStore.clear(keptKey)
                 Router.shared.replace(.chat(core: core, agent: agentId, started: true))
             } catch {
                 fail(Sikemux.problem(error))
