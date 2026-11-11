@@ -3163,8 +3163,9 @@ fn a_run_counts_what_it_did_failures_first_and_leaves_housekeeping_out() {
             ("d".into(), false)
         ]
     );
-    assert!(run
-        .said
-        .iter()
-        .all(|clause| clause.family == ToolFamily::Shell));
+    let families: Vec<_> = run.said.iter().map(|clause| clause.family).collect();
+    assert_eq!(
+        families,
+        [ToolFamily::Files, ToolFamily::Files, ToolFamily::Shell]
+    );
 }

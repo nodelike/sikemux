@@ -1443,6 +1443,7 @@ export interface Retrying {
     attempt?: number;
     /** The connection was lost, rather than the service answering with an error. */
     connection: boolean;
+    reason?: string;
 }
 
 /** Why the last turn failed, when it was the account's or the network's doing. */
@@ -1596,9 +1597,47 @@ export interface ToolRow {
      * an agent waiting on the same thing again and again shows as one row.
      */
     times?: number;
+    /** The kind of tool it is, which a run of calls is read by. */
+    family?: ToolFamily;
+    /** What the call did, as its run counts it: a command by what it does. */
+    intent?: ToolIntent;
+    /** What a command read, searched or listed, when `target` is the command as typed. */
+    subject?: string;
 }
 
 export type ToolAction = "read" | "edit" | "delete" | "move" | "search" | "execute" | "think" | "fetch" | "switch_mode" | "mcp" | "other";
+
+/** The kind of tool a call is. */
+export type ToolFamily =
+    "shell" | "browser" | "files" | "agents" | "waiting" | "git" | "ops" | "trackers" | "simulator" | "web" | "housekeeping" | "other";
+
+/** What a call did, as its run counts it. */
+export type ToolIntent =
+    | "read"
+    | "view"
+    | "search"
+    | "list"
+    | "edit"
+    | "write"
+    | "move"
+    | "delete"
+    | "run"
+    | "test"
+    | "build"
+    | "git"
+    | "commit"
+    | "open"
+    | "click"
+    | "type"
+    | "look"
+    | "message"
+    | "start"
+    | "stop"
+    | "wait"
+    | "query"
+    | "fetch"
+    | "mode"
+    | "use";
 
 /** The change a call made, counted. `chatToolDetail` sends its lines. */
 export interface DiffSummary {
@@ -1708,6 +1747,8 @@ export type ChatActivity =
           kind: "retrying";
           attempt?: number;
           connection: boolean;
+          /** What went wrong, in the agent's words. */
+          reason?: string;
       }
     /** Running the call this row draws. */
     | {
@@ -1860,6 +1901,8 @@ export type ChatPart =
           failure?: string;
           startedAt?: number;
           endedAt?: number;
+          /** On a run's first call, what the run did. */
+          run?: ToolRun;
       }
     | {
           kind: "subagent";
@@ -2071,6 +2114,47 @@ export interface GifRef {
     width: number;
     height: number;
     title: string;
+}
+
+/**
+ * A run of calls, on its first call: what the run did, counted, which a client words as one
+ * sentence, and the lines it opens onto.
+ */
+export interface ToolRun {
+    /** Each thing the run did, in the order it first did it. */
+    said: RunClause[];
+    /** It only looked: read, searched and listed, more than one way. */
+    explored?: boolean;
+    failed?: number;
+    /** Housekeeping calls it holds, which are left out of it. */
+    hidden?: number;
+    /**
+     * What it opens onto: failed calls first, then neighbours that did the same thing,
+     * each as one line.
+     */
+    lines: RunLine[];
+}
+
+export interface RunClause {
+    intent: ToolIntent;
+    family: ToolFamily;
+    /** How many: files read, distinct when the calls name them, else calls. */
+    count: number;
+    /**
+     * Who or what it was done with, first ones first: the agents messaged or waited
+     * on, the services asked.
+     */
+    names?: string[];
+    /** How long its calls took together, in milliseconds. */
+    took?: number;
+}
+
+export interface RunLine {
+    intent: ToolIntent;
+    family: ToolFamily;
+    /** The calls it stands for, by `toolCallId`. */
+    calls: string[];
+    failed?: boolean;
 }
 
 /** What a background task left behind once it ended. */

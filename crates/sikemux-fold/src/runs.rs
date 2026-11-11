@@ -55,6 +55,19 @@ pub(super) fn restate(parts: &mut [ChatPart]) -> Vec<usize> {
     changed
 }
 
+/// The family a call is counted under: a command that only looks counts with the file tools.
+fn counted_family(tool: &ToolCall) -> ToolFamily {
+    let row = &tool.row;
+    let looks = matches!(
+        row.intent,
+        ToolIntent::Read | ToolIntent::View | ToolIntent::Search | ToolIntent::List
+    );
+    match row.family {
+        ToolFamily::Shell if looks => ToolFamily::Files,
+        family => family,
+    }
+}
+
 struct Call<'a> {
     tool: &'a ToolCall,
     failed: bool,
@@ -91,15 +104,16 @@ pub(super) fn count(parts: &[ChatPart]) -> ToolRun {
     let mut said: Vec<(RunClause, HashSet<String>, bool)> = Vec::new();
     for call in &shown {
         let row = &call.tool.row;
+        let family = counted_family(call.tool);
         let at = match said
             .iter()
-            .position(|(clause, ..)| clause.intent == row.intent && clause.family == row.family)
+            .position(|(clause, ..)| clause.intent == row.intent && clause.family == family)
         {
             Some(at) => at,
             None => {
                 let clause = RunClause {
                     intent: row.intent,
-                    family: row.family,
+                    family,
                     count: 0,
                     names: Vec::new(),
                     took: None,
@@ -138,7 +152,7 @@ pub(super) fn count(parts: &[ChatPart]) -> ToolRun {
         matches!(
             clause.intent,
             ToolIntent::Read | ToolIntent::View | ToolIntent::Search | ToolIntent::List
-        ) && matches!(clause.family, ToolFamily::Files | ToolFamily::Shell)
+        ) && clause.family == ToolFamily::Files
     });
     ToolRun {
         explored: said.len() > 1 && looks_only,
@@ -154,7 +168,7 @@ pub(super) fn count(parts: &[ChatPart]) -> ToolRun {
 fn lines(shown: &[&Call]) -> Vec<RunLine> {
     let line = |call: &Call| RunLine {
         intent: call.tool.row.intent,
-        family: call.tool.row.family,
+        family: counted_family(call.tool),
         calls: vec![call.tool.tool_call_id.clone()],
         failed: call.failed,
     };
@@ -168,7 +182,7 @@ fn lines(shown: &[&Call]) -> Vec<RunLine> {
         match lines[failed..].last_mut() {
             Some(last)
                 if last.intent == call.tool.row.intent
-                    && last.family == call.tool.row.family
+                    && last.family == counted_family(call.tool)
                     && merges(call.tool.row.intent) =>
             {
                 last.calls.push(call.tool.tool_call_id.clone())

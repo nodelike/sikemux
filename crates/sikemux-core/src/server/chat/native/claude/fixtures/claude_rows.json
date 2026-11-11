@@ -29,10 +29,34 @@
                   },
                   "row": {
                     "action": "think",
-                    "target": "Explore code"
+                    "target": "Explore code",
+                    "family": "agents",
+                    "intent": "start",
+                    "subject": "Explore"
                   }
                 },
-                "startedAt": 1000
+                "startedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "start",
+                      "family": "agents",
+                      "count": 1,
+                      "names": [
+                        "Explore"
+                      ]
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "start",
+                      "family": "agents",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -66,10 +90,30 @@
                   },
                   "row": {
                     "action": "think",
-                    "target": "Task"
+                    "target": "Task",
+                    "family": "agents",
+                    "intent": "start"
                   }
                 },
-                "startedAt": 1000
+                "startedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "start",
+                      "family": "agents",
+                      "count": 1
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "start",
+                      "family": "agents",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -98,10 +142,30 @@
                   "status": "pending",
                   "row": {
                     "action": "think",
-                    "target": "Task"
+                    "target": "Task",
+                    "family": "agents",
+                    "intent": "start"
                   }
                 },
-                "startedAt": 1000
+                "startedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "start",
+                      "family": "agents",
+                      "count": 1
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "start",
+                      "family": "agents",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -138,10 +202,31 @@
                   "description": "List files",
                   "row": {
                     "action": "execute",
-                    "target": "ls -la"
+                    "target": "ls -la",
+                    "family": "shell",
+                    "intent": "list",
+                    "subject": "."
                   }
                 },
-                "startedAt": 1000
+                "startedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "list",
+                      "family": "files",
+                      "count": 1
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "list",
+                      "family": "files",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -170,10 +255,30 @@
                   "status": "pending",
                   "row": {
                     "action": "execute",
-                    "target": "Terminal"
+                    "target": "Terminal",
+                    "family": "shell",
+                    "intent": "run"
                   }
                 },
-                "startedAt": 1000
+                "startedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "run",
+                      "family": "shell",
+                      "count": 1
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "run",
+                      "family": "shell",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -207,10 +312,30 @@
                   },
                   "row": {
                     "action": "execute",
-                    "target": "dir"
+                    "target": "dir",
+                    "family": "shell",
+                    "intent": "run"
                   }
                 },
-                "startedAt": 1000
+                "startedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "run",
+                      "family": "shell",
+                      "count": 1
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "run",
+                      "family": "shell",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -246,10 +371,30 @@
                   "row": {
                     "action": "read",
                     "target": "main.rs",
-                    "path": "/repo/app/src/main.rs:1"
+                    "path": "/repo/app/src/main.rs:1",
+                    "family": "files",
+                    "intent": "read"
                   }
                 },
-                "startedAt": 1000
+                "startedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "read",
+                      "family": "files",
+                      "count": 1
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "read",
+                      "family": "files",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -290,10 +435,30 @@
                     "action": "read",
                     "target": "main.rs",
                     "detail": "Read src/main.rs (10 - 29)",
-                    "path": "/repo/app/src/main.rs:10"
+                    "path": "/repo/app/src/main.rs:10",
+                    "family": "files",
+                    "intent": "read"
                   }
                 },
-                "startedAt": 1000
+                "startedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "read",
+                      "family": "files",
+                      "count": 1
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "read",
+                      "family": "files",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -332,10 +497,30 @@
                     "action": "read",
                     "target": "x.txt",
                     "detail": "Read /elsewhere/x.txt (from line 5)",
-                    "path": "/elsewhere/x.txt:5"
+                    "path": "/elsewhere/x.txt:5",
+                    "family": "files",
+                    "intent": "read"
                   }
                 },
-                "startedAt": 1000
+                "startedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "read",
+                      "family": "files",
+                      "count": 1
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "read",
+                      "family": "files",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -372,10 +557,30 @@
                     "action": "read",
                     "target": "app",
                     "detail": "Read",
-                    "path": "/repo/app:1"
+                    "path": "/repo/app:1",
+                    "family": "files",
+                    "intent": "read"
                   }
                 },
-                "startedAt": 1000
+                "startedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "read",
+                      "family": "files",
+                      "count": 1
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "read",
+                      "family": "files",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -411,10 +616,30 @@
                   "row": {
                     "action": "read",
                     "target": "lib.rs",
-                    "path": "/repo/app/../app/./lib.rs:1"
+                    "path": "/repo/app/../app/./lib.rs:1",
+                    "family": "files",
+                    "intent": "read"
                   }
                 },
-                "startedAt": 1000
+                "startedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "read",
+                      "family": "files",
+                      "count": 1
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "read",
+                      "family": "files",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -452,10 +677,30 @@
                   "row": {
                     "action": "read",
                     "target": "x.rs",
-                    "path": "/repo/apple/x.rs:1"
+                    "path": "/repo/apple/x.rs:1",
+                    "family": "files",
+                    "intent": "read"
                   }
                 },
-                "startedAt": 1000
+                "startedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "read",
+                      "family": "files",
+                      "count": 1
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "read",
+                      "family": "files",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -484,10 +729,30 @@
                   "status": "pending",
                   "row": {
                     "action": "read",
-                    "target": "Read File"
+                    "target": "Read File",
+                    "family": "files",
+                    "intent": "read"
                   }
                 },
-                "startedAt": 1000
+                "startedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "read",
+                      "family": "files",
+                      "count": 1
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "read",
+                      "family": "files",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -527,10 +792,30 @@
                     "action": "read",
                     "target": "a.rs",
                     "detail": "Read a.rs (1 - 5)",
-                    "path": "/repo/app/a.rs:1"
+                    "path": "/repo/app/a.rs:1",
+                    "family": "files",
+                    "intent": "read"
                   }
                 },
-                "startedAt": 1000
+                "startedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "read",
+                      "family": "files",
+                      "count": 1
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "read",
+                      "family": "files",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -568,10 +853,30 @@
                   "row": {
                     "action": "edit",
                     "target": "new.txt",
-                    "path": "/repo/app/new.txt"
+                    "path": "/repo/app/new.txt",
+                    "family": "files",
+                    "intent": "write"
                   }
                 },
-                "startedAt": 1000
+                "startedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "write",
+                      "family": "files",
+                      "count": 1
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "write",
+                      "family": "files",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -609,10 +914,30 @@
                   "row": {
                     "action": "edit",
                     "target": "p.txt",
-                    "path": "/repo/app/p.txt"
+                    "path": "/repo/app/p.txt",
+                    "family": "files",
+                    "intent": "write"
                   }
                 },
-                "startedAt": 1000
+                "startedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "write",
+                      "family": "files",
+                      "count": 1
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "write",
+                      "family": "files",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -646,10 +971,30 @@
                   },
                   "row": {
                     "action": "edit",
-                    "target": "Preparing file…"
+                    "target": "Preparing file…",
+                    "family": "files",
+                    "intent": "write"
                   }
                 },
-                "startedAt": 1000
+                "startedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "write",
+                      "family": "files",
+                      "count": 1
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "write",
+                      "family": "files",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -685,10 +1030,30 @@
                   "row": {
                     "action": "edit",
                     "target": "side.txt",
-                    "path": "/out/side.txt"
+                    "path": "/out/side.txt",
+                    "family": "files",
+                    "intent": "write"
                   }
                 },
-                "startedAt": 1000
+                "startedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "write",
+                      "family": "files",
+                      "count": 1
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "write",
+                      "family": "files",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -717,10 +1082,30 @@
                   "status": "pending",
                   "row": {
                     "action": "edit",
-                    "target": "Preparing file…"
+                    "target": "Preparing file…",
+                    "family": "files",
+                    "intent": "write"
                   }
                 },
-                "startedAt": 1000
+                "startedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "write",
+                      "family": "files",
+                      "count": 1
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "write",
+                      "family": "files",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -760,10 +1145,30 @@
                   "row": {
                     "action": "edit",
                     "target": "a.rs",
-                    "path": "/repo/app/a.rs"
+                    "path": "/repo/app/a.rs",
+                    "family": "files",
+                    "intent": "edit"
                   }
                 },
-                "startedAt": 1000
+                "startedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "edit",
+                      "family": "files",
+                      "count": 1
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "edit",
+                      "family": "files",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -802,10 +1207,30 @@
                   "row": {
                     "action": "edit",
                     "target": "a.rs",
-                    "path": "/repo/app/a.rs"
+                    "path": "/repo/app/a.rs",
+                    "family": "files",
+                    "intent": "edit"
                   }
                 },
-                "startedAt": 1000
+                "startedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "edit",
+                      "family": "files",
+                      "count": 1
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "edit",
+                      "family": "files",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -843,10 +1268,30 @@
                   "row": {
                     "action": "edit",
                     "target": "a.rs",
-                    "path": "/repo/app/a.rs"
+                    "path": "/repo/app/a.rs",
+                    "family": "files",
+                    "intent": "edit"
                   }
                 },
-                "startedAt": 1000
+                "startedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "edit",
+                      "family": "files",
+                      "count": 1
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "edit",
+                      "family": "files",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -882,10 +1327,30 @@
                   "row": {
                     "action": "edit",
                     "target": "a.rs",
-                    "path": "/repo/app/a.rs"
+                    "path": "/repo/app/a.rs",
+                    "family": "files",
+                    "intent": "edit"
                   }
                 },
-                "startedAt": 1000
+                "startedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "edit",
+                      "family": "files",
+                      "count": 1
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "edit",
+                      "family": "files",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -914,10 +1379,30 @@
                   "status": "pending",
                   "row": {
                     "action": "edit",
-                    "target": "Edit"
+                    "target": "Edit",
+                    "family": "files",
+                    "intent": "edit"
                   }
                 },
-                "startedAt": 1000
+                "startedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "edit",
+                      "family": "files",
+                      "count": 1
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "edit",
+                      "family": "files",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -955,10 +1440,30 @@
                   "row": {
                     "action": "search",
                     "target": "Find `/repo/app/src` `**/*.rs`",
-                    "path": "/repo/app/src"
+                    "path": "/repo/app/src",
+                    "family": "files",
+                    "intent": "search"
                   }
                 },
-                "startedAt": 1000
+                "startedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "search",
+                      "family": "files",
+                      "count": 1
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "search",
+                      "family": "files",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -992,10 +1497,30 @@
                   },
                   "row": {
                     "action": "search",
-                    "target": "Find `*.md`"
+                    "target": "Find `*.md`",
+                    "family": "files",
+                    "intent": "search"
                   }
                 },
-                "startedAt": 1000
+                "startedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "search",
+                      "family": "files",
+                      "count": 1
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "search",
+                      "family": "files",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -1024,10 +1549,30 @@
                   "status": "pending",
                   "row": {
                     "action": "search",
-                    "target": "Find"
+                    "target": "Find",
+                    "family": "files",
+                    "intent": "search"
                   }
                 },
-                "startedAt": 1000
+                "startedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "search",
+                      "family": "files",
+                      "count": 1
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "search",
+                      "family": "files",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -1082,10 +1627,30 @@
                   },
                   "row": {
                     "action": "search",
-                    "target": "grep -i -n -A 2 -B 0 | head -10 --include=\"*.rs\" --type=rust -P \"fn main\" src"
+                    "target": "grep -i -n -A 2 -B 0 | head -10 --include=\"*.rs\" --type=rust -P \"fn main\" src",
+                    "family": "files",
+                    "intent": "search"
                   }
                 },
-                "startedAt": 1000
+                "startedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "search",
+                      "family": "files",
+                      "count": 1
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "search",
+                      "family": "files",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -1121,10 +1686,30 @@
                   },
                   "row": {
                     "action": "search",
-                    "target": "grep -l \"x\""
+                    "target": "grep -l \"x\"",
+                    "family": "files",
+                    "intent": "search"
                   }
                 },
-                "startedAt": 1000
+                "startedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "search",
+                      "family": "files",
+                      "count": 1
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "search",
+                      "family": "files",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -1160,10 +1745,30 @@
                   },
                   "row": {
                     "action": "search",
-                    "target": "grep -c \"x\""
+                    "target": "grep -c \"x\"",
+                    "family": "files",
+                    "intent": "search"
                   }
                 },
-                "startedAt": 1000
+                "startedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "search",
+                      "family": "files",
+                      "count": 1
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "search",
+                      "family": "files",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -1192,10 +1797,30 @@
                   "status": "pending",
                   "row": {
                     "action": "search",
-                    "target": "grep"
+                    "target": "grep",
+                    "family": "files",
+                    "intent": "search"
                   }
                 },
-                "startedAt": 1000
+                "startedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "search",
+                      "family": "files",
+                      "count": 1
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "search",
+                      "family": "files",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -1231,10 +1856,30 @@
                   },
                   "row": {
                     "action": "fetch",
-                    "target": "Fetch https://e.com"
+                    "target": "Fetch https://e.com",
+                    "family": "web",
+                    "intent": "fetch"
                   }
                 },
-                "startedAt": 1000
+                "startedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "fetch",
+                      "family": "web",
+                      "count": 1
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "fetch",
+                      "family": "web",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -1263,10 +1908,30 @@
                   "status": "pending",
                   "row": {
                     "action": "fetch",
-                    "target": "Fetch"
+                    "target": "Fetch",
+                    "family": "web",
+                    "intent": "fetch"
                   }
                 },
-                "startedAt": 1000
+                "startedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "fetch",
+                      "family": "web",
+                      "count": 1
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "fetch",
+                      "family": "web",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -1300,10 +1965,31 @@
                   },
                   "row": {
                     "action": "fetch",
-                    "target": "Search \"rust serde\""
+                    "target": "Search \"rust serde\"",
+                    "family": "web",
+                    "intent": "search",
+                    "subject": "rust serde"
                   }
                 },
-                "startedAt": 1000
+                "startedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "search",
+                      "family": "web",
+                      "count": 1
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "search",
+                      "family": "web",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -1332,10 +2018,30 @@
                   "status": "pending",
                   "row": {
                     "action": "fetch",
-                    "target": "Web search"
+                    "target": "Web search",
+                    "family": "web",
+                    "intent": "search"
                   }
                 },
-                "startedAt": 1000
+                "startedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "search",
+                      "family": "web",
+                      "count": 1
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "search",
+                      "family": "web",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -1382,7 +2088,25 @@
                     "target": "Update TODOs: a, b"
                   }
                 },
-                "startedAt": 1000
+                "startedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "use",
+                      "family": "other",
+                      "count": 1
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "use",
+                      "family": "other",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -1414,7 +2138,25 @@
                     "target": "Update TODOs"
                   }
                 },
-                "startedAt": 1000
+                "startedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "use",
+                      "family": "other",
+                      "count": 1
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "use",
+                      "family": "other",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -1461,7 +2203,25 @@
                     "target": "Report 2 findings"
                   }
                 },
-                "startedAt": 1000
+                "startedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "use",
+                      "family": "other",
+                      "count": 1
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "use",
+                      "family": "other",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -1503,7 +2263,25 @@
                     "target": "Report 1 finding"
                   }
                 },
-                "startedAt": 1000
+                "startedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "use",
+                      "family": "other",
+                      "count": 1
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "use",
+                      "family": "other",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -1535,7 +2313,25 @@
                     "target": "Report findings: none found"
                   }
                 },
-                "startedAt": 1000
+                "startedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "use",
+                      "family": "other",
+                      "count": 1
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "use",
+                      "family": "other",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -1572,7 +2368,25 @@
                     "target": "Create task: Ship it"
                   }
                 },
-                "startedAt": 1000
+                "startedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "use",
+                      "family": "other",
+                      "count": 1
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "use",
+                      "family": "other",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -1604,7 +2418,25 @@
                     "target": "Create task"
                   }
                 },
-                "startedAt": 1000
+                "startedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "use",
+                      "family": "other",
+                      "count": 1
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "use",
+                      "family": "other",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -1641,7 +2473,25 @@
                     "target": "Update task: Ship"
                   }
                 },
-                "startedAt": 1000
+                "startedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "use",
+                      "family": "other",
+                      "count": 1
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "use",
+                      "family": "other",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -1673,7 +2523,25 @@
                     "target": "List tasks"
                   }
                 },
-                "startedAt": 1000
+                "startedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "use",
+                      "family": "other",
+                      "count": 1
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "use",
+                      "family": "other",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -1710,7 +2578,25 @@
                     "target": "Get task"
                   }
                 },
-                "startedAt": 1000
+                "startedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "use",
+                      "family": "other",
+                      "count": 1
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "use",
+                      "family": "other",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -1744,10 +2630,29 @@
                   },
                   "row": {
                     "action": "switch_mode",
-                    "target": "Approve Plan"
+                    "target": "Approve Plan",
+                    "intent": "mode"
                   }
                 },
-                "startedAt": 1000
+                "startedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "mode",
+                      "family": "other",
+                      "count": 1
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "mode",
+                      "family": "other",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -1776,10 +2681,29 @@
                   "status": "pending",
                   "row": {
                     "action": "switch_mode",
-                    "target": "Approve Plan"
+                    "target": "Approve Plan",
+                    "intent": "mode"
                   }
                 },
-                "startedAt": 1000
+                "startedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "mode",
+                      "family": "other",
+                      "count": 1
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "mode",
+                      "family": "other",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -1815,10 +2739,16 @@
                     "action": "other",
                     "target": "Load skill: caveman",
                     "verb": "load",
-                    "activity": "Load skill: caveman"
+                    "activity": "Load skill: caveman",
+                    "family": "housekeeping"
                   }
                 },
-                "startedAt": 1000
+                "startedAt": 1000,
+                "run": {
+                  "said": [],
+                  "hidden": 1,
+                  "lines": []
+                }
               }
             ],
             "opensTurn": {},
@@ -1849,10 +2779,16 @@
                     "action": "other",
                     "target": "Load skill",
                     "verb": "load",
-                    "activity": "Load skill"
+                    "activity": "Load skill",
+                    "family": "housekeeping"
                   }
                 },
-                "startedAt": 1000
+                "startedAt": 1000,
+                "run": {
+                  "said": [],
+                  "hidden": 1,
+                  "lines": []
+                }
               }
             ],
             "opensTurn": {},
@@ -1892,10 +2828,16 @@
                     "action": "other",
                     "target": "Which?",
                     "verb": "which?",
-                    "activity": "Which?"
+                    "activity": "Which?",
+                    "family": "housekeeping"
                   }
                 },
-                "startedAt": 1000
+                "startedAt": 1000,
+                "run": {
+                  "said": [],
+                  "hidden": 1,
+                  "lines": []
+                }
               }
             ],
             "opensTurn": {},
@@ -1941,10 +2883,16 @@
                     "action": "other",
                     "target": "Asking for your input",
                     "verb": "asking",
-                    "activity": "Asking for your input"
+                    "activity": "Asking for your input",
+                    "family": "housekeeping"
                   }
                 },
-                "startedAt": 1000
+                "startedAt": 1000,
+                "run": {
+                  "said": [],
+                  "hidden": 1,
+                  "lines": []
+                }
               }
             ],
             "opensTurn": {},
@@ -1975,10 +2923,16 @@
                     "action": "other",
                     "target": "Asking for your input",
                     "verb": "asking",
-                    "activity": "Asking for your input"
+                    "activity": "Asking for your input",
+                    "family": "housekeeping"
                   }
                 },
-                "startedAt": 1000
+                "startedAt": 1000,
+                "run": {
+                  "said": [],
+                  "hidden": 1,
+                  "lines": []
+                }
               }
             ],
             "opensTurn": {},
@@ -2022,7 +2976,25 @@
                     "activity": "Other"
                   }
                 },
-                "startedAt": 1000
+                "startedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "use",
+                      "family": "other",
+                      "count": 1
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "use",
+                      "family": "other",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -2059,10 +3031,30 @@
                     "target": "#x",
                     "verb": "click",
                     "icon": "click",
-                    "activity": "click #x"
+                    "activity": "click #x",
+                    "family": "browser",
+                    "intent": "click"
                   }
                 },
-                "startedAt": 1000
+                "startedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "click",
+                      "family": "browser",
+                      "count": 1
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "click",
+                      "family": "browser",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -2101,7 +3093,25 @@
                     "activity": "MultiEdit"
                   }
                 },
-                "startedAt": 1000
+                "startedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "use",
+                      "family": "other",
+                      "count": 1
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "use",
+                      "family": "other",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -2135,7 +3145,25 @@
                     "activity": "Unknown Tool"
                   }
                 },
-                "startedAt": 1000
+                "startedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "use",
+                      "family": "other",
+                      "count": 1
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "use",
+                      "family": "other",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -2179,11 +3207,32 @@
                   "row": {
                     "action": "read",
                     "target": "a.rs",
-                    "path": "/repo/app/a.rs:1"
+                    "path": "/repo/app/a.rs:1",
+                    "family": "files",
+                    "intent": "read"
                   }
                 },
                 "startedAt": 1000,
-                "endedAt": 1000
+                "endedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "read",
+                      "family": "files",
+                      "count": 1,
+                      "took": 0
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "read",
+                      "family": "files",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -2237,11 +3286,32 @@
                     "action": "read",
                     "target": "a.rs",
                     "detail": "Read a.rs (from line 5)",
-                    "path": "/repo/app/a.rs:5"
+                    "path": "/repo/app/a.rs:5",
+                    "family": "files",
+                    "intent": "read"
                   }
                 },
                 "startedAt": 1000,
-                "endedAt": 1000
+                "endedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "read",
+                      "family": "files",
+                      "count": 1,
+                      "took": 0
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "read",
+                      "family": "files",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -2294,11 +3364,32 @@
                     "action": "read",
                     "target": "a.rs",
                     "detail": "Read a.rs (from line 7)",
-                    "path": "/repo/app/a.rs:7"
+                    "path": "/repo/app/a.rs:7",
+                    "family": "files",
+                    "intent": "read"
                   }
                 },
                 "startedAt": 1000,
-                "endedAt": 1000
+                "endedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "read",
+                      "family": "files",
+                      "count": 1,
+                      "took": 0
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "read",
+                      "family": "files",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -2346,11 +3437,32 @@
                   "row": {
                     "action": "read",
                     "target": "a.rs",
-                    "path": "/repo/app/a.rs:1"
+                    "path": "/repo/app/a.rs:1",
+                    "family": "files",
+                    "intent": "read"
                   }
                 },
                 "startedAt": 1000,
-                "endedAt": 1000
+                "endedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "read",
+                      "family": "files",
+                      "count": 1,
+                      "took": 0
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "read",
+                      "family": "files",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -2405,11 +3517,32 @@
                   "row": {
                     "action": "read",
                     "target": "a.rs",
-                    "path": "/repo/app/a.rs:1"
+                    "path": "/repo/app/a.rs:1",
+                    "family": "files",
+                    "intent": "read"
                   }
                 },
                 "startedAt": 1000,
-                "endedAt": 1000
+                "endedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "read",
+                      "family": "files",
+                      "count": 1,
+                      "took": 0
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "read",
+                      "family": "files",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -2452,12 +3585,35 @@
                   "row": {
                     "action": "read",
                     "target": "a.rs",
-                    "path": "/repo/app/a.rs:1"
+                    "path": "/repo/app/a.rs:1",
+                    "family": "files",
+                    "intent": "read"
                   }
                 },
                 "failure": "<tool_use_error>File does not exist.</tool_use_error>",
                 "startedAt": 1000,
-                "endedAt": 1000
+                "endedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "read",
+                      "family": "files",
+                      "count": 1,
+                      "took": 0
+                    }
+                  ],
+                  "failed": 1,
+                  "lines": [
+                    {
+                      "intent": "read",
+                      "family": "files",
+                      "calls": [
+                        "toolu_1"
+                      ],
+                      "failed": true
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -2504,11 +3660,32 @@
                   "row": {
                     "action": "read",
                     "target": "a.rs",
-                    "path": "/repo/app/a.rs:1"
+                    "path": "/repo/app/a.rs:1",
+                    "family": "files",
+                    "intent": "read"
                   }
                 },
                 "startedAt": 1000,
-                "endedAt": 1000
+                "endedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "read",
+                      "family": "files",
+                      "count": 1,
+                      "took": 0
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "read",
+                      "family": "files",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -2549,7 +3726,10 @@
                   },
                   "row": {
                     "action": "execute",
-                    "target": "ls"
+                    "target": "ls",
+                    "family": "shell",
+                    "intent": "list",
+                    "subject": "."
                   }
                 },
                 "output": {
@@ -2558,7 +3738,26 @@
                   "image": false
                 },
                 "startedAt": 1000,
-                "endedAt": 1000
+                "endedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "list",
+                      "family": "files",
+                      "count": 1,
+                      "took": 0
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "list",
+                      "family": "files",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -2605,7 +3804,10 @@
                   },
                   "row": {
                     "action": "execute",
-                    "target": "ls"
+                    "target": "ls",
+                    "family": "shell",
+                    "intent": "list",
+                    "subject": "."
                   }
                 },
                 "output": {
@@ -2614,7 +3816,26 @@
                   "image": false
                 },
                 "startedAt": 1000,
-                "endedAt": 1000
+                "endedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "list",
+                      "family": "files",
+                      "count": 1,
+                      "took": 0
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "list",
+                      "family": "files",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -2658,7 +3879,10 @@
                   },
                   "row": {
                     "action": "execute",
-                    "target": "ls"
+                    "target": "ls",
+                    "family": "shell",
+                    "intent": "list",
+                    "subject": "."
                   }
                 },
                 "output": {
@@ -2667,7 +3891,26 @@
                   "image": false
                 },
                 "startedAt": 1000,
-                "endedAt": 1000
+                "endedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "list",
+                      "family": "files",
+                      "count": 1,
+                      "took": 0
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "list",
+                      "family": "files",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -2707,7 +3950,10 @@
                   },
                   "row": {
                     "action": "execute",
-                    "target": "ls"
+                    "target": "ls",
+                    "family": "shell",
+                    "intent": "list",
+                    "subject": "."
                   }
                 },
                 "output": {
@@ -2716,7 +3962,26 @@
                   "image": false
                 },
                 "startedAt": 1000,
-                "endedAt": 1000
+                "endedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "list",
+                      "family": "files",
+                      "count": 1,
+                      "took": 0
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "list",
+                      "family": "files",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -2765,7 +4030,10 @@
                   },
                   "row": {
                     "action": "execute",
-                    "target": "ls"
+                    "target": "ls",
+                    "family": "shell",
+                    "intent": "list",
+                    "subject": "."
                   }
                 },
                 "output": {
@@ -2774,7 +4042,26 @@
                   "image": false
                 },
                 "startedAt": 1000,
-                "endedAt": 1000
+                "endedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "list",
+                      "family": "files",
+                      "count": 1,
+                      "took": 0
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "list",
+                      "family": "files",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -2827,7 +4114,10 @@
                   },
                   "row": {
                     "action": "execute",
-                    "target": "ls"
+                    "target": "ls",
+                    "family": "shell",
+                    "intent": "list",
+                    "subject": "."
                   }
                 },
                 "output": {
@@ -2836,7 +4126,26 @@
                   "image": true
                 },
                 "startedAt": 1000,
-                "endedAt": 1000
+                "endedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "list",
+                      "family": "files",
+                      "count": 1,
+                      "took": 0
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "list",
+                      "family": "files",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -2880,7 +4189,9 @@
                   },
                   "row": {
                     "action": "execute",
-                    "target": "false"
+                    "target": "false",
+                    "family": "shell",
+                    "intent": "run"
                   }
                 },
                 "output": {
@@ -2889,7 +4200,28 @@
                   "image": false
                 },
                 "startedAt": 1000,
-                "endedAt": 1000
+                "endedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "run",
+                      "family": "shell",
+                      "count": 1,
+                      "took": 0
+                    }
+                  ],
+                  "failed": 1,
+                  "lines": [
+                    {
+                      "intent": "run",
+                      "family": "shell",
+                      "calls": [
+                        "toolu_1"
+                      ],
+                      "failed": true
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -2934,7 +4266,9 @@
                   },
                   "row": {
                     "action": "execute",
-                    "target": "x"
+                    "target": "x",
+                    "family": "shell",
+                    "intent": "run"
                   }
                 },
                 "output": {
@@ -2943,7 +4277,26 @@
                   "image": false
                 },
                 "startedAt": 1000,
-                "endedAt": 1000
+                "endedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "run",
+                      "family": "shell",
+                      "count": 1,
+                      "took": 0
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "run",
+                      "family": "shell",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -2988,11 +4341,32 @@
                   },
                   "row": {
                     "action": "think",
-                    "target": "d"
+                    "target": "d",
+                    "family": "agents",
+                    "intent": "start"
                   }
                 },
                 "startedAt": 1000,
-                "endedAt": 1000
+                "endedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "start",
+                      "family": "agents",
+                      "count": 1,
+                      "took": 0
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "start",
+                      "family": "agents",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -3032,11 +4406,32 @@
                   },
                   "row": {
                     "action": "think",
-                    "target": "d"
+                    "target": "d",
+                    "family": "agents",
+                    "intent": "start"
                   }
                 },
                 "startedAt": 1000,
-                "endedAt": 1000
+                "endedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "start",
+                      "family": "agents",
+                      "count": 1,
+                      "took": 0
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "start",
+                      "family": "agents",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -3076,11 +4471,32 @@
                   },
                   "row": {
                     "action": "think",
-                    "target": "d"
+                    "target": "d",
+                    "family": "agents",
+                    "intent": "start"
                   }
                 },
                 "startedAt": 1000,
-                "endedAt": 1000
+                "endedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "start",
+                      "family": "agents",
+                      "count": 1,
+                      "took": 0
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "start",
+                      "family": "agents",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -3132,11 +4548,32 @@
                   },
                   "row": {
                     "action": "think",
-                    "target": "d"
+                    "target": "d",
+                    "family": "agents",
+                    "intent": "start"
                   }
                 },
                 "startedAt": 1000,
-                "endedAt": 1000
+                "endedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "start",
+                      "family": "agents",
+                      "count": 1,
+                      "took": 0
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "start",
+                      "family": "agents",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -3176,11 +4613,32 @@
                   },
                   "row": {
                     "action": "think",
-                    "target": "d"
+                    "target": "d",
+                    "family": "agents",
+                    "intent": "start"
                   }
                 },
                 "startedAt": 1000,
-                "endedAt": 1000
+                "endedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "start",
+                      "family": "agents",
+                      "count": 1,
+                      "took": 0
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "start",
+                      "family": "agents",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -3221,12 +4679,35 @@
                   },
                   "row": {
                     "action": "think",
-                    "target": "d"
+                    "target": "d",
+                    "family": "agents",
+                    "intent": "start"
                   }
                 },
                 "failure": "Agent was interrupted",
                 "startedAt": 1000,
-                "endedAt": 1000
+                "endedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "start",
+                      "family": "agents",
+                      "count": 1,
+                      "took": 0
+                    }
+                  ],
+                  "failed": 1,
+                  "lines": [
+                    {
+                      "intent": "start",
+                      "family": "agents",
+                      "calls": [
+                        "toolu_1"
+                      ],
+                      "failed": true
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -3268,11 +4749,32 @@
                   "row": {
                     "action": "edit",
                     "target": "a",
-                    "path": "/repo/app/a"
+                    "path": "/repo/app/a",
+                    "family": "files",
+                    "intent": "edit"
                   }
                 },
                 "startedAt": 1000,
-                "endedAt": 1000
+                "endedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "edit",
+                      "family": "files",
+                      "count": 1,
+                      "took": 0
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "edit",
+                      "family": "files",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -3314,11 +4816,32 @@
                   "row": {
                     "action": "edit",
                     "target": "a",
-                    "path": "/repo/app/a"
+                    "path": "/repo/app/a",
+                    "family": "files",
+                    "intent": "write"
                   }
                 },
                 "startedAt": 1000,
-                "endedAt": 1000
+                "endedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "write",
+                      "family": "files",
+                      "count": 1,
+                      "took": 0
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "write",
+                      "family": "files",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -3361,12 +4884,35 @@
                   "row": {
                     "action": "edit",
                     "target": "a",
-                    "path": "/repo/app/a"
+                    "path": "/repo/app/a",
+                    "family": "files",
+                    "intent": "edit"
                   }
                 },
                 "failure": "<tool_use_error>String not found</tool_use_error>",
                 "startedAt": 1000,
-                "endedAt": 1000
+                "endedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "edit",
+                      "family": "files",
+                      "count": 1,
+                      "took": 0
+                    }
+                  ],
+                  "failed": 1,
+                  "lines": [
+                    {
+                      "intent": "edit",
+                      "family": "files",
+                      "calls": [
+                        "toolu_1"
+                      ],
+                      "failed": true
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -3408,11 +4954,17 @@
                     "action": "other",
                     "target": "Load skill: x",
                     "verb": "load",
-                    "activity": "Load skill: x"
+                    "activity": "Load skill: x",
+                    "family": "housekeeping"
                   }
                 },
                 "startedAt": 1000,
-                "endedAt": 1000
+                "endedAt": 1000,
+                "run": {
+                  "said": [],
+                  "hidden": 1,
+                  "lines": []
+                }
               }
             ],
             "opensTurn": {},
@@ -3453,11 +5005,31 @@
                   },
                   "row": {
                     "action": "switch_mode",
-                    "target": "Exited Plan Mode"
+                    "target": "Exited Plan Mode",
+                    "intent": "mode"
                   }
                 },
                 "startedAt": 1000,
-                "endedAt": 1000
+                "endedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "mode",
+                      "family": "other",
+                      "count": 1,
+                      "took": 0
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "mode",
+                      "family": "other",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -3497,11 +5069,31 @@
                   },
                   "row": {
                     "action": "switch_mode",
-                    "target": "Exited Plan Mode"
+                    "target": "Exited Plan Mode",
+                    "intent": "mode"
                   }
                 },
                 "startedAt": 1000,
-                "endedAt": 1000
+                "endedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "mode",
+                      "family": "other",
+                      "count": 1,
+                      "took": 0
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "mode",
+                      "family": "other",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -3541,11 +5133,31 @@
                   },
                   "row": {
                     "action": "switch_mode",
-                    "target": "Exited Plan Mode"
+                    "target": "Exited Plan Mode",
+                    "intent": "mode"
                   }
                 },
                 "startedAt": 1000,
-                "endedAt": 1000
+                "endedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "mode",
+                      "family": "other",
+                      "count": 1,
+                      "took": 0
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "mode",
+                      "family": "other",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -3602,11 +5214,33 @@
                   },
                   "row": {
                     "action": "fetch",
-                    "target": "Search \"q\""
+                    "target": "Search \"q\"",
+                    "family": "web",
+                    "intent": "search",
+                    "subject": "q"
                   }
                 },
                 "startedAt": 1000,
-                "endedAt": 1000
+                "endedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "search",
+                      "family": "web",
+                      "count": 1,
+                      "took": 0
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "search",
+                      "family": "web",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -3648,11 +5282,33 @@
                   },
                   "row": {
                     "action": "fetch",
-                    "target": "Search \"q\""
+                    "target": "Search \"q\"",
+                    "family": "web",
+                    "intent": "search",
+                    "subject": "q"
                   }
                 },
                 "startedAt": 1000,
-                "endedAt": 1000
+                "endedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "search",
+                      "family": "web",
+                      "count": 1,
+                      "took": 0
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "search",
+                      "family": "web",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -3808,7 +5464,29 @@
                   "image": false
                 },
                 "startedAt": 1000,
-                "endedAt": 1000
+                "endedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "use",
+                      "family": "other",
+                      "count": 1,
+                      "names": [
+                        "x"
+                      ],
+                      "took": 0
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "use",
+                      "family": "other",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -3867,7 +5545,31 @@
                   "image": false
                 },
                 "startedAt": 1000,
-                "endedAt": 1000
+                "endedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "use",
+                      "family": "other",
+                      "count": 1,
+                      "names": [
+                        "x"
+                      ],
+                      "took": 0
+                    }
+                  ],
+                  "failed": 1,
+                  "lines": [
+                    {
+                      "intent": "use",
+                      "family": "other",
+                      "calls": [
+                        "toolu_1"
+                      ],
+                      "failed": true
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -3913,7 +5615,29 @@
                   "image": false
                 },
                 "startedAt": 1000,
-                "endedAt": 1000
+                "endedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "use",
+                      "family": "other",
+                      "count": 1,
+                      "names": [
+                        "x"
+                      ],
+                      "took": 0
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "use",
+                      "family": "other",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -3959,7 +5683,29 @@
                   "image": false
                 },
                 "startedAt": 1000,
-                "endedAt": 1000
+                "endedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "use",
+                      "family": "other",
+                      "count": 1,
+                      "names": [
+                        "x"
+                      ],
+                      "took": 0
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "use",
+                      "family": "other",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -3999,7 +5745,29 @@
                   }
                 },
                 "startedAt": 1000,
-                "endedAt": 1000
+                "endedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "use",
+                      "family": "other",
+                      "count": 1,
+                      "names": [
+                        "x"
+                      ],
+                      "took": 0
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "use",
+                      "family": "other",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -4043,7 +5811,29 @@
                   }
                 },
                 "startedAt": 1000,
-                "endedAt": 1000
+                "endedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "use",
+                      "family": "other",
+                      "count": 1,
+                      "names": [
+                        "x"
+                      ],
+                      "took": 0
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "use",
+                      "family": "other",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -4084,11 +5874,32 @@
                   },
                   "row": {
                     "action": "search",
-                    "target": "Find `*`"
+                    "target": "Find `*`",
+                    "family": "files",
+                    "intent": "search"
                   }
                 },
                 "startedAt": 1000,
-                "endedAt": 1000
+                "endedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "search",
+                      "family": "files",
+                      "count": 1,
+                      "took": 0
+                    }
+                  ],
+                  "lines": [
+                    {
+                      "intent": "search",
+                      "family": "files",
+                      "calls": [
+                        "toolu_1"
+                      ]
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -4129,12 +5940,35 @@
                   },
                   "row": {
                     "action": "fetch",
-                    "target": "Fetch u"
+                    "target": "Fetch u",
+                    "family": "web",
+                    "intent": "fetch"
                   }
                 },
                 "failure": "page",
                 "startedAt": 1000,
-                "endedAt": 1000
+                "endedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "fetch",
+                      "family": "web",
+                      "count": 1,
+                      "took": 0
+                    }
+                  ],
+                  "failed": 1,
+                  "lines": [
+                    {
+                      "intent": "fetch",
+                      "family": "web",
+                      "calls": [
+                        "toolu_1"
+                      ],
+                      "failed": true
+                    }
+                  ]
+                }
               }
             ],
             "opensTurn": {},
@@ -4821,7 +6655,10 @@
                     "description": "List",
                     "row": {
                       "action": "execute",
-                      "target": "ls"
+                      "target": "ls",
+                      "family": "shell",
+                      "intent": "list",
+                      "subject": "."
                     }
                   }
                 }
@@ -4932,7 +6769,9 @@
                   "row": {
                     "action": "edit",
                     "target": "a.rs",
-                    "path": "/repo/app/src/a.rs"
+                    "path": "/repo/app/src/a.rs",
+                    "family": "files",
+                    "intent": "edit"
                   }
                 },
                 "diff": {
@@ -4941,7 +6780,67 @@
                   "dels": 1
                 },
                 "startedAt": 1000,
-                "endedAt": 1000
+                "endedAt": 1000,
+                "run": {
+                  "said": [
+                    {
+                      "intent": "edit",
+                      "family": "files",
+                      "count": 1,
+                      "took": 0
+                    },
+                    {
+                      "intent": "look",
+                      "family": "browser",
+                      "count": 1,
+                      "took": 0
+                    },
+                    {
+                      "intent": "read",
+                      "family": "files",
+                      "count": 1,
+                      "took": 0
+                    },
+                    {
+                      "intent": "mode",
+                      "family": "other",
+                      "count": 1,
+                      "took": 0
+                    }
+                  ],
+                  "failed": 1,
+                  "lines": [
+                    {
+                      "intent": "mode",
+                      "family": "other",
+                      "calls": [
+                        "toolu_plan"
+                      ],
+                      "failed": true
+                    },
+                    {
+                      "intent": "edit",
+                      "family": "files",
+                      "calls": [
+                        "toolu_edit"
+                      ]
+                    },
+                    {
+                      "intent": "look",
+                      "family": "browser",
+                      "calls": [
+                        "toolu_mcp"
+                      ]
+                    },
+                    {
+                      "intent": "read",
+                      "family": "files",
+                      "calls": [
+                        "toolu_read"
+                      ]
+                    }
+                  ]
+                }
               },
               {
                 "kind": "tool",
@@ -4959,7 +6858,9 @@
                     "target": "",
                     "verb": "shot",
                     "icon": "camera",
-                    "activity": "shot"
+                    "activity": "shot",
+                    "family": "browser",
+                    "intent": "look"
                   }
                 },
                 "output": {
@@ -4988,7 +6889,9 @@
                     "action": "read",
                     "target": "README.md",
                     "detail": "Read README.md (3 - 4)",
-                    "path": "/repo/app/README.md:3"
+                    "path": "/repo/app/README.md:3",
+                    "family": "files",
+                    "intent": "read"
                   }
                 },
                 "startedAt": 1000,
@@ -5007,7 +6910,8 @@
                   },
                   "row": {
                     "action": "switch_mode",
-                    "target": "Approve Plan"
+                    "target": "Approve Plan",
+                    "intent": "mode"
                   }
                 },
                 "failure": "User rejected the plan",
@@ -5079,7 +6983,10 @@
                     "description": "List",
                     "row": {
                       "action": "execute",
-                      "target": "ls"
+                      "target": "ls",
+                      "family": "shell",
+                      "intent": "list",
+                      "subject": "."
                     }
                   },
                   "output": {
@@ -5088,7 +6995,26 @@
                     "image": false
                   },
                   "startedAt": 1000,
-                  "endedAt": 1000
+                  "endedAt": 1000,
+                  "run": {
+                    "said": [
+                      {
+                        "intent": "list",
+                        "family": "files",
+                        "count": 1,
+                        "took": 0
+                      }
+                    ],
+                    "lines": [
+                      {
+                        "intent": "list",
+                        "family": "files",
+                        "calls": [
+                          "toolu_sbash"
+                        ]
+                      }
+                    ]
+                  }
                 },
                 {
                   "kind": "subagent",
