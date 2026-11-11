@@ -12,6 +12,9 @@ const DSN = 'https://76804485378be914417f459fe482c276@o4512409824919552.ingest.d
 export const reporting = !__DEV__ && process.env.EXPO_PUBLIC_SENTRY === '1';
 
 /** Console lines and touched labels can hold what the person typed or read, so neither leaves the phone. */
+/** Sentry works out a city from the sender's address unless the event names one, so every event names none. */
+const NO_IP = '0.0.0.0';
+
 const DROPPED_BREADCRUMBS = new Set(['console', 'touch']);
 
 function keepBreadcrumb(breadcrumb: Sentry.Breadcrumb): Sentry.Breadcrumb | null {
@@ -34,7 +37,10 @@ if (reporting) {
     attachScreenshot: false,
     attachViewHierarchy: false,
     beforeBreadcrumb: keepBreadcrumb,
-    initialScope: { tags: { channel: Updates.channel ?? 'none', commit: process.env.EXPO_PUBLIC_COMMIT ?? 'none' } },
+    initialScope: {
+      user: { ip_address: NO_IP },
+      tags: { channel: Updates.channel ?? 'none', commit: process.env.EXPO_PUBLIC_COMMIT ?? 'none' },
+    },
   });
 }
 
@@ -57,12 +63,12 @@ export function useCrashReportsAccount(userId: string | null | undefined) {
   useEffect(() => {
     if (!reporting) return;
     if (!userId) {
-      Sentry.setUser(null);
+      Sentry.setUser({ ip_address: NO_IP });
       return;
     }
     let current = true;
     void Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, `sikemux-usage|${userId}`).then((hash) => {
-      if (current) Sentry.setUser({ id: hash });
+      if (current) Sentry.setUser({ id: hash, ip_address: NO_IP });
     });
     return () => {
       current = false;
