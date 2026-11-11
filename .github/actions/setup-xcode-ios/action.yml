@@ -16,7 +16,7 @@ runs:
         xcode="$(printf '%s\n' /Applications/Xcode_"$XCODE_MAJOR"*.app | grep -vi beta | sort -V | tail -n 1)"
         [[ -d "$xcode" ]] || { echo "::error::The runner has no Xcode $XCODE_MAJOR"; exit 1; }
         sudo xcode-select -s "$xcode"
-        xcodebuild -version | head -n 1 >>"$GITHUB_STEP_SUMMARY"
+        xcodebuild -version | sed -n 1p >>"$GITHUB_STEP_SUMMARY"
 
     - name: Install the Metal toolchain
       if: inputs.metal == 'true'
