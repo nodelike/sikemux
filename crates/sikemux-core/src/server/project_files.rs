@@ -16,7 +16,7 @@ use ignore::WalkBuilder;
 use serde::{Deserialize, Serialize};
 use sikemux_process::sync::Locked;
 
-use crate::git::watch::{repo_key, should_skip_dir, GIT_STATE};
+use crate::git::watch::{repo_key, should_skip_dir, GIT_CONFIG, GIT_STATE};
 
 /// A full rescan backstops platform events the watcher missed.
 const TTL: Duration = Duration::from_secs(60);
@@ -457,7 +457,7 @@ impl Slot {
 fn updated(repo: &str, current: &[String], changes: &[String]) -> Option<Option<Vec<String>>> {
     let changes: Vec<&String> = changes
         .iter()
-        .filter(|path| path.as_str() != GIT_STATE)
+        .filter(|path| path.as_str() != GIT_STATE && path.as_str() != GIT_CONFIG)
         .collect();
     if changes.len() > MAX_INCREMENTAL_PATHS {
         return None;

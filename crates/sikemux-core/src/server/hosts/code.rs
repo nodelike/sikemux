@@ -34,6 +34,10 @@ pub(crate) struct Code {
     pub project: String,
     /// The remote it is known by, which a host that has the project finds it by.
     pub remote: Option<String>,
+    /// What the repository is known by on every host (ADR 0023), which a host finds its own
+    /// checkout of it by.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub identity: Option<String>,
     /// Its `origin`, which a new checkout clones from and pushes to.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub origin: Option<String>,
@@ -115,6 +119,7 @@ pub(crate) fn package_for(cwd: &Path, uncommitted: bool) -> Result<Packed, Strin
     let code = Code {
         project,
         remote: crate::git::remote::identity_url(&repo.to_string_lossy()),
+        identity: crate::git::remote::project_identity(&repo.to_string_lossy()),
         origin: Git::quick(&repo)
             .trimmed(&["remote", "get-url", "origin"])
             .ok()
@@ -183,7 +188,7 @@ pub(crate) fn bundle(repo: &Path, commit: &str, tips: &[String]) -> Result<Scrat
         .collect();
     let mut args = vec!["bundle", "create", "--quiet", &target, &reference];
     args.extend(excluded.iter().map(String::as_str));
-    let made = Git::slow(repo).trimmed(&args);
+    let made = watched(Git::at(repo), &args, scratch.path());
     let _ = Git::quick(repo).trimmed(&["update-ref", "-d", &reference]);
     made?;
     Ok(scratch)
@@ -222,8 +227,18 @@ const STALLED: Duration = Duration::from_secs(5 * 60);
 /// The longest a clone or fetch that keeps writing may run.
 const LONGEST: Duration = Duration::from_secs(6 * 60 * 60);
 
-/// How many bytes the files under `dir` hold.
+/// How many bytes the files under `dir` hold, or the file `dir` and the lock git writes it
+/// through.
 fn written(dir: &Path) -> u64 {
+    if !dir.is_dir() {
+        let mut lock = dir.as_os_str().to_owned();
+        lock.push(".lock");
+        return [dir, Path::new(&lock)]
+            .iter()
+            .filter_map(|file| std::fs::metadata(file).ok())
+            .map(|meta| meta.len())
+            .sum();
+    }
     let mut total = 0;
     let mut folders = vec![dir.to_owned()];
     while let Some(folder) = folders.pop() {
@@ -273,16 +288,26 @@ fn watched(git: Git, args: &[&str], dir: &Path) -> Result<String, String> {
     }
 }
 
-/// The checkouts of this host's projects that have `remote` among their remotes.
-fn projects_with(core: &Core, remote: &str) -> Vec<PathBuf> {
+/// The checkouts of this host's projects of the repository `code` comes from: the same
+/// repository identity, which a repository with no remote has too, else, from a host that sends
+/// none, one of the same remote.
+fn projects_with(core: &Core, code: &Code) -> Vec<PathBuf> {
     let mut repos: Vec<PathBuf> = (core.workspaces.project_paths().into_iter())
         .filter_map(|project| {
             let repo = Git::quick(&project)
                 .trimmed(&["rev-parse", "--path-format=absolute", "--show-toplevel"])
                 .ok()?;
-            crate::git::remote::has_remote(&repo, remote).then(|| PathBuf::from(repo))
+            let same = match (&code.identity, &code.remote) {
+                (Some(identity), _) => {
+                    crate::git::remote::project_identity(&repo).as_ref() == Some(identity)
+                }
+                (None, Some(remote)) => crate::git::remote::has_remote(&repo, remote),
+                (None, None) => false,
+            };
+            same.then(|| PathBuf::from(repo))
         })
         .collect();
+    repos.sort();
     repos.dedup();
     repos
 }
@@ -290,8 +315,8 @@ fn projects_with(core: &Core, remote: &str) -> Vec<PathBuf> {
 /// The checkout here a worker's worktree is cut from: the only one of the repository, else the
 /// only one that already has the lead's commit. With several and nothing to choose by, none,
 /// so the worker gets this host's own copy rather than whichever checkout sorts first.
-fn worker_repo(core: &Core, remote: &str, code: &Code) -> Option<PathBuf> {
-    let repos = projects_with(core, remote);
+fn worker_repo(core: &Core, code: &Code) -> Option<PathBuf> {
+    let repos = projects_with(core, code);
     if let [only] = repos.as_slice() {
         return Some(only.clone());
     }
@@ -680,9 +705,7 @@ pub(crate) fn open_project(
         Some(_) => return Err("the folder begun for this project is gone".into()),
         None if copy => None,
         None => {
-            let repos = (code.remote.as_deref())
-                .map(|remote| projects_with(core, remote))
-                .unwrap_or_default();
+            let repos = projects_with(core, code);
             chosen_clone(core, code, repos, there)?
         }
     };
@@ -756,11 +779,7 @@ pub(crate) fn checkout(
     }
     let inside = relative(&code.inside)?;
     let incoming = format!("refs/sikemux/incoming/{}", uuid::Uuid::new_v4().simple());
-    let repo = match code
-        .remote
-        .as_deref()
-        .and_then(|remote| worker_repo(core, remote, code))
-    {
+    let repo = match worker_repo(core, code) {
         Some(repo) => repo,
         None => {
             let dir = clone_dir(core, host, code);

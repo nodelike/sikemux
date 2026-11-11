@@ -1091,6 +1091,9 @@ fn project_menu(
     let bench_entity = cx.weak_entity();
     let front = bench.front_copy(folded).cloned();
     let own = (folded.own.as_ref()).map(|own| own.id.clone());
+    let clones: Vec<String> = (folded.own.iter().chain(&folded.clones))
+        .map(|project| project.id.clone())
+        .collect();
     let identity = folded.identity.clone();
     let current = bench.space_of(folded).map(str::to_owned);
     let copies = crate::copies::copy_menu(bench, folded, cx);
@@ -1133,13 +1136,17 @@ fn project_menu(
             return popup;
         }
         let move_to = |space: Option<String>| {
-            let (own, identity) = (own.clone(), identity.clone());
+            let (own, identity, clones) = (own.clone(), identity.clone(), clones.clone());
             act(Rc::new(move |bench: &mut Workbench| {
                 match (&own, &identity) {
-                    (Some(id), _) => {
-                        crate::core::Target::here(&bench.asks).call_typed::<call::UpdateProject>(
-                            UpdateProjectParams::space(id.clone(), space.clone()),
-                        )
+                    (Some(_), _) => {
+                        for id in &clones {
+                            crate::core::Target::here(&bench.asks)
+                                .call_typed::<call::UpdateProject>(UpdateProjectParams::space(
+                                    id.clone(),
+                                    space.clone(),
+                                ))
+                        }
                     }
                     (None, Some(identity)) => bench.set_elsewhere_space(identity, space.clone()),
                     (None, None) => {}

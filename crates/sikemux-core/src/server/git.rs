@@ -12,6 +12,7 @@ use super::connection::blocking;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sikemux_process::sync::Locked;
+use sikemux_view::prefs::PreferenceChange;
 use sikemux_view::workspace::{ProjectCodeHost, ProjectGit, ProjectPull, PullChecks};
 
 use super::changed::Topic;
@@ -490,6 +491,9 @@ pub(crate) fn follow_projects(core: &Core) {
         read_chips(&core, projects.to_vec());
         if state_moved {
             refresh_hosts(&core, projects);
+        }
+        if (paths.as_ref()).is_some_and(|paths| paths.iter().any(|path| path == watch::GIT_CONFIG))
+        {
             refresh_identities(&core, projects.iter().map(PathBuf::from).collect());
         }
         for project in projects {
@@ -504,9 +508,48 @@ pub(crate) fn follow_projects(core: &Core) {
         core.git
             .watches
             .follow(|| core.workspaces.project_paths(), &changed);
-        core.workspaces
-            .set_identities(identities_of(core.workspaces.project_paths()));
+        set_identities(&core, identities_of(core.workspaces.project_paths()));
     });
+}
+
+/// Keeps what each project is known by, and moves what the person keeps by a project's identity
+/// (the copy in front, the space of a project held elsewhere, the order) to its new identity.
+fn set_identities(core: &Core, identities: Vec<(PathBuf, Option<String>)>) {
+    let renamed: Vec<(String, String)> = (core.workspaces.projects().into_iter())
+        .filter_map(|project| {
+            let old = project.identity?;
+            let (_, new) = identities.iter().find(|(path, _)| *path == project.path)?;
+            let new = new.clone()?;
+            (old != new).then_some((old, new))
+        })
+        .collect();
+    core.workspaces.set_identities(identities);
+    if renamed.is_empty() {
+        return;
+    }
+    let preferences = core.preferences.get();
+    let moved = |keyed: &std::collections::BTreeMap<String, String>| {
+        let mut keyed = keyed.clone();
+        for (old, new) in &renamed {
+            if let Some(value) = keyed.remove(old) {
+                keyed.entry(new.clone()).or_insert(value);
+            }
+        }
+        keyed
+    };
+    let order = (preferences.project_order.iter())
+        .map(|key| match renamed.iter().find(|(old, _)| old == key) {
+            Some((_, new)) => new.clone(),
+            None => key.clone(),
+        })
+        .collect();
+    for change in [
+        PreferenceChange::FrontCopies(moved(&preferences.front_copies)),
+        PreferenceChange::ElsewhereSpaces(moved(&preferences.elsewhere_spaces)),
+        PreferenceChange::ProjectOrder(order),
+    ] {
+        let _ = super::preferences::set(core, change);
+    }
 }
 
 /// What each of `paths` is known by on every host (ADR 0023).
@@ -529,6 +572,6 @@ fn refresh_identities(core: &Arc<Core>, paths: Vec<PathBuf>) {
             .into_iter()
             .filter(|path| known.contains(path))
             .collect();
-        core.workspaces.set_identities(identities_of(paths));
+        set_identities(&core, identities_of(paths));
     });
 }

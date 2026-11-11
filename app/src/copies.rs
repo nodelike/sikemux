@@ -46,6 +46,12 @@ impl HostCopy {
         }
     }
 
+    /// What the person's choice of the copy in front keeps it by: its host and its project
+    /// there, so one of two clones on a host can be the one in front.
+    pub fn front_key(&self) -> String {
+        format!("{}/{}", self.choice().key(), self.project)
+    }
+
     pub fn icon(&self) -> Icon {
         match self.place {
             Place::This => Icon::Laptop,
@@ -61,6 +67,8 @@ pub struct Folded {
     pub identity: Option<String>,
     /// This host's own project, when it holds a copy.
     pub own: Option<ProjectInfo>,
+    /// This host's other projects of the same repository, its other clones.
+    pub clones: Vec<ProjectInfo>,
     pub copies: Vec<HostCopy>,
 }
 
@@ -103,13 +111,21 @@ impl Workbench {
             match same {
                 Some(same) => {
                     same.copies.push(here);
-                    same.copies.extend(elsewhere);
+                    for copy in elsewhere {
+                        let listed = (same.copies.iter())
+                            .any(|held| held.place == copy.place && held.project == copy.project);
+                        if !listed {
+                            same.copies.push(copy);
+                        }
+                    }
+                    same.clones.push(project.clone());
                 }
                 None => folded.push(Folded {
                     name: project.name.clone(),
                     identity: project.identity.clone(),
                     copies: std::iter::once(here).chain(elsewhere).collect(),
                     own: Some(project.clone()),
+                    clones: Vec::new(),
                 }),
             }
         }
@@ -117,6 +133,7 @@ impl Workbench {
             name: project.name.clone(),
             identity: project.identity.clone(),
             own: None,
+            clones: Vec::new(),
             copies: project.copies.iter().map(copy_of).collect(),
         });
         folded.extend(elsewhere);
@@ -188,7 +205,7 @@ impl Workbench {
                 let chosen = chosen?;
                 (folded.copies.iter())
                     .filter(reached)
-                    .find(|copy| copy.choice().key().as_ref() == chosen.as_str())
+                    .find(|copy| copy.front_key() == *chosen)
             })
             .or_else(|| folded.copies.iter().find(reached))
             .or_else(|| folded.copies.first())
@@ -207,7 +224,7 @@ impl Workbench {
                 project: copy.project.clone(),
             },
         );
-        self.remember_copy(identity, copy.choice());
+        self.remember_copy(identity, copy);
     }
 
     /// Moves the new chat `agent` onto `copy`, on its host, and puts it in front there. The
@@ -248,13 +265,13 @@ impl Workbench {
         .detach();
     }
 
-    /// Notes that the person works on the project known as `identity` on `choice`, so its row
+    /// Notes that the person works on the project known as `identity` in `copy`, so its row
     /// goes there next time.
-    pub fn remember_copy(&self, identity: Option<&str>, choice: HostChoice) {
+    pub fn remember_copy(&self, identity: Option<&str>, copy: &HostCopy) {
         let Some(identity) = identity else {
             return;
         };
-        let key = choice.key().to_string();
+        let key = copy.front_key();
         let mut fronts = self.preferences().front_copies.clone();
         if fronts.get(identity) == Some(&key) {
             return;
@@ -315,7 +332,8 @@ impl Workbench {
     /// repository in while only other hosts held it.
     pub fn space_of<'a>(&'a self, folded: &'a Folded) -> Option<&'a str> {
         match &folded.own {
-            Some(own) => own.space.as_deref(),
+            Some(own) => (std::iter::once(own).chain(&folded.clones))
+                .find_map(|project| project.space.as_deref()),
             None => (folded.identity.as_ref())
                 .and_then(|identity| self.preferences().elsewhere_spaces.get(identity))
                 .map(String::as_str),

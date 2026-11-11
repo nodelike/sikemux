@@ -5,9 +5,10 @@ use serde::{Deserialize, Serialize};
 
 use super::{default_remote, git_ok, open_repo, run_blocking, run_git};
 
-/// A remote's address with its scheme, user, port and `.git` left out, and an SSH host alias
-/// read as the host it stands for, so the same repository reads the same however it was
-/// cloned.
+/// A remote's address with its scheme, user, default port and `.git` left out, an SSH host
+/// alias read as the host it stands for, and the code hosts' own SSH names read as the host, so
+/// the same repository reads the same however it was cloned. A port that is not the default
+/// stays, so two servers on one machine stay apart.
 pub fn normalized_remote(url: &str) -> String {
     let url = url.trim().trim_end_matches('/');
     let url = url.strip_suffix(".git").unwrap_or(url);
@@ -26,44 +27,84 @@ pub fn normalized_remote(url: &str) -> String {
             _ => return rest.to_lowercase(),
         },
     };
-    let host = host.split_once(':').map_or(host, |(host, _port)| host);
+    let (host, port) = match host.split_once(':') {
+        Some((host, port)) => (host, port.parse::<u16>().ok()),
+        None => (host, None),
+    };
     let path = path.trim_start_matches('/');
     let ssh = scheme
         .as_deref()
         .is_none_or(|scheme| scheme.contains("ssh"));
-    let host = match ssh {
-        true => ssh_host(host),
-        false => host.to_lowercase(),
+    let (host, port, default) = match (ssh, scheme.as_deref()) {
+        (true, _) => {
+            let (real, set) = ssh_target(host).unwrap_or_else(|| (host.to_lowercase(), 22));
+            (real, port.or(Some(set)), 22)
+        }
+        (false, Some("http")) => (host.to_lowercase(), port, 80),
+        (false, Some("git")) => (host.to_lowercase(), port, 9418),
+        (false, _) => (host.to_lowercase(), port, 443),
     };
-    let rest = format!("{host}/{path}").to_lowercase();
-    match rest.strip_prefix("ssh.bitbucket.org/") {
-        Some(path) => format!("bitbucket.org/{path}"),
-        None => rest,
+    let (host, port) = match code_host(&host) {
+        Some(host) => (host.to_owned(), None),
+        None => (host, port.filter(|port| *port != default)),
+    };
+    let host = match port {
+        Some(port) => format!("{host}:{port}"),
+        None => host,
+    };
+    format!("{host}/{path}").to_lowercase()
+}
+
+/// The code host behind one of its own SSH names, such as GitHub's `ssh.github.com` on port 443.
+fn code_host(host: &str) -> Option<&'static str> {
+    match host {
+        "github.com" | "ssh.github.com" => Some("github.com"),
+        "bitbucket.org" | "ssh.bitbucket.org" | "altssh.bitbucket.org" => Some("bitbucket.org"),
+        "gitlab.com" | "altssh.gitlab.com" => Some("gitlab.com"),
+        _ => None,
     }
 }
 
-/// The host an SSH host name stands for in this host's ssh settings, worked out once per name.
-fn ssh_host(alias: &str) -> String {
+/// The host and port an SSH host name stands for in this host's ssh settings, as `ssh -G`
+/// reads them, kept once found; none when ssh could not say.
+fn ssh_target(alias: &str) -> Option<(String, u16)> {
     use std::collections::HashMap;
     use std::sync::{Mutex, OnceLock};
-    static KNOWN: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
+    static KNOWN: OnceLock<Mutex<HashMap<String, (String, u16)>>> = OnceLock::new();
     let known = KNOWN.get_or_init(Mutex::default);
     let alias = alias.to_lowercase();
-    if let Some(host) = known
+    if let Some(found) = known
         .lock()
         .ok()
         .and_then(|known| known.get(&alias).cloned())
     {
-        return host;
+        return Some(found);
     }
-    let host = ssh_hostname(&alias)
-        .map(|host| host.trim().to_lowercase())
-        .filter(|host| !host.is_empty())
-        .unwrap_or_else(|| alias.clone());
+    if alias.starts_with('-') {
+        return None;
+    }
+    let mut command = sikemux_process::user_environment::command("ssh");
+    command.args(["-G", &alias]);
+    let output =
+        sikemux_process::run(&mut command, None, GIT_TIMEOUT, GIT_OUTPUT_LIMIT, None).ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let settings = String::from_utf8_lossy(&output.stdout);
+    let setting = |name: &str| {
+        settings
+            .lines()
+            .find_map(|line| line.strip_prefix(name)?.strip_prefix(' '))
+            .map(|value| value.trim().to_lowercase())
+    };
+    let host = setting("hostname").filter(|host| !host.is_empty())?;
+    let port = setting("port")
+        .and_then(|port| port.parse().ok())
+        .unwrap_or(22);
     if let Ok(mut known) = known.lock() {
-        known.insert(alias, host.clone());
+        known.insert(alias, (host.clone(), port));
     }
-    host
+    Some((host, port))
 }
 
 /// The address of the remote a repository is known by.

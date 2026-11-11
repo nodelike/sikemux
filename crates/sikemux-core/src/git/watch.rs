@@ -18,6 +18,8 @@ const MAX_WATCHED_REPOS: usize = 64;
 /// What a change to a repository's own state, under `.git`, is listed as
 /// among the paths that moved.
 pub const GIT_STATE: &str = ".git";
+/// Stands for the repository's `.git/config`, whose remotes say what the project is known by.
+pub const GIT_CONFIG: &str = ".git/config";
 
 /// The one name a repository goes by however it is reached, so symlinks, `.`
 /// components and trailing separators never watch or cache it twice.
@@ -348,6 +350,10 @@ fn moved_paths(repo: &Path, changes: &[PathBuf], rescan: bool) -> Option<Vec<Str
     }
     let mut paths = Vec::with_capacity(changes.len());
     for path in changes {
+        if path.ends_with(".git/config") {
+            paths.push(GIT_CONFIG.to_owned());
+            continue;
+        }
         if is_git_signal(path) {
             paths.push(GIT_STATE.to_owned());
             continue;
