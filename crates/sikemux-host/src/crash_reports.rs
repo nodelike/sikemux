@@ -12,12 +12,12 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use sentry::integrations::contexts::ContextIntegration;
 use sentry::integrations::minidump::MinidumpIntegration;
 use sentry::protocol::{
-    Breadcrumb, DebugMeta, Event, Exception, Frame, IpAddress, Mechanism, SessionStatus, SpanId,
-    Stacktrace,
+    Breadcrumb, DebugMeta, Event, Exception, Frame, IpAddress, Mechanism, SessionAttributes,
+    SessionStatus, SessionUpdate, SpanId, Stacktrace,
 };
 use sentry::transports::ReqwestHttpTransportOptions;
 use sentry::types::Uuid;
-use sentry::{Client, ClientOptions, Hub, Level, SessionMode, TransactionContext, Transport};
+use sentry::{Client, ClientOptions, Hub, Level, TransactionContext, Transport};
 use serde::Deserialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -33,6 +33,7 @@ const DSN: Option<&str> = if cfg!(debug_assertions) {
 };
 const REPORTER_VARIABLE: &str = "SIKEMUX_CRASH_REPORTER";
 const PARENT_VARIABLE: &str = "SIKEMUX_CRASH_REPORTER_PARENT";
+const SESSION_VARIABLE: &str = "SIKEMUX_CRASH_REPORTER_SESSION";
 const FLUSH_TIMEOUT: Duration = Duration::from_secs(2);
 /// How often the core looks for panics that other processes left behind.
 const SWEEP_EVERY: Duration = Duration::from_secs(60 * 60);
@@ -59,6 +60,7 @@ impl Process {
 static DATA_DIR: OnceLock<PathBuf> = OnceLock::new();
 static SENDING_CRASH: AtomicBool = AtomicBool::new(false);
 static STARTUP: Mutex<Option<Startup>> = Mutex::new(None);
+static SESSION: Mutex<Option<SessionUpdate<'static>>> = Mutex::new(None);
 
 struct Startup {
     began: SystemTime,
@@ -79,9 +81,17 @@ pub fn start(process: Process, data_dir: Option<PathBuf>) {
         .server_env_var(REPORTER_VARIABLE)
         .process_name(format!("sikemux {} crash reporter", process.name()))
         .flush_timeout(FLUSH_TIMEOUT)
-        .before_capture(|_, _| SENDING_CRASH.store(true, Ordering::SeqCst))
+        .before_capture(|_, _| {
+            SENDING_CRASH.store(true, Ordering::SeqCst);
+            send_crashed_session();
+        })
         .on_process(|command| {
             command.env(PARENT_VARIABLE, std::process::id().to_string());
+            if let Some(session) = SESSION.locked().as_ref() {
+                if let Ok(session) = serde_json::to_string(session) {
+                    command.env(SESSION_VARIABLE, session);
+                }
+            }
         });
     if let Some(autopsies) = crate::hang_reports::autopsy_dir() {
         minidumps = minidumps.crashes_dir(autopsies.join("minidumps"));
@@ -95,6 +105,23 @@ pub fn start(process: Process, data_dir: Option<PathBuf>) {
     if !allowed() {
         return;
     }
+    *SESSION.locked() = Some(SessionUpdate {
+        session_id: Uuid::new_v4(),
+        distinct_id: None,
+        sequence: None,
+        timestamp: None,
+        started: SystemTime::now(),
+        init: true,
+        duration: None,
+        status: SessionStatus::Ok,
+        errors: 0,
+        attributes: SessionAttributes {
+            release: release(env!("CARGO_PKG_VERSION")).into(),
+            environment: Some(environment().into()),
+            ip_address: None,
+            user_agent: None,
+        },
+    });
     let spawned = std::thread::Builder::new()
         .name("crash-reports".into())
         .spawn(move || {
@@ -102,7 +129,9 @@ pub fn start(process: Process, data_dir: Option<PathBuf>) {
             hub.bind_client(Some(Arc::new(Client::with_options(options(
                 dsn, process, minidumps,
             )))));
-            hub.start_session();
+            if let (Some(client), Some(session)) = (hub.client(), SESSION.locked().clone()) {
+                client.send_envelope(session.into());
+            }
             if log::set_logger(&LOGGER).is_ok() {
                 log::set_max_level(log::LevelFilter::Warn);
             }
@@ -151,11 +180,44 @@ fn leave_with_parent() {
 
 /// Ends this run's session as one that exited well, and sends what is waiting.
 pub fn stop() {
-    let hub = Hub::main();
-    if let Some(client) = hub.client() {
-        hub.end_session();
+    if let Some(client) = Hub::main().client() {
+        end_session(&client, SessionStatus::Exited);
         client.flush(Some(FLUSH_TIMEOUT));
     }
+}
+
+fn end_session(client: &Client, status: SessionStatus) {
+    if let Some(session) = SESSION.locked().take() {
+        client.send_envelope(ended(session, status).into());
+    }
+}
+
+/// In the crash reporter: ends the session of the process that crashed as crashed.
+fn send_crashed_session() {
+    let Some(session) = std::env::var(SESSION_VARIABLE)
+        .ok()
+        .and_then(|session| serde_json::from_str::<SessionUpdate<'static>>(&session).ok())
+    else {
+        return;
+    };
+    if let Some(client) = Hub::main().client() {
+        client.send_envelope(ended(session, SessionStatus::Crashed).into());
+    }
+}
+
+fn ended(mut session: SessionUpdate<'static>, status: SessionStatus) -> SessionUpdate<'static> {
+    let now = SystemTime::now();
+    session.init = false;
+    session.timestamp = Some(now);
+    session.duration = now
+        .duration_since(session.started)
+        .ok()
+        .map(|duration| duration.as_secs_f64());
+    if status == SessionStatus::Crashed {
+        session.errors += 1;
+    }
+    session.status = status;
+    session
 }
 
 /// Whether a panic written now may go to Sentry, now or once a core next sweeps.
@@ -174,7 +236,7 @@ pub(crate) fn panicked(file: &Path, report: &PanicReport) {
         return;
     }
     hub.capture_event(event(report));
-    hub.end_session_with_status(SessionStatus::Crashed);
+    end_session(&client, SessionStatus::Crashed);
     if client.flush(Some(FLUSH_TIMEOUT)) {
         panic_reports::save(file, &sent(report));
     }
@@ -258,7 +320,6 @@ fn options(dsn: &str, process: Process, minidumps: MinidumpIntegration) -> Clien
     options.environment = Some(environment().into());
     options.send_default_pii = false;
     options.max_breadcrumbs = MAX_BREADCRUMBS;
-    options.session_mode = SessionMode::Application;
     options.traces_sampling_strategy =
         sentry::TracesSamplingStrategy::FixedRate(STARTUP_SAMPLE_RATE);
     options.default_integrations = false;
