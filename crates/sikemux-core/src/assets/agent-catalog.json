@@ -151,7 +151,8 @@
                 "modes": {
                     "normal": "accept_edits",
                     "bypass": "dont_ask"
-                }
+                },
+                "compact": "compress"
             },
             "providers": null,
             "routed": null,

@@ -159,12 +159,13 @@ for (const agent of agents) {
       (chat.driver === "acp"
         ? isArgs(chat.args) &&
           (chat.modes === undefined ||
-            (isName(chat.modes.normal) && isName(chat.modes.bypass)))
-        : chat.args === undefined && chat.modes === undefined)
+            (isName(chat.modes.normal) && isName(chat.modes.bypass))) &&
+          (chat.compact === undefined || isName(chat.compact))
+        : chat.args === undefined && chat.modes === undefined && chat.compact === undefined)
     )
   )
     fail(
-      `chat must be null or { driver: ${DRIVERS.join(" | ")} }, with args and optional modes for acp`,
+      `chat must be null or { driver: ${DRIVERS.join(" | ")} }, with args and optional modes and compact for acp`,
     );
   const privateHome = home?.private;
   if (
@@ -302,6 +303,7 @@ function rustEntry(agent) {
       ? `        chat: Some(ChatDriver::Acp {
 ${rustList(12, "args", chat.args)}
 ${modes}
+            compact: ${rustString(chat.compact ?? "compact")},
         }),`
       : `        chat: Some(ChatDriver::${pascal(chat.driver)}),`;
   const privateField = privateHome
@@ -449,6 +451,8 @@ pub enum ChatDriver {
     Acp {
         args: &'static [&'static str],
         modes: Option<AcpModes>,
+        /// The agent's own name for the command that compacts its session.
+        compact: &'static str,
     },
 }
 
