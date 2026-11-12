@@ -280,8 +280,9 @@ impl Chats {
 
     /// Whether the agent's chat is in a turn or has tasks running.
     pub(crate) fn at_work(&self, agent_id: &str) -> bool {
-        self.get(agent_id)
-            .is_some_and(|chat| chat.state_now().busy() || chat.feed.running_tasks() > 0)
+        self.get(agent_id).is_some_and(|chat| {
+            chat.state_now().busy() || chat.feed.running_tasks() > 0 || chat.meter.compacting()
+        })
     }
 
     /// Ends every chat's agent, a turn at work ending as stopped, and answers
@@ -371,6 +372,7 @@ impl Chats {
             unstarted: AtomicBool::new(false),
             brief: Mutex::new(None),
             meter: Default::default(),
+            capped: AtomicBool::new(false),
             wanted: tokio::sync::Notify::new(),
             saved_shown: AtomicBool::new(history_shown),
             saved_reading: watch::channel(false).0,

@@ -115,9 +115,12 @@ pub(crate) fn session_title(payload: &Value) -> Option<String> {
 
 impl Replay {
     /// What the person wrote, oldest first: the newest messages that fit in `budget`
-    /// characters, each cut past `longest`. Messages from agents and background work are not
+    /// characters, each counted with the three a list line adds, and each past `longest`
+    /// characters cut and marked `[cut]`. Messages from agents and background work are not
     /// the person's.
     pub(in super::super) fn persons_words(&self, budget: usize, longest: usize) -> Vec<String> {
+        const LINE: usize = 3;
+        const CUT: &str = " [cut]";
         let mut said = Vec::new();
         let mut left = budget;
         for entry in self.entries.iter().rev() {
@@ -127,23 +130,22 @@ impl Replay {
             let Some(text) = entry.event.payload.get("text").and_then(Value::as_str) else {
                 continue;
             };
-            let opening = text.trim_start();
-            if opening.starts_with("<agent-message ") || opening.starts_with("<task-notification>")
-            {
+            let text = text.trim();
+            if text.starts_with("<agent-message ") || text.starts_with("<task-notification>") {
                 continue;
             }
-            let mut text: String = text.trim().chars().take(longest).collect();
-            if text.len() < opening.trim_end().len() {
-                text.push('…');
+            let mut kept: String = text.chars().take(longest).collect();
+            if kept.len() < text.len() {
+                kept.push_str(CUT);
             }
-            if text.is_empty() || said.last() == Some(&text) {
+            if kept.is_empty() || said.last() == Some(&kept) {
                 continue;
             }
-            let Some(rest) = left.checked_sub(text.len()) else {
+            let Some(rest) = left.checked_sub(kept.chars().count() + LINE) else {
                 break;
             };
             left = rest;
-            said.push(text);
+            said.push(kept);
         }
         said.reverse();
         said

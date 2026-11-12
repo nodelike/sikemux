@@ -6,9 +6,9 @@
 mod folded;
 
 use std::collections::BTreeMap;
+use std::ffi::OsString;
 use std::io::Write;
 use std::os::unix::net::UnixStream as StdUnixStream;
-use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::thread::JoinHandle;

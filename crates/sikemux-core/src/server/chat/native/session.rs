@@ -241,7 +241,12 @@ impl Telling {
 
     /// Whether the chat's session is kept small.
     pub fn capped(&self) -> bool {
-        cap::capped(self.chat.agent_id())
+        self.chat.capped()
+    }
+
+    /// The core's own compaction has ended, done or not.
+    pub fn compaction_over(&self) {
+        self.chat.meter.compaction_over();
     }
 
     /// What the session's compaction is told to keep.
@@ -270,7 +275,7 @@ impl Telling {
 
     pub fn session_used(&self, calls: Vec<ModelCall>, compactions: Vec<Compaction>) {
         if let Some(core) = self.chat.core.upgrade() {
-            let project = self.chat.launch.cwd.to_string_lossy();
+            let project = core.workspaces.project_of(&self.chat.launch.cwd);
             core.activity_log
                 .session_used(self.chat.agent_id(), &project, calls, compactions);
         }

@@ -25,6 +25,8 @@ pub(crate) const FACTS_HOOK: &str = "sikemux-facts";
 const HOOK_CHARS: usize = 10_000;
 /// One message of the person's past this is cut, so a pasted log leaves room for the rest.
 const LONGEST_SAID: usize = 1_500;
+/// A compaction Claude never answered stops holding the chat awake after this.
+const COMPACTING_MS: u64 = 10 * 60_000;
 /// Claude Code keeps the prompt cache an hour; idle this long, a compaction still reads it warm.
 const IDLE_COMPACT_MS: u64 = 50 * 60_000;
 const CACHE_MS: u64 = 60 * 60_000;
@@ -33,12 +35,6 @@ const IDLE_COMPACT_TOKENS: u64 = 40_000;
 /// What the core asks for when it compacts an idle chat itself.
 pub(crate) const IDLE_FOCUS: &str =
     "Keep what the person asked for and decided, and the work still open.";
-
-/// Whether the chat's vendor session is kept small.
-pub(crate) fn capped(agent_id: &str) -> bool {
-    std::env::var("SIKEMUX_DEV_CAPPED")
-        .is_ok_and(|ids| ids.split(',').any(|id| id.trim() == agent_id))
-}
 
 /// The hooks a capped Claude chat registers as it starts.
 pub(crate) fn claude_hooks() -> Value {
@@ -55,6 +51,8 @@ pub(crate) struct Meter {
     context: AtomicU64,
     /// The session was compacted since its last call, so its idle stretch needs no other.
     compacted: AtomicBool,
+    /// When the core asked for the compaction still running, or 0.
+    compacting_since: AtomicU64,
 }
 
 impl Meter {
@@ -67,6 +65,16 @@ impl Meter {
     pub(crate) fn compacted(&self, context: u64) {
         self.context.store(context, Ordering::Release);
         self.compacted.store(true, Ordering::Release);
+    }
+
+    /// The core's own compaction runs, so the agent is at work though no turn shows.
+    pub(crate) fn compacting(&self) -> bool {
+        let since = self.compacting_since.load(Ordering::Acquire);
+        since > 0 && epoch_ms().saturating_sub(since) < COMPACTING_MS
+    }
+
+    pub(crate) fn compaction_over(&self) {
+        self.compacting_since.store(0, Ordering::Release);
     }
 
     /// The session has sat idle since a call whose cache is still warm, big enough that a
@@ -83,25 +91,28 @@ impl Meter {
 /// What a compaction must keep: what is still open, and the person's own words as the core's
 /// record holds them.
 pub(crate) fn keep_list(core: &Core, chat: &Chat) -> String {
-    let mut text =
-        "Sikemux keeps the record of this chat. In the summary, keep word for word, under \
-                    their own heading: every message of the person's below, every call still open \
-                    to the person, and what you and your workers are waiting on, with what each \
-                    waits for."
-            .to_owned();
+    let mut text = "Sikemux keeps the record of this chat. In the summary, keep under their own \
+                    heading, word for word: every message of the person's below, every call still \
+                    open to the person, and what you and your workers are waiting on, with what \
+                    each waits for. A message ending in [cut] was longer: only its start is here, \
+                    so keep that start and say it was cut."
+        .to_owned();
     let open = open_work(core, chat.agent_id());
     if !open.is_empty() {
         text.push_str("\n\nStill open, as Sikemux has it now:\n");
         text.push_str(&open.join("\n"));
     }
-    let budget = HOOK_CHARS.saturating_sub(text.len() + 64);
+    const SAID: &str = "\n\nThe person's messages, oldest first:";
+    let budget = HOOK_CHARS.saturating_sub(text.chars().count() + SAID.len());
     let said = chat.feed.persons_words(budget, LONGEST_SAID);
     if !said.is_empty() {
-        text.push_str("\n\nThe person's messages, oldest first:\n");
-        let lines: Vec<String> = said.iter().map(|said| format!("- {said}")).collect();
-        text.push_str(&lines.join("\n"));
+        text.push_str(SAID);
+        for said in said {
+            text.push_str("\n- ");
+            text.push_str(&said);
+        }
     }
-    text.chars().take(HOOK_CHARS).collect()
+    text
 }
 
 /// What the core knows now that the session should have back after a compaction.
@@ -217,20 +228,17 @@ pub(crate) fn compact_idle(core: &Core, now: u64) {
         let Some(chat) = core.chats.get(&agent_id) else {
             continue;
         };
-        let wait = std::env::var("SIKEMUX_DEV_IDLE_COMPACT_MS")
-            .ok()
-            .and_then(|ms| ms.parse().ok())
-            .unwrap_or(IDLE_COMPACT_MS);
-        let due = capped(&agent_id)
+        let due = chat.capped()
             && chat.is_ready()
             && !chat.prompted()
             && chat.state_now() == AgentState::Idle
             && chat
                 .meter
                 .worth_compacting(now)
-                .is_some_and(|idle| idle >= wait);
+                .is_some_and(|idle| idle >= IDLE_COMPACT_MS);
         if due {
             chat.meter.compacted.store(true, Ordering::Release);
+            chat.meter.compacting_since.store(now, Ordering::Release);
             let _ = chat.send(ChatCommand::Compact);
         }
     }
@@ -239,9 +247,7 @@ pub(crate) fn compact_idle(core: &Core, now: u64) {
 /// A capped chat stays awake until its idle stretch has been compacted, since a sleeping
 /// agent cannot compact.
 pub(crate) fn holds_awake(core: &Core, agent_id: &str, now: u64) -> bool {
-    capped(agent_id)
-        && core
-            .chats
-            .get(agent_id)
-            .is_some_and(|chat| chat.meter.worth_compacting(now).is_some())
+    core.chats.get(agent_id).is_some_and(|chat| {
+        chat.capped() && (chat.meter.compacting() || chat.meter.worth_compacting(now).is_some())
+    })
 }

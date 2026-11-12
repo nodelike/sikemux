@@ -363,6 +363,13 @@ fn activity_events(
             "answers": answers(&day.answers, |answers| answers.count),
             "answer_seconds": answers(&day.answers, |answers| answers.ms / 1000),
             "waited_on_person_seconds": day.waited_ms / 1000,
+            "model_calls": day.model_use.calls,
+            "cold_cache_rewrites": day.model_use.cold_rewrites,
+            "compactions": {
+                "by_agent": day.model_use.compacted_by_agent,
+                "by_person": day.model_use.compacted_by_person,
+                "idle": day.model_use.compacted_idle,
+            },
             "cost_usd": priced.iter().sum::<f64>(),
         }),
     )];

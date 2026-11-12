@@ -148,6 +148,10 @@ pub(crate) struct ReaderState {
     calls: Vec<ModelCall>,
     #[serde(default)]
     compactions: Vec<Compaction>,
+    /// Subagents or background work called the model since Claude last answered, so what a
+    /// compaction cost cannot be told apart from what they did.
+    #[serde(default)]
+    others_called: bool,
 }
 
 fn usage_total(usage: &Value) -> Option<u64> {
@@ -432,6 +436,7 @@ impl Reader {
                 model: None,
                 calls: Vec::new(),
                 compactions: Vec::new(),
+                others_called: false,
             },
         )
     }
@@ -680,6 +685,8 @@ impl Reader {
                     if let Some(usage) = message.usage.as_ref() {
                         self.called(usage);
                     }
+                } else {
+                    self.data.others_called = true;
                 }
             }
             StreamEvent::ContentBlockStart { content_block } => {
@@ -744,6 +751,7 @@ impl Reader {
         let name = text(block, "name").unwrap_or("Tool").to_owned();
         let input = block.get("input").cloned().unwrap_or_else(|| json!({}));
         let session = self.session_of(parent);
+        self.data.others_called |= tools::is_subagent_tool(&name);
         let known = self.data.tools.contains_key(&id);
         if !streaming || !known {
             self.data.tools.insert(
@@ -985,6 +993,7 @@ impl Reader {
             quiet
         };
         if quiet {
+            self.sink.compaction_over();
             return;
         }
         let woken = result.origin.is_some();
@@ -1086,19 +1095,20 @@ impl Reader {
             before: metadata.pre_tokens.unwrap_or(0),
             after,
             ms: metadata.duration_ms.unwrap_or(0),
-            cost: ModelCall::default(),
+            cost: None,
         });
     }
 
     /// Keeps what the session's calls carried since Claude last answered. What Claude counted
-    /// beyond those calls went on writing a compaction's summary, when one ran.
+    /// beyond those calls went on writing a compaction's summary, when one ran alone; beside a
+    /// subagent's calls or another compaction its cost is unknown.
     fn tally(&mut self, result: &TurnResult) {
         let calls = std::mem::take(&mut self.data.calls);
         let mut compactions = std::mem::take(&mut self.data.compactions);
-        if let (Some(compaction), Some(counted)) = (
-            compactions.last_mut(),
-            result.model_usage_since_last_result.as_ref(),
-        ) {
+        let others = std::mem::take(&mut self.data.others_called);
+        let counted = result.model_usage_since_last_result.as_ref();
+        if let ([compaction], Some(counted), false) = (compactions.as_mut_slice(), counted, others)
+        {
             let total = |key: &str| -> u64 {
                 counted
                     .values()
@@ -1106,7 +1116,7 @@ impl Reader {
                     .sum()
             };
             let seen = |part: fn(&ModelCall) -> u64| calls.iter().map(part).sum::<u64>();
-            compaction.cost = ModelCall {
+            compaction.cost = Some(ModelCall {
                 at_ms: compaction.at_ms,
                 input: total("inputTokens").saturating_sub(seen(|call| call.input)),
                 cache_read: total("cacheReadInputTokens")
@@ -1114,7 +1124,7 @@ impl Reader {
                 cache_write: total("cacheCreationInputTokens")
                     .saturating_sub(seen(|call| call.cache_write)),
                 output: total("outputTokens").saturating_sub(seen(|call| call.output)),
-            };
+            });
         }
         self.sink.session_used(calls, compactions);
     }
@@ -1319,6 +1329,7 @@ impl Reader {
         if self.quiet() {
             return;
         }
+        self.sink.compaction_over();
         let turn = self.shared.locked().turn.take();
         match turn {
             Some(mut turn) => {
@@ -1349,6 +1360,8 @@ impl Reader {
             Some("failed") => {
                 let error = compact_error.as_deref().unwrap_or("unknown error");
                 self.compacted("failed", Some(format!("Compaction failed: {error}")));
+                self.shared.locked().quiet = None;
+                self.sink.compaction_over();
             }
             _ => {}
         }
@@ -1379,6 +1392,7 @@ impl Reader {
     }
 
     fn task_started(&mut self, message: &Value) {
+        self.data.others_called = true;
         let Some(task_id) = text(message, "task_id").map(str::to_owned) else {
             return;
         };

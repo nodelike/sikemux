@@ -662,6 +662,7 @@ impl Backend for Claude {
     }
 
     async fn cancel(&mut self) -> Result<(), String> {
+        self.shared.locked().quiet = None;
         let running = match self.shared.locked().turn.as_mut() {
             Some(turn) => {
                 turn.cancelled = true;

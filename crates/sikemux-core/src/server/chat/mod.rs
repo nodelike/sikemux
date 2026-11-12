@@ -281,11 +281,24 @@ pub(crate) struct Chat {
     brief: Mutex<Option<String>>,
     /// How big its agent's session is and when it last called the model.
     pub(crate) meter: cap::Meter,
+    /// Its agent's session is kept small.
+    capped: AtomicBool,
 }
 
 impl Chat {
     pub(crate) fn agent_id(&self) -> &str {
         &self.launch.agent_id
+    }
+
+    /// Keeps the agent's session small from its next start: it compacts near 150K tokens and
+    /// before the prompt cache dies while idle.
+    #[expect(dead_code, reason = "the chief's seat marks its chat")]
+    pub(crate) fn cap(&self) {
+        self.capped.store(true, Ordering::Release);
+    }
+
+    pub(crate) fn capped(&self) -> bool {
+        self.capped.load(Ordering::Acquire)
     }
 
     /// What Sikemux keeps for the project, as the chat began.

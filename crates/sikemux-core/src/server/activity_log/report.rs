@@ -7,6 +7,7 @@ use rusqlite::{params, Connection};
 
 use crate::launch::model_feed::Feed;
 
+use super::context::{self, ReportedModelUse};
 use super::pricing::Prices;
 use super::{ActivityLog, DAY_MS};
 
@@ -31,6 +32,8 @@ pub(crate) struct ReportedDay {
     pub answers: Vec<ReportedAnswers>,
     /// Time agents stood waiting on the person, added up over every agent.
     pub waited_ms: i64,
+    /// Chats' calls to the model, cold rewrites of their cache and compactions.
+    pub model_use: ReportedModelUse,
 }
 
 #[derive(Default, Debug, PartialEq)]
@@ -60,8 +63,11 @@ impl ActivityLog {
         let feed = self.feed.as_ref().map(Feed::current).unwrap_or_default();
         let prices = Prices::new(&feed, &self.price_overrides());
         self.write_uses();
-        self.with_database(|db| days_between(db, first, end, &prices))
-            .unwrap_or_default()
+        self.with_database(|db| {
+            context::roll_up(db)?;
+            days_between(db, first, end, &prices)
+        })
+        .unwrap_or_default()
     }
 }
 
@@ -167,6 +173,10 @@ fn days_between(
     let mut rows = statement.query(params![first, end])?;
     while let Some(row) = rows.next()? {
         day_at(&mut days, row.get::<_, i64>(0)? * DAY_MS).waited_ms += row.get::<_, i64>(1)?;
+    }
+
+    for (day, model_use) in context::reported(db, first, end)? {
+        day_at(&mut days, day * DAY_MS).model_use = model_use;
     }
 
     let mut days: Vec<ReportedDay> = days.into_values().collect();
