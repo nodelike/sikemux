@@ -89,41 +89,52 @@ pub(crate) fn overview(totals: &ActivityTotals, cx: &App) -> impl IntoElement {
     let t = Tokens::get(cx).clone();
     let tokens = burnt(totals);
     let cost = totals.cost_usd;
-    let saved = totals.cache_savings_usd;
+    let quiet = t.text_tertiary;
     let stats = [
         (
             "Agent time",
             None,
             crate::ui::time::total(totals.agent_ms as f64),
-            plural(totals.turns as f64, "turn"),
+            vec![(plural(totals.turns as f64, "turn"), quiet)],
         ),
         (
             "Sessions",
             None,
             whole(totals.sessions as f64),
-            format!("{} resumed", whole(totals.resumed as f64)),
+            vec![(format!("{} resumed", whole(totals.resumed as f64)), quiet)],
         ),
         (
             "Tokens",
             None,
             compact(tokens),
-            format!("{} cached", compact(totals.cache_read as f64)),
+            vec![
+                (format!("{} read", compact(totals.cache_read as f64)), quiet),
+                (
+                    format!("{} write", compact(totals.cache_write as f64)),
+                    t.warn,
+                ),
+            ],
         ),
         (
             "Cost",
             Some("API est."),
             if cost > 0. { money(cost) } else { "—".into() },
-            if saved > 0. {
-                format!("{} saved", money(saved))
-            } else {
-                "not priced yet".into()
-            },
+            vec![match cost > 0. {
+                true => (
+                    format!("{} on writes", money(totals.costs.cache_write)),
+                    quiet,
+                ),
+                false => ("not priced yet".into(), quiet),
+            }],
         ),
         (
             "Commits",
             None,
             whole(totals.commits as f64),
-            format!("{} by agents", whole(totals.agent_commits as f64)),
+            vec![(
+                format!("{} by agents", whole(totals.agent_commits as f64)),
+                quiet,
+            )],
         ),
     ];
     div().flex().children(stats.into_iter().enumerate().map(
@@ -153,7 +164,11 @@ pub(crate) fn overview(totals: &ActivityTotals, cx: &App) -> impl IntoElement {
                         .font_features(theme::tabular())
                         .text_color(t.text_primary),
                 )
-                .child(ui::mono(detail, TEXT_2XS, cx).whitespace_normal())
+                .child(div().children(detail.into_iter().map(|(line, ink)| {
+                    ui::mono(line, TEXT_2XS, cx)
+                        .whitespace_normal()
+                        .text_color(ink)
+                })))
         },
     ))
 }

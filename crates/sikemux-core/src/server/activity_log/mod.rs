@@ -696,8 +696,6 @@ pub struct ActivityTotals {
     /// What the tokens would cost at API prices. Subscription plans bill separately.
     pub cost_usd: f64,
     pub costs: TokenCosts,
-    /// What reading from the cache saved against sending the same input fresh.
-    pub cache_savings_usd: f64,
     /// Tokens with no price: no model was recorded, or no price is known for it.
     pub unpriced_tokens: i64,
 }
@@ -970,7 +968,6 @@ fn summarize(
             entry.fast_cost_usd += cost;
         }
         totals.cost_usd += cost;
-        totals.cache_savings_usd += cache_read as f64 * (rates.input - rates.cache_read).max(0.0);
         let day = (at_ms + offset_ms).div_euclid(DAY_MS);
         if day > first_day {
             days.entry(day)

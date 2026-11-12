@@ -35,6 +35,10 @@ Grok and OpenCode Go show their limits too, under their own rows, once they have
 
 An account you signed out of waits under **Add account**, where you can sign in to it again or remove it.
 
+## Where tokens go
+
+**Settings › Usage** counts what agents run inside Sikemux used, priced at API rates; a subscription bills separately. **Tokens** splits what agents read back from the prompt cache from what they wrote to it, and **Cost** says how much went on cache writes, which is where resuming a cold chat or rotating an account spends. Under **By model**, each model has a bar of where its cost went: cache write, output, cache read and input, each with its amount.
+
 ## Agent profiles
 
 **Agent profiles**, at the foot of **Settings → Accounts**, choose which copy of an agent a launch uses: give a profile a name, the agent, and the path to its program, or leave the path empty to use the one on your `PATH`. A profile can also name its own folder, for keeping several accounts side by side. Profiles never hold credentials.

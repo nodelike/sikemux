@@ -5,10 +5,11 @@ use chrono::TimeZone;
 use gpui_kit::component::input::InputState;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    div, px, AnyElement, App, AppContext, Context, Entity, InteractiveElement, IntoElement,
-    ParentElement, SharedString, StatefulInteractiveElement, Styled, Window,
+    div, px, relative, AnyElement, App, AppContext, Context, Entity, InteractiveElement,
+    IntoElement, ParentElement, SharedString, StatefulInteractiveElement, Styled, Window,
 };
 use serde_json::{json, Map, Value};
+use sikemux_core::server::activity_log::ActivityModel;
 use sikemux_core::server::activity_log::ActivityPriceParams;
 use sikemux_core::server::activity_log::ActivityShare;
 use sikemux_core::server::activity_log::ActivitySummary;
@@ -25,8 +26,8 @@ use crate::settings::index::{section, Entry};
 use crate::settings::rows;
 use crate::settings::Settings;
 use crate::theme::{
-    self, Tokens, SPACE_0, SPACE_1, SPACE_2, SPACE_2H, SPACE_3, SPACE_4, TEXT_2XS, TEXT_2XS_H,
-    TEXT_SM,
+    self, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_4, TEXT_2XS,
+    TEXT_2XS_H, TEXT_SM,
 };
 use crate::ui;
 use crate::ui::numbers::{compact, money, plural, whole};
@@ -457,15 +458,14 @@ fn models(
             let id = model.model.clone();
             let name = model_name(&id);
             let own = prices.get(&id).copied();
-            let input = (model.input + model.cache_read + model.cache_write) as f64;
             let cost = model.cost_usd;
-            let cache_read = model.cache_read as f64;
             let details: Vec<String> = [
                 Some(format!(
                     "{} tokens",
                     compact((model.input + model.output + model.cache_write) as f64)
                 )),
-                (cache_read > 0.).then(|| format!("{}% cached", percent(cache_read, input))),
+                (model.cache_write > 0)
+                    .then(|| format!("{} written", compact(model.cache_write as f64))),
                 (model.fast_cost_usd > 0.)
                     .then(|| format!("{}% fast", percent(model.fast_cost_usd, cost))),
             ]
@@ -502,12 +502,74 @@ fn models(
                 true => row.child(opener("your price", "price-own")),
                 false => row,
             };
+            let split = (model.priced && cost > 0.).then(|| cost_split(model, &t));
             div()
-                .child(row)
+                .border_b_1()
+                .border_color(t.line_soft)
+                .child(row.border_b_0())
+                .children(split)
                 .when(fields.model.as_deref() == Some(id.as_str()), |model| {
                     model.child(price_form(&id, fields, own.is_some(), this, cx))
                 })
         }))
+        .into_any_element()
+}
+
+/// What a model's cost went on, by kind of token: cache writes first, as where a cold resume
+/// or a rotation spends.
+fn cost_split(model: &ActivityModel, t: &Tokens) -> AnyElement {
+    let costs = &model.costs;
+    let parts = [
+        ("Cache write", costs.cache_write, t.warn),
+        ("Output", costs.output, theme::brand(&model.agent)),
+        ("Cache read", costs.cache_read, t.accent),
+        ("Input", costs.input, t.text_tertiary),
+    ];
+    let total = costs.total().max(f64::EPSILON);
+    div()
+        .pl(SPACE_4 + px(20.) + SPACE_3)
+        .pr(SPACE_4)
+        .pb(SPACE_2H)
+        .flex()
+        .flex_col()
+        .gap(SPACE_1H)
+        .child(
+            div()
+                .flex()
+                .gap(px(1.))
+                .h(px(6.))
+                .rounded(px(3.))
+                .overflow_hidden()
+                .children(parts.iter().filter(|part| part.1 > 0.).map(|part| {
+                    div()
+                        .h_full()
+                        .flex_basis(relative((part.1 / total) as f32))
+                        .bg(part.2)
+                })),
+        )
+        .child(
+            div()
+                .flex()
+                .flex_wrap()
+                .gap_x(SPACE_3)
+                .gap_y(SPACE_1)
+                .children(parts.iter().filter(|part| part.1 > 0.).map(|part| {
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(SPACE_1H)
+                        .text_size(crate::theme::ui_text(TEXT_2XS_H))
+                        .text_color(t.text_tertiary)
+                        .child(div().size(px(7.)).rounded(px(2.)).bg(part.2))
+                        .child(part.0)
+                        .child(
+                            div()
+                                .font_features(theme::tabular())
+                                .text_color(t.text_primary)
+                                .child(money(part.1)),
+                        )
+                })),
+        )
         .into_any_element()
 }
 
