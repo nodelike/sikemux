@@ -12,7 +12,7 @@ let fixture = #"""
 {
   "workspace": {
     "projects": [
-      {"id": "p-sikemux", "name": "sikemux", "path": "/Users/me/sikemux"},
+      {"id": "p-sikemux", "name": "sikemux", "path": "/Users/me/sikemux", "chief": "c1", "agents": 4},
       {"id": "p-server", "name": "server", "path": "/Users/me/server"},
       {"id": "p-front", "name": "sikemux-front", "path": "/Users/me/sikemux-front"},
       {"id": "p-storefront", "name": "storefront", "path": "/Users/me/storefront"}
@@ -47,6 +47,7 @@ let fixture = #"""
   ],
   "faceStyle": {"motion": true},
   "inbox": {"working": 2, "rollup": {"subagents": 3, "tasks": 2}, "agents": [
+    {"agentId": "c1", "chief": true, "name": "Chief", "cli": "claude", "projectName": "sikemux", "title": "Friendlier welcome screen", "turn": {"state": "working", "since": AGO(40)}, "group": "working", "failed": false, "subagents": 0, "tasks": 0},
     {"agentId": "a1", "name": "Otter", "cli": "claude", "projectName": "sikemux", "title": "Fix the login flake", "turn": {"state": "needsYou", "since": AGO(134), "call": {"id": "p1", "question": "Run pnpm test?", "waitingSince": AGO(134), "count": 1}}, "group": "blocked", "failed": false, "subagents": 0, "tasks": 0},
     {"agentId": "a9", "name": "Maple", "cli": "codex", "projectName": "server", "title": "Move the ledger import", "turn": {"state": "needsYou", "since": AGO(60), "call": {"id": "q1", "question": "Cents or decimals?", "waitingSince": AGO(60), "count": 1}}, "group": "blocked", "failed": false, "subagents": 0, "tasks": 0},
     {"agentId": "a4", "name": "Birch", "cli": "grok", "projectName": "sikemux-front", "title": "Bump Astro to 6", "turn": {"state": "done", "since": AGO(70), "done": {"changes": "landed", "checks": "pass"}}, "group": "done", "failed": false, "subagents": 0, "tasks": 0, "nextTrigger": IN(1080)},

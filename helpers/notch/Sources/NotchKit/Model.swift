@@ -92,6 +92,8 @@ struct Entry: Identifiable, Equatable {
     var tasks: Int { agent?.tasks ?? 0 }
     /// When its agent was last named with `@` or messaged by another agent.
     var calledAt: Int? { agent?.calledAt }
+    /// It is its project's chief, @Chief.
+    var isChief: Bool { agent?.chief == true }
     var isChat: Bool { agentId != nil && session == nil && !provider.isEmpty }
     var session: Int? { agent?.session ?? item?.session }
     var since: Date? { item.map { Date(timeIntervalSince1970: Double($0.at) / 1000) } }
@@ -149,7 +151,7 @@ extension DeviceView {
         var seen = Set<String>()
         let others = inbox.items.compactMap(\.agentId)
             .filter { !listed.contains($0) && !hidden.contains($0) && seen.insert($0).inserted }
-        return (agents.map(\.agentId) + others).map { agentId in
+        let entries = (agents.map(\.agentId) + others).map { agentId in
             let item = inbox.items.first { $0.agentId == agentId }
             return Entry(
                 item: item,
@@ -158,6 +160,34 @@ extension DeviceView {
                 question: questions.first { $0.id == item?.questionId }
             )
         }
+        return byProject(entries)
+    }
+
+    /// The entries project by project, each project's @Chief first and its agents after it in
+    /// the order given, the project that most needs the person first: one with an open call or
+    /// an agent that needs the person, then one with work under way, then the rest, each rank in
+    /// the order the core lists projects. Entries of no listed project follow, as they were.
+    func byProject(_ entries: [Entry]) -> [Entry] {
+        let projects = workspace.projects
+        let open = (calls ?? []).filter { $0.state == .open }
+        func belongs(_ entry: Entry, _ project: ProjectInfo) -> Bool { entry.project == project.name }
+        func rank(_ project: ProjectInfo) -> Int {
+            let states = entries.filter { belongs($0, project) }.compactMap { $0.agent?.turn?.state }
+            if open.contains(where: { $0.project == project.path }) || states.contains(.needsYou) { return 0 }
+            if states.contains(where: { $0 == .working || $0 == .waiting }) { return 1 }
+            return 2
+        }
+        let ranked = projects.enumerated()
+            .filter { _, project in entries.contains { belongs($0, project) } }
+            .sorted { (rank($0.element), $0.offset) < (rank($1.element), $1.offset) }
+            .map(\.element)
+        var ordered: [Entry] = []
+        for project in ranked {
+            let mine = entries.filter { belongs($0, project) }
+            ordered += mine.filter(\.isChief) + mine.filter { !$0.isChief }
+        }
+        let placed = Set(ordered.map(\.id))
+        return ordered + entries.filter { !placed.contains($0.id) }
     }
 }
 

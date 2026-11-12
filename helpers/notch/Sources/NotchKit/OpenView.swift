@@ -284,9 +284,23 @@ struct RowLine: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            AgentLook(entry: entry, size: 20).matchedGeometryEffect(id: entry.id, in: marks)
+            Group {
+                if entry.isChief {
+                    IconView(icon: Icons.brand, size: 15).foregroundStyle(Theme.accent).frame(width: 20, height: 20)
+                } else {
+                    AgentLook(entry: entry, size: 20)
+                }
+            }
+            .matchedGeometryEffect(id: entry.id, in: marks)
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(entry.title).font(Theme.ui(13, .medium)).foregroundStyle(Theme.ink).lineLimit(1)
+                if entry.isChief {
+                    Text("@Chief").font(Theme.ui(13, .medium)).foregroundStyle(Theme.ink).lineLimit(1).fixedSize()
+                    if entry.agent?.title.hasPrefix("@") == false {
+                        Text(entry.title).font(Theme.ui(13)).foregroundStyle(Theme.inkFaint).lineLimit(1)
+                    }
+                } else {
+                    Text(entry.title).font(Theme.ui(13, .medium)).foregroundStyle(Theme.ink).lineLimit(1)
+                }
                 if entry.mark == .working, let attempt = entry.reconnecting {
                     Text(attempt > 0 ? "Reconnecting… \(attempt)" : "Reconnecting…")
                         .font(Theme.ui(11.5))
@@ -300,7 +314,7 @@ struct RowLine: View {
             ProjectLabel(project: entry.project).frame(maxWidth: 150, alignment: .trailing).fixedSize()
             if entry.name != nil || entry.subagents > 0 || entry.tasks > 0 || entry.mark != .idle {
                 HStack(spacing: 8) {
-                    if let name = entry.name {
+                    if let name = entry.name, !entry.isChief {
                         Text("@\(name)").font(Theme.ui(11)).foregroundStyle(Theme.inkFaint).lineLimit(1).fixedSize()
                     }
                     if entry.subagents > 0 { SubagentCount(count: entry.subagents) }
