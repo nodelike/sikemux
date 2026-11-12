@@ -50,8 +50,8 @@ struct ValueRow: View {
     }
 }
 
-private extension View {
-    func rowBox(_ palette: Palette) -> some View {
+extension View {
+    fileprivate func rowBox(_ palette: Palette) -> some View {
         padding(.horizontal, 10)
             .padding(.vertical, 6)
             .frame(minHeight: 52)
