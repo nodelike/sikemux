@@ -59,6 +59,7 @@ async fn run(core: Arc<Core>) {
 /// long until it should look again.
 async fn sweep(core: &Arc<Core>) -> u64 {
     let now = epoch_ms();
+    super::stalls::look(core, now).await;
     let places = core.workspaces.places();
     let due: Vec<String> = (places.iter())
         .filter(|(_, (place, _))| place.snooze.is_some_and(|snooze| snooze.until <= now))

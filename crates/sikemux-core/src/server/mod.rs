@@ -108,6 +108,7 @@ pub mod skill_library;
 pub mod spare;
 mod spawn;
 pub mod ssh;
+mod stalls;
 pub mod stash;
 pub mod streams;
 pub mod tasks;
@@ -436,6 +437,7 @@ pub(crate) struct Core {
     pub(crate) workspaces: workspace::Workspaces,
     pub(crate) seen: seen::Seen,
     pub(crate) settling: settling::Settling,
+    pub(crate) stalls: stalls::Stalls,
     pub(crate) lifecycle: lifecycle::Lifecycle,
     /// Agents' actions that leave this machine, held for the person.
     pub(crate) ship: ship::Ships,
@@ -606,6 +608,7 @@ impl Core {
             workspaces: workspace::Workspaces::new(data_dir),
             seen: seen::Seen::default(),
             settling: settling::Settling::default(),
+            stalls: stalls::Stalls::default(),
             lifecycle: lifecycle::Lifecycle::default(),
             ship: ship::Ships::default(),
             person_calls,

@@ -102,6 +102,8 @@ enum Case {
     Looping,
     /// An agent took turn after turn on its own, so what else would wake it waits for the person.
     Stopped,
+    /// An agent at work has called no tool for a long while.
+    NoProgress,
     /// Two agents keep changing the same lines.
     Colliding,
     /// The project's check keeps failing after agents' commits.
@@ -139,9 +141,10 @@ impl Case {
             Case::Gate(_) => (InboxKind::Gate, Wants::Person(Decide)),
             Case::Ship(_) => (InboxKind::Ship, Wants::Person(Decide)),
             Case::PullRequest => (InboxKind::PullRequest, Wants::Person(Decide)),
-            Case::HandedBack(RunHold::Unblock) | Case::Stalled | Case::Stopped => {
-                (InboxKind::Held, Wants::Person(Unblock))
-            }
+            Case::HandedBack(RunHold::Unblock)
+            | Case::Stalled
+            | Case::Stopped
+            | Case::NoProgress => (InboxKind::Held, Wants::Person(Unblock)),
             Case::HandedBack(RunHold::Fix)
             | Case::Looping
             | Case::CheckFailing
@@ -1254,6 +1257,24 @@ fn needs(core: &Core, agents: &[Agent], sessions: &[SessionInfo]) -> Vec<InboxIt
         .by(agent, find(agent));
         item.detail = Some(
             "Triggers and other agents' messages wait until you write to it; anything you write lets it go on.".to_owned(),
+        );
+        items.push(item);
+    }
+    for stall in core.stalls.for_person() {
+        let agent = &stall.agent_id;
+        let mut item = item(
+            format!("no-progress:{agent}"),
+            Case::NoProgress,
+            format!(
+                "Working, but no tool call for {}",
+                super::stalls::quiet_for(stall.since)
+            ),
+            stall.since,
+        )
+        .by(agent, find(agent));
+        item.detail = Some(
+            "It may be stuck, such as on a queued build. Open it to see where, or stop it."
+                .to_owned(),
         );
         items.push(item);
     }

@@ -1481,7 +1481,7 @@ pub(crate) async fn work_from_sikemux(
         Sender::Sikemux,
         MessageKind::Message,
         text,
-        Some("Sent by Sikemux itself over the project's check, not by the person.".to_owned()),
+        Some("Sent by Sikemux itself, not by the person or another agent.".to_owned()),
     );
     deliver(core, &target, letter).await
 }
@@ -2145,6 +2145,8 @@ pub(crate) fn worked(core: &Core, agent_id: &str) {
 
 /// The agent called a tool, by the name its CLI gives it.
 pub(crate) fn used_tool(core: &Core, agent_id: &str, tool: &str) {
+    core.seen.used_tool(agent_id);
+    core.stalls.worked(core, agent_id);
     if !MESSAGING_TOOLS
         .iter()
         .any(|messaging| tool.ends_with(messaging))

@@ -30,6 +30,7 @@ struct State {
     /// When each agent was last on some client's screen.
     viewed_at: HashMap<String, u64>,
     called_at: HashMap<String, u64>,
+    tool_at: HashMap<String, u64>,
 }
 
 impl State {
@@ -160,6 +161,17 @@ impl Seen {
 
     pub(crate) fn called_at(&self, agent_id: &str) -> Option<u64> {
         self.state.locked().called_at.get(agent_id).copied()
+    }
+
+    pub(crate) fn used_tool(&self, agent_id: &str) {
+        self.state
+            .locked()
+            .tool_at
+            .insert(agent_id.to_owned(), epoch_ms());
+    }
+
+    pub(crate) fn tool_at(&self, agent_id: &str) -> Option<u64> {
+        self.state.locked().tool_at.get(agent_id).copied()
     }
 
     /// When the agent began the turn it is on or last ran.
