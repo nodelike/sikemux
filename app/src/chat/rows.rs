@@ -1245,9 +1245,9 @@ pub(super) fn part(
     };
     match part {
         ChatPart::Text { .. } | ChatPart::Thought { .. } => {
-            let restored = (!user && looks.reading.opened.contains(&left_out_key(row)))
-                .then(|| row.restored(part.id()))
-                .flatten();
+            let shown = !user && looks.reading.opened.contains(&left_out_key(row));
+            row.left_out_shown.set(shown);
+            let restored = shown.then(|| row.restored(part.id())).flatten();
             let id = match restored {
                 Some(_) => SharedString::from(format!("{id}:left-out")),
                 None => id,

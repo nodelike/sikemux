@@ -126,6 +126,9 @@ pub struct ChatRow {
     docs: Vec<Doc>,
     /// Each text part that had sentences left out, with them back where they stood, drawn faint.
     restored: Vec<Doc>,
+    /// The reader asked to see what was left out, so the row is drawn, and selected and copied
+    /// from, with `restored` in place of those parts.
+    left_out_shown: std::cell::Cell<bool>,
 }
 
 /// A text part's markdown, and its text's length in UTF-16 units, which the core's patches count.
@@ -214,6 +217,7 @@ impl ChatRow {
             message,
             docs: Vec::new(),
             restored: Vec::new(),
+            left_out_shown: std::cell::Cell::new(false),
         };
         row.read_docs();
         row.read_restored();
@@ -257,6 +261,15 @@ impl ChatRow {
 
     fn doc(&self, part: &str) -> Option<&Doc> {
         self.docs.iter().find(|doc| doc.part == part)
+    }
+
+    /// The doc the row draws for `part`: what was left out of it put back while the reader
+    /// asked to see it.
+    fn shown_doc(&self, part: &str) -> Option<&Doc> {
+        match self.left_out_shown.get() {
+            true => self.restored(part).or_else(|| self.doc(part)),
+            false => self.doc(part),
+        }
     }
 
     /// The text part `part` with the sentences left out of it back in place, when any were.
@@ -332,7 +345,7 @@ impl Row for ChatRow {
         self.message
             .parts
             .iter()
-            .filter_map(|part| self.doc(part.id()))
+            .filter_map(|part| self.shown_doc(part.id()))
             .map(|doc| &doc.markdown)
             .collect()
     }
