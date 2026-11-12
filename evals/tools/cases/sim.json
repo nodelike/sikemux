@@ -68,7 +68,7 @@
             "elements": "9 StaticText \"Add a host\" at (201, 430)\n10 TextField \"Host address\" at (201, 500)\n11 Button \"Cancel\" at (80, 610)\n12 Button \"Connect\" at (300, 610)"
           }
         },
-        { "tool": "sim_tap", "args": { "index": 4 }, "error": "element 4 is not on the screen now; the screen changed since you read it, so read it again with sim_state" },
+        { "tool": "sim_tap", "args": { "index": 4 }, "error": "element 4 is not on the screen now; the screen changed since you read it, so read it again with sim state" },
         {
           "tool": "sim_tap",
           "args": { "$any": [{ "index": 12 }, { "label": "/^connect$/i" }] },
