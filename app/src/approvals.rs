@@ -2,19 +2,14 @@
 //! it shows: an action that leaves this machine, and a gate only the person passes. The core keeps
 //! the list and clears it, so an answer from anywhere clears every place that shows it.
 
-use gpui_kit::prelude::FluentBuilder;
-use gpui_kit::{
-    div, AnyElement, App, IntoElement, ParentElement, SharedString, Styled, WeakEntity,
-};
+use gpui_kit::{AnyElement, App, IntoElement, SharedString, WeakEntity};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use sikemux_core::server::board::BoardPassParams;
 use sikemux_core::server::call::{self, Call};
-use sikemux_core::server::ship::HoldParams;
-use sikemux_view::inbox::{InboxItem, InboxKind, ShipHold};
+use sikemux_view::inbox::{InboxItem, InboxKind};
 
 use crate::core::Target;
-use crate::theme::SPACE_1;
 use crate::toast;
 use crate::ui::{Button, Variant};
 use crate::workbench::Workbench;
@@ -60,74 +55,6 @@ fn answer<C: Call + 'static>(
         }
     })
     .detach();
-}
-
-/// Refuses a held action or allows it once, without opening anything; where the core offers it,
-/// always allows what the action lands in, in its project or every project of its folder, as the
-/// main button. The buttons wrap rather than run past a narrow column.
-pub fn ship_buttons(
-    hold: &ShipHold,
-    busy: bool,
-    target: Target,
-    bench: WeakEntity<Workbench>,
-) -> AnyElement {
-    let id = hold.id.as_str();
-    let hold_folder = hold.let_go_in.clone();
-    let once_leads = hold.let_go.is_none();
-    let button = |label: &'static str, key: String, allow: bool| {
-        let (hold, target, bench) = (id.to_owned(), target.clone(), bench.clone());
-        let variant = if allow && once_leads {
-            Variant::Primary
-        } else {
-            Variant::Outline
-        };
-        Button::new(SharedString::from(key), label, variant)
-            .disabled(busy)
-            .on_click(move |_, _, cx| {
-                cx.stop_propagation();
-                let params = HoldParams { hold: hold.clone() };
-                match allow {
-                    true => answer::<call::AllowShip>(&target, params, None, bench.clone(), cx),
-                    false => answer::<call::RefuseShip>(&target, params, None, bench.clone(), cx),
-                }
-            })
-    };
-    div()
-        .flex()
-        .flex_wrap()
-        .min_w_0()
-        .gap(SPACE_1)
-        .child(button("Refuse", format!("ship-refuse-{id}"), false))
-        .child(button("Allow once", format!("ship-allow-{id}"), true))
-        .when_some(hold.let_go.clone(), |row, covers| {
-            let (hold, target, bench) = (id.to_owned(), target.clone(), bench.clone());
-            let (label, tooltip) = match &hold_folder {
-                Some(folder) => (
-                    format!("Always allow {covers} in {folder}"),
-                    format!("Deploys there stop asking you in every project in {folder}. Production still waits. Remove it under Environments."),
-                ),
-                None => (
-                    format!("Always allow {covers}"),
-                    "Deploys there stop asking you in this project. Production still waits. Change it under Environments.".to_owned(),
-                ),
-            };
-            row.child(
-                Button::new(
-                    SharedString::from(format!("ship-let-go-{hold}")),
-                    label,
-                    Variant::Primary,
-                )
-                .tooltip(tooltip)
-                .disabled(busy)
-                .on_click(move |_, _, cx| {
-                    cx.stop_propagation();
-                    let params = HoldParams { hold: hold.clone() };
-                    let done = format!("{covers} goes unasked now. Change it under Environments.");
-                    answer::<call::LetShipGo>(&target, params, Some(done), bench.clone(), cx);
-                }),
-            )
-        })
-        .into_any_element()
 }
 
 /// Passes the gate a Gate item waits at, as the person, in the gate's own word.

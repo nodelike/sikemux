@@ -1595,7 +1595,7 @@ pub(crate) fn reset_at(window: &UsageWindow) -> Option<chrono::DateTime<chrono::
 }
 
 impl Workbench {
-    /// Whether the rail is up and its last draw held the panel. On an SSH host or in Goals the
+    /// Whether the rail is up and its last draw held the panel. On an SSH host the
     /// rail draws something else, and a peeking rail draws it with the rail kept closed.
     fn limits_panel_shown(&self) -> bool {
         (self.rails.tab_open || self.rails.peeking == Some(Edge::End))
