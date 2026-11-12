@@ -39,7 +39,7 @@ struct ChatBottom: View {
                 ComposerQuestion(
                     name: call.asker.name, cli: call.asker.cli, text: call.question,
                     onRemove: { calls.stopComposing(call) },
-                    onAnswer: { written in await calls.answer(call, written: written) }
+                    onAnswer: { written in await calls.answer(call, written: written, report: session.report) }
                 )
             }
                 ?? changing.map { question in

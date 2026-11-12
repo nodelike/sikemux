@@ -3,15 +3,18 @@ import UIKit
 
 /// A call docked on its asker's chat, above the composer: the Mac's call card at the phone's sizes, a little
 /// tighter, with 44-point rows and Go with this across the card. Typing in the composer answers it too, so it has no
-/// Open chat.
+/// Open chat. When the agent waits on several calls, the card says which it is and the others wait folded under it.
 struct CallDock: View {
     @Environment(\.palette) private var palette
     let core: String
     let call: PersonCall
+    /// Every call its asker waits on, oldest first, `call` among them.
+    let queue: [PersonCall]
     @Bindable var draft: CallDraft
     let canAnswer: Bool
     let report: (String) -> Void
     @FocusState private var fieldFocused: Bool
+    @State private var secretFocused = false
 
     private static let row: CGFloat = 44
 
@@ -23,7 +26,8 @@ struct CallDock: View {
     var body: some View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 0) {
-                CallWho(call: call)
+                CallWho(
+                    call: call, place: queue.count > 1 ? queue.firstIndex(of: call).map { ($0 + 1, queue.count) } : nil)
                 Text(call.question)
                     .font(Theme.ui(17, .semibold))
                     .tracking(-0.2)
@@ -31,6 +35,9 @@ struct CallDock: View {
                     .padding(.top, 8)
                 if let context = CallWords.context(call) {
                     Text(context).font(Theme.ui(14)).foregroundStyle(palette.tertiary).lineLimit(2).padding(.top, 2)
+                }
+                ForEach(Array((call.evidence ?? []).filter { $0.picture == nil }.enumerated()), id: \.offset) {
+                    Text($0.element.what).font(Theme.ui(14)).foregroundStyle(palette.tertiary).padding(.top, 4)
                 }
                 pictures
                 options
@@ -41,7 +48,12 @@ struct CallDock: View {
                         .padding(.top, 10)
                 }
                 extras
+                if let failed = calls.failed[call.id] {
+                    Text(CallWords.pushFailed(failed)).font(Theme.ui(13)).foregroundStyle(palette.danger).padding(
+                        .top, 10)
+                }
                 goButton.padding(.top, 12)
+                folded
             }
             .padding(12)
         }
@@ -53,7 +65,38 @@ struct CallDock: View {
             RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(palette.borderStrong, lineWidth: 1)
         )
         .padding(.bottom, 8)
-        .onAppear { calls.saw(call) }
+        .task(id: "\(call.id)|\(Hub.shared.live(core).isOpen)") { await calls.see(call) }
+    }
+
+    /// The asker's other calls, a line each; a tap brings one into the card.
+    @ViewBuilder
+    private var folded: some View {
+        let others = queue.filter { $0.id != call.id }
+        if !others.isEmpty {
+            VStack(spacing: 0) {
+                ForEach(others, id: \.id) { other in
+                    Button {
+                        Haptics.select()
+                        calls.focus(other)
+                    } label: {
+                        HStack(spacing: 10) {
+                            AskerMark(
+                                agentId: other.asker.agentId, provider: other.asker.cli,
+                                chief: other.asker.chief == true,
+                                turn: .needsYou, size: 16)
+                            Text(other.question).font(Theme.ui(14)).foregroundStyle(palette.secondary).lineLimit(1)
+                            Spacer(minLength: 8)
+                            Text(Format.age(Format.date(millis: other.raisedAt))).font(Theme.ui(12.5))
+                                .foregroundStyle(palette.warn)
+                        }
+                        .frame(minHeight: Self.row)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(PressFade())
+                }
+            }
+            .padding(.top, 8)
+        }
     }
 
     @ViewBuilder
@@ -81,8 +124,18 @@ struct CallDock: View {
             }
             .frame(height: 120)
             .padding(.top, 10)
-        } else if let path = call.evidence?.lazy.compactMap(\.picture).first {
-            CallPicture(core: core, path: path, top: true).frame(height: 128).padding(.top, 10)
+        } else if let shown = call.evidence?.filter({ $0.picture != nil }).prefix(2), !shown.isEmpty {
+            HStack(spacing: 6) {
+                ForEach(Array(shown.enumerated()), id: \.offset) { _, evidence in
+                    CallPicture(core: core, path: evidence.picture, top: true)
+                        .overlay(alignment: .bottomLeading) {
+                            if shown.count > 1 { PictureLabel(text: evidence.what) }
+                        }
+                        .accessibilityLabel(evidence.what)
+                }
+            }
+            .frame(height: 128)
+            .padding(.top, 10)
         }
     }
 
@@ -98,7 +151,7 @@ struct CallDock: View {
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(
-                fieldFocused || typed ? palette.borderSelected : palette.border, lineWidth: 1)
+                fieldFocused || secretFocused || typed ? palette.borderSelected : palette.border, lineWidth: 1)
         )
         .padding(.top, 12)
     }
@@ -143,10 +196,18 @@ struct CallDock: View {
     private var field: some View {
         HStack(spacing: 12) {
             IconView(icon: Icons.pencil, size: 13).foregroundStyle(
-                fieldFocused || typed ? palette.tertiary : palette.inkFaint)
+                fieldFocused || secretFocused || typed ? palette.tertiary : palette.inkFaint)
             Group {
                 if call.secret == true {
-                    SecureField(CallWords.secretField, text: $draft.typed)
+                    SecretField(
+                        text: $draft.typed, focused: $secretFocused, accent: UIColor(palette.accent),
+                        dark: !palette.isLight
+                    )
+                    .overlay(alignment: .leading) {
+                        if draft.typed.isEmpty {
+                            Text(CallWords.secretField).foregroundStyle(palette.tertiary).allowsHitTesting(false)
+                        }
+                    }
                 } else {
                     TextField(chosen.isEmpty ? CallWords.ownWords : CallWords.addNote, text: $draft.typed)
                 }
@@ -159,7 +220,7 @@ struct CallDock: View {
             .disabled(!canAnswer)
         }
         .padding(.horizontal, 14)
-        .frame(height: Self.row)
+        .frame(minHeight: Self.row)
         .background(palette.sunken.opacity(0.6))
     }
 
@@ -194,12 +255,16 @@ struct CallDock: View {
                         .font(Theme.ui(13, .medium))
                         .foregroundStyle(palette.secondary)
                         .frame(minHeight: 32)
+                        .disabled(draft.sending)
                     }
                 }
                 if let runs, draft.runsOpen {
                     Text(runs).font(Theme.mono(12.5)).foregroundStyle(palette.secondary).textSelection(.enabled)
                 }
                 if call.secret == true {
+                    if typed {
+                        Text(CallWords.hidden(draft.typed)).font(Theme.ui(12.5)).foregroundStyle(palette.inkDim)
+                    }
                     Text(CallWords.kept).font(Theme.ui(12.5)).foregroundStyle(palette.tertiary)
                 }
             }
@@ -208,9 +273,10 @@ struct CallDock: View {
     }
 
     private var goButton: some View {
-        let ready = (!chosen.isEmpty || typed) && !draft.sending && canAnswer
+        let seen = calls.seen.contains(call.id)
+        let ready = (!chosen.isEmpty || typed) && !draft.sending && canAnswer && seen
         return Button(action: goWithThis) {
-            Text(CallWords.goWithThis)
+            Text(seen ? CallWords.goWithThis : CallWords.connecting)
                 .font(Theme.ui(16, .semibold))
                 .foregroundStyle(palette.ground)
                 .frame(maxWidth: .infinity, minHeight: 46)
@@ -234,6 +300,8 @@ struct CallDock: View {
 struct CallWho: View {
     @Environment(\.palette) private var palette
     let call: PersonCall
+    /// Which of its asker's calls it is, and of how many, while there are several.
+    var place: (Int, Int)?
 
     var body: some View {
         HStack(spacing: 8) {
@@ -243,6 +311,11 @@ struct CallWho: View {
             Text("@\(call.asker.name)").font(Theme.ui(14, .medium)).foregroundStyle(palette.secondary)
             Text("·").foregroundStyle(palette.inkFaint)
             Text(Format.age(Format.date(millis: call.raisedAt))).foregroundStyle(palette.tertiary)
+            if let place {
+                Spacer(minLength: 8)
+                Text(CallWords.place(place.0, of: place.1)).font(Theme.ui(13)).monospacedDigit()
+                    .foregroundStyle(palette.tertiary)
+            }
         }
         .font(Theme.ui(14))
         .accessibilityElement(children: .combine)
@@ -285,7 +358,7 @@ struct CallPicture: View {
 
     var body: some View {
         palette.sunken
-            .overlay(alignment: top ? .top : .center) {
+            .overlay(alignment: top ? .topLeading : .center) {
                 if let image {
                     Image(uiImage: image).resizable().aspectRatio(contentMode: .fill)
                 }
@@ -293,10 +366,26 @@ struct CallPicture: View {
             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(palette.border, lineWidth: 1))
             .task(id: path) {
+                image = nil
                 guard let path = path.flatMap(HostFiles.imagePath),
                     let file = await HostFiles.shared.read(core: core, path: path)
                 else { return }
-                image = UIImage(contentsOfFile: file.path)
+                image = await Task.detached(priority: .userInitiated) { UIImage(contentsOfFile: file.path) }.value
             }
+    }
+}
+
+/// A picture's name on its corner, such as Now and New on two evidence pages side by side.
+struct PictureLabel: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(Theme.ui(12, .medium))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(.black.opacity(0.62)))
+            .padding(6)
     }
 }

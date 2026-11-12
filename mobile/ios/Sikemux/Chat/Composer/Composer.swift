@@ -86,8 +86,10 @@ struct Composer: View {
         guard let call = calls.waiting(for: session.agentId) else { return nil }
         return AnyView(
             CallDock(
-                core: core, call: call, draft: calls.draft(call), canAnswer: !watchOnly && !offline,
-                report: session.report))
+                core: core, call: call, queue: calls.queue(for: session.agentId), draft: calls.draft(call),
+                canAnswer: !watchOnly && !offline, report: session.report
+            )
+            .id(call.id))
     }
 
     @ViewBuilder

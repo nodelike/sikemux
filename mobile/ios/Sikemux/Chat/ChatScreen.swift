@@ -78,7 +78,8 @@ private struct ChatPane: View {
         let title = rows.head.title ?? listed?.title ?? Catalog.label(provider, core: core)
         Screen {
             Nav(back: nil, onBack: nil) {
-                ChatTitle(agentId: agentId, group: info?.group, provider: provider, name: info?.name, title: title)
+                ChatTitle(
+                    agentId: agentId, turn: rows.head.turn?.state, provider: provider, name: info?.name, title: title)
             } end: {
                 Button {
                     menu = true

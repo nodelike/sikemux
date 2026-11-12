@@ -454,12 +454,15 @@ private struct ProjectTail: View {
         let terminals = view.sessions.filter { $0.project == project.id && $0.running }.count
         if !chats.isEmpty || terminals > 0 {
             HStack(spacing: 8) {
-                if view.needs(in: project) > 0 { NeedsYou() }
+                if needsYou(chats) { Dot(color: palette.warn, size: 7).frame(width: 16, height: 16) }
                 if !chats.isEmpty {
                     HStack(spacing: -4) {
                         ForEach(chats.prefix(3), id: \.agentId) { chat in
-                            AgentFaceView(agentId: chat.agentId, provider: chat.provider, group: chat.group, size: 16)
-                                .frame(width: 16, height: 16)
+                            AgentFaceView(
+                                agentId: chat.agentId, provider: chat.provider, turn: turn(chat.agentId)?.state,
+                                size: 16
+                            )
+                            .frame(width: 16, height: 16)
                         }
                     }
                 } else {
@@ -470,6 +473,16 @@ private struct ProjectTail: View {
                 }
             }
         }
+    }
+
+    private func turn(_ agentId: String) -> TurnState? {
+        view.inbox.agents.first { $0.agentId == agentId }?.turn
+    }
+
+    /// A call waits on the person in the project, or one of its agents needs them.
+    private func needsYou(_ chats: [ChatInfo]) -> Bool {
+        (view.calls ?? []).contains { $0.state == .open && $0.project == project.path }
+            || chats.contains { turn($0.agentId)?.state == .needsYou }
     }
 }
 

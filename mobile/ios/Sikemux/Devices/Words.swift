@@ -19,11 +19,6 @@ extension DeviceView {
     func projectOf(agent agentId: String) -> String? {
         inbox.agents.first { $0.agentId == agentId }?.project
     }
-
-    /// How many things in `project` wait on the person, as the host counts them.
-    func needs(in project: ProjectInfo) -> Int {
-        inbox.needs[project.id] ?? 0
-    }
 }
 
 func folderName(_ path: String) -> String {

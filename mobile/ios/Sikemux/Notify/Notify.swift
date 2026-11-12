@@ -37,6 +37,7 @@ final class Notify {
 
     private init() {
         recall()
+        // A category is not Sendable; this one is only read, by the completion it is handed to.
         nonisolated(unsafe) let answers = Self.answers
         UNUserNotificationCenter.current().getNotificationCategories { held in
             let calls = CallPush.categories(held, adding: nil).filter { $0.identifier != answers.identifier }

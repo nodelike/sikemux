@@ -24,7 +24,8 @@ struct TurnLine: View {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 8) {
                         mark.frame(width: 16, height: 16)
-                        words(docked ? CallWords.docked(said) : said).frame(maxWidth: .infinity, alignment: .leading)
+                        words(docked ? CallWords.docked(said, waiting: turn.call?.count ?? 1) : said).frame(
+                            maxWidth: .infinity, alignment: .leading)
                         if canAct { buttons }
                     }
                     .frame(minHeight: 32)

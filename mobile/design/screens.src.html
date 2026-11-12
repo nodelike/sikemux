@@ -506,6 +506,17 @@
   .call-who i { font-style: normal; color: var(--ink-faint); }
   .call-q { margin-top: 8px; font-size: 17px; font-weight: 600; letter-spacing: -0.012em; line-height: 1.3; color: var(--ink); }
   .call-ctx { margin-top: 2px; font-size: 14px; line-height: 1.4; color: var(--text-tertiary); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .call-who .call-place { margin-left: auto; font-size: 13px; color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
+  .call-folded { display: flex; align-items: center; gap: 10px; min-height: 44px; margin-top: 8px; font-size: 14px; color: var(--text-secondary); }
+  .call-folded > span:first-child { flex: none; display: grid; width: 16px; height: 16px; }
+  .call-folded .q { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .call-folded .age { flex: none; font-size: 12.5px; color: var(--warn); }
+  .call-pair { margin-top: 10px; display: flex; gap: 6px; height: 112px; }
+  .call-page { flex: 1; position: relative; border-radius: 10px; border: 1px solid var(--border); background: #fffaf5; padding: 10px; display: flex; flex-direction: column; gap: 3px; overflow: hidden; }
+  .call-page.now { background: #f6f6f4; }
+  .call-page b { color: #18181b; font-size: 12px; } .call-page i { font-style: normal; color: #71717a; font-size: 10px; }
+  .call-page .pic-label { position: absolute; left: 6px; bottom: 6px; padding: 2px 7px; border-radius: 6px; background: rgba(0,0,0,.62); color: #fff; font-size: 12px; font-weight: 500; }
+  .hidden-n { color: var(--ink-dim); }
   .call-evidence { margin-top: 10px; height: 96px; border-radius: 10px; border: 1px solid var(--border); background: linear-gradient(180deg, color-mix(in oklab, var(--acc) 18%, var(--bg)) 0 22px, var(--surface-raised) 22px); display: flex; align-items: flex-start; padding: 3px 10px; font-size: 11px; color: var(--text-tertiary); }
   .call-opts { margin-top: 12px; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
   .call-opt { display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 8px 14px; border-bottom: 1px solid var(--border); font-size: 15.5px; color: var(--ink); }
@@ -2441,7 +2452,7 @@
           <div class="call">
             <div class="call-who"><span class="claude">{{IconClaude:20}}</span><b>@Otter</b><i>·</i><span>4m ago</span></div>
             <div class="call-q">Ship the pairing screen to production?</div>
-            <div class="call-ctx">Tried on staging for an hour with no errors. It changes how every phone pairs. A rollback takes about four minutes.</div><div class="call-evidence"><span>staging · Devices</span></div>
+            <div class="call-ctx">Tried on staging for an hour with no errors. It changes how every phone pairs. A rollback takes about four minutes.</div><div class="call-pair"><div class="call-page now"><b>Pair a phone</b><i>Scan the code on your Mac</i><span class="pic-label">Now</span></div><div class="call-page"><b>Add this phone</b><i>Sign in with your account</i><span class="pic-label">New</span></div></div>
             <div class="call-opts"><div class="call-opt on"><span class="call-radio on"></span><span class="call-lbl"><span>Ship it to everyone</span></span><span class=call-pick>{{Logo:13}}pick</span></div><div class="call-opt"><span class="call-radio"></span><span class="call-lbl"><span>Ship to half first</span></span></div><div class="call-opt"><span class="call-radio"></span><span class="call-lbl"><span>Not yet</span></span></div><div class="call-field">{{IconPencil:13}}<span>Add a note…</span></div></div>
             <div class="call-against"><span>Against it:</span> new phones pair through the QR only until the app updates.</div><div class="call-extras"><span class="call-runs open">{{IconChevron:11}}What runs</span></div><div class="call-cmd">vercel deploy --prod</div>
             <div class="call-go">Go with this</div>
@@ -2459,7 +2470,7 @@
         </div>
       </div>
       <div class="home-bar"></div></div>
-      <figcaption><b>A step to production</b><div class="note">An agent's push, merge, deploy or write that leaves the host is a call too, docked the same way. A step to production adds its brief as the context (what was tried, what it shows, what cannot be undone), the evidence's picture from its top, the point against it, and What runs folded: a tap shows the exact command or tool call in the code face. Not mine sits at the right of that row on a call that can be handed back to the asker's lead, which a step to production never is. Nothing typed in the composer answers a step to production, so the composer keeps no chip and sends to the agent as usual. An agent's own permission prompt keeps its dock, Deny and Allow, and comes first when both wait.</div></figcaption>
+      <figcaption><b>A step to production</b><div class="note">An agent's push, merge, deploy or write that leaves the host is a call too, docked the same way. A step to production adds its brief as the context (what was tried, what it shows, what cannot be undone), the evidence's pictures from their top, two side by side with their names on a corner (Now, New), the point against it, and What runs folded: a tap shows the exact command or tool call in the code face. Not mine sits at the right of that row on a call that can be handed back to the asker's lead, which a step to production never is. Nothing typed in the composer answers a step to production, so the composer keeps no chip and sends to the agent as usual. An agent's own permission prompt keeps its dock, Deny and Allow, and comes first when both wait.</div></figcaption>
     </figure>
 
     <figure><div class="phone"><div class="island"></div>
@@ -2804,16 +2815,17 @@
         <div class="chat">
           <div class="from"><div class="from-head"><span class="claude">{{IconClaude:17}}</span><b>@Otter</b><span class="when">11:40</span></div><div class="msg-theirs">Take PROJ-12: move the ledger import onto the new amounts table. Ask me if anything about the data is unclear.</div></div>
           <div class="work"><span class="work-sum"><span class="codex">{{IconCodex:17}}</span>Worked for 41s <span class="calls">· 6 tool calls</span>{{IconChevron:10}}</span></div>
-          <div class="turn-line"><span class="tl-mark"><span class="dot warn"></span></span><span class="turn-words"><b class="needs">Needs you</b><i>·</i><span class="p2">12 min</span></span></div>
+          <div class="turn-line"><span class="tl-mark"><span class="dot warn"></span></span><span class="turn-words"><b class="needs">Needs you</b><i>·</i><span class="p1">2 calls</span><i>·</i><span class="p2">12 min</span></span></div>
         </div>
         <div class="composer-wrap">
           <div class="call">
-            <div class="call-who"><span class="codex">{{IconCodex:20}}</span><b>@Maple</b><i>·</i><span>12m ago</span></div>
+            <div class="call-who"><span class="codex">{{IconCodex:20}}</span><b>@Maple</b><i>·</i><span>12m ago</span><span class="call-place">1 of 2</span></div>
             <div class="call-q">Should amounts be stored in cents or as decimals?</div>
             <div class="call-ctx">The API sends decimals but the ledger table uses integers.</div>
             <div class="call-opts"><div class="call-opt on"><span class="call-radio on"></span><span class="call-lbl"><span>Cents</span><em>integers, no rounding errors</em></span><span class=call-pick>{{Logo:13}}pick</span></div><div class="call-opt"><span class="call-radio"></span><span class="call-lbl"><span>Decimals</span><em>same as the API</em></span></div><div class="call-field">{{IconPencil:13}}<span>Add a note…</span></div></div>
             
             <div class="call-go">Go with this</div>
+            <div class="call-folded"><span class="codex">{{IconCodex:16}}</span><span class="q">Keep the old ledger table for a week?</span><span class="age">3m</span></div>
           </div>
           <div class="composer">
             <div class="answering"><span class="codex">{{IconCodex:13}}</span><span>Answering @Maple · Should amounts be stored in cents or as decimals?</span><i class="x">{{IconClose:10}}</i></div>
@@ -2829,7 +2841,7 @@
         </div>
       </div>
       <div class="home-bar"></div></div>
-      <figcaption><b>A call, docked</b><div class="note">An agent's question is a call now, and so is anything else it cannot settle without the person. The oldest call an agent waits on docks on its chat above the composer, as the Mac's call card does, a little tighter: who asks and how long ago, the question, its context in two lines, then the options in one block of 44-point rows with a ring before each. The asker's pick is chosen to start with and carries the S and pick; a tap chooses another and a tap on the chosen one clears it. The block's last row is the note field, or with nothing chosen the person's own answer. Go with this runs across the card's foot and sends answerCall. There is no Open chat: the chat is open. The composer carries Answering @Maple · the question, and reads Or type your answer to @Maple, so whatever is sent answers the call; × takes the chip off and the composer sends normal messages again. The card tells the host it was seen as it draws. The first answer anywhere wins and the card goes from every screen. Over the docked card the chat's last line says only Needs you and how long the call has waited; where no card docks, it also says the question and offers Look. In the chief's chat, the card's asker is @Chief with Sikemux's S. A watching phone shows the card without the means to answer.</div></figcaption>
+      <figcaption><b>A call, docked</b><div class="note">An agent's question is a call now, and so is anything else it cannot settle without the person. The oldest call an agent waits on docks on its chat above the composer, as the Mac's call card does, a little tighter: who asks and how long ago, the question, its context in two lines, then the options in one block of 44-point rows with a ring before each. The asker's pick is chosen to start with and carries the S and pick; a tap chooses another and a tap on the chosen one clears it. The block's last row is the note field, or with nothing chosen the person's own answer. Go with this runs across the card's foot and sends answerCall. There is no Open chat: the chat is open. The composer carries Answering @Maple · the question, and reads Or type your answer to @Maple, so whatever is sent answers the call; × takes the chip off and the composer sends normal messages again. The card tells the host it was seen as it draws. The first answer anywhere wins and the card goes from every screen. When the agent waits on several calls, the card says which it is (1 of 2) and the others sit folded under it, a line each with how long it has waited; a tap brings one into the card, and a row on the Calls tab opens the call it shows. Go with this reads Connecting… until the host has taken that this phone drew the call. Over the docked card the chat's last line says only Needs you, how many calls wait when more than one does, and how long; where no card docks, it also says the question and offers Look. In the chief's chat, the card's asker is @Chief with Sikemux's S. A watching phone shows the card without the means to answer.</div></figcaption>
     </figure>
 
 
@@ -2878,7 +2890,7 @@
             <div class="call-q">Paste the staging database password</div>
             
             <div class="call-opts"><div class="call-field">{{IconPencil:13}}<span><span class="sec-dots">••••••••••••</span></span></div></div>
-            <div class="call-kept">Kept private: it never shows in the chat.</div>
+            <div class="call-kept"><span class="hidden-n">3 lines, 1,184 characters hidden</span><br>Kept private: it never shows in the chat.</div>
             <div class="call-go">Go with this</div>
           </div>
           <div class="composer">
@@ -4557,7 +4569,7 @@ expected 1 write, got 2</div>
         </div>
       </div>
       <div class="home-bar" style="background:#fff"></div></div>
-      <figcaption><b>A call, away</b><div class="note">A call reaches the lock screen in its own words: the question as the title, who asks and where under it. Held down, a call of taste offers its options as buttons, the asker's pick first, and Something else… opens a field with Reply to type an answer in. A button opens the app, which sends answerCall over its own connection to the host, or one of its own when it has none, and the card goes once the answer is in; the first answer anywhere wins. Tapping the card opens the asker's chat with the call docked. Only the newest two dozen calls keep their buttons; an older card still opens the app.</div></figcaption>
+      <figcaption><b>A call, away</b><div class="note">A call reaches the lock screen in its own words: the question as the title, who asks and where under it. Held down, a call of taste offers its options as buttons, the asker's pick first, and Something else… opens a field with Reply to type an answer in. A button opens the app, which sends answerCall over its own connection to the host, or one of its own when it has none, and the card goes once the answer is in; the first answer anywhere wins. If the answer does not go, the call's card in the chat says so and why, and the call waits there to be answered. Tapping the card opens the asker's chat with the call docked. Only the newest two dozen calls keep their buttons; an older card still opens the app.</div></figcaption>
     </figure>
 
     <figure><div class="phone" style="background:#000"><div class="island"></div>

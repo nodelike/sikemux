@@ -53,10 +53,17 @@ final class HostCalls {
     }
 
     let core: String
-    private var drafts: [String: CallDraft] = [:]
+    /// What the person has done on each open card, kept out of observation: each draft is observed on its own.
+    @ObservationIgnored private var drafts: [String: CallDraft] = [:]
     /// Calls whose chip the person took off the composer, so what it sends goes to the agent instead.
     private var composingOff: Set<String> = []
-    @ObservationIgnored private var seen: Set<String> = []
+    /// The calls the core has taken word that this phone drew, which a production call needs before its answer counts.
+    private(set) var seen: Set<String> = []
+    @ObservationIgnored private var seeing: Set<String> = []
+    /// The call of an agent's that its chat shows, when the person chose one other than the oldest.
+    private var focused: [String: String] = [:]
+    /// Why an answer from a notification did not go, by call.
+    private(set) var failed: [String: String] = [:]
 
     private init(core: String) {
         self.core = core
@@ -78,14 +85,25 @@ final class HostCalls {
             .sorted { Self.settledAt($0) > Self.settledAt($1) }
     }
 
-    /// The oldest call agent `agentId` waits on the person for, which its chat docks.
-    func waiting(for agentId: String) -> PersonCall? {
+    /// Every call agent `agentId` waits on the person for, as asker or joined to it, oldest first.
+    func queue(for agentId: String) -> [PersonCall] {
         (view?.calls ?? [])
             .filter { call in
                 call.state == .open
                     && (call.asker.agentId == agentId || (call.joined ?? []).contains { $0.agentId == agentId })
             }
-            .min { $0.raisedAt < $1.raisedAt }
+            .sorted { $0.raisedAt < $1.raisedAt }
+    }
+
+    /// The call agent `agentId`'s chat docks: the one the person chose, while it waits, else the oldest.
+    func waiting(for agentId: String) -> PersonCall? {
+        let queue = queue(for: agentId)
+        return queue.first { $0.id == focused[agentId] } ?? queue.first
+    }
+
+    /// Makes `call` the one its asker's chat docks.
+    func focus(_ call: PersonCall) {
+        focused[call.asker.agentId] = call.id
     }
 
     /// The call whatever a chat's composer sends answers, while one waits there and the person has not taken its chip
@@ -100,8 +118,11 @@ final class HostCalls {
         composingOff.insert(call.id)
     }
 
+    /// What the person has done on `call`'s card. Drafts of calls no longer open go.
     func draft(_ call: PersonCall) -> CallDraft {
         if let held = drafts[call.id] { return held }
+        let open = Set((view?.calls ?? []).filter { $0.state == .open }.map(\.id))
+        drafts = drafts.filter { open.contains($0.key) }
         let made = CallDraft()
         drafts[call.id] = made
         return made
@@ -111,42 +132,55 @@ final class HostCalls {
         call.outcome?.at ?? call.answer?.at ?? call.raisedAt
     }
 
-    /// Tells the host once that this phone drew the call, which a production call needs before its answer counts.
-    func saw(_ call: PersonCall) {
-        guard seen.insert(call.id).inserted, let connection = Hub.shared.live(core).connection else { return }
-        Task { _ = try? await connection.call(PhoneCall.CallSeen.self, CallParams(id: call.id)) }
+    /// Tells the host this phone drew the call, until the core has taken it; the card calls it again when the
+    /// connection comes.
+    func see(_ call: PersonCall) async {
+        guard !seen.contains(call.id), !seeing.contains(call.id), let connection = Hub.shared.live(core).connection
+        else { return }
+        seeing.insert(call.id)
+        defer { seeing.remove(call.id) }
+        do {
+            _ = try await connection.call(PhoneCall.CallSeen.self, CallParams(id: call.id))
+            seen.insert(call.id)
+        } catch {
+            print("sikemux: the host did not take that this phone drew a call: \(error)")
+        }
     }
 
-    /// Answers a call with what its card holds. The first answer anywhere wins.
+    /// Answers a call with what its card holds, once per tap: the card stays sending until the call leaves it. The
+    /// first answer anywhere wins.
     func answer(_ call: PersonCall, _ params: AnswerCallParams, report: @escaping (String) -> Void) {
         let draft = draft(call)
         guard !draft.sending, let connection = Hub.shared.live(core).connection else { return }
         draft.sending = true
+        failed[call.id] = nil
         Task {
-            defer { draft.sending = false }
             do {
                 _ = try await connection.call(PhoneCall.AnswerCall.self, params)
                 Haptics.success()
+                if call.secret == true {
+                    draft.typed = ""
+                    drafts[call.id] = nil
+                }
             } catch {
+                draft.sending = false
                 Haptics.failure()
                 report(problem(error))
             }
         }
     }
 
-    /// Answers the call waiting in a chat with what the person typed in its composer, with the files they sent.
-    func answer(_ call: PersonCall, written: WrittenAnswer) async -> Bool {
+    /// Answers the call waiting in a chat with what the person typed in its composer. A call takes no files yet, so
+    /// an answer with some stays in the composer and says so, rather than going without them.
+    func answer(_ call: PersonCall, written: WrittenAnswer, report: @escaping (String) -> Void) async -> Bool {
+        guard written.paths.isEmpty else {
+            report(CallWords.wordsAlone)
+            return false
+        }
         guard let connection = Hub.shared.live(core).connection else { return false }
         do {
-            // A call that takes typed words always comes from a question, which answerQuestion answers with files.
-            if written.paths.isEmpty {
-                _ = try await connection.call(
-                    PhoneCall.AnswerCall.self, AnswerCallParams(id: call.id, words: written.answer))
-            } else {
-                _ = try await connection.call(
-                    PhoneCall.AnswerQuestion.self,
-                    AnswerParams(id: call.id, answer: written.answer, paths: written.paths, context: written.context))
-            }
+            _ = try await connection.call(
+                PhoneCall.AnswerCall.self, AnswerCallParams(id: call.id, words: written.answer))
             return true
         } catch {
             Haptics.failure()
@@ -154,15 +188,23 @@ final class HostCalls {
         }
     }
 
-    /// Hands a call back to its asker's lead, or its asker, to decide.
+    /// Hands a call back to its asker's lead, or its asker, to decide, once per tap.
     func notMine(_ call: PersonCall, report: @escaping (String) -> Void) {
-        guard let connection = Hub.shared.live(core).connection else { return }
+        let draft = draft(call)
+        guard !draft.sending, let connection = Hub.shared.live(core).connection else { return }
+        draft.sending = true
         Task {
             do {
                 _ = try await connection.call(PhoneCall.CallNotMine.self, CallParams(id: call.id))
             } catch {
+                draft.sending = false
                 report(problem(error))
             }
         }
+    }
+
+    /// An answer from a notification did not go: its card says so, and why, until it is answered.
+    func answerFailed(_ callId: String, _ why: String) {
+        failed[callId] = why
     }
 }

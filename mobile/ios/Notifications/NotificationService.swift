@@ -7,14 +7,26 @@ final class NotificationService: UNNotificationServiceExtension {
         _ request: UNNotificationRequest,
         withContentHandler contentHandler: @escaping (UNNotificationContent) -> Void
     ) {
-        nonisolated(unsafe) let shown = Self.content(for: request.content) ?? request.content
+        let shown = Self.content(for: request.content) ?? request.content
         guard let category = Card.kept(in: shown.userInfo)?.callCategory else { return contentHandler(shown) }
-        // A call's buttons are registered before its card shows, which then finds them.
-        nonisolated(unsafe) let call = category
-        nonisolated(unsafe) let show = contentHandler
-        UNUserNotificationCenter.current().getNotificationCategories { held in
-            UNUserNotificationCenter.current().setNotificationCategories(CallPush.categories(held, adding: call))
-            show(shown)
+        // UserNotifications' types are not Sendable; these are handed once to the task that delivers the card.
+        nonisolated(unsafe) let delivery = (content: shown, category: category, show: contentHandler)
+        Task {
+            await Self.register(delivery.category)
+            delivery.show(delivery.content)
+        }
+    }
+
+    /// Adds a call's buttons to the categories already set, and waits, a second at most, until iOS has them, so the
+    /// card shows with its buttons.
+    private static func register(_ category: UNNotificationCategory) async {
+        let center = UNUserNotificationCenter.current()
+        center.setNotificationCategories(CallPush.categories(await center.notificationCategories(), adding: category))
+        for _ in 0..<20 {
+            if await center.notificationCategories().contains(where: { $0.identifier == category.identifier }) {
+                return
+            }
+            try? await Task.sleep(for: .milliseconds(50))
         }
     }
 

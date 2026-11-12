@@ -20,7 +20,7 @@ struct MentionRow: Identifiable {
     /// The heading it starts, where the rows above it belong to another.
     var group: String?
     let mark: Mark
-    var state: AgentGroup?
+    var turn: TurnState?
     let take: () -> Void
 }
 
@@ -164,7 +164,7 @@ final class MentionSearch {
         switch typed.trigger {
         case .agents:
             let agents = view.workspace.agents ?? []
-            let groups = Dictionary(view.chats.map { ($0.agentId, $0.group) }, uniquingKeysWith: { a, _ in a })
+            let turns = Dictionary(view.inbox.agents.map { ($0.agentId, $0.turn) }, uniquingKeysWith: { a, _ in a })
             let places = [project].compactMap { $0 } + view.workspace.projects.filter { $0.id != project?.id }
             let mates: [MentionRow] = places.flatMap { place in
                 agents.filter {
@@ -178,7 +178,7 @@ final class MentionSearch {
                     id: "\(Mentions.agent)\(agent.id)", title: "@\(name)", detail: agent.title,
                     group: agent.project == project?.id
                         ? nil : view.project(id: agent.project)?.name,
-                    mark: .agent(id: agent.id, provider: agent.provider), state: groups[agent.id] ?? nil,
+                    mark: .agent(id: agent.id, provider: agent.provider), turn: turns[agent.id] ?? nil,
                     take: { write("@\(name)", "\(Mentions.agent)\(agent.id)", nil, nil) }
                 )
             }
@@ -392,7 +392,7 @@ struct MentionMenu: View {
                 Text(row.detail ?? "").font(Theme.ui(13)).foregroundStyle(palette.tertiary).lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 if let aside = row.aside { Text(aside).font(Theme.ui(12)).foregroundStyle(palette.inkFaint) }
-                if let state = row.state { AgentStateMark(group: state) }
+                if let turn = row.turn { TurnMark(turn: turn, now: Date()) }
             }
             .padding(.horizontal, 12)
             .frame(minHeight: 44)

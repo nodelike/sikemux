@@ -84,8 +84,8 @@ enum Cards {
         return identifier == CallPush.words && !words.isEmpty ? AnswerCallParams(id: call, words: words) : nil
     }
 
-    /// Answers a call as `answer` does a permission. The first answer anywhere wins, so a call already settled
-    /// takes the card away too.
+    /// Answers a call as `answer` does a permission. The button opened the app on the asker's chat; if the answer
+    /// does not go, the call's card there says so and why, and the call waits to be answered there.
     private static func answerCall(tag: String, card: Card, _ params: AnswerCallParams) async {
         do {
             if let held = Hub.shared.openConnections.first(where: { $0.core == card.hostKey })?.connection {
@@ -100,14 +100,15 @@ enum Cards {
                 }
             }
         } catch {
-            print("sikemux: could not answer the call from the notification: \(error)")
+            HostCalls.of(card.hostKey).answerFailed(params.id, problem(error))
             return
         }
         await DeliveredCards.remove([tag])
     }
 
     /// Answers over the connection the app already holds to the host, or else over one of its own that keeps the
-    /// phone online until the answer is in. A card whose answer failed stays.
+    /// phone online until the answer is in. iOS has taken the card away by the time the app opens; a failed answer
+    /// leaves the request in its chat.
     private static func answer(tag: String, card: Card, request: String, option: String) async {
         do {
             if let held = Hub.shared.openConnections.first(where: { $0.core == card.hostKey })?.connection {

@@ -53,7 +53,10 @@ struct CallsTab: View {
     private func row<End: View>(_ call: PersonCall, @ViewBuilder end: () -> End) -> some View {
         Row(
             title: call.question,
-            onPress: { Router.shared.push(.chat(core: core, agent: call.asker.agentId)) },
+            onPress: {
+                if call.state == .open { HostCalls.of(core).focus(call) }
+                Router.shared.push(.chat(core: core, agent: call.asker.agentId))
+            },
             mark: {
                 AskerMark(
                     agentId: call.asker.agentId, provider: call.asker.cli, chief: call.asker.chief == true,

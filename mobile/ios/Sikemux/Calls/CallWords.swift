@@ -63,9 +63,12 @@ enum CallWords {
         }
     }
 
-    /// The line over a call docked on the chat, which already shows the question: the word and how long it waited.
-    static func docked(_ said: Said) -> Said {
-        said.phase == .needsYou ? Said(word: said.word, phase: said.phase, parts: Array(said.parts.suffix(1))) : said
+    /// The line over a call docked on the chat, which already shows the question: the word, how many calls wait when
+    /// more than one does, and how long.
+    static func docked(_ said: Said, waiting: Int) -> Said {
+        guard said.phase == .needsYou else { return said }
+        let more = waiting > 1 ? ["\(waiting) calls"] : []
+        return Said(word: said.word, phase: said.phase, parts: more + Array(said.parts.suffix(1)))
     }
 
     static func waitingOn(_ wait: TurnWait) -> String {
@@ -116,12 +119,13 @@ enum CallWords {
     /// The button that brings the call a waiting agent asks into view.
     static let look = "Look"
 
-    /// How long a turn has run: `48s`, `1m 12s`, `1h 5m`.
+    /// How long a turn has run, clock style as the Mac says it: `45s`, `3m 07s`, `2h 05m`.
     static func elapsed(_ seconds: Int) -> String {
         let seconds = max(0, seconds)
+        let two = { (value: Int) in value < 10 ? "0\(value)" : "\(value)" }
         if seconds < 60 { return "\(seconds)s" }
-        if seconds < 3600 { return seconds % 60 == 0 ? "\(seconds / 60)m" : "\(seconds / 60)m \(seconds % 60)s" }
-        return "\(seconds / 3600)h \(seconds % 3600 / 60)m"
+        if seconds < 3600 { return "\(seconds / 60)m \(two(seconds % 60))s" }
+        return "\(seconds / 3600)h \(two(seconds / 60 % 60))m"
     }
 
     /// The agent's own words, as they read after a dot: the first letter small unless it starts a name.
@@ -196,6 +200,20 @@ enum CallWords {
     static let notMine = "Not mine"
     static let whatRuns = "What runs"
     static let kept = "Kept private: it never shows in the chat."
+    /// Go with this while the host has not yet taken that this phone drew the call.
+    static let connecting = "Connecting…"
+    /// Which of an agent's waiting calls the card shows: `1 of 3`.
+    static func place(_ index: Int, of count: Int) -> String { "\(index) of \(count)" }
+    /// On the card when the answer sent from its notification did not go.
+    static func pushFailed(_ why: String) -> String { "Your answer from the notification didn't go: \(why)" }
+    /// How much a hidden answer holds, so the person can see their typing and paste landed.
+    static func hidden(_ text: String) -> String {
+        let lines = (text.hasSuffix("\n") ? String(text.dropLast()) : text).components(separatedBy: "\n").count
+        let characters = "\(text.count) character\(text.count == 1 ? "" : "s") hidden"
+        return lines > 1 ? "\(lines) lines, \(characters)" : characters
+    }
+    /// Said when a typed answer to a call carries files, which a call does not take yet.
+    static let wordsAlone = "A call takes words alone for now. Answer it, then send the files to the agent."
     /// The composer's chip while a call waits in the chat.
     static func answering(_ name: String, _ question: String) -> String { "Answering @\(name) · \(question)" }
     /// The composer's placeholder while a call waits in the chat.
