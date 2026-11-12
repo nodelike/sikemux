@@ -96,12 +96,12 @@ jobs:
         working-directory: mobile/app
         run: node scripts/run.mjs prebuild android development
 
-      - name: Test the notifications module
+      - name: Test the notifications module and build the widgets
         working-directory: mobile/app/android
         run: |
           # The generated wrapper gives up on downloading Gradle after 10 seconds, too short from a runner.
           sed -i 's/^networkTimeout=.*/networkTimeout=120000/' gradle/wrapper/gradle-wrapper.properties
-          ./gradlew :notify:testDebugUnitTest --no-daemon
+          ./gradlew :notify:testDebugUnitTest :widgets:compileDebugKotlin --no-daemon
 
   ios:
     name: Build the iPhone app
