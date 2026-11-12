@@ -138,7 +138,7 @@ let agents = faces.isEmpty ? decoded.inbox.agents : decoded.inbox.agents.enumera
 let full = DeviceView(
     workspace: decoded.workspace, attentions: decoded.attentions,
     inbox: Inbox(items: decoded.inbox.items.filter { $0.kind != .hostAlert }, working: decoded.inbox.working, agents: agents, rollup: decoded.inbox.rollup),
-    faceStyle: decoded.faceStyle, load: nil
+    calls: decoded.calls, faceStyle: decoded.faceStyle, load: nil
 )
 
 let overloaded = HostLoad(overloaded: true, loadAverage: 180, cores: 10, builds: [
@@ -158,7 +158,7 @@ func view(keeping ids: Set<String>?, load: HostLoad? = nil) -> DeviceView {
             agents: agents,
             rollup: AgentRollup(subagents: agents.reduce(0) { $0 + $1.subagents }, tasks: agents.reduce(0) { $0 + $1.tasks })
         ),
-        faceStyle: full.faceStyle, load: load
+        calls: full.calls, faceStyle: full.faceStyle, load: load
     )
 }
 
