@@ -10,9 +10,9 @@ use gpui_kit::{
 };
 use sikemux_core::server::call;
 use sikemux_core::server::workspace::{AgentPatch, UpdateAgentParams};
-use sikemux_view::workspace::WorkspaceAgent;
 
 use crate::core::Target;
+use crate::hosts::Place;
 use crate::icons::Icon;
 use crate::theme::{self, Tokens, SPACE_1H, SPACE_2H, SPACE_3};
 use crate::ui::{self, IconButton};
@@ -43,8 +43,8 @@ impl Workbench {
 }
 
 /// Sets `agent`'s tags to `tags`.
-fn retag(bench: &Workbench, agent: &str, tags: Vec<String>) {
-    Target::here(&bench.asks).call_typed::<call::UpdateAgent>(UpdateAgentParams::new(
+fn retag(bench: &Workbench, place: &Place, agent: &str, tags: Vec<String>) {
+    Target::new(&bench.asks, place.clone()).call_typed::<call::UpdateAgent>(UpdateAgentParams::new(
         agent.to_owned(),
         AgentPatch {
             tags: Some(tags),
@@ -58,12 +58,14 @@ fn retag(bench: &Workbench, agent: &str, tags: Vec<String>) {
 pub(crate) fn menu_item(
     popup: PopupMenu,
     bench: WeakEntity<Workbench>,
-    agent: &WorkspaceAgent,
+    place: Place,
+    id: &str,
+    had: Vec<String>,
     in_use: Vec<String>,
     window: &mut Window,
     cx: &mut Context<PopupMenu>,
 ) -> PopupMenu {
-    let (id, had) = (agent.id.clone(), agent.tags.clone());
+    let id = id.to_owned();
     popup.submenu_with_icon(
         Some(Icon::Tag.into()),
         t!("Tags"),
@@ -71,13 +73,16 @@ pub(crate) fn menu_item(
         cx,
         ui::menu(move |mut menu, _, _| {
             let (bench_new, id_new, had_new) = (bench.clone(), id.clone(), had.clone());
+            let place_new = place.clone();
             menu = menu.item(
                 PopupMenuItem::new(t!("New Tag…"))
                     .icon(Icon::Plus)
                     .on_click(move |_, window, cx| {
                         let (bench, id, had) = (bench_new.clone(), id_new.clone(), had_new.clone());
+                        let place = place_new.clone();
                         window.defer(cx, move |_, cx| {
                             let _ = bench.update(cx, |bench, cx| {
+                                let place = place.clone();
                                 bench.prompt(
                                     t!("New tag"),
                                     "",
@@ -85,7 +90,7 @@ pub(crate) fn menu_item(
                                         let typed = typed.trim().to_lowercase();
                                         if !typed.is_empty() && !had.contains(&typed) {
                                             let tags = had.iter().cloned().chain([typed]).collect();
-                                            retag(bench, &id, tags);
+                                            retag(bench, &place, &id, tags);
                                         }
                                     },
                                     cx,
@@ -100,13 +105,14 @@ pub(crate) fn menu_item(
             for tag in &in_use {
                 let on = had.contains(tag);
                 let (bench, id, had, tag) = (bench.clone(), id.clone(), had.clone(), tag.clone());
+                let place = place.clone();
                 menu = menu.item(PopupMenuItem::new(capitalised(&tag)).checked(on).on_click(
                     move |_, _, cx| {
                         let tags = match on {
                             true => had.iter().filter(|kept| **kept != tag).cloned().collect(),
                             false => had.iter().cloned().chain([tag.clone()]).collect(),
                         };
-                        let _ = bench.update(cx, |bench, _| retag(bench, &id, tags));
+                        let _ = bench.update(cx, |bench, _| retag(bench, &place, &id, tags));
                     },
                 ));
             }

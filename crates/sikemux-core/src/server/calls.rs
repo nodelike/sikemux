@@ -663,14 +663,21 @@ pub(crate) async fn row_action(core: &Arc<Core>, method: &str, params: Value) ->
         "updateAgent" => answer(workspace::update_agent(core, parse(params)?)?),
         "closeAgents" => answer(workspace::close_agents(core, parse(params)?)?),
         "snoozeAgents" => answer(super::settling::snooze(core, parse(params)?)?),
+        "reopenAgent" => {
+            let params: AgentParams = parse(params)?;
+            let taken = super::launching::reopen_agent(core, params.agent_id).await?;
+            super::launching::wake_chat(core, taken.agent_id.clone()).await?;
+            answer(taken)
+        }
         "settleAgents" => answer(super::settling::settle(core, parse(params)?)?),
         method => Err(format!("{method} is not something a row does to its agent").into()),
     }
 }
 
 /// The calls a row makes about its agent, which the host the agent runs on answers.
-pub(crate) const ROW_ACTIONS: [&str; 6] = [
+pub(crate) const ROW_ACTIONS: [&str; 7] = [
     "sleepAgent",
+    "reopenAgent",
     "renameAgent",
     "updateAgent",
     "closeAgents",

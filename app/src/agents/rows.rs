@@ -81,6 +81,21 @@ impl AgentRow {
 }
 
 impl Workbench {
+    /// Where calls about `row`'s agent go: the host it runs on while this window holds that
+    /// host's view, else this host's core, which passes them on for a worker of its agents.
+    pub fn asked_at(&self, row: &AgentRow) -> Place {
+        match self.view_at(&row.place) {
+            Some(_) => row.place.clone(),
+            None => Place::This,
+        }
+    }
+
+    /// The worker on a linked host this host's core lists under `id`, as its row.
+    pub fn worker_row(&self, id: &str) -> Option<AgentRow> {
+        let workers = &self.this_view()?.inbox.remote_agents;
+        worker(workers.iter().find(|worker| worker.shown.agent_id == id)?)
+    }
+
     /// The agent the tab in front shows.
     pub fn agent(&self) -> Option<AgentRow> {
         let project = self.project()?;

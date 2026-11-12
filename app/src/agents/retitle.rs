@@ -5,6 +5,7 @@ use gpui_kit::{AppContext, Context, Entity, Subscription, Window};
 use sikemux_core::server::call;
 use sikemux_core::server::workspace::{AgentPatch, UpdateAgentParams};
 
+use crate::core::Target;
 use crate::workbench::Workbench;
 
 /// An agent's title while it is edited in place, in a field holding it.
@@ -14,6 +15,8 @@ pub struct Retitling {
     pub in_rail: bool,
     pub input: Entity<InputState>,
     title: String,
+    /// The core that keeps its title.
+    target: Target,
     _events: Subscription,
 }
 
@@ -27,13 +30,22 @@ impl Workbench {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(title) = self.this_view().and_then(|view| {
+        let here = self.this_view().and_then(|view| {
             view.workspace
                 .agents
                 .iter()
                 .find(|kept| kept.id == agent)
-                .map(|kept| kept.title.clone())
-        }) else {
+                .map(|kept| (kept.title.clone(), self.target()))
+        });
+        let there = || {
+            let row = self.worker_row(agent)?;
+            let target = Target::new(&self.asks, self.asked_at(&row));
+            Some((
+                row.handle().map_or_else(String::new, |_| row.title.clone()),
+                target,
+            ))
+        };
+        let Some((title, target)) = here.or_else(there) else {
             return;
         };
         let input = cx.new(|cx| InputState::new(window, cx).default_value(title.clone()));
@@ -51,6 +63,7 @@ impl Workbench {
             in_rail,
             input,
             title,
+            target,
             _events: events,
         });
         self.parts.redraw_stage(cx);
@@ -70,15 +83,14 @@ impl Workbench {
             .take(72)
             .collect();
         if save && !title.is_empty() && title != retitling.title {
-            self.target()
-                .call_typed::<call::UpdateAgent>(UpdateAgentParams::new(
-                    retitling.agent,
-                    AgentPatch {
-                        title: Some(title),
-                        renamed: Some(true),
-                        ..AgentPatch::default()
-                    },
-                ));
+            (retitling.target).call_typed::<call::UpdateAgent>(UpdateAgentParams::new(
+                retitling.agent,
+                AgentPatch {
+                    title: Some(title),
+                    renamed: Some(true),
+                    ..AgentPatch::default()
+                },
+            ));
         }
         self.parts.redraw_stage(cx);
         self.parts.redraw(&self.parts.rail, cx);

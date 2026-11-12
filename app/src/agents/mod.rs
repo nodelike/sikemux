@@ -1023,9 +1023,7 @@ fn agent_row(
         .map(|project| project.name.clone());
     let chosen = bench.agent().is_some_and(|front| front.id == agent.id);
     let id = agent.id.clone();
-    let menu = (!elsewhere)
-        .then(|| AgentMenu::new(bench, &agent.id, cx))
-        .flatten();
+    let menu = AgentMenu::of_row(bench, agent, cx);
     let mark = match &fold {
         Some(fold) => div()
             .relative()
@@ -1111,7 +1109,7 @@ fn agent_row(
                 return;
             }
             match event.click_count() {
-                2 if !elsewhere => bench.retitle(&id, true, window, cx),
+                2 => bench.retitle(&id, true, window, cx),
                 _ => {
                     if worker {
                         crate::keymap::counted("chat.openWorker", cx);

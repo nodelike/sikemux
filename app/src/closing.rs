@@ -21,10 +21,7 @@ impl Workbench {
     /// it runs on closes it: asked straight when this window holds its feed, else through this
     /// host's core, which passes the call on for a worker of its own agents.
     pub fn close_elsewhere(&mut self, agent: &AgentRow, cx: &mut Context<Self>) {
-        let target = match self.view_at(&agent.place) {
-            Some(_) => Target::new(&self.asks, agent.place.clone()),
-            None => Target::here(&self.asks),
-        };
+        let target = Target::new(&self.asks, self.asked_at(agent));
         let agent_ids = vec![agent.id.clone()];
         let close = move || {
             target.call_typed::<call::CloseAgents>(CloseAgentsParams {

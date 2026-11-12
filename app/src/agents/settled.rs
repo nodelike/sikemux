@@ -186,11 +186,12 @@ fn when(at: u64) -> String {
     }
 }
 
-/// Snooze and Settle in the menu of an agent on this host, or Wake and Restore once it is out
-/// of the main list.
+/// Snooze and Settle in an agent's menu, or Wake and Restore once it is out of the main list,
+/// asked of the core at `place`.
 pub fn menu_items(
     popup: PopupMenu,
     bench: WeakEntity<Workbench>,
+    place: Place,
     agent_id: &str,
     snoozed: bool,
     settled: bool,
@@ -199,14 +200,14 @@ pub fn menu_items(
 ) -> PopupMenu {
     let id = vec![agent_id.to_owned()];
     let popup = if snoozed {
-        let (bench, id) = (bench.clone(), id.clone());
+        let (bench, id, place) = (bench.clone(), id.clone(), place.clone());
         popup.item(
             PopupMenuItem::new(t!("Wake Now"))
                 .icon(Icon::Clock)
-                .on_click(move |_, _, cx| snooze(&bench, &Place::This, id.clone(), None, cx)),
+                .on_click(move |_, _, cx| snooze(&bench, &place, id.clone(), None, cx)),
         )
     } else {
-        let (bench, id) = (bench.clone(), id.clone());
+        let (bench, id, place) = (bench.clone(), id.clone(), place.clone());
         popup.submenu_with_icon(
             Some(Icon::Clock.into()),
             t!("Snooze"),
@@ -214,28 +215,25 @@ pub fn menu_items(
             cx,
             crate::ui::menu(move |menu, _, _| {
                 let menu = settling::presets().into_iter().fold(menu, |menu, preset| {
-                    let (bench, id) = (bench.clone(), id.clone());
+                    let (bench, id, place) = (bench.clone(), id.clone(), place.clone());
                     let label = format!("{}  ·  {}", preset.label, when(preset.until));
                     menu.item(PopupMenuItem::new(label).on_click(move |_, _, cx| {
-                        snooze(&bench, &Place::This, id.clone(), Some(preset.until), cx)
+                        snooze(&bench, &place, id.clone(), Some(preset.until), cx)
                     }))
                 });
-                let (bench, id) = (bench.clone(), id.clone());
+                let (bench, id, place) = (bench.clone(), id.clone(), place.clone());
                 menu.separator()
                     .item(
                         PopupMenuItem::new(t!("Pick a Time…")).on_click(move |_, _, cx| {
-                            let id = id.clone();
+                            let (id, place) = (id.clone(), place.clone());
                             let _ = bench.update(cx, |bench, cx| {
                                 bench.prompt(
                                     t!("Snooze until, such as fri 2pm or in 90m"),
                                     "",
                                     move |bench, typed, _, cx| match settling::parse_time(&typed) {
-                                        Some(until) => bench.snooze_agents(
-                                            &Place::This,
-                                            id.clone(),
-                                            Some(until),
-                                            cx,
-                                        ),
+                                        Some(until) => {
+                                            bench.snooze_agents(&place, id.clone(), Some(until), cx)
+                                        }
                                         None => bench.notify(
                                             toast::error(t!(
                                                 "Couldn't read \"{typed}\" as a time",
@@ -259,6 +257,6 @@ pub fn menu_items(
     popup.item(
         PopupMenuItem::new(label)
             .icon(icon)
-            .on_click(move |_, _, cx| settle(&bench, &Place::This, id.clone(), !settled, cx)),
+            .on_click(move |_, _, cx| settle(&bench, &place, id.clone(), !settled, cx)),
     )
 }
