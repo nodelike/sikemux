@@ -1068,6 +1068,9 @@ impl<B: Backend> Running<'_, B> {
     /// Writes down where the chat stands before the loop waits for what comes next.
     fn rest(&self) {
         self.chat.keep(self.state.progress());
+        if let Some(core) = self.chat.core.upgrade() {
+            crate::server::chief::keep_session(&core, &self.chat);
+        }
         if !self.chat.prompted() {
             self.tell_reach();
         }

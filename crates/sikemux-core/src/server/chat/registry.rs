@@ -396,6 +396,12 @@ impl Chats {
             origin,
             core: Arc::downgrade(core),
         });
+        if let Some(kept) = chief
+            .then(|| crate::server::chief::kept_session(core, &chat.launch.agent_id))
+            .flatten()
+        {
+            super::rotation::take_up(&chat, kept);
+        }
         let held = {
             let state = chat.turn.locked();
             (state.turn == Turn::Held).then_some(state.holds)

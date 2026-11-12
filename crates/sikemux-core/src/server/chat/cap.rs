@@ -9,6 +9,7 @@ use crate::server::parts::Parts;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sikemux_process::clock::epoch_ms;
 use sikemux_wire::protocol::AgentState;
@@ -79,7 +80,31 @@ pub(crate) struct Meter {
     compacting_since: AtomicU64,
 }
 
+/// What a meter keeps while its chat sleeps or its core starts again.
+#[derive(Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct KeptMeter {
+    last_call_ms: u64,
+    context: u64,
+    compacted: bool,
+}
+
 impl Meter {
+    pub(crate) fn kept(&self) -> KeptMeter {
+        KeptMeter {
+            last_call_ms: self.last_call_ms.load(Ordering::Acquire),
+            context: self.context.load(Ordering::Acquire),
+            compacted: self.compacted.load(Ordering::Acquire),
+        }
+    }
+
+    pub(crate) fn take_up(&self, kept: KeptMeter) {
+        self.last_call_ms
+            .store(kept.last_call_ms, Ordering::Release);
+        self.context.store(kept.context, Ordering::Release);
+        self.compacted.store(kept.compacted, Ordering::Release);
+    }
+
     pub(crate) fn called(&self, context: u64) {
         self.last_call_ms.store(epoch_ms(), Ordering::Release);
         self.context.store(context, Ordering::Release);

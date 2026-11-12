@@ -45,7 +45,8 @@ const BRIEFS_KEPT: usize = 20;
 pub(crate) const HANDOFF_ASK: &str = "Sikemux is about to carry this chat on in a fresh session, which starts from what Sikemux keeps. Write a handoff note of under 150 words for it: what you were in the middle of, what you meant to do next, and anything you suspect but have not checked. Plain text only. Do not use any tool.";
 
 /// What the chat's session started on, to tell when it moved to another model or account.
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct Footing {
     pub session: String,
     pub model: Option<String>,
@@ -115,6 +116,35 @@ impl State {
     pub(crate) fn failed(&self) {
         self.inner.locked().failed_at = epoch_ms();
     }
+}
+
+/// Where a chat's session stands, kept while the chat sleeps or its core starts again, so an
+/// away or full session still gives way when the chat wakes.
+#[derive(Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct KeptSession {
+    footing: Option<Footing>,
+    handoff: Option<(String, u64)>,
+    full: bool,
+    meter: cap::KeptMeter,
+}
+
+pub(crate) fn kept(chat: &Chat) -> KeptSession {
+    let inner = chat.rotation.inner.locked();
+    KeptSession {
+        footing: inner.footing.clone(),
+        handoff: inner.handoff.clone(),
+        full: inner.full,
+        meter: chat.meter.kept(),
+    }
+}
+
+pub(crate) fn take_up(chat: &Chat, kept: KeptSession) {
+    let mut inner = chat.rotation.inner.locked();
+    inner.footing = kept.footing;
+    inner.handoff = kept.handoff;
+    inner.full = kept.full;
+    chat.meter.take_up(kept.meter);
 }
 
 /// Whether the person turned rotation on.

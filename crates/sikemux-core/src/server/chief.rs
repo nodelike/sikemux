@@ -27,7 +27,7 @@ use sikemux_wire::protocol::ChatContext;
 
 use super::chat::feed::Feed;
 use super::chat::reset::{calendar, WallClock, Zone};
-use super::chat::{Chat, ChatCommand, Whose};
+use super::chat::{rotation, Chat, ChatCommand, Whose};
 use super::kept::Kept;
 use super::launching::{self, Launch};
 use super::{Core, CoreResult};
@@ -115,6 +115,8 @@ struct Seat {
     rows: Vec<Row>,
     /// When the last week it counted began.
     counted: u64,
+    /// Where its session stands, so a sleep or a new core goes on from it.
+    session: Option<rotation::KeptSession>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -270,7 +272,10 @@ pub(crate) async fn open(core: &Arc<Core>, params: OpenChiefParams) -> CoreResul
             shown: true,
             whose: Whose::NOT_PERSON,
         };
-        let sent = core.chats().running(&agent_id).and_then(|chat| chat.send(ask));
+        let sent = core
+            .chats()
+            .running(&agent_id)
+            .and_then(|chat| chat.send(ask));
         if let Err(error) = sent {
             eprintln!("sikemux core: the chief was not asked for its first message: {error}");
         }
@@ -397,6 +402,34 @@ fn called(core: &Core, agent_id: &str) -> String {
         "@{}",
         crate::text::one_line(&core.names().name_or_id(agent_id))
     )
+}
+
+/// Keeps where a chief's session stands when it changed, so a sleep or a new core goes on from it.
+pub(crate) fn keep_session(core: &Core, chat: &Chat) {
+    if !chat.capped() {
+        return;
+    }
+    let kept = rotation::kept(chat);
+    let unchanged = core
+        .chiefs()
+        .read(chat.agent_id(), |seat| seat.session.as_ref() == Some(&kept));
+    if unchanged == Some(false) {
+        core.chiefs()
+            .seat(chat.agent_id(), |seat| seat.session = Some(kept));
+    }
+}
+
+pub(crate) fn kept_session(core: &Core, agent_id: &str) -> Option<rotation::KeptSession> {
+    core.chiefs()
+        .read(agent_id, |seat| seat.session.clone())
+        .flatten()
+}
+
+/// A closed chief's chat lets go of where its session stood.
+pub(crate) fn closed(core: &Core, agent_id: &str) {
+    if core.chiefs().read(agent_id, |seat| seat.session.is_some()) == Some(true) {
+        core.chiefs().seat(agent_id, |seat| seat.session = None);
+    }
 }
 
 /// The person wrote to `agent_id` themselves. Written to a chief, they are with it, and an away
