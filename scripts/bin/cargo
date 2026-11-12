@@ -71,11 +71,20 @@ def available_memory():
     return None
 
 
+def memory_under_pressure():
+    if sys.platform != "darwin":
+        return False
+    level = subprocess.run(["sysctl", "-n", "kern.memorystatus_vm_pressure_level"], capture_output=True, text=True).stdout
+    return level.strip().isdigit() and int(level) >= 2
+
+
 def runs_allowed(running):
     override = limit_override()
     if override:
         return override
     cores = os.cpu_count() or 1
+    if memory_under_pressure():
+        return max(1, running)
     memory = available_memory()
     if memory is None:
         return max(1, round(cores / JOBS_PER_RUN))
