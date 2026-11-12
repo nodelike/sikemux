@@ -191,6 +191,7 @@ named_fields!(head_field, ChatHead {
     "draft" => draft,
     "goal" => goal,
     "turn" => turn,
+    "chief" => chief,
 });
 
 named_fields!(row_field, ChatMessage {

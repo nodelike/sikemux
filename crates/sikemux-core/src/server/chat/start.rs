@@ -258,6 +258,9 @@ pub(super) fn start(
         }
         _ => {}
     }
+    if crate::server::chief::is_chief(core, chat.agent_id()) {
+        *chat.brief.locked() = Some(crate::server::chief::brief(core, &chat.launch.cwd));
+    }
     core.workspaces.note_begun(&chat);
     crate::server::model_providers::chat_begun(core, &chat.launch);
     let naming = (

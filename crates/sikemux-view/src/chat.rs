@@ -307,6 +307,10 @@ pub struct ChatHead {
     /// How its turn stands; none before its first turn.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub turn: Option<crate::turn::TurnState>,
+    /// It is its project's chief, @Chief: the one chat of the project every other agent there
+    /// works under.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub chief: bool,
     /// What the person has written and not sent, as the host keeps it for every app.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub draft: Option<ChatDraft>,

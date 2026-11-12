@@ -59,6 +59,16 @@ pub struct ProjectInfo {
     /// them. The core fills it in.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub saved_chats: BTreeMap<String, usize>,
+    /// Its chief, @Chief, by agent id. The core keeps it; clients only read it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chief: Option<String>,
+    /// How many agents are open in it, the chief's whole team. The core fills it in.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub agents: u32,
+}
+
+fn is_zero(count: &u32) -> bool {
+    *count == 0
 }
 
 /// A project's copy on another host of the account (ADR 0023), as that host

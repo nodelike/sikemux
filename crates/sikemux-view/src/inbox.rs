@@ -377,6 +377,10 @@ pub struct Inbox {
 #[serde(rename_all = "camelCase")]
 pub struct AgentShown {
     pub agent_id: String,
+    /// It is its project's chief, @Chief: the one chat of the project every other agent there
+    /// works under.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub chief: bool,
     /// What the core calls it, such as Otter.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,

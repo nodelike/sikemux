@@ -729,6 +729,13 @@ impl Fold {
         }
     }
 
+    pub fn set_chief(&mut self, chief: bool) {
+        if self.head.chief != chief {
+            self.head.chief = chief;
+            self.set_head("chief");
+        }
+    }
+
     pub fn set_turn(&mut self, turn: Option<TurnState>) {
         if self.head.turn != turn {
             self.head.turn = turn;

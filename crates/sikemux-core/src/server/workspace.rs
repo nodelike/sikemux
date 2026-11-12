@@ -576,6 +576,8 @@ impl Workspaces {
                 code_host: None,
                 worktree_default: false,
                 saved_chats: BTreeMap::new(),
+                chief: None,
+                agents: 0,
             };
             check_project(&project, saved)?;
             saved.projects.push(project.clone());
@@ -583,6 +585,17 @@ impl Workspaces {
         })?;
         self.recent_stale();
         Ok(project)
+    }
+
+    /// Makes `agent_id` the project's chief.
+    pub(crate) fn set_chief(&self, project_id: &str, agent_id: &str) -> CoreResult<()> {
+        self.change(|saved| {
+            let project = (saved.projects.iter_mut())
+                .find(|project| project.id == project_id)
+                .ok_or_else(|| CoreError::from("that project is not on this host"))?;
+            project.chief = Some(agent_id.to_owned());
+            Ok(())
+        })
     }
 
     /// The project `cwd` is in, added when it is in none, for an agent that
@@ -619,7 +632,7 @@ impl Workspaces {
             let project = patched(
                 &saved.projects[index],
                 patch,
-                &["id", "path", "identity", "copies"],
+                &["id", "path", "identity", "copies", "chief", "agents"],
             )?;
             check_project(&project, saved)?;
             saved.projects[index] = project.clone();
@@ -1294,6 +1307,9 @@ impl Workspaces {
                 .map(|project| ProjectInfo {
                     launcher: launcher(project),
                     saved_chats: unheld_chats(&published, &project.path),
+                    agents: (saved.agents.iter())
+                        .filter(|kept| kept.agent.project == project.id && !kept.agent.asleep)
+                        .count() as u32,
                     ..project.clone()
                 })
                 .collect(),
@@ -1793,6 +1809,8 @@ mod tests {
             code_host: None,
             worktree_default: false,
             saved_chats: BTreeMap::new(),
+            chief: None,
+            agents: 0,
         }
     }
 

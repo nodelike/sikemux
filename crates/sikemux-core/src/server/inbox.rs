@@ -177,6 +177,7 @@ fn agent_shown(agent_id: String, cli: String, title: String, status: AgentStatus
     let group = status.group();
     AgentShown {
         agent_id,
+        chief: false,
         name: None,
         cli,
         title,
@@ -1254,7 +1255,9 @@ pub(crate) fn view(core: &Core, chats: &[ChatInfo], sessions: &[SessionInfo]) ->
     let now = epoch_ms();
     let mut shown = shown(core, chats, sessions, &own_titles);
     let gathered = turn_state::Gathered::of(core, &shown);
+    let chiefs = super::chief::all(core);
     for agent in &mut shown {
+        agent.chief = chiefs.contains(&agent.agent_id);
         agent.turn = turn_state::of(core, &gathered, &agent.agent_id, agent.status);
         if let Some((place, _)) = places.get(&agent.agent_id) {
             super::settling::show(agent, place, now);

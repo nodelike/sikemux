@@ -101,6 +101,16 @@ impl ActivityLog {
         }
     }
 
+    /// The person sent a message to a chat: a project's chief, or any other.
+    pub(crate) fn person_wrote(self: &Arc<Self>, to_chief: bool) {
+        let feature = if to_chief {
+            "message.chief"
+        } else {
+            "message.chat"
+        };
+        self.used(feature.to_owned(), "person");
+    }
+
     pub(crate) fn command_used(self: &Arc<Self>, id: &str) {
         if COMMANDS.contains(&id) {
             self.used(id.to_owned(), "app");

@@ -1561,7 +1561,14 @@ async fn redeliver(core: &Arc<Core>, id: &str) {
     }
 }
 
-/// Every call the device view shows.
+/// Every call the device view shows, each asker marked when it is a project's chief.
 pub(crate) fn shown(core: &Core) -> Vec<PersonCall> {
-    core.person_calls.shown()
+    let chiefs = crate::server::chief::all(core);
+    let mut calls = core.person_calls.shown();
+    for call in &mut calls {
+        for asker in std::iter::once(&mut call.asker).chain(call.joined.iter_mut()) {
+            asker.chief = chiefs.contains(&asker.agent_id);
+        }
+    }
+    calls
 }

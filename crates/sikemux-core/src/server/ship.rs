@@ -1041,6 +1041,7 @@ fn held_call(core: &Core, hold: &Hold) -> PersonCall {
             agent_id: hold.agent_id.clone(),
             cli: questions::cli_of(core, &hold.agent_id),
             name,
+            chief: false,
         },
         joined: Vec::new(),
         asked_for: None,

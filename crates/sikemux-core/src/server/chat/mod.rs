@@ -290,13 +290,8 @@ impl Chat {
         &self.launch.agent_id
     }
 
-    /// Keeps the agent's session small from its next start: it compacts near 150K tokens and
-    /// before the prompt cache dies while idle.
-    #[expect(dead_code, reason = "the chief's seat marks its chat")]
-    pub(crate) fn cap(&self) {
-        self.capped.store(true, Ordering::Release);
-    }
-
+    /// Its agent's session compacts near 150K tokens and before the prompt cache dies while
+    /// idle: a chief's.
     pub(crate) fn capped(&self) -> bool {
         self.capped.load(Ordering::Acquire)
     }

@@ -314,7 +314,7 @@ impl Names {
                 && same(&entry.name, adopted.name)
         });
         let name = match valid_name(adopted.name) {
-            Ok(name) if !taken => name,
+            Ok(name) if !taken && !same(&name, crate::server::chief::NAME) => name,
             _ => book.fresh(&adopted.project, adopted.agent_id, &open),
         };
         book.remove(|entry| {
@@ -349,6 +349,36 @@ impl Names {
         book.agents.push(entry);
         self.save(&book);
         named
+    }
+
+    /// Names a project's chief, @Chief, as the person would have.
+    pub(crate) fn name_chief(&self, agent_id: &str, project: &str) {
+        let mut book = self.book.locked();
+        if let Some(entry) = book.entry_mut(agent_id) {
+            entry.name = crate::server::chief::NAME.to_owned();
+            entry.chosen = true;
+        } else {
+            book.agents.push(Entry {
+                agent_id: agent_id.to_owned(),
+                name: crate::server::chief::NAME.to_owned(),
+                project: project.to_owned(),
+                parent: None,
+                quiet: false,
+                blind: false,
+                by_auto: false,
+                provider: None,
+                session_id: None,
+                above: 0,
+                at: epoch_ms(),
+                seen: false,
+                chosen: true,
+                buddy: None,
+                title: None,
+                profile: None,
+                terminal: false,
+            });
+        }
+        self.save(&book);
     }
 
     /// Calls an agent what the host it runs on calls it.
@@ -766,6 +796,9 @@ impl Names {
         open: HashSet<String>,
     ) -> Result<AgentName, String> {
         let name = valid_name(name)?;
+        if same(&name, crate::server::chief::NAME) {
+            return Err(format!("{name} is the name of the project's chief"));
+        }
         let mut book = self.book.locked();
         let open = self.open_with(open);
         book.release(&open);
@@ -1346,6 +1379,9 @@ pub(crate) async fn rename_agent(
     core: &Arc<Core>,
     params: RenameAgentParams,
 ) -> CoreResult<AgentName> {
+    if crate::server::chief::is_chief(core, &params.agent_id) {
+        return Err("@Chief keeps its name".into());
+    }
     let core = core.clone();
     blocking(move || {
         let named = core

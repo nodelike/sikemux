@@ -348,6 +348,10 @@ impl Chats {
         }
         feed.work_in(launch.cwd.clone());
         crate::server::triggers::seed(core, &feed, &launch.agent_id);
+        let chief = crate::server::chief::is_chief(core, &launch.agent_id);
+        if chief {
+            feed.seat_chief();
+        }
         let keeper = Keeper::new(self.kept.as_deref(), feed.id());
         let chat = Arc::new(Chat {
             generation: self.next_generation.fetch_add(1, Ordering::Relaxed),
@@ -372,7 +376,7 @@ impl Chats {
             unstarted: AtomicBool::new(false),
             brief: Mutex::new(None),
             meter: Default::default(),
-            capped: AtomicBool::new(false),
+            capped: AtomicBool::new(chief),
             wanted: tokio::sync::Notify::new(),
             saved_shown: AtomicBool::new(history_shown),
             saved_reading: watch::channel(false).0,

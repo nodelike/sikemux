@@ -42,6 +42,9 @@ pub struct CallAsker {
     /// Its name, such as Wren.
     pub name: String,
     pub cli: String,
+    /// The asker is its project's chief.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub chief: bool,
 }
 
 /// One of the answers the person picks among.

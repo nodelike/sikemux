@@ -293,6 +293,7 @@ impl Question {
                 agent_id: self.agent_id.clone(),
                 name: self.name.clone(),
                 cli: self.cli.clone(),
+                chief: false,
             },
             joined: Vec::new(),
             asked_for: self
@@ -449,6 +450,7 @@ impl ReplyQuestion {
                 agent_id: self.agent_id.clone(),
                 name: self.name.clone(),
                 cli: self.cli.clone(),
+                chief: false,
             },
             joined: Vec::new(),
             asked_for: None,

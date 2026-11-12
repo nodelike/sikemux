@@ -176,6 +176,10 @@ export interface ProjectInfo {
      * them. The core fills it in.
      */
     savedChats?: Record<string, number>;
+    /** Its chief, @Chief, by agent id. The core keeps it; clients only read it. */
+    chief?: string;
+    /** How many agents are open in it, the chief's whole team. The core fills it in. */
+    agents?: number;
 }
 
 /** A repository or account picked for a project on one code host. */
@@ -1152,6 +1156,11 @@ export type TeamLink = "head" | "member" | "last";
 /** How devices show an open agent here. */
 export interface AgentShown {
     agentId: string;
+    /**
+     * It is its project's chief, @Chief: the one chat of the project every other agent there
+     * works under.
+     */
+    chief?: boolean;
     /** What the core calls it, such as Otter. */
     name?: string;
     /** The CLI it runs, such as `claude`. */
@@ -1360,6 +1369,8 @@ export interface CallAsker {
     /** Its name, such as Wren. */
     name: string;
     cli: string;
+    /** The asker is its project's chief. */
+    chief?: boolean;
 }
 
 /** One of the answers the person picks among. */
@@ -1739,6 +1750,11 @@ export interface ChatHead {
     activity?: ChatActivity;
     /** How its turn stands; none before its first turn. */
     turn?: TurnState;
+    /**
+     * It is its project's chief, @Chief: the one chat of the project every other agent there
+     * works under.
+     */
+    chief?: boolean;
     /** What the person has written and not sent, as the host keeps it for every app. */
     draft?: ChatDraft;
     /** The goal the chat works on now. */

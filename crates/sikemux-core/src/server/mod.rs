@@ -20,6 +20,7 @@ mod catalog;
 mod changed;
 pub mod chat;
 mod checks;
+mod chief;
 pub mod cli_install;
 pub mod codehost;
 mod collisions;
@@ -1194,6 +1195,7 @@ pub(crate) async fn run_core(
     if let Some(data_dir) = config.data_dir.as_deref() {
         crate::agent_accounts::usage::keep_readings_in(data_dir.join("plan-limits.json"));
         tokio::spawn(workspace::refresh_launchers(core.clone()));
+        tokio::spawn(chief::serve(core.clone()));
         skill_library::watch_global(&core);
         account::start(&core);
         tokio::spawn(usage::serve(core.clone(), data_dir.to_owned()));

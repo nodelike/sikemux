@@ -93,6 +93,8 @@ struct Inner {
     triggers: Vec<ChatTrigger>,
     goal: Option<ChatGoal>,
     turn: Option<TurnState>,
+    /// The chat is its project's chief.
+    chief: bool,
     /// What other agents need of the person.
     needs: Vec<AgentNeed>,
     /// The folder the chat's agent works in, and where its edits sit in their files,
@@ -239,6 +241,7 @@ impl Feed {
                 triggers: Vec::new(),
                 goal: None,
                 turn: None,
+                chief: false,
                 needs: Vec::new(),
                 work: None,
                 waits_for_person: false,
@@ -323,6 +326,7 @@ impl Feed {
                 triggers: Vec::new(),
                 goal: None,
                 turn: None,
+                chief: false,
                 needs: Vec::new(),
                 work: None,
                 waits_for_person: false,
@@ -403,6 +407,7 @@ impl Feed {
             fold.set_triggers(inner.triggers.clone());
             fold.set_goal(inner.goal.clone());
             fold.set_turn(inner.turn.clone());
+            fold.set_chief(inner.chief);
             fold.set_needs(inner.needs.clone());
             if inner.replay.is_trimmed() && !inner.replay.keeps_history() {
                 fold.set_earlier_lost();
@@ -586,6 +591,19 @@ impl Feed {
         inner.triggers = triggers.clone();
         if let Some(fold) = inner.fold.as_mut() {
             fold.set_triggers(triggers);
+            self.flush_locked(&mut inner);
+        }
+    }
+
+    /// The chat is its project's chief.
+    pub(crate) fn seat_chief(&self) {
+        let mut inner = self.inner.locked();
+        if inner.chief {
+            return;
+        }
+        inner.chief = true;
+        if let Some(fold) = inner.fold.as_mut() {
+            fold.set_chief(true);
             self.flush_locked(&mut inner);
         }
     }

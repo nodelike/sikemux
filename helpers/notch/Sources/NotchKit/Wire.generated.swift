@@ -352,6 +352,10 @@ struct ProjectInfo: Codable, Hashable {
     let id: String
     let name: String
     let path: String
+    /// Its chief, @Chief, by agent id. The core keeps it; clients only read it.
+    let chief: String?
+    /// How many agents are open in it, the chief's whole team. The core fills it in.
+    let agents: Int?
 }
 
 /// What a device learns about a launcher: never its program or environment.
@@ -561,6 +565,9 @@ enum AlertLevel: String, Codable, Hashable {
 /// How devices show an open agent here.
 struct AgentShown: Codable, Hashable {
     let agentId: String
+    /// It is its project's chief, @Chief: the one chat of the project every other agent there
+    /// works under.
+    let chief: Bool?
     /// What the core calls it, such as Otter.
     let name: String?
     /// The CLI it runs, such as `claude`.
@@ -871,6 +878,8 @@ struct CallAsker: Codable, Hashable {
     /// Its name, such as Wren.
     let name: String
     let cli: String
+    /// The asker is its project's chief.
+    let chief: Bool?
 }
 
 /// One of the answers the person picks among.
