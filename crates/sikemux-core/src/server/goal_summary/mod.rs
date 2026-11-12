@@ -285,14 +285,23 @@ fn write(core: &Core, gathered: &Gathered) -> Result<(GoalSummary, Option<String
             gathered.lead_label,
         )
     })?;
-    let said = ask(core, *agent, account.as_deref(), &answer::prompt(gathered))?;
+    let entry = agent.entry();
+    let model = entry.careful_model.or(entry.commit_models.first().copied());
+    let said = ask(
+        core,
+        *agent,
+        model,
+        account.as_deref(),
+        &answer::prompt(gathered),
+    )?;
     answer::read(&said, gathered)
 }
 
-/// What `agent`'s CLI on `account` answers `prompt` with, asked once.
+/// What `agent`'s CLI on `account` answers `prompt` with, asked once of `model`.
 fn ask(
     core: &Core,
     agent: AgentKind,
+    model: Option<&str>,
     account: Option<&str>,
     prompt: &str,
 ) -> Result<String, String> {
@@ -300,7 +309,7 @@ fn ask(
         .ops()
         .ask_once()
         .ok_or("This agent can't be asked once")?;
-    let model = (agent.entry().commit_models.first()).ok_or("This agent names no model to ask")?;
+    let model = model.ok_or("This agent names no model to ask")?;
     let asked_in = (core.goal_summaries().folder.clone()).unwrap_or_else(std::env::temp_dir);
     std::fs::create_dir_all(&asked_in).map_err(|error| error.to_string())?;
     ask(&asked_in.to_string_lossy(), model, prompt, account)

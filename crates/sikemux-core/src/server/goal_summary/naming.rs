@@ -67,7 +67,14 @@ async fn name(core: &Arc<Core>, project: String, card: u64, agent: String) {
             "{PROMPT}\n\n<work>\n{}\n</work>",
             clipped(&asked, MAX_ASKED_CHARS)
         );
-        Ok(name_in(&ask(&working, kind, account.as_deref(), &prompt)?))
+        let model = kind.entry().commit_models.first().copied();
+        Ok(name_in(&ask(
+            &working,
+            kind,
+            model,
+            account.as_deref(),
+            &prompt,
+        )?))
     })
     .await;
     match named {

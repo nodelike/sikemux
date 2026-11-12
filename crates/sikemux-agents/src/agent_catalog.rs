@@ -158,6 +158,9 @@ pub struct AgentEntry {
     pub auto: bool,
     /// The models it writes commit messages with, the default first; none when it cannot.
     pub commit_models: &'static [&'static str],
+    /// The model for answers the person reads as the record, such as a goal's summary,
+    /// where the first of `commit_models` slips; without one, that first model.
+    pub careful_model: Option<&'static str>,
     /// The reasoning efforts the CLI's own flag takes.
     pub efforts: &'static [&'static str],
     /// Its official install command, which puts it where its own updater expects.
@@ -201,8 +204,9 @@ pub const AGENTS: &[AgentEntry] = &[
         bypass: true,
         auto: true,
         commit_models: &[
-            "sonnet", "opus", "haiku", "opusplan", "sonnet[1m]", "default",
+            "haiku", "sonnet", "opus", "opusplan", "sonnet[1m]", "default",
         ],
+        careful_model: Some("opus"),
         efforts: &["low", "medium", "high", "xhigh", "max"],
         install: Some("curl -fsSL https://claude.ai/install.sh | bash"),
         login: Some(&["auth", "login"]),
@@ -280,6 +284,7 @@ pub const AGENTS: &[AgentEntry] = &[
             "gpt-5.5", "gpt-5.1-codex-max", "gpt-5.1-codex", "gpt-5.1-codex-mini", "gpt-5.1",
             "gpt-5",
         ],
+        careful_model: None,
         efforts: &["minimal", "low", "medium", "high", "xhigh", "max"],
         install: Some("curl -fsSL https://chatgpt.com/codex/install.sh | sh"),
         login: Some(&["login"]),
@@ -350,6 +355,7 @@ pub const AGENTS: &[AgentEntry] = &[
             "openai/gpt-5.5", "openai/gpt-5.1", "anthropic/claude-sonnet-4.6",
             "anthropic/claude-opus-4.1", "google/gemini-2.5-pro",
         ],
+        careful_model: None,
         efforts: &[
             "none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra",
         ],
@@ -410,6 +416,7 @@ pub const AGENTS: &[AgentEntry] = &[
         bypass: true,
         auto: false,
         commit_models: &[],
+        careful_model: None,
         efforts: &["off", "minimal", "low", "medium", "high", "xhigh", "max"],
         install: Some("curl -fsSL https://pi.dev/install.sh | sh"),
         login: None,
@@ -456,6 +463,7 @@ pub const AGENTS: &[AgentEntry] = &[
         bypass: false,
         auto: false,
         commit_models: &[],
+        careful_model: None,
         efforts: &[],
         install: Some("curl -fsSL https://opencode.ai/install | bash"),
         login: Some(&["auth", "login"]),
@@ -502,6 +510,7 @@ pub const AGENTS: &[AgentEntry] = &[
         bypass: true,
         auto: false,
         commit_models: &[],
+        careful_model: None,
         efforts: &["off", "minimal", "low", "medium", "high", "xhigh", "max"],
         install: Some("curl -fsSL https://omp.sh/install | sh"),
         login: Some(&["login"]),
@@ -548,6 +557,7 @@ pub const AGENTS: &[AgentEntry] = &[
         bypass: true,
         auto: false,
         commit_models: &[],
+        careful_model: None,
         efforts: &["none", "minimal", "low", "medium", "high", "xhigh", "max"],
         install: Some("curl -fsSL https://x.ai/cli/install.sh | bash"),
         login: Some(&["login"]),
@@ -603,6 +613,7 @@ pub const AGENTS: &[AgentEntry] = &[
         bypass: true,
         auto: false,
         commit_models: &[],
+        careful_model: None,
         efforts: &["minimal", "low", "medium", "high", "xhigh", "max", "ultra"],
         install: None,
         login: None,
