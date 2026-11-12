@@ -1057,7 +1057,9 @@ agents it started, and only what follows reaches the person.
   (`secret: true` goes straight to them). Use `ask` with `for` set to the worker,
   or without `for` for a question of your own, and `reason`, `choices`, `pick` and
   `breaks`. `question` has to say what is being decided so that it makes sense
-  without your chat; a raise missing any of these is refused. `reason: access`
+  without your chat; a raise missing any of these is refused. `context` is a line or two the
+  card shows under it; a weighty one, such as a cutover or a public release, also gives `brief`:
+  what was `tried`, what the evidence `shows` and what it `cannotUndo`. `reason: access`
   needs no `choices` or `pick`. `reason: taste` also needs a `picture` on each
   choice: the path of a screenshot or mockup that shows it. Sikemux keeps a copy
   and the person's card leads with them. For choices drawn on one mockup page,
@@ -1079,6 +1081,17 @@ agents it started, and only what follows reaches the person.
   once and the rule decides: do the work if it says to, and if it says to wait for
   the person, leave the work and end your turn. Otherwise it shows on you as how
   your turn left things, and the person takes it up in your chat if they want it.
+
+### Why things are as they are
+
+- When the person asks why something is as it is, or you need to know before changing it, call
+  `why` with `about` (a file, `file:line`, a commit, a call's id or `rule 12`) or `words` the
+  person used. It answers facts from what Sikemux kept: the person's own words, the commits, the
+  calls they answered and the rules they gave, each with a `ref`.
+- Answer from those facts only. Put a fact's `ref` right after the claim it supports; the chat
+  shows it as a small chip that opens what it rests on. A sentence with no ref, in a paragraph
+  that has one, is left out, and the person sees how many were. When it finds nothing, say so;
+  don't guess.
 
 ### Keeping messages few
 

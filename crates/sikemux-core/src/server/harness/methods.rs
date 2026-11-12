@@ -72,6 +72,7 @@ const METHODS: &[Method] = &[
     acting_unseen_by_blind("agent.spawn"),
     acting_unseen_by_blind("agent.sessions"),
     acting_unseen_by_blind("agent.wrote"),
+    acting_unseen_by_blind("agent.why"),
     acting("agent."),
     acting_unseen_by_blind("board."),
     acting("memory."),

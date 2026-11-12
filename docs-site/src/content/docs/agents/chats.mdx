@@ -145,6 +145,12 @@ When an agent writes LaTeX math, the chat typesets it. A formula on its own betw
 
 An agent can send a GIF, which shows where it sent it with **Powered by KLIPY** beneath it. When a turn's work folds away, its GIFs stay in view above the reply. It doesn't show up as a step in the chat, and the agent doesn't mention it.
 
+## Why something is as it is
+
+Ask an agent why something in the project is as it is, such as a file, a few of its lines, a commit, a call or a rule, and it can look it up in what Sikemux keeps: the commits that made it and the agents that wrote them, what you asked those agents before, the calls you answered, your rules and what was decided. It answers from those, and each claim carries a small chip of what it rests on: **your message**, **the change** (and whether it landed), **your answer**, **your rule** or **decided**. Click a chip to open it: the chat at that message, the commit in Git, the Playbook's rules, or the chat of the agent that asked the call.
+
+In such an answer, a sentence of plain words that sits beside sourced claims but rests on none of them is left out, and a quiet line under the answer says how many: **2 sentences with no source left out · Show**. **Show** puts them back where they were, in faint text; **Hide** takes them out again. Questions, code, quotes, tables, headings and anything with its own formatting are never left out. If Sikemux restarts while the agent is still answering, that answer gets no chips and nothing is left out of it.
+
 ## Long chats
 
 On a wide window, **Settings → Appearance → Chat width** lets a chat's messages and composer grow wider than their reading width: **Comfortable** keeps them to a reading column, **Wide** to half as wide again, and **Full** to the whole pane.

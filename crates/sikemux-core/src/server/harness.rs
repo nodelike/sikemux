@@ -589,6 +589,7 @@ async fn dispatch(
         "agent.wait" => follow::wait(core, &request).await,
         "agent.close" => super::roster::close(core, &request).await,
         "agent.wrote" => super::who_wrote::tool(core, &request).await,
+        "agent.why" => super::why::tool(core, &request).await,
         "board.add" => board::add(core, &request).await,
         "board.list" => board::list(core, &request).await,
         "board.claim" => board::claim(core, &request).await,

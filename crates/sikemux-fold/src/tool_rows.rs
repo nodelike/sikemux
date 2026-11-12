@@ -603,6 +603,17 @@ pub(super) const SPECS: &[(&str, Spec)] = &[
         },
     ),
     (
+        "why",
+        Spec {
+            verb: "asked why",
+            kind: "search",
+            icon: "search",
+            target: &["{about}", "“{words}”"],
+            detail: &[],
+            plugin: None,
+        },
+    ),
+    (
         "agent_sessions",
         Spec {
             verb: "find",

@@ -1707,6 +1707,27 @@
       ]
     },
     {
+      "name": "why",
+      "row": {"verb": "asked why", "kind": "search", "icon": "search", "target": ["{about}", "“{words}”"]},
+      "method": "agent.why",
+      "description": "Why something here is as it is.",
+      "properties": {
+        "about": {
+          "description": "Path, path:line, commit, call id or rule N",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "words": {
+          "description": "Words the person used about it",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300
+        }
+      },
+      "required": []
+    },
+    {
       "name": "agent_sessions",
       "row": {"verb": "find", "kind": "search", "icon": "search", "target": ["sessions “{query}”"]},
       "method": "agent.sessions",
@@ -1906,6 +1927,21 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 400
+        },
+        "context": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 600
+        },
+        "brief": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "tried": {"type": "string", "minLength": 1, "maxLength": 400},
+            "shows": {"type": "string", "minLength": 1, "maxLength": 400},
+            "cannotUndo": {"type": "string", "minLength": 1, "maxLength": 400}
+          },
+          "required": ["tried", "shows", "cannotUndo"]
         }
       },
       "required": [

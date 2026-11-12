@@ -201,10 +201,6 @@ fn may_ask(agent: &str) -> bool {
     room
 }
 
-#[expect(
-    dead_code,
-    reason = "agents get the why tool with the tool list's next change"
-)]
 pub(crate) async fn tool(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, String> {
     let agent = (request.agent_id.clone())
         .ok_or("why answers only an agent Sikemux started, in its own project")?;
