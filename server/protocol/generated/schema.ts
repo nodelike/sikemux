@@ -982,6 +982,12 @@ export const schema = {
           type: "string",
           pattern: "^[0-9a-f]{32}$",
         },
+        activityToken: {
+          description:
+            "For activity and activity_end: the APNs push token of the Live Activity the phone gave the host, in lowercase hex.",
+          type: "string",
+          pattern: "^[0-9a-f]{16,512}$",
+        },
         blob: {
           description: "The sealed notification, in standard base64.",
           type: "string",
@@ -1178,9 +1184,9 @@ export const schema = {
     },
     PushKind: {
       description:
-        "alert shows a notification. clear removes one shown before with the same collapseId, and is delivered at a lower priority.",
+        "alert shows a notification. clear removes one shown before with the same collapseId, and is delivered at a lower priority. activity updates the phone's Live Activity named by activityToken, and activity_end ends it.",
       type: "string",
-      enum: ["alert", "clear"],
+      enum: ["alert", "clear", "activity", "activity_end"],
     },
     PushPlatform: {
       description:

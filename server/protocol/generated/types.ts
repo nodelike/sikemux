@@ -537,6 +537,8 @@ export interface LivePush {
   kind: PushKind;
   /** Opaque to the server. A later push with the same collapseId replaces or clears the notification this one shows. */
   collapseId: string;
+  /** For activity and activity_end: the APNs push token of the Live Activity the phone gave the host, in lowercase hex. */
+  activityToken?: string;
   /** The sealed notification, in standard base64. */
   blob: string;
   /** After this the push is worth nothing, so the server drops it rather than deliver it late. */
@@ -635,9 +637,14 @@ export type PluginId = string;
 export type PushApp = "production" | "dev";
 export const pushAppValues: readonly PushApp[] = ["production", "dev"];
 
-/** alert shows a notification. clear removes one shown before with the same collapseId, and is delivered at a lower priority. */
-export type PushKind = "alert" | "clear";
-export const pushKindValues: readonly PushKind[] = ["alert", "clear"];
+/** alert shows a notification. clear removes one shown before with the same collapseId, and is delivered at a lower priority. activity updates the phone's Live Activity named by activityToken, and activity_end ends it. */
+export type PushKind = "alert" | "clear" | "activity" | "activity_end";
+export const pushKindValues: readonly PushKind[] = [
+  "alert",
+  "clear",
+  "activity",
+  "activity_end",
+];
 
 /** Which service delivers to the phone: Apple's push service, or Firebase Cloud Messaging. */
 export type PushPlatform = "apns" | "fcm";

@@ -475,6 +475,9 @@ pub struct LivePush {
     pub kind: PushKind,
     /// Opaque to the server. A later push with the same collapseId replaces or clears the notification this one shows.
     pub collapse_id: String,
+    /// For activity and activity_end: the APNs push token of the Live Activity the phone gave the host, in lowercase hex.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub activity_token: Option<String>,
     /// The sealed notification, in standard base64.
     pub blob: String,
     /// After this the push is worth nothing, so the server drops it rather than deliver it late.
@@ -582,13 +585,17 @@ pub enum PushApp {
     Unknown,
 }
 
-/// alert shows a notification. clear removes one shown before with the same collapseId, and is delivered at a lower priority.
+/// alert shows a notification. clear removes one shown before with the same collapseId, and is delivered at a lower priority. activity updates the phone's Live Activity named by activityToken, and activity_end ends it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum PushKind {
     #[serde(rename = "alert")]
     Alert,
     #[serde(rename = "clear")]
     Clear,
+    #[serde(rename = "activity")]
+    Activity,
+    #[serde(rename = "activity_end")]
+    ActivityEnd,
     /// A value added after this build, which it cannot act on.
     #[serde(other)]
     Unknown,

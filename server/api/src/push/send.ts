@@ -106,14 +106,20 @@ export class Pusher {
 
     const provider = this.providers[platform];
     if (!provider) return finish("not_set_up", { platform });
+    const activity = push.kind === "activity" || push.kind === "activity_end";
+    const activityToken = activity ? push.activityToken : undefined;
+    if (activity && (platform !== "apns" || !activityToken))
+      return finish("not_set_up", { platform });
+    const to = activityToken ?? token;
 
     const giveUpAt = Math.min(expiresAt, started + this.limits.giveUpMs);
     let delivery: Delivery;
     let attempt = 0;
     for (;;) {
       delivery = await provider.send({
-        token,
+        token: to,
         kind: push.kind,
+        sentAt: started,
         collapseId: push.collapseId,
         blob: push.blob,
         ttlSeconds: (expiresAt - this.now()) / 1000,
@@ -139,6 +145,15 @@ export class Pusher {
       attempts: attempt + 1,
       ...(delivery.outcome === "sent" ? {} : { why: delivery.reason }),
     };
+    if (activity)
+      return finish(
+        delivery.outcome === "sent"
+          ? "sent"
+          : delivery.outcome === "dead"
+            ? "no_token"
+            : "failed",
+        detail,
+      );
     switch (delivery.outcome) {
       case "sent":
         await this.db
