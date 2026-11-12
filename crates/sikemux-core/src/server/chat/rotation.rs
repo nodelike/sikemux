@@ -37,6 +37,8 @@ const DECISIONS_CHARS: usize = 8_000;
 const WORK_CHARS: usize = 6_000;
 const NOTE_CHARS: usize = 2_000;
 const EXCHANGES_CHARS: usize = 40_000;
+/// One decision or line of work past this is cut, so it cannot take its part's whole room.
+const LONGEST_LINE: usize = 600;
 /// The newest briefs kept to read again, per chat.
 const BRIEFS_KEPT: usize = 20;
 /// What the old session is asked for while its cache is warm.
@@ -183,14 +185,26 @@ fn section(kind: BriefSectionKind, counts: BriefCounts, text: String) -> BriefSe
     }
 }
 
-/// `lines` joined while they fit in `most` characters, the first kept first.
+/// `lines` joined in order within `most` characters. A line past `LONGEST_LINE` keeps its
+/// start, marked `[cut]`, and one that no longer fits is left out while shorter ones after it
+/// still go in.
 fn within(lines: impl IntoIterator<Item = String>, most: usize) -> String {
     let mut text = String::new();
+    let mut used = 0;
     for line in lines {
-        let room = most.saturating_sub(text.chars().count());
-        if line.chars().count() + 1 > room {
-            break;
+        let line = if line.chars().count() > LONGEST_LINE {
+            line.chars()
+                .take(LONGEST_LINE)
+                .chain(" [cut]".chars())
+                .collect()
+        } else {
+            line
+        };
+        let length = line.chars().count() + 1;
+        if used + length > most {
+            continue;
         }
+        used += length;
         if !text.is_empty() {
             text.push('\n');
         }
