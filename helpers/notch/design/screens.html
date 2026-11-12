@@ -125,6 +125,13 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: def
 .st.subagents { color: var(--live); }
 .st.shells { color: var(--warn); }
 .st .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.st.waiting svg { width: 11px; height: 11px; }
+.st.timer { color: var(--cmd); }
+.st.timer svg { width: 11px; height: 11px; }
+.st.stopped .ring { width: 7px; height: 7px; border-radius: 50%; border: 1.5px solid var(--ink-dim); box-sizing: border-box; }
+.clock { flex: 0 0 auto; margin-right: -6px; font-size: 11px; font-weight: 500; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+.clock.blocked { color: var(--warn); }
+.clock.timer { color: var(--cmd); }
 .st .ping { position: absolute; width: 7px; height: 7px; border-radius: 50%; border: 1.5px solid currentColor; opacity: 0; }
 .st.blocked.fresh .ping { animation: ping 520ms cubic-bezier(0.2, 0.6, 0.3, 1) both; }
 .st.blocked.fresh .ping + .ping { animation-delay: 380ms; }
@@ -655,16 +662,16 @@ const SPRING = { open: [0.42, 0.8], close: [0.45, 1.0], hover: [0.38, 0.8] };
 /** Every open agent, in the order the app's rail lists them: what wants you first. An idle one has no tier. */
 function freshAgents() {
     return [
-        { id: "a1", name: "Otter", type: "claude", title: "Fix the login flake", project: "sikemux", tier: "needs", state: "blocked", time: "2:14",
+        { id: "a1", name: "Otter", type: "claude", title: "Fix the login flake", project: "sikemux", tier: "needs", state: "blocked", time: "2:14", clock: "2m",
           what: "Needs your permission", ask: { tool: "Bash", cmd: "pnpm test --filter core -- --runInBand" } },
-        { id: "a9", name: "Maple", type: "codex", title: "Move the ledger import", project: "server", tier: "needs", state: "blocked", time: "0:01",
+        { id: "a9", name: "Maple", type: "codex", title: "Move the ledger import", project: "server", tier: "needs", state: "blocked", time: "0:01", clock: "1m",
           what: "Asks you", question: { text: "Should amounts be stored in cents or as decimals?" },
           calls: [{ id: "q1", age: "1m", question: "Should amounts be stored in cents or as decimals?", context: "The API sends decimals but the ledger table uses integers.",
                   options: ["Cents", "Decimals"], pick: 0, against: "every import converts what the API sends.", handBack: true },
                   { id: "t1", age: "1h", question: "What do we call the new way to pay?", context: "It sits beside Card on every invoice. Testers asked when the money arrives.",
                   options: ["Bank transfer (2–3 days)", "Pay by bank", "Bank transfer"], pick: 0, pictures: true, handBack: true,
                   against: "it is the longest, and on a phone it takes two lines beside Card." }] },
-        { id: "a12", name: "Kite", type: "claude", title: "Ship the new welcome screen", project: "storefront", tier: "needs", state: "blocked", time: "0:12",
+        { id: "a12", name: "Kite", type: "claude", title: "Ship the new welcome screen", project: "storefront", tier: "needs", state: "blocked", time: "0:12", clock: "12m",
           what: "Needs you",
           calls: [{ id: "7", age: "12m", question: "Ship the new welcome screen to everyone?",
                   context: "You asked for a friendlier welcome screen. It's on staging, and sign-ups there held at 4.1% over two days.",
@@ -674,7 +681,7 @@ function freshAgents() {
                   context: "The welcome screen's heading uses it. The licence covers the web and the app for good.",
                   options: ["Buy it", "Use a free font instead"], pick: 0,
                   against: "a free font is close enough that most people won't see the difference." }] },
-        { id: "a13", name: "Yuki", type: "claude", title: "Add bank transfer to invoices", project: "server", tier: "needs", state: "blocked", time: "0:02",
+        { id: "a13", name: "Yuki", type: "claude", title: "Add bank transfer to invoices", project: "server", tier: "needs", state: "blocked", time: "0:02", clock: "2m",
           what: "Needs you",
           calls: [{ id: "w1", age: "2m", question: "Ship bank transfer on invoices to everyone?", production: true, page: "Bank transfer",
                   context: "@Wren built it and @Pine checked the totals. On staging since Tuesday, 41 test invoices paid and none failed. If it is rolled back, invoices already paid by transfer stay paid.",
@@ -682,7 +689,9 @@ function freshAgents() {
                   against: "the bank's notice of payment has only been seen in its sandbox.", action: "vercel deploy --prod" }] },
         { id: "a4", name: "Birch", type: "grok", title: "Bump Astro to 6", project: "sikemux-front", tier: "review", state: "done", time: "1m ago", trigger: "18m", called: true },
         { id: "a10", name: "Pine", type: "claude", title: "Rotate the signing keys", project: "server", tier: "finished", state: "failed", time: "5m ago" },
-        { id: "a11", name: "Moss", type: "claude", title: "Tidy the changelog", project: "sikemux", tier: "finished", state: "done", time: "15m ago" },
+        { id: "a11", name: "Moss", type: "claude", title: "Tidy the changelog", project: "sikemux", tier: "finished", state: "stopped", time: "15m ago" },
+        { id: "a6", name: "Heron", type: "claude", title: "Profile the terminal flood", project: "sikemux", state: "waiting", time: "3m ago", clock: "4m", through: 0.43 },
+        { id: "a7", name: "Kestrel", type: "claude", title: "Check the rail again", project: "sikemux-front", state: "timer", time: "1m ago", clock: "3h" },
         { id: "a2", name: "Flint", type: "codex", title: "Refactor the auth middleware", project: "server", tier: "progress", state: "working", time: "4:12", subagents: 3 },
         { id: "a3", name: "Wren", type: "opencode", title: "Draft the notch spec", project: "sikemux", tier: "progress", state: "working", time: "0:48", reconnecting: 3 },
         { id: "a5", name: "Cedar", type: "codex", title: "Read the release notes", project: "sikemux", tasks: 2 },
@@ -708,7 +717,7 @@ function agentName(a) {
 /** Laid out as the app's tab rail row: the task with how long ago, the project, then the name, counts and state together at the end. */
 function rowLine(a) {
     const since = a.reconnecting != null ? `<span class="word">Reconnecting…${a.reconnecting ? ` ${a.reconnecting}` : ""}</span>` : a.time ? `<span class="time">${a.time}</span>` : "";
-    const end = `${agentName(a)}${a.subagents ? `<span class="subagents">${GLYPH.agent}${a.subagents}</span>` : ""}${a.tasks ? `<span class="shells">${GLYPH.command}${a.tasks}</span>` : ""}${a.trigger && (a.state === "idle" || a.state === "done") ? `<span class="trigger">${GLYPH.timer}${a.trigger}</span>` : ""}${stateMark(a.state)}`;
+    const end = `${agentName(a)}${a.subagents ? `<span class="subagents">${GLYPH.agent}${a.subagents}</span>` : ""}${a.tasks ? `<span class="shells">${GLYPH.command}${a.tasks}</span>` : ""}${a.trigger && ["idle", "done", "waiting", "stopped"].includes(a.state) ? `<span class="trigger">${GLYPH.timer}${a.trigger}</span>` : ""}${a.clock ? `<span class="clock ${a.state}">${a.clock}</span>` : ""}${stateMark(a.state, false, a.through)}`;
     return `<span class="head"><span class="title">${a.title}</span>${since}</span><span class="proj">${GLYPH.folderSmall}${a.project}</span>${end ? `<span class="end">${end}</span>` : ""}`;
 }
 
@@ -743,7 +752,21 @@ function questionActions(a, size) {
     </div>`;
 }
 
-function stateMark(state, fresh) {
+/**
+ * One state per row, from the turn the core sends: the working grid, a ring that fills as a wait runs, the pink timer
+ * of a wait with a set end, an amber dot for needs you, purple for done, red for failed, and a hollow ring once stopped.
+ */
+function stateMark(state, fresh, through) {
+    if (state === "waiting") {
+        const arc = through == null ? "" : (() => {
+            const turn = Math.min(through, 0.999) * 2 * Math.PI;
+            const x = 6 + 4.5 * Math.sin(turn), y = 6 - 4.5 * Math.cos(turn);
+            return `<path d="M6 1.5A4.5 4.5 0 ${through > 0.5 ? 1 : 0} 1 ${x.toFixed(2)} ${y.toFixed(2)}" fill="none" stroke="var(--ink-dim)" stroke-width="1.6" stroke-linecap="round"/>`;
+        })();
+        return `<span class="st waiting"><svg viewBox="0 0 12 12"><circle cx="6" cy="6" r="4.5" fill="none" stroke="rgba(255,255,255,0.09)" stroke-width="1.6"/>${arc}</svg></span>`;
+    }
+    if (state === "timer") return `<span class="st timer">${GLYPH.timer}</span>`;
+    if (state === "stopped") return `<span class="st stopped"><span class="ring"></span></span>`;
     if (state === "working") {
         const periods = [[0.9, 0], [1.24, -0.52], [1.58, -1.04], [1.07, -0.39], [1.41, -0.91], [0.9, -0.26], [1.24, -0.78], [1.58, -0.13], [1.07, -0.65]];
         return `<span class="st working"><span class="loader">${periods.map(([p, o]) => `<i style="--p:${p}s;--o:${o}s"></i>`).join("")}</span></span>`;
@@ -1433,7 +1456,7 @@ const SECTIONS = [
               opts: { agents: () => freshAgents(), mode: "open", tab: "new", menu: "model", draft: "Turn the notch mockup into a SwiftUI spec" } },
             { id: "O4", name: "Empty", when: "Opened with no agent open.", shows: "No agents open, and one New agent button.", opts: { agents: [], mode: "open" } },
             { id: "O5", name: "Finished work", when: "Opened while turns wait to be seen.",
-              shows: "Changes to review, then finished turns, newest first, each with how long ago; one that ran into a problem has a red dot. Every row counts what its agent still has going: ✦ subagents in green, >_ shells and monitors in amber, and an agent that waits shows how long until a trigger it set wakes it, ⏱ 18m beside the pink timer. When an agent is named with @ or messaged by another agent, a band of light passes once over its row, as on the app's rail; here Birch's repeats so it can be seen.",
+              shows: "Changes to review, then finished turns, newest first, each with how long ago; one that ran into a problem has a red dot. Every row counts what its agent still has going: ✦ subagents in green, >_ shells and monitors in amber, and an agent that waits shows how long until a trigger it set wakes it, ⏱ 18m beside the pink timer. When an agent is named with @ or messaged by another agent, a band of light passes once over its row, as on the app's rail; here Birch's repeats so it can be seen. Each row shows one state, as the app's rail does: a ring that fills as a wait on CI runs, with the minutes left beside it; the pink timer with when a set wait ends; an amber dot with how long it has waited on you; purple for done, red for failed, and a hollow ring for a turn that stopped short.",
               opts: { agents: () => only(["a2", "a4", "a10", "a11"]), mode: "open" } },
             { id: "O6", name: "A host in trouble", when: "Opened while a host on the account is short of memory or disk, busy on every core, or out of reach.",
               shows: "Above the agents, a row for each alert: the server in amber, or red once it is serious, what is wrong with how long ago, then the host's name. Clicking it opens the Hosts page in Sikemux on that host.",

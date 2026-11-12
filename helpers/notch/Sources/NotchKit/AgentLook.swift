@@ -7,7 +7,7 @@ extension BuddyState {
         case .working: self = .working
         case .done: self = .done
         case .failed: self = .error
-        case .idle: self = .idle
+        case .idle, .waiting, .timer, .stopped: self = .idle
         }
     }
 }

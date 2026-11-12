@@ -241,6 +241,36 @@ pub fn view(
             .child(div().min_w_0().truncate().child(body))
     };
     let mut facts: Vec<AnyElement> = Vec::new();
+    if let Some(turn) = agent.turn.as_ref() {
+        let now = ui::time::now_ms();
+        let said = crate::turn_line::said(turn, crate::turn_line::maker(&agent.provider), now);
+        let timed = crate::turn_line::short(turn, now).is_some();
+        let brief = (crate::turn_line::brief(turn, now).filter(|_| timed)).map(|brief| {
+            div()
+                .text_color(crate::turn_line::tint(turn.state, cx).unwrap_or(t.text_secondary))
+                .child(brief)
+        });
+        let line = said.map(|said| {
+            crate::turn_line::words(
+                &said,
+                SharedString::from(format!("card-turn:{}", agent.id)),
+                TEXT_2XS,
+                cx,
+            )
+        });
+        if brief.is_some() || line.is_some() {
+            facts.push(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(2.))
+                    .min_w_0()
+                    .children(brief)
+                    .children(line)
+                    .into_any_element(),
+            );
+        }
+    }
     if let Some(project) = project {
         facts.push(
             fact(Some(Icon::Folder), project.to_owned().into_any_element()).into_any_element(),

@@ -69,7 +69,7 @@ pub struct Row {
     /// An agent's @name, dimmed after its title.
     pub handle: Option<SharedString>,
     /// What an open agent is doing, drawn in place of the meta as the rail draws it.
-    pub state: Option<sikemux_wire::protocol::AgentStatus>,
+    pub state: Option<sikemux_view::turn::TurnState>,
     pub mark: Option<Mark>,
     /// The heading the row sits under while nothing is typed.
     pub group: Option<SharedString>,
@@ -120,8 +120,8 @@ impl Row {
         self
     }
 
-    pub fn state(mut self, state: sikemux_wire::protocol::AgentStatus) -> Self {
-        self.state = Some(state);
+    pub fn state(mut self, state: Option<sikemux_view::turn::TurnState>) -> Self {
+        self.state = state;
         self
     }
 
@@ -914,11 +914,8 @@ fn line_of(bench: &Workbench, line: usize, cx: &mut Context<Workbench>) -> AnyEl
         .when_some(row.handle.clone(), |element, handle| {
             element.child(ui::meta(handle, cx).flex_none())
         })
-        .map(|element| {
-            match row
-                .state
-                .and_then(|state| ui::status_mark(&row.key, state, cx))
-            {
+        .map(
+            |element| match ui::turn_mark(&row.key, row.state.as_ref()) {
                 Some(state) => element.child(div().flex_none().child(state)),
                 None if meta.is_empty() => element,
                 None if palette.spec.deck => element.child(
@@ -936,8 +933,8 @@ fn line_of(bench: &Workbench, line: usize, cx: &mut Context<Workbench>) -> AnyEl
                         .truncate()
                         .flex_shrink(META_GIVES_WAY),
                 ),
-            }
-        })
+            },
+        )
         .when_some(row.keys.clone(), |element, keys| {
             element.child(match palette.spec.deck {
                 true => keycap(keys, selected, cx),

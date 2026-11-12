@@ -102,6 +102,94 @@ pub fn said(turn: &TurnState, maker: &str, now: u64) -> Option<Said> {
     })
 }
 
+/// What a rail or notch row's mark shows for a turn: one state, the same everywhere.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Mark {
+    /// The agent's own working mark.
+    Working,
+    /// A ring that fills as the wait runs, `through` of the way once its length is known.
+    Waiting {
+        through: Option<f32>,
+    },
+    /// The timer of a wait that ends at a set time.
+    Timer,
+    NeedsYou,
+    Done,
+    Failed,
+    /// A hollow ring: the turn stopped short.
+    Stopped,
+}
+
+/// The mark a row shows for `turn`; none before an agent's first turn.
+pub fn mark(turn: &TurnState, now: u64) -> Option<Mark> {
+    Some(match turn.state {
+        TurnPhase::Working => Mark::Working,
+        TurnPhase::Waiting => match turn.wait.as_ref() {
+            Some(wait) if wait.kind == TurnWaitKind::Timer => Mark::Timer,
+            Some(wait) => Mark::Waiting {
+                through: wait.expected_ms.filter(|ms| *ms > 0).map(|expected| {
+                    (now.saturating_sub(wait.started_at) as f32 / expected as f32).min(1.)
+                }),
+            },
+            None => Mark::Waiting { through: None },
+        },
+        TurnPhase::NeedsYou => Mark::NeedsYou,
+        TurnPhase::Done => Mark::Done,
+        TurnPhase::Failed => Mark::Failed,
+        TurnPhase::Stopped => Mark::Stopped,
+        TurnPhase::Unknown => return None,
+    })
+}
+
+/// The time a row shows beside its mark: the minutes a known wait has left ("4m"), how long a
+/// call has waited on the person ("12m"), or when a timer goes off.
+pub fn short(turn: &TurnState, now: u64) -> Option<String> {
+    match turn.state {
+        TurnPhase::Waiting => {
+            let wait = turn.wait.as_ref()?;
+            match wait.kind {
+                TurnWaitKind::Timer => wait.until.map(ui::time::until),
+                _ => wait.expected_ms.map(|expected| {
+                    let left = (wait.started_at + expected).saturating_sub(now);
+                    format!("{}m", left.div_ceil(60_000).max(1))
+                }),
+            }
+        }
+        TurnPhase::NeedsYou => {
+            let call = turn.call.as_ref()?;
+            Some(format!(
+                "{}m",
+                (now.saturating_sub(call.waiting_since) / 60_000).max(1)
+            ))
+        }
+        _ => None,
+    }
+}
+
+/// A row's state in a few words, as its hover card says it: "needs you 12m", "CI 4m".
+pub fn brief(turn: &TurnState, now: u64) -> Option<String> {
+    let time = short(turn, now);
+    let with = |word: &str| match &time {
+        Some(time) => format!("{word} {time}"),
+        None => word.to_owned(),
+    };
+    Some(match turn.state {
+        TurnPhase::Working => "working".to_owned(),
+        TurnPhase::Waiting => match turn.wait.as_ref().map(|wait| wait.kind) {
+            Some(TurnWaitKind::Ci) => with("CI"),
+            Some(TurnWaitKind::Deploy) => with("deploy"),
+            Some(TurnWaitKind::Check) => with("checks"),
+            Some(TurnWaitKind::Timer) => with("timer"),
+            _ => with("waiting"),
+        },
+        TurnPhase::NeedsYou => with("needs you"),
+        TurnPhase::Done => "done".to_owned(),
+        TurnPhase::Failed => "failed".to_owned(),
+        TurnPhase::Stopped => "stopped".to_owned(),
+        TurnPhase::Unknown => return None,
+    })
+}
+
 /// The agent's own words, as they read after a dot: first letter small unless it starts a name.
 fn lowered(words: &str) -> String {
     let mut letters = words.trim().trim_end_matches('.').chars();

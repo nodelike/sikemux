@@ -1,17 +1,22 @@
-//! How an agent stands, as the mark beside its name: nine cells twinkling while it works, a
-//! dot once it has something for the person. A change of state is said once, as on the Mac:
+//! How an agent stands, as the mark beside its name: nine cells twinkling while it works, a ring
+//! filling while it waits, a dot once it has something for the person or failed, a hollow ring
+//! once it stopped short. A change of state is said once, as on the Mac:
 //! the new mark pops in, and one that now needs the person sends two rings out. A mark drawn
 //! first in a state just shows it, so a list drawing itself again replays nothing.
 
 use gpui::{
-    div, px, AnyElement, App, Context, Hsla, IntoElement, ParentElement, Render, Styled, Window,
+    div, px, AnyElement, App, Context, Hsla, IntoElement, ParentElement, Render, SharedString,
+    Styled, Window,
 };
+use sikemux_view::turn::{TurnPhase, TurnState};
 use sikemux_wire::protocol::AgentStatus;
 
 use super::clock::{self, Slot};
 use super::mark_box;
 use crate::motion::{self, Curve};
 use crate::theme::Tokens;
+use crate::theme::TEXT_2XS;
+use crate::turn_line::{self, Mark};
 
 /// Each cell's own beat and where in it the cell starts, in seconds, as the Mac staggers them.
 const BEATS: [(f32, f32); 9] = [
@@ -31,33 +36,133 @@ const DIMMEST: f32 = 0.2;
 
 /// `agent`'s mark for `status`, or none while it sits idle.
 pub fn status_mark(agent: &str, status: AgentStatus, cx: &App) -> Option<AnyElement> {
-    let t = Tokens::get(cx);
-    let tint = match status {
-        AgentStatus::Working => t.live,
-        AgentStatus::Blocked => t.warn,
-        AgentStatus::Done => t.accent,
+    let mark = match status {
+        AgentStatus::Working => Mark::Working,
+        AgentStatus::Blocked => Mark::NeedsYou,
+        AgentStatus::Done => Mark::Done,
         _ => return None,
     };
+    Some(mark_of(agent, mark, cx))
+}
+
+/// An agent's row mark for how its turn stands; none before the agent's first turn. A ring
+/// draws itself again each second on its own while its wait runs.
+pub fn turn_mark(agent: &str, turn: Option<&TurnState>) -> Option<AnyElement> {
+    let turn = turn
+        .filter(|turn| turn_line::mark(turn, 0).is_some())?
+        .clone();
+    Some(
+        Slot::new(
+            SharedString::from(format!("turn-mark:{agent}")),
+            TurnMark {
+                agent: agent.to_owned(),
+                turn,
+            },
+        )
+        .into_any_element(),
+    )
+}
+
+/// The time a row shows before its mark while one runs: the minutes a wait has left, or how
+/// long it has waited on the person. It draws itself again each second on its own.
+pub fn turn_time(agent: &str, turn: Option<&TurnState>) -> Option<AnyElement> {
+    let turn = turn.filter(|turn| turn_line::short(turn, super::time::now_ms()).is_some())?;
+    Some(
+        Slot::new(
+            SharedString::from(format!("turn-time:{agent}")),
+            TurnTime { turn: turn.clone() },
+        )
+        .into_any_element(),
+    )
+}
+
+struct TurnMark {
+    agent: String,
+    turn: TurnState,
+}
+
+impl Render for TurnMark {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if self.turn.state == TurnPhase::Waiting {
+            clock::second(window, cx);
+        }
+        match turn_line::mark(&self.turn, super::time::now_ms()) {
+            Some(mark) => mark_of(&self.agent, mark, cx),
+            None => div().into_any_element(),
+        }
+    }
+}
+
+struct TurnTime {
+    turn: TurnState,
+}
+
+impl Render for TurnTime {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        clock::second(window, cx);
+        let t = Tokens::get(cx);
+        let ink = match turn_line::mark(&self.turn, 0) {
+            Some(Mark::NeedsYou) => t.warn,
+            Some(Mark::Timer) => t.cmd,
+            _ => t.text_tertiary,
+        };
+        div()
+            .flex_none()
+            .text_size(crate::theme::ui_text(TEXT_2XS))
+            .font_features(crate::theme::tabular())
+            .text_color(ink)
+            .children(turn_line::short(&self.turn, super::time::now_ms()))
+    }
+}
+
+/// `agent`'s mark for `mark`, in a 16pt box. A new state pops in, and one that now needs the
+/// person sends two rings out.
+pub fn mark_of(agent: &str, mark: Mark, cx: &App) -> AnyElement {
+    let t = Tokens::get(cx);
+    let tint = match mark {
+        Mark::Working => t.live,
+        Mark::NeedsYou => t.warn,
+        Mark::Done => t.accent,
+        Mark::Failed => t.danger,
+        Mark::Timer => t.cmd,
+        Mark::Waiting { .. } => t.text_secondary,
+        Mark::Stopped => t.text_secondary,
+    };
+    let (track, kind) = (t.border, kind_of(mark));
     let twinkle = format!("twinkle:{agent}");
-    let rings = (status == AgentStatus::Blocked).then(|| {
+    let rings = (mark == Mark::NeedsYou).then(|| {
         motion::replay(
             format!("needs-you:{agent}"),
-            status,
+            kind,
             motion::NEEDS_YOU,
             move |through| needs_you(through, tint),
         )
     });
-    let mark = motion::replay(
+    let drawn = motion::replay(
         format!("state:{agent}"),
-        status,
+        kind,
         motion::STATE_POP,
         move |popped| {
             let scale = pop_scale(popped);
-            let mark = match status {
-                AgentStatus::Working => {
-                    Slot::new(twinkle, Twinkle { tint, scale }).into_any_element()
-                }
-                _ => div()
+            let shown = match mark {
+                Mark::Working => Slot::new(twinkle, Twinkle { tint, scale }).into_any_element(),
+                Mark::Waiting { through } => super::ring(
+                    through.map(|through| (f64::from(through) * 100., tint)),
+                    11. * scale,
+                    1.6,
+                    track,
+                )
+                .into_any_element(),
+                Mark::Timer => super::icon(crate::icons::Icon::Timer, 11. * scale)
+                    .text_color(tint)
+                    .into_any_element(),
+                Mark::Stopped => div()
+                    .size(px(7. * scale))
+                    .rounded_full()
+                    .border(px(1.5))
+                    .border_color(tint)
+                    .into_any_element(),
+                Mark::NeedsYou | Mark::Done | Mark::Failed => div()
                     .size(px(7. * scale))
                     .rounded_full()
                     .bg(tint)
@@ -65,16 +170,27 @@ pub fn status_mark(agent: &str, status: AgentStatus, cx: &App) -> Option<AnyElem
             };
             div()
                 .opacity((popped / 0.6).min(1.))
-                .child(mark)
+                .child(shown)
                 .into_any_element()
         },
     );
-    Some(
-        mark_box(16., mark)
-            .relative()
-            .children(rings)
-            .into_any_element(),
-    )
+    mark_box(16., drawn)
+        .relative()
+        .children(rings)
+        .into_any_element()
+}
+
+/// Which mark it is, apart from how far a ring has filled, so a ring filling never pops.
+fn kind_of(mark: Mark) -> u8 {
+    match mark {
+        Mark::Working => 0,
+        Mark::Waiting { .. } => 1,
+        Mark::Timer => 2,
+        Mark::NeedsYou => 3,
+        Mark::Done => 4,
+        Mark::Failed => 5,
+        Mark::Stopped => 6,
+    }
 }
 
 /// How large a popping mark is: from 0.4 up past its size by the time it is 60% in, then back.

@@ -1049,7 +1049,7 @@ fn agent_row(
         true => div().opacity(0.55).child(mark).into_any_element(),
         false => mark,
     };
-    let status = ui::status_mark(&agent.id, agent.status, cx);
+    let status = ui::turn_mark(&agent.id, agent.turn.as_ref());
     let fades = status.is_none();
     let pin = (bench.chat_of(&agent.id))
         .filter(|_| !elsewhere)
@@ -1110,6 +1110,7 @@ fn agent_row(
             .child(format!("+{}", fold.count))
     }))
     .children((agent.snoozed_until).map(|until| crate::agents::settled::wake_label(until, cx)))
+    .children(ui::turn_time(&agent.id, agent.turn.as_ref()))
     .children(counts(agent, cx).map(|counts| match fades {
         true => ui::gives_way(AGENT_ROW, counts).into_any_element(),
         false => counts.into_any_element(),
@@ -1262,11 +1263,15 @@ const RECENT_ROW: &str = "recent-row";
 
 pub fn counts(agent: &AgentRow, cx: &App) -> Option<impl IntoElement> {
     let t = Tokens::get(cx).clone();
+    let mark =
+        (agent.turn.as_ref()).and_then(|turn| crate::turn_line::mark(turn, ui::time::now_ms()));
     let waits = !matches!(
-        agent.status,
-        sikemux_wire::protocol::AgentStatus::Working
-            | sikemux_wire::protocol::AgentStatus::Blocked
-            | sikemux_wire::protocol::AgentStatus::Starting
+        mark,
+        Some(
+            crate::turn_line::Mark::Working
+                | crate::turn_line::Mark::NeedsYou
+                | crate::turn_line::Mark::Timer
+        )
     );
     let trigger = agent.next_trigger.filter(|_| waits);
     (agent.subagents > 0 || agent.tasks > 0 || trigger.is_some() || agent.build_queued).then(|| {

@@ -10,6 +10,24 @@ extension DeviceView {
 
 enum Mark: Hashable {
     case needs, working, done, failed, idle
+    /// A ring filling as the wait runs, and the timer of a wait that ends at a set time.
+    case waiting, timer
+    /// A hollow ring: the turn stopped short.
+    case stopped
+
+    /// The mark for how an agent's turn stands, as the core sends it; none for a state this
+    /// build does not know.
+    init?(turn: TurnState) {
+        switch turn.state {
+        case .working: self = .working
+        case .waiting: self = turn.wait?.kind == .timer ? .timer : .waiting
+        case .needsYou: self = .needs
+        case .done: self = .done
+        case .failed: self = .failed
+        case .stopped: self = .stopped
+        case .unknown: return nil
+        }
+    }
 }
 
 enum Rollup: Hashable {
@@ -68,7 +86,7 @@ struct Entry: Identifiable, Equatable {
     var tasks: Int { agent?.tasks ?? 0 }
     /// When a trigger next wakes its agent, shown only while the agent waits.
     var nextTrigger: Date? {
-        guard mark == .idle || mark == .done, let at = agent?.nextTrigger else { return nil }
+        guard [.idle, .done, .waiting, .stopped].contains(mark), let at = agent?.nextTrigger else { return nil }
         return Date(timeIntervalSince1970: Double(at) / 1000)
     }
     /// When its agent was last named with `@` or messaged by another agent.
@@ -78,12 +96,8 @@ struct Entry: Identifiable, Equatable {
     var since: Date? { item.map { Date(timeIntervalSince1970: Double($0.at) / 1000) } }
 
     var mark: Mark {
-        switch agent?.group {
-        case .blocked: return .needs
-        case .working: return .working
-        case .done: return agent?.failed == true ? .failed : .done
-        case .idle: return .idle
-        case .unknown, nil: break
+        if let agent {
+            return agent.turn.flatMap(Mark.init(turn:)) ?? .idle
         }
         return switch item?.tier {
         case .needs: .needs

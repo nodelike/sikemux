@@ -1081,7 +1081,7 @@ pub fn dock(
                     Some(title) => shown.detail(title.clone()),
                     None => shown,
                 }
-                .state(row.and_then(|agent| ui::status_mark(&agent.id, agent.status, cx)))
+                .state(row.and_then(|agent| ui::turn_mark(&agent.id, agent.turn.as_ref())))
                 .group(group)
             }
             Choice::Entry { path, folder } => {

@@ -159,7 +159,7 @@ impl Workbench {
             let pinned = self.chat_of(&agent.id).is_some_and(|chat| chat.pinned);
             let row = Row::new(format!("{OPEN}{}", agent.id), agent.title.clone())
                 .handle(handle.clone().map(SharedString::from))
-                .state(agent.status)
+                .state(agent.turn.clone())
                 .unarmed(unarmed(&agent.provider, self.in_terminal(&agent.id)))
                 .mark(Mark::Open(Box::new(agent.clone())))
                 .group(RESUME)

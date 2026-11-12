@@ -306,7 +306,7 @@ struct RowLine: View {
                     if entry.subagents > 0 { SubagentCount(count: entry.subagents) }
                     if entry.tasks > 0 { ShellCount(count: entry.tasks) }
                     if let at = entry.nextTrigger { TriggerTime(at: at) }
-                    StateMark(mark: entry.mark)
+                    TurnMark(mark: entry.mark, turn: entry.agent?.turn)
                 }
             }
         }
