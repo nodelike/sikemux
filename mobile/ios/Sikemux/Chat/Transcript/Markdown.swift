@@ -118,6 +118,10 @@ struct Inline {
             run.strikethroughStyle = .single
             run.foregroundColor = palette.tertiary
             return run
+        case .faint(let faint):
+            var run = string(faint.c)
+            run.foregroundColor = palette.tertiary
+            return run
         case .br:
             return plain("\n")
         case .fnref(let ref):

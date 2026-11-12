@@ -95,7 +95,8 @@ struct TranscriptMessage: View {
             UserMessage(message: message, look: look, tap: tap)
         } else {
             VStack(alignment: .leading, spacing: 0) {
-                Parts(id: message.id, parts: shownParts, live: look.live)
+                Parts(id: message.id, parts: shownParts, live: look.live, restored: context.leftOut[message.id])
+                if !look.live { LeftOutLine(message: message) }
                 if let strip = look.strip { StripView(strip: strip, mine: false) }
             }
             .contentShape(Rectangle())
@@ -323,6 +324,8 @@ struct Parts: View {
     let id: String
     let parts: [ChatPart]
     let live: Bool
+    /// Text parts' trees with what was left out of them back in place, by part, while the reader shows it.
+    var restored: [String: PartTree]? = nil
 
     var body: some View {
         let groups = PartGroup.of(parts)
@@ -333,7 +336,8 @@ struct Parts: View {
                 case .tools(let first, let tools):
                     ToolGroup(id: "\(id)/\(first)", parts: tools, live: last)
                 case .part(let part):
-                    PartView(part: part, last: last).padding(.top, index > 0 && part.isText ? 10 : 0)
+                    PartView(part: part, last: last, restored: restored)
+                        .padding(.top, index > 0 && part.isText ? 10 : 0)
                 }
             }
         }
@@ -351,12 +355,15 @@ private struct PartView: View {
     @Environment(\.palette) private var palette
     let part: ChatPart
     let last: Bool
+    let restored: [String: PartTree]?
 
     var body: some View {
         switch part {
         case .text(let text):
             if !text.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                LongText(id: text.id, text: text.text, md: text.md, live: last, style: .reply(palette))
+                LongText(
+                    id: text.id, text: text.text, md: restored?[text.id] ?? text.md, live: last,
+                    style: .reply(palette))
             }
         case .thought(let thought):
             let words = thought.text.trimmingCharacters(in: .whitespacesAndNewlines)

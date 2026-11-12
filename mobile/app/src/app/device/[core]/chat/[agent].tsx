@@ -10,6 +10,7 @@ import { KeyboardStickyView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { activityDoing, composerPlaceholder } from '@shared/chat/chatStatus';
+import { forgetShown } from '@/chat/LeftOut';
 import { sentPrompts } from '@/chat/promptHistory';
 import type { ChatMessage, PersonCall } from '@shared/wire.generated';
 import { ChatMenu } from '@/chat/ChatMenu';
@@ -76,6 +77,7 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
   const info = live.snapshot?.chats.find((chat) => chat.agentId === agentId);
   const provider = info?.provider ?? 'agent';
   const { session, chat, connection } = useChat(core, agentId);
+  useEffect(() => () => forgetShown(agentId), [agentId]);
   const state = chat.view;
   const request = chat.permissions[0];
   const liveId = state.running ? state.messages[state.messages.length - 1]?.id : undefined;

@@ -20,6 +20,9 @@ final class TranscriptContext {
     var picture: ShownPicture?
     /// What the find bar found, while it is open.
     var finding: Finding?
+    /// The answers shown with what was left out of them, by message: each text part's tree with those sentences back
+    /// in place, by part.
+    var leftOut: [String: [String: PartTree]] = [:]
     @ObservationIgnored let actions = TranscriptActions()
     @ObservationIgnored let reveal = Reveal()
 

@@ -5122,6 +5122,28 @@ export interface FindCounted {
     complete: boolean;
 }
 
+export interface ChatLeftOutParams {
+    agentId: string;
+    messageId: string;
+}
+
+/**
+ * What `chatLeftOut` answers: the text parts of an answer with the sentences left out of them
+ * back in place.
+ */
+export interface ChatLeftOut {
+    parts: RestoredPart[];
+}
+
+/**
+ * A text part's whole tree with its left-out sentences back where they stood, each an inline
+ * element `{"t": "faint", "c": [...]}`.
+ */
+export interface RestoredPart {
+    part: string;
+    md: PartTree;
+}
+
 export interface ToolDetailParams {
     agentId: string;
     toolCallId: string;
@@ -5421,6 +5443,7 @@ export interface CoreCalls {
     chatAccounts: { params: ChatAccountsParams; answer: ChatAccounts };
     chatFile: { params: ChatFileParams; answer: ChatFile };
     chatFind: { params: FindParams; answer: FindAnswer };
+    chatLeftOut: { params: ChatLeftOutParams; answer: ChatLeftOut };
     chatToolDetail: { params: ToolDetailParams; answer: ToolDetail };
     closeChat: { params: AgentParams; answer: null };
     closedAgents: { params: ClosedAgentsParams; answer: ClosedAgent[] };

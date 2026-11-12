@@ -140,6 +140,12 @@ function inline(node: MdNode, key: number, ink: Ink): ReactNode {
           {inlines(node.c, ink)}
         </Text>
       );
+    case 'faint':
+      return (
+        <Text key={key} style={styles.faint}>
+          {inlines(node.c, ink)}
+        </Text>
+      );
     case 'br':
       return <Fragment key={key}>{'\n'}</Fragment>;
     case 'fnref':
@@ -612,6 +618,7 @@ const makeStyles = (colors: Palette) =>
     gutter: { width: 24, marginRight: 16, textAlign: 'right', color: mixed(colors.inkFaint, colors.raised, 0.5) },
     codeText: { fontFamily: fonts.mono, fontSize: 12, lineHeight: 20, color: colors.ink },
     strike: { textDecorationLine: 'line-through', color: colors.tertiary },
+    faint: { color: colors.tertiary },
     box: {
       width: 15,
       height: 15,

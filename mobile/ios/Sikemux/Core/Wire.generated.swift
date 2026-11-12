@@ -154,6 +154,7 @@ enum PhoneCall {
     enum ChatAccounts {}
     enum ChatFile {}
     enum ChatFind {}
+    enum ChatLeftOut {}
     enum ChatToolDetail {}
     enum CloseChat {}
     enum ClosedAgents {}
@@ -274,6 +275,12 @@ extension PhoneCall.ChatFind: PhoneCallable {
     static let method = "chatFind"
     typealias Params = FindParams
     typealias Answer = FindAnswer
+}
+
+extension PhoneCall.ChatLeftOut: PhoneCallable {
+    static let method = "chatLeftOut"
+    typealias Params = ChatLeftOutParams
+    typealias Answer = ChatLeftOut
 }
 
 extension PhoneCall.ChatToolDetail: PhoneCallable {
@@ -7735,6 +7742,24 @@ struct FindScanned: Codable, Hashable, Sendable {
 struct FindCounted: Codable, Hashable, Sendable {
     var matches: Int
     var complete: Bool
+}
+
+struct ChatLeftOutParams: Codable, Hashable, Sendable {
+    var agentId: String
+    var messageId: String
+}
+
+/// What `chatLeftOut` answers: the text parts of an answer with the sentences left out of them
+/// back in place.
+struct ChatLeftOut: Codable, Hashable, Sendable {
+    var parts: [RestoredPart]
+}
+
+/// A text part's whole tree with its left-out sentences back where they stood, each an inline
+/// element `{"t": "faint", "c": [...]}`.
+struct RestoredPart: Codable, Hashable, Sendable {
+    var part: String
+    var md: PartTree
 }
 
 struct ToolDetailParams: Codable, Hashable, Sendable {

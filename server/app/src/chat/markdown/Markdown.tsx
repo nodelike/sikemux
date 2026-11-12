@@ -246,6 +246,12 @@ function renderNode(
       return <strong key={key}>{renderAll(node.c, components, inLink)}</strong>;
     case "del":
       return <del key={key}>{renderAll(node.c, components, inLink)}</del>;
+    case "faint":
+      return (
+        <span key={key} className="md-faint">
+          {renderAll(node.c, components, inLink)}
+        </span>
+      );
     case "code": {
       const Code = components.code;
       return Code && !inLink ? (

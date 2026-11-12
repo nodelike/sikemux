@@ -94,6 +94,7 @@ extension MdElement {
             case .em(let e): e.c
             case .strong(let e): e.c
             case .del(let e): e.c
+            case .faint(let e): e.c
             case .a(let e): e.c
             case .path(let e): e.c
             case .div(let e): e.c
@@ -128,6 +129,9 @@ extension MdElement {
             case .em(var e):
                 e.c = c
                 self = .em(e)
+            case .faint(var e):
+                e.c = c
+                self = .faint(e)
             case .strong(var e):
                 e.c = c
                 self = .strong(e)

@@ -45,6 +45,7 @@ import { ContextChips } from '@/chat/ContextChips';
 import { Editing, MessageEditor } from '@/chat/MessageEditor';
 import { FiredTrigger } from '@/chat/FiredTrigger';
 import { LongText } from '@/chat/LongText';
+import { LeftOut, type Restored, useRestored } from '@/chat/LeftOut';
 
 /** A subagent's mark and word once it is not doing anything: done, failed, lost or stopped. */
 function SubagentEnd({ state }: { state: SubagentCard['state'] }) {
@@ -138,7 +139,7 @@ function TaskNoticeOrCard({ id, notice }: { id: string; notice: Notice }) {
   return <TaskNotice id={id} notice={notice} />;
 }
 
-function Parts({ id, parts, live }: { id: string; parts: ChatPart[]; live: boolean }) {
+function Parts({ id, parts, live, restored = null }: { id: string; parts: ChatPart[]; live: boolean; restored?: Restored | null }) {
   const styles = useStyles(makeStyles);
   const groups = groupParts(parts);
   return (
@@ -151,7 +152,7 @@ function Parts({ id, parts, live }: { id: string; parts: ChatPart[]; live: boole
           case 'text':
             return run.text.trim() ? (
               <View key={run.id} style={index > 0 && styles.said}>
-                <LongText id={run.id} text={run.text} md={run.md} live={last} style={styles.prose} />
+                <LongText id={run.id} text={run.text} md={restored?.get(run.id) ?? run.md} live={last} style={styles.prose} />
               </View>
             ) : null;
           case 'thought': {
@@ -345,6 +346,7 @@ export function Message({
   const styles = useStyles(makeStyles);
   const bubbleText = useStyles(makeBubbleStyles);
   const chatAgent = useContext(AgentContext);
+  const restored = useRestored(chatAgent, message.id);
   const finding = useContext(FindingContext);
   const t = useT();
   const tap = onTap
@@ -467,7 +469,8 @@ export function Message({
   return (
     <Pressable onPress={tap} onLongPress={keepLongPress} accessibilityHint={tap ? t('Tap for copy and how long it took') : undefined}>
       <Grow id={message.id} live={live}>
-        <Parts id={message.id} parts={shownParts(message.parts, kept)} live={live} />
+        <Parts id={message.id} parts={shownParts(message.parts, kept)} live={live} restored={restored} />
+        {live ? null : <LeftOut message={message} />}
         {strip ? <Strip meta={strip} mine={false} /> : null}
       </Grow>
     </Pressable>
