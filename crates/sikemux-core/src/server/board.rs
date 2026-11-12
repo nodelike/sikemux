@@ -2061,6 +2061,20 @@ pub(crate) struct CiCard {
     pub owner: Option<String>,
 }
 
+/// The latest commits of `project`'s unfinished slices that still wait for the check to pass
+/// on them, which a passing CI run on a commit holding them stands for.
+pub(crate) fn unbuilt_heads(core: &Core, project: &str) -> Vec<String> {
+    let state = core.boards.state.locked();
+    let Some(board) = state.boards.get(project) else {
+        return Vec::new();
+    };
+    (board.cards.iter())
+        .filter(|card| card.status != CardStatus::Done)
+        .filter_map(|card| card.slice.as_ref()?.unbuilt_head(&board.settings))
+        .map(str::to_owned)
+        .collect()
+}
+
 pub(crate) fn ci_card(core: &Core, project: &str) -> Option<CiCard> {
     let state = core.boards.state.locked();
     let card = (state.boards.get(project)?.cards.iter())

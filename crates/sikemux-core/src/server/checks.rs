@@ -951,7 +951,7 @@ async fn wait_for_ci(
                     }
                     None
                 }
-                Ok(CiChecks::None) if overdue => Some(Err(format!(
+                Ok(CiChecks::None) if overdue && !tip_moved(&dir, tip).await => Some(Err(format!(
                     "no run of {} started on {}",
                     workflows.join(", "),
                     crate::git::short(tip)
@@ -994,6 +994,11 @@ async fn wait_for_ci(
                 (Ok((false, _)), _) => keep_failed(&core, &project, &checked),
                 (Ok((true, _)), Some(tip)) => {
                     let mut vouched = vouched_by(&core, &project, &dir, tip).await;
+                    for head in slices_held_by(&core, &project, &dir, tip).await {
+                        if vouched.iter().all(|kept| kept.sha != head.sha) {
+                            vouched.push(head);
+                        }
+                    }
                     vouched.retain(|old| checked.iter().all(|commit| commit.sha != old.sha));
                     checked.splice(0..0, vouched);
                 }
@@ -1076,6 +1081,33 @@ async fn vouched_by(core: &Core, project: &str, dir: &Path, tip: &str) -> Vec<Co
             .extend(others);
     }
     held.into_iter().map(|(commit, _)| commit).collect()
+}
+
+/// The latest commits of the board's slices that still wait for the check and that `tip` holds,
+/// which its passing run stands for, as most commits get no CI run of their own.
+async fn slices_held_by(core: &Core, project: &str, dir: &Path, tip: &str) -> Vec<Commit> {
+    let heads = crate::server::board::unbuilt_heads(core, project);
+    if heads.is_empty() {
+        return Vec::new();
+    }
+    let (dir, tip) = (dir.to_owned(), tip.to_owned());
+    tokio::task::spawn_blocking(move || {
+        (heads.into_iter())
+            .filter(|head| {
+                Git::quick(&dir)
+                    .output(&["merge-base", "--is-ancestor", head, &tip])
+                    .is_ok_and(|output| output.status.success())
+            })
+            .map(|sha| Commit {
+                sha,
+                subject: String::new(),
+                agents: Vec::new(),
+                asked: false,
+            })
+            .collect()
+    })
+    .await
+    .unwrap_or_default()
 }
 
 /// The newest of `commits` by ancestry, last, with those of them it holds,

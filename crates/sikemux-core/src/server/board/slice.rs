@@ -395,6 +395,17 @@ impl Slice {
             .then_some(work.head.as_str())
     }
 
+    /// Its latest commit, once it is on the project's branch and the gate it waits at still needs
+    /// the check, which has not failed on it: a later passing run that holds it stands for it.
+    pub(super) fn unbuilt_head(&self, settings: &BoardSettings) -> Option<&str> {
+        let gate = self.waiting()?;
+        let work = self.work.as_ref().filter(|work| work.on_branch)?;
+        let failed =
+            (work.check.as_ref()).is_some_and(|check| check.verdict == Some(Verdict::Failed));
+        (needs_of(gate, settings).contains(&Need::PassingCheck) && !failed)
+            .then_some(work.head.as_str())
+    }
+
     /// How long passing `gate` took, for a slice that passed it: from the claim
     /// for its first gate, from the gate before for the rest. None when several
     /// passed at once, as closing a slice does, which says nothing of the work.
@@ -1765,7 +1776,10 @@ pub(super) fn progress(
     mut passed: Vec<Step>,
     settings: &BoardSettings,
 ) -> Moved {
-    let owner = card.owner_id().map(str::to_owned);
+    let left = (card.slice.as_ref())
+        .and_then(|slice| slice.stalled.as_ref())
+        .map(|stalled| stalled.agent.clone());
+    let owner = card.owner_id().map(str::to_owned).or(left);
     let Some(slice) = card.slice.as_mut() else {
         return Moved {
             passed,

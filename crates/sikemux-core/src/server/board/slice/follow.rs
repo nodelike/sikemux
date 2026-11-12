@@ -333,7 +333,7 @@ fn heard(core: &Arc<Core>, event: RepoEvent) {
                 let mut touched = Vec::new();
                 if let Some(board) = boards.get_mut(&project) {
                     let checking: Vec<u64> = (board.cards.iter())
-                        .filter(|card| card.status == CardStatus::Progress && card.slice.is_some())
+                        .filter(|card| card.status != CardStatus::Done && card.slice.is_some())
                         .map(|card| card.id)
                         .collect();
                     let mut refusals = Vec::new();
