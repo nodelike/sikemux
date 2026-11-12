@@ -15,6 +15,7 @@ use sikemux_core::server::activity_log::ActivitySummary;
 use sikemux_core::server::agent_accounts::AccountUsage;
 use sikemux_core::server::drafts::Draft;
 use sikemux_core::server::hosts::HostRow;
+use sikemux_core::server::outside::OutsideView;
 use sikemux_core::server::plugins::PluginOutcome;
 use sikemux_core::server::project_roots::RootEntry;
 use sikemux_core::server::share::ShareView;
@@ -80,11 +81,13 @@ pub enum Read {
     SshHosts,
     /// How busy a host is, for the Hosts page while it is in front.
     HostStats,
+    /// The programs outside Sikemux this host lets in, and those waiting to be.
+    Outside,
 }
 
 impl Read {
     /// What the window watches from the moment it opens.
-    pub const FROM_THE_START: [Read; 13] = [
+    pub const FROM_THE_START: [Read; 14] = [
         Read::Theme,
         Read::Plugins,
         Read::Hosts,
@@ -98,6 +101,7 @@ impl Read {
         Read::SkillsAdded,
         Read::Preferences,
         Read::WhatsNew,
+        Read::Outside,
     ];
 
     /// What the core in front is watched for while its project is in front. A feed's `leave`
@@ -160,6 +164,7 @@ impl Read {
             Read::PickerFolders => (call::ProjectRoots::METHOD, &[]),
             Read::SshHosts => (call::SshHosts::METHOD, &[]),
             Read::HostStats => (call::HostStats::METHOD, &[Topic::HostStats]),
+            Read::Outside => (call::OutsideAccess::METHOD, &[Topic::Outside]),
         }
     }
 
@@ -252,6 +257,8 @@ pub struct Reads {
     /// What the project and host pickers offer: folders under the project roots, and SSH hosts.
     pub picker_folders: Vec<RootEntry>,
     pub ssh_hosts: Vec<SshHost>,
+    /// The programs outside Sikemux this host lets in, and those waiting to be.
+    pub outside: Option<OutsideView>,
 }
 
 impl Reads {
@@ -581,6 +588,12 @@ impl Workbench {
             }
             Read::WorktreeMerged => {
                 self.feeds.at_mut(&place).worktree_merged = decoded(value, "worktree merged");
+            }
+            Read::Outside => {
+                if !keep_decoded(&mut self.reads.outside, value, "outside access") {
+                    return;
+                }
+                self.outside_read(cx);
             }
             Read::HostStats => {
                 if let Some(stats) = decoded(value, "host stats") {

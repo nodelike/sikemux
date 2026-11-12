@@ -18,9 +18,10 @@ use serde_json::Value;
 use sikemux_core::accounts::protocol::Device;
 use sikemux_core::server::call;
 use sikemux_core::server::calls::NoParams;
+use sikemux_core::server::outside::{OutsideAnswer, OutsideWaiting};
 use sikemux_wire::protocol::{AllowedDevice, DeviceAccess, PendingDevice};
 
-use crate::core::{Ask, RemoteAsk, Target};
+use crate::core::{typed_call, Ask, RemoteAsk, Target};
 use crate::icons::Icon;
 use crate::theme::{
     self, Tokens, SPACE_0, SPACE_2, SPACE_2H, SPACE_3, SPACE_3H, SPACE_4, TEXT_2XS, TEXT_2XS_H,
@@ -67,11 +68,13 @@ impl RemotePairing {
     }
 }
 
-/// Who waits: a phone that wants to connect, or another host on the account that wants to link.
+/// Who waits: a phone that wants to connect, another host on the account that wants to link,
+/// or a program on this computer, such as Claude Code, that wants to use the chats.
 #[derive(Clone, Copy, PartialEq)]
 enum Asker {
     Phone,
     Host,
+    App,
 }
 
 impl Asker {
@@ -80,6 +83,7 @@ impl Asker {
             (false, _) => request.name.clone(),
             (true, Asker::Phone) => "A phone".into(),
             (true, Asker::Host) => "Another host".into(),
+            (true, Asker::App) => t!("An app").into(),
         }
     }
 
@@ -88,6 +92,10 @@ impl Asker {
         match self {
             Asker::Phone => (format!("{name} wants to connect"), "to this host"),
             Asker::Host => (format!("{name} wants to link"), "with this host"),
+            Asker::App => (
+                t!("{name} wants to use", name = name),
+                t!("your chats on this host"),
+            ),
         }
     }
 
@@ -102,9 +110,28 @@ impl Asker {
                 format!("{name} wants to link with this host"),
                 "Its agents could start agents here. Allow or decline it in Sikemux.",
             ),
+            Asker::App => (
+                t!("{name} wants to use your chats", name = name),
+                t!("It is signing in from this computer. Allow or decline it in Sikemux."),
+            ),
         }
     }
 }
+
+const APP_ACCESS: [(DeviceAccess, Icon, &str, &str); 2] = [
+    (
+        DeviceAccess::Full,
+        Icon::Pointer,
+        "Full control",
+        "Start chats, send them messages, stop their turns",
+    ),
+    (
+        DeviceAccess::Watch,
+        Icon::Eye,
+        "Watch only",
+        "List and read chats",
+    ),
+];
 
 const ACCESS: [(DeviceAccess, Icon, &str, &str); 2] = [
     (
@@ -127,23 +154,45 @@ impl Workbench {
         !self.pairing.phones.is_empty() || self.waiting().is_some()
     }
 
-    /// Every phone and host waiting, as the person would be asked about them.
-    fn waiting_all(&self) -> Vec<(Asker, &PendingDevice)> {
+    /// Every phone, host and app waiting, as the person would be asked about them.
+    fn waiting_all(&self) -> Vec<(Asker, PendingDevice)> {
         let phones = self
             .remote
             .iter()
             .flat_map(|remote| &remote.pending)
-            .map(|request| (Asker::Phone, request));
+            .map(|request| (Asker::Phone, request.clone()));
         let hosts = self
             .pairing
             .links
             .iter()
-            .map(|request| (Asker::Host, request));
-        phones.chain(hosts).collect()
+            .map(|request| (Asker::Host, request.clone()));
+        let apps = self
+            .reads
+            .outside
+            .iter()
+            .flat_map(|outside| &outside.waiting)
+            .map(|app| {
+                let request = PendingDevice {
+                    id: app.id.clone(),
+                    device_id: app.id.clone(),
+                    name: app.name.clone(),
+                    platform: String::new(),
+                    from_account: false,
+                    expires_at: app.expires_at,
+                };
+                (Asker::App, request)
+            });
+        phones.chain(hosts).chain(apps).collect()
     }
 
-    /// The phone or host that has waited longest, which the person is asked about first.
-    fn waiting(&self) -> Option<(Asker, &PendingDevice)> {
+    /// The app waiting under `id`, with the digits its sign-in shows and where it returns to.
+    fn app_waiting(&self, id: &str) -> Option<&OutsideWaiting> {
+        let outside = self.reads.outside.as_ref()?;
+        outside.waiting.iter().find(|app| app.id == id)
+    }
+
+    /// The phone, host or app that has waited longest, which the person is asked about first.
+    fn waiting(&self) -> Option<(Asker, PendingDevice)> {
         self.waiting_all()
             .into_iter()
             .min_by_key(|(_, request)| request.expires_at)
@@ -161,9 +210,18 @@ impl Workbench {
         };
         let access = std::mem::replace(&mut self.pairing.access, DeviceAccess::Full);
         let access = match asker {
-            Asker::Phone => access,
+            Asker::Phone | Asker::App => access,
             Asker::Host => DeviceAccess::Full,
         };
+        if asker == Asker::App {
+            if let Some(outside) = &mut self.reads.outside {
+                outside.waiting.retain(|app| app.id != id);
+            }
+            let answer = OutsideAnswer { id, allow, access };
+            let _ = self.asks.send(typed_call::<call::AnswerOutside>(answer));
+            self.parts.redraw(&self.parts.over, cx);
+            return;
+        }
         self.pairing.links.retain(|request| request.id != id);
         let _ = self
             .asks
@@ -255,11 +313,7 @@ pub fn remote_moved(bench: &mut Workbench, cx: &mut Context<Workbench>) {
 /// Tells the person of phones and hosts that started waiting while Sikemux is in the background,
 /// and keeps the countdown moving while one waits.
 fn waiting_moved(bench: &mut Workbench, cx: &mut Context<Workbench>) {
-    let waiting: Vec<(Asker, PendingDevice)> = bench
-        .waiting_all()
-        .into_iter()
-        .map(|(asker, request)| (asker, request.clone()))
-        .collect();
+    let waiting = bench.waiting_all();
     let fresh: Vec<&(Asker, PendingDevice)> = waiting
         .iter()
         .filter(|(_, request)| !bench.pairing.announced.contains(&request.id))
@@ -316,14 +370,22 @@ pub fn overlay(
     if phones.is_empty() && waiting.is_none() {
         return None;
     }
-    let host = phones.is_empty() && waiting.is_some_and(|(asker, _)| asker == Asker::Host);
+    let asker = waiting
+        .as_ref()
+        .filter(|_| phones.is_empty())
+        .map(|(asker, _)| *asker);
+    let host = asker == Some(Asker::Host);
+    let app = waiting
+        .as_ref()
+        .filter(|_| asker == Some(Asker::App))
+        .and_then(|(_, request)| bench.app_waiting(&request.id));
     let t = Tokens::get(cx).clone();
     if !bench.pairing.focus.is_focused(window) {
         cx.defer_in(window, |bench, window, cx| {
             bench.pairing.focus.focus(window, cx)
         });
     }
-    let (first, second) = match (phones.as_slice(), waiting) {
+    let (first, second) = match (phones.as_slice(), &waiting) {
         ([], Some((asker, request))) => asker.lines(&asker.name(request)),
         (phones, _) => {
             let who = match phones {
@@ -342,6 +404,7 @@ pub fn overlay(
             .join(" · ")
     });
     let waits_for = waiting
+        .as_ref()
         .filter(|_| phones.is_empty())
         .map(|(_, request)| waits(request.expires_at));
     let decline = if phones.is_empty() {
@@ -365,7 +428,8 @@ pub fn overlay(
             .bg(t.surface_raised)
             .child(ui::icon(icon, 36.).text_color(t.text_primary))
     };
-    let choices = ACCESS.iter().map(|&(access, icon, label, detail)| {
+    let access_rows = if app.is_some() { &APP_ACCESS } else { &ACCESS };
+    let choices = access_rows.iter().map(|&(access, icon, label, detail)| {
         let on = bench.pairing.access == access;
         div()
             .id(SharedString::from(format!("pairing-{label}")))
@@ -415,7 +479,11 @@ pub fn overlay(
                 .flex()
                 .items_center()
                 .gap(SPACE_3H)
-                .child(tile(if host { Icon::Laptop } else { Icon::Phone }))
+                .child(tile(match asker {
+                    Some(Asker::Host) => Icon::Laptop,
+                    Some(Asker::App) => Icon::Terminal,
+                    _ => Icon::Phone,
+                }))
                 .child(div().w(px(48.)).h(px(1.)).bg(t.border))
                 .child(tile(Icon::Laptop)),
         )
@@ -441,7 +509,37 @@ pub fn overlay(
                     .child("Its agents could start agents here, on this host's sign-ins."),
             )
         })
-        .children(account.map(|account| {
+        .children(app.map(|app| {
+            div()
+                .flex()
+                .flex_col()
+                .items_center()
+                .gap(SPACE_2)
+                .child(
+                    ui::text(
+                        t!("Allow it only if its sign-in page shows"),
+                        TEXT_XS,
+                        FontWeight::NORMAL,
+                    )
+                    .text_color(t.text_secondary),
+                )
+                .child(
+                    div()
+                        .font_family(theme::MONO)
+                        .text_size(crate::theme::ui_text(28.))
+                        .text_color(t.text_primary)
+                        .child(app.check.clone()),
+                )
+                .children(app.redirect.as_ref().map(|redirect| {
+                    ui::text(
+                        t!("Signs in through {redirect}", redirect = redirect),
+                        TEXT_2XS,
+                        FontWeight::NORMAL,
+                    )
+                    .text_color(t.text_tertiary)
+                }))
+        }))
+        .children(account.filter(|_| app.is_none()).map(|account| {
             div()
                 .text_size(crate::theme::ui_text(TEXT_XS))
                 .text_color(t.text_tertiary)
@@ -505,7 +603,10 @@ pub fn overlay(
                     .bottom(px(24.))
                     .text_size(crate::theme::ui_text(TEXT_2XS_H))
                     .text_color(t.text_tertiary)
-                    .child("Only allow phones you own. Remove one any time on the Devices page."),
+                    .child(match asker {
+                        Some(Asker::App) => t!("Only allow a sign-in you just started. Remove an app any time in Settings → Other apps."),
+                        _ => "Only allow phones you own. Remove one any time on the Devices page.",
+                    }),
             )
             .into_any_element(),
     )
@@ -525,5 +626,13 @@ impl Workbench {
 
     pub fn sign_out(&self) {
         Target::here(&self.asks).call_typed::<call::AccountSignOut>(NoParams {});
+    }
+}
+
+impl Workbench {
+    /// Draws again what asks about programs outside Sikemux, once the core says who waits.
+    pub(crate) fn outside_read(&mut self, cx: &mut Context<Self>) {
+        waiting_moved(self, cx);
+        self.parts.redraw(&self.parts.over, cx);
     }
 }

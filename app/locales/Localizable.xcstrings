@@ -157,6 +157,7 @@
         }
       }
     },
+    "A sign-in lasts 30 days. Removing an app cuts it off at once.": {},
     "A terminal tab in this project, another login on this host, or a new terminal under Terminals": {
       "localizations": {
         "es": {
@@ -885,6 +886,7 @@
         }
       }
     },
+    "Add to an app": {},
     "Add {which}: Shift alone only changes what a key types.": {
       "localizations": {
         "es": {
@@ -1457,6 +1459,7 @@
         }
       }
     },
+    "Allow it only if its sign-in page shows": {},
     "Allow language servers for this project": {
       "localizations": {
         "es": {
@@ -1509,6 +1512,8 @@
         }
       }
     },
+    "Allowed apps": {},
+    "An app": {},
     "Android Emulator": {
       "localizations": {
         "es": {
@@ -1821,6 +1826,7 @@
         }
       }
     },
+    "Any other app: add a remote MCP server with OAuth and give it the address.": {},
     "Appearance": {
       "localizations": {
         "es": {
@@ -1925,6 +1931,7 @@
         }
       }
     },
+    "Apps on this computer, such as Claude Code and Codex in your own terminal, list, start, message and read your chats here. Only apps on this computer can sign in.": {},
     "Background blur": {
       "localizations": {
         "es": {
@@ -3225,6 +3232,8 @@
         }
       }
     },
+    "Claude Code, Codex and other MCP apps using your chats": {},
+    "Claude Code, then run /mcp in it to sign in": {},
     "Clicking": {
       "localizations": {
         "es": {
@@ -4473,6 +4482,7 @@
         }
       }
     },
+    "Copied": {},
     "Copy": {
       "localizations": {
         "es": {
@@ -7749,6 +7759,7 @@
         }
       }
     },
+    "Full control": {},
     "General": {
       "localizations": {
         "es": {
@@ -9621,6 +9632,7 @@
         }
       }
     },
+    "It is signing in from this computer. Allow or decline it in Sikemux.": {},
     "It keeps running after Sikemux quits, as your agents do.": {
       "localizations": {
         "es": {
@@ -11285,6 +11297,8 @@
         }
       }
     },
+    "MCP server": {},
+    "MCP through {redirect}": {},
     "Make a mod with an agent": {
       "localizations": {
         "es": {
@@ -13677,6 +13691,7 @@
         }
       }
     },
+    "No app has signed in yet. When one does, Sikemux asks you whether to let it in.": {},
     "No chats match": {
       "localizations": {
         "es": {
@@ -14613,6 +14628,7 @@
         }
       }
     },
+    "Only allow a sign-in you just started. Remove an app any time in Settings → Other apps.": {},
     "Only confirmed native session IDs are written to disk. Startup commands and terminal output never are.": {
       "localizations": {
         "es": {
@@ -16017,6 +16033,7 @@
         }
       }
     },
+    "Other apps": {},
     "Otherwise a request offers Open in Sikemux instead of Deny and Allow.": {
       "localizations": {
         "es": {
@@ -18513,6 +18530,7 @@
         }
       }
     },
+    "Removed. It can no longer use your chats.": {},
     "Rename…": {
       "localizations": {
         "es": {
@@ -21997,6 +22015,7 @@
         }
       }
     },
+    "Signs in through {redirect}": {},
     "Sikemux": {
       "localizations": {
         "es": {
@@ -23401,6 +23420,7 @@
         }
       }
     },
+    "Starting…": {},
     "Starts each chat on the account whose week ends soonest and moves on at a limit. Check each provider's terms first.": {
       "localizations": {
         "es": {
@@ -25637,6 +25657,7 @@
         }
       }
     },
+    "The server is not running: {error}": {},
     "The services your agents reach for you": {
       "localizations": {
         "es": {
@@ -27353,6 +27374,7 @@
         }
       }
     },
+    "Watch only": {},
     "What VoiceOver hears of the chat in front while its turn runs. Messages are read once the agent moves on from them; the closing reply is left for you.": {
       "localizations": {
         "es": {
@@ -28549,6 +28571,11 @@
         }
       }
     },
+    "not used yet": {},
+    "used {ago}": {},
+    "your chats on this host": {},
+    "{name} wants to use": {},
+    "{name} wants to use your chats": {},
     "… More in the chat": {
       "localizations": {
         "es": {

@@ -21,6 +21,7 @@ pub(super) mod general;
 pub(crate) use general::sent as session_sent;
 pub(super) mod keybindings;
 pub(super) mod mods;
+pub(super) mod outside;
 pub(super) mod settled;
 pub mod theme_editor;
 mod vault;
@@ -168,6 +169,7 @@ pub fn render(
         Page::SignOn => cloud::render(bench, pages, &lit, this, cx),
         Page::Actions => actions::render(bench, pages, &lit, this, cx),
         Page::Cli => cli::render(bench, pages, &lit, this, cx),
+        Page::OtherApps => outside::render(bench, &lit, this, cx),
         Page::Usage => activity::render(bench, pages, &lit, this, cx),
         Page::About => about::render(bench, &lit, this, cx),
     }
