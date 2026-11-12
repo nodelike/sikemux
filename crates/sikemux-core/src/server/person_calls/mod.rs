@@ -742,21 +742,18 @@ fn same_decision(one: &PersonCall, other: &PersonCall) -> bool {
 }
 
 /// Whether what the person types to `agent_id` may answer a call whose words are never kept: one
-/// it waits on, or one a worker of its asked that went through it, which the person may as well
-/// answer in the lead's chat.
+/// it waits on, or a question it asked or a worker of its asked through it, which the person may
+/// as well answer in the lead's chat. Such a question counts with no call open here, as when a
+/// linked host took it to put to the person there.
 pub(crate) fn hides_typed(core: &Core, agent_id: &str) -> bool {
-    let passed = core.harness().questions.passed_through(agent_id);
-    hears_hidden(&core.person_calls().book.locked(), agent_id, &passed)
+    core.harness().questions.hears_hidden(agent_id)
+        || waits_on_hidden(&core.person_calls().book.locked(), agent_id)
 }
 
-/// [`hides_typed`] with the book held: `passed` are the questions that went through the agent.
-fn hears_hidden(book: &Book, agent_id: &str, passed: &[String]) -> bool {
-    book.iter().any(|kept| {
-        let call = &kept.call;
-        let through = (kept.sources())
-            .any(|source| matches!(source, Source::Question(id) if passed.contains(id)));
-        (waits_on(call, agent_id) || through) && call.state == CallState::Open && hides_words(call)
-    })
+fn waits_on_hidden(book: &Book, agent_id: &str) -> bool {
+    (book.iter())
+        .map(|kept| &kept.call)
+        .any(|call| waits_on(call, agent_id) && call.state == CallState::Open && hides_words(call))
 }
 
 /// What the person types to a secret or an access call is never kept: it may be a password or a
@@ -1013,7 +1010,7 @@ pub(crate) fn written(core: &Core, agent_id: &str, text: &str) -> Option<Answere
     if stopped.is_empty() && replied.is_empty() {
         return None;
     }
-    let passed = core.harness().questions.passed_through(agent_id);
+    let asked_hidden = core.harness().questions.hears_hidden(agent_id);
     let asked_in = |kept: &Kept, questions: &[String]| {
         kept.sources()
             .any(|source| matches!(source, Source::Question(id) if questions.contains(id)))
@@ -1038,7 +1035,7 @@ pub(crate) fn written(core: &Core, agent_id: &str, text: &str) -> Option<Answere
     if answered.is_empty() {
         return None;
     }
-    let hidden = hears_hidden(&book, agent_id, &passed);
+    let hidden = asked_hidden || waits_on_hidden(&book, agent_id);
     for id in answered {
         let Some(kept) = kept(&book, &id) else {
             continue;

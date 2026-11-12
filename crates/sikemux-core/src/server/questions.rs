@@ -769,15 +769,13 @@ impl Questions {
         )
     }
 
-    /// The questions other agents asked that went through `lead_id`, their lead, on their way
-    /// to the person.
-    pub(crate) fn passed_through(&self, lead_id: &str) -> Vec<String> {
-        (self.state.locked().open.iter())
-            .filter(|question| {
-                matches!(&question.stage, Stage::Person { lead: Some((lead, _)), .. } if lead == lead_id)
-            })
-            .map(|question| question.id.clone())
-            .collect()
+    /// Whether what the person types to `agent_id` may answer an open question whose answer is
+    /// never kept: one it asked, or one a worker of its asked that went to it first. A question
+    /// a linked host took to put to the person there has no call here, and counts all the same.
+    pub(crate) fn hears_hidden(&self, agent_id: &str) -> bool {
+        (self.state.locked().open.iter()).any(|question| {
+            question.hides_answer() && (question.agent_id == agent_id || question.went_to(agent_id))
+        })
     }
 
     pub(crate) fn is_open(&self, id: &str) -> bool {
@@ -3135,6 +3133,37 @@ fn tell_window(core: &Arc<Core>) {
 #[cfg(test)]
 mod tests {
     use super::reply::{Ask, Choice};
+    use super::{Question, Questions};
+    use sikemux_process::sync::Locked;
+
+    #[test]
+    fn a_question_another_host_took_still_hides_what_is_typed_to_its_asker_and_its_lead() {
+        let taken: Question = serde_json::from_value(serde_json::json!({
+            "id": "question-1",
+            "agentId": "worker",
+            "name": "Worker",
+            "cli": "claude",
+            "project": "widget",
+            "asked": "Which token does staging take?",
+            "text": "Which token does staging take?",
+            "choices": [],
+            "blocked": true,
+            "assumption": null,
+            "secret": false,
+            "at": 1,
+            "stage": { "stage": "person", "lead": ["lead", "Lead"], "passed": true },
+            "raise": { "reason": "access", "breaks": "the deploy" },
+            "relayed": "studio",
+            "relayTaken": true,
+        }))
+        .expect("a question");
+        assert!(!taken.listed_for_devices(), "it has no call on this host");
+        let questions = Questions::new(None, |_| true);
+        questions.state.locked().open.push(taken);
+        assert!(questions.hears_hidden("worker"));
+        assert!(questions.hears_hidden("lead"));
+        assert!(!questions.hears_hidden("bystander"));
+    }
 
     fn asked_in(reply: &str) -> Vec<(String, bool)> {
         (super::asked_in(reply).into_iter())
