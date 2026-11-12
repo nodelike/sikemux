@@ -289,6 +289,9 @@ final class ShareSession {
         case .file(var file):
             file.id = id
             numbered = .file(file)
+        case .message(var message):
+            message.id = id
+            numbered = .message(message)
         case .unknown: return nil
         }
         let sealed: String
