@@ -1,8 +1,9 @@
 //! An MCP app an agent's tool call opened, drawn in its reply in a card that names its server.
-//! A web view costs the app a process and its memory, so only apps in sight get one, and never
-//! more than a few however long the chat. An app out of sight for a moment is kept as a still
-//! picture of itself and gives its view back; once it is in sight again and the chat has stopped
-//! scrolling, it is set up again from its call.
+//! A web view costs the app a process and its memory, so apps borrow one of a few views kept for
+//! the window, never more however long the chat, and only while in sight. An app out of sight
+//! for a moment is kept as a still picture of itself and hands its view back; once it is in sight
+//! again and the chat has rested, it borrows one again and is set up afresh from its call. A view
+//! no app has wanted for a while is let go, with its process.
 
 use std::cell::Cell;
 use std::collections::HashMap;
@@ -27,23 +28,30 @@ use crate::page_view::{self, PageEvent, Room};
 use crate::theme::{self, Tokens};
 use crate::ui;
 
-/// The most apps with a view of their own at once.
-const MAX_LIVE: usize = 3;
+/// The most web views kept for apps, which is the most apps running at once.
+const MAX_VIEWS: usize = 3;
 const DEFAULT_HEIGHT: f32 = 240.;
 const MAX_HEIGHT: f32 = 2000.;
 const HEADER_HEIGHT: f32 = 30.;
-/// How long the chat must rest before an app in sight gets a view, so scrolling past apps never
-/// waits on WebKit.
-const SETTLE: Duration = Duration::from_millis(160);
-/// How long an app may be out of sight before its view goes.
+/// How long the chat must rest before an app in sight borrows a view, so scrolling past apps,
+/// or flicking through a chat while reading it, never waits on WebKit.
+const SETTLE: Duration = Duration::from_millis(300);
+/// How long an app may be out of sight before it hands its view back.
 const GRACE: Duration = Duration::from_millis(1500);
-/// How often a live app is looked at, to take a fresh still or let its view go.
+/// How long a view no app borrows is kept before it is let go.
+const IDLE: Duration = Duration::from_secs(30);
+/// How long an app must be still before a fresh picture of it is taken.
+const QUIET: Duration = Duration::from_secs(1);
+/// How often a running app is looked at, to take a fresh still or hand its view back.
 const TICK: Duration = Duration::from_millis(500);
 const HOST: &str = include_str!("app_host.html");
+const BLANK: &str = "<!doctype html><html><body></body></html>";
 
 #[derive(Default)]
 struct Apps {
     shown: HashMap<String, Shown>,
+    views: Vec<Kept>,
+    next_view: u64,
     /// The app grown over its whole chat, as MCP Apps' fullscreen display.
     expanded: Option<Expanded>,
 }
@@ -63,7 +71,11 @@ struct Shown {
     /// Where the card was last drawn in sight, and when it last moved there.
     sight: Rc<Sight>,
     still: Option<Arc<Image>>,
-    live: Option<Live>,
+    /// The view the app has borrowed.
+    view: Option<u64>,
+    wake: Option<Wake>,
+    /// Counts the times the app was set up, so a loop kept for an earlier one stops.
+    round: u64,
     starting: bool,
     failed: Option<SharedString>,
 }
@@ -77,11 +89,15 @@ struct Sight {
     waiting: Cell<bool>,
 }
 
-struct Live {
+/// A web view kept for apps, and the app borrowing it.
+struct Kept {
+    id: u64,
     view: page_view::View,
-    /// Something changed in the app since its last still.
-    changed: Rc<Cell<bool>>,
+    app: Option<String>,
+    /// When the app last said anything, which a fresh still waits to be past.
+    stirred: Rc<Cell<Option<Instant>>>,
     pointer_over: Rc<Cell<bool>>,
+    freed: Option<Instant>,
 }
 
 fn apps(cx: &mut App) -> &mut Apps {
@@ -89,6 +105,62 @@ fn apps(cx: &mut App) -> &mut Apps {
         cx.set_global(Apps::default());
     }
     cx.global_mut::<Apps>()
+}
+
+impl Apps {
+    fn kept(&self, app: &str) -> Option<&Kept> {
+        let view = self.shown.get(app)?.view?;
+        self.views
+            .iter()
+            .find(|kept| kept.id == view && kept.app.as_deref() == Some(app))
+    }
+
+    fn view_of(&self, app: &str) -> Option<page_view::View> {
+        self.kept(app).map(|kept| kept.view.clone())
+    }
+
+    /// Hands the app's view back, blank, for another app to borrow.
+    fn hand_back(&mut self, app: &str) {
+        let Some(view) = self.shown.get_mut(app).and_then(|shown| shown.view.take()) else {
+            return;
+        };
+        if let Some(kept) = self.views.iter_mut().find(|kept| kept.id == view) {
+            kept.app = None;
+            kept.freed = Some(Instant::now());
+            kept.view.fill(false);
+            kept.view.show(BLANK);
+        }
+    }
+
+    /// A view for one more app: one no app borrows, room for a new one, or the view of the app
+    /// longest out of sight; with every view showing an app in sight there is none.
+    fn spare(&mut self) -> Option<Spare> {
+        if let Some(kept) = self.views.iter().find(|kept| kept.app.is_none()) {
+            return Some(Spare::Kept(kept.id));
+        }
+        let starting = self.shown.values().filter(|shown| shown.starting).count();
+        if self.views.len() + starting < MAX_VIEWS {
+            return Some(Spare::New);
+        }
+        let out_of_sight = self
+            .views
+            .iter()
+            .filter(|kept| kept.view.surface.placed().is_none())
+            .filter_map(|kept| {
+                let app = kept.app.clone()?;
+                let moved = self.shown.get(&app)?.sight.moved.get();
+                Some((app, moved))
+            })
+            .min_by_key(|(_, moved)| *moved)
+            .map(|(app, _)| app)?;
+        self.hand_back(&out_of_sight);
+        self.spare()
+    }
+}
+
+enum Spare {
+    Kept(u64),
+    New,
 }
 
 /// What the card's header names: the server and its tool, from Claude Code's `mcp__server__tool`.
@@ -111,18 +183,22 @@ pub(super) fn app(app: &McpAppRef, title: &str, looks: &Looks, cx: &mut App) -> 
             height: Rc::new(Cell::new(DEFAULT_HEIGHT)),
             sight: Rc::default(),
             still: None,
-            live: None,
+            view: None,
+            wake: None,
+            round: 0,
             starting: false,
             failed: None,
         });
-    let (height, sight, still, surface, failed) = (
+    let (height, sight, still, failed) = (
         shown.height.get(),
         shown.sight.clone(),
         shown.still.clone(),
-        shown.live.as_ref().map(|live| live.view.surface.clone()),
         shown.failed.clone(),
     );
-    let surface = surface.filter(|_| !is_expanded(&app.id, cx));
+    let surface = apps(cx)
+        .view_of(&app.id)
+        .map(|view| view.surface)
+        .filter(|_| !is_expanded(&app.id, cx));
     let t = Tokens::get(cx);
     let ground = theme::page_ground(t);
     let body: AnyElement = match (surface, still, failed) {
@@ -192,7 +268,7 @@ pub(super) fn app(app: &McpAppRef, title: &str, looks: &Looks, cx: &mut App) -> 
                     let (id, label, wake) = (app.id.clone(), label(title), Wake::of(looks));
                     ui::Button::new(
                         SharedString::from(format!("app-expand-{}", app.id)),
-                        "Expand",
+                        t!("Expand"),
                         ui::Variant::Outline,
                     )
                     .icon(Icon::Resize)
@@ -239,17 +315,9 @@ fn expand(id: String, label: SharedString, wake: Wake, window: &mut Window, cx: 
         wake: wake.clone(),
         focus,
     });
-    let live = apps(cx)
-        .shown
-        .get(&id)
-        .and_then(|shown| shown.live.as_ref().map(|live| live.view.clone()));
-    match live {
+    match apps(cx).view_of(&id) {
         Some(view) => shows(&view, true),
-        None => {
-            if room(apps(cx)) {
-                start(id, wake.clone(), window, cx);
-            }
-        }
+        None => start(id, wake.clone(), window, cx),
     }
     redraw(&wake, cx);
 }
@@ -259,11 +327,7 @@ fn collapse(cx: &mut App) {
     let Some(expanded) = apps(cx).expanded.take() else {
         return;
     };
-    let live = apps(cx)
-        .shown
-        .get(&expanded.id)
-        .and_then(|shown| shown.live.as_ref().map(|live| live.view.clone()));
-    if let Some(view) = live {
+    if let Some(view) = apps(cx).view_of(&expanded.id) {
         shows(&view, false);
     }
     redraw(&expanded.wake, cx);
@@ -294,10 +358,7 @@ pub(super) fn expanded(agent: &str, cx: &mut App) -> Option<AnyElement> {
         expanded.label.clone(),
         expanded.focus.clone(),
     );
-    let surface = apps(cx)
-        .shown
-        .get(&id)
-        .and_then(|shown| shown.live.as_ref().map(|live| live.view.surface.clone()));
+    let surface = apps(cx).view_of(&id).map(|view| view.surface);
     let t = Tokens::get(cx);
     let body = match surface {
         Some(surface) => native_view(SharedString::from(format!("app-{id}")), &surface)
@@ -339,7 +400,7 @@ pub(super) fn expanded(agent: &str, cx: &mut App) -> Option<AnyElement> {
                     )
                     .child(ui::meta("esc", cx))
                     .child(
-                        ui::Button::new("app-collapse", "Collapse", ui::Variant::Outline)
+                        ui::Button::new("app-collapse", t!("Collapse"), ui::Variant::Outline)
                             .icon(Icon::Resize)
                             .sized(22., 8., 11.5)
                             .on_click(|_, _, cx| collapse(cx)),
@@ -378,7 +439,7 @@ fn seen(id: &str, sight: &Rc<Sight>, top: f32, wake: &Wake, window: &mut Window,
     let Some(shown) = apps(cx).shown.get(id) else {
         return;
     };
-    if shown.live.is_some() || shown.starting || shown.failed.is_some() {
+    if shown.view.is_some() || shown.starting || shown.failed.is_some() {
         return;
     }
     if sight.settled.get() {
@@ -409,52 +470,22 @@ fn seen(id: &str, sight: &Rc<Sight>, top: f32, wake: &Wake, window: &mut Window,
         .detach();
 }
 
-/// Makes room for one more live app, letting go of the one longest out of sight; with every
-/// live app in sight there is no room.
-fn room(apps: &mut Apps) -> bool {
-    let live: Vec<&String> = apps
-        .shown
-        .iter()
-        .filter(|(_, shown)| shown.live.is_some() || shown.starting)
-        .map(|(id, _)| id)
-        .collect();
-    if live.len() < MAX_LIVE {
-        return true;
-    }
-    let out_of_sight = apps
-        .shown
-        .iter()
-        .filter_map(|(id, shown)| {
-            let live = shown.live.as_ref()?;
-            live.view
-                .surface
-                .placed()
-                .is_none()
-                .then(|| (id.clone(), shown.sight.moved.get()))
-        })
-        .min_by_key(|(_, moved)| *moved)
-        .map(|(id, _)| id);
-    match out_of_sight {
-        Some(id) => {
-            if let Some(shown) = apps.shown.get_mut(&id) {
-                shown.live = None;
-            }
-            true
-        }
-        None => false,
-    }
-}
-
 fn start(id: String, wake: Wake, window: &mut Window, cx: &mut App) {
     let Some(bench) = wake.bench.upgrade() else {
         return;
     };
-    if !room(apps(cx)) {
+    if apps(cx).spare().is_none() {
         return;
     }
-    if let Some(shown) = apps(cx).shown.get_mut(&id) {
-        shown.starting = true;
-    }
+    let round = match apps(cx).shown.get_mut(&id) {
+        Some(shown) => {
+            shown.starting = true;
+            shown.wake = Some(wake.clone());
+            shown.round += 1;
+            shown.round
+        }
+        None => return,
+    };
     let target = bench.read(cx).chat_target(&wake.agent);
     let read = target.request_typed::<call::ReadMcpApp>(McpAppParams {
         agent_id: wake.agent.clone(),
@@ -462,67 +493,72 @@ fn start(id: String, wake: Wake, window: &mut Window, cx: &mut App) {
     });
     window
         .spawn(cx, async move |cx| {
-            let opened = match read.await {
-                Ok(app) => cx.update(|window, cx| open(&id, &app, &wake, window, cx)),
-                Err(error) => Ok(Err(error)),
-            };
-            let opened = match opened {
-                Ok(opened) => opened,
-                Err(_) => return,
-            };
-            let _ = cx.update(|_, cx| {
+            let read = read.await;
+            let set_up = cx.update(|window, cx| {
                 if let Some(shown) = apps(cx).shown.get_mut(&id) {
                     shown.starting = false;
-                    match opened {
-                        Ok(live) => shown.live = Some(live),
+                }
+                let lent = read.and_then(|app| lend(&id, &app, window, cx));
+                if let Some(shown) = apps(cx).shown.get_mut(&id) {
+                    match lent {
+                        Ok(Some(view)) => shown.view = Some(view),
+                        Ok(None) => {}
                         Err(error) => shown.failed = Some(error.into()),
                     }
                 }
-                let view = apps(cx)
-                    .shown
-                    .get(&id)
-                    .and_then(|shown| shown.live.as_ref().map(|live| live.view.clone()));
-                if let Some(view) = view.filter(|_| is_expanded(&id, cx)) {
+                if let Some(view) = apps(cx).view_of(&id).filter(|_| is_expanded(&id, cx)) {
                     shows(&view, true);
                 }
                 wake.reader.update(cx, |_, cx| cx.notify());
+                apps(cx).kept(&id).is_some()
             });
-            keep(id, wake, cx).await;
+            if matches!(set_up, Ok(true)) {
+                keep(id, round, cx).await;
+            }
         })
         .detach();
 }
 
-fn open(
-    id: &str,
-    app: &McpApp,
-    wake: &Wake,
-    window: &mut Window,
-    cx: &mut App,
-) -> Result<Live, String> {
+/// Lends the app a view with its page loaded: a kept one, or a new one while there is room.
+fn lend(id: &str, app: &McpApp, window: &mut Window, cx: &mut App) -> Result<Option<u64>, String> {
     let height = apps(cx)
         .shown
         .get(id)
         .map_or(DEFAULT_HEIGHT, |shown| shown.height.get());
     let html = host_page(id, app, height, cx);
-    let (events, heard) = tokio::sync::mpsc::unbounded_channel();
-    let view = page_view::open(&html, Room::App, events, window, cx)
-        .ok_or(t!("this window cannot show web pages"))?;
-    let live = Live {
-        view: view.clone(),
-        changed: Rc::new(Cell::new(true)),
-        pointer_over: Rc::default(),
+    let Some(spare) = apps(cx).spare() else {
+        return Ok(None);
     };
-    listen(
-        id.to_owned(),
-        view,
-        live.changed.clone(),
-        live.pointer_over.clone(),
-        heard,
-        wake.clone(),
-        window,
-        cx,
-    );
-    Ok(live)
+    let kept = match spare {
+        Spare::Kept(kept) => kept,
+        Spare::New => {
+            let (events, heard) = tokio::sync::mpsc::unbounded_channel();
+            let view = page_view::open(BLANK, Room::App, events, window, cx)
+                .ok_or(t!("this window cannot show web pages"))?;
+            let apps = apps(cx);
+            apps.next_view += 1;
+            let kept = apps.next_view;
+            apps.views.push(Kept {
+                id: kept,
+                view,
+                app: None,
+                stirred: Rc::default(),
+                pointer_over: Rc::default(),
+                freed: None,
+            });
+            listen(kept, heard, window, cx);
+            kept
+        }
+    };
+    let apps = apps(cx);
+    let Some(view) = apps.views.iter_mut().find(|view| view.id == kept) else {
+        return Ok(None);
+    };
+    view.app = Some(id.to_owned());
+    view.freed = None;
+    view.stirred.set(Some(Instant::now()));
+    view.view.show(&html);
+    Ok(Some(kept))
 }
 
 /// The page that holds the app in a sandboxed frame of its own and speaks for it to the chat.
@@ -572,62 +608,32 @@ fn host_page(id: &str, app: &McpApp, height: f32, cx: &App) -> String {
         .replace("__HOST__", &host)
 }
 
-#[allow(clippy::too_many_arguments)]
+/// Hears what the page in the kept view `kept` says, for whichever app borrows it. It holds no
+/// view itself, so a view let go ends it.
 fn listen(
-    id: String,
-    view: page_view::View,
-    changed: Rc<Cell<bool>>,
-    pointer_over: Rc<Cell<bool>>,
+    kept: u64,
     mut heard: tokio::sync::mpsc::UnboundedReceiver<PageEvent>,
-    wake: Wake,
     window: &mut Window,
     cx: &mut App,
 ) {
     window
         .spawn(cx, async move |cx| {
             while let Some(event) = heard.recv().await {
-                changed.set(true);
-                let applied = cx.update(|window, cx| match event {
-                    PageEvent::Height(_) if is_expanded(&id, cx) => {}
-                    PageEvent::Height(height) => {
-                        if let Some(shown) = apps(cx).shown.get(&id) {
-                            shown.height.set(height as f32);
-                        }
-                        wake.reader.update(cx, |_, cx| cx.notify());
-                    }
-                    PageEvent::Escape if is_expanded(&id, cx) => collapse(cx),
-                    PageEvent::Escape => {}
-                    PageEvent::Pointer(over) => pointer_over.set(over),
-                    PageEvent::Link(url) => {
-                        let _ = wake
-                            .bench
-                            .update(cx, |bench, cx| bench.open_on_desk(&wake.agent, &url, cx));
-                    }
-                    PageEvent::Wheel(delta) => {
-                        let _ = wake.bench.update(cx, |bench, cx| {
-                            if let Some(chat) = bench.chats.open.get(&wake.agent) {
-                                chat.transcript.update(cx, |transcript, cx| {
-                                    transcript.list().scroll_by(px(delta as f32));
-                                    cx.notify();
-                                });
-                            }
-                        });
-                    }
-                    PageEvent::App(message)
-                        if message.get("method").and_then(Value::as_str)
-                            == Some("ui/request-display-mode") =>
-                    {
-                        match message.pointer("/params/mode").and_then(Value::as_str) {
-                            Some("fullscreen") if !is_expanded(&id, cx) => {
-                                let label = label_of(&id, cx);
-                                expand(id.clone(), label, wake.clone(), window, cx)
-                            }
-                            Some("inline") if is_expanded(&id, cx) => collapse(cx),
-                            _ => {}
-                        }
-                    }
-                    PageEvent::App(message) => ask(&id, message, &view, &wake, cx),
-                    PageEvent::Mod(_) => {}
+                let applied = cx.update(|window, cx| {
+                    let apps = apps(cx);
+                    let Some(view) = apps.views.iter().find(|view| view.id == kept) else {
+                        return;
+                    };
+                    view.stirred.set(Some(Instant::now()));
+                    let (pointer_over, Some(id)) = (view.pointer_over.clone(), view.app.clone())
+                    else {
+                        return;
+                    };
+                    let Some(wake) = apps.shown.get(&id).and_then(|shown| shown.wake.clone())
+                    else {
+                        return;
+                    };
+                    heard_from(&id, event, &pointer_over, &wake, window, cx);
                 });
                 if applied.is_err() {
                     break;
@@ -637,8 +643,60 @@ fn listen(
         .detach();
 }
 
-/// Passes a request the app made of its server to the core, and its answer back to the app.
-fn ask(id: &str, message: Value, view: &page_view::View, wake: &Wake, cx: &mut App) {
+fn heard_from(
+    id: &str,
+    event: PageEvent,
+    pointer_over: &Cell<bool>,
+    wake: &Wake,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    match event {
+        PageEvent::Height(_) if is_expanded(id, cx) => {}
+        PageEvent::Height(height) => {
+            if let Some(shown) = apps(cx).shown.get(id) {
+                shown.height.set(height as f32);
+            }
+            wake.reader.update(cx, |_, cx| cx.notify());
+        }
+        PageEvent::Escape if is_expanded(id, cx) => collapse(cx),
+        PageEvent::Escape => {}
+        PageEvent::Pointer(over) => pointer_over.set(over),
+        PageEvent::Link(url) => {
+            let _ = wake
+                .bench
+                .update(cx, |bench, cx| bench.open_on_desk(&wake.agent, &url, cx));
+        }
+        PageEvent::Wheel(delta) => {
+            let _ = wake.bench.update(cx, |bench, cx| {
+                if let Some(chat) = bench.chats.open.get(&wake.agent) {
+                    chat.transcript.update(cx, |transcript, cx| {
+                        transcript.list().scroll_by(px(delta as f32));
+                        cx.notify();
+                    });
+                }
+            });
+        }
+        PageEvent::App(message)
+            if message.get("method").and_then(Value::as_str) == Some("ui/request-display-mode") =>
+        {
+            match message.pointer("/params/mode").and_then(Value::as_str) {
+                Some("fullscreen") if !is_expanded(id, cx) => {
+                    let label = label_of(id, cx);
+                    expand(id.to_owned(), label, wake.clone(), window, cx)
+                }
+                Some("inline") if is_expanded(id, cx) => collapse(cx),
+                _ => {}
+            }
+        }
+        PageEvent::App(message) => ask(id, message, wake, cx),
+        PageEvent::Mod(_) => {}
+    }
+}
+
+/// Passes a request the app made of its server to the core, and its answer back to the app,
+/// if it still has its view by then.
+fn ask(id: &str, message: Value, wake: &Wake, cx: &mut App) {
     let Some(bench) = wake.bench.upgrade() else {
         return;
     };
@@ -657,43 +715,58 @@ fn ask(id: &str, message: Value, view: &page_view::View, wake: &Wake, cx: &mut A
             method: method.to_owned(),
             params: message.get("params").cloned().unwrap_or(Value::Null),
         });
-    let view = view.clone();
-    cx.spawn(async move |_| {
+    let id = id.to_owned();
+    cx.spawn(async move |cx| {
         let (ok, value) = match answer.await {
             Ok(result) => (true, result),
             Err(error) => (false, Value::String(error)),
         };
-        view.run(&format!(
-            "window.__sikemuxApp && window.__sikemuxApp.reply({asked}, {ok}, {value})"
-        ));
+        let _ = cx.update(|cx| {
+            if let Some(view) = apps(cx).view_of(&id) {
+                view.run(&format!(
+                    "window.__sikemuxApp && window.__sikemuxApp.reply({asked}, {ok}, {value})"
+                ));
+            }
+        });
     })
     .detach();
 }
 
-/// Keeps a live app's still fresh while it is in sight, and lets go of its view once it has been
-/// out of sight a while.
-async fn keep(id: String, wake: Wake, cx: &mut AsyncWindowContext) {
+/// Keeps a running app's still fresh once it has been quiet a moment, and hands its view back
+/// once it has been out of sight a while; a view no app then borrows is let go after a while.
+async fn keep(id: String, round: u64, cx: &mut AsyncWindowContext) {
     let mut hidden_since: Option<Instant> = None;
     loop {
         cx.background_executor().timer(TICK).await;
         let looked = cx.update(|_, cx| {
-            let shown = apps(cx).shown.get_mut(&id)?;
-            let live = shown.live.as_ref()?;
-            let in_sight = live.view.surface.placed().is_some();
-            if in_sight {
+            let apps = apps(cx);
+            let shown = apps.shown.get(&id).filter(|shown| shown.round == round)?;
+            let has_still = shown.still.is_some();
+            let wake = shown.wake.clone();
+            let kept = apps.kept(&id)?;
+            if kept.view.surface.placed().is_some() {
                 hidden_since = None;
-                if live.changed.replace(false) || live.pointer_over.get() || shown.still.is_none() {
-                    return Some(Look::Still(live.view.clone()));
+                let quiet = kept
+                    .stirred
+                    .get()
+                    .is_none_or(|stirred| stirred.elapsed() >= QUIET);
+                if quiet && !kept.pointer_over.get() && (kept.stirred.get().is_some() || !has_still)
+                {
+                    kept.stirred.set(None);
+                    return Some(Look::Still(kept.view.clone()));
                 }
                 return Some(Look::Rest);
             }
             let since = *hidden_since.get_or_insert_with(Instant::now);
-            if since.elapsed() >= GRACE {
-                shown.live = None;
-                wake.reader.update(cx, |_, cx| cx.notify());
-                return None;
+            if since.elapsed() < GRACE {
+                return Some(Look::Rest);
             }
-            Some(Look::Rest)
+            let kept = kept.id;
+            apps.hand_back(&id);
+            if let Some(wake) = wake {
+                wake.reader.update(cx, |_, cx| cx.notify());
+            }
+            Some(Look::HandedBack(kept))
         });
         match looked {
             Ok(Some(Look::Still(view))) => {
@@ -711,6 +784,17 @@ async fn keep(id: String, wake: Wake, cx: &mut AsyncWindowContext) {
                 }
             }
             Ok(Some(Look::Rest)) => {}
+            Ok(Some(Look::HandedBack(kept))) => {
+                cx.background_executor().timer(IDLE).await;
+                let _ = cx.update(|_, cx| {
+                    apps(cx).views.retain(|view| {
+                        view.id != kept
+                            || view.app.is_some()
+                            || view.freed.is_none_or(|freed| freed.elapsed() < IDLE)
+                    })
+                });
+                return;
+            }
             Ok(None) | Err(_) => return,
         }
     }
@@ -719,4 +803,5 @@ async fn keep(id: String, wake: Wake, cx: &mut AsyncWindowContext) {
 enum Look {
     Still(page_view::View),
     Rest,
+    HandedBack(u64),
 }

@@ -14,6 +14,7 @@ than the app's limit, or its frames or memory fall behind the plain chat's past 
 import importlib.util
 import json
 import os
+import shutil
 import subprocess
 import sys
 import threading
@@ -160,6 +161,8 @@ def main():
         print(f"apps kept {len(kept)}, app calls that reached the server {len(reached)}", flush=True)
     finally:
         run.tear_down()
+        for built in ("Sikemux GPUI Test.app", "app", "bin"):
+            shutil.rmtree(run.root / built, ignore_errors=True)
     for failure in failures:
         print(f"FAIL mcp apps: {failure}", flush=True)
     sys.exit(1 if failures else 0)
