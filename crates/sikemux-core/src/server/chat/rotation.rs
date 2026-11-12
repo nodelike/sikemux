@@ -1,4 +1,5 @@
-//! Replaces a capped chat's vendor session with a fresh one, behind the person's switch. The
+//! Replaces a capped chat's vendor session with a fresh one, behind the person's switch, and a
+//! big Claude chat's when it moves to another account, whose cache it would write anew. The
 //! chat the person sees is the core's record and stays one conversation. A session found full
 //! when a turn ends only writes its handoff note then; the fresh session starts with the next
 //! message, which carries the brief, so it never sits without one. The old session stays the
@@ -41,6 +42,14 @@ const EXCHANGES_CHARS: usize = 40_000;
 const LONGEST_LINE: usize = 600;
 /// The newest briefs kept to read again, per chat.
 const BRIEFS_KEPT: usize = 20;
+/// What a fresh Claude session sends before any history: its system prompt, tools and rules.
+/// Measured over three days of the person's chats, 62K to 68K.
+const FRESH_START_TOKENS: u64 = 65_000;
+/// On another account a session's history is written to a cold cache again. A brief takes its
+/// place only when the history is this many times the brief and at least the floor, for what
+/// the brief leaves out.
+const HISTORY_PER_BRIEF: u64 = 3;
+const LEAST_HISTORY: u64 = 30_000;
 /// What the old session is asked for while its cache is warm.
 pub(crate) const HANDOFF_ASK: &str = "Sikemux is about to carry this chat on in a fresh session, which starts from what Sikemux keeps. Write a handoff note of under 150 words for it: what you were in the middle of, what you meant to do next, and anything you suspect but have not checked. Plain text only. Do not use any tool.";
 
@@ -152,15 +161,18 @@ pub(crate) fn on(core: &Core) -> bool {
     core.preferences().get().chief_rotation
 }
 
-/// Whether rotation may touch the chat at all now: a capped Claude chat with the switch on, not
-/// lately failed, and nothing of the old session still running that a new one would cut off.
-fn may(core: &Core, chat: &Chat) -> bool {
-    chat.capped()
-        && on(core)
-        && chat.provider() == "claude"
+/// Whether a fresh session may take over now: a Claude chat not lately failed, with nothing of
+/// the old session still running that a new one would cut off.
+fn may_start_fresh(chat: &Chat) -> bool {
+    chat.provider() == "claude"
         && epoch_ms().saturating_sub(chat.rotation.inner.locked().failed_at) >= RETRY_MS
         && chat.feed.running_tasks() == 0
         && chat.feed.running_subagents() == 0
+}
+
+/// Whether rotation may touch the chat at all now: a capped chat with the switch on.
+fn may(core: &Core, chat: &Chat) -> bool {
+    chat.capped() && on(core) && may_start_fresh(chat)
 }
 
 /// Whether, at rest after a turn, the session has grown full and its note should be taken now,
@@ -181,29 +193,55 @@ pub(crate) fn readied(chat: &Chat, note: Option<String>) {
 }
 
 /// Why the chat's session should give way to a fresh one as a message is about to start a turn.
+/// Any Claude chat that moved to another account may; the rest wait on rotation's switch.
 pub(crate) fn due(core: &Core, chat: &Chat, now: &Footing) -> Option<RotationReason> {
-    if !may(core, chat) {
+    if !may_start_fresh(chat) {
         return None;
     }
+    let rotating = chat.capped() && on(core);
     let inner = chat.rotation.inner.locked();
     let was = inner.footing.as_ref()?;
     if was.session != now.session {
         return None;
     }
     let last_call = chat.meter.last_call_ms();
-    if inner.full {
+    if rotating && inner.full {
         return Some(RotationReason::Full);
     }
     if last_call == 0 {
         return None;
     }
-    if was.model != now.model {
+    if rotating && was.model != now.model {
         return Some(RotationReason::Model);
     }
     if was.account != now.account {
         return Some(RotationReason::Account);
     }
-    (epoch_ms().saturating_sub(last_call) >= AWAY_MS).then_some(RotationReason::Away)
+    (rotating && epoch_ms().saturating_sub(last_call) >= AWAY_MS).then_some(RotationReason::Away)
+}
+
+/// Whether starting fresh from `brief` costs the new account less than its cold cache reading
+/// the whole history. A rotation the person switched on always goes ahead.
+pub(crate) fn pays(
+    core: &Core,
+    chat: &Chat,
+    reason: RotationReason,
+    brief: &RotationBrief,
+) -> bool {
+    if reason != RotationReason::Account || (chat.capped() && on(core)) {
+        return true;
+    }
+    let briefed: u64 = (brief.sections.iter())
+        .filter(|section| section.kind != BriefSectionKind::Seat)
+        .map(|section| section.tokens)
+        .sum();
+    let history = chat.meter.context().saturating_sub(FRESH_START_TOKENS);
+    history >= (HISTORY_PER_BRIEF * briefed).max(LEAST_HISTORY)
+}
+
+/// The chat goes on in its session on the account it moved to.
+pub(crate) fn stays(chat: &Chat, now: Footing) {
+    chat.rotation.inner.locked().footing = Some(now);
 }
 
 /// What a fresh session starts from: its instructions, the message that goes with the next

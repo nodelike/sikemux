@@ -962,6 +962,7 @@ impl<B: Backend> Running<'_, B> {
             if replay.announce {
                 self.show(&replay);
             }
+            self.rotate_if_due().await;
             self.send(replay).await;
         }
     }
@@ -1017,6 +1018,10 @@ impl<B: Backend> Running<'_, B> {
             return;
         };
         let brief = rotation::brief(&core, &self.chat);
+        if !rotation::pays(&core, &self.chat, reason, &brief.whole) {
+            rotation::stays(&self.chat, self.footing());
+            return;
+        }
         let Some(mut launch) = self.chat.relaunch(self.launch) else {
             return;
         };
