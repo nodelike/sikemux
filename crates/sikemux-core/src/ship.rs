@@ -1430,35 +1430,60 @@ const VERCEL_READS: [&str; 20] = [
     "project", "projects", "teams", "login", "logout", "switch", "link", "dev", "build",
 ];
 
-/// Options that take free text as their value, which a flag-like word after them can be.
-const FREE_TEXT: [&str; 14] = [
-    "--description",
-    "--notes",
-    "--message",
-    "-m",
-    "--title",
-    "--body",
-    "--set",
-    "--set-string",
-    "--summary",
-    "--comment",
-    "--reason",
-    "--subject",
-    "-t",
-    "-n",
+/// Switches of the deploy and publish programs known to take no value, after which a
+/// `--dry-run` is the program's own flag.
+const SWITCHES: [&str; 33] = [
+    "--install",
+    "--allow-dirty",
+    "--force",
+    "--yes",
+    "-y",
+    "--wait",
+    "--no-wait",
+    "--atomic",
+    "--prebuilt",
+    "--prod",
+    "--no-verify",
+    "--verbose",
+    "-v",
+    "--quiet",
+    "-q",
+    "--debug",
+    "--recursive",
+    "--all",
+    "--prune",
+    "--force-with-lease",
+    "--set-upstream",
+    "-u",
+    "--no-build",
+    "--skip-build",
+    "--locked",
+    "--frozen",
+    "--offline",
+    "--no-git-checks",
+    "--create-namespace",
+    "--reuse-values",
+    "--reset-values",
+    "--cleanup-on-fail",
+    "--draft",
 ];
 
 /// Whether a command says it only tries: `--dry-run` in any form but kubectl's `none`, aws
-/// s3's `--dryrun`, or a request for its help, given as a flag of its own rather than as the
-/// value of an option before it that takes free text.
+/// s3's `--dryrun`, or a request for its help, given as a flag of its own: after a word that
+/// isn't an option, an option that carries its own value, or a switch known to take none.
+/// After any other option it is that option's value, and the action is real.
 fn dry_run(args: &[String]) -> bool {
     args.iter().enumerate().any(|(at, arg)| {
         let flag = arg == "--dry-run"
             || arg == "--dryrun"
             || arg == "--help"
             || (arg.strip_prefix("--dry-run=")).is_some_and(|value| value != "none");
-        let value_of_another = (at.checked_sub(1).and_then(|before| args.get(before)))
-            .is_some_and(|before| FREE_TEXT.contains(&before.as_str()));
+        let value_of_another =
+            (at.checked_sub(1).and_then(|before| args.get(before))).is_some_and(|before| {
+                before.starts_with('-')
+                    && !before.contains('=')
+                    && !SWITCHES.contains(&before.as_str())
+            });
         flag && !value_of_another
     })
 }

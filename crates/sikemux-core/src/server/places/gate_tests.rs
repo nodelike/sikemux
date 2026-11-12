@@ -764,3 +764,66 @@ fn a_relative_kube_config_is_read_where_it_runs() {
     );
     assert_eq!(ships[0].target, None);
 }
+
+fn closed_after_restart(data: &Path, id: &str) -> Option<CallResult> {
+    let again = Core::new(Default::default(), Some(data)).unwrap();
+    let call = crate::server::person_calls::shown(&again)
+        .into_iter()
+        .find(|call| call.id == id)?;
+    call.outcome.map(|outcome| outcome.result)
+}
+
+async fn answer_on_the_card(core: &Arc<Core>, id: &str) {
+    let seen = sikemux_view::calls::CallParams { id: id.to_owned() };
+    crate::server::person_calls::seen(core, &Peer::App, seen).unwrap();
+    let params = sikemux_view::calls::AnswerCallParams {
+        id: id.to_owned(),
+        option: Some("allow".to_owned()),
+        options: Vec::new(),
+        note: None,
+        words: None,
+    };
+    crate::server::person_calls::answer(core, &Peer::App, params)
+        .await
+        .unwrap();
+}
+
+/// A tap in the app marked the gate's call started before the agent ran anything, so a restart
+/// then said it may have run.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_tap_on_the_card_starts_nothing_until_the_agent_runs_it() {
+    let dir = repo();
+    let data = tempfile::tempdir().unwrap();
+    let (cwd, project) = work_of(&dir);
+    let core = core_at(Some(data.path()), &project, vec![vercel_place()]);
+    assert!(run(&core, deploy("vercel --prod"), &cwd).is_err());
+    let id = open_calls(&core).remove(0).id;
+    answer_on_the_card(&core, &id).await;
+    drop(core);
+    assert_eq!(
+        closed_after_restart(data.path(), &id),
+        Some(CallResult::NotShipped)
+    );
+}
+
+/// A deploy's retry after its first command ended kept the first command's result through a
+/// restart, and the agent heard nothing.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_retry_that_started_after_an_end_may_have_run() {
+    let dir = repo();
+    let data = tempfile::tempdir().unwrap();
+    let (cwd, project) = work_of(&dir);
+    let core = core_at(Some(data.path()), &project, vec![vercel_place()]);
+    assert!(run(&core, deploy("vercel --prod"), &cwd).is_err());
+    let id = open_calls(&core).remove(0).id;
+    answer_on_the_card(&core, &id).await;
+    let first = run(&core, deploy("vercel --prod"), &cwd).unwrap().unwrap();
+    ship::ended(core.clone(), first, Some(Verdict::Failed), String::new()).await;
+    std::thread::sleep(std::time::Duration::from_millis(2));
+    assert!(run(&core, deploy("vercel --prod"), &cwd).unwrap().is_some());
+    drop(core);
+    assert_eq!(
+        closed_after_restart(data.path(), &id),
+        Some(CallResult::MayHaveRun)
+    );
+}

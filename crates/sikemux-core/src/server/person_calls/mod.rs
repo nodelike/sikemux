@@ -856,11 +856,16 @@ pub(crate) fn sync_holds(core: &Core, wanted: Vec<(String, PersonCall)>) {
 }
 
 /// What the yes of the call `id` lets run is about to start, so a restart says it may have run
-/// rather than that nothing did. When that can't be recorded for sure, nothing may run.
+/// rather than that nothing did: the first time, and again once what ran last has an outcome.
+/// When that can't be recorded for sure, nothing may run.
 pub(crate) fn started(core: &Core, id: &str) -> Result<(), String> {
     let mut book = core.person_calls.book.locked();
+    let since = |kept: &Kept| match kept.started {
+        None => true,
+        Some(started) => (kept.call.outcome.as_ref()).is_some_and(|came| came.at > started),
+    };
     match kept(&book, id) {
-        Some(kept) if kept.started.is_none() => {
+        Some(kept) if since(kept) => {
             let at = epoch_ms();
             let started = Entry::Started {
                 id: id.to_owned(),
@@ -881,7 +886,11 @@ impl PersonCalls {
             return Ok(());
         };
         let picked = (kept.call.answer.as_ref()).and_then(|answer| answer.option.as_deref());
+        let gate = matches!(kept.source, Source::Raised)
+            && kept.call.place.is_some()
+            && kept.key.is_some();
         let now = !matches!(kept.source, Source::Hold(_))
+            && !gate
             && picked.is_some_and(|option| allows(kept, option));
         if !now || kept.started.is_some() {
             return Ok(());

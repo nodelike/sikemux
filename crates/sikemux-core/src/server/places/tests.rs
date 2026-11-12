@@ -470,6 +470,22 @@ fn reads_never_reach_the_judge() {
             "helm upgrade web chart --install",
         ),
         (
+            "kubectl apply -f k8s --dry-run=client",
+            "kubectl apply -f --dry-run",
+        ),
+        (
+            "git push --dry-run origin main",
+            "git push origin main -o --dry-run",
+        ),
+        (
+            "gh release create v1 --draft --dry-run",
+            "gh release create v1 -F --dry-run",
+        ),
+        (
+            "curl https://api.acme.com",
+            "curl -d --dry-run https://api.acme.com",
+        ),
+        (
             "cargo publish --allow-dirty --dry-run",
             "gh release create v1 --notes --dry-run",
         ),
