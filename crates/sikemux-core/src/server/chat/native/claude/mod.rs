@@ -423,7 +423,7 @@ impl Claude {
         let initialized = tokio::select! {
             answer = control.request(json!({
                 "subtype": "initialize",
-                "hooks": if capped { cap::claude_hooks() } else { json!({}) },
+                "hooks": cap::claude_hooks(capped),
                 "forwardSubagentText": true,
                 "perTaskStopAffordance": true,
             })) => answer,

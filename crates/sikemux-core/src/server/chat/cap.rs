@@ -22,7 +22,7 @@ use crate::server::{inbox, person_calls, roster, Core};
 pub(crate) const CLAUDE_WINDOW: u64 = 183_000;
 /// The callbacks Claude calls before it compacts and as it starts again after.
 pub(crate) const KEEP_HOOK: &str = "sikemux-keep";
-pub(crate) const FACTS_HOOK: &str = "sikemux-facts";
+pub(crate) const AFTER_COMPACT_HOOK: &str = "sikemux-after-compact";
 /// Claude cuts what a compaction hook answers past this many characters.
 const HOOK_CHARS: usize = 10_000;
 /// One message of the person's past this is cut, so a pasted log leaves room for the rest.
@@ -47,12 +47,16 @@ const IDLE_COMPACT_UNCAPPED_TOKENS: u64 = 150_000;
 pub(crate) const IDLE_FOCUS: &str =
     "Keep what the person asked for and decided, and the work still open.";
 
-/// The hooks a capped Claude chat registers as it starts.
-pub(crate) fn claude_hooks() -> Value {
-    json!({
-        "PreCompact": [{ "hookCallbackIds": [KEEP_HOOK] }],
-        "SessionStart": [{ "matcher": "compact", "hookCallbackIds": [FACTS_HOOK] }],
-    })
+/// The hooks a Claude chat registers as it starts. Every chat is handed Sikemux's words back
+/// after a compaction; only a capped one is told what to keep before it.
+pub(crate) fn claude_hooks(capped: bool) -> Value {
+    let mut hooks = json!({
+        "SessionStart": [{ "matcher": "compact", "hookCallbackIds": [AFTER_COMPACT_HOOK] }],
+    });
+    if capped {
+        hooks["PreCompact"] = json!([{ "hookCallbackIds": [KEEP_HOOK] }]);
+    }
+    hooks
 }
 
 /// When the chat's session last called the model and how much context that call carried.
@@ -150,17 +154,29 @@ pub(crate) fn keep_list(core: &Core, chat: &Chat) -> String {
     text
 }
 
-/// What the core knows now that the session should have back after a compaction.
-pub(crate) fn facts(core: &Core, agent_id: &str) -> Option<String> {
-    let open = open_work(core, agent_id);
-    if open.is_empty() {
+/// What a session is handed back after its compaction: what Sikemux keeps for the project,
+/// unless its system prompt holds that already, and for a capped chat what is open now.
+pub(crate) fn after_compaction(core: &Core, chat: &Chat) -> Option<String> {
+    let agent_id = chat.agent_id();
+    let brief = (chat.brief().is_none())
+        .then(|| crate::server::memory::brief(core, agent_id, None))
+        .flatten();
+    let open = if chat.capped() {
+        open_work(core, agent_id)
+    } else {
+        Vec::new()
+    };
+    let facts = (!open.is_empty()).then(|| {
+        format!(
+            "Sikemux's facts as the session goes on after its compaction:\n{}",
+            open.join("\n")
+        )
+    });
+    let text: Vec<String> = [brief, facts].into_iter().flatten().collect();
+    if text.is_empty() {
         return None;
     }
-    let text = format!(
-        "Sikemux's facts as the session goes on after its compaction:\n{}",
-        open.join("\n")
-    );
-    Some(text.chars().take(HOOK_CHARS).collect())
+    Some(text.join("\n\n").chars().take(HOOK_CHARS).collect())
 }
 
 /// The calls open to the person in the chat's project, what the chat waits on, and where each

@@ -258,9 +258,9 @@ impl Telling {
     }
 
     /// What the session is told after its compaction.
-    pub fn facts(&self) -> Option<String> {
+    pub fn after_compaction(&self) -> Option<String> {
         let core = self.chat.core.upgrade()?;
-        cap::facts(&core, self.chat.agent_id())
+        cap::after_compaction(&core, &self.chat)
     }
 
     /// The session called the model with `context` tokens.

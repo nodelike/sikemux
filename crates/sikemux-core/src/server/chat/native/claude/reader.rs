@@ -607,12 +607,12 @@ impl Reader {
                     Some(cap::KEEP_HOOK) => {
                         json!({ "continue": true, "systemMessage": self.sink.keep_list() })
                     }
-                    Some(cap::FACTS_HOOK) => match self.sink.facts() {
-                        Some(facts) => json!({
+                    Some(cap::AFTER_COMPACT_HOOK) => match self.sink.after_compaction() {
+                        Some(context) => json!({
                             "continue": true,
                             "hookSpecificOutput": {
                                 "hookEventName": "SessionStart",
-                                "additionalContext": facts,
+                                "additionalContext": context,
                             },
                         }),
                         None => json!({ "continue": true }),
