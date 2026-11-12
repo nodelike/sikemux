@@ -1047,6 +1047,17 @@ fn panel(t: &Tokens) -> gpui_kit::Div {
         .border_1()
         .border_color(t.line)
         .rounded(RADIUS_4)
+        .shadow(vec![card_shadow(2., 4., 0.35), card_shadow(14., 40., 0.45)])
+}
+
+fn card_shadow(down: f32, blur: f32, alpha: f32) -> gpui_kit::BoxShadow {
+    gpui_kit::BoxShadow {
+        color: gpui_kit::hsla(0., 0., 0., alpha),
+        offset: gpui_kit::point(px(0.), px(down)),
+        blur_radius: px(blur),
+        spread_radius: px(0.),
+        inset: false,
+    }
 }
 
 /// What came of a call, in one quiet line where its card stood: what the person said and what
