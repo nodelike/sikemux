@@ -1,3 +1,4 @@
+import { english, type Say } from "../lib/say";
 import type { ChatMessage } from "../wire.generated";
 
 /** Said above a chat whose host no longer keeps its first turns. */
@@ -8,8 +9,8 @@ export function rowTime(message: ChatMessage): number | null {
     return (message.role === "user" ? message.sentAt : message.meta?.at) ?? null;
 }
 
-export function rateLabel(rate: number): string {
-    return `~${rate < 10 ? rate.toFixed(1) : Math.round(rate)} tok/s`;
+export function rateLabel(rate: number, say: Say = english): string {
+    return say("~{rate} tok/s", { rate: rate < 10 ? rate.toFixed(1) : Math.round(rate) });
 }
 
 /* What a reader means by "copy this message": the prose, the agent's reasoning
@@ -39,22 +40,27 @@ export function copyText(messages: readonly ChatMessage[], index: number): strin
 const DAY_MS = 24 * 60 * 60 * 1000;
 const startOfDay = (at: number): number => new Date(at).setHours(0, 0, 0, 0);
 
+function daysBefore(now: number, at: number): number {
+    return Math.round((startOfDay(now) - startOfDay(at)) / DAY_MS);
+}
+
+const clockTime = (at: number, locale?: string): string => new Date(at).toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" });
+
 /** When a message was sent, as a reader scanning the transcript wants it: "Today, 21:07", "Yesterday, 14:02", "29 Sep, 09:15". */
-export function sentLabel(at: number, now = Date.now(), locale?: string): string {
+export function sentLabel(at: number, now = Date.now(), locale?: string, say: Say = english): string {
     const date = new Date(at);
-    const time = date.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" });
-    const days = Math.round((startOfDay(now) - startOfDay(at)) / DAY_MS);
-    if (days === 0) return `Today, ${time}`;
-    if (days === 1) return `Yesterday, ${time}`;
+    const time = clockTime(at, locale);
+    const days = daysBefore(now, at);
+    if (days === 0) return say("Today, {time}", { time });
+    if (days === 1) return say("Yesterday, {time}", { time });
     const sameYear = date.getFullYear() === new Date(now).getFullYear();
     const day = date.toLocaleDateString(locale, { day: "numeric", month: "short", ...(sameYear ? {} : { year: "numeric" }) });
-    return `${day}, ${time}`;
+    return say("{day}, {time}", { day, time });
 }
 
 /** When a message came, as the line over someone else's bubble says it: today only the time. */
-export function clockLabel(at: number, now = Date.now(), locale?: string): string {
-    const label = sentLabel(at, now, locale);
-    return label.startsWith("Today, ") ? label.slice("Today, ".length) : label;
+export function clockLabel(at: number, now = Date.now(), locale?: string, say: Say = english): string {
+    return daysBefore(now, at) === 0 ? clockTime(at, locale) : sentLabel(at, now, locale, say);
 }
 
 /** The whole moment, for a tooltip: "Tuesday, 29 September 2026 at 21:07:15". */

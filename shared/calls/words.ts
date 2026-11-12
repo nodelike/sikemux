@@ -1,5 +1,6 @@
 import type { PersonCall, TurnPhase, TurnState, TurnStep, TurnWait, WorkAt } from "../wire.generated";
 import { clockLabel } from "../chat/messageMeta";
+import { elapsedLabel } from "../chat/durationLabel";
 import { english, type Say } from "../lib/say";
 
 /**
@@ -23,7 +24,7 @@ export function said(turn: TurnState, maker: string, now = Date.now(), say: Say 
     switch (turn.state) {
         case "working":
             if (!turn.on) return undefined;
-            return { word: say("Working"), phase: "working", parts: [lowered(turn.on), elapsed(Math.floor((now - turn.since) / 1000))] };
+            return { word: say("Working"), phase: "working", parts: [lowered(turn.on), elapsed(Math.floor((now - turn.since) / 1000), say)] };
         case "waiting": {
             if (!turn.wait) return undefined;
             const gone = waited(turn.wait, now, say);
@@ -62,7 +63,8 @@ export function said(turn: TurnState, maker: string, now = Date.now(), say: Say 
                         ? say("lost the connection to {maker}", { maker })
                         : (failed.said ?? say("the turn did not finish"));
             const parts = [why];
-            if (failed.resetsAt != null && failed.resetsAt > now) parts.push(say("resets {when}", { when: clockLabel(failed.resetsAt, now) }));
+            if (failed.resetsAt != null && failed.resetsAt > now)
+                parts.push(say("resets {when}", { when: clockLabel(failed.resetsAt, now, undefined, say) }));
             return { word: say("Failed"), phase: "failed", parts };
         }
         default:
@@ -90,7 +92,7 @@ export function waitingOn(wait: TurnWait, say: Say = english): string {
         case "agent":
             return say("Waiting on {what}", { what: wait.what.startsWith("@") ? wait.what : `@${wait.what}` });
         case "timer":
-            return wait.until != null ? say("Waiting until {when}", { when: clockLabel(wait.until) }) : say("Waiting");
+            return wait.until != null ? say("Waiting until {when}", { when: clockLabel(wait.until, undefined, undefined, say) }) : say("Waiting");
         default:
             return say("Waiting on {what}", { what: wait.what });
     }
@@ -149,12 +151,8 @@ export function stepLabel(step: TurnStep, say: Say = english): string | undefine
 export const LOOK = "Look";
 
 /** How long a turn has run, clock style as the Mac says it: `45s`, `3m 07s`, `2h 05m`. */
-export function elapsed(seconds: number): string {
-    const s = Math.max(0, seconds);
-    const two = (value: number) => String(value).padStart(2, "0");
-    if (s < 60) return `${s}s`;
-    if (s < 3600) return `${Math.floor(s / 60)}m ${two(s % 60)}s`;
-    return `${Math.floor(s / 3600)}h ${two(Math.floor(s / 60) % 60)}m`;
+export function elapsed(seconds: number, say: Say = english): string {
+    return elapsedLabel(Math.max(0, seconds), say);
 }
 
 /** The agent's own words, as they read after a dot: the first letter small unless it starts a name. */
@@ -181,35 +179,35 @@ export function ringShare(wait: TurnWait | undefined, now = Date.now()): number 
  * The time beside a row's mark: how long a call has waited, the minutes left on a wait with an estimate, or how long
  * until a set time; nothing else has a time.
  */
-export function rowMinutes(turn: TurnState, now = Date.now()): string | undefined {
+export function rowMinutes(turn: TurnState, now = Date.now(), say: Say = english): string | undefined {
     if (turn.state === "needsYou") {
-        return turn.call ? `${Math.max(1, Math.floor((now - turn.call.waitingSince) / MINUTE))}m` : undefined;
+        return turn.call ? say("{count}m", { count: Math.max(1, Math.floor((now - turn.call.waitingSince) / MINUTE)) }) : undefined;
     }
     if (turn.state !== "waiting" || !turn.wait) return undefined;
     const wait = turn.wait;
     if (ringShare(wait, now) != null && wait.expectedMs) {
-        return `${Math.max(1, Math.ceil((wait.startedAt + wait.expectedMs - now) / MINUTE))}m`;
+        return say("{count}m", { count: Math.max(1, Math.ceil((wait.startedAt + wait.expectedMs - now) / MINUTE)) });
     }
-    return wait.until != null ? countdown(wait.until - now) : undefined;
+    return wait.until != null ? countdown(wait.until - now, say) : undefined;
 }
 
 /** Time left until something fires: now, 12m, 3h, 4d; minutes rounded up under an hour. */
-export function countdown(ms: number): string {
-    if (ms <= 0) return "now";
+export function countdown(ms: number, say: Say = english): string {
+    if (ms <= 0) return say("now");
     const minutes = Math.ceil(ms / MINUTE);
-    if (minutes < 60) return `${minutes}m`;
-    if (minutes < 24 * 60) return `${Math.floor(minutes / 60)}h`;
-    return `${Math.floor(minutes / (24 * 60))}d`;
+    if (minutes < 60) return say("{count}m", { count: minutes });
+    if (minutes < 24 * 60) return say("{count}h", { count: Math.floor(minutes / 60) });
+    return say("{count}d", { count: Math.floor(minutes / (24 * 60)) });
 }
 
 /** What a row's mark says to a screen reader, the hover card's words on the Mac. */
 export function rowLabel(turn: TurnState, now = Date.now(), say: Say = english): string {
-    const time = rowMinutes(turn, now) ?? "";
+    const time = rowMinutes(turn, now, say) ?? "";
     switch (turn.state) {
         case "working":
             return say("Working");
         case "waiting":
-            return turn.wait ? `${waitingOn(turn.wait, say)}, ${time}` : say("Waiting");
+            return turn.wait ? say("{waiting}, {time}", { waiting: waitingOn(turn.wait, say), time }) : say("Waiting");
         case "needsYou":
             return say("Needs you, {time}", { time });
         case "done":
@@ -315,7 +313,7 @@ export function cameOf(call: PersonCall, say: Say = english): string {
     const picked = answer.option != null ? [answer.option] : (answer.options ?? []);
     if (picked.length === 1 && picked[0] === call.pick) return say("as picked");
     const labels = picked.map((id) => call.options.find((option) => option.id === id)?.label).filter((label) => label != null);
-    return labels.length ? labels.map((label) => `“${label}”`).join(", ") : "answered";
+    return labels.length ? labels.map((label) => say("“{label}”", { label })).join(", ") : say("answered");
 }
 
 // The push

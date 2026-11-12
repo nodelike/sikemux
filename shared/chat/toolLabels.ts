@@ -1,3 +1,4 @@
+import { english, type Say } from "../lib/say";
 import { safeWebUrl } from "../lib/urls";
 import type { ToolAction, ToolCall } from "../wire.generated";
 
@@ -16,8 +17,8 @@ const ACTION_WORDS: Record<ToolAction, string> = {
     other: "tool",
 };
 
-export function toolKind(tool: ToolCall): string {
-    return tool.row.verb ?? tool.row.server ?? ACTION_WORDS[tool.row.action];
+export function toolKind(tool: ToolCall, say: Say = english): string {
+    return tool.row.verb ?? tool.row.server ?? say(ACTION_WORDS[tool.row.action]);
 }
 
 export function toolUrl(target: string): { before: string; raw: string; url: string; after: string } | null {

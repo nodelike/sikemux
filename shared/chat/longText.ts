@@ -1,4 +1,5 @@
 import { createContext, useContext, useMemo, useState } from "react";
+import { english, type Say } from "../lib/say";
 import { revealBlocks, visibleLength } from "../markdown/visible";
 import type { MdElement } from "../markdown/types";
 
@@ -18,7 +19,8 @@ function openFence(text: string): string | null {
     return open;
 }
 
-export const showRestLabel = (hidden: number): string => `Show the rest · ${Math.round(hidden / 1000)}k more characters`;
+export const showRestLabel = (hidden: number, say: Say = english): string =>
+    say("Show the rest · {count}k more characters", { count: Math.round(hidden / 1000) });
 
 export function cutLongText(text: string, limit = LONG_TEXT_LIMIT): TextCut | null {
     if (text.length <= limit) return null;

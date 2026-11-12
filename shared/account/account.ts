@@ -1,3 +1,4 @@
+import { english, type Say } from "../lib/say";
 import { ApiProblem } from "./api";
 
 /** What to tell the person when nothing more is known about what failed. */
@@ -64,13 +65,14 @@ export function chooseFactor(
         emailAddressId?: string;
         safeIdentifier?: string;
     }[],
+    say: Say = english,
 ): Factor | undefined {
     if (supported.some((factor) => factor.strategy === "password")) return { strategy: "password" };
     for (const factor of supported)
         if (factor.strategy === "email_code" && factor.emailAddressId)
             return {
                 strategy: "email_code",
-                to: factor.safeIdentifier ?? "your email",
+                to: factor.safeIdentifier ?? say("your email"),
                 emailAddressId: factor.emailAddressId,
             };
     return undefined;

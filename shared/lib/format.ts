@@ -1,8 +1,10 @@
+import { english, type Say } from "./say";
+
 const AGE: [limit: number, unit: string, per: number][] = [
-    [3600, "m", 60],
-    [86_400, "h", 3600],
-    [2_592_000, "d", 86_400],
-    [31_536_000, "mo", 2_592_000],
+    [3600, "{count}m", 60],
+    [86_400, "{count}h", 3600],
+    [2_592_000, "{count}d", 86_400],
+    [31_536_000, "{count}mo", 2_592_000],
 ];
 
 function timeOf(at: number | string | null | undefined): number | null {
@@ -12,30 +14,32 @@ function timeOf(at: number | string | null | undefined): number | null {
 }
 
 /** How long ago, in a tight column: `now`, `5m`, `3h`, `4d`, `2mo`, `1y`. Takes epoch milliseconds or an ISO date. */
-export function formatAge(at: number | string | null | undefined, now = Date.now()): string {
+export function formatAge(at: number | string | null | undefined, now = Date.now(), say: Say = english): string {
     const time = timeOf(at);
     if (time === null) return "—";
     const seconds = Math.max(0, Math.floor((now - time) / 1000));
-    if (seconds < 60) return "now";
+    if (seconds < 60) return say("now");
     for (const [limit, unit, per] of AGE) {
-        if (seconds < limit) return `${Math.floor(seconds / per)}${unit}`;
+        if (seconds < limit) return say(unit, { count: Math.floor(seconds / per) });
     }
-    return `${Math.floor(seconds / 31_536_000)}y`;
+    return say("{count}y", { count: Math.floor(seconds / 31_536_000) });
 }
 
 /** How long ago, in a sentence: `now`, `5m ago`, `3h ago`. */
-export function formatAgo(at: number | string | null | undefined, now = Date.now()): string {
-    const age = formatAge(at, now);
-    return age === "now" || age === "—" ? age : `${age} ago`;
+export function formatAgo(at: number | string | null | undefined, now = Date.now(), say: Say = english): string {
+    const time = timeOf(at);
+    if (time === null) return "—";
+    if (now - time < 60_000) return say("now");
+    return say("{age} ago", { age: formatAge(at, now, say) });
 }
 
 /** A countdown in words: `5 min`, `1 hour`, `3 hours`, `2 days`. */
-export function formatTimeLeft(until: number, now: number): string {
+export function formatTimeLeft(until: number, now: number, say: Say = english): string {
     const minutes = Math.max(1, Math.round((until - now) / 60_000));
-    if (minutes < 60) return `${minutes} min`;
+    if (minutes < 60) return say("{minutes} min", { minutes });
     const hours = Math.round(minutes / 60);
-    if (hours < 48) return hours === 1 ? "1 hour" : `${hours} hours`;
-    return `${Math.round(hours / 24)} days`;
+    if (hours < 48) return hours === 1 ? say("1 hour") : say("{hours} hours", { hours });
+    return say("{days} days", { days: Math.round(hours / 24) });
 }
 
 const BYTE_UNITS = ["KB", "MB", "GB", "TB"];

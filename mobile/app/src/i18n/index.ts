@@ -3,6 +3,7 @@ import { getLocales, type Locale } from 'expo-localization';
 import * as SecureStore from 'expo-secure-store';
 
 import { externalValue, useExternalValue } from '@shared/lib/externalValue';
+import { english, type Say } from '@shared/lib/say';
 import de from './de.json';
 import es from './es.json';
 import fr from './fr.json';
@@ -27,7 +28,7 @@ export const LANGUAGES = [
 
 export type Language = (typeof LANGUAGES)[number]['code'];
 export type LanguageChoice = Language | 'system';
-export type Translate = (english: string, values?: Record<string, string | number>) => string;
+export type Translate = Say;
 
 const TABLES: Record<Exclude<Language, 'en'>, Record<string, string>> = {
   es,
@@ -92,20 +93,23 @@ const system = externalValue<Language>(systemLanguage(), () => {
   return () => following.remove();
 });
 
-const translators = new Map<Language, Translate>();
+const translators = new Map<Exclude<Language, 'en'>, Translate>();
 
 function translatorFor(language: Language): Translate {
+  if (language === 'en') return english;
   let translate = translators.get(language);
   if (!translate) {
-    const table = language === 'en' ? undefined : TABLES[language];
-    translate = (english, values) =>
-      (table?.[english] || english).replace(/\{(\w+)\}/g, (whole, name: string) =>
-        values && name in values ? String(values[name]) : whole,
-      );
+    const table = TABLES[language];
+    translate = (text, values) => english(table[text] || text, values);
     translators.set(language, translate);
   }
   return translate;
 }
+
+const currentLanguage = () => (choice.get() === 'system' ? system.get() : (choice.get() as Language));
+
+/** Words said outside a screen's drawing, such as an alert or a notification, in the language the app speaks now. */
+export const translate: Translate = (text, values) => translatorFor(currentLanguage())(text, values);
 
 export function useLanguageChoice(): LanguageChoice {
   return useExternalValue(choice);

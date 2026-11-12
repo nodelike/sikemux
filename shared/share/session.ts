@@ -3,6 +3,7 @@ import { ShareCloseCode } from "../../server/protocol/generated/types";
 import { OVER_LIMIT_WAIT_MS, reconnectDelay, SignInRenewal } from "../account/renewal";
 import { agentLabel, setAgentCatalog } from "../agents/catalog";
 import { imageType } from "../lib/imagePaths";
+import { english, type Say } from "../lib/say";
 import { applyChanges, emptyChat, fromView, withPage } from "../chat/rows";
 import type { ChatChange, ToolDetail, ShareAsk, SharedChat, ShareFrame, ShareReply } from "../wire.generated";
 import type { ChatRows } from "../chat/rows";
@@ -39,7 +40,7 @@ export interface ShareSnapshot {
 }
 
 /** What a shared chat is called: the app's name for it, else its first message, else its agent's. */
-export function sharedChatTitle(snapshot: ShareSnapshot): string {
+export function sharedChatTitle(snapshot: ShareSnapshot, say: Say = english): string {
     if (snapshot.chat?.title) return snapshot.chat.title;
     if (snapshot.agent.title) return snapshot.agent.title;
     const first = snapshot.agent.messages.find((message) => message.role === "user");
@@ -47,7 +48,7 @@ export function sharedChatTitle(snapshot: ShareSnapshot): string {
     const text = first?.letters?.[0]?.text ?? (part?.kind === "text" ? part.text : "");
     const words = text.split(/\s+/).filter(Boolean).join(" ");
     if (words) return words.length > 80 ? `${words.slice(0, 79)}…` : words;
-    return `${agentLabel(snapshot.chat?.provider ?? "agent")} chat`;
+    return say("{agent} chat", { agent: agentLabel(snapshot.chat?.provider ?? "agent") });
 }
 
 interface ShareSessionOptions {

@@ -1,3 +1,4 @@
+import { english, type Say } from "../lib/say";
 import { tokenCount } from "./contextUsage";
 import { toolKind } from "./toolLabels";
 import { callCount } from "./toolView";
@@ -5,14 +6,14 @@ import type { AsyncTask, ChatPart, SubagentCard, WorkflowAgent } from "../wire.g
 
 const MAX_DETAIL_CHARS = 120_000;
 
-export function formatDetail(value: unknown): string {
+export function formatDetail(value: unknown, say: Say = english): string {
     let formatted: string;
     try {
         formatted = JSON.stringify(value, null, 2) ?? String(value);
     } catch {
         formatted = String(value);
     }
-    return formatted.length > MAX_DETAIL_CHARS ? `${formatted.slice(0, MAX_DETAIL_CHARS)}\n… output truncated` : formatted;
+    return formatted.length > MAX_DETAIL_CHARS ? `${formatted.slice(0, MAX_DETAIL_CHARS)}\n${say("… output truncated")}` : formatted;
 }
 
 /* An attachment arrives as bytes and a type, with nothing naming it, so the
@@ -83,16 +84,16 @@ export function subagentTask(task: string): string {
 
 /* What a subagent is up to: the call it made last says more than the prose it
    wrote before starting. */
-export function subagentActivity(subagent: SubagentCard): string {
-    if (subagent.lastTool) return `${toolKind(subagent.lastTool)} ${subagent.lastTool.row.target}`.trim();
+export function subagentActivity(subagent: SubagentCard, say: Say = english): string {
+    if (subagent.lastTool) return `${toolKind(subagent.lastTool, say)} ${subagent.lastTool.row.target}`.trim();
     return subagentTask(subagent.task);
 }
 
 /* A task whose description repeats its name would print the same words twice,
    once in each voice, so the detail takes the first thing that says more. */
-export function taskDetail(task: AsyncTask): string | undefined {
+export function taskDetail(task: AsyncTask, say: Say = english): string | undefined {
     const detail = [task.summary, task.description, task.lastToolName, task.taskType].find((text) => text && text !== task.name);
-    return [task.owner && `from ${task.owner}`, detail].filter(Boolean).join(" · ") || undefined;
+    return [task.owner && say("from {owner}", { owner: task.owner }), detail].filter(Boolean).join(" · ") || undefined;
 }
 
 /* A running agent says what it is doing; one that ended says which phase it was in. */
@@ -102,18 +103,24 @@ export function workflowAgentDetail(agent: WorkflowAgent): string | undefined {
     return agent.phase;
 }
 
-export function workflowAgentCost(agent: WorkflowAgent): string | undefined {
-    const cost = [agent.tokens && `${tokenCount(agent.tokens)} tokens`, agent.toolCalls && `${agent.toolCalls} tools`];
+export function workflowAgentCost(agent: WorkflowAgent, say: Say = english): string | undefined {
+    const cost = [
+        agent.tokens && say("{count} tokens", { count: tokenCount(agent.tokens) }),
+        agent.toolCalls && say("{count} tools", { count: agent.toolCalls }),
+    ];
     return cost.filter(Boolean).join(" · ") || undefined;
 }
 
-export function workflowAgentCount(agents: WorkflowAgent[]): string {
+export function workflowAgentCount(agents: WorkflowAgent[], say: Say = english): string {
     const finished = agents.filter((agent) => agent.state === "completed" || agent.state === "failed").length;
-    return `${finished}/${agents.length} ${agents.length === 1 ? "agent" : "agents"}`;
+    return agents.length === 1 ? say("{finished}/1 agent", { finished }) : say("{finished}/{count} agents", { finished, count: agents.length });
 }
 
-export function subagentCost(subagent: SubagentCard): string | undefined {
-    const cost = [subagent.tokens && `${tokenCount(subagent.tokens)} tokens`, subagent.calls > 0 && callCount(subagent.calls)];
+export function subagentCost(subagent: SubagentCard, say: Say = english): string | undefined {
+    const cost = [
+        subagent.tokens && say("{count} tokens", { count: tokenCount(subagent.tokens) }),
+        subagent.calls > 0 && callCount(subagent.calls, say),
+    ];
     return cost.filter(Boolean).join(" · ") || undefined;
 }
 

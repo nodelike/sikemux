@@ -1,4 +1,5 @@
 import type { ChatMessage, TeamLine } from "../wire.generated";
+import { english, type Say } from "../lib/say";
 import { durationLabel } from "./durationLabel";
 
 /** How far the reader opened a run of messages between agents. */
@@ -51,26 +52,29 @@ export function teamRows(rows: readonly ChatMessage[], how: (id: string) => RunO
 }
 
 /** What a run's line says after its count, and whether it wants the person. */
-export function teamWords(line: TeamLine): { words: string; wanting: boolean } {
+export function teamWords(line: TeamLine, say: Say = english): { words: string; wanting: boolean } {
     const need = line.need;
     if (!need) return { words: line.latest ? `@${line.latest.name}: ${line.latest.text}` : "", wanting: false };
     const name = `@${need.name}`;
+    const text = need.text;
     const words = {
-        asks: need.text ? `${name} asks: ${need.text}` : `${name} has a question`,
-        waits: need.text ? `${name}: ${need.text}` : `${name} waits on you`,
-        failed: need.text ? `${name} failed: ${need.text}` : `${name} failed`,
-        stopped: `${name} stopped`,
+        asks: text ? say("{name} asks: {text}", { name, text }) : say("{name} has a question", { name }),
+        waits: text ? `${name}: ${text}` : say("{name} waits on you", { name }),
+        failed: text ? say("{name} failed: {text}", { name, text }) : say("{name} failed", { name }),
+        stopped: say("{name} stopped", { name }),
     }[need.kind];
     return { words, wanting: true };
 }
 
-export function teamCount(messages: number): string {
-    return messages === 1 ? "1 message" : `${messages} messages`;
+export function teamCount(messages: number, say: Say = english): string {
+    return messages === 1 ? say("1 message") : say("{count} messages", { count: messages });
 }
 
 /** How long a run lasted, to the minute once it passes one: `41m`, `2h 6m`. */
-export function teamTook(ms: number): string {
-    if (ms < 60_000) return durationLabel(ms);
+export function teamTook(ms: number, say: Say = english): string {
+    if (ms < 60_000) return durationLabel(ms, say);
     const minutes = Math.round(ms / 60_000);
-    return minutes < 60 ? `${minutes}m` : `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+    return minutes < 60
+        ? say("{count}m", { count: minutes })
+        : say("{hours}h {minutes}m", { hours: Math.floor(minutes / 60), minutes: minutes % 60 });
 }

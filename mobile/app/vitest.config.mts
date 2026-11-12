@@ -14,6 +14,7 @@ const mocked = [
   'expo-crypto',
   'expo-device',
   'expo-file-system',
+  'expo-localization',
   'expo-notifications',
   'expo-router',
   'expo-secure-store',

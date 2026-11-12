@@ -1,5 +1,6 @@
 import { apiClient, type ApiClient, type Method } from "../../server/protocol/generated/client";
 import type { ApiError, ErrorCode, ErrorDetail } from "../../server/protocol/generated/types";
+import { english, type Say } from "../lib/say";
 
 /** Why a request to the API failed, in words for the person. */
 export class ApiProblem extends Error {
@@ -30,6 +31,7 @@ export interface Connection {
     offline: string;
     /** How long a request may take before it counts as out of reach. */
     timeoutMs?: number;
+    say?: Say;
 }
 
 export async function bearer(token: () => Promise<string | null>): Promise<string> {
@@ -39,13 +41,13 @@ export async function bearer(token: () => Promise<string | null>): Promise<strin
 }
 
 /** The problem an answer with `status` describes in `body`, the API's error as JSON when it sent one. */
-export function answerProblem(status: number, body: unknown): ApiProblem {
+export function answerProblem(status: number, body: unknown, say: Say = english): ApiProblem {
     const detail = (body as Partial<ApiError> | null)?.error;
-    return new ApiProblem(detail?.message ?? `The accounts server answered ${status}.`, status, detail);
+    return new ApiProblem(detail?.message ?? say("The accounts server answered {status}.", { status }), status, detail);
 }
 
 /** The API's routes over fetch, signed in with `token` when given, every failure an ApiProblem. */
-export function connectApi({ url, token, offline, timeoutMs }: Connection): ApiClient {
+export function connectApi({ url, token, offline, timeoutMs, say }: Connection): ApiClient {
     return apiClient(async <Answer>(method: Method, path: string, body?: unknown): Promise<Answer> => {
         let response: Response;
         const abort = new AbortController();
@@ -66,7 +68,7 @@ export function connectApi({ url, token, offline, timeoutMs }: Connection): ApiC
         } finally {
             clearTimeout(timer);
         }
-        if (!response.ok) throw answerProblem(response.status, await response.json().catch(() => null));
+        if (!response.ok) throw answerProblem(response.status, await response.json().catch(() => null), say);
         return (response.status === 204 ? undefined : await response.json()) as Answer;
     });
 }
