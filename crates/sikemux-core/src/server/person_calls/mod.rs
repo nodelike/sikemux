@@ -498,21 +498,6 @@ impl PersonCalls {
         core.changed(What::View);
     }
 
-    /// The calls of `project` the person answered from `from` to `to`: whether each answer was
-    /// the asker's pick.
-    pub(crate) fn answered_since(&self, project: &str, from: u64, to: u64) -> Vec<bool> {
-        let book = self.book.locked();
-        (book.iter())
-            .map(|kept| &kept.call)
-            .filter(|call| call.project == project)
-            .filter_map(|call| {
-                let answer =
-                    (call.answer.as_ref()).filter(|answer| (from..to).contains(&answer.at))?;
-                Some(call.pick.is_some() && answer.option == call.pick)
-            })
-            .collect()
-    }
-
     /// Every call the device view shows: those still open, oldest first, then those answered or
     /// closed lately, newest first.
     pub(crate) fn shown(&self) -> Vec<PersonCall> {
@@ -770,6 +755,19 @@ pub(crate) fn hides_typed(core: &Core, agent_id: &str) -> bool {
 /// token.
 pub(crate) fn hides_words(call: &PersonCall) -> bool {
     call.secret || call.kind == CallKind::Access
+}
+
+/// Whether the person let the assumption of `call` stand: Go with this with nothing picked or
+/// typed. An answer typed to a secret or an access call is recorded the same way, so it never is.
+pub(crate) fn let_stand(call: &PersonCall) -> bool {
+    (call.answer.as_ref()).is_some_and(|answer| {
+        call.assumption.is_some()
+            && !hides_words(call)
+            && answer.option.is_none()
+            && answer.options.is_empty()
+            && answer.words.is_none()
+            && answer.note.is_none()
+    })
 }
 
 fn settled_at(call: &PersonCall) -> u64 {
@@ -1206,7 +1204,7 @@ pub(crate) async fn answer(
         return Err(core.person_calls().unanswer(core, &call.id, error));
     }
     core.person_calls().changed(core);
-    let reached = deliver(core, &call, &source, typed, params.paths).await;
+    let reached = Box::pin(deliver(core, &call, &source, typed, params.paths)).await;
     if let Err(error) = reached {
         core.person_calls().reopen(&call.id);
         core.person_calls().changed(core);
@@ -1344,6 +1342,8 @@ fn answered_before(
     Ok(Some(id))
 }
 
+const PRODUCTION_ONLY_ON_ITS_CALL: &str = "This asks for a change to production, which is answered only by a tap on its call. Open the call to answer it; on a phone that shows no calls, answer it on the Mac or update the app";
+
 /// `answerQuestion` and `answerQuestions`, from clients released before calls: each answer is its
 /// call's.
 pub(crate) async fn answer_questions(
@@ -1351,6 +1351,9 @@ pub(crate) async fn answer_questions(
     peer: &Peer,
     given: questions::AnswersParams,
 ) -> CoreResult<()> {
+    if (given.answers.iter()).any(|params| questions::asks_production(core, &params.id)) {
+        return Err(PRODUCTION_ONLY_ON_ITS_CALL.into());
+    }
     let answered: Vec<&str> = given
         .answers
         .iter()
@@ -1684,6 +1687,23 @@ pub(crate) fn history(core: &Core, project: &str) -> Option<Vec<PersonCall>> {
     let mut calls: Vec<PersonCall> = book.into_iter().map(|kept| kept.call).collect();
     calls.sort_by_key(|call| std::cmp::Reverse(call.raised_at));
     Some(calls)
+}
+
+/// The calls of `project` the person answered from `from` to `to`, read from its whole record:
+/// whether each answer was the asker's pick. A call handed back was not answered, and letting an
+/// assumption stand picked nothing.
+pub(crate) fn answered_since(core: &Core, project: &str, from: u64, to: u64) -> Vec<bool> {
+    (history(core, project).unwrap_or_default().into_iter())
+        .filter(|call| !handed_back(call))
+        .filter_map(|call| {
+            let answer = (call.answer.as_ref()).filter(|answer| (from..to).contains(&answer.at))?;
+            Some(call.pick.is_some() && answer.option == call.pick)
+        })
+        .collect()
+}
+
+pub(crate) fn handed_back(call: &PersonCall) -> bool {
+    (call.outcome.as_ref()).is_some_and(|outcome| outcome.result == CallResult::HandedBack)
 }
 
 /// Every call the device view shows, each asker marked when it is a project's chief.

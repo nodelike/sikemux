@@ -237,7 +237,13 @@ impl Question {
             )),
             answer: None,
             ticket: None,
+            production: self.production_call(),
         }
+    }
+
+    /// Its call to the person is one for a change to production.
+    fn production_call(&self) -> bool {
+        !self.secret && (self.approval.is_some() || self.production())
     }
 
     /// It changes a production place, so only the person's tap on its call answers it: never its
@@ -442,6 +448,7 @@ impl ReplyQuestion {
             secret_note: None,
             answer: None,
             ticket: None,
+            production: false,
         }
     }
 
@@ -1806,6 +1813,12 @@ fn foreign_worker(
     Ok(found.pop())
 }
 
+/// Whether question `id` asks for a change to production, which only its call answers.
+pub(crate) fn asks_production(core: &Core, id: &str) -> bool {
+    (core.harness().questions.state.locked().open.iter())
+        .any(|question| question.id == id && question.production_call())
+}
+
 /// A lead on a linked host passes on to the person a question its worker
 /// here asked it.
 pub(crate) fn pass_on_from(
@@ -1882,6 +1895,11 @@ fn pass_on(
             ))
         };
     };
+    if raise.reason == RaisedFor::Irreversible && !question.blocked {
+        return Err(format!(
+            "{wanted} goes on with an assumption while it waits, and a change to production waits for the person's answer. Answer {wanted}'s question as you tell it to ask again with blocked: true and wait (agent_send with answers), so it does not stand as decided, then raise the new one"
+        ));
+    }
     question.text = text;
     if !choices.is_empty() {
         question.choices = choices;
@@ -2123,7 +2141,9 @@ fn views_of(
     answered: Vec<Answered>,
     reply_questions: Vec<ReplyQuestion>,
 ) -> Vec<AgentQuestion> {
-    let open = open.iter().map(Question::view);
+    let open = (open.iter())
+        .filter(|question| !(question.relayed.is_some() && question.relay_taken))
+        .map(Question::view);
     let answered = answered.iter().map(|answered| {
         let mut view = answered.question.view();
         view.state = QuestionState::Answered;

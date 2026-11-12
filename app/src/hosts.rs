@@ -224,7 +224,8 @@ impl Feeds {
     pub fn questions_outside_calls(&self) -> impl Iterator<Item = &Question> {
         let front = self.front.as_ref().and_then(|front| self.hosts.get(front));
         std::iter::once(&self.this).chain(front).flat_map(|feed| {
-            (feed.questions.iter()).filter(move |question| !feed.is_call(&question.id))
+            (feed.questions.iter())
+                .filter(move |question| !question.production && !feed.is_call(&question.id))
         })
     }
 

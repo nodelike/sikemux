@@ -425,6 +425,15 @@ fn call_fact(call: &PersonCall) -> Option<Fact> {
         (CallClient::Chat, false) => format!("you answered in the chat: {}", said.join("; ")),
         (_, false) => format!("you answered: {}", said.join("; ")),
     };
+    let how = match () {
+        _ if crate::server::person_calls::handed_back(call) => {
+            "you handed it back to be decided without you".to_owned()
+        }
+        _ if crate::server::person_calls::let_stand(call) => {
+            "you let the asker's assumption stand".to_owned()
+        }
+        _ => how,
+    };
     let said = format!("Asked \"{}\", {how}", call.question);
     (!may_hold_secret(&said)).then(|| Fact {
         said: clipped(&said, MAX_SAID_CHARS),

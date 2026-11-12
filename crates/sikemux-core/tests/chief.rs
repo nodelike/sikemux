@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 
 use folded::Chat;
 use serde_json::{json, Value};
-use sikemux_client::client::CoreClient;
+use sikemux_client::client::{ClientEvent, CoreClient};
 use sikemux_core::client::probe;
 use sikemux_view::chat::{ChatMessage, ChatRole};
 use sikemux_wire::protocol::ask;
@@ -415,6 +415,182 @@ async fn only_the_chief_retires_a_persons_rule_as_now_a_check_and_agents_only_on
             .expect("Undo keeps the rule again");
         assert_eq!(rule_id(&back, text), id);
     }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_production_question_is_answered_only_on_its_call_where_it_was_drawn() {
+    let root = tempfile::Builder::new()
+        .prefix("chief")
+        .tempdir_in("/tmp")
+        .expect("temp dir");
+    let root = std::fs::canonicalize(root.path()).expect("canonical");
+    let project = root.join("project");
+    std::fs::create_dir_all(root.join("home")).expect("home");
+    std::fs::create_dir(&project).expect("project");
+    let socket = root.join("core.sock");
+    let _core = start_core(&root, &socket);
+    let (app, mut events) = CoreClient::connect(&socket).await.expect("connect");
+    let accounts = json!({ "profiles": [{
+        "id": "fake",
+        "name": "Fake",
+        "provider": "opencode",
+        "accent": "#a277ff",
+        "executablePath": FAKE_AGENT,
+    }] });
+    app.call("setAgentAccounts", accounts)
+        .await
+        .expect("accounts");
+    app.call(
+        "addProject",
+        json!({ "id": "widget", "name": "widget", "path": project }),
+    )
+    .await
+    .expect("the project");
+    let (worker_id, _) = app
+        .start_chat("opencode:fake".into(), "widget".into(), None)
+        .await
+        .expect("a worker starts");
+    let mut worker = Agent::open(&socket, &worker_id).await;
+    worker.says("get ready", "echo:").await;
+    app.ask(ask::WatchView).await.expect("watch the view");
+
+    let asked = worker
+        .tool(
+            "agent.ask",
+            json!({
+                "question": "Release 2.0 to production now?",
+                "reason": "irreversible",
+                "breaks": "the release reaches every customer",
+                "choices": ["Release it", "Hold it"],
+                "pick": "Hold it",
+            }),
+        )
+        .await;
+    let question = asked
+        .split_once("\"questionId\":\"")
+        .and_then(|(_, rest)| rest.split_once('"'))
+        .map(|(id, _)| id.to_owned())
+        .unwrap_or_else(|| panic!("{asked}"));
+    let refused = |answered: Result<Value, _>| {
+        let error = format!("{:?}", answered.expect_err("refused"));
+        assert!(error.contains("only by a tap on its call"), "{error}");
+    };
+    refused(
+        app.call("answerQuestion", json!({ "id": question, "choice": 0 }))
+            .await,
+    );
+    let call = loop {
+        let event = tokio::time::timeout(WAIT, events.recv())
+            .await
+            .expect("the view arrives")
+            .expect("the core disconnected");
+        let ClientEvent::DeviceView(view) = event else {
+            continue;
+        };
+        let view: sikemux_view::device::DeviceView =
+            serde_json::from_str(&view).expect("the view reads back");
+        if let Some(call) = view.calls.into_iter().next() {
+            break call;
+        }
+    };
+    let listed = app
+        .call("questions", json!({}))
+        .await
+        .expect("the questions");
+    assert!(
+        listed.to_string().contains("\"production\":true"),
+        "{listed}"
+    );
+    refused(
+        app.call("answerQuestion", json!({ "id": question, "choice": 0 }))
+            .await,
+    );
+    refused(
+        app.call(
+            "answerQuestion",
+            json!({ "id": question, "answer": "release it" }),
+        )
+        .await,
+    );
+    let hold = call.options.last().expect("an option").id.clone();
+    app.call("callSeen", json!({ "id": call.id }))
+        .await
+        .expect("the call is drawn here");
+    app.call("answerCall", json!({ "id": call.id, "option": hold }))
+        .await
+        .expect("the call drawn here is answered");
+
+    let asked = worker
+        .tool(
+            "agent.ask",
+            json!({
+                "question": "Pay for the larger build machine?",
+                "reason": "money",
+                "breaks": "builds stay slow",
+                "choices": ["Pay for it", "Keep the small one"],
+                "pick": "Keep the small one",
+            }),
+        )
+        .await;
+    assert!(asked.contains("tool answered"), "{asked}");
+    let money = loop {
+        let event = tokio::time::timeout(WAIT, events.recv())
+            .await
+            .expect("the view arrives")
+            .expect("the core disconnected");
+        let ClientEvent::DeviceView(view) = event else {
+            continue;
+        };
+        let view: sikemux_view::device::DeviceView =
+            serde_json::from_str(&view).expect("the view reads back");
+        let found = (view.calls.into_iter()).find(|call| call.question.contains("build machine"));
+        if let Some(call) = found {
+            break call;
+        }
+    };
+    let keep = money.options.last().expect("an option").id.clone();
+    app.call("answerCall", json!({ "id": money.id, "option": keep }))
+        .await
+        .expect("a money call answered on its card replies");
+
+    let (round, square) = (project.join("round.png"), project.join("square.png"));
+    for picture in [&round, &square] {
+        std::fs::write(picture, b"\x89PNG\r\n\x1a\n").expect("a picture");
+    }
+    let asked = worker
+        .tool(
+            "agent.ask",
+            json!({
+                "question": "Should the avatars in the rail be round or square?",
+                "reason": "taste",
+                "breaks": "the avatars change shape",
+                "choices": [
+                    { "label": "Round", "picture": round },
+                    { "label": "Square", "picture": square },
+                ],
+                "pick": "Round",
+            }),
+        )
+        .await;
+    assert!(asked.contains("tool answered"), "{asked}");
+    let taste = loop {
+        let event = tokio::time::timeout(WAIT, events.recv())
+            .await
+            .expect("the view arrives")
+            .expect("the core disconnected");
+        let ClientEvent::DeviceView(view) = event else {
+            continue;
+        };
+        let view: sikemux_view::device::DeviceView =
+            serde_json::from_str(&view).expect("the view reads back");
+        let found = (view.calls.into_iter()).find(|call| call.question.contains("avatars"));
+        if let Some(call) = found {
+            break call;
+        }
+    };
+    app.call("callNotMine", json!({ "id": taste.id }))
+        .await
+        .expect("a call handed back replies");
 }
 
 const UNWRAP: &str = "Never call unwrap outside tests";

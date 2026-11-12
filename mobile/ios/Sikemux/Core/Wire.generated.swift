@@ -7139,6 +7139,9 @@ struct AgentQuestion: Codable, Hashable, Sendable {
     var answer: String?
     /// The ticket of the board card the asker is working, such as PROJ-12.
     var ticket: String?
+    /// It asks for a change to production, which only a tap on its call answers, so no
+    /// question dock draws it.
+    var production: Bool?
 }
 
 struct QuestionChoice: Codable, Hashable, Sendable {

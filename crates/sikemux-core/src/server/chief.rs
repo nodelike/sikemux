@@ -687,22 +687,29 @@ fn digest_now(core: &Core, chief: &str) -> Option<ChatContext> {
             ));
         }
         if let Some(answer) = call.answer.as_ref().filter(|answer| answer.at >= since) {
-            let how = match (answer.option.as_ref(), answer.words.as_ref()) {
-                (Some(id), _) => (call.options.iter())
-                    .find(|option| &option.id == id)
-                    .map(|option| format!("picked {}", quoted(&option.label)))
-                    .unwrap_or_else(|| "picked an option".to_owned()),
-                (None, Some(words)) => format!("answered in their words {}", quoted(words)),
-                (None, None) => "answered".to_owned(),
-            };
-            person_lines.push((
-                answer.at,
-                format!(
-                    "- answered {}'s call {}: {how}",
-                    called(core, &call.asker.agent_id),
-                    quoted(&call.question)
+            let asker = called(core, &call.asker.agent_id);
+            let question = quoted(&call.question);
+            let line = match (answer.option.as_ref(), answer.words.as_ref()) {
+                _ if super::person_calls::handed_back(call) => {
+                    format!("- handed {asker}'s call {question} back to be decided without them")
+                }
+                _ if super::person_calls::let_stand(call) => {
+                    format!("- let {asker}'s assumption stand on its call {question}")
+                }
+                (Some(id), _) => {
+                    let picked = (call.options.iter())
+                        .find(|option| &option.id == id)
+                        .map(|option| format!("picked {}", quoted(&option.label)))
+                        .unwrap_or_else(|| "picked an option".to_owned());
+                    format!("- answered {asker}'s call {question}: {picked}")
+                }
+                (None, Some(words)) => format!(
+                    "- answered {asker}'s call {question}: in their words {}",
+                    quoted(words)
                 ),
-            ));
+                (None, None) => format!("- answered {asker}'s call {question}"),
+            };
+            person_lines.push((answer.at, line));
         }
     }
     let wrote: Vec<String> = (wrote.into_iter())
@@ -1290,7 +1297,7 @@ fn count_week(core: &Core, chief: &str, project: &str, began: u64) {
     let path = project.path.to_string_lossy().into_owned();
     let from = began - WEEK_MS;
     let (decided, overruled) = super::board::goal::counted_since(core, &path, from, began);
-    let answered = core.person_calls().answered_since(&path, from, began);
+    let answered = super::person_calls::answered_since(core, &path, from, began);
     let as_picked = answered.iter().filter(|as_picked| **as_picked).count();
     if decided == 0 && answered.is_empty() {
         return;

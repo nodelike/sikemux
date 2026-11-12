@@ -65,4 +65,8 @@ pub struct AgentQuestion {
     pub answer: Option<String>,
     /// The ticket of the board card the asker is working, such as PROJ-12.
     pub ticket: Option<String>,
+    /// It asks for a change to production, which only a tap on its call answers, so no
+    /// question dock draws it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub production: bool,
 }

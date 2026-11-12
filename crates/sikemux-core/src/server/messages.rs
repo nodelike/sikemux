@@ -1385,7 +1385,7 @@ pub(crate) async fn answer(
     let mut letter = letters.next().ok_or("there is no answer to send")?;
     let rest: Vec<Letter> = letters.collect();
     if rest.is_empty() {
-        return deliver(core, &target, letter).await;
+        return Box::pin(deliver(core, &target, letter)).await;
     }
     if target.reach == Reach::Remote {
         let mut delivered = carry(core, &target, letter, None).await?;
@@ -1402,7 +1402,7 @@ pub(crate) async fn answer(
     letter
         .paths
         .extend(rest.into_iter().flat_map(|rest| rest.paths));
-    deliver_as(core, &target, letter, text).await
+    Box::pin(deliver_as(core, &target, letter, text)).await
 }
 
 /// The agent `to`, unless it has stopped or is gone.
@@ -1704,7 +1704,7 @@ pub(crate) async fn report_as(
 
 async fn deliver(core: &Arc<Core>, target: &Listed, letter: Letter) -> Result<Value, String> {
     let text = wrapped(&letter);
-    deliver_as(core, target, letter, text).await
+    Box::pin(deliver_as(core, target, letter, text)).await
 }
 
 /// Delivers `text` in place of `letter`'s own, such as several answers read

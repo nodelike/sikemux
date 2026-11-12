@@ -118,8 +118,10 @@ macro_rules! calls {
             let Some($params) = here else {
                 return Ok(answered);
             };
+            // Each method's future lives on the heap, so the dispatch's own frame never carries a
+            // method's whole chain on a worker thread's stack.
             match $method {
-                $($name => calls!(@run $params, $run $(, $takes, $gives)?),)*
+                $($name => Box::pin(async move { calls!(@run $params, $run $(, $takes, $gives)?) }).await,)*
                 method => super::git::call(&$core, &$client.peer, method, $params).await,
             }
         }
