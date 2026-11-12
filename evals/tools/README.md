@@ -26,3 +26,11 @@ Each case runs the agent CLI (`claude -p`, or OMP for DeepSeek) in a temporary h
 A call matcher is `tool` (a name, a `prefix*` or a list) with optional `args`, or `any` of several matchers. Argument matchers compare values, `"/regex/flags"` strings, `{"$present": bool}`, `{"$not": …}` and `{"$any": […]}`, which also checks any keys beside it. A tool that takes an `action`, such as `browser`, is matched as `{"tool": "browser", "args": {"action": "click"}}`.
 
 Runs land in `/tmp/sikemux-tool-eval/<time>/`, one folder per case with its transcript and every call the fake Sikemux answered; each case's home and repo are deleted once it is graded unless `--keep` is given. `--resume <run folder>` finishes a run that stopped, grading what finished and running the rest. `--shell` and `--shell-env` change the shell agents' commands run in. `--trials N` runs every case N times and reports the mean pass rate beside the cases that passed every trial. `--record <label>` also saves the result under `results/`, or under `--results-dir`. `--cases-dir` runs cases kept in another folder.
+
+## Saved results and the queue
+
+Every run of a case is saved in `~/Library/Caches/sikemux-tool-eval/results/`, keyed by a hash of the case, the tools as the agent meets them (`tools/`, the `tools_mcp` source with the server's instructions, the plugin manifests, `AGENTS.md`, the system prompt lines), the harness, the Claude CLI's version, the limits, the model and the trial number. A rerun with the same inputs reuses the result, marks it `(saved)` and spends nothing; `--fresh` runs it again. Runs that timed out or failed to start are not saved. A full run records each case's inputs, and `--affected` then runs only the cases whose inputs changed since.
+
+One eval runs at a time on a machine: a second waits in line and says whose run it is behind.
+
+Iterate on one trial of a `--cases` subset, and make one full `--trials 3` Sonnet run per change, never two on one commit.

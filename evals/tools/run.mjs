@@ -12,6 +12,7 @@ import { runOmp, readOmp } from './lib/omp.mjs';
 import { grade } from './lib/grade.mjs';
 import { judge, readVerdict } from './lib/judge.mjs';
 import { report } from './lib/report.mjs';
+import { surfaceInputs, caseInputs, runKey, cachedRun, saveRun, lastFull, saveFull, takeTurn } from './lib/cache.mjs';
 
 const EVAL = join(REPO, 'evals/tools');
 const SURFACE = ['browser', 'crates/sikemux-host/src/tools_mcp', 'plugins', 'AGENTS.md'];
@@ -37,6 +38,8 @@ const { values: options } = parseArgs({
     shell: { type: 'string', default: '/bin/zsh' },
     'shell-env': { type: 'string' },
     record: { type: 'string' },
+    affected: { type: 'boolean', default: false },
+    fresh: { type: 'boolean', default: false },
     list: { type: 'boolean', default: false },
     help: { type: 'boolean', short: 'h', default: false },
   },
@@ -50,6 +53,9 @@ if (options.help) {
   --category wrong_tool,...       only these categories
   --concurrency 4                 cases at once per model
   --trials 1                      runs of each case; reports the mean pass rate and the cases that pass every trial
+                                  iterate on one trial of a --cases subset; one full --trials 3 run per change
+  --affected                      only the cases whose inputs changed since the last full run
+  --fresh                         run again even when an unchanged case has a saved result
   --turns 16 --timeout 420        limits per case (turns, seconds)
   --build                         rebuild sikemux-host first
   --shell /bin/bash               the shell agents' commands run in (default /bin/zsh)
@@ -64,10 +70,20 @@ if (options.help) {
   process.exit(0);
 }
 
-const cases = loadCases();
+const at = options.at ? git('rev-parse', '--short=9', options.at) : null;
+const claudeVersion = execFileSync(join(process.env.HOME, '.local/bin/claude'), ['--version'], { encoding: 'utf8' }).trim();
+const surface = surfaceInputs({ at, claude: claudeVersion, shell: options.shell, shellEnv: options['shell-env'], timeout: options.timeout, turns: options.turns });
+const loaded = loadCases();
+const inputs = new Map(loaded.map((testCase) => [testCase.id, caseInputs(surface, testCase)]));
+const full = !options.cases && !options.category && !options['cases-dir'] && !options.affected;
+const cases = options.affected ? affectedCases(loaded) : loaded;
 if (options.list) {
   for (const testCase of cases) console.log(`${testCase.id.padEnd(28)} ${testCase.category.padEnd(15)} ${testCase.prompt.slice(0, 90).replace(/\n/g, ' ')}`);
   console.log(`${cases.length} cases`);
+  process.exit(0);
+}
+if (!cases.length) {
+  console.log('no cases to run');
   process.exit(0);
 }
 
@@ -89,8 +105,6 @@ process.on('uncaughtException', (error) => {
   process.exit(1);
 });
 
-const at = options.at ? git('rev-parse', '--short=9', options.at) : null;
-const HOST = at ? savedHost(at) : ensureHost();
 const variants = options.models.split(',').flatMap((alias) => {
   const model = MODELS[alias];
   if (!model) throw new Error(`no model called ${alias}; pick from ${Object.keys(MODELS).join(', ')}`);
@@ -99,11 +113,21 @@ const variants = options.models.split(',').flatMap((alias) => {
   return searches.map((search) => ({ label: `${alias}${search ? '' : ' (no tool search)'}`, alias, search, ...model }));
 });
 
+const trialCount = Number(options.trials);
+const toRun = variants.flatMap((variant) =>
+  cases.flatMap((testCase) => Array.from({ length: trialCount }, (_, trial) => runKey(inputs.get(testCase.id), variant, trialCount > 1 ? trial + 1 : null))),
+).filter((key) => options.fresh || !cachedRun(key));
+let HOST = null;
+if (toRun.length) {
+  await takeTurn({ repo: REPO, args: process.argv.slice(2).join(' ') });
+  HOST = at ? savedHost(at) : ensureHost();
+}
+
 mkdirSync('/tmp/sikemux-tool-eval', { recursive: true });
 const earlier = options.resume ? recordedFailures(options.resume) : new Map();
 const runDir = options.resume ? realpathSync(options.resume) : join(realpathSync('/tmp/sikemux-tool-eval'), new Date().toISOString().replace(/[:.]/g, '-'));
 mkdirSync(runDir, { recursive: true });
-console.log(`${cases.length} cases × ${variants.map((variant) => variant.label).join(', ')}; runs in ${runDir}`);
+console.log(`${cases.length} cases × ${variants.map((variant) => variant.label).join(', ')}; ${toRun.length} of ${cases.length * variants.length * trialCount} runs to make, the rest saved; runs in ${runDir}`);
 
 const started = Date.now();
 const results = await Promise.all(variants.map((variant) => runVariant(variant)));
@@ -113,12 +137,15 @@ const summary = {
   dirty: !at && git('status', '--porcelain', '--', ...SURFACE) !== '',
   shell: options.shell,
   ...(options['shell-env'] ? { shellEnv: readFileSync(options['shell-env'], 'utf8') } : {}),
-  claude: execFileSync(join(process.env.HOME, '.local/bin/claude'), ['--version'], { encoding: 'utf8' }).trim(),
+  claude: claudeVersion,
   seconds: Math.round((Date.now() - started) / 1000),
   variants: results,
 };
 writeFileSync(join(runDir, 'result.json'), JSON.stringify(summary, null, 1));
 report(summary, cases);
+const reused = results.flatMap((variant) => variant.cases.flatMap((row) => row.runs ?? [row])).filter((run) => run.cached);
+if (reused.length) console.log(`\n${reused.length} runs reused from earlier results with the same inputs; $${reused.reduce((sum, run) => sum + run.cost, 0).toFixed(2)} not spent again`);
+if (full) saveFull(summary.commit, Object.fromEntries(inputs));
 console.log(`\nresult: ${join(runDir, 'result.json')}`);
 if (options.record) {
   const day = summary.date.slice(0, 10);
@@ -149,6 +176,14 @@ function loadCases() {
   );
 }
 
+function affectedCases(all) {
+  const last = lastFull();
+  if (!last) throw new Error('no full run yet to compare with: run every case once first');
+  const changed = all.filter((testCase) => last.inputs[testCase.id] !== inputs.get(testCase.id));
+  console.log(`${changed.length} of ${all.length} cases changed since the full run on ${last.commit.slice(0, 9)} at ${last.date}`);
+  return changed;
+}
+
 function ensureHost() {
   const sources = join(REPO, 'crates/sikemux-host/src/tools_mcp');
   const newest = Math.max(...readdirSync(sources).map((name) => statSync(join(sources, name)).mtimeMs));
@@ -174,7 +209,7 @@ function savedHost(commit) {
 }
 
 async function runVariant(variant) {
-  const trials = Number(options.trials);
+  const trials = trialCount;
   const queue = cases.flatMap((testCase) => Array.from({ length: trials }, (_, trial) => ({ testCase, trial: trial + 1 })));
   const done = [];
   const workers = Array.from({ length: Number(options.concurrency) }, async () => {
@@ -182,7 +217,7 @@ async function runVariant(variant) {
       const { testCase, trial } = queue.shift();
       const result = await runCase(variant, testCase, trials > 1 ? trial : null);
       done.push(result);
-      const mark = result.pass ? 'pass' : 'FAIL';
+      const mark = `${result.pass ? 'pass' : 'FAIL'}${result.cached ? ' (saved)' : ''}`;
       const name = result.trial ? `${testCase.id} #${result.trial}` : testCase.id;
       console.log(`${variant.label.padEnd(26)} ${mark} ${name}${result.pass ? '' : `  ${result.failures.map((failure) => failure.why).join('; ')}`}`);
     }
@@ -217,6 +252,15 @@ function summarizeTrials(runs) {
 }
 
 async function runCase(variant, testCase, trial) {
+  const key = runKey(inputs.get(testCase.id), variant, trial);
+  const saved = options.fresh ? null : cachedRun(key, trial);
+  if (saved) return saved;
+  const row = await makeRun(variant, testCase, trial);
+  saveRun(key, row);
+  return row;
+}
+
+async function makeRun(variant, testCase, trial) {
   const caseDir = join(runDir, variant.label.replace(/\W+/g, '-'), testCase.id);
   const dir = trial ? join(caseDir, `t${trial}`) : caseDir;
   const finished = options.resume ? readFinished(variant, testCase, dir) : null;

@@ -120,7 +120,7 @@ function claudeAccount() {
 // The agent's profile keeps every Sikemux program out of reach: one started with the sandbox's home once replaced the person's host key.
 // The tools profile is the same without that, for the one sikemux-host the harness itself runs.
 // The zsh options Sikemux starts agents' shells with.
-function agentZshOptions(at) {
+export function agentZshOptions(at) {
   return readRepo('crates/sikemux-core/src/agent_shell.rs', at).match(/const OPTIONS: &str = "([^"]+)"/)[1];
 }
 

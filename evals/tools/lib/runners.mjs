@@ -65,7 +65,7 @@ export function run({ command, args, cwd, env, dir, timeoutMs, profile = join(di
 }
 
 // The lines Sikemux's native Claude driver appends to Claude's system prompt when it offers sikemux-tools.
-function sikemuxSystemLines(at) {
+export function sikemuxSystemLines(at) {
   const constant = (path, name) => readRepo(path, at).match(new RegExp(`const ${name}: &str = "((?:[^"\\\\]|\\\\.)*)";`))[1].replace(/\\(.)/g, '$1');
   return [
     constant('crates/sikemux-core/src/server/gestures.rs', 'PERSONALITY'),
