@@ -45,7 +45,8 @@ pub(crate) struct Problem {
     pub kind: Option<FailureKind>,
 }
 
-/// What each agent waits on the person for, gathered once for every agent's turn.
+/// The permissions each agent's chat waits on the person for, gathered once for every agent's
+/// turn. Calls are kept apart, by `person_calls`.
 pub(crate) struct Asks(HashMap<String, Vec<Ask>>);
 
 struct Ask {
@@ -65,25 +66,33 @@ impl Asks {
                 at: attention.at,
             });
         }
-        for question in core.harness.questions.for_person() {
-            asks.entry(question.agent_id).or_default().push(Ask {
-                id: question.id,
-                question: question.text,
-                at: question.at,
-            });
-        }
-        for waiting in core.ship.waiting() {
-            asks.entry(waiting.agent_id).or_default().push(Ask {
-                id: waiting.hold.id,
-                question: waiting.hold.why.unwrap_or(waiting.hold.what),
-                at: waiting.at,
-            });
-        }
-        for asked in asks.values_mut() {
-            asked.sort_by_key(|ask| ask.at);
-        }
         Self(asks)
     }
+}
+
+/// What the agent waits on the person for: its oldest permission or call, with how many wait.
+fn call_of(core: &Core, asks: &Asks, agent_id: &str) -> Option<TurnCall> {
+    let asked = asks.0.get(agent_id).map_or(&[][..], Vec::as_slice);
+    let call = core.person_calls.of_agent(agent_id);
+    let count = (asked.len() + call.as_ref().map_or(0, |call| call.count)) as u32;
+    let older = |ask: &&Ask| {
+        call.as_ref()
+            .is_none_or(|call| ask.at <= call.waiting_since)
+    };
+    let permission = asked.first().filter(older).map(|ask| TurnCall {
+        id: ask.id.clone(),
+        question: ask.question.clone(),
+        waiting_since: ask.at,
+        count,
+    });
+    permission.or_else(|| {
+        call.map(|call| TurnCall {
+            id: call.id,
+            question: call.question,
+            waiting_since: call.waiting_since,
+            count,
+        })
+    })
 }
 
 fn standing(state: TurnPhase, since: u64) -> TurnState {
@@ -106,15 +115,9 @@ pub(crate) fn of(
     agent_id: &str,
     status: AgentStatus,
 ) -> Option<TurnState> {
-    if let Some(asked) = asks.0.get(agent_id).filter(|asked| !asked.is_empty()) {
-        let first = &asked[0];
-        let mut state = standing(TurnPhase::NeedsYou, first.at);
-        state.call = Some(TurnCall {
-            id: first.id.clone(),
-            question: first.question.clone(),
-            waiting_since: first.at,
-            count: asked.len() as u32,
-        });
+    if let Some(call) = call_of(core, asks, agent_id) {
+        let mut state = standing(TurnPhase::NeedsYou, call.waiting_since);
+        state.call = Some(call);
         return Some(state);
     }
     let chat = core.chats.get(agent_id);

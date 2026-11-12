@@ -119,10 +119,6 @@ impl Raise {
 
 /// The open call an agent waits on longest, with how many it waits on.
 #[derive(Clone, Debug, PartialEq, Eq)]
-#[expect(
-    dead_code,
-    reason = "the turn state shows an agent's top call through it"
-)]
 pub(crate) struct AgentCall {
     pub id: String,
     pub question: String,
@@ -365,10 +361,6 @@ impl PersonCalls {
     }
 
     /// The open call `agent_id` has waited on longest, and how many it waits on.
-    #[expect(
-        dead_code,
-        reason = "the turn state shows an agent's top call through it"
-    )]
     pub(crate) fn of_agent(&self, agent_id: &str) -> Option<AgentCall> {
         let book = self.book.locked();
         let open: Vec<&PersonCall> = (book.iter())
