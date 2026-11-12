@@ -24,11 +24,16 @@ struct ChatSearch: View {
         let words = query.trimmingCharacters(in: .whitespaces).lowercased()
         let said = found?.said ?? [:]
         let chatOf = Dictionary(
-            view.recent.compactMap { chat in chat.agentId.map { ($0, chat.id) } }, uniquingKeysWith: { first, _ in first })
-        let agents = words.isEmpty ? [] : view.inbox.agents.filter { agent in
-            (scope == nil || agent.project == scope?.id) && agent.session == nil
-                && (agent.title.lowercased().contains(words) || chatOf[agent.agentId].map { said[$0] != nil } == true)
-        }
+            view.recent.compactMap { chat in chat.agentId.map { ($0, chat.id) } },
+            uniquingKeysWith: { first, _ in first })
+        let agents =
+            words.isEmpty
+            ? []
+            : view.inbox.agents.filter { agent in
+                (scope == nil || agent.project == scope?.id) && agent.session == nil
+                    && (agent.title.lowercased().contains(words)
+                        || chatOf[agent.agentId].map { said[$0] != nil } == true)
+            }
         let saved = (found?.chats ?? []).filter { $0.agentId == nil }
 
         VStack(spacing: 0) {
@@ -64,7 +69,8 @@ struct ChatSearch: View {
                             ForEach(agents, id: \.agentId) { agent in
                                 let line = chatOf[agent.agentId].flatMap { said[$0] }
                                 Row(
-                                    title: agent.title, name: agent.name, underText: line.map { FoundLineText.of($0, palette) },
+                                    title: agent.title, name: agent.name,
+                                    underText: line.map { FoundLineText.of($0, palette) },
                                     onPress: { open(agent.agentId, line) },
                                     mark: { AgentMark(provider: agent.cli, size: 20) }, end: { EmptyView() })
                             }
