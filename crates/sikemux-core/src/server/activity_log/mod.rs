@@ -695,6 +695,7 @@ pub struct ActivityTotals {
     pub first_at_ms: Option<i64>,
     /// What the tokens would cost at API prices. Subscription plans bill separately.
     pub cost_usd: f64,
+    pub costs: TokenCosts,
     /// What reading from the cache saved against sending the same input fresh.
     pub cache_savings_usd: f64,
     /// Tokens with no price: no model was recorded, or no price is known for it.
@@ -757,8 +758,32 @@ pub struct ActivityModel {
     pub cache_read: i64,
     pub cache_write: i64,
     pub cost_usd: f64,
+    pub costs: TokenCosts,
     pub fast_cost_usd: f64,
     pub priced: bool,
+}
+
+/// What each kind of token cost at API prices.
+#[derive(Serialize, Deserialize, PartialEq, Default, Clone, Copy)]
+#[serde(rename_all = "camelCase")]
+pub struct TokenCosts {
+    pub input: f64,
+    pub output: f64,
+    pub cache_read: f64,
+    pub cache_write: f64,
+}
+
+impl TokenCosts {
+    pub fn total(&self) -> f64 {
+        self.input + self.output + self.cache_read + self.cache_write
+    }
+
+    fn add(&mut self, other: &Self) {
+        self.input += other.input;
+        self.output += other.output;
+        self.cache_read += other.cache_read;
+        self.cache_write += other.cache_write;
+    }
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Default)]
@@ -931,11 +956,16 @@ fn summarize(
         };
         entry.priced = true;
         let rates = rate.at(&speed);
-        let cost = input as f64 * rates.input
-            + output as f64 * rates.output
-            + cache_read as f64 * rates.cache_read
-            + cache_write as f64 * rates.cache_write;
+        let costs = TokenCosts {
+            input: input as f64 * rates.input,
+            output: output as f64 * rates.output,
+            cache_read: cache_read as f64 * rates.cache_read,
+            cache_write: cache_write as f64 * rates.cache_write,
+        };
+        let cost = costs.total();
         entry.cost_usd += cost;
+        entry.costs.add(&costs);
+        totals.costs.add(&costs);
         if speed != "standard" {
             entry.fast_cost_usd += cost;
         }
