@@ -9,10 +9,15 @@
 //! - [`document::Document`] is a surface for a file macOS draws itself: PDFs in
 //!   PDFKit's view, office and iWork files in Quick Look's.
 //!
+//! - [`over`] draws something on a native view, such as a fade or a button,
+//!   cut where the view is cut.
+//!
 //! Native views sit above everything GPUI draws, so a window that holds them
 //! should call `Window::enable_scene_overlay` as it opens: popovers, menus and
 //! anything else drawn deferred then show above the views, and take the
-//! clicks where they sit.
+//! clicks where they sit. A bare `deferred` ignores every clip around it, so
+//! what decorates a view in a scrolled list goes through [`over`] instead, or it
+//! draws over whatever covers the list's edge, such as a composer.
 
 #[cfg(target_os = "macos")]
 pub mod document;
@@ -25,9 +30,9 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use gpui::{
-    App, Bounds, Element, ElementId, FocusHandle, GlobalElementId, HitboxBehavior,
-    InspectorElementId, IntoElement, LayoutId, Pixels, Refineable, Style, StyleRefinement, Styled,
-    Window,
+    deferred, AnyElement, App, Bounds, ContentMask, Element, ElementId, FocusHandle,
+    GlobalElementId, HitboxBehavior, InspectorElementId, IntoElement, LayoutId, Pixels, Refineable,
+    Style, StyleRefinement, Styled, Window,
 };
 
 #[cfg(target_os = "linux")]
@@ -173,7 +178,14 @@ impl Element for NativeView {
             window.set_focus_handle(focus, cx);
         }
         let visible = bounds.intersect(&window.content_mask().bounds);
-        window.insert_hitbox(visible, HitboxBehavior::BlockMouseExceptScroll);
+        // Native views take no drags, so while one is held GPUI's drop targets under the view
+        // must still be reached.
+        let behavior = if cx.has_active_drag() {
+            HitboxBehavior::Normal
+        } else {
+            HitboxBehavior::BlockMouseExceptScroll
+        };
+        window.insert_hitbox(visible, behavior);
         #[cfg(target_os = "linux")]
         let (bounds, visible) = {
             let scale = window.scale_factor();
@@ -257,5 +269,146 @@ impl Drop for Placement {
         if self.surface.0.placed_by.get() == self.mark {
             self.surface.place(self.mark, None);
         }
+    }
+}
+
+/// Draws `child` above native views, as `deferred` does, yet cut to the clip it is laid out in,
+/// so a fade or a button on a page in a scrolled list never shows past the list's edge.
+pub fn over(child: impl IntoElement) -> Over {
+    let clip = Rc::new(Cell::new(None));
+    Over {
+        clip: clip.clone(),
+        child: deferred(Clipped {
+            clip,
+            child: child.into_any_element(),
+        })
+        .into_any_element(),
+    }
+}
+
+/// Notes the clip it is laid out in for the [`Clipped`] it defers.
+pub struct Over {
+    clip: Rc<Cell<Option<ContentMask<Pixels>>>>,
+    child: AnyElement,
+}
+
+impl IntoElement for Over {
+    type Element = Self;
+
+    fn into_element(self) -> Self {
+        self
+    }
+}
+
+impl Element for Over {
+    type RequestLayoutState = ();
+    type PrepaintState = ();
+
+    fn id(&self) -> Option<ElementId> {
+        None
+    }
+
+    fn source_location(&self) -> Option<&'static std::panic::Location<'static>> {
+        None
+    }
+
+    fn request_layout(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> (LayoutId, ()) {
+        (self.child.request_layout(window, cx), ())
+    }
+
+    fn prepaint(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        _: Bounds<Pixels>,
+        _: &mut (),
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        self.clip.set(Some(window.content_mask()));
+        self.child.prepaint(window, cx);
+    }
+
+    fn paint(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        _: Bounds<Pixels>,
+        _: &mut (),
+        _: &mut (),
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        self.child.paint(window, cx);
+    }
+}
+
+/// The deferred part of [`Over`], drawn and hit inside the clip [`Over`] noted.
+struct Clipped {
+    clip: Rc<Cell<Option<ContentMask<Pixels>>>>,
+    child: AnyElement,
+}
+
+impl IntoElement for Clipped {
+    type Element = Self;
+
+    fn into_element(self) -> Self {
+        self
+    }
+}
+
+impl Element for Clipped {
+    type RequestLayoutState = ();
+    type PrepaintState = ();
+
+    fn id(&self) -> Option<ElementId> {
+        None
+    }
+
+    fn source_location(&self) -> Option<&'static std::panic::Location<'static>> {
+        None
+    }
+
+    fn request_layout(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> (LayoutId, ()) {
+        (self.child.request_layout(window, cx), ())
+    }
+
+    fn prepaint(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        _: Bounds<Pixels>,
+        _: &mut (),
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        let child = &mut self.child;
+        window.with_content_mask(self.clip.get(), |window| child.prepaint(window, cx));
+    }
+
+    fn paint(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        _: Bounds<Pixels>,
+        _: &mut (),
+        _: &mut (),
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        let child = &mut self.child;
+        window.with_content_mask(self.clip.get(), |window| child.paint(window, cx));
     }
 }
