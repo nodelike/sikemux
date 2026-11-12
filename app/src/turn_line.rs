@@ -83,7 +83,7 @@ pub fn said(turn: &TurnState, maker: &str, now: u64) -> Option<Said> {
             };
             let mut parts = vec![why];
             if let Some(at) = failed.resets_at.filter(|at| *at > now) {
-                parts.push(format!("resets {}", ui::time::clock(at)));
+                parts.push(format!("resets {}", moment(at)));
             }
             ("Failed".into(), parts)
         }
@@ -107,6 +107,11 @@ fn lowered(words: &str) -> String {
     }
 }
 
+/// A moment as the chat's own times say it.
+pub fn moment(at: u64) -> String {
+    crate::chat::clock(at).unwrap_or_default()
+}
+
 fn waiting_on(wait: &TurnWait) -> String {
     match wait.kind {
         TurnWaitKind::Ci => "Waiting on CI".into(),
@@ -115,7 +120,7 @@ fn waiting_on(wait: &TurnWait) -> String {
         TurnWaitKind::Agent if wait.what.starts_with('@') => format!("Waiting on {}", wait.what),
         TurnWaitKind::Agent => format!("Waiting on @{}", wait.what),
         TurnWaitKind::Timer => match wait.until {
-            Some(until) => format!("Waiting until {}", ui::time::clock(until)),
+            Some(until) => format!("Waiting until {}", moment(until)),
             None => "Waiting".into(),
         },
         TurnWaitKind::Process | TurnWaitKind::Unknown => format!("Waiting on {}", wait.what),

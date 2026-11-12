@@ -16,7 +16,7 @@ use sikemux_core::server::TakeStepParams;
 use sikemux_view::chat::{
     ChatActivity, ChatConnection, FailureKind, ToolAction, ToolFamily, ToolIntent, ToolRow,
 };
-use sikemux_view::turn::{TurnPhase, TurnState, TurnStep};
+use sikemux_view::turn::{Remedy, TurnPhase, TurnState, TurnStep};
 use sikemux_wire::protocol::AgentStatus;
 
 use super::Chat;
@@ -38,6 +38,8 @@ pub struct Activity {
     provider: String,
     /// The core the chat's agent runs on, which takes the line's steps.
     target: crate::core::Target,
+    /// The window, which says why the core refused a step.
+    bench: Option<WeakEntity<Workbench>>,
     /// How the chat's turn stands, as the core last said.
     turn: Option<TurnState>,
     /// The chat's agent as the pane last drew it, whose face the line wears.
@@ -94,6 +96,7 @@ impl Activity {
         Self {
             provider: provider.to_owned(),
             target,
+            bench: None,
             turn: None,
             agent: None,
             label: None,
@@ -102,7 +105,8 @@ impl Activity {
         }
     }
 
-    pub fn wear(&mut self, agent: &AgentRow, cx: &mut Context<Self>) {
+    pub fn wear(&mut self, agent: &AgentRow, bench: WeakEntity<Workbench>, cx: &mut Context<Self>) {
+        self.bench.get_or_insert(bench);
         let worn = self.agent.as_ref().is_some_and(|worn| {
             worn.id == agent.id
                 && worn.provider == agent.provider
@@ -143,14 +147,23 @@ impl Activity {
         let take = |step: TurnStep, variant: Variant| {
             let label = turn_line::step_label(step)?;
             let agent = self.agent.as_ref()?.id.clone();
-            let target = self.target.clone();
+            let (target, bench) = (self.target.clone(), self.bench.clone()?);
             Some(
                 step_button(label, variant)
-                    .on_click(move |_, _, _| {
-                        target.call_typed::<call::TakeStep>(TakeStepParams {
+                    .on_click(move |_, _, cx| {
+                        let taken = target.request_typed::<call::TakeStep>(TakeStepParams {
                             agent_id: agent.clone(),
                             step,
+                        });
+                        let bench = bench.clone();
+                        cx.spawn(async move |cx| {
+                            if let Err(refused) = taken.await {
+                                cx.update(|cx| {
+                                    crate::toast::show(&bench, crate::toast::error(refused), cx)
+                                });
+                            }
                         })
+                        .detach();
                     })
                     .into_any_element(),
             )
@@ -525,20 +538,36 @@ pub(super) fn trouble(
             bench.account_call::<call::DiscardFailed>(agent)
         }));
     }
-    let resumes = failure.and_then(|failure| {
-        failure
-            .resumes_at
-            .filter(|_| failure.kind == FailureKind::Limit)
-    });
-    if resumes.is_some_and(|at| at > now_ms()) {
-        buttons.push(act("Don't resume", "chat-cancel-resume", |bench, agent| {
-            bench.account_call::<call::CancelResume>(agent)
-        }));
-    }
     let kind = failure.map(|failure| failure.kind);
-    if matches!(kind, Some(FailureKind::SignIn | FailureKind::Limit)) {
+    if kind == Some(FailureKind::Limit) {
+        let can = (head.turn.as_ref())
+            .and_then(|turn| turn.failed.as_ref())
+            .map(|failed| failed.can.as_slice())
+            .unwrap_or_default();
+        if can.contains(&Remedy::OtherAccount) {
+            buttons.extend(other_account(bench, agent, failure, &this, cx));
+        }
+        let resumes = failure
+            .and_then(|failure| failure.resumes_at)
+            .filter(|at| *at > now_ms());
+        buttons.push(match resumes {
+            Some(at) => quiet(
+                &this,
+                &agent.id,
+                format!("Retry at {}", turn_line::moment(at)),
+                |bench, agent| bench.account_call::<call::CancelResume>(agent),
+            )
+            .tooltip("Sikemux sends your last message again then. Click to not send it.")
+            .into_any_element(),
+            None => quiet(&this, &agent.id, "Retry".into(), |bench, agent| {
+                bench.account_call::<call::RetryFailed>(agent)
+            })
+            .into_any_element(),
+        });
+    }
+    if kind == Some(FailureKind::SignIn) {
         buttons.extend(
-            account_ways(bench, agent, failure, &head.capabilities, &this, cx)
+            account_ways(bench, agent, failure, &head.capabilities, &this)
                 .into_iter()
                 .map(IntoElement::into_any_element),
         );
@@ -620,6 +649,97 @@ pub(crate) fn connection_note(
     Some(centred(row).into_any_element())
 }
 
+/// A quiet button that says what Sikemux will do on its own, such as when it retries.
+fn quiet(
+    this: &WeakEntity<Workbench>,
+    agent: &str,
+    label: String,
+    run: fn(&mut Workbench, &str),
+) -> Button {
+    let (this, agent) = (this.clone(), agent.to_owned());
+    Button::new(
+        SharedString::from(format!("chat-quiet-{agent}")),
+        label,
+        Variant::Ghost,
+    )
+    .on_click(move |_, _, cx| {
+        this.update(cx, |bench, cx| {
+            run(bench, &agent);
+            cx.notify();
+        })
+        .ok();
+    })
+}
+
+/// "Use another account": the accounts the core says can take the chat on, once the one it
+/// runs on is at its limit, to move it to as the chat's account control does.
+fn other_account(
+    bench: &Workbench,
+    agent: &AgentRow,
+    failure: Option<&sikemux_view::chat::ChatFailure>,
+    this: &WeakEntity<Workbench>,
+    cx: &mut Context<Workbench>,
+) -> Option<AnyElement> {
+    if !matches!(
+        bench.chat_target(&agent.id).place(),
+        crate::hosts::Place::This
+    ) {
+        return None;
+    }
+    let saved = bench.shown().and_then(|view| {
+        view.workspace
+            .agents
+            .iter()
+            .find(|saved| saved.id == agent.id)
+    });
+    let on = failure
+        .and_then(|failure| failure.account.as_deref())
+        .or_else(|| saved.and_then(|saved| saved.profile_id.as_deref()))
+        .and_then(|id| bench.accounts.profile(id))
+        .or_else(|| bench.accounts.current(&agent.provider))
+        .cloned()?;
+    let takers = crate::accounts::takers(bench, &agent.id, &on.id, cx)?;
+    let others: Vec<(sikemux_core::agent_accounts::Profile, String)> = (takers.others.iter())
+        .filter_map(|other| bench.accounts.profile(&other.id).cloned())
+        .map(|other| {
+            let status = crate::accounts::status(bench, &other).and_then(|s| s.as_ref().ok());
+            let name = other.shown_name(status);
+            (other, name)
+        })
+        .collect();
+    if others.is_empty() {
+        return None;
+    }
+    let (this, chat) = (this.clone(), agent.id.clone());
+    let trigger = Button::new(
+        "chat-other-account",
+        "Use another account",
+        Variant::Outline,
+    );
+    Some(
+        ui::menu_button(
+            "chat-other-account-menu",
+            gpui_kit::Anchor::BottomRight,
+            trigger,
+            move |mut popup, _, cx| {
+                for (other, name) in &others {
+                    let (this, chat, other) = (this.clone(), chat.clone(), other.clone());
+                    popup = popup.item(ui::MenuRow::new(name.clone()).item(cx).on_click(
+                        move |_, _, cx| {
+                            this.update(cx, |bench, cx| {
+                                crate::accounts::move_chat(bench, &chat, &other, cx)
+                            })
+                            .ok();
+                        },
+                    ));
+                }
+                popup
+            },
+        )
+        .into_any_element(),
+    )
+}
+
 fn action(
     this: &WeakEntity<Workbench>,
     agent: &str,
@@ -638,17 +758,14 @@ fn action(
 }
 
 /// What the account the chat runs on can do about a turn it failed: sign in to it, or to the
-/// agent when the chat has no account of its own, or carry the chat on in another account the
-/// core says can take it, once this one is at its limit.
+/// agent when the chat has no account of its own.
 fn account_ways(
     bench: &Workbench,
     agent: &AgentRow,
     failure: Option<&sikemux_view::chat::ChatFailure>,
     capabilities: &ChatCapabilities,
     this: &WeakEntity<Workbench>,
-    cx: &mut Context<Workbench>,
 ) -> Vec<Button> {
-    let limit = failure.is_some_and(|failure| failure.kind == FailureKind::Limit);
     // The accounts listed are this host's, and moving a chat to one is this host's to do.
     if !matches!(
         bench.chat_target(&agent.id).place(),
@@ -668,33 +785,6 @@ fn account_ways(
         .and_then(|id| bench.accounts.profile(id))
         .or_else(|| bench.accounts.current(&agent.provider))
         .cloned();
-    if limit {
-        let Some(on) = on else {
-            return Vec::new();
-        };
-        let Some(takers) = crate::accounts::takers(bench, &agent.id, &on.id, cx) else {
-            return Vec::new();
-        };
-        return (takers.others.iter())
-            .filter_map(|other| bench.accounts.profile(&other.id).cloned())
-            .map(|other| {
-                let status = crate::accounts::status(bench, &other).and_then(|s| s.as_ref().ok());
-                let name = other.shown_name(status);
-                let (this, chat) = (this.clone(), agent.id.clone());
-                Button::new(
-                    SharedString::from(format!("chat-continue-{}", other.id)),
-                    format!("Continue on {name}"),
-                    Variant::Outline,
-                )
-                .on_click(move |_, _, cx| {
-                    this.update(cx, |bench, cx| {
-                        crate::accounts::move_chat(bench, &chat, &other, cx)
-                    })
-                    .ok();
-                })
-            })
-            .collect();
-    }
     let name = match &on {
         Some(profile) => profile.name.clone(),
         None => bench

@@ -77,6 +77,7 @@ mod moving;
 pub(crate) use attach::{named, named_agents, pill, site_icon, Mention, SNIP_NAME};
 pub use mention::Tray;
 mod meta;
+pub(crate) use meta::clock;
 pub mod model_picker;
 pub(crate) mod page;
 mod questions;
@@ -1470,8 +1471,9 @@ pub fn pane(
         .as_ref()
         .filter(|_| chat.is_empty(cx))
         .and_then(|switch| crate::worktrees::switch::note(switch, cx));
+    let bench_handle = cx.weak_entity();
     chat.activity_line
-        .update(cx, |line, cx| line.wear(agent, cx));
+        .update(cx, |line, cx| line.wear(agent, bench_handle, cx));
     chat.reader.update(cx, |reading, cx| {
         if reading.worktree != worktree {
             reading.worktree = worktree;
