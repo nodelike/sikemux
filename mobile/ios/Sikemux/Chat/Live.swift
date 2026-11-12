@@ -227,7 +227,14 @@ struct LiveSheet: View {
                     Line(title: subagent.name, detail: LiveWork.activity(subagent), cost: SubagentRow.cost(subagent)) {
                         AgentMark(provider: provider, size: 16)
                     } end: {
-                        Working()
+                        if canAct && subagent.canStop == true {
+                            SmallButton(label: "Stop", busy: session.stopping.contains(subagent.sessionId)) {
+                                session.stopTask(subagent.sessionId)
+                            }
+                            .accessibilityLabel("Stop \(subagent.name)")
+                        } else {
+                            Working()
+                        }
                     }
                 }
             }

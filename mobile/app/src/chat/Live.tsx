@@ -239,7 +239,18 @@ export function LiveSheet({
                 title={subagent.name}
                 detail={subagentActivity(subagent)}
                 cost={subagentCost(subagent)}
-                end={<Working />}
+                end={
+                  canAct && subagent.canStop ? (
+                    <SmallButton
+                      label="Stop"
+                      busy={stopping.has(subagent.sessionId)}
+                      onPress={() => onStopTask(subagent.sessionId)}
+                      accessibilityLabel={`Stop ${subagent.name}`}
+                    />
+                  ) : (
+                    <Working />
+                  )
+                }
               />
             ))}
           </>
