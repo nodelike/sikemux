@@ -15,6 +15,7 @@ pub(crate) mod permission;
 pub mod prompt;
 pub mod queue;
 mod rebind;
+pub(crate) use rebind::on_account;
 mod registry;
 pub(crate) mod reset;
 mod start;

@@ -81,7 +81,7 @@ impl Carried {
 }
 
 /// `launch` with `account` in place of the account it names.
-pub(super) fn on_account(provider: &str, launch: &ChatLaunch, account: &ChatAccount) -> ChatLaunch {
+pub(crate) fn on_account(provider: &str, launch: &ChatLaunch, account: &ChatAccount) -> ChatLaunch {
     let mut moved = launch.clone();
     if let Some(variable) = crate::launch::account_variable(provider) {
         moved.env.remove(variable);

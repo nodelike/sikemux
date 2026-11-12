@@ -325,8 +325,11 @@ pub(crate) async fn start(
         launch.permission_mode = mode;
     }
     launch.effort = chosen.effort;
-    launch.account = chosen.account;
     launch.fallbacks = chosen.fallbacks;
+    // The launcher set the folder the agent runs in; the account chosen for it moves it there.
+    if let Some(account) = chosen.account {
+        launch = chat::on_account(&launch.provider.clone(), &launch, &account);
+    }
     let starting = chat::Starting {
         waits_for_person,
         briefed: false,
