@@ -27,7 +27,7 @@ use sikemux_fold::update::turn_answer;
 use sikemux_fold::{ChatEventKind, UpdateKind};
 use sikemux_view::chat::{SessionRotation, StopReason};
 use sikemux_view::questions::QuestionChoice;
-use sikemux_wire::protocol::{ChatAccount, ChatContext, ChatLaunch, ChatStart};
+use sikemux_wire::protocol::{AgentState, ChatAccount, ChatContext, ChatLaunch, ChatStart};
 
 use super::super::feed::{Earlier, Reach};
 use super::super::kept::Progress;
@@ -843,12 +843,13 @@ pub(crate) async fn run<B: Backend>(
         letter_turn: false,
         sink: telling,
         rotation_brief: None,
+        fresh_from: None,
     };
     running.chat.rotation.runs_on(running.footing());
     running.opened(replay).await;
     let end = loop {
         if !running.chat.prompted() && commands.is_empty() {
-            running.rotate_if_due(false).await;
+            running.ready_rotation().await;
         }
         running.rest();
         // What the agent already said is taken in before the next command,
@@ -898,6 +899,8 @@ struct Running<'a, B> {
     sink: Sink,
     /// What a fresh session is told with its first message.
     rotation_brief: Option<ChatContext>,
+    /// The session the chat ran on before a fresh one that has not answered yet.
+    fresh_from: Option<String>,
 }
 
 impl<B: Backend> Running<'_, B> {
@@ -929,28 +932,50 @@ impl<B: Backend> Running<'_, B> {
         }
     }
 
-    /// Starts a fresh session under the chat when its old one is full, cold or on another model
-    /// or account, from a brief the core builds; the old one carries on when that fails. `asked`
-    /// when a message is about to start a turn.
-    async fn rotate_if_due(&mut self, asked: bool) {
+    /// At rest after a turn, a session grown full writes its handoff note now, while its cache
+    /// is warm; the fresh session starts with the next message. Once a fresh session has
+    /// answered its first message, the chat goes on in it.
+    async fn ready_rotation(&mut self) {
+        if let Some(from) = self.fresh_from.take() {
+            let start = self.state.start();
+            if start.session_id != from {
+                self.chat.mark_ready(start.clone());
+                self.chat.emit(ChatEventKind::Ready, json!(start));
+            }
+        }
         let Some(core) = self.chat.core.upgrade() else {
             return;
         };
-        let Some(reason) = rotation::due(&core, &self.chat, self.footing(), asked) else {
+        if self.chat.state_now() != AgentState::Idle || !rotation::full_at_rest(&core, &self.chat) {
+            return;
+        }
+        let note = self.backend.handoff().await.ok();
+        rotation::readied(&self.chat, note);
+    }
+
+    /// Starts a fresh session under the chat as a message is about to start a turn, when the old
+    /// one is full, cold or on another model or account, from a brief the core builds; the
+    /// message carries the brief. The old one carries on when the fresh one does not start.
+    async fn rotate_if_due(&mut self) {
+        const STARTING: std::time::Duration = std::time::Duration::from_secs(60);
+        let Some(core) = self.chat.core.upgrade() else {
             return;
         };
-        let handoff = if rotation::asks_handoff(reason) {
-            self.backend.handoff().await.ok()
-        } else {
-            rotation::earlier_handoff(&self.chat)
+        let Some(reason) = rotation::due(&core, &self.chat, &self.footing()) else {
+            return;
         };
-        let brief = rotation::brief(&core, &self.chat, handoff);
+        let brief = rotation::brief(&core, &self.chat);
         let Some(mut launch) = self.chat.relaunch(self.launch) else {
             return;
         };
         launch.resume_id = None;
         let started = match self.chat.with_model_token(&launch) {
-            Ok(launch) => B::start(&launch, Some(&brief.instructions), self.sink.clone()).await,
+            Ok(launch) => tokio::time::timeout(
+                STARTING,
+                B::start(&launch, Some(&brief.instructions), self.sink.clone()),
+            )
+            .await
+            .unwrap_or_else(|_| Err("it took too long to start".to_owned())),
             Err(error) => Err(error),
         };
         let (backend, opened) = match started {
@@ -969,16 +994,17 @@ impl<B: Backend> Running<'_, B> {
         self.state.reloadable = self.backend.reloadable();
         self.chat.note_agent(self.backend.pid());
         self.chat.meter.started_fresh();
-        let start = self.state.start();
-        self.chat.mark_ready(start.clone());
-        self.chat.emit(ChatEventKind::Ready, json!(start));
-        self.chat.rotation.runs_on(self.footing());
+        self.chat.rotation.rotated(self.footing());
+        // Until the fresh session has answered, a restart takes the old one up again.
+        self.fresh_from = Some(from.clone());
+        let at = sikemux_process::clock::epoch_ms();
+        rotation::keep(&core, self.chat.agent_id(), at, &brief.whole);
         let rotation = SessionRotation {
-            at: sikemux_process::clock::epoch_ms(),
+            at,
             reason,
             from_session: from,
             to_session: self.state.session_id.clone(),
-            brief: brief.shown,
+            brief: rotation::shown(&brief.whole),
         };
         self.sink.update(
             &self.state.session_id,
@@ -1355,7 +1381,7 @@ impl<B: Backend> Running<'_, B> {
         if !shown {
             self.show(&replay);
         }
-        self.rotate_if_due(true).await;
+        self.rotate_if_due().await;
         self.send(replay).await;
         ControlFlow::Continue(())
     }

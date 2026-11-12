@@ -116,8 +116,7 @@ pub(crate) fn session_title(payload: &Value) -> Option<String> {
 impl Replay {
     /// What the person wrote, oldest first: the newest messages that fit in `budget`
     /// characters, each counted with the three a list line adds, and each past `longest`
-    /// characters cut and marked `[cut]`. Messages from agents and background work are not
-    /// the person's.
+    /// characters cut and marked `[cut]`. Only messages the record marks as the person's count.
     pub(in super::super) fn persons_words(&self, budget: usize, longest: usize) -> Vec<String> {
         const LINE: usize = 3;
         const CUT: &str = " [cut]";
@@ -127,13 +126,13 @@ impl Replay {
             if entry.event.kind != ChatEventKind::Prompt {
                 continue;
             }
+            if entry.event.payload.get("person") != Some(&Value::Bool(true)) {
+                continue;
+            }
             let Some(text) = entry.event.payload.get("text").and_then(Value::as_str) else {
                 continue;
             };
             let text = text.trim();
-            if text.starts_with("<agent-message ") || text.starts_with("<task-notification>") {
-                continue;
-            }
             let mut kept: String = text.chars().take(longest).collect();
             if kept.len() < text.len() {
                 kept.push_str(CUT);
@@ -152,8 +151,9 @@ impl Replay {
     }
 
     /// The newest `count` exchanges with the person, oldest first: each message of theirs and
-    /// what the agent wrote back in that turn, each side cut past `longest` characters and
-    /// marked `[cut]`. A turn another agent's message started is no exchange with the person.
+    /// what the agent wrote back in that turn. Each side past `longest` characters keeps its
+    /// start for the person's and its end for the agent's, marked `[cut]`. Only a message the
+    /// record marks as the person's opens an exchange.
     pub(in super::super) fn exchanges(
         &self,
         count: usize,
@@ -165,15 +165,10 @@ impl Replay {
             let payload = &entry.event.payload;
             match entry.event.kind {
                 ChatEventKind::Prompt => {
-                    let text = payload
-                        .get("text")
-                        .and_then(Value::as_str)
-                        .unwrap_or_default()
-                        .trim();
-                    open = !text.starts_with("<agent-message ")
-                        && !text.starts_with("<task-notification>");
+                    open = payload.get("person") == Some(&Value::Bool(true));
                     if open {
-                        exchanges.push((text.to_owned(), String::new()));
+                        let text = payload.get("text").and_then(Value::as_str);
+                        exchanges.push((text.unwrap_or_default().trim().to_owned(), String::new()));
                     }
                 }
                 ChatEventKind::SessionUpdate if open && !self.work.in_subagent(payload) => {
@@ -191,17 +186,28 @@ impl Replay {
             }
         }
         let first = exchanges.len().saturating_sub(count);
-        let cut = |text: &str| {
+        let start = |text: &str| {
             let text = text.trim();
-            let mut kept: String = text.chars().take(longest).collect();
+            let kept: String = text.chars().take(longest).collect();
             if kept.len() < text.len() {
-                kept.push_str(" [cut]");
+                format!("{kept} [cut]")
+            } else {
+                kept
             }
-            kept
+        };
+        let end = |text: &str| {
+            let text = text.trim();
+            let skip = text.chars().count().saturating_sub(longest);
+            let kept: String = text.chars().skip(skip).collect();
+            if skip > 0 {
+                format!("[cut] {kept}")
+            } else {
+                kept
+            }
         };
         exchanges[first..]
             .iter()
-            .map(|(asked, answered)| (cut(asked), cut(answered)))
+            .map(|(asked, answered)| (start(asked), end(answered)))
             .collect()
     }
 

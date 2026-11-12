@@ -757,14 +757,33 @@ impl Backend for Claude {
             shared.hushed = true;
             shared.handed = None;
         }
-        let ask = json!({ "type": "text", "text": super::super::rotation::HANDOFF_ASK });
-        if let Err(error) = self.writer().send(&user_message(&uuid, vec![ask], None)) {
-            let mut shared = self.shared.locked();
+        let unhush = |shared: &Arc<Mutex<Shared>>| {
+            let mut shared = shared.locked();
             shared.quiet = None;
             shared.hushed = false;
+        };
+        // Tools it is not already allowed are refused without asking, so the turn only writes.
+        let refusing = self
+            .running
+            .control
+            .request(json!({ "subtype": "set_permission_mode", "mode": "dontAsk" }))
+            .await;
+        if let Err(error) = refusing {
+            unhush(&self.shared);
             return Err(error);
         }
-        let waited = tokio::time::timeout(WAIT, async {
+        let ask = json!({ "type": "text", "text": super::super::rotation::HANDOFF_ASK });
+        if let Err(error) = self.writer().send(&user_message(&uuid, vec![ask], None)) {
+            unhush(&self.shared);
+            let mode = self.shared.locked().mode.clone();
+            let _ = self.running.control.send_for(
+                json!({ "subtype": "set_permission_mode", "mode": mode }),
+                Purpose::Mode,
+            );
+            return Err(error);
+        }
+        // Past the wait the turn stays hushed: whatever it says late never reaches the chat.
+        tokio::time::timeout(WAIT, async {
             loop {
                 if let Some(note) = self.shared.locked().handed.take() {
                     return note;
@@ -772,13 +791,8 @@ impl Backend for Claude {
                 tokio::time::sleep(LOOK).await;
             }
         })
-        .await;
-        waited.map_err(|_| {
-            let mut shared = self.shared.locked();
-            shared.quiet = None;
-            shared.hushed = false;
-            "Claude wrote no handoff note in time".to_owned()
-        })
+        .await
+        .map_err(|_| "Claude wrote no handoff note in time".to_owned())
     }
 
     async fn stop_task(&mut self, task_id: &str) -> Result<(), String> {

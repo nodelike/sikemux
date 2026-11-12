@@ -2581,8 +2581,11 @@ export interface BriefSection {
     /** About how many tokens it holds. */
     tokens: number;
     counts?: BriefCounts;
-    /** Word for word, as the session was given it. */
-    text: string;
+    /**
+     * Word for word, as the session was given it. A chat's line leaves it out; the core's
+     * `rotationBrief` answers it.
+     */
+    text?: string;
 }
 
 export type BriefSectionKind = "seat" | "decisions" | "work" | "handoff" | "exchanges";

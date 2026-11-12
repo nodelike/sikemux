@@ -515,6 +515,16 @@ impl Reader {
     }
 
     pub fn handle(&mut self, message: Message) {
+        let said = matches!(
+            message,
+            Message::StreamEvent { .. }
+                | Message::Assistant(_)
+                | Message::User(_)
+                | Message::System(_)
+        );
+        if said && self.shared.locked().hushed {
+            return;
+        }
         match message {
             Message::ControlResponse { response } => {
                 if let Some((purpose, result)) = self.control.answered(response) {
@@ -568,6 +578,9 @@ impl Reader {
 
     fn request(&mut self, request_id: String, request: Value) {
         match text(&request, "subtype") {
+            Some("can_use_tool") if self.shared.locked().hushed => self
+                .control
+                .refuse(&request_id, "Write the handoff note only, with no tools"),
             Some("can_use_tool") => self.can_use_tool(request_id, request),
             Some("hook_callback") => {
                 let answer = match text(&request, "callback_id") {
@@ -999,6 +1012,10 @@ impl Reader {
                 shared.quiet = None;
                 if std::mem::take(&mut shared.hushed) {
                     shared.handed = Some(result.result.clone().unwrap_or_default());
+                    let _ = self.control.send_for(
+                        json!({ "subtype": "set_permission_mode", "mode": shared.mode }),
+                        Purpose::Mode,
+                    );
                 }
             }
             quiet
@@ -1074,7 +1091,7 @@ impl Reader {
     /// A call the session made to the model, as it starts streaming. The call that writes a
     /// compaction's summary is the compaction's, not the chat's.
     fn called(&mut self, usage: &Value) {
-        if self.data.compaction.is_some() {
+        if self.data.compaction.is_some() || self.quiet() {
             return;
         }
         let field = |key: &str| usage.get(key).and_then(Value::as_u64).unwrap_or(0);

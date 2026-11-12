@@ -4224,8 +4224,9 @@ struct BriefSection: Codable, Hashable, Sendable {
     /// About how many tokens it holds.
     var tokens: Int
     var counts: BriefCounts?
-    /// Word for word, as the session was given it.
-    var text: String
+    /// Word for word, as the session was given it. A chat's line leaves it out; the core's
+    /// `rotationBrief` answers it.
+    var text: String?
 }
 
 enum BriefSectionKind: String, Codable, Hashable, Sendable {

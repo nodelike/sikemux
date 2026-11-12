@@ -1621,7 +1621,9 @@ pub struct BriefSection {
     pub tokens: u64,
     #[serde(default)]
     pub counts: BriefCounts,
-    /// Word for word, as the session was given it.
+    /// Word for word, as the session was given it. A chat's line leaves it out; the core's
+    /// `rotationBrief` answers it.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub text: String,
 }
 
