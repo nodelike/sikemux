@@ -35,7 +35,7 @@ private struct DeviceContent: View {
         let device = hub.device(core)
         let status = HostStatus(live, device: device)
         let view = live.view
-        let hostName = device?.displayName ?? "Host"
+        let hostName = device?.displayName ?? String(localized: "Host")
         let away: Bool = {
             if case .closed = live.status { return true }
             return status.problem != nil
@@ -206,7 +206,7 @@ private struct DeviceContent: View {
 
     /// What the big title says: the project in view, or All projects.
     private func projectLabel(_ view: DeviceView, device: PairedDevice?) -> String {
-        view.project(id: device?.project)?.name ?? "All projects"
+        view.project(id: device?.project)?.name ?? String(localized: "All projects")
     }
 
     /// The title opens the project picker when there is something to pick.
@@ -405,8 +405,8 @@ private struct HostTabs: View {
 
     var body: some View {
         HStack(spacing: 2) {
-            segment(.agents, "Agents", Icons.agent, palette.accent)
-            segment(.terminals, "Terminals", Icons.terminal, palette.warn)
+            segment(.agents, String(localized: "Agents"), Icons.agent, palette.accent)
+            segment(.terminals, String(localized: "Terminals"), Icons.terminal, palette.warn)
             segment(.calls, CallWords.calls, Icons.message, palette.warn, count: calling)
         }
         .padding(3)

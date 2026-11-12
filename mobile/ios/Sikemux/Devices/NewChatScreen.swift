@@ -39,7 +39,7 @@ private struct NewChatContent: View {
         let since: Date
     }
 
-    private static let idle = "Ask about this project, or type / for commands"
+    private static let idle = String(localized: "Ask about this project, or type / for commands")
 
     @Environment(\.palette) private var palette
     let core: String
@@ -83,8 +83,9 @@ private struct NewChatContent: View {
         let sendable = written && launcher != nil && project != nil && live.isOpen && !starting
         let blocked: String? =
             !live.isOpen
-            ? (live.view != nil ? "Reconnecting to the host…" : "Not connected to the host yet.")
-            : workspace != nil && project == nil ? "No open projects on the host." : nil
+            ? (live.view != nil
+                ? String(localized: "Reconnecting to the host…") : String(localized: "Not connected to the host yet."))
+            : workspace != nil && project == nil ? String(localized: "No open projects on the host.") : nil
         let noAgents = workspace.map { $0.launchers.isEmpty } ?? false
 
         Screen {
@@ -93,7 +94,7 @@ private struct NewChatContent: View {
                     if let launcher {
                         ChatTitle(
                             agentId: nil, provider: launcher.provider, name: nil,
-                            title: "New \(Catalog.label(launcher.provider, core: core)) chat")
+                            title: String(localized: "New \(Catalog.label(launcher.provider, core: core)) chat"))
                     }
                 },
                 end: {
@@ -105,7 +106,9 @@ private struct NewChatContent: View {
                 VStack(alignment: .leading, spacing: 12) {
                     Spacer()
                     TranscriptMessage(message: sending.message, look: RowLook(unsent: Unsent(state: .sending)))
-                    ActivityLine(provider: launcher.provider, doing: Doing(step ?? "Starting"), since: sending.since)
+                    ActivityLine(
+                        provider: launcher.provider, doing: Doing(step ?? String(localized: "Starting")),
+                        since: sending.since)
                 }
                 .environment(context)
                 .padding(.horizontal, 18)
@@ -357,7 +360,7 @@ private struct NewChatContent: View {
         .padding(.horizontal, 8)
     }
 
-    private var hostName: String { Hub.shared.device(core)?.displayName ?? "the host" }
+    private var hostName: String { Hub.shared.device(core)?.displayName ?? String(localized: "the host") }
 
     private var written: Bool {
         !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty || !chips.isEmpty
@@ -442,7 +445,7 @@ private struct NewChatContent: View {
                             return file
                         })
                 } catch {
-                    problem = "Could not pick: \(Sikemux.problem(error))"
+                    problem = String(localized: "Could not pick: \(Sikemux.problem(error))")
                 }
             }
         }
@@ -459,7 +462,7 @@ private struct NewChatContent: View {
                     PhoneCall.SetWorktreeDefault.self, WorktreeDefaultParams(project: project.path, on: on))
             } catch {
                 flipped = nil
-                problem = "Could not change the worktree default: \(Sikemux.problem(error))"
+                problem = String(localized: "Could not change the worktree default: \(Sikemux.problem(error))")
             }
         }
     }
@@ -496,15 +499,19 @@ private struct NewChatContent: View {
                 }
                 guard let agentId else { return }
                 if worktree && !inWorktree {
-                    step = "Creating worktree"
+                    step = String(localized: "Creating worktree")
                     let made = try await connection.call(
                         PhoneCall.CreateAgentWorktree.self, AgentWorktreeParams(agentId: agentId, message: text))
                     inWorktree = true
                     if let setupError = made.setupError {
-                        fail("\(setupError). The worktree is kept at \(made.worktree.path); send again to start there.")
+                        fail(
+                            String(
+                                localized:
+                                    "\(setupError). The worktree is kept at \(made.worktree.path); send again to start there."
+                            ))
                         return
                     }
-                    step = "Starting the agent in the worktree"
+                    step = String(localized: "Starting the agent in the worktree")
                 }
                 var files = sending?.attachments ?? []
                 let (sent, failure) = await Uploads.each(
@@ -518,7 +525,7 @@ private struct NewChatContent: View {
                         if let at = files.firstIndex(where: { $0.id == id }) { change(&files[at]) }
                     })
                 guard let sent else {
-                    fail(failure ?? "Could not send every file to the host", files: files)
+                    fail(failure ?? String(localized: "Could not send every file to the host"), files: files)
                     return
                 }
                 ChatSession.of(core: core, agentId: agentId).sendWhenAttached(text, sent)

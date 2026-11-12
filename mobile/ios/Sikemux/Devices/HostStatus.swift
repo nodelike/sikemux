@@ -25,25 +25,27 @@ struct HostStatus: Equatable {
         problem = nil
         connecting = false
         let offline =
-            "Asleep or offline"
-            + (device?.lastSeen.map { " · seen \(Format.ago(Format.date(millis: $0), now: now))" } ?? "")
+            device?.lastSeen.map {
+                String(localized: "Asleep or offline · seen \(Format.ago(Format.date(millis: $0), now: now))")
+            } ?? String(localized: "Asleep or offline")
         switch live.status {
         case .open:
             facts = [device?.channelLabel, live.view.map(Self.summary)].compactMap { $0 }.joined(separator: " · ")
-            line = ["Online", facts].filter { !$0.isEmpty }.joined(separator: " · ")
+            line = [String(localized: "Online"), facts].filter { !$0.isEmpty }.joined(separator: " · ")
         case .connecting(let failed):
             connecting = true
             problem = failed
             // Trying again after a failure still reads as offline, so the line does not flicker on every try.
-            line = failed != nil ? offline : stale ? "Reconnecting…" : "Connecting…"
+            line =
+                failed != nil ? offline : stale ? String(localized: "Reconnecting…") : String(localized: "Connecting…")
             facts = line
         case .closed(let reason, let why):
             blocked = why
             problem = reason
             switch why {
-            case .outdated(.host): line = "Needs a newer Sikemux"
-            case .outdated(.phone): line = "Update this app to connect"
-            case .unpaired: line = "No longer knows this phone"
+            case .outdated(.host): line = String(localized: "Needs a newer Sikemux")
+            case .outdated(.phone): line = String(localized: "Update this app to connect")
+            case .unpaired: line = String(localized: "No longer knows this phone")
             case nil: line = offline
             }
             facts = line
@@ -54,8 +56,13 @@ struct HostStatus: Equatable {
         let agents = view.chats.count
         let terminals = view.sessions.filter(\.running).count
         var parts: [String] = []
-        if agents > 0 { parts.append("\(agents) \(Format.counted("agent", agents))") }
-        if terminals > 0 { parts.append("\(terminals) \(Format.counted("terminal", terminals))") }
-        return parts.isEmpty ? "Nothing running" : parts.joined(separator: " · ")
+        if agents > 0 {
+            parts.append(agents == 1 ? String(localized: "1 agent") : String(localized: "\(agents) agents"))
+        }
+        if terminals > 0 {
+            parts.append(
+                terminals == 1 ? String(localized: "1 terminal") : String(localized: "\(terminals) terminals"))
+        }
+        return parts.isEmpty ? String(localized: "Nothing running") : parts.joined(separator: " · ")
     }
 }

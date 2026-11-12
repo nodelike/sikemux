@@ -198,7 +198,7 @@ struct ProjectSheet<Tail: View>: View {
                             on ? palette.borderStrong : palette.border, lineWidth: 1))
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(provider.map { Catalog.label($0, core: core) } ?? "All agents")
+                .accessibilityLabel(provider.map { Catalog.label($0, core: core) } ?? String(localized: "All agents"))
                 .accessibilityAddTraits(on ? [.isSelected] : [])
             }
         }
@@ -283,14 +283,17 @@ struct AwaySheet: View {
         let snoozed = shown.snoozedUntil != nil
         let settled = shown.settledAt != nil
         VStack(alignment: .leading, spacing: 0) {
-            Text(snoozed ? "\(shown.title) is snoozed" : "Snooze \(shown.title)")
-                .font(Theme.ui(16, .semibold))
-                .tracking(-0.25)
-                .foregroundStyle(palette.ink)
-                .lineLimit(1)
-                .padding(.horizontal, 8)
-                .padding(.top, 4)
-                .padding(.bottom, 10)
+            Text(
+                snoozed
+                    ? String(localized: "\(shown.title) is snoozed") : String(localized: "Snooze \(shown.title)")
+            )
+            .font(Theme.ui(16, .semibold))
+            .tracking(-0.25)
+            .foregroundStyle(palette.ink)
+            .lineLimit(1)
+            .padding(.horizontal, 8)
+            .padding(.top, 4)
+            .padding(.bottom, 10)
             if snoozed {
                 MenuItem(icon: Icons.clock, label: "Wake now") { snooze(until: nil) }.padding(.vertical, 8)
             } else {
@@ -347,7 +350,7 @@ struct AwaySheet: View {
                         let ids = [shown.agentId]
                         act(
                             { try await Self.settle($0, ids, true) },
-                            said: Said(text: "Settled") { connection in
+                            said: Said(text: String(localized: "Settled")) { connection in
                                 Task { await Self.undo { try await Self.settle(connection, ids, false) } }
                             })
                     }
@@ -370,7 +373,9 @@ struct AwaySheet: View {
         let ids = [shown.agentId]
         var said: Said?
         if until != nil || words != nil {
-            let text = until.map { "Snoozed until \(Self.clock(Format.date(millis: $0)))" } ?? "Snoozed"
+            let text =
+                until.map { String(localized: "Snoozed until \(Self.clock(Format.date(millis: $0)))") }
+                ?? String(localized: "Snoozed")
             said = Said(text: text) { connection in
                 Task {
                     await Self.undo {
@@ -396,7 +401,7 @@ struct AwaySheet: View {
     private func act(_ work: @escaping (Connection) async throws -> Void, said: Said? = nil) {
         guard let connection = Hub.shared.live(core).connection else {
             Haptics.failure()
-            failed = "Not connected to the host."
+            failed = String(localized: "Not connected to the host.")
             return
         }
         Haptics.tap()

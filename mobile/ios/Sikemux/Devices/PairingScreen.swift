@@ -2,8 +2,8 @@ import SikemuxCore
 import SwiftUI
 
 private let accessOptions: [(value: DeviceAccess, label: String, detail: String)] = [
-    (.full, "Full control", "Start chats, answer agents, type in terminals"),
-    (.watch, "Watch only", "See chats and terminals, answer what agents ask"),
+    (.full, String(localized: "Full control"), String(localized: "Start chats, answer agents, type in terminals")),
+    (.watch, String(localized: "Watch only"), String(localized: "See chats and terminals, answer what agents ask")),
 ]
 
 private func accessLabel(_ access: DeviceAccess) -> String {
@@ -40,7 +40,7 @@ private struct PairingContent: View {
 
     var body: some View {
         let live = Hub.shared.live(core)
-        let hostName = Hub.shared.device(core)?.displayName ?? "Host"
+        let hostName = Hub.shared.device(core)?.displayName ?? String(localized: "Host")
         Screen {
             Nav("Paired devices", back: "Back")
             ScrollView(showsIndicators: false) {
@@ -49,7 +49,7 @@ private struct PairingContent: View {
                         ApprovalRow(core: core)
                         rows(now)
                         if pairing.data == nil && pairing.problem == nil {
-                            note("Asking \(hostName)…")
+                            note(String(localized: "Asking \(hostName)…"))
                         }
                         if let problem = pairing.problem { note(problem).foregroundStyle(palette.danger) }
                     }
@@ -95,8 +95,8 @@ private struct PairingContent: View {
             Rows {
                 ForEach(pending, id: \.id) { request in
                     Row(
-                        title: request.name.isEmpty ? "A phone" : request.name,
-                        detail: "\(platformName(request.platform)) · from your account",
+                        title: request.name.isEmpty ? String(localized: "A phone") : request.name,
+                        detail: String(localized: "\(platformName(request.platform)) · from your account"),
                         mark: { IconView(icon: Icons.phone, size: 18).foregroundStyle(palette.ink) },
                         end: { EmptyView() })
                     chips {
@@ -115,11 +115,12 @@ private struct PairingContent: View {
                 ForEach(pairing.devices, id: \.id) { paired in
                     let me = paired.id == phone
                     let seen =
-                        paired.lastSeen.map(Format.date(millis:)).map { "seen \(Format.ago($0, now: now))" }
-                        ?? "never connected"
+                        paired.lastSeen.map(Format.date(millis:)).map {
+                            String(localized: "seen \(Format.ago($0, now: now))")
+                        } ?? String(localized: "never connected")
                     Row(
-                        title: paired.name.isEmpty ? "Unnamed phone" : paired.name,
-                        detail: "\(accessLabel(paired.access)) · \(me ? "this phone" : seen)",
+                        title: paired.name.isEmpty ? String(localized: "Unnamed phone") : paired.name,
+                        detail: "\(accessLabel(paired.access)) · \(me ? String(localized: "this phone") : seen)",
                         onPress: me ? nil : { editing = paired.id },
                         mark: { IconView(icon: Icons.phone, size: 18).foregroundStyle(palette.secondary) },
                         end: { if !me { IconView(icon: Icons.chevron, size: 14).foregroundStyle(palette.rest) } })
@@ -131,8 +132,8 @@ private struct PairingContent: View {
             Rows {
                 ForEach(asking, id: \.id) { request in
                     Row(
-                        title: request.name.isEmpty ? "A host" : request.name,
-                        detail: "\(platformName(request.platform)) · from your account",
+                        title: request.name.isEmpty ? String(localized: "A host") : request.name,
+                        detail: String(localized: "\(platformName(request.platform)) · from your account"),
                         mark: { IconView(icon: hostKind(request.platform), size: 18).foregroundStyle(palette.ink) },
                         end: { EmptyView() })
                     chips {
@@ -148,12 +149,14 @@ private struct PairingContent: View {
                 ForEach(links, id: \.id) { link in
                     let reach =
                         link.connected
-                        ? "connected"
-                        : link.lastSeen.map(Format.date(millis:)).map { "seen \(Format.ago($0, now: now))" }
-                            ?? "never connected"
+                        ? String(localized: "connected")
+                        : link.lastSeen.map(Format.date(millis:)).map {
+                            String(localized: "seen \(Format.ago($0, now: now))")
+                        } ?? String(localized: "never connected")
                     let detail = [
                         platformName(link.platform), reach,
-                        link.agents > 0 ? "\(link.agents) \(Format.counted("agent", link.agents))" : nil,
+                        link.agents == 1 ? String(localized: "1 agent") : nil,
+                        link.agents > 1 ? String(localized: "\(link.agents) agents") : nil,
                     ]
                     .compactMap { $0 }.joined(separator: " · ")
                     Row(
@@ -210,7 +213,7 @@ private struct DeviceSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(device.name.isEmpty ? "Unnamed phone" : device.name)
+            Text(device.name.isEmpty ? String(localized: "Unnamed phone") : device.name)
                 .font(Theme.ui(17, .semibold))
                 .tracking(-0.35)
                 .foregroundStyle(palette.ink)
@@ -238,7 +241,8 @@ private struct ApprovalRow: View {
             IconView(icon: Icons.lock, size: 18).foregroundStyle(palette.secondary)
             VStack(alignment: .leading, spacing: 0) {
                 Text("Require approval for new devices").font(Theme.ui(15, .medium)).foregroundStyle(palette.ink)
-                Text(problem ?? "Ask here before a device or host on your account connects").metaStyle(palette)
+                Text(problem ?? String(localized: "Ask here before a device or host on your account connects"))
+                    .metaStyle(palette)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             Toggle("Require approval for new devices", isOn: Binding(get: { on ?? false }, set: { flip($0) }))

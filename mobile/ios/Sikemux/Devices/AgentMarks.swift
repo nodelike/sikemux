@@ -88,7 +88,8 @@ struct SubagentCount: View {
 
     var body: some View {
         MarkCount(icon: Icons.agent, tint: palette.live, text: "\(count)")
-            .accessibilityLabel("\(count) \(Format.counted("subagent", count)) running")
+            .accessibilityLabel(
+                count == 1 ? String(localized: "1 subagent running") : String(localized: "\(count) subagents running"))
     }
 }
 
@@ -99,7 +100,10 @@ struct ShellCount: View {
 
     var body: some View {
         MarkCount(icon: Icons.command, tint: palette.warn, text: "\(count)")
-            .accessibilityLabel("\(count) \(count == 1 ? "shell or monitor" : "shells or monitors") running")
+            .accessibilityLabel(
+                count == 1
+                    ? String(localized: "1 shell or monitor running")
+                    : String(localized: "\(count) shells or monitors running"))
     }
 }
 
@@ -113,12 +117,12 @@ struct WakeTime: View {
         let left = max(0, at.timeIntervalSince(now))
         let words =
             left < 3600
-            ? "\(max(1, Int((left / 60).rounded(.up))))m"
+            ? String(localized: "\(max(1, Int((left / 60).rounded(.up))))m")
             : left < 86_400
-                ? "\(max(1, Int((left / 3600).rounded())))h"
+                ? String(localized: "\(max(1, Int((left / 3600).rounded())))h")
                 : at.formatted(.dateTime.weekday(.abbreviated))
         MarkCount(icon: Icons.clock, tint: palette.tertiary, text: words, dim: true)
-            .accessibilityLabel("Snoozed, wakes in \(words)")
+            .accessibilityLabel(String(localized: "Snoozed, wakes in \(words)"))
     }
 }
 

@@ -110,13 +110,16 @@ private struct DeviceCard: View {
         let working = view?.inbox.working ?? 0
         let background = (view?.inbox.rollup?.subagents ?? 0) + (view?.inbox.rollup?.tasks ?? 0)
         let busy = (view?.inbox.agents ?? []).filter { $0.turn?.state == .working || $0.background }
-        let work = [working > 0 ? "\(working) working" : nil, background > 0 ? "\(background) in the background" : nil]
-            .compactMap { $0 }.joined(separator: " · ")
+        let work = [
+            working > 0 ? String(localized: "\(working) working") : nil,
+            background > 0 ? String(localized: "\(background) in the background") : nil,
+        ]
+        .compactMap { $0 }.joined(separator: " · ")
         let state =
             offAccount
-            ? "Not on your account"
-            : view.map(HostStatus.summary) ?? (status.online ? "Connecting…" : status.line)
-        let meta = device.access == .watch ? "Watch only · \(state)" : state
+            ? String(localized: "Not on your account")
+            : view.map(HostStatus.summary) ?? (status.online ? String(localized: "Connecting…") : status.line)
+        let meta = device.access == .watch ? String(localized: "Watch only · \(state)") : state
 
         Button {
             Router.shared.push(.device(core: device.core))
@@ -197,7 +200,10 @@ private struct AccountHostCard: View {
         let failure: JoinFailure? = if case .stopped(let failure) = state { failure } else { nil }
         let since: Date? = if case .joining(let since) = state { since } else { nil }
         let channel = host.channel.flatMap { BuildChannel(rawValue: $0.rawValue) }?.label
-        let line = failure?.title ?? (asking ? "Waiting for \(host.name) to allow this phone" : "Connecting…")
+        let line =
+            failure?.title
+            ?? (asking
+                ? String(localized: "Waiting for \(host.name) to allow this phone") : String(localized: "Connecting…"))
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 14) {
                 IconView(icon: Icons.laptop, size: 26)
@@ -305,7 +311,7 @@ private struct BringItIn: View {
             Text("Bring it in").font(Theme.ui(15, .semibold)).foregroundStyle(palette.ink)
             VStack(alignment: .leading, spacing: 9) {
                 step(1, Text("Get Sikemux from \(strong("sikemux.com"))"))
-                step(2, Text("Sign in with \(strong(account.isEmpty ? "this account" : account))"))
+                step(2, Text("Sign in with \(strong(account.isEmpty ? String(localized: "this account") : account))"))
                 step(3, Text("It shows up here and connects by itself"))
             }
             .padding(.top, 10)
@@ -357,7 +363,7 @@ private struct BringItIn: View {
     }
 
     private func chip(_ title: String, primary: Bool = false) -> some View {
-        Text(title)
+        Text(LocalizedStringKey(title))
             .font(Theme.ui(14, .semibold))
             .foregroundStyle(primary ? palette.ground : palette.ink)
             .lineLimit(1)

@@ -68,13 +68,15 @@ struct DeviceAgents: View {
                     )
                     .padding(.top, 10)
                 }
-                AwayGroup(label: "Snoozed", fold: .snoozed, agents: snoozed) { row($0, now: now) }
-                AwayGroup(label: "Settled", fold: .settled, agents: settled) { row($0, now: now) }
+                AwayGroup(label: String(localized: "Snoozed"), fold: .snoozed, agents: snoozed) { row($0, now: now) }
+                AwayGroup(label: String(localized: "Settled"), fold: .settled, agents: settled) { row($0, now: now) }
                 Recent(
                     core: core, view: view, scope: scope, provider: provider, full: full, hostName: hostName, now: now)
                 if open.isEmpty && strays.isEmpty && snoozed.isEmpty && settled.isEmpty && !recent {
                     EmptyState(
-                        icon: Icons.agentLine, text: scope.map { "No agents in \($0.name)." } ?? "No agents running.")
+                        icon: Icons.agentLine,
+                        text: scope.map { String(localized: "No agents in \($0.name).") }
+                            ?? String(localized: "No agents running."))
                 }
             }
         }
@@ -284,7 +286,7 @@ private struct RestoreButton: View {
             }
             .buttonStyle(PressFade())
             .padding(.leading, 6)
-            .accessibilityLabel("Restore \(shown.title)")
+            .accessibilityLabel(String(localized: "Restore \(shown.title)"))
             .failureAlert($failure)
         }
     }
@@ -312,7 +314,7 @@ private struct AwayGroup<Content: View>: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("\(label), \(agents.count)")
+            .accessibilityLabel(Text(verbatim: "\(label), \(agents.count)"))
             .accessibilityValue(folded ? "Folded" : "Open")
             if !folded {
                 Rows { ForEach(agents, id: \.agentId) { row($0) } }
@@ -331,7 +333,7 @@ struct WorkerRow: View {
     var body: some View {
         Row(
             title: worker.titled == true ? worker.title : nil, name: worker.name, host: worker.host,
-            detail: worker.reachable ? worker.label : "Out of reach",
+            detail: worker.reachable ? worker.label : String(localized: "Out of reach"),
             place: worker.projectName ?? worker.project,
             dim: !worker.reachable,
             mark: { AgentMark(provider: worker.cli, size: 16).opacity(worker.reachable ? 1 : 0.5) },
@@ -415,13 +417,13 @@ private struct Recent: View {
         guard resuming == nil else { return }
         guard full else {
             Haptics.warning()
-            note = ("This phone can only watch \(hostName).", false)
+            note = (String(localized: "This phone can only watch \(hostName)."), false)
             return
         }
         let live = Hub.shared.live(core)
         guard live.isOpen, let connection = live.connection else {
             Haptics.failure()
-            note = ("Not connected to the host.", true)
+            note = (String(localized: "Not connected to the host."), true)
             return
         }
         Haptics.tap()
@@ -450,14 +452,16 @@ struct Terminals: View {
         var order: [String] = []
         var groups: [String: [SessionInfo]] = [:]
         for session in view.sessions where scope == nil || session.project == scope?.id {
-            let project = view.project(id: session.project)?.name ?? "Other"
+            let project = view.project(id: session.project)?.name ?? String(localized: "Other")
             if groups[project] == nil { order.append(project) }
             groups[project, default: []].append(session)
         }
         return VStack(spacing: 0) {
             if order.isEmpty {
                 EmptyState(
-                    icon: Icons.terminal, text: scope.map { "No terminals in \($0.name)." } ?? "No terminals open.")
+                    icon: Icons.terminal,
+                    text: scope.map { String(localized: "No terminals in \($0.name).") }
+                        ?? String(localized: "No terminals open."))
             }
             ForEach(order, id: \.self) { project in
                 if scope == nil { SectionLabel(project) } else { Color.clear.frame(height: 8) }
@@ -490,13 +494,13 @@ private struct TerminalRow: View {
     private var title: String {
         if let task = session.task { return task.label }
         if session.agentName != nil { return session.title ?? Catalog.label(session.agentType ?? "agent", core: core) }
-        return session.agentType ?? "Terminal"
+        return session.agentType ?? String(localized: "Terminal")
     }
 
     private var detail: String {
         if let task = session.task { return task.command }
-        if session.running { return "Running" }
-        if let signal = session.exit?.signal { return "stopped by \(signal)" }
-        return session.exit?.code.map { "exited \($0)" } ?? "exited"
+        if session.running { return String(localized: "Running") }
+        if let signal = session.exit?.signal { return String(localized: "stopped by \(signal)") }
+        return session.exit?.code.map { String(localized: "exited \($0)") } ?? String(localized: "exited")
     }
 }
