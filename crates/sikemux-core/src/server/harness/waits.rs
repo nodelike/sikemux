@@ -50,17 +50,23 @@ pub(super) async fn events_wait(core: &Core, request: &HarnessRequest) -> Result
         page.events
             .retain(|entry| !entry.kind.starts_with(AGENT_EVENT));
         if !page.events.is_empty() || page.truncated || Instant::now() >= deadline {
-            let events: Vec<Value> = page
-                .events
-                .iter()
-                .map(|entry| {
-                    let mut event = json!({ "cursor": entry.seq.to_string(), "kind": entry.kind });
-                    if let (Some(id), Some(object)) = (&entry.execution_id, event.as_object_mut()) {
-                        object.insert("executionId".into(), id.clone().into());
-                    }
-                    event
-                })
-                .collect();
+            let mut events: Vec<Value> = Vec::new();
+            for entry in &page.events {
+                if let Some(last) = events.last_mut().filter(|last| {
+                    last["kind"] == entry.kind.as_str()
+                        && last.get("executionId").and_then(Value::as_str)
+                            == entry.execution_id.as_deref()
+                }) {
+                    last["cursor"] = entry.seq.to_string().into();
+                    last["count"] = (last["count"].as_u64().unwrap_or(1) + 1).into();
+                    continue;
+                }
+                let mut event = json!({ "cursor": entry.seq.to_string(), "kind": entry.kind });
+                if let (Some(id), Some(object)) = (&entry.execution_id, event.as_object_mut()) {
+                    object.insert("executionId".into(), id.clone().into());
+                }
+                events.push(event);
+            }
             return Ok(json!({
                 "events": events,
                 "cursor": page.cursor.to_string(),
