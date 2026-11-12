@@ -144095,58 +144095,6 @@
         }
       }
     },
-    "this window cannot show web pages": {
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "esta ventana no puede mostrar páginas web"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "此窗口无法显示网页"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "dieses Fenster kann keine Webseiten zeigen"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cette fenêtre ne peut pas afficher de pages web"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "このウインドウはウェブページを表示できません"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "이 창에서는 웹 페이지를 표시할 수 없음"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "это окно не может показывать веб-страницы"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "esta janela não pode mostrar páginas da web"
-          }
-        }
-      }
-    },
     "three": {
       "localizations": {
         "es": {
