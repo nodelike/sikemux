@@ -996,6 +996,7 @@ impl<B: Backend> Running<'_, B> {
     /// Starts a fresh session under the chat as a message is about to start a turn, when the old
     /// one is full, cold or on another model or account, from a brief the core builds; the
     /// message carries the brief. The old one carries on when the fresh one does not start.
+    /// A slash command runs in the old session, since it could not carry the brief.
     async fn rotate_if_due(&mut self) {
         const STARTING: std::time::Duration = std::time::Duration::from_secs(60);
         let Some(core) = self.chat.core.upgrade() else {
@@ -1449,7 +1450,9 @@ impl<B: Backend> Running<'_, B> {
         if !shown {
             self.show(&replay);
         }
-        self.rotate_if_due().await;
+        if !crate::server::chat::prompt::is_command(&replay.text) {
+            self.rotate_if_due().await;
+        }
         self.send(replay).await;
         ControlFlow::Continue(())
     }
