@@ -68,6 +68,7 @@ pub mod mods;
 pub mod move_agent;
 pub mod names;
 mod network_watch;
+pub mod new_project;
 mod notch;
 mod notify;
 pub mod open_files;
@@ -499,6 +500,8 @@ pub(crate) struct Core {
     pub(crate) mods: mods::Mods,
     /// Answers in parts on the connections that asked for them.
     pub(crate) streams: streams::Streams,
+    /// The repositories coming down into new projects.
+    pub(crate) clones: new_project::Clones,
     pub(crate) look: themes::Look,
 }
 
@@ -652,6 +655,7 @@ impl Core {
             diagrams: diagrams::Diagrams::new(data_dir),
             mods: mods::Mods::new(data_dir),
             streams: streams::Streams::default(),
+            clones: new_project::Clones::default(),
             look: themes::Look::default(),
         });
         from_app::carry(&core, data_dir);

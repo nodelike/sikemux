@@ -186,6 +186,8 @@ export interface ProjectInfo {
     standing?: ProjectStanding;
     /** How many calls of its wait on the person. The core fills it in. */
     calls?: number;
+    /** How far its repository has come down, while the core clones it. The core fills it in. */
+    cloning?: Cloning;
 }
 
 /** A repository or account picked for a project on one code host. */
@@ -306,6 +308,18 @@ export interface CiAbilities {
 
 /** How a project stands for the person: needs them first, then at work, then the rest. */
 export type ProjectStanding = "needsYou" | "atWork" | "atRest";
+
+/** A clone the core is making of a project's repository, as git last said. */
+export interface Cloning {
+    /** Where it comes from, as the person gave it. */
+    url: string;
+    /** What git is doing, such as `Receiving objects`. */
+    phase: string;
+    /** How far along the whole clone is, out of 100. */
+    percent: number;
+    /** Why it stopped; the folder holds nothing to work on. */
+    failed?: string;
+}
 
 /** A project only the account's other hosts hold, each with its copy there. */
 export interface ProjectElsewhere {

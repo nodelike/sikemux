@@ -203,6 +203,7 @@ impl Core {
                 project.launcher.clone_from(&preferred);
             }
             (project.code_host, project.git) = self.git.shown(&folder);
+            project.cloning = self.clones.of(&project.id);
         }
         workspace::sort_projects(
             &mut workspace.projects,

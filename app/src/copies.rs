@@ -631,55 +631,106 @@ pub fn copy_note(
 ) -> Option<AnyElement> {
     let identity = folded.identity.clone()?;
     let note = bench.rails.copy_notes.get(&identity)?.clone();
+    let word = match note.state {
+        CopyState::Going => format!("to {}", note.host),
+        CopyState::Done => format!("on {}", note.host),
+        CopyState::Failed => "copy failed".to_owned(),
+    };
+    let said = match note.state {
+        CopyState::Going => note.said.to_string(),
+        _ => format!("{} Click to dismiss.", note.said),
+    };
+    let dismiss = (note.state != CopyState::Going).then(|| {
+        Box::new(move |bench: &mut Workbench, cx: &mut Context<Workbench>| {
+            bench.rails.copy_notes.remove(&identity);
+            cx.notify();
+        }) as Dismiss
+    });
+    let id = format!("copy-note-{}", folded.key());
+    Some(row_note(id, note.state, word, said, dismiss, cx))
+}
+
+/// How the clone of the project in front of `folded` comes down: a spinner and how far while
+/// git works, then why it failed, which a click closes the project over.
+pub fn clone_note(
+    bench: &Workbench,
+    folded: &Folded,
+    cx: &Context<Workbench>,
+) -> Option<AnyElement> {
+    let copy = bench.front_copy(folded)?;
+    let project = bench.project_on(&copy.place, &copy.project)?.clone();
+    let cloning = project.cloning.clone()?;
+    let id = format!("clone-note-{}", folded.key());
+    let Some(failed) = cloning.failed else {
+        let said = format!("Cloning {}: {}", cloning.url, cloning.phase);
+        let word = format!("{}%", cloning.percent);
+        return Some(row_note(id, CopyState::Going, word, said, None, cx));
+    };
+    let place = copy.place.clone();
+    let dismiss = Box::new(move |bench: &mut Workbench, cx: &mut Context<Workbench>| {
+        bench.close_project(place.clone(), project.clone(), cx)
+    }) as Dismiss;
+    let said = format!("{failed}. Click to close the project and remove its folder.");
+    let word = "clone failed".to_owned();
+    Some(row_note(
+        id,
+        CopyState::Failed,
+        word,
+        said,
+        Some(dismiss),
+        cx,
+    ))
+}
+
+type Dismiss = Box<dyn Fn(&mut Workbench, &mut Context<Workbench>)>;
+
+/// A note at the end of a project's row on something under way for it: a spinner while it
+/// goes, then a tick or a warning, `said` on hover and `dismiss` on a click once settled.
+fn row_note(
+    id: String,
+    state: CopyState,
+    word: String,
+    said: String,
+    dismiss: Option<Dismiss>,
+    cx: &Context<Workbench>,
+) -> AnyElement {
     let t = Tokens::get(cx).clone();
-    let (mark, word, tone) = match note.state {
+    let (mark, tone) = match state {
         CopyState::Going => (
-            crate::ui::sign_in::spinner("copy-note", cx),
-            format!("to {}", note.host),
+            crate::ui::sign_in::spinner("row-note-spinner", cx),
             t.text_secondary,
         ),
         CopyState::Done => (
             ui::icon(Icon::Check, 11.)
                 .text_color(t.live)
                 .into_any_element(),
-            format!("on {}", note.host),
             t.live,
         ),
         CopyState::Failed => (
             ui::icon(Icon::Warning, 11.)
                 .text_color(t.danger)
                 .into_any_element(),
-            "copy failed".to_owned(),
             t.danger,
         ),
     };
-    let settled = note.state != CopyState::Going;
     let this = cx.weak_entity();
-    Some(
-        div()
-            .id(SharedString::from(format!("copy-note-{identity}")))
-            .flex()
-            .flex_none()
-            .items_center()
-            .gap(px(3.))
-            .text_color(tone)
-            .child(mark)
-            .child(ui::text(word, TEXT_2XS, gpui_kit::FontWeight::MEDIUM))
-            .tooltip(ui::tooltip(match settled {
-                true => format!("{} Click to dismiss.", note.said),
-                false => note.said.to_string(),
-            }))
-            .when(settled, |chip| {
-                chip.cursor_pointer().on_click(move |_, _, cx| {
-                    cx.stop_propagation();
-                    let _ = this.update(cx, |bench, cx| {
-                        bench.rails.copy_notes.remove(&identity);
-                        cx.notify();
-                    });
-                })
+    div()
+        .id(SharedString::from(id))
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap(px(3.))
+        .text_color(tone)
+        .child(mark)
+        .child(ui::text(word, TEXT_2XS, gpui_kit::FontWeight::MEDIUM))
+        .tooltip(ui::tooltip(said))
+        .when_some(dismiss, |chip, dismiss| {
+            chip.cursor_pointer().on_click(move |_, _, cx| {
+                cx.stop_propagation();
+                let _ = this.update(cx, |bench, cx| dismiss(bench, cx));
             })
-            .into_any_element(),
-    )
+        })
+        .into_any_element()
 }
 
 /// The host and how many hold `folded`, at the end of its row: the count of hosts when more than

@@ -17,11 +17,15 @@ use crate::ui::path::{this_home, tilde};
 use crate::workbench::{Strip, Workbench};
 use sikemux_core::server::call;
 use sikemux_core::server::move_agent::{MoveParams, MoveToFolder};
+use sikemux_core::server::new_project::{self, CloneProjectParams, NewProjectParams};
 use sikemux_core::server::workspace::AddProjectParams;
+use sikemux_view::workspace::ProjectInfo;
 
 const PROJECT: &str = "project:";
 const FOLDER: &str = "folder:";
 const HOST: &str = "host:";
+const NEW: &str = "new:";
+const CLONE: &str = "clone:";
 
 /// What happens once a place is picked, past bringing it forward.
 #[derive(Clone, Copy, PartialEq)]
@@ -72,6 +76,34 @@ fn host_line(host: &SshHost) -> String {
         .unwrap_or_default();
     let name = host.hostname.as_deref().unwrap_or(&host.alias);
     format!("{user}{name}{port}")
+}
+
+/// What typing offers past the projects: a folder its path names, a clone of the repository
+/// its address names, or else a new project of that name.
+fn typed(query: &str) -> Option<Row> {
+    if let Some(row) = folder_typed(query) {
+        return Some(row);
+    }
+    if let Some(name) = new_project::repo_name(query) {
+        let web = match query.split_once('@') {
+            Some((_, scp)) if !query.contains("://") => {
+                format!("https://{}", scp.replacen(':', "/", 1))
+            }
+            _ => query.to_owned(),
+        };
+        let mark = crate::chat::link::service_mark(&web).unwrap_or(Icon::Git);
+        return Some(
+            Row::new(format!("{CLONE}{query}"), format!("Clone {name}"))
+                .meta("into a new project")
+                .mark(Mark::Place(mark)),
+        );
+    }
+    (!query.is_empty()).then(|| {
+        Row::new(format!("{NEW}{query}"), format!("New project “{query}”"))
+            .meta("a new git repository")
+            .mark(Mark::Place(Icon::FolderPlus))
+            .trailing()
+    })
 }
 
 /// The folder a typed absolute or `~` path names, to open as a project.
@@ -205,9 +237,13 @@ impl Workbench {
                 format!("move {} to…", moved.unwrap_or_default())
             }
             (_, ThenPicked::StartChat) => "start a chat in a project or type a path…".to_owned(),
-            (Picking::Projects, _) => "open a project or type a path…".to_owned(),
+            (Picking::Projects, _) => {
+                "open a project, type a path, a new name or a repo URL…".to_owned()
+            }
             (Picking::Hosts, _) => "connect to a host…".to_owned(),
-            (Picking::Both, _) => "open a project or host, or type a path…".to_owned(),
+            (Picking::Both, _) => {
+                "open a project or host, or type a path, name or repo URL…".to_owned()
+            }
         };
         let spec = Spec::new(
             picking.id(),
@@ -223,10 +259,12 @@ impl Workbench {
             "no projects match"
         });
         let spec = match picking.projects() {
-            true => spec.typed(folder_typed).aside(
-                Icon::Folder,
-                "Open folder",
-                move |bench, window, cx| {
+            true => spec
+                .typed(match then {
+                    ThenPicked::MoveAgent => folder_typed,
+                    _ => typed as fn(&str) -> Option<Row>,
+                })
+                .aside(Icon::Folder, "Open folder", move |bench, window, cx| {
                     bench.close_palette(window, cx);
                     let picked = cx.prompt_for_paths(PathPromptOptions {
                         files: false,
@@ -247,8 +285,7 @@ impl Workbench {
                         });
                     })
                     .detach();
-                },
-            ),
+                }),
             false => spec,
         };
         self.toggle_palette(spec, window, cx);
@@ -384,8 +421,52 @@ impl Workbench {
                 });
             })
             .detach();
+        } else if let Some(name) = key.strip_prefix(NEW) {
+            let made = self
+                .target()
+                .request_typed::<call::NewProject>(NewProjectParams {
+                    name: name.to_owned(),
+                });
+            self.made_project(made, then, window, cx);
+        } else if let Some(url) = key.strip_prefix(CLONE) {
+            let made = self
+                .target()
+                .request_typed::<call::CloneProject>(CloneProjectParams {
+                    url: url.to_owned(),
+                });
+            self.made_project(made, ThenPicked::Open, window, cx);
         } else if let Some(alias) = key.strip_prefix(HOST) {
             self.show_strip(&Strip::Host(alias.to_owned()), cx);
         }
+    }
+
+    /// Brings forward the project the core made, saying where, or says why it was not made.
+    fn made_project(
+        &mut self,
+        made: impl std::future::Future<Output = Result<ProjectInfo, String>> + 'static,
+        then: ThenPicked,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        cx.spawn_in(window, async move |bench, cx| {
+            let made = made.await;
+            let _ = bench.update_in(cx, |bench, window, cx| match made {
+                Ok(project) => {
+                    let home = bench.home_at(&bench.place());
+                    let path = tilde(&project.path.to_string_lossy(), home.as_deref());
+                    let said = match project.cloning {
+                        Some(_) => format!("Cloning into {path}"),
+                        None => format!("Made {path}"),
+                    };
+                    bench.notify(toast::success(said), cx);
+                    bench.activate_project(&project.id);
+                    if then == ThenPicked::StartChat {
+                        bench.start_chat_in(&project.id, window, cx);
+                    }
+                }
+                Err(error) => bench.notify(toast::error(format!("No project made: {error}")), cx),
+            });
+        })
+        .detach();
     }
 }

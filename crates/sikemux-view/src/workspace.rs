@@ -71,6 +71,24 @@ pub struct ProjectInfo {
     /// How many calls of its wait on the person. The core fills it in.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub calls: u32,
+    /// How far its repository has come down, while the core clones it. The core fills it in.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cloning: Option<Cloning>,
+}
+
+/// A clone the core is making of a project's repository, as git last said.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Cloning {
+    /// Where it comes from, as the person gave it.
+    pub url: String,
+    /// What git is doing, such as `Receiving objects`.
+    pub phase: String,
+    /// How far along the whole clone is, out of 100.
+    pub percent: u8,
+    /// Why it stopped; the folder holds nothing to work on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failed: Option<String>,
 }
 
 /// How a project stands for the person: needs them first, then at work, then the rest.

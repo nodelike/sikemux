@@ -12,6 +12,12 @@ sikemux src/App.tsx:42:5
 
 Install the CLI from **Settings → Command line**.
 
+## New and cloned projects
+
+`⌘O` also starts a project from nothing. Type a name that matches no project, such as `Pinball Stats`, and pick **New project “Pinball Stats”**: Sikemux makes the folder `pinball-stats` with an empty git repository and opens it. Paste a repository's address instead, such as `git@github.com:team/app.git` or `https://codeberg.org/team/app`, and pick **Clone app**: the project opens at once and the repository comes down in the background, its progress at the end of the project's row in the side rail. If the clone fails, the row says so and hovering it says why; click it to close the project and remove its folder.
+
+Both go in the folder you keep projects in: the first folder under **Settings → General → Project folders**, else the folder most of your projects are in, else your home folder, never inside another repository. A name that is taken gets `-2` after it. With a [linked host](/agents/linked-hosts/) in front, the project is made on that host. A clone signs in to the code host the way `git` on that host does, with its SSH keys or credential helper.
+
 A repository you have on more than one host of your account is one project, with a copy on each; the side rail lists it once, and its tree switches between the copies. [On a server](/getting-started/install/#on-a-server) says how.
 
 Sikemux is also listed under **Open With** in Finder and in apps that use it, such as Raycast. A folder opens as a project, and a text file opens in the editor of the repository it belongs to.

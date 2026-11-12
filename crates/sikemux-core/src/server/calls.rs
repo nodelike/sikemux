@@ -200,6 +200,8 @@ calls! { core, client, method, params;
     "setHostUpdates" SetHostUpdates (super::updates::HostUpdatesParams) -> sikemux_view::updates::UpdateStatus: Owner => super::updates::set_automatic(&core, params).await?,
     "runCustomCommand" RunCustomCommand (super::custom_command::RunCustomParams) -> super::custom_command::CommandRan: Owner, counted => super::custom_command::run_custom(&core, params).await?,
     "addProject" AddProject (workspace::AddProjectParams) -> sikemux_view::workspace::ProjectInfo: Owner => workspace::add_project(&core, params).await?,
+    "newProject" NewProject (super::new_project::NewProjectParams) -> sikemux_view::workspace::ProjectInfo: Owner, counted => super::new_project::create(&core, params).await?,
+    "cloneProject" CloneProject (super::new_project::CloneProjectParams) -> sikemux_view::workspace::ProjectInfo: Owner, counted => super::new_project::clone(&core, params).await?,
     "removeProject" RemoveProject (workspace::RemoveProjectParams) -> (): Owner => workspace::remove_project(&core, params)?,
     "updateProject" UpdateProject (workspace::UpdateProjectParams) -> sikemux_view::workspace::ProjectInfo: Owner => workspace::update_project(&core, params)?,
     "moveProject" MoveProject (workspace::MoveProjectParams) -> (): Owner => workspace::move_project(&core, params)?,

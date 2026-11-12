@@ -76,6 +76,8 @@ pub struct Row {
     pub disabled: bool,
     /// The palette's armed choice does not reach this row, which says so while it is chosen.
     pub unarmed: bool,
+    /// Made from what is typed, it comes after the rows typing matches rather than before them.
+    pub trailing: bool,
     /// Everything typing matches against.
     pub search: String,
 }
@@ -96,7 +98,13 @@ impl Row {
             group: None,
             disabled: false,
             unarmed: false,
+            trailing: false,
         }
+    }
+
+    pub fn trailing(mut self) -> Self {
+        self.trailing = true;
+        self
     }
 
     pub fn unarmed(mut self, unarmed: bool) -> Self {
@@ -399,7 +407,11 @@ impl Palette {
                 .collect()
         };
         if let Some(row) = typed {
-            self.lines.insert(0, Line::Row(self.spec.rows.len()));
+            let line = Line::Row(self.spec.rows.len());
+            match row.trailing {
+                true => self.lines.push(line),
+                false => self.lines.insert(0, line),
+            }
             self.spec.rows.push(row);
         }
         self.list.reset(self.lines.len());

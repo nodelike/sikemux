@@ -647,6 +647,8 @@ struct ProjectInfo: Codable, Hashable, Sendable {
     var standing: ProjectStanding?
     /// How many calls of its wait on the person. The core fills it in.
     var calls: Int?
+    /// How far its repository has come down, while the core clones it. The core fills it in.
+    var cloning: Cloning?
 }
 
 /// A repository or account picked for a project on one code host.
@@ -780,6 +782,18 @@ enum ProjectStanding: String, Codable, Hashable, Sendable {
     init(from decoder: any Decoder) throws {
         self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
     }
+}
+
+/// A clone the core is making of a project's repository, as git last said.
+struct Cloning: Codable, Hashable, Sendable {
+    /// Where it comes from, as the person gave it.
+    var url: String
+    /// What git is doing, such as `Receiving objects`.
+    var phase: String
+    /// How far along the whole clone is, out of 100.
+    var percent: Int
+    /// Why it stopped; the folder holds nothing to work on.
+    var failed: String?
 }
 
 /// A project only the account's other hosts hold, each with its copy there.

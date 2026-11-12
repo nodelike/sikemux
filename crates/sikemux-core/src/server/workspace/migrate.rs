@@ -159,6 +159,7 @@ fn from_app(saved: &mut Saved, app: &Value, earlier: &Earlier) {
                 agents: 0,
                 standing: Default::default(),
                 calls: 0,
+                cloning: None,
             })
         })
         .filter(|project| project.path.is_absolute())

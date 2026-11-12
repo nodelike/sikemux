@@ -582,6 +582,7 @@ impl Workspaces {
                 agents: 0,
                 standing: Default::default(),
                 calls: 0,
+                cloning: None,
             };
             check_project(&project, saved)?;
             saved.projects.push(project.clone());
@@ -609,9 +610,9 @@ impl Workspaces {
         Ok(self.add_project(path, None, None)?.id)
     }
 
-    /// Stops offering a project, and forgets the agents in it.
-    fn remove_project(&self, path: &Path) -> CoreResult<()> {
-        self.change(|saved| {
+    /// Stops offering a project, and forgets the agents in it, answering its id.
+    fn remove_project(&self, path: &Path) -> CoreResult<String> {
+        let id = self.change(|saved| {
             let id = saved
                 .projects
                 .iter()
@@ -620,10 +621,10 @@ impl Workspaces {
                 .ok_or_else(|| CoreError::from("that folder is not a project on this host"))?;
             saved.projects.retain(|project| project.id != id);
             saved.agents.retain(|kept| kept.agent.project != id);
-            Ok(())
+            Ok(id)
         })?;
         self.recent_stale();
-        Ok(())
+        Ok(id)
     }
 
     fn update_project(&self, id: &str, patch: Map<String, Value>) -> CoreResult<ProjectInfo> {
@@ -1435,7 +1436,8 @@ pub struct RemoveProjectParams {
 /// Stops offering a project, and closes its agents.
 pub(crate) fn remove_project(core: &Core, params: RemoveProjectParams) -> CoreResult<()> {
     let before = core.workspaces.agent_ids();
-    core.workspaces.remove_project(&params.path)?;
+    let id = core.workspaces.remove_project(&params.path)?;
+    super::new_project::forget(core, &id, &params.path);
     agents_closed(core, before);
     super::pins::project_removed(core, &params.path.to_string_lossy());
     super::git::follow_projects(core);
@@ -1867,6 +1869,7 @@ mod tests {
             agents: 0,
             standing: Default::default(),
             calls: 0,
+            cloning: None,
         }
     }
 

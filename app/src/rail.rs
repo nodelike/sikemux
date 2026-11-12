@@ -1022,6 +1022,7 @@ fn project_tree(
     .on_click(go)
     .child(faces(&agents, cx))
     .children(crate::copies::copy_note(bench, folded, cx))
+    .children(crate::copies::clone_note(bench, folded, cx))
     .children(crate::copies::where_held(folded, cx))
     .status(rollup(bench, folded, cx))
     .into_any_element();

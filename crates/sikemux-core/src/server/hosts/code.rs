@@ -14,7 +14,7 @@ use serde_json::{json, Value};
 
 use super::super::connection::blocking;
 use super::super::worktree::{self, inside, slug};
-use super::super::Core;
+use super::super::{new_project, Core};
 use super::calls::{self as asks, params_of, HostAsk};
 use super::link::{Received, Refusal};
 use super::name_of;
@@ -422,20 +422,8 @@ pub(crate) enum Opened {
 
 /// The folder name a project takes here: its repository's, else its own.
 fn folder_name(code: &Code) -> String {
-    let from_remote = code.remote.as_deref().and_then(|remote| {
-        let last = remote.trim_end_matches('/').rsplit(['/', ':']).next()?;
-        Some(last.trim_end_matches(".git").to_owned())
-    });
-    let name: String = from_remote
-        .filter(|name| !name.is_empty())
-        .unwrap_or_else(|| code.project.clone())
-        .chars()
-        .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
-        .collect();
-    match name.trim_matches('.') {
-        "" => "project".into(),
-        name => name.to_owned(),
-    }
+    let from_remote = code.remote.as_deref().and_then(new_project::repo_name);
+    from_remote.unwrap_or_else(|| new_project::folder_name(&code.project))
 }
 
 /// The folders this host began for projects from other hosts and has not finished, kept in its
@@ -508,51 +496,13 @@ pub(crate) fn abandon(core: &Core, dir: &Path) {
     unclaim(core, dir);
 }
 
-/// Whether `dir` is inside a git working tree, where a new checkout would land as a stray
-/// repository in someone else's.
-fn inside_work_tree(dir: &Path) -> bool {
-    Git::quick(dir)
-        .trimmed(&["rev-parse", "--is-inside-work-tree"])
-        .is_ok_and(|inside| inside == "true")
-}
-
-/// A new folder for a project opened from another host: beside most of this host's projects,
-/// else in the home folder, else in its data folder, never inside a git working tree, and under
-/// a new name when its own is taken.
+/// A new folder for a project opened from another host: in the person's projects folder, else
+/// in this host's data folder, under a new name when its own is taken.
 fn opened_dir(core: &Core, code: &Code) -> Result<PathBuf, String> {
-    let mut parents: Vec<PathBuf> = core
-        .workspaces
-        .project_paths()
-        .into_iter()
-        .filter_map(|path| path.parent().map(Path::to_path_buf))
-        .collect();
-    parents.sort();
-    let mut groups: Vec<&[PathBuf]> = parents.chunk_by(|a, b| a == b).collect();
-    groups.sort_by_key(|same| std::cmp::Reverse(same.len()));
-    let fallback = [
-        sikemux_process::paths::home(),
-        core.config.data_dir.as_ref().map(|dir| dir.join(CLONES)),
-    ];
-    let parent = (groups.iter().map(|same| same[0].clone()))
-        .chain(fallback.into_iter().flatten())
-        .find(|parent| !inside_work_tree(parent))
+    let parent = new_project::projects_folder(core)
+        .or_else(|| core.config.data_dir.as_ref().map(|dir| dir.join(CLONES)))
         .ok_or("this host has no folder outside a git repository to clone into")?;
-    let name = folder_name(code);
-    (1..100)
-        .map(|n| {
-            parent.join(if n == 1 {
-                name.clone()
-            } else {
-                format!("{name}-{n}")
-            })
-        })
-        .find(|dir| !dir.exists())
-        .ok_or_else(|| {
-            format!(
-                "{} already has too many folders named {name}",
-                parent.display()
-            )
-        })
+    new_project::claim_folder(&parent, &folder_name(code))
 }
 
 /// Claims a folder for `code`: the one an earlier ask for the same opening began and did not
