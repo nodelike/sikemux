@@ -43,7 +43,11 @@
   crates across checkouts through kache, or sccache, when one is installed. It runs only
   as many builds at once as the machine's cores and memory take: a run over that says
   it is queued and starts by itself, so never wait for other agents' cargo with `sleep`
-  or `pgrep`. `SIKEMUX_CARGO_RUNS` sets the limit.
+  or `pgrep`. `SIKEMUX_CARGO_RUNS` sets the limit. Waiting runs go in order of arrival,
+  except that the final checks before a commit go ahead of any other run that has waited
+  under 15 minutes. `clippy` and `test` count as final checks; set
+  `SIKEMUX_CARGO_PRIORITY=final` on another run you make just before committing, or
+  `normal` on a `test` you run while still exploring.
 
 ## Speed and size
 
