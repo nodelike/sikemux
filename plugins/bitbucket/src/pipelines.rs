@@ -274,7 +274,7 @@ fn split_job<'a>(job_id: &'a str, run_id: Option<&'a str>) -> BitbucketResult<(&
         .or_else(|| run_id.map(|run_id| (run_id, job_id)))
         .ok_or_else(|| {
             BitbucketError::BadArg(format!(
-                "`{job_id}` is a step without its pipeline: pass runId too, or the pipeline:step id bitbucket_pipeline gives"
+                "`{job_id}` is a step without its pipeline: pass runId too, or the pipeline:step id bitbucket pipeline gives"
             ))
         })
 }

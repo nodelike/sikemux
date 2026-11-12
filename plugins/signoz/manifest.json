@@ -44,6 +44,7 @@
       ]
     }
   },
+  "family": {"name": "signoz", "description": "SigNoz services, logs and traces."},
   "tools": [
     {
       "name": "signoz_services",

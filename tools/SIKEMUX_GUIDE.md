@@ -45,7 +45,7 @@ Safari does, so check pages there, not in a headless Chromium.
   them a hidden page is on their screen.
 - Other agents may share this checkout: commit with `git_commit`, and see
   `agents` for the git commands refused here.
-- Plugin tools (`jira_*`, `rundeck_*`, `slack_*`…) are listed only when signed
+- Plugin tools (`jira`, `rundeck`, `slack`…) are listed only when signed
   in, and for a code host when this project has a remote on it. If one is
   missing, ask the person to sign in under Settings, Connectors; if its tools
   still do not show up, ask them to restart you.
@@ -65,8 +65,8 @@ For one area in depth, call `guide` with one of these as `topic`:
 - `browser-evidence` — `browser screenshot`, `browser annotate`, `browser record`
 - `browser-debugging` — network, console, `app_console`, `browser evaluate`
 - `simulator` — driving an iOS simulator with `sim`
-- `databases` — the `db_*` tools, SQL, and adding a database
-- `aws` — `aws_*` tools, profiles, expired sign-ins
+- `databases` — the `db` tool, SQL, and adding a database
+- `aws` — the `aws` tool, profiles, expired sign-ins
 - `connectors` — PRs, CI and SigNoz logs
 - `skills` — skills every agent gets
 - `agents` — names, `@`, messages, committing, who broke CI
@@ -864,16 +864,16 @@ means read the screen again; "still booting", "waiting for a simulator" or
 
 ## databases: Saved databases
 
-`db_databases` lists the databases the person saved in the Database pane:
+`db databases` lists the databases the person saved in the Database pane:
 PostgreSQL, MySQL or MariaDB servers, and SQLite files. Name one by its name in
-`db_tables`, `db_describe` and `db_query`.
+`db tables`, `db describe` and `db query`.
 
-- `db_tables` lists the schemas and the tables and views in one. Without a
+- `db tables` lists the schemas and the tables and views in one. Without a
   `schema` it uses `public` for PostgreSQL, `main` for SQLite, and the database
   the connection names for MySQL.
-- `db_describe` gives a table's columns, primary key, indexes and foreign keys.
+- `db describe` gives a table's columns, primary key, indexes and foreign keys.
   Read it before writing a join rather than guessing column names.
-- `db_query` runs SQL. Each result keeps 100 rows unless you pass `limit`, up
+- `db query` runs SQL. Each result keeps 100 rows unless you pass `limit`, up
   to 1000; `truncated` says some were left out, so add a `where` or an
   aggregate rather than raising the limit to read everything. A whole reply
   stays under 48 KB and each value under 400 characters; when either cut
@@ -881,7 +881,7 @@ PostgreSQL, MySQL or MariaDB servers, and SQLite files. Name one by its name in
 
 Your queries run on a connection of your own. It is read-only unless the
 person ticked "Let agents change data" for that database, and `writable` in
-`db_databases` says which. On a read-only connection send one statement per
+`db databases` says which. On a read-only connection send one statement per
 call; it runs in a read-only transaction that is rolled back afterwards. Where
 you may change data, several statements separated by semicolons each come back
 as their own result: rows, or how many rows a change touched. A refused write
@@ -891,7 +891,7 @@ that database's history in Sikemux, marked as an agent's.
 Large integers and decimals arrive as text so no digit is lost; binary values
 arrive as the start of their hex.
 
-To add a database, such as one you set up a role for, call `db_connect` with
+To add a database, such as one you set up a role for, call `db connect` with
 its connection URL rather than telling the person to type it into the Database
 pane. It is not saved yet: Sikemux tries it and asks the person to add it, edit
 it first or turn it down, and their choice comes to you as a message, so end
@@ -902,13 +902,13 @@ is already saved is refused, so pick another with `name`.
 
 ## aws: AWS through the person's profiles
 
-The `aws_*` tools read AWS through the AWS CLI and the person's own profiles;
-none of them change anything.
+The `aws` tool reads AWS through the AWS CLI and the person's own profiles;
+none of its actions change anything.
 
 - Leave `profile` out for the profile the person picked for agents in the
   AWS pane, else their own `AWS_PROFILE`, else the only profile, else
   `default`. When there are several and none of these, the error lists them,
-  and `aws_profiles` gives each one's account, role and region. `region`
+  and `aws profiles` gives each one's account, role and region. `region`
   defaults to the profile's.
 - Your own shell already has `AWS_PROFILE` set to the profile picked for this
   project, so the `aws` CLI works without `--profile`; never hunt for one in
@@ -917,32 +917,32 @@ none of them change anything.
   profile is set up, stop and tell the person: each is fixed from the AWS pane
   in Sikemux. Never run `aws sso login` or `aws configure` yourself; they need
   the person and their browser.
-- `aws_ecs` goes one level down per argument: clusters; a `cluster`'s services
+- `aws ecs` goes one level down per argument: clusters; a `cluster`'s services
   with their counts, rollout and task definition; a `service`'s deployments
   and latest events. `tasks` lists `running` or `stopped` tasks, of the
   service or the whole cluster, with each container's image, health, exit code
   and the reason it stopped. A `service` without a `cluster` is looked for in
   every cluster.
-- `aws_task_definition` reads the `family:revision` a service names: images,
+- `aws task_definition` reads the `family:revision` a service names: images,
   ports, sizes, log group and stream prefix, and the names of environment
   variables and secrets, never their values.
-- `aws_logs` keeps the newest `limit` events from `since` back, 1h unless
+- `aws logs` keeps the newest `limit` events from `since` back, 1h unless
   told. Take the group from the task definition; a wrong name answers with
   groups named like it. `pattern` is CloudWatch filter syntax: `ERROR`,
   `"timed out"`, `{ $.level = "error" }`. `note` says when more matched.
-- `aws_target_health` with `loadBalancer` gives each listener's rules as
+- `aws target_health` with `loadBalancer` gives each listener's rules as
   `priority: condition -> action` and every target group's targets with their
   state and reason; `targetGroup` gives one group.
-- `aws_metrics` needs the metric's whole set of `dimensions`, such as
+- `aws metrics` needs the metric's whole set of `dimensions`, such as
   `ClusterName` and `ServiceName` for `AWS/ECS`; no points usually means one is
   missing. The period widens to keep 120 points at most.
-- `aws_ec2` lists instances; `name` keeps those whose name, id or address
+- `aws ec2` lists instances; `name` keeps those whose name, id or address
   contains it, and `state`, `type`, `tag` (`Key=Value`) and `vpc` narrow them.
   With `volumes: true` it lists EBS volumes instead, largest first: `name`
   matches a volume's name, id or the instance it is attached to, `state:
   "available"` keeps those attached to nothing, and `type` is the volume type,
   such as `gp3`.
-- `aws_cost` gives what the account spent up to yesterday from Cost Explorer,
+- `aws cost` gives what the account spent up to yesterday from Cost Explorer,
   per month or `daily`, grouped by service unless `groupBy` names another
   dimension. Each call costs the account a cent, so ask once and read it all.
 
@@ -953,19 +953,19 @@ For anything else, run the `aws` CLI yourself, read-only.
 - Bitbucket's tools name a repository by `owner`, its workspace, and `name`,
   its slug. Left out, they default to the project's Bitbucket remote, and
   `repo: "owner/name"` works too.
-- `bitbucket_pulls` leaves descriptions out, so a list stays short; read one
-  whole with `bitbucket_pull`. `author` keeps those opened by a nickname or
+- `bitbucket pulls` leaves descriptions out, so a list stays short; read one
+  whole with `bitbucket pull`. `author` keeps those opened by a nickname or
   display name, `head` those from one branch, and `perPage` (at most 50) with
   `page` reads further back.
-- `bitbucket_step_log` and `gitlab_job_log` answer at most 30,000 characters,
+- `bitbucket step_log` and `gitlab job_log` answer at most 30,000 characters,
   each line clipped at 2,000. With nothing else they give the last `tail` lines
   (200 by default). `grep` keeps the lines that contain it, ignoring case, and
   `context` keeps that many lines around each, up to 50. `from` and `to` read
   a range of line numbers, forward from `from`. When lines were left out,
   `truncated` is true and `note` names them; read them with `from` and `to`.
-  `bitbucket_step_log` takes a step's id from `bitbucket_pipeline` as `jobId`
+  `bitbucket step_log` takes a step's id from `bitbucket pipeline` as `jobId`
   or `stepId`, or a step's `{uuid}` with its pipeline's `runId`.
-- `signoz_logs` answers at most 30,000 characters. When the lines asked for
+- `signoz logs` answers at most 30,000 characters. When the lines asked for
   would run past that, it returns the first that fit, a `note`, and
   `nextOffset`: pass that as `offset` for the next page, or narrow the search.
   Bodies clip at 1,000 characters; `id` reads one line whole.

@@ -341,7 +341,7 @@ async fn already_running(session: &Session, job_id: &str, message: String) -> Ru
         message
     } else {
         format!(
-            "{message}. Running now: {}. Wait for it with rundeck_execution, or abort it with rundeck_abort if asked to.",
+            "{message}. Running now: {}. Wait for it with rundeck execution, or abort it with rundeck abort if asked to.",
             named.join("; ")
         )
     };

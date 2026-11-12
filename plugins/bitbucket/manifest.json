@@ -45,12 +45,13 @@
       "deleteLogs": false
     }
   },
+  "family": {"name": "bitbucket", "description": "Bitbucket Cloud pull requests, issues and pipelines."},
   "tools": [
     {
       "name": "bitbucket_pulls",
       "row": {"verb": "list", "kind": "read", "icon": "pull-request", "target": ["{name} pull requests"], "detail": ["{state}"]},
       "method": "pulls",
-      "description": "Pull requests, newest update first, with state, branches and reviewers but no descriptions; bitbucket_pull reads one.",
+      "description": "Pull requests, newest update first, with state, branches and reviewers but no descriptions; bitbucket pull reads one.",
       "properties": {
         "owner": { "type": "string" },
         "name": { "type": "string" },
@@ -151,7 +152,7 @@
       "properties": {
         "owner": { "type": "string" },
         "name": { "type": "string" },
-        "jobId": { "type": "string", "description": "A step's id from bitbucket_pipeline, or a step {uuid} with runId." },
+        "jobId": { "type": "string", "description": "A step's id from bitbucket pipeline, or a step {uuid} with runId." },
         "runId": { "type": "string", "description": "A step {uuid}'s pipeline." },
         "tail": { "type": "integer", "description": "Lines kept, from the end or from from. Default 200, at most 2000." },
         "grep": { "type": "string", "description": "Only lines containing this, ignoring case." },
@@ -225,7 +226,7 @@
       "name": "bitbucket_merge",
       "row": {"verb": "merge", "kind": "edit", "icon": "pull-request", "target": ["{name}#{number}"], "detail": ["{method}"]},
       "method": "mergePull",
-      "description": "Merge a pull request. sha is the headSha from bitbucket_pull; the merge is refused if the branch has moved since.",
+      "description": "Merge a pull request. sha is the headSha from bitbucket pull; the merge is refused if the branch has moved since.",
       "properties": {
         "owner": { "type": "string" },
         "name": { "type": "string" },
@@ -283,7 +284,7 @@
       "properties": {
         "owner": { "type": "string" },
         "name": { "type": "string" },
-        "runId": { "type": "string", "description": "The {uuid} from bitbucket_pipelines." }
+        "runId": { "type": "string", "description": "The {uuid} from bitbucket pipelines." }
       },
       "required": ["runId"]
     },
@@ -295,7 +296,7 @@
       "properties": {
         "owner": { "type": "string" },
         "name": { "type": "string" },
-        "runId": { "type": "string", "description": "The {uuid} from bitbucket_pipelines." }
+        "runId": { "type": "string", "description": "The {uuid} from bitbucket pipelines." }
       },
       "required": ["runId"]
     }

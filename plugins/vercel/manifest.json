@@ -16,6 +16,7 @@
     ],
     "tokenPage": "https://vercel.com/account/settings/tokens"
   },
+  "family": {"name": "vercel", "description": "Vercel projects and deployments."},
   "tools": [
     {
       "name": "vercel_projects",

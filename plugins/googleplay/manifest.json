@@ -17,6 +17,7 @@
     "tokenPage": "https://developers.google.com/android-publisher/getting_started",
     "tokenPageLabel": "Make a service account key"
   },
+  "family": {"name": "play", "description": "Google Play releases and app signing."},
   "tools": [
     {
       "name": "play_tracks",

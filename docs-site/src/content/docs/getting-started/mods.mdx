@@ -77,6 +77,6 @@ What a mod reads, each named in `reads`:
 | `usage` | How much of their plans your agent accounts have used. |
 | `repo` | The code host the project's origin is on: `connector`, `owner`, `name`, `account`. |
 | `git.status`, `git.log`, `git.branches`… | The project's repository, as the Git pane reads it. Declare `git`. |
-| `github.pulls`, `gitlab.runs`, `jira_search`… | A connector you are signed in to, by its method or by the tool name agents use. Declare the connector, such as `github` or `jira`. |
+| `github.pulls`, `gitlab.runs`, `jira_search`… | A connector you are signed in to, by its method or by its agent tool's full name. Declare the connector, such as `github` or `jira`. |
 
 What a mod may change, each named in `writes`: `agents.send` (`{ agent, text }`, as if you wrote it), `board.add`, `board.update`, and a connector's own changes, such as `github.rerun` or `jira_comment`.

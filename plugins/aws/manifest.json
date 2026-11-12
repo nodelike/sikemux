@@ -14,6 +14,7 @@
     "setDefaultAccount",
     "signIn"
   ],
+  "family": {"name": "aws", "description": "AWS, through the person's own profiles."},
   "tools": [
     {
       "name": "aws_profiles",

@@ -50,6 +50,7 @@
       ]
     }
   },
+  "family": {"name": "rundeck", "description": "Rundeck jobs and their runs."},
   "tools": [
     {
       "name": "rundeck_projects",
@@ -71,7 +72,7 @@
       "name": "rundeck_run",
       "row": {"verb": "run", "kind": "execute", "icon": "run", "target": ["{job}"], "detail": ["{project}"]},
       "method": "agentRun",
-      "description": "Run a job and wait up to 50s for it to end: status, duration, url, last log lines. Still running? rundeck_execution with wait.",
+      "description": "Run a job and wait up to 50s for it to end: status, duration, url, last log lines. Still running? rundeck execution with wait.",
       "properties": {
         "job": { "type": "string", "description": "Its id or group/name path." },
         "project": { "type": "string", "description": "Where to find job. Default: every project." },

@@ -25,6 +25,7 @@
     ],
     "tokenPage": "https://id.atlassian.com/manage-profile/security/api-tokens"
   },
+  "family": {"name": "jira", "description": "Jira issues."},
   "tools": [
     {
       "name": "jira_search",

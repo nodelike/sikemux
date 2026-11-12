@@ -16,6 +16,7 @@
     ],
     "tokenPage": "https://linear.app/settings/account/security"
   },
+  "family": {"name": "linear", "description": "Linear issues."},
   "tools": [
     {
       "name": "linear_search",

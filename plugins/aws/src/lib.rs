@@ -1,4 +1,4 @@
-// AWS: read-only aws_* tools for agents, on the profiles in ~/.aws/config.
+// AWS: a read-only aws tool for agents, on the profiles in ~/.aws/config.
 // Every API call shells out to the `aws` CLI so the heavy SDK crates stay out
 // of the binary; the CLI reuses the user's existing SSO token cache and
 // ~/.aws/config resolution rules (sso_session refs, source_profile chains,

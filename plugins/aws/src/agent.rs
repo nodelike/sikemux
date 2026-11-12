@@ -1,4 +1,4 @@
-// The read-only aws_* tools agents call. Each picks its profile and region
+// The read-only aws tool agents call. Each picks its profile and region
 // the way `auth::resolve` says, and answers with a trimmed shape rather than
 // the CLI's raw JSON.
 

@@ -776,10 +776,21 @@
       ],
       "limit": [
         {
-          "tool": [
-            "bitbucket_pipelines",
-            "bitbucket_pipeline",
-            "events_wait"
+          "any": [
+            {
+              "tool": "bitbucket",
+              "args": {
+                "action": {
+                  "$any": [
+                    "pipelines",
+                    "pipeline"
+                  ]
+                }
+              }
+            },
+            {
+              "tool": "events_wait"
+            }
           ],
           "max": 2
         }

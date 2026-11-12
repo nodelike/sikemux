@@ -16,6 +16,7 @@
     ],
     "tokenPage": "https://api.slack.com/apps"
   },
+  "family": {"name": "slack", "description": "Slack messages and people."},
   "tools": [
     {
       "name": "slack_thread",

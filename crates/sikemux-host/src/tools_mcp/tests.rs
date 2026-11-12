@@ -243,13 +243,18 @@ fn every_plugin_keeps_its_tools_within_budget() {
                 serde_json::from_value(tool).expect("a plugin tool")
             })
             .collect();
-        let served: Vec<Value> = tools.iter().map(Tool::declaration).collect();
-        for tool in &served {
-            assert!(
-                field(tool, "description").len() <= 160,
-                "{} description is too long",
-                field(tool, "name")
-            );
+        let families: Vec<family::Family> = manifest
+            .get("family")
+            .map(|family| serde_json::from_value(family.clone()).expect("a family"))
+            .into_iter()
+            .collect();
+        let served = family::declarations(&families, &tools.iter().collect::<Vec<_>>());
+        for line in served
+            .iter()
+            .flat_map(|tool| field(tool, "description").lines())
+        {
+            let said = line.split_once(": ").map_or(line, |(_, said)| said);
+            assert!(said.len() <= 160, "{said} is too long");
         }
         let bytes = Value::Array(served).to_string().len();
         // Bitbucket's agents can also write: comment, review, edit, merge, and run pipelines.

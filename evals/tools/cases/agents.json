@@ -1163,8 +1163,9 @@
     "grade": {
       "expect": [
         {
-          "tool": "jira_create",
+          "tool": "jira",
           "args": {
+            "action": "create",
             "project": "PROJ",
             "summary": "/retr/i"
           }

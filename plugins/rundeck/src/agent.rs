@@ -1,4 +1,4 @@
-// What agents reach through their rundeck_* tools: jobs named by their
+// What agents reach through their rundeck tool: jobs named by their
 // group/name path, runs that wait for their end, and bounded log excerpts.
 
 use std::collections::{BTreeMap, HashMap};
@@ -266,7 +266,7 @@ pub async fn resolve(
             let place =
                 project.map_or_else(|| "any project".to_string(), |p| format!("project {p}"));
             Err(RundeckError::BadArg(if near.is_empty() {
-                format!("no job in {place} is named {wanted}; rundeck_jobs lists them")
+                format!("no job in {place} is named {wanted}; rundeck jobs lists them")
             } else {
                 format!(
                     "no job in {place} is named {wanted}; the closest are {}",
@@ -394,7 +394,7 @@ async fn awaited(
             .unwrap_or_default();
     } else {
         outcome.note = Some(format!(
-            "still {} after {}s; rundeck_execution with wait keeps waiting",
+            "still {} after {}s; rundeck execution with wait keeps waiting",
             outcome.status,
             WAIT_LIMIT.as_secs()
         ));

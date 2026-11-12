@@ -2,6 +2,7 @@
   "id": "sikemux.database",
   "name": "Database",
   "callTimeoutSecs": 600,
+  "family": {"name": "db", "description": "The databases the person saved in Sikemux."},
   "tools": [
     {
       "name": "db_databases",
@@ -29,7 +30,7 @@
       "properties": {
         "database": {
           "type": "string",
-          "description": "A saved database's name, from db_databases. A PostgreSQL server saved without a database holds every database on it: name one as <server>/<database>."
+          "description": "A saved database's name, from db databases. A PostgreSQL server saved without a database holds every database on it: name one as <server>/<database>."
         },
         "schema": {
           "type": "string",
@@ -51,7 +52,7 @@
       },
       "properties": {
         "database": {
-          "description": "Its name, from db_databases.",
+          "description": "Its name, from db databases.",
           "type": "string"
         },
         "table": {
@@ -76,7 +77,7 @@
       },
       "properties": {
         "database": {
-          "description": "Its name, from db_databases.",
+          "description": "Its name, from db databases.",
           "type": "string"
         },
         "sql": {

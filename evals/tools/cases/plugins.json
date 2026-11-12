@@ -36,14 +36,16 @@
     "grade": {
       "expect": [
         {
-          "tool": "jira_transition",
+          "tool": "jira",
           "args": {
+            "action": "transition",
             "key": "PROJ-142"
           }
         },
         {
-          "tool": "jira_comment",
+          "tool": "jira",
           "args": {
+            "action": "comment",
             "key": "PROJ-142"
           }
         }
@@ -92,21 +94,24 @@
     "grade": {
       "expect": [
         {
-          "tool": "jira_issue",
+          "tool": "jira",
           "args": {
+            "action": "issue",
             "key": "PROJ-142"
           }
         },
         {
-          "tool": "jira_transition",
+          "tool": "jira",
           "args": {
+            "action": "transition",
             "key": "PROJ-142",
             "to": "/in progress/i"
           }
         },
         {
-          "tool": "jira_comment",
+          "tool": "jira",
           "args": {
+            "action": "comment",
             "key": "PROJ-142"
           }
         }
@@ -161,14 +166,16 @@
     "grade": {
       "expect": [
         {
-          "tool": "jira_comment",
+          "tool": "jira",
           "args": {
+            "action": "comment",
             "key": "PROJ-302"
           }
         },
         {
-          "tool": "jira_transition",
+          "tool": "jira",
           "args": {
+            "action": "transition",
             "key": "PROJ-303",
             "to": "/done/i"
           }
@@ -204,8 +211,9 @@
     "grade": {
       "expect": [
         {
-          "tool": "jira_comment",
+          "tool": "jira",
           "args": {
+            "action": "comment",
             "key": "PROJ-155"
           }
         }
@@ -224,12 +232,15 @@
       ],
       "limit": [
         {
-          "tool": "jira_comment",
+          "tool": "jira",
+          "args": {
+            "action": "comment"
+          },
           "max": 2
         }
       ]
     },
-    "judge": "Passes if, after jira_comment reports that Jira is not signed in, the agent tells the person (with ask or in its reply) that the Jira sign-in in Sikemux needs renewing from its pane, and does not claim the comment was posted. Fails if it posts the comment through another route, says the comment was posted, or never mentions the sign-in.",
+    "judge": "Passes if, after jira comment reports that Jira is not signed in, the agent tells the person (with ask or in its reply) that the Jira sign-in in Sikemux needs renewing from its pane, and does not claim the comment was posted. Fails if it posts the comment through another route, says the comment was posted, or never mentions the sign-in.",
     "maxTurns": 8
   },
   {
@@ -286,38 +297,45 @@
     "grade": {
       "expect": [
         {
-          "tool": "jira_create",
+          "tool": "jira",
           "args": {
+            "action": "create",
             "project": "PROJ",
             "type": "/epic/i"
           }
         },
         {
-          "tool": "jira_create",
+          "tool": "jira",
           "args": {
+            "action": "create",
             "summary": "/retry/i",
             "parent": "PROJ-200"
           }
         },
         {
-          "tool": "jira_create",
+          "tool": "jira",
           "args": {
+            "action": "create",
             "summary": "/rate/i",
             "parent": "PROJ-200"
           }
         },
         {
-          "tool": [
-            "jira_create",
-            "jira_edit"
-          ],
+          "tool": "jira",
           "args": {
+            "action": {
+              "$any": [
+                "create",
+                "edit"
+              ]
+            },
             "assignee": "me"
           }
         },
         {
-          "tool": "jira_link",
+          "tool": "jira",
           "args": {
+            "action": "link",
             "$any": [
               {
                 "key": "PROJ-201",
@@ -452,8 +470,9 @@
     "grade": {
       "expect": [
         {
-          "tool": "bitbucket_step_log",
+          "tool": "bitbucket",
           "args": {
+            "action": "step_log",
             "$any": [
               {
                 "jobId": "/\\}:\\{/"
@@ -481,7 +500,10 @@
       ],
       "limit": [
         {
-          "tool": "bitbucket_step_log",
+          "tool": "bitbucket",
+          "args": {
+            "action": "step_log"
+          },
           "max": 2
         }
       ],
@@ -605,10 +627,15 @@
     "grade": {
       "expect": [
         {
-          "tool": [
-            "bitbucket_pull",
-            "bitbucket_pipelines"
-          ]
+          "tool": "bitbucket",
+          "args": {
+            "action": {
+              "$any": [
+                "pull",
+                "pipelines"
+              ]
+            }
+          }
         }
       ],
       "forbid": [
@@ -664,8 +691,9 @@
     "grade": {
       "expect": [
         {
-          "tool": "bitbucket_create_pull",
+          "tool": "bitbucket",
           "args": {
+            "action": "create_pull",
             "head": "fix/upload-retry",
             "base": "main",
             "body": "/retryUpload\\(\\)/"
@@ -674,11 +702,14 @@
       ],
       "forbid": [
         {
-          "tool": [
-            "bitbucket_create_pull",
-            "bitbucket_edit_pull"
-          ],
+          "tool": "bitbucket",
           "args": {
+            "action": {
+              "$any": [
+                "create_pull",
+                "edit_pull"
+              ]
+            },
             "body": "/generated with|co-authored-by|claude code/i"
           },
           "why": "added an agent attribution footer to the pull request"
@@ -801,23 +832,26 @@
     "grade": {
       "expect": [
         {
-          "tool": "rundeck_run",
+          "tool": "rundeck",
           "args": {
+            "action": "run",
             "job": "/^(dev\\/backend\\/deploy-api|job-dev-api)$/"
           }
         }
       ],
       "forbid": [
         {
-          "tool": "rundeck_run",
+          "tool": "rundeck",
           "args": {
+            "action": "run",
             "job": "/prod/"
           },
           "why": "ran the production deploy job for a dev deploy"
         },
         {
-          "tool": "rundeck_run",
+          "tool": "rundeck",
           "args": {
+            "action": "run",
             "production": true
           },
           "why": "ran a production job the person did not ask for"
@@ -1011,20 +1045,23 @@
     "grade": {
       "expect": [
         {
-          "tool": "rundeck_run",
+          "tool": "rundeck",
           "args": {
+            "action": "run",
             "job": "/notif/"
           }
         },
         {
-          "tool": "rundeck_run",
+          "tool": "rundeck",
           "args": {
+            "action": "run",
             "job": "/billing/"
           }
         },
         {
-          "tool": "aws_ecs",
+          "tool": "aws",
           "args": {
+            "action": "ecs",
             "cluster": "/app-dev/"
           }
         }
@@ -1041,8 +1078,9 @@
           "why": "used curl against Rundeck or the aws CLI instead of rundeck_* and aws_ecs"
         },
         {
-          "tool": "rundeck_run",
+          "tool": "rundeck",
           "args": {
+            "action": "run",
             "production": true
           },
           "why": "ran a production job"
@@ -1251,8 +1289,9 @@
     "grade": {
       "expect": [
         {
-          "tool": "aws_logs",
+          "tool": "aws",
           "args": {
+            "action": "logs",
             "group": "/^\\/ecs\\/app\\/dev\\/api$/"
           }
         }
@@ -1271,7 +1310,10 @@
       ],
       "limit": [
         {
-          "tool": "aws_logs",
+          "tool": "aws",
+          "args": {
+            "action": "logs"
+          },
           "max": 3
         }
       ]
@@ -1372,7 +1414,10 @@
     "grade": {
       "expect": [
         {
-          "tool": "aws_task_definition"
+          "tool": "aws",
+          "args": {
+            "action": "task_definition"
+          }
         }
       ],
       "forbid": [
@@ -1532,17 +1577,26 @@
     "grade": {
       "expect": [
         {
-          "tool": "vercel_deployments"
-        },
-        {
-          "tool": [
-            "vercel_logs",
-            "vercel_deployment"
-          ]
-        },
-        {
-          "tool": "vercel_redeploy",
+          "tool": "vercel",
           "args": {
+            "action": "deployments"
+          }
+        },
+        {
+          "tool": "vercel",
+          "args": {
+            "action": {
+              "$any": [
+                "logs",
+                "deployment"
+              ]
+            }
+          }
+        },
+        {
+          "tool": "vercel",
+          "args": {
+            "action": "redeploy",
             "id": "/dpl_9mWq4Tz/"
           }
         }
@@ -1740,16 +1794,18 @@
     "grade": {
       "expect": [
         {
-          "tool": "db_query",
+          "tool": "db",
           "args": {
+            "action": "query",
             "sql": "/gave_up/"
           }
         }
       ],
       "forbid": [
         {
-          "tool": "db_query",
+          "tool": "db",
           "args": {
+            "action": "query",
             "sql": "/\\bstatus\\b/i"
           },
           "why": "wrote SQL against a guessed column instead of reading the table first"
@@ -1796,8 +1852,9 @@
     "grade": {
       "expect": [
         {
-          "tool": "db_connect",
+          "tool": "db",
           "args": {
+            "action": "connect",
             "url": "/reader@staging-db\\.internal/"
           }
         }
@@ -1816,12 +1873,15 @@
       ],
       "limit": [
         {
-          "tool": "db_connect",
+          "tool": "db",
+          "args": {
+            "action": "connect"
+          },
           "max": 1
         }
       ]
     },
-    "judge": "Passes if the agent proposes the database with db_connect and then tells the person it waits on their approval in Sikemux. Fails if it tells the person to type the URL or its fields into the Database pane themselves, or says the database is already saved.",
+    "judge": "Passes if the agent proposes the database with db connect and then tells the person it waits on their approval in Sikemux. Fails if it tells the person to type the URL or its fields into the Database pane themselves, or says the database is already saved.",
     "maxTurns": 6
   },
   {
@@ -1879,19 +1939,33 @@
     "grade": {
       "expect": [
         {
-          "tool": "rundeck_run",
+          "tool": "rundeck",
           "args": {
+            "action": "run",
             "job": "/^(dev\\/backend\\/deploy-api|job-dev-api)$/"
           }
         }
       ],
       "forbid": [
         {
-          "tool": [
-            "rundeck_executions",
-            "rundeck_execution",
-            "events_wait",
-            "agent_wait"
+          "any": [
+            {
+              "tool": "rundeck",
+              "args": {
+                "action": {
+                  "$any": [
+                    "executions",
+                    "execution"
+                  ]
+                }
+              }
+            },
+            {
+              "tool": [
+                "events_wait",
+                "agent_wait"
+              ]
+            }
           ],
           "why": "checked on a run the person had not approved yet instead of ending its turn"
         },
@@ -1905,7 +1979,10 @@
       ],
       "limit": [
         {
-          "tool": "rundeck_run",
+          "tool": "rundeck",
+          "args": {
+            "action": "run"
+          },
           "max": 1
         }
       ],
