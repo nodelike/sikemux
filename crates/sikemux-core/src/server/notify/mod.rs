@@ -347,7 +347,11 @@ fn inbox(core: &Core, now: u64) {
         return;
     }
     let items = super::inbox::told(core);
-    let raised = super::person_calls::raised_open(core);
+    let held = |call: &PersonCall| {
+        (items.iter()).any(|item| item.hold.as_ref().is_some_and(|hold| hold.id == call.id))
+    };
+    let mut raised = super::person_calls::raised_open(core);
+    raised.retain(|call| !held(call));
     let told = (items.iter().map(|item| (item.id.clone(), Told::Item(item)))).chain(
         raised
             .iter()
