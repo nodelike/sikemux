@@ -1,6 +1,7 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import type { ChatMessage } from '@shared/wire.generated';
+import { useT } from '@/i18n';
 import { Icon } from '@/ui/Icon';
 import { fonts, type Palette, useColors, useStyles } from '@/ui/theme';
 import { useFold } from './folds';
@@ -15,6 +16,7 @@ export function FiredTrigger({ id, fired, at }: { id: string; fired: Fired; at?:
   const colors = useColors();
   const styles = useStyles(makeStyles);
   const bubble = useStyles(makeBubbleStyles);
+  const t = useT();
   const [open, setOpen] = useFold(`${id}/request`, false);
   const request = fired.request;
   const kind = request?.headers
@@ -46,7 +48,7 @@ export function FiredTrigger({ id, fired, at }: { id: string; fired: Fired; at?:
             style={styles.requestLine}
             accessibilityRole="button"
             accessibilityState={{ expanded: open }}
-            accessibilityLabel={`The request that fired it: ${summary}`}>
+            accessibilityLabel={t('The request that fired it: {summary}', { summary })}>
             <View style={open ? { transform: [{ rotate: '90deg' }] } : undefined}>
               <Icon name="IconChevron" size={10} color={colors.inkFaint} />
             </View>

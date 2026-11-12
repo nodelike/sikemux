@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { collapseDiff } from '@shared/chat/diff';
 import type { DiffLine } from '@shared/wire.generated';
-import { counted } from '@/devices/words';
+import { useT } from '@/i18n';
 import { Icon } from '@/ui/Icon';
 import { fonts, mixed, type Palette, translucent, useColors, useStyles } from '@/ui/theme';
 import { Sideways } from '@/ui/Sideways';
@@ -65,6 +65,7 @@ const NO_LINES: DiffLine[] = [];
 export function DiffBody({ lines = NO_LINES, fold, waiting }: { lines?: DiffLine[]; fold: string; waiting?: string }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
+  const t = useT();
   const [expanded, setExpanded] = useFold(`${fold}/context`, false);
   const [whole, setWhole] = useFold(`${fold}/rows`, false);
   const rows = useMemo(() => collapseDiff(lines, expanded ? Number.MAX_SAFE_INTEGER : CONTEXT).rows, [lines, expanded]);
@@ -78,9 +79,7 @@ export function DiffBody({ lines = NO_LINES, fold, waiting }: { lines?: DiffLine
           'gap' in row ? (
             <Pressable key={`gap-${index}`} onPress={() => setExpanded(true)} style={styles.gap} accessibilityRole="button">
               <Icon name="IconChevron" size={9} color={colors.inkDim} />
-              <Text style={styles.gapText}>
-                {row.gap} more {counted('line', row.gap)}
-              </Text>
+              <Text style={styles.gapText}>{row.gap === 1 ? t('1 more line') : t('{count} more lines', { count: row.gap })}</Text>
             </Pressable>
           ) : (
             <DiffRow key={index} line={row} numbered />
@@ -89,7 +88,7 @@ export function DiffBody({ lines = NO_LINES, fold, waiting }: { lines?: DiffLine
       </SidewaysRows>
       {more > 0 ? (
         <Pressable onPress={() => setWhole(true)} style={styles.more} accessibilityRole="button">
-          <Text style={styles.gapText}>Show {more} more lines</Text>
+          <Text style={styles.gapText}>{t('Show {count} more lines', { count: more })}</Text>
         </Pressable>
       ) : null}
     </View>

@@ -5,6 +5,7 @@ import { cutLongBlocks, showRestLabel } from '@shared/chat/longText';
 import type { MdElement } from '@shared/markdown/types';
 import { revealBlocks, visibleText } from '@shared/markdown/visible';
 import type { PartTree } from '@shared/wire.generated';
+import { useT } from '@/i18n';
 import { fonts, type Palette, useStyles } from '@/ui/theme';
 import { FoldsContext, useFold } from './folds';
 import { FindingContext, markBlocks } from './found';
@@ -17,6 +18,7 @@ import { useStreamedText } from './reveal';
  */
 export function LongText({ id, text, md, live, style }: { id: string; text: string; md?: PartTree; live: boolean; style: object }) {
   const styles = useStyles(makeStyles);
+  const t = useT();
   const folds = useContext(FoldsContext);
   const finding = useContext(FindingContext);
   const [whole, setWhole] = useFold(`whole/${id}`, false);
@@ -34,7 +36,7 @@ export function LongText({ id, text, md, live, style }: { id: string; text: stri
       {cut ? <Markdown blocks={cut.blocks} style={style} /> : <Markdown blocks={shown} fading={streamed.fading} style={style} />}
       {cut ? (
         <Pressable onPress={() => setWhole(true)} hitSlop={6} style={styles.showRest} accessibilityRole="button">
-          <Text style={styles.showRestText}>{showRestLabel(cut.hidden)}</Text>
+          <Text style={styles.showRestText}>{showRestLabel(cut.hidden, t)}</Text>
         </Pressable>
       ) : null}
     </>

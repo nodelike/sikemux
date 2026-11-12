@@ -6,6 +6,7 @@ import type { ClosedAgent, PluginOutcome, ProjectEntry, ProjectInfo, SessionMatc
 import { callHost } from '@/core/hostCalls';
 import { problem as problemOf } from '@/core/problem';
 import { connectionOf, useLiveWhile } from '@/devices/hub';
+import { translate, useT } from '@/i18n';
 import type { IconName } from '@/ui/icons.generated';
 import type { ContextChip } from '@/stash/words';
 import { HostContext } from './hostFiles';
@@ -47,7 +48,10 @@ type Tracked = { items: Item[] } | { failed: string };
 function read(answer: PluginOutcome, host: string): Tracked {
   if ('failed' in answer)
     return {
-      failed: answer.failed.category === 'auth' ? `Sign in to ${host} in the Git pane to pick from its issues` : answer.failed.message,
+      failed:
+        answer.failed.category === 'auth'
+          ? translate('Sign in to {host} in the Git pane to pick from its issues', { host })
+          : answer.failed.message,
     };
   return { items: Array.isArray(answer.value) ? (answer.value as Item[]) : [] };
 }
@@ -72,6 +76,7 @@ const leaf = (path: string) => path.slice(path.lastIndexOf('/') + 1);
  */
 export function useMentions(session: ChatSession, typed: Typed | undefined): MentionMenuView | undefined {
   const core = useContext(HostContext);
+  const t = useT();
   const live = useLiveWhile(core, typed !== undefined);
   const connection = connectionOf(live);
   const snapshot = live?.snapshot;
@@ -177,7 +182,7 @@ export function useMentions(session: ChatSession, typed: Typed | undefined): Men
         key: `${EARLIER}${agent.provider}/${agent.sessionId}`,
         title: `@${agent.name}`,
         detail: agent.title,
-        group: index === 0 ? 'Closed' : undefined,
+        group: index === 0 ? t('Closed') : undefined,
         mark: { agent: undefined, provider: agent.provider },
         take: () => write(`@${agent.name}`, `${EARLIER}${agent.provider}/${agent.sessionId}`),
       }));
@@ -190,8 +195,8 @@ export function useMentions(session: ChatSession, typed: Typed | undefined): Men
         key: `${EARLIER}${chat.cli}/${chat.sessionId}`,
         title: chat.title,
         plain: true,
-        aside: chat.activeAt ? formatAge(chat.activeAt) : undefined,
-        group: index === 0 ? 'Earlier chats' : undefined,
+        aside: chat.activeAt ? formatAge(chat.activeAt, undefined, t) : undefined,
+        group: index === 0 ? t('Earlier chats') : undefined,
         mark: { agent: undefined, provider: chat.cli },
         take: () => write('', undefined, undefined, { uri: `${EARLIER_URI}${chat.cli}/${chat.sessionId}`, title: chat.title, text: '' }),
       }));
@@ -199,12 +204,12 @@ export function useMentions(session: ChatSession, typed: Typed | undefined): Men
       return {
         typed,
         rows,
-        empty: rows.length ? undefined : wanted ? 'No agent or earlier chat matches' : 'No other agent yet',
+        empty: rows.length ? undefined : wanted ? t('No agent or earlier chat matches') : t('No other agent yet'),
       };
     }
 
     if (typed.trigger === '+') {
-      if (!project) return { typed, rows: [], empty: 'Open a project to pick its files' };
+      if (!project) return { typed, rows: [], empty: t('Open a project to pick its files') };
       const answered = entries?.query === typed.needle ? entries : undefined;
       if (answered && 'failed' in answered) return { typed, rows: [], empty: answered.failed };
       const draft = session.draftText();
@@ -221,13 +226,15 @@ export function useMentions(session: ChatSession, typed: Typed | undefined): Men
           take: () => write(written, `${entry.folder ? FOLDER : FILE}${whole}`),
         };
       });
-      const empty = rows.length ? undefined : answered ? 'Nothing in the project matches' : undefined;
+      const empty = rows.length ? undefined : answered ? t('Nothing in the project matches') : undefined;
       return { typed, rows, empty };
     }
 
-    const things = typed.trigger === '!' ? 'pull requests' : 'issues';
-    if (!project) return { typed, rows: [], empty: `Open a project to pick its ${things}` };
-    if (!project.codeHost) return { typed, rows: [], empty: 'This project has no remote on a code host' };
+    if (!project) {
+      const empty = typed.trigger === '!' ? t('Open a project to pick its pull requests') : t('Open a project to pick its issues');
+      return { typed, rows: [], empty };
+    }
+    if (!project.codeHost) return { typed, rows: [], empty: t('This project has no remote on a code host') };
     const listed = tracked?.cwd === cwd ? tracked?.read : undefined;
     if (listed && 'failed' in listed) return { typed, rows: [], empty: listed.failed };
     const rows: MentionRow[] = trackedRows(listed?.items ?? [], typed.trigger, typed.needle).map((item) => {
@@ -254,9 +261,9 @@ export function useMentions(session: ChatSession, typed: Typed | undefined): Men
       ? undefined
       : listed
         ? typed.trigger === '!'
-          ? 'No open pull request matches'
-          : 'No open issue matches'
+          ? t('No open pull request matches')
+          : t('No open issue matches')
         : undefined;
     return { typed, rows, empty };
-  }, [typed, snapshot, agents, project, cwd, closed, found, entries, tracked, session, connection]);
+  }, [typed, snapshot, agents, project, cwd, closed, found, entries, tracked, session, connection, t]);
 }

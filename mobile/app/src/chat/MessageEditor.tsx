@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
+import { useT } from '@/i18n';
 import { fonts, keyboardFor, type Palette, useColors, useStyles } from '@/ui/theme';
 
 import { BUBBLE_RADIUS, bubbleFill } from './Bubble';
@@ -11,6 +12,7 @@ export type Editing = { onCancel: () => void; onSend: (text: string) => void };
 export function MessageEditor({ text, editing }: { text: string; editing: Editing }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
+  const t = useT();
   const [draft, setDraft] = useState(text);
   const words = draft.trim();
   return (
@@ -23,7 +25,7 @@ export function MessageEditor({ text, editing }: { text: string; editing: Editin
         style={styles.editorText}
         selectionColor={colors.accent}
         keyboardAppearance={keyboardFor(colors)}
-        accessibilityLabel="Edit message"
+        accessibilityLabel={t('Edit message')}
       />
       <View style={styles.editorActs}>
         <Pressable
@@ -31,7 +33,7 @@ export function MessageEditor({ text, editing }: { text: string; editing: Editin
           hitSlop={6}
           style={({ pressed }) => [styles.editorButton, pressed && { backgroundColor: colors.active }]}
           accessibilityRole="button">
-          <Text style={styles.editorButtonText}>Cancel</Text>
+          <Text style={styles.editorButtonText}>{t('Cancel')}</Text>
         </Pressable>
         <Pressable
           onPress={() => editing.onSend(words)}
@@ -40,7 +42,7 @@ export function MessageEditor({ text, editing }: { text: string; editing: Editin
           style={({ pressed }) => [styles.editorButton, styles.editorSend, (pressed || !words) && { opacity: 0.6 }]}
           accessibilityRole="button"
           accessibilityState={{ disabled: !words }}>
-          <Text style={[styles.editorButtonText, styles.editorSendText]}>Send</Text>
+          <Text style={[styles.editorButtonText, styles.editorSendText]}>{t('Send')}</Text>
         </Pressable>
       </View>
     </View>

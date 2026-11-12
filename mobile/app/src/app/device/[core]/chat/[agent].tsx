@@ -72,7 +72,7 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
   const { devices } = useDevices();
   const device = devices.find((paired) => paired.core === core);
   const access = device?.access ?? 'full';
-  const hostName = device ? deviceName(device) : t('the host');
+  const hostName = device ? deviceName(device, t) : t('the host');
   const info = live.snapshot?.chats.find((chat) => chat.agentId === agentId);
   const provider = info?.provider ?? 'agent';
   const { session, chat, connection } = useChat(core, agentId);
@@ -162,7 +162,7 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
   const name = info?.name ?? agentLabel(provider);
   useArrivals(state.running, request?.requestId, {
     done: t('{name} finished', { name }),
-    asks: request ? t('{name} asks: {question}', { name, question: askTitle(request) }) : '',
+    asks: request ? t('{name} asks: {question}', { name, question: askTitle(request, t) }) : '',
   });
   const list = useRef<FlashListRef<ChatMessage>>(null);
   const bottom = useBottomGap();

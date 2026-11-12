@@ -4,6 +4,7 @@ import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 
 import { isDrawnType } from '@shared/lib/imagePaths';
+import { translate } from '@/i18n';
 import type { Attachment } from './uploads';
 
 /** A photo is sent no larger than this on its longest side, which agents read at full detail. */
@@ -42,7 +43,7 @@ export async function pickPhotos(limit: number): Promise<Attachment[]> {
 
 export async function takePhoto(): Promise<Attachment[]> {
   const permission = await ImagePicker.requestCameraPermissionsAsync();
-  if (!permission.granted) throw new Error('Sikemux has no access to the camera; allow it in Settings');
+  if (!permission.granted) throw new Error(translate('Sikemux has no access to the camera; allow it in Settings'));
   const result = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 1, exif: false });
   if (result.canceled) return [];
   return [await asJpeg(fromPicker(result.assets[0]))];

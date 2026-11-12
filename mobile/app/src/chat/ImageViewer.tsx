@@ -5,6 +5,7 @@ import { Directory, File, Paths } from 'expo-file-system';
 
 import { problem as problemOf } from '@/core/problem';
 import { LockCover } from '@/lock/LockScreen';
+import { useT } from '@/i18n';
 import { haptics } from '@/ui/haptics';
 import { Icon } from '@/ui/Icon';
 import { fonts, type Palette, radius, useColors, useStyles } from '@/ui/theme';
@@ -32,6 +33,7 @@ export function ImageViewer({ uri, name, onClose }: { uri: string | undefined; n
   const colors = useColors();
   const styles = useStyles(makeStyles);
   const insets = useSafeAreaInsets();
+  const t = useT();
   const [saving, setSaving] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
 
@@ -43,7 +45,7 @@ export function ImageViewer({ uri, name, onClose }: { uri: string | undefined; n
       .then(() => haptics.success())
       .catch((error: unknown) => {
         const message = problemOf(error);
-        if (!/cancel/i.test(message)) setProblem(`Could not save it: ${message}`);
+        if (!/cancel/i.test(message)) setProblem(t('Could not save it: {message}', { message }));
       })
       .finally(() => setSaving(false));
   };
@@ -66,7 +68,7 @@ export function ImageViewer({ uri, name, onClose }: { uri: string | undefined; n
           )}
         </ScrollView>
         <View style={[styles.bar, { paddingTop: insets.top + 8 }]}>
-          <Pressable onPress={onClose} hitSlop={10} style={styles.control} accessibilityRole="button" accessibilityLabel="Close">
+          <Pressable onPress={onClose} hitSlop={10} style={styles.control} accessibilityRole="button" accessibilityLabel={t('Close')}>
             <Icon name="IconClose" size={16} color={colors.ink} />
           </Pressable>
           <Text style={styles.name} numberOfLines={1} ellipsizeMode="middle">
@@ -78,7 +80,7 @@ export function ImageViewer({ uri, name, onClose }: { uri: string | undefined; n
             hitSlop={10}
             style={[styles.control, (!uri || saving) && { opacity: 0.5 }]}
             accessibilityRole="button"
-            accessibilityLabel={`Save ${name}`}>
+            accessibilityLabel={t('Save {name}', { name })}>
             {saving ? <ActivityIndicator size="small" color={colors.ink} /> : <Icon name="IconDownload" size={16} color={colors.ink} />}
           </Pressable>
         </View>

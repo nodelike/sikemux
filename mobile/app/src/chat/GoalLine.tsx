@@ -2,17 +2,18 @@ import { StyleSheet, Text, View } from 'react-native';
 
 import { durationLabel } from '@shared/chat/durationLabel';
 import type { AgentNotice, GoalMarker, SliceState } from '@shared/wire.generated';
+import { useT, type Translate } from '@/i18n';
 import { fonts, type Palette, translucent, useColors, useStyles } from '@/ui/theme';
 
 /** What the line says and the state its mark takes, from the moment of the goal it marks. */
-function said(goal: GoalMarker): { state: SliceState; word: string } {
+function said(goal: GoalMarker, t: Translate): { state: SliceState; word: string } {
   const moment = goal.moment ?? 'started';
-  if (moment === 'step') return { state: 'done', word: 'Step done' };
-  if (moment === 'done') return { state: 'done', word: 'Goal done' };
-  if (moment === 'stopped') return { state: goal.state === 'failed' ? 'failed' : 'waiting', word: 'Goal stopped' };
-  if (goal.state === 'needsYou') return { state: 'needsYou', word: 'Goal needs you' };
-  if (goal.state === 'waiting') return { state: 'waiting', word: 'Goal waiting' };
-  return { state: goal.state, word: 'Goal' };
+  if (moment === 'step') return { state: 'done', word: t('Step done') };
+  if (moment === 'done') return { state: 'done', word: t('Goal done') };
+  if (moment === 'stopped') return { state: goal.state === 'failed' ? 'failed' : 'waiting', word: t('Goal stopped') };
+  if (goal.state === 'needsYou') return { state: 'needsYou', word: t('Goal needs you') };
+  if (goal.state === 'waiting') return { state: 'waiting', word: t('Goal waiting') };
+  return { state: goal.state, word: t('Goal') };
 }
 
 const STEP_WIDTH = 14;
@@ -27,19 +28,21 @@ function stateInk(state: SliceState, colors: Palette): string {
 }
 
 /** How far a goal's steps have come: "2 of 5 done", or of its gates. */
-function progress(goal: GoalMarker): string | null {
+function progress(goal: GoalMarker, t: Translate): string | null {
   const steps = goal.steps ?? [];
   if (!steps.length) return null;
   const done = steps.filter((step) => step === 'done').length;
-  return `${done} of ${steps.length} ${goal.ofGates ? 'gates' : 'done'}`;
+  const values = { done, total: steps.length };
+  return goal.ofGates ? t('{done} of {total} gates', values) : t('{done} of {total} done', values);
 }
 
 /** Where a goal starts, takes a step, ends or stops, as a milestone: its mark and state in its colour, its name, then its steps and time. */
 export function GoalLine({ notice, goal }: { notice: AgentNotice; goal: GoalMarker }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
-  const words = progress(goal);
-  const { state, word } = said(goal);
+  const t = useT();
+  const words = progress(goal, t);
+  const { state, word } = said(goal, t);
   const ink = stateInk(state, colors);
   return (
     <View style={styles.line} accessibilityLabel={[word, goal.name || notice.title, words].filter(Boolean).join(', ')}>
@@ -51,7 +54,7 @@ export function GoalLine({ notice, goal }: { notice: AgentNotice; goal: GoalMark
       <View style={styles.end}>
         <GoalSteps steps={goal.steps ?? []} />
         {words ? <Text style={styles.progress}>{words}</Text> : null}
-        {goal.took !== undefined && goal.took >= 1000 ? <Text style={styles.took}>{durationLabel(goal.took)}</Text> : null}
+        {goal.took !== undefined && goal.took >= 1000 ? <Text style={styles.took}>{durationLabel(goal.took, t)}</Text> : null}
       </View>
     </View>
   );

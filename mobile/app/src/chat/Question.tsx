@@ -32,6 +32,7 @@ export function AnsweredQuestions({
 }) {
   const styles = useStyles(makeStyles);
   const bubble = useStyles(makeBubbleStyles);
+  const t = useT();
   return (
     <View style={styles.thread}>
       {asker ? <Text style={styles.askedBy}>@{asker}</Text> : null}
@@ -51,7 +52,7 @@ export function AnsweredQuestions({
             {answered.files}
             {answered.secret ? (
               <Bubble>
-                <Text style={[bubble.text, styles.kept]}>Kept private</Text>
+                <Text style={[bubble.text, styles.kept]}>{t('Kept private')}</Text>
               </Bubble>
             ) : answered.answer ? (
               <Bubble>
@@ -105,9 +106,9 @@ export function AssumedQuestion({
         {canAnswer ? (
           <>
             {'  ·  '}
-            {act(FINE, onFine)}
+            {act(t(FINE), onFine)}
             {'   '}
-            {act(CHANGE, onChange)}
+            {act(t(CHANGE), onChange)}
           </>
         ) : null}
       </Text>

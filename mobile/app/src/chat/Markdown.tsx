@@ -7,6 +7,7 @@ import { safeWebUrl } from '@shared/lib/urls';
 import { tableSource } from '@shared/markdown/tableSource';
 import type { MdElement, MdNode } from '@shared/markdown/types';
 import { visibleText } from '@shared/markdown/visible';
+import { useT, type Translate } from '@/i18n';
 import { CopyButton } from '@/ui/CopyButton';
 import { Icon } from '@/ui/Icon';
 import type { IconName } from '@/ui/icons.generated';
@@ -244,6 +245,7 @@ function columnWidths(table: Table): number[] {
 }
 
 function TableView({ table, style, styles }: { table: Table; style: StyleProp<TextStyle>; styles: Styles }) {
+  const t = useT();
   const widths = useMemo(() => columnWidths(table), [table]);
   const source = useMemo(() => tableSource(table), [table]);
   const cell = (nodes: readonly MdNode[], column: number, head: boolean) => (
@@ -281,7 +283,7 @@ function TableView({ table, style, styles }: { table: Table; style: StyleProp<Te
           ))}
         </View>
       </ScrollView>
-      <CopyButton value={source} label="table" size={12} style={styles.tableCopy} />
+      <CopyButton value={source} label={t('Copy table')} size={12} style={styles.tableCopy} />
     </View>
   );
 }
@@ -290,10 +292,10 @@ const SHELLS = ['console', 'terminal', 'shell-session', 'shellsession', 'sh-sess
 const COMMANDS = ['sh', 'bash', 'zsh', 'shell'];
 
 /** What a block without a file name is called, and whether its lines are numbered: commands to type are a Terminal. */
-function codeTitle(lang: string, text: string): { title: string; numbered: boolean } {
+function codeTitle(lang: string, text: string, t: Translate): { title: string; numbered: boolean } {
   const lower = lang.toLowerCase();
-  if (lang ? SHELLS.includes(lower) || COMMANDS.includes(lower) : text.startsWith('$ ')) return { title: 'Terminal', numbered: false };
-  return { title: lang || 'Code', numbered: true };
+  if (lang ? SHELLS.includes(lower) || COMMANDS.includes(lower) : text.startsWith('$ ')) return { title: t('Terminal'), numbered: false };
+  return { title: lang || t('Code'), numbered: true };
 }
 
 /**
@@ -302,9 +304,10 @@ function codeTitle(lang: string, text: string): { title: string; numbered: boole
  */
 function CodeBlock({ lang, name, text, styles }: { lang: string; name?: string; text: string; styles: Styles }) {
   const colors = useColors();
+  const t = useT();
   const patch = useMemo(() => (text ? fencedDiff(text, lang || undefined) : null), [text, lang]);
   const code = text.replace(/\n$/, '');
-  const named = name ? { title: name, numbered: true } : codeTitle(lang ? decodedFenceName(lang) : '', code);
+  const named = name ? { title: name, numbered: true } : codeTitle(lang ? decodedFenceName(lang) : '', code, t);
   const cut = name ? name.lastIndexOf('/') : -1;
   const [folder, file] = cut > 0 ? [named.title.slice(0, cut), named.title.slice(cut + 1)] : [null, named.title];
   const lines = named.numbered && code.includes('\n') ? code.split('\n').length : 0;
@@ -321,7 +324,7 @@ function CodeBlock({ lang, name, text, styles }: { lang: string; name?: string; 
           </Text>
         ) : null}
         <View style={styles.codeFill} />
-        <CopyButton value={code} label="code" worded style={styles.pill} />
+        <CopyButton value={code} label={t('Copy code')} worded style={styles.pill} />
       </View>
       {patch ? (
         <SidewaysRows>
@@ -401,6 +404,7 @@ function ListView({
   fading?: Fading;
 }) {
   const depth = useContext(ListDepth);
+  const t = useT();
   return (
     <ListDepth.Provider value={depth + 1}>
       <View style={styles.list}>
@@ -416,7 +420,7 @@ function ListView({
                   <Text style={[style, styles.number]}>{String(first + index).padStart(2, '0')}</Text>
                 )
               ) : (
-                <View style={[styles.box, item.checked && styles.boxOn]} accessibilityLabel={item.checked ? 'done' : 'not done'}>
+                <View style={[styles.box, item.checked && styles.boxOn]} accessibilityLabel={item.checked ? t('done') : t('not done')}>
                   {item.checked ? <Icon name="IconCheck" size={11} color={styles.boxTick.color} /> : null}
                 </View>
               )}
@@ -432,13 +436,14 @@ function ListView({
 function Details({ block, style, styles }: { block: Extract<MdElement, { t: 'details' }>; style: StyleProp<TextStyle>; styles: Styles }) {
   const colors = useColors();
   const [open, setOpen] = useState(block.open === true);
+  const t = useT();
   return (
     <View style={styles.details}>
       <Pressable onPress={() => setOpen(!open)} style={styles.summary} accessibilityRole="button" accessibilityState={{ expanded: open }}>
         <View style={{ transform: [{ rotate: open ? '90deg' : '0deg' }] }}>
           <Icon name="IconChevron" size={10} color={colors.inkFaint} />
         </View>
-        <Text style={[style, styles.bold]}>{block.summary || 'Details'}</Text>
+        <Text style={[style, styles.bold]}>{block.summary || t('Details')}</Text>
       </Pressable>
       {open ? <Blocks blocks={block.c as MdElement[]} style={style} styles={styles} /> : null}
     </View>

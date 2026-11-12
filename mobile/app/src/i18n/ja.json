@@ -738,5 +738,6 @@
   "~{count}k tokens": "約 {count}k トークン",
   "~{rate} tok/s": "約 {rate} tok/s",
   "“{label}”": "「{label}」",
-  "… output truncated": "… 出力は省略されました"
+  "… output truncated": "… 出力は省略されました",
+  "{name} · guest": "{name} · ゲスト"
 }

@@ -5,6 +5,7 @@ import type { ConnectionLike } from '@sikemux/native';
 import type { ChatRows } from '@shared/chat/rows';
 import { agentLabel, agentMaker } from '@shared/agents/catalog';
 import { useHostCall } from '@/core/hostCalls';
+import { useT } from '@/i18n';
 import { Icon } from '@/ui/Icon';
 import { fonts, type Palette, useColors, useStyles } from '@/ui/theme';
 import type { ChatSession } from './session';
@@ -57,6 +58,7 @@ export function Trouble({
 }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
+  const t = useT();
   const failure = state.failure;
   const accountsNeeded = canAct && (failure?.kind === 'signIn' || failure?.kind === 'limit');
   /** The account a chat runs on and the signed-in ones that keep its chats too, as the host's `chatAccounts` answers. */
@@ -76,12 +78,12 @@ export function Trouble({
           <View style={styles.glyph}>
             <Icon name="IconPlug" size={14} color={colors.danger} />
           </View>
-          <Text style={styles.text}>{why ? `This session dropped: ${why}` : 'This session dropped.'}</Text>
+          <Text style={styles.text}>{why ? t('This session dropped: {why}', { why }) : t('This session dropped.')}</Text>
         </View>
         {canAct ? (
           <View style={styles.actions}>
-            <Action title="Reconnect" onPress={session.retry} />
-            {onStartOver ? <Action title="Start new chat" onPress={onStartOver} /> : null}
+            <Action title={t('Reconnect')} onPress={session.retry} />
+            {onStartOver ? <Action title={t('Start new chat')} onPress={onStartOver} /> : null}
           </View>
         ) : null}
       </View>
@@ -93,6 +95,7 @@ export function Trouble({
   const moves = failure?.kind === 'limit' ? (accounts?.others ?? []) : [];
   const carryOn = failure?.kind === 'limit' ? failure.carryOnWith : undefined;
   const signIn = failure?.kind === 'signIn';
+  const maker = agentMaker(provider);
   return (
     <View style={styles.trouble} accessibilityLiveRegion="polite">
       <View style={styles.said}>
@@ -101,7 +104,9 @@ export function Trouble({
         </View>
         <Text style={styles.text} selectable>
           {network
-            ? `Lost connection to ${agentMaker(provider) ?? 'the model provider'}. Sikemux sends it again when you're back online.`
+            ? maker
+              ? t("Lost connection to {maker}. Sikemux sends it again when you're back online.", { maker })
+              : t("Lost connection to the model provider. Sikemux sends it again when you're back online.")
             : state.error}
         </Text>
       </View>
@@ -110,17 +115,23 @@ export function Trouble({
           {failure.details}
         </Text>
       ) : null}
-      {signIn ? <Text style={styles.host}>{`Sign in to ${name} on ${hostName}, then retry here.`}</Text> : null}
+      {signIn ? <Text style={styles.host}>{t('Sign in to {name} on {host}, then retry here.', { name, host: hostName })}</Text> : null}
       {canAct && (network || resumes || moves.length || carryOn || signIn) ? (
         <View style={styles.actions}>
-          {network ? <Action title="Retry now" onPress={() => session.failedTurn('retryFailed')} /> : null}
-          {network ? <Action title="Discard" onPress={() => session.failedTurn('discardFailed')} /> : null}
-          {resumes ? <Action title="Don't resume" onPress={() => session.failedTurn('cancelResume')} /> : null}
+          {network ? <Action title={t('Retry now')} onPress={() => session.failedTurn('retryFailed')} /> : null}
+          {network ? <Action title={t('Discard')} onPress={() => session.failedTurn('discardFailed')} /> : null}
+          {resumes ? <Action title={t("Don't resume")} onPress={() => session.failedTurn('cancelResume')} /> : null}
           {moves.map((other) => (
-            <Action key={other.id} title={`Continue on ${other.label}`} onPress={() => session.moveToAccount(other.id)} />
+            <Action
+              key={other.id}
+              title={t('Continue on {account}', { account: other.label })}
+              onPress={() => session.moveToAccount(other.id)}
+            />
           ))}
-          {carryOn ? <Action title={`Hand to ${agentLabel(carryOn)}`} onPress={() => session.handOff(carryOn)} /> : null}
-          {signIn ? <Action title="Retry" onPress={() => session.failedTurn('retryFailed')} /> : null}
+          {carryOn ? (
+            <Action title={t('Hand to {agent}', { agent: agentLabel(carryOn) })} onPress={() => session.handOff(carryOn)} />
+          ) : null}
+          {signIn ? <Action title={t('Retry')} onPress={() => session.failedTurn('retryFailed')} /> : null}
         </View>
       ) : null}
     </View>

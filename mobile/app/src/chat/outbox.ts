@@ -2,6 +2,7 @@ import type { ConnectionLike } from '@sikemux/native';
 import { randomUUID } from 'expo-crypto';
 
 import type { ChatRows } from '@shared/chat/rows';
+import type { Say } from '@shared/lib/say';
 import type { ChatMessage, QueuedMessage } from '@shared/wire.generated';
 
 import { callHost } from '@/core/hostCalls';
@@ -59,6 +60,7 @@ function ownRow(outgoing: Outgoing): ChatMessage {
 }
 
 type Host = {
+  say: Say;
   connection: () => ConnectionLike | undefined;
   /** The chat as the host last folded it. */
   chat: () => ChatRows;
@@ -168,7 +170,7 @@ export class Outbox {
     this.host.emit();
     const connection = this.host.connection();
     return this.inOrder(async () => {
-      if (!connection?.isOpen()) throw new Error('the host is not connected');
+      if (!connection?.isOpen()) throw new Error(this.host.say('the host is not connected'));
       const sent = await this.put(connection, files, () => {});
       const paths = [...pathsOf(sent), ...named.paths];
       if (!steers) return this.prompt(connection, id, text, paths, named.context);
@@ -227,7 +229,7 @@ export class Outbox {
     const sent = await uploadEach(
       files,
       async (attachment) => {
-        if (!connection?.isOpen()) throw new Error('the host is not connected');
+        if (!connection?.isOpen()) throw new Error(this.host.say('the host is not connected'));
         const bytes = await this.host.read(attachment.uri);
         const path = await connection.attachFile(this.agentId, attachment.name, attachment.mime, bytes);
         this.sentFiles = new Map([...this.sentFiles, [path, attachment]]);
@@ -263,7 +265,7 @@ export class Outbox {
     const connection = this.host.connection();
     const id = entry.messageId;
     this.inOrder(async () => {
-      if (!connection?.isOpen()) throw new Error('the host is not connected');
+      if (!connection?.isOpen()) throw new Error(this.host.say('the host is not connected'));
       const files = this.entries.find((outgoing) => outgoing.messageId === id)?.files ?? entry.files;
       const sent = await this.put(connection, files, (fileId, change) => {
         this.entries = this.entries.map((outgoing) =>

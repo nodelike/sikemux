@@ -20,6 +20,7 @@ import { callsLabel, workedLabel } from '@shared/chat/toolView';
 import type { ChatMessage, ChatPart, ContentBlock, SubagentCard, TaskNotice as Notice, TeamLine } from '@shared/wire.generated';
 import { CopyButton } from '@/ui/CopyButton';
 import { haptics } from '@/ui/haptics';
+import { useT } from '@/i18n';
 import { AgentFace } from '@/devices/Buddy';
 import { AgentIcon, Icon } from '@/ui/Icon';
 import { fonts, mixed, type Palette, translucent, useColors, useStyles } from '@/ui/theme';
@@ -62,10 +63,11 @@ function SubagentEnd({ state }: { state: SubagentCard['state'] }) {
     mark
   ];
   const loud = mark === 'warning' || mark === 'plug';
+  const t = useT();
   return (
     <View style={styles.subagentEnd}>
       <Icon name={icon} size={12} color={tint} />
-      <Text style={[styles.subagentWord, loud && { color: tint }]}>{SUBAGENT_WORDS[state]}</Text>
+      <Text style={[styles.subagentWord, loud && { color: tint }]}>{t(SUBAGENT_WORDS[state])}</Text>
     </View>
   );
 }
@@ -78,17 +80,19 @@ function Subagent({ subagent }: { subagent: SubagentCard }) {
   const rows = useContext(SubagentsContext).rows[subagent.sessionId];
   const [open, setOpen] = useFold(`subagent/${subagent.sessionId}`, false);
   const parts = useMemo(() => (rows ?? []).flatMap((message) => message.parts), [rows]);
-  const cost = subagentCost(subagent);
+  const t = useT();
+  const cost = subagentCost(subagent, t);
   const running = subagent.state === 'running';
   const row = subagent.lastTool?.row;
   const doing = running ? (row?.activity ?? row?.subject ?? row?.target) : undefined;
+  const said = t('Subagent {name}, {state}', { name: subagent.name, state: doing ?? t(SUBAGENT_WORDS[subagent.state]) });
   return (
     <View style={styles.subagent}>
       <Pressable
         onPress={() => setOpen(!open)}
         style={({ pressed }) => [styles.subagentHead, pressed && styles.subagentPressed]}
         accessibilityRole="button"
-        accessibilityLabel={`Subagent ${subagent.name}, ${doing ?? SUBAGENT_WORDS[subagent.state]}${cost ? `, ${cost}` : ''}`}
+        accessibilityLabel={`${said}${cost ? `, ${cost}` : ''}`}
         accessibilityState={{ expanded: open }}>
         <AgentIcon provider={provider} size={16} />
         <Text style={styles.subagentName} numberOfLines={1}>
@@ -119,7 +123,7 @@ function Subagent({ subagent }: { subagent: SubagentCard }) {
           {parts.length ? (
             <Parts id={`subagent/${subagent.sessionId}`} parts={parts} live={running} />
           ) : (
-            <Text style={styles.empty}>No output yet.</Text>
+            <Text style={styles.empty}>{t('No output yet.')}</Text>
           )}
         </View>
       ) : null}
@@ -180,9 +184,10 @@ function Parts({ id, parts, live }: { id: string; parts: ChatPart[]; live: boole
 function Picture({ uri, name }: { uri: string; name: string }) {
   const styles = useStyles(makeStyles);
   const [open, setOpen] = useState(false);
+  const t = useT();
   return (
     <>
-      <Pressable onPress={() => setOpen(true)} accessibilityRole="imagebutton" accessibilityLabel={`${name}, open`}>
+      <Pressable onPress={() => setOpen(true)} accessibilityRole="imagebutton" accessibilityLabel={t('{name}, open', { name })}>
         <Image source={{ uri }} style={styles.image} resizeMode="contain" accessibilityIgnoresInvertColors />
       </Pressable>
       {open ? <ImageViewer uri={uri} name={name} onClose={() => setOpen(false)} /> : null}
@@ -193,8 +198,9 @@ function Picture({ uri, name }: { uri: string; name: string }) {
 function ResourceChip({ name, image }: { name: string; image: boolean }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
+  const t = useT();
   return (
-    <View style={styles.resource} accessible accessibilityLabel={`File ${name}`}>
+    <View style={styles.resource} accessible accessibilityLabel={t('File {name}', { name })}>
       <Icon name={image ? 'IconImage' : 'IconFile'} size={14} color={colors.inkDim} />
       <Text style={styles.resourceText} numberOfLines={1} selectable>
         {name}
@@ -230,25 +236,28 @@ function Content({ block }: { block: ContentBlock }) {
 function Strip({ meta, mine, onEdit }: { meta: StripMeta; mine: boolean; onEdit?: () => void }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
+  const t = useT();
   return (
     <View style={[styles.strip, mine && styles.stripMine]}>
-      <CopyButton value={meta.text} label={mine ? 'message' : 'reply'} size={15} style={styles.stripCopy} />
+      <CopyButton value={meta.text} label={mine ? t('Copy message') : t('Copy reply')} size={15} style={styles.stripCopy} />
       {onEdit ? (
         <Pressable
           onPress={onEdit}
           hitSlop={10}
           style={({ pressed }) => [styles.stripCopy, styles.stripButton, pressed && { backgroundColor: colors.active }]}
           accessibilityRole="button"
-          accessibilityLabel="Edit message">
+          accessibilityLabel={t('Edit message')}>
           <Icon name="IconPencil" size={15} color={colors.inkFaint} />
         </Pressable>
       ) : null}
       {meta.at !== undefined ? (
         <Text style={styles.stripTime}>
-          {meta.took === undefined ? sentLabel(meta.at) : `${sentLabel(meta.at)} · took ${durationLabel(meta.took)}`}
+          {meta.took === undefined
+            ? sentLabel(meta.at, undefined, undefined, t)
+            : t('{sent} · took {took}', { sent: sentLabel(meta.at, undefined, undefined, t), took: durationLabel(meta.took, t) })}
         </Text>
       ) : null}
-      {meta.rate !== undefined ? <Text style={styles.stripRate}>{rateLabel(meta.rate)}</Text> : null}
+      {meta.rate !== undefined ? <Text style={styles.stripRate}>{rateLabel(meta.rate, t)}</Text> : null}
     </View>
   );
 }
@@ -337,6 +346,7 @@ export function Message({
   const bubbleText = useStyles(makeBubbleStyles);
   const chatAgent = useContext(AgentContext);
   const finding = useContext(FindingContext);
+  const t = useT();
   const tap = onTap
     ? () => {
         haptics.select();
@@ -350,7 +360,7 @@ export function Message({
         onPress={tap}
         onLongPress={keepLongPress}
         style={styles.letters}
-        accessibilityHint={tap ? 'Tap for copy and the time it came' : undefined}>
+        accessibilityHint={tap ? t('Tap for copy and the time it came') : undefined}>
         {letterGroups(letters).map((group) =>
           group.kind === 'answers' ? (
             <AnsweredQuestions
@@ -410,7 +420,7 @@ export function Message({
             onPress={tap}
             onLongPress={keepLongPress}
             style={[styles.bubble, unsent?.state === 'sending' && { opacity: 0.7 }]}
-            accessibilityHint={tap ? 'Tap for copy and the time it was sent' : undefined}>
+            accessibilityHint={tap ? t('Tap for copy and the time it was sent') : undefined}>
             <Bubble style={failed && styles.failedBubble}>
               <Text style={bubbleText.text} selectable>
                 {finding ? (
@@ -438,24 +448,24 @@ export function Message({
             hitSlop={10}
             style={styles.unsent}
             accessibilityRole="button"
-            accessibilityLabel={`Not sent${unsent?.problem ? `: ${unsent.problem}` : ''}. Retry`}>
+            accessibilityLabel={unsent?.problem ? t('Not sent: {problem}. Retry', { problem: unsent.problem }) : t('Not sent. Retry')}>
             <Icon name="IconWarning" size={12} color={colors.danger} />
-            <Text style={[styles.unsentText, { color: colors.danger }]}>Not sent</Text>
+            <Text style={[styles.unsentText, { color: colors.danger }]}>{t('Not sent')}</Text>
             <Text style={styles.unsentText}>·</Text>
-            <Text style={[styles.unsentText, { color: colors.ink }]}>Retry</Text>
+            <Text style={[styles.unsentText, { color: colors.ink }]}>{t('Retry')}</Text>
           </Pressable>
         ) : unsent?.state === 'sending' ? (
-          <Text style={styles.queuedLabel}>Sending…</Text>
+          <Text style={styles.queuedLabel}>{t('Sending…')}</Text>
         ) : strip && !editing ? (
           <Strip meta={strip} mine onEdit={onEdit && (() => onEdit(message))} />
         ) : !followedByOwn && !editing && message.sentAt ? (
-          <Text style={styles.sentTime}>{clockLabel(message.sentAt)}</Text>
+          <Text style={styles.sentTime}>{clockLabel(message.sentAt, undefined, undefined, t)}</Text>
         ) : null}
       </View>
     );
   }
   return (
-    <Pressable onPress={tap} onLongPress={keepLongPress} accessibilityHint={tap ? 'Tap for copy and how long it took' : undefined}>
+    <Pressable onPress={tap} onLongPress={keepLongPress} accessibilityHint={tap ? t('Tap for copy and how long it took') : undefined}>
       <Grow id={message.id} live={live}>
         <Parts id={message.id} parts={shownParts(message.parts, kept)} live={live} />
         {strip ? <Strip meta={strip} mine={false} /> : null}
@@ -512,8 +522,9 @@ export function TeamFold({
 }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
-  const { words, wanting } = teamWords(line);
-  const count = teamCount(line.messages);
+  const t = useT();
+  const { words, wanting } = teamWords(line, t);
+  const count = teamCount(line.messages, t);
   return (
     <View style={styles.team}>
       <Pressable
@@ -539,7 +550,7 @@ export function TeamFold({
         <Text style={[styles.teamWords, wanting && { color: colors.danger }]} numberOfLines={1}>
           {words}
         </Text>
-        {line.took !== undefined ? <Text style={styles.teamTook}>{teamTook(line.took)}</Text> : null}
+        {line.took !== undefined ? <Text style={styles.teamTook}>{teamTook(line.took, t)}</Text> : null}
       </Pressable>
       {open && !all && line.earlier > 0 ? (
         <Pressable
@@ -547,7 +558,7 @@ export function TeamFold({
           style={({ pressed }) => [styles.teamEarlier, pressed && styles.workPressed]}
           hitSlop={6}
           accessibilityRole="button">
-          <Text style={styles.teamEarlierText}>Show {line.earlier} earlier</Text>
+          <Text style={styles.teamEarlierText}>{t('Show {count} earlier', { count: line.earlier })}</Text>
         </Pressable>
       ) : null}
     </View>
@@ -571,8 +582,9 @@ export function WorkSummary({
   const colors = useColors();
   const styles = useStyles(makeStyles);
   const provider = useContext(ProviderContext);
-  const worked = workedLabel(took ?? null, thought);
-  const counted = callsLabel(calls);
+  const t = useT();
+  const worked = workedLabel(took ?? null, thought, t);
+  const counted = callsLabel(calls, t);
   return (
     <View style={styles.work}>
       <Pressable

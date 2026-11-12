@@ -8,6 +8,7 @@ import { attachmentName } from '@shared/chat/transcript';
 import { callCount, callsLabel, secondsSince, toolElapsed, toolGroupSummary, toolIconName, type ToolIconName } from '@shared/chat/toolView';
 import type { ChatPart, ToolCall, ToolDetail as Detail, ToolOutput } from '@shared/wire.generated';
 import { problem as problemOf } from '@/core/problem';
+import { useT } from '@/i18n';
 import { CopyButton } from '@/ui/CopyButton';
 import { Icon } from '@/ui/Icon';
 import type { IconName } from '@/ui/icons.generated';
@@ -33,7 +34,8 @@ export const ToolDetailContext = createContext<((toolCallId: string, done: boole
 function useToolFetch(part: ToolPart): { detail: Detail | null; problem: string | null } {
   const read = useContext(ToolDetailContext);
   const { detail, error } = useToolDetail(read, part);
-  if (!read) return { detail: null, problem: 'the host is not here to send it' };
+  const t = useT();
+  if (!read) return { detail: null, problem: t('the host is not here to send it') };
   return { detail, problem: error ? problemOf(error) : null };
 }
 
@@ -155,7 +157,8 @@ function look(tool: ToolCall, colors: Palette): { icon: IconName; color: string 
 /** Counts up in whole seconds, so the tick redraws this label and nothing around it. */
 export function LiveSeconds({ since, spent = 0, style }: { since?: number; spent?: number; style: object }) {
   const [started] = useState(() => since ?? Date.now());
-  return <Text style={style}>{secondsSince(started, useSecond() * 1000, spent)}</Text>;
+  const t = useT();
+  return <Text style={style}>{secondsSince(started, useSecond() * 1000, spent, t)}</Text>;
 }
 
 /** Lines of what a command printed shown before "Show all": its last ones, as on the Mac. */
@@ -180,6 +183,7 @@ function Terminal({
   const colors = useColors();
   const styles = useStyles(makeStyles);
   const show = useShowImage();
+  const t = useT();
   const summary = part.output;
   const picture = output?.image
     ? { uri: `data:${output.image.mimeType};base64,${output.image.data}`, name: attachmentName(output.image.mimeType) }
@@ -189,7 +193,8 @@ function Terminal({
   const lines = text ? text.split('\n') : [];
   const folds = lines.length > OUTPUT_TAIL_LINES;
   const shown = folds && !whole ? lines.slice(-OUTPUT_TAIL_LINES).join('\n') : text;
-  const exit = part.tool.status === 'failed' ? (summary?.exitCode !== undefined ? `exit ${summary.exitCode}` : 'failed') : null;
+  const exit =
+    part.tool.status === 'failed' ? (summary?.exitCode !== undefined ? t('exit {code}', { code: summary.exitCode }) : t('failed')) : null;
   return (
     <View>
       {command !== null ? (
@@ -198,25 +203,27 @@ function Terminal({
           <Text style={[styles.mono, styles.commandText]} selectable>
             {command}
           </Text>
-          <CopyButton value={command} label="command" size={12} />
+          <CopyButton value={command} label={t('Copy command')} size={12} />
         </View>
       ) : null}
       {exit || lines.length > 0 || folds ? (
         <View style={styles.outputHead}>
           {exit ? <Text style={styles.exit}>{exit}</Text> : null}
-          {lines.length > 0 ? <Text style={styles.faint}>{`${lines.length} ${lines.length === 1 ? 'line' : 'lines'}`}</Text> : null}
+          {lines.length > 0 ? (
+            <Text style={styles.faint}>{lines.length === 1 ? t('1 line') : t('{count} lines', { count: lines.length })}</Text>
+          ) : null}
           {folds ? (
             <Pressable onPress={() => setWhole(!whole)} style={styles.showAll} hitSlop={8} accessibilityRole="button">
               <View style={whole && styles.turned}>
                 <Icon name="IconChevron" size={9} color={colors.inkDim} />
               </View>
-              <Text style={styles.quiet}>{whole ? 'Show less' : 'Show all'}</Text>
+              <Text style={styles.quiet}>{whole ? t('Show less') : t('Show all')}</Text>
             </Pressable>
           ) : null}
         </View>
       ) : null}
       {picture ? (
-        <Pressable onPress={() => show(picture)} accessibilityRole="imagebutton" accessibilityLabel="Picture the call returned, open">
+        <Pressable onPress={() => show(picture)} accessibilityRole="imagebutton" accessibilityLabel={t('Picture the call returned, open')}>
           <Image source={{ uri: picture.uri }} style={styles.image} resizeMode="contain" accessibilityIgnoresInvertColors />
         </Pressable>
       ) : null}
@@ -235,14 +242,14 @@ function Terminal({
               <Text style={[styles.mono, styles.printed]}>{shown}</Text>
             </Sideways>
           )}
-          <CopyButton value={text} label="output" size={12} style={styles.copyOutput} />
+          <CopyButton value={text} label={t('Copy output')} size={12} style={styles.copyOutput} />
         </View>
       ) : waiting ? (
         <Text style={styles.note}>{waiting}</Text>
       ) : summary && !output?.image ? (
-        <Text style={styles.note}>No output</Text>
+        <Text style={styles.note}>{t('No output')}</Text>
       ) : null}
-      {(output ?? summary)?.cut && (!folds || whole) ? <Text style={styles.note}>The rest of the output was not kept</Text> : null}
+      {(output ?? summary)?.cut && (!folds || whole) ? <Text style={styles.note}>{t('The rest of the output was not kept')}</Text> : null}
     </View>
   );
 }
@@ -251,7 +258,8 @@ function Terminal({
 function ToolDetail({ part, group }: { part: ToolPart; group: string }) {
   const styles = useStyles(makeStyles);
   const { detail, problem } = useToolFetch(part);
-  const waiting = detail ? null : problem ? `Could not load it: ${problem}` : 'Loading…';
+  const t = useT();
+  const waiting = detail ? null : problem ? t('Could not load it: {problem}', { problem }) : t('Loading…');
   const command = part.tool.kind === 'execute' ? part.tool.title.trim() : null;
   return (
     <View style={styles.detail}>
@@ -319,7 +327,10 @@ const ToolRow = memo(function ToolRow({
   // The row holds one line of a command, so the whole of it is worth opening while it runs or when the row shortened it.
   const opens = Boolean(part.diff || part.output || part.failure) || (command !== null && (running || command !== target));
   const [open, setOpen] = useFold(`${group}/${part.id}`, false);
-  const elapsed = toolElapsed(part);
+  const t = useT();
+  const elapsed = toolElapsed(part, true, t);
+  const kind = toolKind(tool, t);
+  const what = `${kind} ${target}`;
   return (
     <View style={status === 'cancelled' && styles.cancelled}>
       <Pressable
@@ -327,13 +338,13 @@ const ToolRow = memo(function ToolRow({
         onPress={opens ? () => setOpen(!open) : undefined}
         disabled={!opens}
         accessibilityRole={opens ? 'button' : undefined}
-        accessibilityLabel={`${toolKind(tool)} ${target}${status === 'failed' ? ', failed' : running ? ', running' : ''}`}
+        accessibilityLabel={status === 'failed' ? t('{what}, failed', { what }) : running ? t('{what}, running', { what }) : what}
         accessibilityState={opens ? { expanded: open } : undefined}>
         <View style={last && !open ? styles.elbow : styles.spine} />
         <View style={[styles.tick, last && !open && { backgroundColor: 'transparent' }]} />
         <Icon name={icon} size={12} color={color} />
         <Text style={[styles.mono, { color, minWidth: kindWidth }]} numberOfLines={1}>
-          {toolKind(tool)}
+          {kind}
         </Text>
         {running ? (
           <Shimmer style={[styles.mono, { color: colors.inkDim }]} layout={styles.targetLayout}>
@@ -391,11 +402,12 @@ export const ToolGroup = memo(
   function ToolGroup({ id, parts, live }: { id: string; parts: ToolPart[]; live: boolean }) {
     const colors = useColors();
     const styles = useStyles(makeStyles);
-    const summary = toolGroupSummary(parts);
+    const t = useT();
+    const summary = toolGroupSummary(parts, t);
     const { current, said, spent } = summary;
     const [open, setOpen] = useFold(id, live || current !== undefined);
     const total = parts.reduce((sum, part) => sum + (part.tool.row.times ?? 1), 0);
-    const calls = callsLabel(total);
+    const calls = callsLabel(total, t);
     const kindWidth = summary.kindWidth * KIND_CHAR + 1;
     return (
       <ImageViewerHost>
@@ -405,7 +417,7 @@ export const ToolGroup = memo(
             style={styles.summary}
             hitSlop={6}
             accessibilityRole="button"
-            accessibilityLabel={`${said ?? calls}${current ? ', running' : ''}`}
+            accessibilityLabel={current ? t('{what}, running', { what: said ?? calls }) : (said ?? calls)}
             accessibilityState={{ expanded: open }}>
             {current ? (
               <Shimmer style={[styles.summaryText, said !== null && { color: colors.secondary }]} layout={styles.summaryLabel}>
@@ -416,11 +428,11 @@ export const ToolGroup = memo(
                 {calls}
               </Text>
             )}
-            {said !== null && total > 1 ? <Text style={styles.summaryTime}>{callCount(total)}</Text> : null}
+            {said !== null && total > 1 ? <Text style={styles.summaryTime}>{callCount(total, t)}</Text> : null}
             {current ? (
               <LiveSeconds key={current.id} since={current.startedAt} spent={spent} style={styles.summaryTime} />
             ) : spent > 0 ? (
-              <Text style={styles.summaryTime}>{durationLabel(spent)}</Text>
+              <Text style={styles.summaryTime}>{durationLabel(spent, t)}</Text>
             ) : null}
             <View style={[styles.chevron, open && { transform: [{ rotate: '90deg' }] }]}>
               <Icon name="IconChevron" size={11} color={colors.inkDim} />

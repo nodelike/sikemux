@@ -738,5 +738,6 @@
   "~{count}k tokens": "约 {count}k 个令牌",
   "~{rate} tok/s": "约 {rate} tok/s",
   "“{label}”": "“{label}”",
-  "… output truncated": "… 输出已截断"
+  "… output truncated": "… 输出已截断",
+  "{name} · guest": "{name} · 访客"
 }

@@ -738,5 +738,6 @@
   "~{count}k tokens": "~{count}k Tokens",
   "~{rate} tok/s": "~{rate} tok/s",
   "“{label}”": "„{label}“",
-  "… output truncated": "… Ausgabe gekürzt"
+  "… output truncated": "… Ausgabe gekürzt",
+  "{name} · guest": "{name} · Gast"
 }

@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import type { StashItem } from '@/stash/api';
 import { StashPicker } from '@/stash/StashPicker';
+import { useT } from '@/i18n';
 import { Button } from '@/ui/controls';
 import { Icon } from '@/ui/Icon';
 import { Sheet } from '@/ui/Sheet';
@@ -38,6 +39,7 @@ export function AttachSheet({
   onStashPrompt?: () => void;
 }) {
   const styles = useStyles(makeStyles);
+  const t = useT();
   const [stashing, setStashing] = useState(false);
   const [stashChosen, setStashChosen] = useState<StashItem[]>([]);
   const [shown, setShown] = useState(visible);
@@ -67,7 +69,11 @@ export function AttachSheet({
       onClose={onClose}
       scrolls
       expand={stashing ? { full: true, peek: 0, onFull: (open) => open || setStashing(false) } : undefined}
-      footer={stashing && stashChosen.length ? <Button kind="primary" title={`Add ${stashChosen.length}`} onPress={addStash} /> : null}>
+      footer={
+        stashing && stashChosen.length ? (
+          <Button kind="primary" title={t('Add {count}', { count: stashChosen.length })} onPress={addStash} />
+        ) : null
+      }>
       {stashing ? (
         <StashPicker
           chosen={stashChosen}
@@ -88,9 +94,9 @@ export function AttachSheet({
         />
       ) : (
         <View style={styles.tiles}>
-          <Tile icon="IconCamera" label="Camera" onPress={() => leave(takePhoto)} />
-          <Tile icon="IconImage" label="Photos" onPress={() => leave(() => pickPhotos(room))} />
-          <Tile icon="IconFile" label="Files" onPress={() => leave(() => pickFiles(room))} />
+          <Tile icon="IconCamera" label={t('Camera')} onPress={() => leave(takePhoto)} />
+          <Tile icon="IconImage" label={t('Photos')} onPress={() => leave(() => pickPhotos(room))} />
+          <Tile icon="IconFile" label={t('Files')} onPress={() => leave(() => pickFiles(room))} />
         </View>
       )}
     </Sheet>

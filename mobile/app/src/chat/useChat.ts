@@ -4,6 +4,7 @@ import { AppState } from 'react-native';
 import type { ConnectionLike } from '@sikemux/native';
 
 import { connectionOf, onChatEvents, useLive } from '@/devices/hub';
+import { translate } from '@/i18n';
 import { keptChat, unsavedDraft } from './kept';
 import { ChatSession, type ChatSnapshot, type OpenTimes } from './session';
 
@@ -27,6 +28,7 @@ export function chatSession(core: string, agentId: string): ChatSession {
       store: keptChat(core, agentId),
       drafts: unsavedDraft(core, agentId),
       timed: __DEV__ ? (took) => logOpen(agentId, took) : undefined,
+      say: translate,
     });
     sessions.set(key, session);
   }

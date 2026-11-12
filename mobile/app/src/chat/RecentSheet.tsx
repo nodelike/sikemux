@@ -1,5 +1,6 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { useT } from '@/i18n';
 import { Icon } from '@/ui/Icon';
 import { Sheet } from '@/ui/Sheet';
 import { fonts, type Palette, useColors, useStyles } from '@/ui/theme';
@@ -18,9 +19,10 @@ export function RecentSheet({
 }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
+  const t = useT();
   return (
     <Sheet visible={visible} onClose={onClose}>
-      <Text style={styles.sheetLabelFirst}>Sent in this chat</Text>
+      <Text style={styles.sheetLabelFirst}>{t('Sent in this chat')}</Text>
       <View style={styles.recent}>
         {[...prompts]
           .reverse()
@@ -31,7 +33,7 @@ export function RecentSheet({
               onPress={() => onPick(prompt)}
               style={({ pressed }) => [styles.recentRow, pressed && { backgroundColor: colors.active }]}
               accessibilityRole="button"
-              accessibilityHint="Puts it in the composer">
+              accessibilityHint={t('Puts it in the composer')}>
               <Icon name="IconClock" size={15} color={colors.inkFaint} />
               <Text style={styles.recentText} numberOfLines={2}>
                 {prompt}

@@ -4,6 +4,7 @@ import Svg, { Circle } from 'react-native-svg';
 import { contextShare, contextTone } from '@shared/chat/contextUsage';
 import type { ContextUsage } from '@shared/wire.generated';
 import { agentReadsUsage, useAgentBrand } from '@shared/agents/catalog';
+import { useT } from '@/i18n';
 import { type Palette, useColors, useStyles } from '@/ui/theme';
 
 /** The Mac's colour for how full the context is: the agent's own, then warm, then hot. */
@@ -23,6 +24,7 @@ export function ContextRing({ usage, provider, onPress }: { usage: ContextUsage;
   const colors = useColors();
   const brand = useAgentBrand(provider);
   const styles = useStyles(makeStyles);
+  const t = useT();
   const radius = (RING - RING_STROKE) / 2;
   const around = 2 * Math.PI * radius;
   const share = contextShare(usage);
@@ -31,7 +33,7 @@ export function ContextRing({ usage, provider, onPress }: { usage: ContextUsage;
       onPress={onPress}
       style={({ pressed }) => [styles.ring, pressed && { backgroundColor: colors.active }]}
       accessibilityRole="button"
-      accessibilityLabel={`Context window ${Math.round(share * 100)}% used`}>
+      accessibilityLabel={t('Context window {percent}% used', { percent: Math.round(share * 100) })}>
       <Svg width={RING} height={RING} style={{ transform: [{ rotate: '-90deg' }] }}>
         <Circle cx={RING / 2} cy={RING / 2} r={radius} stroke={colors.border} strokeWidth={RING_STROKE} fill="none" />
         <Circle

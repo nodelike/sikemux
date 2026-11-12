@@ -1,5 +1,6 @@
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { useT } from '@/i18n';
 import { haptics } from '@/ui/haptics';
 import { AgentFace } from '@/devices/Buddy';
 import { Icon } from '@/ui/Icon';
@@ -30,6 +31,7 @@ export function MentionMenu({ menu, onScope }: { menu: MentionMenuView; onScope:
   const colors = useColors();
   const minute = useMinute();
   const styles = useStyles(makeStyles);
+  const t = useT();
   const { typed, rows, empty } = menu;
   return (
     <View style={styles.menu} accessibilityRole="menu">
@@ -53,7 +55,7 @@ export function MentionMenu({ menu, onScope }: { menu: MentionMenuView; onScope:
                 accessibilityRole="tab"
                 accessibilityState={{ selected: on }}>
                 <Text style={[styles.scopeKey, on && { color: colors.accent }]}>{key}</Text>
-                <Text style={[styles.scopeText, on && { color: colors.ink }]}>{label}</Text>
+                <Text style={[styles.scopeText, on && { color: colors.ink }]}>{t(label)}</Text>
               </Pressable>
             );
           })}

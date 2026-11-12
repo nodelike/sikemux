@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
+import { useT } from '@/i18n';
 import { Icon } from '@/ui/Icon';
 import type { IconName } from '@/ui/icons.generated';
 import { fonts, keyboardFor, type Palette, useColors, useStyles } from '@/ui/theme';
@@ -40,6 +41,7 @@ function Step({ icon, label, onPress }: { icon: IconName; label: string; onPress
 export function FindBar({ find, onClose }: { find: ChatFind; onClose: () => void }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
+  const t = useT();
   const state = useSyncExternalStore(find.subscribe, find.snapshot);
   return (
     <View style={styles.wrap}>
@@ -55,12 +57,12 @@ export function FindBar({ find, onClose }: { find: ChatFind; onClose: () => void
             returnKeyType="search"
             submitBehavior="submit"
             onSubmitEditing={() => find.step(true)}
-            placeholder="Find in chat"
+            placeholder={t('Find in chat')}
             placeholderTextColor={colors.inkFaint}
             selectionColor={colors.accent}
             keyboardAppearance={keyboardFor(colors)}
             style={styles.input}
-            accessibilityLabel="Find in chat"
+            accessibilityLabel={t('Find in chat')}
           />
           {state.label ? (
             <Text style={styles.count} accessibilityLiveRegion="polite">
@@ -68,11 +70,11 @@ export function FindBar({ find, onClose }: { find: ChatFind; onClose: () => void
             </Text>
           ) : null}
         </View>
-        <Toggle label="Aa" name="Match case" on={state.matchCase} onPress={find.flipCase} />
-        <Toggle label="W" name="Whole word" on={state.wholeWord} onPress={find.flipWord} />
-        <Step icon="IconArrowUp" label="Previous match" onPress={() => find.step(true)} />
-        <Step icon="IconArrowDown" label="Next match" onPress={() => find.step(false)} />
-        <Step icon="IconClose" label="Close find" onPress={onClose} />
+        <Toggle label="Aa" name={t('Match case')} on={state.matchCase} onPress={find.flipCase} />
+        <Toggle label="W" name={t('Whole word')} on={state.wholeWord} onPress={find.flipWord} />
+        <Step icon="IconArrowUp" label={t('Previous match')} onPress={() => find.step(true)} />
+        <Step icon="IconArrowDown" label={t('Next match')} onPress={() => find.step(false)} />
+        <Step icon="IconClose" label={t('Close find')} onPress={onClose} />
       </View>
     </View>
   );

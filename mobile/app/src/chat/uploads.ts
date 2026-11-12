@@ -1,5 +1,6 @@
 import { formatBytes } from '@shared/lib/format';
 
+import { english, type Say } from '@shared/lib/say';
 import { MAX_ATTACHMENT_BYTES, MAX_ATTACHMENTS } from '@shared/wire.generated';
 
 /** A photo or file picked on this phone for the next message. */
@@ -20,7 +21,7 @@ export type Attachment = {
 };
 
 /** What of `picked` the host would take beside the `held` files already picked, and why the rest were left out. */
-export function fitting(held: number, picked: readonly Attachment[]): { fits: Attachment[]; notice: string | null } {
+export function fitting(held: number, picked: readonly Attachment[], say: Say = english): { fits: Attachment[]; notice: string | null } {
   const sendable = (attachment: Attachment) => Boolean(attachment.path) || attachment.size <= MAX_ATTACHMENT_BYTES;
   const tooBig = picked.filter((attachment) => !sendable(attachment));
   const small = picked.filter(sendable);
@@ -28,9 +29,16 @@ export function fitting(held: number, picked: readonly Attachment[]): { fits: At
   const fits = small.slice(0, room);
   if (tooBig.length) {
     const names = tooBig.map((attachment) => attachment.name).join(', ');
-    return { fits, notice: `${names} ${tooBig.length === 1 ? 'is' : 'are'} over ${formatBytes(MAX_ATTACHMENT_BYTES)}, too big to send` };
+    const values = { names, size: formatBytes(MAX_ATTACHMENT_BYTES) };
+    return {
+      fits,
+      notice:
+        tooBig.length === 1
+          ? say('{names} is over {size}, too big to send', values)
+          : say('{names} are over {size}, too big to send', values),
+    };
   }
-  return { fits, notice: small.length > room ? `a message takes at most ${MAX_ATTACHMENTS} files` : null };
+  return { fits, notice: small.length > room ? say('a message takes at most {count} files', { count: MAX_ATTACHMENTS }) : null };
 }
 
 /** Where the host keeps each file that got there. */

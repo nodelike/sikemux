@@ -2,6 +2,7 @@ import { StyleSheet, Text, View } from 'react-native';
 
 import { contextChip, type ContextChip } from '@shared/chat/promptContext';
 import type { SentContext } from '@shared/wire.generated';
+import { useT } from '@/i18n';
 import { Icon } from '@/ui/Icon';
 import type { IconName } from '@/ui/icons.generated';
 import { fonts, type Palette, useColors, useStyles } from '@/ui/theme';
@@ -16,18 +17,20 @@ const CHIP_LOOKS: Record<NonNullable<ContextChip['kind']> | 'other', { label: st
 export function ContextChips({ items }: { items: SentContext[] }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
+  const t = useT();
   return (
     <View style={styles.contextChips}>
       {items.map((item) => {
         const chip = contextChip(item);
-        const { label, icon } = CHIP_LOOKS[chip.kind ?? 'other'];
+        const look = CHIP_LOOKS[chip.kind ?? 'other'];
+        const label = t(look.label);
         return (
           <View
             key={item.uri}
             style={styles.contextChip}
             accessible
             accessibilityLabel={`${label} ${chip.number ? `#${chip.number} ` : ''}${chip.title}`}>
-            <Icon name={icon} size={14} color={chip.kind ? colors.live : colors.inkFaint} />
+            <Icon name={look.icon} size={14} color={chip.kind ? colors.live : colors.inkFaint} />
             {chip.number ? <Text style={styles.contextNumber}>#{chip.number}</Text> : null}
             <Text style={styles.contextTitle} numberOfLines={1}>
               {chip.title}

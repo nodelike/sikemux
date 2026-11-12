@@ -738,5 +738,6 @@
   "~{count}k tokens": "약 {count}k 토큰",
   "~{rate} tok/s": "약 {rate} tok/s",
   "“{label}”": "‘{label}’",
-  "… output truncated": "… 출력이 잘렸습니다"
+  "… output truncated": "… 출력이 잘렸습니다",
+  "{name} · guest": "{name} · 게스트"
 }

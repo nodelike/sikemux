@@ -3,6 +3,7 @@ import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
 
 import type { Doing } from '@shared/chat/chatStatus';
 import { durationLabel } from '@shared/chat/durationLabel';
+import { useT } from '@/i18n';
 import { AgentIcon } from '@/ui/Icon';
 import { fonts, type Palette, useStyles } from '@/ui/theme';
 import { useAnimating, useSecond } from '@/ui/motion';
@@ -11,6 +12,7 @@ import { Shimmer } from '@/ui/Shimmer';
 /** The line under the last row: the agent's mark, a sweep on what it is doing, then what it is on and for how long. */
 export function Activity({ provider, doing, since }: { provider: string; doing: Doing; since: number }) {
   const styles = useStyles(makeStyles);
+  const t = useT();
   const [breath] = useState(() => new Animated.Value(1));
   const animating = useAnimating();
   const [first] = useState(() => Math.round((Date.now() - since) / 1000));
@@ -39,7 +41,7 @@ export function Activity({ provider, doing, since }: { provider: string; doing: 
         </Text>
       ) : null}
       {doing.what && doing.after ? <Shimmer style={styles.verb}>{doing.after}</Shimmer> : null}
-      {seconds > 0 ? <Text style={styles.time}>{durationLabel(seconds * 1000)}</Text> : null}
+      {seconds > 0 ? <Text style={styles.time}>{durationLabel(seconds * 1000, t)}</Text> : null}
     </View>
   );
 }

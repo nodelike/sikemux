@@ -3,6 +3,7 @@ import type { ConnectionLike } from '@sikemux/native';
 
 import { problem as problemOf } from '@/core/problem';
 import { callHost } from '@/core/hostCalls';
+import { translate } from '@/i18n';
 import { chatSession } from './useChat';
 import { uploadEach, type Attachment } from './uploads';
 
@@ -45,14 +46,20 @@ export async function startChat(connection: ConnectionLike, first: FirstMessage,
       progress.started(agentId);
     }
     if (first.worktree && !inWorktree) {
-      progress.step('Creating worktree');
+      progress.step(translate('Creating worktree'));
       const made = await callHost(connection, 'createAgentWorktree', { agentId, message: first.text });
       inWorktree = true;
-      if (made.setupError) return failed(`${made.setupError}. The worktree is kept at ${made.worktree?.path}; send again to start there.`);
-      progress.step('Starting the agent in the worktree');
+      if (made.setupError)
+        return failed(
+          translate('{problem}. The worktree is kept at {path}; send again to start there.', {
+            problem: made.setupError,
+            path: made.worktree?.path ?? '',
+          }),
+        );
+      progress.step(translate('Starting the agent in the worktree'));
     }
     const { sent, files } = await upload(connection, agentId, first.attachments);
-    if (!sent) return failed('Could not send every file to the host', files);
+    if (!sent) return failed(translate('Could not send every file to the host'), files);
     chatSession(first.core, agentId).sendWhenAttached(first.text, sent);
     return { kind: 'started', agentId };
   } catch (error) {

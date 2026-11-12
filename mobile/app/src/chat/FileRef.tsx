@@ -4,6 +4,7 @@ import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { HAS_EXTENSION } from '@shared/chat/filePath';
 import { isImagePath, localImagePath } from '@shared/lib/imagePaths';
 import { basename } from '@shared/lib/paths';
+import { useT } from '@/i18n';
 import { Icon } from '@/ui/Icon';
 import { fonts, type Palette, useColors, useStyles } from '@/ui/theme';
 import { useHostFile } from './hostFiles';
@@ -62,10 +63,11 @@ export function LinkedImage({ path, label }: { path: string; label: ReactNode })
   const styles = useStyles(makeStyles);
   const show = useShowImage();
   const uri = useHostFile(path, true);
+  const t = useT();
   const name = basename(path);
   if (!uri) return <FileRef raw={path} label={label} look="link" />;
   return (
-    <Pressable onPress={() => show({ uri, name })} accessibilityRole="imagebutton" accessibilityLabel={`${name}, open`}>
+    <Pressable onPress={() => show({ uri, name })} accessibilityRole="imagebutton" accessibilityLabel={t('{name}, open', { name })}>
       <Image source={{ uri }} style={styles.picture} resizeMode="cover" accessibilityIgnoresInvertColors />
     </Pressable>
   );

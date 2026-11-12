@@ -26,7 +26,7 @@ import type { WrittenAnswer } from './assumptions';
 import type { ChatSession } from './session';
 import type { Attachment } from './uploads';
 import { useDraft, useDraftTokens } from './useChat';
-import { matchingCommands, sideQuestion } from './commands';
+import { matchingCommands, SIDE_COMMAND, sideQuestion } from './commands';
 import { typedMention } from './mentions';
 import { MentionMenu } from './MentionMenu';
 import { useMentions } from './useMentions';
@@ -38,22 +38,26 @@ import { ConfigSheet } from '@/chat/ConfigSheet';
 
 function Commands({ matches, onPick }: { matches: ChatCommandInfo[]; onPick: (name: string) => void }) {
   const styles = useStyles(makeStyles);
+  const t = useT();
   if (!matches.length) return null;
   return (
     <View style={styles.commands} accessibilityRole="menu">
-      {matches.map((command) => (
-        <Pressable
-          key={command.name}
-          onPress={() => onPick(command.name)}
-          style={({ pressed }) => [styles.command, pressed && { opacity: 0.8 }]}
-          accessibilityRole="menuitem"
-          accessibilityLabel={`/${command.name}, ${command.description}`}>
-          <Text style={styles.commandName}>/{command.name}</Text>
-          <Text style={styles.commandText} numberOfLines={1}>
-            {command.description}
-          </Text>
-        </Pressable>
-      ))}
+      {matches.map((command) => {
+        const description = command === SIDE_COMMAND ? t(SIDE_COMMAND.description) : command.description;
+        return (
+          <Pressable
+            key={command.name}
+            onPress={() => onPick(command.name)}
+            style={({ pressed }) => [styles.command, pressed && { opacity: 0.8 }]}
+            accessibilityRole="menuitem"
+            accessibilityLabel={`/${command.name}, ${description}`}>
+            <Text style={styles.commandName}>/{command.name}</Text>
+            <Text style={styles.commandText} numberOfLines={1}>
+              {description}
+            </Text>
+          </Pressable>
+        );
+      })}
     </View>
   );
 }

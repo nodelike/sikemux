@@ -2,6 +2,7 @@ import type { ConnectionLike } from '@sikemux/native';
 import { File } from 'expo-file-system';
 
 import type { ChatRows } from '@shared/chat/rows';
+import type { Say } from '@shared/lib/say';
 import { CHAT_DRAFT, type DraftExtra } from '@shared/wire.generated';
 
 import { callHost } from '@/core/hostCalls';
@@ -33,6 +34,7 @@ function hostFile(path: string): Attachment {
 export type Named = { paths: string[]; context: ContextChip[] };
 
 type Host = {
+  say: Say;
   /** Where writing not saved on the host yet is kept, so it outlives the app quitting. */
   store?: DraftStore;
   /** The chat's draft as the host last sent it. */
@@ -114,7 +116,7 @@ export class Draft {
    * answers why some was left out.
    */
   attach(picked: Attachment[], caret?: number): string | null {
-    const { fits, notice } = fitting(this.attachments.length, picked);
+    const { fits, notice } = fitting(this.attachments.length, picked, this.host.say);
     ({ text: this.text, tokens: this.tokens } = tagPictures(this.text, this.tokens, this.attachments.length, fits, caret));
     this.attachments = [...this.attachments, ...fits];
     this.edited();

@@ -738,5 +738,6 @@
   "~{count}k tokens": "~{count}k токенов",
   "~{rate} tok/s": "~{rate} ток/с",
   "“{label}”": "«{label}»",
-  "… output truncated": "… вывод обрезан"
+  "… output truncated": "… вывод обрезан",
+  "{name} · guest": "{name} · гость"
 }

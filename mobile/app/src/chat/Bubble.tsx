@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 
 import { clockLabel } from '@shared/chat/messageMeta';
+import { useT } from '@/i18n';
 import { fonts, mixed, type Palette, translucent, useStyles } from '@/ui/theme';
 
 export const BUBBLE_RADIUS = 16;
@@ -22,11 +23,12 @@ export function TheirBubble({ children }: { children: ReactNode }) {
 /** Who sent a bubble at the left, over it, with when at the line's end. */
 export function From({ who, at, children }: { who: ReactNode; at?: number | null; children: ReactNode }) {
   const styles = useStyles(makeBubbleStyles);
+  const t = useT();
   return (
     <View style={styles.from}>
       <View style={styles.fromHead}>
         {who}
-        {at ? <Text style={styles.fromWhen}>{clockLabel(at)}</Text> : null}
+        {at ? <Text style={styles.fromWhen}>{clockLabel(at, undefined, undefined, t)}</Text> : null}
       </View>
       <TheirBubble>{children}</TheirBubble>
     </View>

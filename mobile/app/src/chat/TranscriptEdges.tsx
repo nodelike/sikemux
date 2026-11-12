@@ -2,6 +2,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { EARLIER_LOST } from '@shared/chat/messageMeta';
 import { Working } from '@/devices/AgentMarks';
+import { useT } from '@/i18n';
 import { fonts, type Palette, useStyles } from '@/ui/theme';
 import { SentAttachments } from './Attachments';
 import { Bubble, makeBubbleStyles } from './Bubble';
@@ -12,6 +13,7 @@ import type { Attachment } from './uploads';
 export function Queued({ held, sentFiles }: { held: readonly Held[]; sentFiles: ReadonlyMap<string, Attachment> }) {
   const styles = useStyles(makeStyles);
   const bubble = useStyles(makeBubbleStyles);
+  const t = useT();
   return (
     <View style={styles.userRow}>
       {held.map((message) => {
@@ -27,7 +29,7 @@ export function Queued({ held, sentFiles }: { held: readonly Held[]; sentFiles: 
           </View>
         );
       })}
-      <Text style={styles.queuedLabel}>Sends when this turn ends</Text>
+      <Text style={styles.queuedLabel}>{t('Sends when this turn ends')}</Text>
     </View>
   );
 }
@@ -35,6 +37,7 @@ export function Queued({ held, sentFiles }: { held: readonly Held[]; sentFiles: 
 /** Above the first message while the host has turns from before it, which arrive as it comes into view. */
 export function Earlier({ failed, loading, onRetry }: { failed: boolean; loading: boolean; onRetry: () => void }) {
   const styles = useStyles(makeStyles);
+  const t = useT();
   if (failed) {
     return (
       <Pressable
@@ -42,9 +45,9 @@ export function Earlier({ failed, loading, onRetry }: { failed: boolean; loading
         style={styles.earlier}
         hitSlop={8}
         accessibilityRole="button"
-        accessibilityLabel="Couldn't load earlier messages. Retry">
-        <Text style={styles.earlierText}>{"Couldn't load earlier messages ·"}</Text>
-        <Text style={[styles.earlierText, styles.retry]}>Retry</Text>
+        accessibilityLabel={t("Couldn't load earlier messages. Retry")}>
+        <Text style={styles.earlierText}>{t("Couldn't load earlier messages ·")}</Text>
+        <Text style={[styles.earlierText, styles.retry]}>{t('Retry')}</Text>
       </Pressable>
     );
   }
@@ -52,7 +55,7 @@ export function Earlier({ failed, loading, onRetry }: { failed: boolean; loading
   return (
     <View style={styles.earlier}>
       {loading ? <Working /> : <View style={styles.earlierIdle} />}
-      <Text style={styles.earlierText}>Loading earlier messages…</Text>
+      <Text style={styles.earlierText}>{t('Loading earlier messages…')}</Text>
     </View>
   );
 }
@@ -60,9 +63,10 @@ export function Earlier({ failed, loading, onRetry }: { failed: boolean; loading
 /** Stands above a chat whose host no longer keeps its first turns. */
 export function EarlierLost() {
   const styles = useStyles(makeStyles);
+  const t = useT();
   return (
     <View style={styles.earlier}>
-      <Text style={styles.earlierText}>{EARLIER_LOST}</Text>
+      <Text style={styles.earlierText}>{t(EARLIER_LOST)}</Text>
     </View>
   );
 }

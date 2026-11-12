@@ -2,6 +2,7 @@ import { ChatAttachment, type ConnectionLike } from '@sikemux/native';
 import { File } from 'expo-file-system';
 
 import { applyChanges, type ChatRows } from '@shared/chat/rows';
+import { english, type Say } from '@shared/lib/say';
 import type { ChatChange, ChatView, PermissionAsk, ToolDetail, ChatInfo, FindAnswer, FindParams } from '@shared/wire.generated';
 
 import { callHost } from '@/core/hostCalls';
@@ -68,6 +69,8 @@ type Options = {
   drafts?: DraftStore;
   /** Told how long each step of taking the chat up took, to measure it. */
   timed?: (took: OpenTimes) => void;
+  /** Says what went wrong in the person's language. */
+  say?: Say;
 };
 
 /** In milliseconds, from when the phone began taking the chat up. */
@@ -98,6 +101,7 @@ export class ChatSession {
   private listeners = new Set<() => void>();
   private attached: Attached = 'attaching';
   private problem: string | null = null;
+  private readonly say: Say;
   private notice: string | null = null;
   private stoppingTurn = false;
   /** Model and effort picks this phone made, by picker id, shown until the host says what it runs on. */
@@ -125,8 +129,10 @@ export class ChatSession {
     readonly agentId: string,
     private readonly options: Options,
   ) {
+    this.say = options.say ?? english;
     this.turnSince = this.now();
     this.feed = new Feed({
+      say: this.say,
       frame: options.frame,
       store: options.store,
       applied: (before) => this.applied(before),
@@ -134,12 +140,14 @@ export class ChatSession {
       fellBehind: () => this.restart(),
     });
     this.draft = new Draft(agentId, {
+      say: this.say,
       store: options.drafts,
       held: () => this.feed.chat.draft,
       live: () => (this.connection?.isOpen() && this.attached === 'live' ? this.connection : undefined),
       emit: () => this.emit(),
     });
     this.outbox = new Outbox(agentId, {
+      say: this.say,
       connection: () => this.connection,
       chat: () => this.feed.chat,
       read: options.read ?? readFile,
@@ -243,7 +251,7 @@ export class ChatSession {
       draft.attachments = await this.outbox.put(connection, draft.attachments, (id, change) => draft.patch(id, change));
       draft.edited();
     }
-    if (!(await draft.saveNow())) throw new Error('the draft did not reach the host');
+    if (!(await draft.saveNow())) throw new Error(this.say('the draft did not reach the host'));
     const { id } = await callHost(connection, 'stashPrompt', { agentId: this.agentId });
     draft.clear();
     this.emit();
@@ -314,41 +322,59 @@ export class ChatSession {
   steer = (ids: readonly string[]) => {
     ids = this.outbox.onHostQueue(ids);
     if (!ids.length) return;
-    void this.ask((connection) => callHost(connection, 'steerQueued', { agentId: this.agentId, ids: [...ids] }), 'Could not steer');
+    void this.ask(
+      (connection) => callHost(connection, 'steerQueued', { agentId: this.agentId, ids: [...ids] }),
+      'Could not steer: {problem}',
+    );
   };
 
   /** Acts on the turn that failed: sends it again, lets it go, or keeps it from resuming once a usage limit resets. */
   failedTurn = (method: 'retryFailed' | 'discardFailed' | 'cancelResume') => {
-    void this.ask((connection) => callHost(connection, method, { agentId: this.agentId }), 'Could not do that');
+    void this.ask((connection) => callHost(connection, method, { agentId: this.agentId }), 'Could not do that: {problem}');
   };
 
   /** Carries the chat on in another of the person's accounts, a turn that failed sent again there. */
   /** Hands the chat to another agent, which carries on with what it said. */
   handOff = (provider: string) => {
-    void this.ask((connection) => callHost(connection, 'handOff', { agentId: this.agentId, provider }), 'Could not hand the chat over');
+    void this.ask(
+      (connection) => callHost(connection, 'handOff', { agentId: this.agentId, provider }),
+      'Could not hand the chat over: {problem}',
+    );
   };
 
   /** Sends the next message without the handoff waiting for it. */
   dropHandoff = () => {
-    void this.ask((connection) => callHost(connection, 'dropHandoff', { agentId: this.agentId }), 'Could not leave the handoff out');
+    void this.ask(
+      (connection) => callHost(connection, 'dropHandoff', { agentId: this.agentId }),
+      'Could not leave the handoff out: {problem}',
+    );
   };
 
   moveToAccount = (accountId: string) => {
-    void this.ask((connection) => callHost(connection, 'moveChatAccount', { agentId: this.agentId, accountId }), 'Could not move the chat');
+    void this.ask(
+      (connection) => callHost(connection, 'moveChatAccount', { agentId: this.agentId, accountId }),
+      'Could not move the chat: {problem}',
+    );
   };
 
   /** Sends a share viewer's waiting message to the agent as the person's own. */
   sendGuest = (id: string) => {
-    void this.ask((connection) => callHost(connection, 'sendGuestMessage', { agentId: this.agentId, id }), 'Could not send it');
+    void this.ask((connection) => callHost(connection, 'sendGuestMessage', { agentId: this.agentId, id }), 'Could not send it: {problem}');
   };
 
   dismissGuest = (id: string) => {
-    void this.ask((connection) => callHost(connection, 'dismissGuestMessage', { agentId: this.agentId, id }), 'Could not dismiss it');
+    void this.ask(
+      (connection) => callHost(connection, 'dismissGuestMessage', { agentId: this.agentId, id }),
+      'Could not dismiss it: {problem}',
+    );
   };
 
   dropQueued = (id: string) => {
     if (!this.outbox.onHostQueue([id]).length) return;
-    void this.ask((connection) => callHost(connection, 'dropQueued', { agentId: this.agentId, ids: [id] }), 'Could not take it back');
+    void this.ask(
+      (connection) => callHost(connection, 'dropQueued', { agentId: this.agentId, ids: [id] }),
+      'Could not take it back: {problem}',
+    );
   };
 
   /** Stops the running turn. Messages waiting behind it go back to the composer rather than out. */
@@ -370,7 +396,7 @@ export class ChatSession {
     this.emit();
     this.ask(
       (connection) => connection.cancel(this.agentId),
-      'Could not stop the turn',
+      'Could not stop the turn: {problem}',
       undefined,
       () => {
         this.stoppingTurn = false;
@@ -385,7 +411,7 @@ export class ChatSession {
     this.emit();
     this.ask(
       (connection) => connection.answerPermission(this.agentId, requestId, optionId ?? undefined),
-      'The answer did not reach the host',
+      'The answer did not reach the host: {problem}',
       () => {
         const chat = this.feed.chat;
         this.feed.chat = { ...chat, permissions: chat.permissions.filter((request) => request.requestId !== requestId) };
@@ -401,7 +427,7 @@ export class ChatSession {
     this.stopping = new Set([...this.stopping, taskId]);
     this.notice = null;
     this.emit();
-    this.ask((connection) => connection.stopTask(this.agentId, taskId), 'Could not stop the task').finally(() => {
+    this.ask((connection) => connection.stopTask(this.agentId, taskId), 'Could not stop the task: {problem}').finally(() => {
       this.stopping = new Set([...this.stopping].filter((id) => id !== taskId));
       this.emit();
     });
@@ -416,7 +442,7 @@ export class ChatSession {
     this.emit();
     this.ask(
       (connection) => connection.setPermissionMode(this.agentId, mode),
-      'Could not change permissions',
+      'Could not change permissions: {problem}',
       undefined,
       () => {
         if (this.mode === mode) this.mode = before;
@@ -429,7 +455,7 @@ export class ChatSession {
     let stopped = false;
     await this.ask(
       (connection) => callHost(connection, 'closeChat', { agentId: this.agentId }),
-      'Could not stop the chat',
+      'Could not stop the chat: {problem}',
       () => {
         stopped = true;
       },
@@ -444,7 +470,7 @@ export class ChatSession {
     this.emit();
     this.ask(
       (connection) => connection.setChatConfig(this.agentId, configId, value),
-      'Could not change the setting',
+      'Could not change the setting: {problem}',
       undefined,
       () => {
         if (this.chosen.get(configId) !== value) return;
@@ -467,7 +493,7 @@ export class ChatSession {
       });
       return side.agentId;
     } catch (error) {
-      this.report(`Could not open a side chat: ${problemOf(error)}`);
+      this.report(this.say('Could not open a side chat: {problem}', { problem: problemOf(error) }));
       return undefined;
     }
   };
@@ -496,7 +522,7 @@ export class ChatSession {
     this.emit();
     void this.ask(
       (connection) => callHost(connection, 'editMessage', { agentId: this.agentId, messageId, text, paths: row.attachments ?? [] }),
-      'Could not edit the message',
+      'Could not edit the message: {problem}',
       undefined,
       this.retry,
     );
@@ -518,7 +544,7 @@ export class ChatSession {
   /** Asks the host to find words across the whole chat, held here or not, from where `params` says. */
   find = async (params: Omit<FindParams, 'agentId' | 'feed'>): Promise<FindAnswer> => {
     const feed = this.feed.mark?.feed;
-    if (feed === undefined) throw new Error('the chat is not open');
+    if (feed === undefined) throw new Error(this.say('the chat is not open'));
     return callHost(this.openConnection(), 'chatFind', { ...params, agentId: this.agentId, feed });
   };
 
@@ -606,7 +632,7 @@ export class ChatSession {
 
   private openConnection(): ConnectionLike {
     const connection = this.connection;
-    if (!connection?.isOpen() || this.attached !== 'live') throw new Error('the host is not connected');
+    if (!connection?.isOpen() || this.attached !== 'live') throw new Error(this.say('the host is not connected'));
     return connection;
   }
 
@@ -632,7 +658,7 @@ export class ChatSession {
     const [text, files] = message;
     this.outbox.queue(...message).catch((error: unknown) => {
       this.draft.putBack([text], files);
-      this.notice = `Could not send the message: ${problemOf(error)}`;
+      this.notice = this.say('Could not send the message: {problem}', { problem: problemOf(error) });
       this.emit();
     });
   }
@@ -719,7 +745,7 @@ export class ChatSession {
           this.attached = 'missing';
           // The chat kept on this phone may hold requests nothing on the host waits on any more.
           feed.apply((chat) => ({ ...chat, permissions: [] }));
-          this.outbox.failWaiting('the chat is gone from the host');
+          this.outbox.failWaiting(this.say('the chat is gone from the host'));
           this.emit();
           timed('missing', 0);
           return;
@@ -744,6 +770,7 @@ export class ChatSession {
 
   private ask<T>(
     request: (connection: ConnectionLike) => Promise<T>,
+    /** What the person reads when it fails, with `{problem}` for why. */
     what: string,
     then?: (answer: T) => void,
     undo?: () => void,
@@ -751,7 +778,7 @@ export class ChatSession {
     const connection = this.connection;
     return Promise.resolve()
       .then(() => {
-        if (!connection?.isOpen()) throw new Error('the host is not connected');
+        if (!connection?.isOpen()) throw new Error(this.say('the host is not connected'));
         return request(connection);
       })
       .then((answer) => {
@@ -760,7 +787,7 @@ export class ChatSession {
       })
       .catch((error: unknown) => {
         undo?.();
-        this.notice = `${what}: ${problemOf(error)}`;
+        this.notice = this.say(what, { problem: problemOf(error) });
         this.emit();
       });
   }

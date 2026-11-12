@@ -4,6 +4,7 @@ import MaskedView from '@react-native-masked-view/masked-view';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 
 import { canSwitchMode } from '@shared/agents/catalog';
+import { useT } from '@/i18n';
 import { haptics } from '@/ui/haptics';
 import { Icon } from '@/ui/Icon';
 import { fonts, isLight, type Palette, useColors, useStyles } from '@/ui/theme';
@@ -87,17 +88,18 @@ export function YoloToggle({
 }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
+  const t = useT();
   const on = mode === 'bypass';
   const switches = canSwitchMode(provider, core);
   const look = (
     <>
       <Icon name={on ? 'IconShieldBolt' : 'IconShield'} size={13} color={on ? colors.accent : colors.inkFaint} />
-      {on ? <YoloWord /> : <Text style={styles.yoloText}>safe</Text>}
+      {on ? <YoloWord /> : <Text style={styles.yoloText}>{t('safe')}</Text>}
     </>
   );
   if (!switches) {
     return (
-      <View style={styles.yolo} accessible accessibilityLabel={on ? 'Runs without asking' : 'Asks before acting'}>
+      <View style={styles.yolo} accessible accessibilityLabel={on ? t('Runs without asking') : t('Asks before acting')}>
         {look}
       </View>
     );
@@ -111,9 +113,9 @@ export function YoloToggle({
       disabled={locked}
       style={({ pressed }) => [styles.yolo, pressed && { backgroundColor: colors.active }, locked && { opacity: 0.55 }]}
       accessibilityRole="switch"
-      accessibilityLabel="Run without asking"
+      accessibilityLabel={t('Run without asking')}
       accessibilityState={{ checked: on, disabled: locked }}
-      accessibilityHint={locked ? 'Changes once the turn ends' : undefined}>
+      accessibilityHint={locked ? t('Changes once the turn ends') : undefined}>
       {look}
     </Pressable>
   );

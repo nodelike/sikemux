@@ -85,18 +85,18 @@ export function CallsTab({
                 <Text style={styles.end} numberOfLines={1}>
                   {projectName(call)}
                 </Text>
-                <Text style={[styles.end, { color: colors.warn }]}>{formatAge(call.raisedAt, minute * 60_000)}</Text>
+                <Text style={[styles.end, { color: colors.warn }]}>{formatAge(call.raisedAt, minute * 60_000, t)}</Text>
               </>,
             ),
             card(call),
           ])}
         </Rows>
       ) : (
-        <Text style={styles.none}>{NO_CALLS}</Text>
+        <Text style={styles.none}>{t(NO_CALLS)}</Text>
       )}
       {settled.length ? (
         <>
-          <SectionLabel>{ANSWERED}</SectionLabel>
+          <SectionLabel>{t(ANSWERED)}</SectionLabel>
           <Rows>
             {settled.map((call) =>
               row(

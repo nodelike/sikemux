@@ -103,7 +103,7 @@ export const CallDock = memo(function CallDock({
           <AskerMark agentId={call.asker.agentId} provider={call.asker.cli} chief={call.asker.chief} turn="needsYou" />
           <Text style={styles.name}>@{call.asker.name}</Text>
           <Text style={styles.sep}>·</Text>
-          <Text style={styles.age}>{formatAge(call.raisedAt, minute * 60_000)}</Text>
+          <Text style={styles.age}>{formatAge(call.raisedAt, minute * 60_000, t)}</Text>
           {queue.length > 1 && at >= 0 ? <Text style={styles.place}>{place(at + 1, queue.length, t)}</Text> : null}
         </View>
         <Text style={styles.question}>{call.question}</Text>
@@ -142,7 +142,7 @@ export const CallDock = memo(function CallDock({
               <TextInput
                 value={draft.typed}
                 onChangeText={(text) => edit(store, { typed: text })}
-                placeholder={SECRET_FIELD}
+                placeholder={t(SECRET_FIELD)}
                 placeholderTextColor={colors.tertiary}
                 // Its words never show, and the keyboard neither suggests nor remembers them. A hidden secure field
                 // cannot hold the line breaks of a pasted key, so the text is drawn clear; paste still works.
@@ -162,7 +162,7 @@ export const CallDock = memo(function CallDock({
               <TextInput
                 value={draft.typed}
                 onChangeText={(text) => edit(store, { typed: text })}
-                placeholder={chosen.length ? ADD_NOTE : OWN_WORDS}
+                placeholder={chosen.length ? t(ADD_NOTE) : t(OWN_WORDS)}
                 placeholderTextColor={colors.tertiary}
                 style={styles.input}
                 // Only the button passes a step to production; Enter there is a new line of the note's.
@@ -177,7 +177,7 @@ export const CallDock = memo(function CallDock({
         </View>
         {call.against ? (
           <Text style={styles.against}>
-            <Text style={{ color: colors.tertiary }}>{AGAINST_IT} </Text>
+            <Text style={{ color: colors.tertiary }}>{t(AGAINST_IT)} </Text>
             {call.against}
           </Text>
         ) : null}
@@ -192,7 +192,7 @@ export const CallDock = memo(function CallDock({
                 <View style={{ transform: [{ rotate: draft.runsOpen ? '90deg' : '0deg' }] }}>
                   <Icon name="IconChevron" size={11} color={colors.tertiary} />
                 </View>
-                <Text style={styles.extraText}>{WHAT_RUNS}</Text>
+                <Text style={styles.extraText}>{t(WHAT_RUNS)}</Text>
               </Pressable>
             ) : null}
             <View style={{ flex: 1 }} />
@@ -205,7 +205,7 @@ export const CallDock = memo(function CallDock({
                 }}
                 style={styles.runs}
                 accessibilityRole="button">
-                <Text style={styles.notMine}>{NOT_MINE}</Text>
+                <Text style={styles.notMine}>{t(NOT_MINE)}</Text>
               </Pressable>
             ) : null}
           </View>
@@ -228,7 +228,7 @@ export const CallDock = memo(function CallDock({
           style={({ pressed }) => [styles.go, !ready && { opacity: 0.5 }, pressed && { opacity: 0.8 }]}
           accessibilityRole="button"
           accessibilityState={{ disabled: !ready }}>
-          <Text style={styles.goText}>{seen ? GO_WITH_THIS : CONNECTING}</Text>
+          <Text style={styles.goText}>{seen ? t(GO_WITH_THIS) : t(CONNECTING)}</Text>
         </Pressable>
         {queue
           .filter((other) => other.id !== call.id)
@@ -245,7 +245,7 @@ export const CallDock = memo(function CallDock({
               <Text style={styles.foldedText} numberOfLines={1}>
                 {other.question}
               </Text>
-              <Text style={styles.foldedAge}>{formatAge(other.raisedAt, minute * 60_000)}</Text>
+              <Text style={styles.foldedAge}>{formatAge(other.raisedAt, minute * 60_000, t)}</Text>
             </Pressable>
           ))}
       </ScrollView>
@@ -272,6 +272,7 @@ function OptionRow({
 }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
+  const t = useT();
   return (
     <Pressable
       onPress={onPress}
@@ -287,7 +288,7 @@ function OptionRow({
       {pick ? (
         <View style={styles.pick}>
           <Icon name="Logo" size={13} color={colors.accent} />
-          <Text style={styles.pickText}>{PICK}</Text>
+          <Text style={styles.pickText}>{t(PICK)}</Text>
         </View>
       ) : null}
     </Pressable>

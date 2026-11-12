@@ -2,6 +2,7 @@ import { useState, type ReactNode } from 'react';
 import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { basename } from '@shared/lib/paths';
+import { type Translate, useT } from '@/i18n';
 import { StashPreview, useStashItem } from '@/stash/StashChip';
 import { Icon } from '@/ui/Icon';
 import { fonts, type Palette, translucent, useColors, useStyles } from '@/ui/theme';
@@ -71,6 +72,7 @@ export function ComposerAttachments({
 }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
+  const t = useT();
   const failed = attachments.filter((attachment) => attachment.upload === 'failed');
   return (
     <View>
@@ -90,10 +92,15 @@ export function ComposerAttachments({
               accessibilityRole={broken ? 'button' : undefined}
               accessibilityLabel={
                 broken
-                  ? `${attachment.name} did not reach the host${attachment.problem ? `: ${attachment.problem}` : ''}. Try again`
+                  ? attachment.problem
+                    ? t('{name} did not reach the host: {problem}. Try again', { name: attachment.name, problem: attachment.problem })
+                    : t('{name} did not reach the host. Try again', { name: attachment.name })
                   : undefined
               }>
-              <View style={styles.tileBody} accessible={!broken} accessibilityLabel={`${attachment.name}${sending ? ', sending' : ''}`}>
+              <View
+                style={styles.tileBody}
+                accessible={!broken}
+                accessibilityLabel={sending ? t('{name}, sending', { name: attachment.name }) : attachment.name}>
                 {attachment.kind === 'image' ? <TileImage attachment={attachment} /> : <StashedOrFile attachment={attachment} />}
               </View>
               {attachment.kind === 'image' && !sending && !broken ? (
@@ -112,7 +119,7 @@ export function ComposerAttachments({
                   hitSlop={10}
                   style={styles.remove}
                   accessibilityRole="button"
-                  accessibilityLabel={`Remove ${attachment.name}`}>
+                  accessibilityLabel={t('Remove {name}', { name: attachment.name })}>
                   <Icon name="IconClose" size={10} color={colors.ground} />
                 </Pressable>
               )}
@@ -122,17 +129,29 @@ export function ComposerAttachments({
       </ScrollView>
       {failed.length ? (
         <Text style={styles.problem} numberOfLines={2}>
-          {failed.length === 1 ? `${failed[0].name} did not reach the host` : `${failed.length} files did not reach the host`}
-          {failed[0].problem ? `: ${failed[0].problem}` : ''}. Tap to try again.
+          {failedLine(t, failed)}
         </Text>
       ) : null}
     </View>
   );
 }
 
+function failedLine(t: Translate, failed: Attachment[]): string {
+  const [first] = failed;
+  if (failed.length === 1) {
+    return first.problem
+      ? t('{name} did not reach the host: {problem}. Tap to try again.', { name: first.name, problem: first.problem })
+      : t('{name} did not reach the host. Tap to try again.', { name: first.name });
+  }
+  return first.problem
+    ? t('{count} files did not reach the host: {problem}. Tap to try again.', { count: failed.length, problem: first.problem })
+    : t('{count} files did not reach the host. Tap to try again.', { count: failed.length });
+}
+
 /** A picture a message carried: a thumbnail once it is on this phone, and the picture over the whole screen on a tap. */
 function SentImage({ path, picked }: { path: string; picked?: Attachment }) {
   const styles = useStyles(makeStyles);
+  const t = useT();
   const [open, setOpen] = useState(false);
   const local = picked && !onHostOnly(picked) ? picked : undefined;
   const fetched = useHostFile(path, !local);
@@ -140,7 +159,7 @@ function SentImage({ path, picked }: { path: string; picked?: Attachment }) {
   const name = picked?.name ?? basename(path);
   return (
     <>
-      <Pressable onPress={() => setOpen(true)} accessibilityRole="imagebutton" accessibilityLabel={`${name}, open`}>
+      <Pressable onPress={() => setOpen(true)} accessibilityRole="imagebutton" accessibilityLabel={t('{name}, open', { name })}>
         {uri ? <Image source={{ uri }} style={styles.sentThumb} resizeMode="cover" /> : <FileChip name={name} size={picked?.size} image />}
       </Pressable>
       {open ? <ImageViewer uri={uri} name={name} onClose={() => setOpen(false)} /> : null}
@@ -151,13 +170,14 @@ function SentImage({ path, picked }: { path: string; picked?: Attachment }) {
 /** The files a message carried, as this phone picked them or as the host keeps them. */
 export function SentAttachments({ paths, sentFiles }: { paths: readonly string[]; sentFiles: ReadonlyMap<string, Attachment> }) {
   const styles = useStyles(makeStyles);
+  const t = useT();
   return (
     <View style={styles.sent}>
       {paths.map((path) => {
         const picked = sentFiles.get(path);
         if (picked ? picked.kind === 'image' : drawsImage(path)) return <SentImage key={path} path={path} picked={picked} />;
         return (
-          <View key={path} accessible accessibilityLabel={`File ${basename(path)}`}>
+          <View key={path} accessible accessibilityLabel={t('File {name}', { name: basename(path) })}>
             <FileChip name={picked?.name ?? basename(path)} size={picked?.size} />
           </View>
         );

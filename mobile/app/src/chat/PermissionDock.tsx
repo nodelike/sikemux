@@ -4,16 +4,17 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { toolKind } from '@shared/chat/toolLabels';
 import type { PermissionAsk, ToolCall } from '@shared/wire.generated';
 import { agentLabel } from '@shared/agents/catalog';
+import { type Translate, useT } from '@/i18n';
 import { haptics } from '@/ui/haptics';
 import { Icon } from '@/ui/Icon';
 import { fonts, type Palette, useColors, useStyles } from '@/ui/theme';
 
-export function askTitle(request: PermissionAsk): string {
+export function askTitle(request: PermissionAsk, t: Translate): string {
   const kind = toolKind(request.toolCall);
-  if (kind === 'run') return 'Run a command?';
-  if (kind === 'edit' || kind === 'move' || kind === 'delete') return 'Change a file?';
-  if (kind === 'fetch') return 'Open a web page?';
-  return 'Allow this?';
+  if (kind === 'run') return t('Run a command?');
+  if (kind === 'edit' || kind === 'move' || kind === 'delete') return t('Change a file?');
+  if (kind === 'fetch') return t('Open a web page?');
+  return t('Allow this?');
 }
 
 /** All of what the agent asks to run or touch, since the end of a command can change what it does. */
@@ -45,7 +46,7 @@ export function Dock({
   title: string;
   detail: string;
   label: string;
-  pager?: { index: number; count: number; onPage: (index: number) => void; noun: string };
+  pager?: { index: number; count: number; onPage: (index: number) => void; previous: string; next: string; spoken: string };
   command: string;
   run: boolean;
   diff?: PermissionAsk['diff'];
@@ -54,6 +55,7 @@ export function Dock({
 }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
+  const t = useT();
   const act = (each: DockAct) => (
     <Pressable
       key={each.key}
@@ -87,15 +89,13 @@ export function Dock({
               hitSlop={8}
               style={[styles.pageButton, pager.index === 0 && { opacity: 0.3 }]}
               accessibilityRole="button"
-              accessibilityLabel={`Previous ${pager.noun}`}>
+              accessibilityLabel={pager.previous}>
               <View style={{ transform: [{ rotate: '180deg' }] }}>
                 <Icon name="IconChevron" size={12} color={colors.secondary} />
               </View>
             </Pressable>
-            <Text
-              style={styles.pageText}
-              accessibilityLabel={`${pager.noun[0].toUpperCase()}${pager.noun.slice(1)} ${pager.index + 1} of ${pager.count}`}>
-              {pager.index + 1} of {pager.count}
+            <Text style={styles.pageText} accessibilityLabel={pager.spoken}>
+              {t('{index} of {count}', { index: pager.index + 1, count: pager.count })}
             </Text>
             <Pressable
               onPress={() => pager.onPage(pager.index + 1)}
@@ -103,7 +103,7 @@ export function Dock({
               hitSlop={8}
               style={[styles.pageButton, pager.index === pager.count - 1 && { opacity: 0.3 }]}
               accessibilityRole="button"
-              accessibilityLabel={`Next ${pager.noun}`}>
+              accessibilityLabel={pager.next}>
               <Icon name="IconChevron" size={12} color={colors.secondary} />
             </Pressable>
           </View>
@@ -142,21 +142,30 @@ export function PermissionDock({
   answering: ReadonlySet<string>;
   onAnswer: (requestId: string, optionId: string | null) => void;
 }) {
+  const t = useT();
   const [page, setPage] = useState(0);
   const index = Math.min(page, requests.length - 1);
   const request = requests[index];
   const rejects = request.options.filter((option) => option.kind.startsWith('reject'));
   const always = request.options.filter((option) => option.kind === 'allow_always');
   const once = request.options.filter((option) => option.kind === 'allow_once');
-  const cancel = rejects.length ? [] : [{ optionId: '', name: 'Cancel', kind: 'reject_once' }];
+  const cancel = rejects.length ? [] : [{ optionId: '', name: t('Cancel'), kind: 'reject_once' }];
   const primary = once[0] ?? always[0];
-  const title = askTitle(request);
+  const title = askTitle(request, t);
+  const needs = t('{agent} needs permission to continue', { agent: agentLabel(provider) });
   return (
     <Dock
       title={title}
-      detail={`${agentLabel(provider)} needs permission to continue`}
-      label={`${title} ${agentLabel(provider)} needs permission to continue`}
-      pager={{ index, count: requests.length, onPage: setPage, noun: 'request' }}
+      detail={needs}
+      label={`${title} ${needs}`}
+      pager={{
+        index,
+        count: requests.length,
+        onPage: setPage,
+        previous: t('Previous request'),
+        next: t('Next request'),
+        spoken: t('Request {index} of {count}', { index: index + 1, count: requests.length }),
+      }}
       command={asked(request.toolCall)}
       run={toolKind(request.toolCall) === 'run'}
       diff={request.diff}

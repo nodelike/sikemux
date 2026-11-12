@@ -1,6 +1,7 @@
 import { MobileError, type ChatMark, type ConnectionLike } from '@sikemux/native';
 
 import { applyChanges, emptyChat, fromView, withPage, type ChatRows } from '@shared/chat/rows';
+import type { Say } from '@shared/lib/say';
 import type { ChatChange, ChatPage, ChatView, ToolDetail } from '@shared/wire.generated';
 
 import { callHost } from '@/core/hostCalls';
@@ -25,6 +26,7 @@ function animationFrame(run: () => void): () => void {
 }
 
 type Hooks = {
+  say: Say;
   /** Runs once before the next frame is drawn; returns how to call that off. */
   frame?: (run: () => void) => () => void;
   store?: ChatStore;
@@ -185,7 +187,7 @@ export class Feed {
     const kept = this.details.get(toolCallId);
     if (kept) return kept;
     const reading = Promise.resolve().then(() => {
-      if (!connection?.isOpen()) throw new Error('the host is not connected');
+      if (!connection?.isOpen()) throw new Error(this.hooks.say('the host is not connected'));
       return callHost(connection, 'chatToolDetail', { agentId, toolCallId });
     });
     if (!done) return reading;

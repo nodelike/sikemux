@@ -1,5 +1,6 @@
 import { StyleSheet, Text, View } from 'react-native';
 
+import { useT } from '@/i18n';
 import { Icon } from '@/ui/Icon';
 import { fonts, type Palette, useColors, useStyles } from '@/ui/theme';
 
@@ -20,6 +21,7 @@ export type Place = {
 export function ChatPlace({ place }: { place: Place }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
+  const t = useT();
   const { host, project, branch, account } = place;
   return (
     <View style={styles.line}>
@@ -51,7 +53,7 @@ export function ChatPlace({ place }: { place: Place }) {
       ) : null}
       <View style={styles.fill} />
       {account ? (
-        <View style={styles.part} accessible accessibilityLabel={`Account, ${account}`}>
+        <View style={styles.part} accessible accessibilityLabel={t('Account, {account}', { account })}>
           <Icon name="IconUser" size={13} color={colors.tertiary} />
         </View>
       ) : null}
