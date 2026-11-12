@@ -182,8 +182,18 @@ pub(crate) fn accepted(core: &Core, project: &str, proposed: Vec<Place>) -> Resu
 /// places, so it outlives a restart.
 pub(crate) fn offer(core: &Core, project: &str, id: &str, place: Place) {
     let _ = change(core, project, |kept| {
+        let open: Vec<String> = (super::person_calls::shown(core).into_iter())
+            .filter(|call| call.state == sikemux_view::calls::CallState::Open)
+            .map(|call| call.id)
+            .collect();
         while kept.offered.len() >= MAX_SEEN {
-            kept.offered.pop_first();
+            let settled = (kept.offered.keys())
+                .find(|id| !open.iter().any(|call| call == *id))
+                .cloned();
+            let Some(settled) = settled else {
+                break;
+            };
+            kept.offered.remove(&settled);
         }
         kept.offered.insert(id.to_owned(), place);
         Ok(())
@@ -433,6 +443,7 @@ fn by_tap() -> Learned {
         feed: None,
         turn: None,
         at: epoch_ms(),
+        with: None,
     }
 }
 

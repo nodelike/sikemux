@@ -74,7 +74,7 @@ pub(crate) fn of(cwd: &Path) -> Option<String> {
         digest.update(std::fs::read(&file).ok()?);
         digest.update(b"\0");
     }
-    if changed.trim().is_empty() && untracked.trim().is_empty() {
+    if changed.trim().is_empty() {
         digest.update(b"tree ");
         digest.update(tree.as_bytes());
     }

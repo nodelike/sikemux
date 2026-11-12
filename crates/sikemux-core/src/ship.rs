@@ -248,13 +248,14 @@ fn has_flag(args: &[String], names: &[&str]) -> bool {
 fn current_kube_context(
     given: Option<&str>,
     env: &dyn Fn(&str) -> Option<String>,
+    cwd: &Path,
 ) -> Option<(String, std::path::PathBuf)> {
     let files: Vec<std::path::PathBuf> = match (given, env("KUBECONFIG")) {
-        (Some(file), _) => vec![file.into()],
+        (Some(file), _) => vec![cwd.join(file)],
         (None, Some(listed)) => listed
             .split(':')
             .filter(|file| !file.is_empty())
-            .map(Into::into)
+            .map(|file| cwd.join(file))
             .collect(),
         (None, None) => vec![Path::new(&env("HOME")?).join(".kube/config")],
     };
@@ -313,7 +314,11 @@ pub(crate) fn target_of(
                 let at = Path::new("the environment");
                 return Some(resolved("the access keys set in the environment", at, keys));
             }
-            match env("AWS_PROFILE").or_else(|| env("AWS_DEFAULT_PROFILE")) {
+            let profile = match (env("AWS_PROFILE"), env("AWS_DEFAULT_PROFILE")) {
+                (Some(one), Some(other)) if one != other => return None,
+                (one, other) => one.or(other),
+            };
+            match profile {
                 Some(name) => Some(Target::AwsProfile { name }),
                 None => {
                     let config = env("AWS_CONFIG_FILE")
@@ -359,7 +364,7 @@ pub(crate) fn target_of(
                 return None;
             }
             let file = flag_value(args, &["--kubeconfig"]);
-            let (name, read) = current_kube_context(file.as_deref(), env)?;
+            let (name, read) = current_kube_context(file.as_deref(), env, cwd)?;
             Some(resolved(
                 "the kube config's current context",
                 &read,
@@ -1425,9 +1430,27 @@ const VERCEL_READS: [&str; 20] = [
     "project", "projects", "teams", "login", "logout", "switch", "link", "dev", "build",
 ];
 
+/// Options that take free text as their value, which a flag-like word after them can be.
+const FREE_TEXT: [&str; 14] = [
+    "--description",
+    "--notes",
+    "--message",
+    "-m",
+    "--title",
+    "--body",
+    "--set",
+    "--set-string",
+    "--summary",
+    "--comment",
+    "--reason",
+    "--subject",
+    "-t",
+    "-n",
+];
+
 /// Whether a command says it only tries: `--dry-run` in any form but kubectl's `none`, aws
 /// s3's `--dryrun`, or a request for its help, given as a flag of its own rather than as the
-/// value of the option before it.
+/// value of an option before it that takes free text.
 fn dry_run(args: &[String]) -> bool {
     args.iter().enumerate().any(|(at, arg)| {
         let flag = arg == "--dry-run"
@@ -1435,7 +1458,7 @@ fn dry_run(args: &[String]) -> bool {
             || arg == "--help"
             || (arg.strip_prefix("--dry-run=")).is_some_and(|value| value != "none");
         let value_of_another = (at.checked_sub(1).and_then(|before| args.get(before)))
-            .is_some_and(|before| before.starts_with('-') && !before.contains('='));
+            .is_some_and(|before| FREE_TEXT.contains(&before.as_str()));
         flag && !value_of_another
     })
 }

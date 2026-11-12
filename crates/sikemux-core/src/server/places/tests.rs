@@ -465,6 +465,18 @@ fn reads_never_reach_the_judge() {
             "kubectl get pods --help",
             "helm upgrade web chart --description --dry-run",
         ),
+        (
+            "helm upgrade web chart --install --dry-run",
+            "helm upgrade web chart --install",
+        ),
+        (
+            "cargo publish --allow-dirty --dry-run",
+            "gh release create v1 --notes --dry-run",
+        ),
+        (
+            "npm publish --access public --dry-run",
+            "helm upgrade web chart --set --dry-run",
+        ),
         ("helm plugin install https://x", "helm rollback web 3"),
         ("terraform plan", "terraform apply"),
         ("terraform show", "terraform destroy"),

@@ -694,6 +694,7 @@ impl PersonCalls {
 /// action.
 fn allows(kept: &Kept, option: &str) -> bool {
     kept.yes.as_deref() == Some(option)
+        || (kept.yes.is_some() && option == super::ship::FROM_NOW_ON)
         || (matches!(kept.source, Source::Hold(_)) && option == HOLD_ALWAYS)
 }
 

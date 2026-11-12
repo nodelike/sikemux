@@ -3211,8 +3211,8 @@ export interface ProjectBoard {
     project: string;
     cards: BoardCard[];
     settings: BoardSettings;
-    /** Environments an agent proposed, waiting for the person's answer. */
-    environmentsProposal?: EnvironmentsProposal;
+    /** Places an agent proposed, waiting for the person's answer. */
+    placesProposal?: PlacesProposal;
     /** How many of its cards have an agent of Auto's at work. */
     running: number;
     autoNote: string | null;
@@ -3220,8 +3220,6 @@ export interface ProjectBoard {
     problems?: string[];
     /** The triggers that add cards to it when their time comes, soonest first. */
     triggers: ChatTrigger[];
-    /** What it inherits from the folders above it, nearest first. */
-    inherited?: InheritedEnvironment[];
     /** When its drift audits run and what the latest found; none when it never had any. */
     audit?: AuditView | null;
 }
@@ -3855,11 +3853,6 @@ export interface BoardSettings {
      * agent on another CLI than its builder's.
      */
     reviewer: ReviewerChoice | null;
-    /**
-     * Where the project deploys, in the order its slices reach them. None
-     * gives slices the usual ladder and holds every deploy for the person.
-     */
-    environments?: Environment[];
     /** Whole dollars of Auto's spending in the project past which it starts no new cards. */
     spendCeiling: number | null;
     /** The linked hosts cards go to past this host's places, by key, the first with room first. */
@@ -3908,64 +3901,51 @@ export interface ReviewerChoice {
     model: string | null;
 }
 
-/** One environment of a project, in the order its ladder reaches them. */
-export interface Environment {
-    /** What its step is called and named by, one per project. */
-    name: string;
-    passes: Passes;
-    recognise: Recognise[];
-    /** An address that answers once a deploy there is healthy. */
-    health?: string;
-    /** It only lets deploys go, and gives the project's slices no step. */
-    noStep?: boolean;
-}
-
-/** Who a deploy to an environment waits on. */
-export type Passes = "nobody" | "check" | "person" | "production";
-
-/** A hard fact that says a deploy lands in an environment. */
-export type Recognise =
-    /** A Rundeck job's group/name path, where `*` stands for anything, such as `dev/*`. */
-    | {
-          kind: "rundeckJob";
-          path: string;
-      }
-    | {
-          kind: "vercelTarget";
-          production: boolean;
-      }
-    | {
-          kind: "awsProfile";
-          name: string;
-      }
-    | {
-          kind: "kubeContext";
-          name: string;
-      }
-    | {
-          kind: "terraformWorkspace";
-          name: string;
-      }
-    /** A command of the project's own that lands there, by its leading words. */
-    | {
-          kind: "command";
-          words: string;
-      };
-
-/** Environments an agent proposed, for the person to accept or turn down. */
-export interface EnvironmentsProposal {
-    environments: Environment[];
+/** Places an agent proposed, for the person to accept or turn down. */
+export interface PlacesProposal {
+    places: Place[];
     why: string;
     /** The agent that proposed them, by name. */
     by: string;
     at: number;
 }
 
-/** An environment a folder above a project holds, which the project inherits. */
-export interface InheritedEnvironment {
-    /** The folder's path. */
-    folder: string;
-    environment: Environment;
+/** One place, as clients show it. */
+export interface Place {
+    id: string;
+    /** In plain words, such as "acme.dev on Vercel". */
+    name: string;
+    kind: PlaceKind;
+    production: boolean;
+    /** Only a production place's level decides anything. */
+    level: Level;
+    /**
+     * Where the core found it, such as "vercel.json", "the Vercel connector" or "@Ada's
+     * deploy"; none for one the person added.
+     */
+    foundIn?: string;
+    /** Who last set its level, and where; none while it has the level it was found with. */
+    saidBy?: Learned;
+    /** Where the person set it, such as "Sikemux" or "a paired phone". */
+    saidFrom?: string;
+    /** The level before that, which Undo puts back. */
+    was?: Level;
+    stats?: PlaceStats;
+}
+
+/** What kind of place it is, which a client draws with that service's mark. */
+export type PlaceKind = "vercel" | "github" | "database" | "aws" | "kubernetes" | "terraform" | "rundeck" | "site" | "connector" | "command";
+
+/** How much agents may do at a production place without the person. */
+export type Level = "yours" | "tellMe" | "mine";
+
+/** How the calls asked about a place went. */
+export interface PlaceStats {
+    asked: number;
+    /** Answered as the call's pick. */
+    asPicked: number;
+    /** Answered against the pick. */
+    overruled: number;
 }
 
 export interface AuditView {

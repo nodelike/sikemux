@@ -89,9 +89,9 @@ pub(crate) use slice::{
 };
 pub(crate) use slice::{turn_pictures, verdict_on, DeployRan};
 pub use slice::{BoardNoteParams, BoardPassParams};
-pub(crate) use wait::owners_on_check;
 use steps::Step;
 pub use steps::{BoardProposalParams, PlacesProposal};
+pub(crate) use wait::owners_on_check;
 
 const FOLDER: &str = "boards";
 const MAX_CARDS: usize = 1000;

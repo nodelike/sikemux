@@ -387,9 +387,18 @@ fn check_call(
             let work = work::of(cwd);
             let (key, once) = key_of(&gated, &ship, work.as_deref(), call.is_some());
             let yes = person_calls::find_key(core, &project, &key)
-                .filter(|call| passes(core, call))
+                .filter(|call| passes(core, call, agent_id))
                 .filter(|call| core.ship.claim(&call.id, once));
             if let Some(yes) = yes {
+                if let Err(why) = person_calls::started(core, &yes.id) {
+                    if once {
+                        core.ship.state.locked().used.remove(&yes.id);
+                    }
+                    return Err(format!(
+                        "Not yet: Sikemux couldn't record that `{}` started ({why}), so it doesn't run. Try again in a moment.",
+                        ship.what
+                    ));
+                }
                 if !once {
                     let mut state = core.ship.state.locked();
                     let covered = (state.covering.iter())
@@ -452,7 +461,8 @@ pub(crate) fn key_of(
 
 /// Whether an answered call is a yes that still stands: picked as its allow option since this
 /// core started, not yet used, and its deploy not yet ended well.
-fn passes(core: &Core, call: &PersonCall) -> bool {
+fn passes(core: &Core, call: &PersonCall, asking: &str) -> bool {
+    settle_covering(core, &call.id, asking);
     let yes = (call.answer.as_ref())
         .is_some_and(|answer| said_yes(answer.option.as_deref()) && answer.at >= core.ship.born);
     if core.ship.state.locked().used.contains(&call.id) {
@@ -465,6 +475,32 @@ fn passes(core: &Core, call: &PersonCall) -> bool {
         )
     });
     yes && !used
+}
+
+/// A deploy's yes covers those on its call until the last of their turns ends; an agent that
+/// closed takes no more turns, so it counts as ended.
+fn settle_covering(core: &Core, call: &str, asking: &str) {
+    let on_call: Vec<String> = (core.ship.state.locked().covering.iter())
+        .filter(|(_, covered, _)| covered == call)
+        .map(|(agent, _, _)| agent.clone())
+        .collect();
+    if on_call.is_empty() {
+        return;
+    }
+    let gone: Vec<String> = (on_call.into_iter())
+        .filter(|agent| agent != asking)
+        .filter(|agent| !core.agent_now(agent).running() && core.workspaces.closed(agent))
+        .collect();
+    if gone.is_empty() {
+        return;
+    }
+    let mut state = core.ship.state.locked();
+    state
+        .covering
+        .retain(|(agent, covered, _)| covered != call || !gone.contains(agent));
+    if !state.covering.iter().any(|(_, covered, _)| covered == call) {
+        state.used.insert(call.to_owned());
+    }
 }
 
 fn refused(call: &PersonCall) -> bool {
@@ -570,6 +606,7 @@ fn call_asking(
             name: place.name().to_owned(),
         }),
         key,
+        yes: Some(person_calls::HOLD_ALLOW.to_owned()),
     }
 }
 
@@ -667,7 +704,16 @@ fn gate(
         Some(key.clone()),
         resolved_from.as_deref().filter(|_| offered),
     );
-    let id = person_calls::raise(core, raise);
+    let id = match person_calls::raise(core, raise) {
+        Ok(id) => id,
+        Err(why) => {
+            return Err(format!(
+                "Waits for the person: `{}` changes {}, a production place, but Sikemux couldn't put the call to them ({why}). Don't run it; try again in a moment.",
+                ship.what,
+                place.name()
+            ))
+        }
+    };
     if offered {
         places::offer(core, project, &id, place.clone());
     }
@@ -753,6 +799,7 @@ fn withdraw(core: &Core, agent_id: &str, token: &str, why: &str) {
         result: CallResult::Withdrawn,
         healthy: None,
         roll_back: false,
+        why: None,
         at: epoch_ms(),
     };
     person_calls::set_outcome(core, token, outcome);
@@ -1290,6 +1337,7 @@ pub(crate) async fn ended(
         result,
         healthy,
         roll_back: result != CallResult::Failed,
+        why: None,
         at: epoch_ms(),
     };
     if let Some(call) = &deploy.call {

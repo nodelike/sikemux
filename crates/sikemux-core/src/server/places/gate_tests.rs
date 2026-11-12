@@ -680,5 +680,87 @@ async fn a_tag_pushed_with_the_branch_still_meets_the_landing_rule() {
         target: None,
     };
     let said = run(&core, push, &cwd);
-    assert!(said.as_ref().is_err_and(|said| said.starts_with("Held")), "{:?}", said.map(|deploy| deploy.is_some()));
+    assert!(
+        said.as_ref().is_err_and(|said| said.starts_with("Held")),
+        "{:?}",
+        said.map(|deploy| deploy.is_some())
+    );
+}
+
+/// One stray untracked file in a clean, pushed checkout of main gave every commit the same
+/// fingerprint.
+#[test]
+fn a_stray_file_beside_a_clean_default_branch_still_tells_commits_apart() {
+    let dir = repo();
+    let work = dir.path().join("work");
+    git(&work, &["checkout", "main"]);
+    std::fs::write(work.join("notes.txt"), "scratch").unwrap();
+    let first = work::of(&work).unwrap();
+    std::fs::write(work.join("app.txt"), "three\n").unwrap();
+    git(&work, &["commit", "-qam", "three"]);
+    git(&work, &["push", "-q", "origin", "main"]);
+    assert_ne!(work::of(&work).unwrap(), first);
+}
+
+/// An asker that closed never took the turn that ends its yes, so the yes stayed open.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_closed_askers_turn_counts_as_ended() {
+    let dir = repo();
+    let (cwd, project) = work_of(&dir);
+    let core = core_at(None, &project, vec![vercel_place()]);
+    assert!(ship::check(&core, "gone", deploy("vercel --prod"), &cwd).is_err());
+    let call = open_calls(&core).remove(0);
+    answer(&core, &call.id, "allow").await;
+    assert!(run(&core, deploy("vercel --prod"), &cwd).is_err());
+}
+
+/// Offers past 64 were dropped by call id, a live one among them.
+#[test]
+fn a_live_offer_is_never_dropped() {
+    let home = kube_home("acme-eks");
+    let project = "/tmp/sikemux-gate-offers";
+    let core = core_at(None, project, Vec::new());
+    assert!(run(&core, kube_apply(home.path()), Path::new("/nowhere")).is_err());
+    let live = open_calls(&core).remove(0).id;
+    for at in 0..70 {
+        offer(&core, project, &format!("0{at}"), vercel_place());
+    }
+    assert!(core.places.of(project).offered.contains_key(&live));
+}
+
+/// Two folders each running `--kubeconfig kubeconfig.yaml` with a context called default gave
+/// one fact, so freeing dev freed prod.
+#[test]
+fn a_relative_kube_config_is_read_where_it_runs() {
+    let clusters = tempfile::tempdir().unwrap();
+    for name in ["dev", "other"] {
+        let folder = clusters.path().join(name);
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(folder.join("kubeconfig.yaml"), "current-context: default\n").unwrap();
+    }
+    let read = |name: &str| {
+        let line = "kubectl --kubeconfig kubeconfig.yaml apply -f k8s";
+        let cwd = clusters.path().join(name);
+        let ship = crate::ship::of_command(line, &[], crate::ship::Looks::Every, &cwd, &|_| None)
+            .remove(0);
+        ship.target
+            .as_ref()
+            .and_then(Target::read_at)
+            .map(str::to_owned)
+    };
+    assert_ne!(read("dev"), read("other"));
+    let both = [("AWS_PROFILE", "dev"), ("AWS_DEFAULT_PROFILE", "prod")];
+    let env = |name: &str| {
+        (both.iter())
+            .find(|(key, _)| *key == name)
+            .map(|(_, value)| (*value).to_owned())
+    };
+    let ships = crate::ship::of_command(
+        "aws ecs update-service --service web",
+        &[],
+        crate::ship::Looks::Every,
+        Path::new("/nowhere"),
+        &env,
+    );
+    assert_eq!(ships[0].target, None);
 }
