@@ -57,7 +57,7 @@ fn behind(project: &str, board: &ProjectBoard) -> HashMap<String, Behind> {
         let (passed, failed) = (ruled(Verdict::Passed), ruled(Verdict::Failed));
         let gate = (slice.gates.iter())
             .find(|gate| gate.state == GateState::Waiting)
-            .map(|gate| crate::goals::gate_name(gate.gate));
+            .map(|gate| crate::ui::slice_state::gate_name(gate.gate));
         let lead = (slice.leading)
             .and_then(|id| slice.evidence.iter().find(|evidence| evidence.id == id))
             .filter(|evidence| matches!(evidence.proof, Proof::Picture { seconds: None, .. }))
@@ -247,7 +247,7 @@ fn pull_row(
     let key = SharedString::from(format!("pull:{index}"));
     let slice = pane.pulls.slices.get(&listed.pull.url);
     let mark = match slice {
-        Some(slice) => crate::goals::state_mark(slice.state, cx),
+        Some(slice) => crate::ui::slice_state::state_mark(slice.state, cx),
         None => {
             let (icon, ink, _) = pull_look(listed.state, &t);
             ui::mark_box(14., ui::icon(icon, 13.).text_color(ink)).into_any_element()
@@ -280,7 +280,7 @@ fn pull_row(
     }
     let end: Option<AnyElement> = match slice {
         Some(slice) => (slice.lead.as_ref()).map(|lead| {
-            crate::goals::evidence::thumb_face(lead, false, cx)
+            crate::ui::evidence::thumb_face(lead, false, cx)
                 .w(px(44.))
                 .h(px(26.))
                 .into_any_element()

@@ -4,8 +4,8 @@
 use chrono::TimeZone;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    div, img, px, AnyElement, App, Context, Div, FontWeight, InteractiveElement, IntoElement,
-    ObjectFit, ParentElement, SharedString, StatefulInteractiveElement, Styled, StyledImage,
+    div, img, px, AnyElement, Context, FontWeight, InteractiveElement, IntoElement, ObjectFit,
+    ParentElement, SharedString, StatefulInteractiveElement, Styled, StyledImage,
 };
 use sikemux_view::slice::{Evidence, Proof, Verdict};
 
@@ -16,9 +16,9 @@ use crate::theme::{
     TEXT_XS,
 };
 use crate::ui;
+pub(crate) use crate::ui::evidence::thumb_face;
 
 const LARGE: f32 = 340.;
-const THUMB: (f32, f32) = (92., 56.);
 
 /// What the strip calls a piece of evidence.
 pub(super) fn label(evidence: &Evidence) -> &'static str {
@@ -209,62 +209,6 @@ pub(super) fn large(evidence: &Evidence, cx: &mut Context<GoalsPane>) -> AnyElem
                     )
             }))
             .into_any_element(),
-    }
-}
-
-/// A thumbnail of a piece of evidence, wherever it shows.
-pub(crate) fn thumb_face(evidence: &Evidence, chosen: bool, cx: &App) -> Div {
-    let t = Tokens::get(cx).clone();
-    let face = div()
-        .w(px(THUMB.0))
-        .h(px(THUMB.1))
-        .flex()
-        .flex_none()
-        .items_center()
-        .justify_center()
-        .gap(SPACE_1)
-        .rounded(theme::RADIUS_2)
-        .overflow_hidden()
-        .border_1()
-        .border_color(if chosen { t.text_secondary } else { t.border })
-        .bg(t.surface_sunken);
-    match &evidence.proof {
-        Proof::Picture {
-            path,
-            seconds: None,
-            ..
-        } => face.child(
-            img(std::path::PathBuf::from(path))
-                .size_full()
-                .object_fit(ObjectFit::Cover),
-        ),
-        Proof::Picture {
-            seconds: Some(seconds),
-            ..
-        } => face
-            .child(play(20., cx))
-            .child(ui::mono(length(*seconds), TEXT_2XS, cx)),
-        Proof::Diff { added, removed, .. } => face
-            .child(ui::mono(format!("+{added}"), TEXT_2XS, cx).text_color(t.git_added))
-            .child(ui::mono(format!("−{removed}"), TEXT_2XS, cx).text_color(t.git_deleted)),
-        Proof::Numbers { measures } => face.children(measures.first().map(|measure| {
-            ui::mono(measure.after.clone(), TEXT_2XS, cx).text_color(t.text_primary)
-        })),
-        Proof::Run { command, .. } => face.child(
-            ui::mono(
-                command
-                    .split_whitespace()
-                    .next()
-                    .unwrap_or_default()
-                    .to_owned(),
-                TEXT_2XS,
-                cx,
-            )
-            .text_color(t.text_secondary),
-        ),
-        Proof::Timeline { moments } => face
-            .child(ui::icon(Icon::LogLines, 14.).text_color(t.text_tertiary))
-            .child(ui::mono(moments.len().to_string(), TEXT_2XS, cx)),
     }
 }
 

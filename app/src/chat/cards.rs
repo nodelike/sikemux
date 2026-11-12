@@ -163,7 +163,7 @@ pub(super) fn approval(
             })),
         None => row
             .children(item.evidence.as_ref().map(|evidence| {
-                let face = crate::goals::thumb_face(evidence, false, cx);
+                let face = crate::ui::evidence::thumb_face(evidence, false, cx);
                 evidence_opens(evidence, face, cx)
             }))
             .child(

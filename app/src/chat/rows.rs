@@ -778,12 +778,12 @@ fn goal_marker(notice: &AgentNotice, looks: &Drawn, cx: &App) -> AnyElement {
         .gap(px(9.))
         .min_w_0()
         .text_size(crate::theme::ui_text(TEXT_XS_H))
-        .child(crate::goals::state_mark(state, cx))
+        .child(crate::ui::slice_state::state_mark(state, cx))
         .child(
             div()
                 .flex_none()
                 .font_weight(FontWeight::SEMIBOLD)
-                .text_color(crate::goals::state_ink(state, t))
+                .text_color(crate::ui::slice_state::state_ink(state, t))
                 .child(word),
         )
         .child(

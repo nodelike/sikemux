@@ -65,7 +65,8 @@ pub(super) fn progress(steps: &[SliceState], of_gates: bool) -> Option<String> {
 pub(super) fn steps(steps: &[SliceState], cx: &App) -> Option<AnyElement> {
     let count = steps.len() as f32;
     let width = (count * STEP_WIDTH + (count - 1.).max(0.) * STEP_GAP).min(STRIP_MOST);
-    (!steps.is_empty()).then(|| crate::goals::state_strip(steps.iter().copied(), px(width), cx))
+    (!steps.is_empty())
+        .then(|| crate::ui::slice_state::state_strip(steps.iter().copied(), px(width), cx))
 }
 
 /// The goal heading the dock over the composer: its state, name, steps and how far along,
@@ -88,7 +89,7 @@ pub(super) fn in_dock(goal: &ChatGoal, cx: &mut Context<Workbench>) -> AnyElemen
         .cursor_pointer()
         .hover(move |style| style.bg(t.surface_hover))
         .on_click(cx.listener(move |bench, _, _, cx| bench.open_goal(&opens, cx)))
-        .child(crate::goals::state_mark(goal.state, cx))
+        .child(crate::ui::slice_state::state_mark(goal.state, cx))
         .child(
             ui::text(goal.name.clone(), TEXT_XS_H, FontWeight::MEDIUM)
                 .min_w_0()

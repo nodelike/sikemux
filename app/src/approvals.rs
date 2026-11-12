@@ -139,7 +139,7 @@ pub fn pass_button(
     let (gate, card) = (item.gate?, item.card.clone()?);
     let environment = item.environment.clone();
     let words = environment.as_ref().map_or_else(
-        || crate::goals::gate_name(gate).to_owned(),
+        || crate::ui::slice_state::gate_name(gate).to_owned(),
         |environment| format!("Pass {environment}"),
     );
     let id = SharedString::from(format!("pass-{}", item.id));
