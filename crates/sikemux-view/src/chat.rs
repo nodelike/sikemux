@@ -684,6 +684,9 @@ pub struct QueuedMessage {
 #[serde(rename_all = "camelCase")]
 pub struct GuestMessage {
     pub id: String,
+    /// The name the viewer gave, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
     pub text: String,
     /// When it came, in epoch ms.
     pub at: u64,

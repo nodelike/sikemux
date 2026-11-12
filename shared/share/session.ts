@@ -155,9 +155,10 @@ export class ShareSession {
     readToolDetail = (toolCallId: string): Promise<ToolDetail | null> =>
         this.ask({ type: "toolDetail", toolCallId }).then((answer) => answer?.toolDetail ?? null);
 
-    /** Writes the agent a message that waits until the sharer sends or dismisses it. Resolves to why it was not taken, or null. */
-    sendMessage = async (text: string): Promise<string | null> => {
-        const answer = await this.request({ type: "message", text });
+    /** Writes the agent a message, signed with `name` when given, that waits until the sharer sends or dismisses it. Resolves to why it was not taken, or null. */
+    sendMessage = async (text: string, name: string): Promise<string | null> => {
+        const signed = name.trim();
+        const answer = await this.request({ type: "message", text, ...(signed ? { name: signed } : {}) });
         if (!answer) return this.hostOnline ? "The sharer's computer did not answer." : "The sharer's computer is offline.";
         return answer.error ?? null;
     };

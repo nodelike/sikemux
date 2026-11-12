@@ -238,7 +238,8 @@ function WaitingGuests({
       {guests.map((guest) => (
         <div className="chat-task" key={guest.id}>
           <IconMessage size={12} />
-          <span className="chat-task-name">{guest.text}</span>
+          <span className="chat-task-name">{guest.name ?? "Guest"}</span>
+          <span className="chat-task-detail">{guest.text}</span>
         </div>
       ))}
     </Group>

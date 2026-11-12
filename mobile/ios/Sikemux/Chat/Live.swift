@@ -270,7 +270,7 @@ struct LiveSheet: View {
             if !work.guests.isEmpty {
                 SectionLabel("from guests", count: work.guests.count)
                 ForEach(work.guests, id: \.id) { guest in
-                    Line(title: guest.text, detail: nil) {
+                    Line(title: guest.name ?? "Guest", detail: guest.text) {
                         IconView(icon: Icons.link, size: 15).foregroundStyle(palette.inkDim)
                     } end: {
                         if canAct {

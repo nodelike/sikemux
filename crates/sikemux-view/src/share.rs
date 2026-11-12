@@ -87,6 +87,9 @@ pub enum ShareAsk {
     Message {
         id: u64,
         text: String,
+        /// The name the viewer gave, if any.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
     },
 }
 

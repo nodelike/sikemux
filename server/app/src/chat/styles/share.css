@@ -104,6 +104,26 @@
   font-size: var(--text-xs);
 }
 
+.shared-chat-composer input {
+  width: 11em;
+  min-width: 0;
+  flex: none;
+  border: 0;
+  outline: none;
+  background: none;
+  color: var(--ink-dim);
+  font: inherit;
+}
+
+.shared-chat-composer input::placeholder {
+  color: var(--ink-faint);
+}
+
+.shared-chat-composer-foot [role="status"] {
+  flex: 1;
+  min-width: 0;
+}
+
 .shared-chat-composer button {
   display: grid;
   flex: none;

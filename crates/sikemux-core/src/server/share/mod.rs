@@ -21,6 +21,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
+use sikemux_view::chat::GuestMessage;
 use sikemux_view::share::{ShareAsk, ShareFrame, ShareReply, SharedChat, SharedFile};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -30,6 +31,7 @@ use sikemux_wire::protocol::ChatAttachment;
 use super::access::Peer;
 use super::changed::Topic;
 use super::connection::ClientConn;
+use super::notify::Signal;
 use super::remote::StoredShare;
 use super::{chat, Core, CoreError, CoreResult};
 use seal::Seal;
@@ -41,6 +43,8 @@ const MAX_LIFETIME_MS: u64 = 7 * 24 * 60 * 60_000;
 const PAGE_TURNS: u32 = 20;
 /// The largest pasted picture a viewer is sent.
 const MAX_FILE_BYTES: u64 = 4 * 1024 * 1024;
+/// The longest name a viewer may give.
+const MAX_GUEST_NAME_CHARS: usize = 40;
 /// The longest message a viewer may write.
 const MAX_GUEST_CHARS: usize = 10_000;
 
@@ -317,7 +321,7 @@ pub(crate) fn stop(core: &Arc<Core>, id: &str) -> CoreResult<()> {
         .any(|other| &other.stored.agent_id == agent_id);
     if !still_shared {
         if let Some(feed) = core.chats.heard(agent_id) {
-            feed.clear_guests();
+            guests_gone(core, agent_id, feed.clear_guests());
         }
     }
     let refused = running.state == ShareState::Refused;
@@ -536,7 +540,7 @@ async fn answer(core: Arc<Core>, id: String, viewer: String, sealed: String) -> 
             }
             Err(error) => Some(error.to_string()),
         },
-        ShareAsk::Message { text, .. } => guest_wrote(&core, &agent_id, text).err(),
+        ShareAsk::Message { text, name, .. } => guest_wrote(&core, &agent_id, name, text).err(),
     };
     reply.error = failed;
     let sealed = seal.seal(&serde_json::to_vec(&reply).ok()?)?;
@@ -549,8 +553,24 @@ async fn answer(core: Arc<Core>, id: String, viewer: String, sealed: String) -> 
     ))
 }
 
-/// Keeps a viewer's message in the chat for the person to send or dismiss.
-fn guest_wrote(core: &Core, agent_id: &str, text: String) -> Result<(), String> {
+/// Keeps a viewer's message in the chat for the person to send or dismiss, and tells them.
+fn guest_wrote(
+    core: &Core,
+    agent_id: &str,
+    name: Option<String>,
+    text: String,
+) -> Result<(), String> {
+    let name = name
+        .map(|name| name.split_whitespace().collect::<Vec<_>>().join(" "))
+        .filter(|name| !name.is_empty());
+    if name
+        .as_ref()
+        .is_some_and(|name| name.chars().count() > MAX_GUEST_NAME_CHARS)
+    {
+        return Err(format!(
+            "a name holds up to {MAX_GUEST_NAME_CHARS} characters"
+        ));
+    }
     let text = text.trim();
     if text.is_empty() {
         return Err("the message is empty".into());
@@ -564,10 +584,26 @@ fn guest_wrote(core: &Core, agent_id: &str, text: String) -> Result<(), String> 
         .chats
         .heard(agent_id)
         .ok_or("this chat is not running on its host right now")?;
-    if !feed.add_guest(text.to_owned()) {
-        return Err("too many messages wait for the sharer already".into());
-    }
+    let guest = feed
+        .add_guest(name, text.to_owned())
+        .ok_or("too many messages wait for the sharer already")?;
+    core.notify.send(Signal::Guest {
+        agent_id: agent_id.to_owned(),
+        guest,
+    });
+    core.changed(What::Agents);
     Ok(())
+}
+
+/// The person dealt with these viewers' messages, so what told them of each goes.
+fn guests_gone(core: &Core, agent_id: &str, gone: impl IntoIterator<Item = GuestMessage>) {
+    for guest in gone {
+        core.notify.send(Signal::GuestCleared {
+            agent_id: agent_id.to_owned(),
+            id: guest.id,
+        });
+    }
+    core.changed(What::Agents);
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -584,17 +620,21 @@ pub(crate) async fn send_guest(core: &Arc<Core>, params: GuestMessageParams) -> 
         .heard(&params.agent_id)
         .and_then(|feed| feed.take_guest(&params.id))
         .ok_or("that message is no longer waiting")?;
+    let text = guest.text.clone();
+    guests_gone(core, &params.agent_id, [guest]);
     chat::calls::prompt_chat(
         core,
-        chat::calls::PromptChatParams::new(params.agent_id, guest.text),
+        chat::calls::PromptChatParams::new(params.agent_id, text),
     )
     .await
 }
 
 pub(crate) fn dismiss_guest(core: &Core, params: GuestMessageParams) {
-    if let Some(feed) = core.chats.heard(&params.agent_id) {
-        feed.take_guest(&params.id);
-    }
+    let gone = core
+        .chats
+        .heard(&params.agent_id)
+        .and_then(|feed| feed.take_guest(&params.id));
+    guests_gone(core, &params.agent_id, gone);
 }
 
 /// A picture pasted into a chat, in base64. Viewers may see only those, never

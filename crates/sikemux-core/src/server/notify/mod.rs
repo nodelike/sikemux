@@ -30,6 +30,7 @@ use crate::accounts::protocol::PushKind;
 use crate::push::{self, MAX_PLAINTEXT};
 use crate::text::clipped_line;
 use sikemux_view::calls::{CallKind, PersonCall};
+use sikemux_view::chat::GuestMessage;
 use sikemux_view::inbox::InboxItem;
 use sikemux_view::push::{
     NotificationCard, NotificationCategory, NotificationKind, NotificationOption,
@@ -123,6 +124,15 @@ pub(crate) enum Signal {
     QuestionCleared {
         id: String,
         agent_id: String,
+    },
+    /// A viewer of the chat's share link wrote it a message, which waits for the person.
+    Guest {
+        agent_id: String,
+        guest: GuestMessage,
+    },
+    GuestCleared {
+        agent_id: String,
+        id: String,
     },
     Pairing(PendingDevice),
     PairingSettled {
@@ -504,6 +514,14 @@ fn apply(core: &Core, signal: Signal, now: u64) {
                 .remove(&(agent_id.clone(), id.clone()));
             clear_all(core, &agent_id, &question_card(&agent_id, &id), None, now);
         }
+        Signal::Guest { agent_id, guest } => {
+            if let Some(draft) = guest_wrote(core, &agent_id, &guest) {
+                alert_all(core, &draft, now);
+            }
+        }
+        Signal::GuestCleared { agent_id, id } => {
+            clear_all(core, &agent_id, &guest_card(&agent_id, &id), None, now);
+        }
         Signal::Pairing(device) => alert_all(core, &pairing(core, &device), now),
         Signal::PairingSettled { id } => clear_all(core, "", &pairing_card(&id), None, now),
         Signal::TurnStarted { agent_id } => {
@@ -558,6 +576,10 @@ fn permission_card(agent_id: &str, request_id: &str) -> String {
 
 fn question_card(agent_id: &str, id: &str) -> String {
     format!("question|{agent_id}|{id}")
+}
+
+fn guest_card(agent_id: &str, id: &str) -> String {
+    format!("guest|{agent_id}|{id}")
 }
 
 fn input_card(agent_id: &str) -> String {
@@ -892,6 +914,25 @@ fn called(core: &Core, call: &PersonCall, card: String) -> Option<Draft> {
             })
             .collect();
     }
+    Some(draft)
+}
+
+fn guest_wrote(core: &Core, agent_id: &str, guest: &GuestMessage) -> Option<Draft> {
+    let named = name(core, agent_id)?;
+    let mut draft = named.draft(
+        NotificationKind::Input,
+        guest_card(agent_id, &guest.id),
+        agent_id,
+        guest.at,
+        PERMISSION_LIFE_MS,
+    );
+    let who = guest.name.as_deref().unwrap_or("A guest");
+    draft.title = clipped_line(&format!("{who} wrote to {}", named.agent), MAX_TITLE_CHARS);
+    draft.body = clipped_line(&guest.text, MAX_BODY_CHARS);
+    draft.detail = Some(clipped_line(
+        &named.whereabouts(core, true),
+        MAX_DETAIL_CHARS,
+    ));
     Some(draft)
 }
 

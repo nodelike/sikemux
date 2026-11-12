@@ -107,7 +107,12 @@ impl Core {
 
     /// Whether what the agent is doing waits on the person, as Needs you lists it.
     fn needs_person(&self, agent_id: &str) -> bool {
-        self.harness.questions.asks_person(agent_id) || self.ship.holds(agent_id)
+        self.harness.questions.asks_person(agent_id)
+            || self.ship.holds(agent_id)
+            || self
+                .chats
+                .heard(agent_id)
+                .is_some_and(|feed| feed.has_guests())
     }
 
     /// The chats under the app's names, most recently active first, with

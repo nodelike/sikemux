@@ -3415,6 +3415,8 @@ enum TrackedKind: String, Codable, Hashable, Sendable {
 /// person sends it.
 struct GuestMessage: Codable, Hashable, Sendable {
     var id: String
+    /// The name the viewer gave, if any.
+    var name: String?
     var text: String
     /// When it came, in epoch ms.
     var at: Int
@@ -7115,6 +7117,8 @@ enum ShareAsk: Codable, Hashable, Sendable {
     struct Message: Codable, Hashable, Sendable {
         var id: Int
         var text: String
+        /// The name the viewer gave, if any.
+        var name: String?
     }
 
     private enum TagKey: String, CodingKey {

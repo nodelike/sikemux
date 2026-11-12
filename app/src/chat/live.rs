@@ -1074,7 +1074,9 @@ fn guests(agent: &str, chat: &Chat, cx: &mut Context<Workbench>) -> Option<Group
                 .child(send)
                 .child(dismiss)
                 .into_any_element();
-            work_row(&t, mark, one_line(&message.text), None, None, Some(end)).into_any_element()
+            let who = message.name.clone().unwrap_or_else(|| "Guest".to_owned());
+            let text = div().child(one_line(&message.text)).into_any_element();
+            work_row(&t, mark, who, Some((text, false)), None, Some(end)).into_any_element()
         })
         .collect();
     Some(Group {

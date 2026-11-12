@@ -231,6 +231,24 @@ export function SharedChat({
   );
 }
 
+const NAME_KEY = "sikemux.share.guestName";
+
+function rememberedName(): string {
+  try {
+    return localStorage.getItem(NAME_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function rememberName(name: string) {
+  try {
+    localStorage.setItem(NAME_KEY, name.trim());
+  } catch {
+    return;
+  }
+}
+
 /** Where a viewer writes to the agent; what it sends waits for the sharer to send or dismiss. */
 function GuestComposer({
   session,
@@ -240,6 +258,7 @@ function GuestComposer({
   hostOnline: boolean;
 }) {
   const [text, setText] = useState("");
+  const [name, setName] = useState(rememberedName);
   const [sending, setSending] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const ready = hostOnline && !sending && text.trim() !== "";
@@ -247,7 +266,8 @@ function GuestComposer({
     if (!ready) return;
     setSending(true);
     setProblem(null);
-    void session.sendMessage(text).then((refused) => {
+    rememberName(name);
+    void session.sendMessage(text, name).then((refused) => {
       setSending(false);
       if (refused) setProblem(refused);
       else setText("");
@@ -285,6 +305,14 @@ function GuestComposer({
         }}
       />
       <div className="shared-chat-composer-foot">
+        <input
+          value={name}
+          maxLength={40}
+          placeholder="Your name (optional)"
+          aria-label="Your name, shown to the sharer"
+          autoComplete="name"
+          onChange={(event) => setName(event.target.value)}
+        />
         <span role="status">{problem}</span>
         <button type="submit" disabled={!ready} aria-label="Send to the sharer">
           <IconArrowUp size={14} />

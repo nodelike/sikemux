@@ -5,7 +5,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, AtomicUsize};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
@@ -143,6 +143,8 @@ pub(crate) struct Feed {
     viewed: AtomicU64,
     /// When the agent last said anything, in epoch ms.
     heard: AtomicU64,
+    /// Share viewers' messages wait for the person, read without the chat's lock.
+    guests_waiting: AtomicBool,
     earlier: Mutex<Option<Earlier>>,
     /// What the core reads of the chat each time it works out how its turn stands, apart from
     /// the lock the chat streams under.
@@ -233,6 +235,7 @@ impl Feed {
             held: AtomicUsize::new(0),
             viewed: AtomicU64::new(epoch_ms()),
             heard: AtomicU64::new(epoch_ms()),
+            guests_waiting: AtomicBool::new(false),
             earlier: Mutex::new(None),
             stand: Mutex::default(),
             inner: Mutex::new(Inner {
@@ -319,6 +322,7 @@ impl Feed {
             held: AtomicUsize::new(0),
             viewed: AtomicU64::new(epoch_ms()),
             heard: AtomicU64::new(epoch_ms()),
+            guests_waiting: AtomicBool::new(false),
             earlier: Mutex::new(None),
             stand: Mutex::default(),
             inner: Mutex::new(Inner {
@@ -613,18 +617,24 @@ impl Feed {
 
     /// Keeps a share viewer's message for the person to send or dismiss, unless as many already
     /// wait.
-    pub(crate) fn add_guest(&self, text: String) -> bool {
+    pub(crate) fn add_guest(&self, name: Option<String>, text: String) -> Option<GuestMessage> {
         let mut inner = self.inner.locked();
         if inner.guests.len() >= MAX_GUESTS {
-            return false;
+            return None;
         }
-        inner.guests.push(GuestMessage {
+        let guest = GuestMessage {
             id: uuid::Uuid::new_v4().to_string(),
+            name,
             text,
             at: epoch_ms(),
-        });
+        };
+        inner.guests.push(guest.clone());
         self.guests_changed(&mut inner);
-        true
+        Some(guest)
+    }
+
+    pub(crate) fn has_guests(&self) -> bool {
+        self.guests_waiting.load(Ordering::Relaxed)
     }
 
     pub(crate) fn take_guest(&self, id: &str) -> Option<GuestMessage> {
@@ -635,15 +645,18 @@ impl Feed {
         Some(taken)
     }
 
-    pub(crate) fn clear_guests(&self) {
+    pub(crate) fn clear_guests(&self) -> Vec<GuestMessage> {
         let mut inner = self.inner.locked();
-        if !inner.guests.is_empty() {
-            inner.guests.clear();
+        let cleared = std::mem::take(&mut inner.guests);
+        if !cleared.is_empty() {
             self.guests_changed(&mut inner);
         }
+        cleared
     }
 
     fn guests_changed(&self, inner: &mut Inner) {
+        self.guests_waiting
+            .store(!inner.guests.is_empty(), Ordering::Relaxed);
         if let Some(fold) = inner.fold.as_mut() {
             fold.set_guests(inner.guests.clone());
         }

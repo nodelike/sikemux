@@ -288,7 +288,8 @@ export function LiveSheet({
               <Line
                 key={guest.id}
                 mark={<Icon name="IconLink" size={15} color={colors.inkDim} />}
-                title={guest.text}
+                title={guest.name ?? 'Guest'}
+                detail={guest.text}
                 end={
                   canAct ? (
                     <>

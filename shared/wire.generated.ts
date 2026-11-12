@@ -2176,6 +2176,8 @@ export type TrackedKind = "issue" | "pull";
  */
 export interface GuestMessage {
     id: string;
+    /** The name the viewer gave, if any. */
+    name?: string;
     text: string;
     /** When it came, in epoch ms. */
     at: number;
@@ -4616,6 +4618,8 @@ export type ShareAsk =
           type: "message";
           id: number;
           text: string;
+          /** The name the viewer gave, if any. */
+          name?: string;
       };
 
 /** The host's answer to the question numbered `id`: one of the rest, or `error`. */
