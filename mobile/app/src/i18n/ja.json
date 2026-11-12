@@ -782,5 +782,10 @@
   "Show": "表示",
   "Hide": "隠す",
   "Shows all of it": "すべて表示します",
-  "Shows two lines": "2行で表示します"
+  "Shows two lines": "2行で表示します",
+  "Rule back": "ルールを戻しました",
+  "Now a check": "チェックになりました",
+  "Rule changed": "ルールを変更しました",
+  "Rule removed": "ルールを外しました",
+  "by @{name}": "@{name} による"
 }

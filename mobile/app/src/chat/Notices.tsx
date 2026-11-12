@@ -6,7 +6,7 @@ import { AgentIcon, Icon } from '@/ui/Icon';
 import { fonts, type Palette, useColors, useStyles } from '@/ui/theme';
 import { useFold } from './folds';
 import { GoalLine } from './GoalLine';
-import { OverruledLine, WeekLine } from './ChiefLines';
+import { OverruledLine, RuleLine, WeekLine } from './ChiefLines';
 
 function stateWord(state: Notice['state'], t: Translate): string {
   if (state === 'completed') return t('completed');
@@ -56,6 +56,7 @@ export function AgentNoticeLine({ notice }: { notice: AgentNotice }) {
   if (notice.goal) return <GoalLine notice={notice} goal={notice.goal} />;
   if (notice.overruled) return <OverruledLine overruled={notice.overruled} />;
   if (notice.week) return <WeekLine week={notice.week} />;
+  if (notice.ruleChange) return <RuleLine line={notice.ruleChange} />;
   const tint = notice.severity === 'error' ? colors.danger : notice.severity === 'warning' ? colors.warn : colors.inkDim;
   return (
     <View style={styles.notice} accessible accessibilityLabel={`${notice.title}${notice.description ? `. ${notice.description}` : ''}`}>

@@ -782,5 +782,10 @@
   "Show": "Показать",
   "Hide": "Скрыть",
   "Shows all of it": "Показывает всё",
-  "Shows two lines": "Показывает две строки"
+  "Shows two lines": "Показывает две строки",
+  "Rule back": "Правило возвращено",
+  "Now a check": "Теперь это проверка",
+  "Rule changed": "Правило изменено",
+  "Rule removed": "Правило убрано",
+  "by @{name}": "— @{name}"
 }

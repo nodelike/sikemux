@@ -97,6 +97,8 @@ struct AgentNoticeLine: View {
             OverruledLine(overruled: overruled)
         } else if let week = notice.week {
             WeekLine(week: week)
+        } else if let rule = notice.ruleChange {
+            RuleLine(line: rule)
         } else {
             let tint =
                 notice.severity == .error ? palette.danger : notice.severity == .warning ? palette.warn : palette.inkDim

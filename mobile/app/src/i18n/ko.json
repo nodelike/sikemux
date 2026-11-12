@@ -782,5 +782,10 @@
   "Show": "보기",
   "Hide": "숨기기",
   "Shows all of it": "모두 표시합니다",
-  "Shows two lines": "두 줄로 표시합니다"
+  "Shows two lines": "두 줄로 표시합니다",
+  "Rule back": "규칙을 되돌림",
+  "Now a check": "이제 검사로 바뀜",
+  "Rule changed": "규칙이 바뀜",
+  "Rule removed": "규칙이 제거됨",
+  "by @{name}": "@{name}이(가)"
 }

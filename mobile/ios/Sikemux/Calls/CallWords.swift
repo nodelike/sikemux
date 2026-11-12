@@ -300,6 +300,16 @@ enum CallWords {
     static let standsAgain = String(localized: "It stands again")
     static let stoppedAuto = String(localized: "This stopped Auto's run, so it can't be put back")
     static let fromNowOn = String(localized: "Decisions like this come to you from now on")
+    /// A rule change's line as the Mac words it: its title, then the short hash of the check that holds it or who did
+    /// it.
+    static func ruleChange(_ line: RuleChange) -> (head: String, tail: String?) {
+        if line.restored == true {
+            return (String(localized: "Rule back"), line.backBy.map { String(localized: "by @\($0)") })
+        }
+        if let commit = line.commit { return (String(localized: "Now a check"), String(commit.prefix(7))) }
+        let head = line.was != nil ? String(localized: "Rule changed") : String(localized: "Rule removed")
+        return (head, String(localized: "by @\(line.by)"))
+    }
     /// What was decided, quoted, never as the person's own words.
     static func quoted(_ text: String) -> String { String(localized: "“\(text)”") }
     /// When the week's count came: `Monday · 09:00`.

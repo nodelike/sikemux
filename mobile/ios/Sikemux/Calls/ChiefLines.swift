@@ -79,3 +79,24 @@ struct WeekLine: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
+
+/// The quiet line a rule change leaves, as the Mac words it on one line: its title, the rule quoted, which gives way
+/// first, then the check's short hash or who did it. The phone offers no Undo on it.
+struct RuleLine: View {
+    @Environment(\.palette) private var palette
+    let line: RuleChange
+
+    var body: some View {
+        let (head, tail) = CallWords.ruleChange(line)
+        HStack(spacing: 8) {
+            IconView(icon: Icons.check, size: 12).foregroundStyle(palette.tertiary)
+            Text(head).foregroundStyle(palette.tertiary).fixedSize()
+            Text("· \(CallWords.quoted(line.text))").foregroundStyle(palette.ink).lineLimit(1)
+            if let tail { Text("· \(tail)").foregroundStyle(palette.tertiary).fixedSize() }
+        }
+        .font(Theme.ui(13))
+        .padding(.leading, 12)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}

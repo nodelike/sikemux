@@ -7,13 +7,14 @@ import {
   OVERRULED,
   OVERRULED_UNDONE,
   quoted,
+  ruleChange,
   STANDS_AGAIN,
   STOPPED_AUTO,
   UNDO,
   weekCame,
   weekCount,
 } from '@shared/calls/words';
-import type { ChiefWeek, OverruledDecision } from '@shared/wire.generated';
+import type { ChiefWeek, OverruledDecision, RuleChange } from '@shared/wire.generated';
 import { callHost } from '@/core/hostCalls';
 import { problem } from '@/core/problem';
 import { connectionOf, liveOf } from '@/devices/hub';
@@ -87,6 +88,27 @@ export function WeekLine({ week }: { week: ChiefWeek }) {
   );
 }
 
+/**
+ * The quiet line a rule change leaves, as the Mac words it on one line: its title, the rule quoted, which gives way
+ * first, then the check's short hash or who did it. The phone offers no Undo on it.
+ */
+export function RuleLine({ line }: { line: RuleChange }) {
+  const colors = useColors();
+  const styles = useStyles(makeStyles);
+  const t = useT();
+  const { head, tail } = ruleChange(line, t);
+  return (
+    <View style={[styles.head, styles.rule]}>
+      <Icon name="IconCheck" size={12} color={colors.tertiary} />
+      <Text style={styles.quiet}>{head}</Text>
+      <Text style={[styles.quiet, styles.ruleText]} numberOfLines={1}>
+        {`· ${quoted(line.text, t)}`}
+      </Text>
+      {tail ? <Text style={styles.quiet}>{`· ${tail}`}</Text> : null}
+    </View>
+  );
+}
+
 const makeStyles = (colors: Palette) =>
   StyleSheet.create({
     line: { gap: 4, marginVertical: 10, paddingVertical: 2, paddingLeft: 12 },
@@ -96,6 +118,8 @@ const makeStyles = (colors: Palette) =>
     undoText: { fontFamily: fonts.uiMedium, fontSize: 13, color: colors.ink },
     quoted: { fontFamily: fonts.ui, fontSize: 14, lineHeight: 20, color: colors.ink },
     why: { fontFamily: fonts.ui, fontSize: 12.5, color: colors.tertiary },
+    rule: { marginVertical: 6, paddingLeft: 12 },
+    ruleText: { flexShrink: 1, color: colors.ink },
     week: { marginVertical: 12 },
     when: { fontFamily: fonts.ui, fontSize: 12, color: colors.tertiary },
     count: { marginTop: 4, fontFamily: fonts.ui, fontSize: 14.5, lineHeight: 22.8, color: colors.ink },

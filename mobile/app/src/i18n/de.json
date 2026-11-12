@@ -782,5 +782,10 @@
   "Show": "Zeigen",
   "Hide": "Ausblenden",
   "Shows all of it": "Zeigt alles",
-  "Shows two lines": "Zeigt zwei Zeilen"
+  "Shows two lines": "Zeigt zwei Zeilen",
+  "Rule back": "Regel wieder da",
+  "Now a check": "Jetzt eine Prüfung",
+  "Rule changed": "Regel geändert",
+  "Rule removed": "Regel entfernt",
+  "by @{name}": "von @{name}"
 }

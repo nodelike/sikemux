@@ -782,5 +782,10 @@
   "Show": "显示",
   "Hide": "隐藏",
   "Shows all of it": "显示全部",
-  "Shows two lines": "显示两行"
+  "Shows two lines": "显示两行",
+  "Rule back": "规则已恢复",
+  "Now a check": "现已成为检查",
+  "Rule changed": "规则已更改",
+  "Rule removed": "规则已移除",
+  "by @{name}": "由 @{name}"
 }

@@ -264,6 +264,18 @@ export const OVERRULED_UNDONE = "Overruled, then undone";
 export const STANDS_AGAIN = "It stands again";
 export const STOPPED_AUTO = "This stopped Auto's run, so it can't be put back";
 export const FROM_NOW_ON = "Decisions like this come to you from now on";
+export const RULE_BACK = "Rule back";
+export const NOW_A_CHECK = "Now a check";
+export const RULE_CHANGED = "Rule changed";
+export const RULE_REMOVED = "Rule removed";
+/** Who changed a rule, after it on its line. */
+export const byName = (name: string, say: Say = english) => say("by @{name}", { name });
+/** A rule change's line as the Mac words it: its title, then the short hash of the check that holds it or who did it. */
+export function ruleChange(line: { restored?: boolean; commit?: string; was?: string; by: string; backBy?: string }, say: Say = english) {
+    if (line.restored) return { head: say(RULE_BACK), tail: line.backBy ? byName(line.backBy, say) : undefined };
+    if (line.commit) return { head: say(NOW_A_CHECK), tail: line.commit.slice(0, 7) };
+    return { head: say(line.was ? RULE_CHANGED : RULE_REMOVED), tail: byName(line.by, say) };
+}
 /** What was decided, quoted, never as the person's own words. */
 export const quoted = (text: string, say: Say = english) => say("“{text}”", { text });
 /** When the week's count came: `Monday · 09:00`. */

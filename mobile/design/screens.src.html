@@ -535,6 +535,10 @@
   .overruled .h .undo { margin-left: auto; color: var(--ink); font-weight: 500; padding: 4px 0 4px 12px; }
   .overruled .q { font-size: 14px; line-height: 1.4; color: var(--ink); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   .overruled .why { font-size: 12.5px; }
+  .rule-line { display: flex; align-items: center; gap: 8px; margin: 6px 0; padding-left: 12px; font-size: 13px; color: var(--text-tertiary); white-space: nowrap; }
+  .rule-line .ico { display: grid; }
+  .rule-line .h, .rule-line .t { flex: none; }
+  .rule-line .q { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--ink); }
   .week { margin: 12px 0; }
   .week .when { font-size: 12px; color: var(--text-tertiary); }
   .week p { margin-top: 4px; font-size: 14.5px; line-height: 1.57; color: var(--ink); }
@@ -3125,6 +3129,31 @@
       </div>
       <div class="home-bar"></div></div>
       <figcaption><b>The week's count</b><div class="note">At the first tick after Monday 09:00 the chief's chat gains the week's count, from AgentNotice.week, as the chief's own words under the day and time it came: "Last week I decided 212 things, and you overruled 3." with "You answered 12 of 14 calls as I picked." after it when any call was answered, and "1 thing" and "overruled none" as the Mac says them. It starts no turn and stays in view when the turn around it folds.</div></figcaption></figure>
+    <figure><div class="phone"><div class="island"></div>
+      <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
+      <div class="screen">
+        <div class="nav"><span class="back">{{IconChevron:18}}</span><span class="mid"><span class="acc-mark">{{Logo:17}}</span><span class="named"><b>@Chief</b><i>·</i><em>Payments rollout</em></span></span><span class="icon-btn">{{IconMoreVertical:16}}</span></div>
+        <div class="chat">
+          <div class="rule-line"><span class="ico">{{IconCheck:12}}</span><span class="h">Now a check</span><span class="q">· “Every price shown to a buyer comes from the price table, never the cart”</span><span class="t">· 3f2a9c1</span></div>
+          <div class="rule-line"><span class="ico">{{IconCheck:12}}</span><span class="h">Rule changed</span><span class="q">· “Refunds over $500 wait for a second approval”</span><span class="t">· by @Flint</span></div>
+          <div class="rule-line"><span class="ico">{{IconCheck:12}}</span><span class="h">Rule removed</span><span class="q">· “Ship on Fridays only after noon”</span><span class="t">· by @Otter</span></div>
+          <div class="rule-line"><span class="ico">{{IconCheck:12}}</span><span class="h">Rule back</span><span class="q">· “Keep the old ledger table for a week”</span><span class="t">· by @Maple</span></div>
+        </div>
+        <div class="composer-wrap">
+          <div class="composer">
+            <div class="ta ph">Tell @Chief what you want</div>
+            <div class="bar">
+              <span class="ib">{{IconPlus:18}}</span>
+              <span class="yolo on">{{IconShieldBolt:13}}<b>yolo</b></span>
+              <span class="picker model"><span class="claude">{{IconClaude:16}}</span>Opus 5.5<span class="ch">{{IconChevron:10}}</span></span>
+              <span class="spacer"></span>
+              <span class="send off">{{IconArrowUp:16}}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="home-bar"></div></div>
+      <figcaption><b>A rule's lines</b><div class="note">A rule that changes leaves one quiet line in the chief's chat, or in the acting agent's own chat in a project with no chief, from AgentNotice.ruleChange, in the Mac's words and order on one line: Now a check, with the short hash of the commit whose check holds it now; Rule changed or Rule removed, by @Name, the agent that did it; Rule back, with by @Name when an agent brought it back as the person asked. The quoted rule gives way first when the line is too long. The core retitles a line in place when a rule comes back, so the phone draws what the row says. The Mac's Undo is not on the phone: ask an agent to bring a rule back.</div></figcaption></figure>
     <figure><div class="phone"><div class="island"></div>
       <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
       <div class="screen">

@@ -782,5 +782,10 @@
   "Show": "Afficher",
   "Hide": "Masquer",
   "Shows all of it": "Affiche tout",
-  "Shows two lines": "Affiche deux lignes"
+  "Shows two lines": "Affiche deux lignes",
+  "Rule back": "Règle rétablie",
+  "Now a check": "Désormais une vérification",
+  "Rule changed": "Règle modifiée",
+  "Rule removed": "Règle retirée",
+  "by @{name}": "par @{name}"
 }
