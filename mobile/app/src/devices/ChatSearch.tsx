@@ -10,6 +10,7 @@ import type { Snapshot } from '@/core/protocol';
 import { Working } from '@/devices/AgentMarks';
 import { connectionOf, useLive } from '@/devices/hub';
 import { askFind } from '@/devices/pendingFind';
+import { useT } from '@/i18n';
 import { haptics } from '@/ui/haptics';
 import { useMinute } from '@/ui/motion';
 import { AgentIcon, Icon } from '@/ui/Icon';
@@ -45,6 +46,7 @@ export function ChatSearch({
   const colors = useColors();
   const styles = useStyles(makeStyles);
   const type = useType();
+  const t = useT();
   const live = useLive(core);
   const [query, setQuery] = useState('');
   const [answered, setAnswered] = useState<{ words: string; answer: RecentChats }>();
@@ -94,12 +96,12 @@ export function ChatSearch({
     if (resuming) return;
     if (!full) {
       haptics.warning();
-      setNote({ text: `This phone can only watch ${hostName}.`, failed: false });
+      setNote({ text: t('This phone can only watch {host}.', { host: hostName }), failed: false });
       return;
     }
     if (live.status !== 'open') {
       haptics.failure();
-      setNote({ text: 'Not connected to the host.', failed: true });
+      setNote({ text: t('Not connected to the host.'), failed: true });
       return;
     }
     haptics.tap();
@@ -125,7 +127,7 @@ export function ChatSearch({
           <TextInput
             value={query}
             onChangeText={setQuery}
-            placeholder="Search chats…"
+            placeholder={t('Search chats…')}
             placeholderTextColor={colors.tertiary}
             style={styles.searchInput}
             autoFocus
@@ -136,7 +138,7 @@ export function ChatSearch({
           />
         </View>
         <Pressable onPress={onClose} hitSlop={8} accessibilityRole="button">
-          <Text style={styles.cancel}>Cancel</Text>
+          <Text style={styles.cancel}>{t('Cancel')}</Text>
         </Pressable>
       </View>
       <ScrollView
@@ -188,7 +190,7 @@ export function ChatSearch({
           </>
         ) : null}
         {note ? <Text style={[styles.note, note.failed && styles.noteFailed]}>{note.text}</Text> : null}
-        {words && found && !agents.length && !saved.length ? <EmptyState icon="IconSearch" text="No chats match." /> : null}
+        {words && found && !agents.length && !saved.length ? <EmptyState icon="IconSearch" text={t('No chats match.')} /> : null}
       </ScrollView>
     </View>
   );

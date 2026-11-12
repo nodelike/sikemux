@@ -346,7 +346,7 @@ export default function Device() {
               {snapshot && status.online && !searching ? (
                 <IconButton
                   name="IconSearch"
-                  label="Search chats"
+                  label={t('Search chats')}
                   onPress={() => {
                     haptics.tap();
                     setSearching(true);

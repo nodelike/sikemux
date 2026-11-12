@@ -105,7 +105,7 @@ struct ChatSearch: View {
                             .padding(.top, 8)
                     }
                     if !words.isEmpty && found != nil && agents.isEmpty && saved.isEmpty {
-                        EmptyState(icon: Icons.search, text: "No chats match.")
+                        EmptyState(icon: Icons.search, text: String(localized: "No chats match."))
                     }
                 }
                 .padding(.horizontal, 16)
@@ -140,13 +140,13 @@ struct ChatSearch: View {
         guard resuming == nil else { return }
         guard full else {
             Haptics.warning()
-            note = ("This phone can only watch \(hostName).", false)
+            note = (String(localized: "This phone can only watch \(hostName)."), false)
             return
         }
         let live = Hub.shared.live(core)
         guard live.isOpen, let connection = live.connection else {
             Haptics.failure()
-            note = ("Not connected to the host.", true)
+            note = (String(localized: "Not connected to the host."), true)
             return
         }
         Haptics.tap()
