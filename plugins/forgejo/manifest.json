@@ -51,7 +51,7 @@
       "name": "forgejo_pulls",
       "row": {"verb": "list", "kind": "read", "icon": "pull-request", "target": ["{name} pull requests"], "detail": ["{state}"]},
       "method": "pulls",
-      "description": "Pull requests on Forgejo or Gitea, most recently updated first, with state, branches, reviewers and whether each can merge. owner, name and host come from the git remote.",
+      "description": "Pull requests, most recently updated first, with state, branches, reviewers and whether each can merge. owner, name and host come from the git remote.",
       "properties": {
         "owner": { "type": "string", "description": "The user or organisation." },
         "name": { "type": "string", "description": "The repository." },
@@ -138,7 +138,7 @@
       "name": "forgejo_job_log",
       "row": {"verb": "logs", "kind": "read", "icon": "log-lines", "target": ["job {jobId}"], "detail": ["“{grep}”"]},
       "method": "jobLogExcerpt",
-      "description": "One Actions job's log without colour codes: its end, grep matches or a line range, at most 30,000 characters. Start with the default tail or a grep for the error.",
+      "description": "One Actions job's log without colour codes: its end, grep matches or a line range, at most 30,000 characters. Start with the tail or a grep for the error.",
       "properties": {
         "owner": { "type": "string", "description": "The user or organisation." },
         "name": { "type": "string", "description": "The repository." },
