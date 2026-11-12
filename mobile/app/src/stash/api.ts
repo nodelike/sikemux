@@ -6,6 +6,7 @@ import { answerProblem, ApiProblem, bearer } from '@shared/account/api';
 
 import { api, OFFLINE, type TokenSource } from '@/account/api';
 import { apiUrl } from '@/account/config';
+import { translate } from '@/i18n';
 import type { Attachment } from '@/chat/uploads';
 
 export type { StashItem, StashTarget };
@@ -40,7 +41,7 @@ export async function stashFile(
   } finally {
     task.release();
   }
-  if (answer.status < 200 || answer.status >= 300) throw answerProblem(answer.status, readJson(answer.body));
+  if (answer.status < 200 || answer.status >= 300) throw answerProblem(answer.status, readJson(answer.body), translate);
   return JSON.parse(answer.body) as StashItem;
 }
 
@@ -67,7 +68,7 @@ export async function fetchStashFile(token: TokenSource, item: StashItem): Promi
       });
     } catch (error) {
       if (error instanceof ApiProblem) throw error;
-      throw new ApiProblem(/\b[45]\d\d\b/.test(String(error)) ? "Couldn't get this from your stash." : OFFLINE);
+      throw new ApiProblem(/\b[45]\d\d\b/.test(String(error)) ? translate("Couldn't get this from your stash.") : translate(OFFLINE));
     }
   }
   const mime = item.mime ?? 'application/octet-stream';

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { useT } from '@/i18n';
 import { AgentIcon, Icon } from '@/ui/Icon';
 import { fonts, type Palette, useColors, useStyles } from '@/ui/theme';
 import type { StashItem } from './api';
@@ -48,6 +49,7 @@ function ChipFace({ uri }: { uri: string }) {
 }
 
 export function StashChip({ chip, onRemove }: { chip: ContextChip; onRemove: () => void }) {
+  const t = useT();
   const colors = useColors();
   const styles = useStyles(makeStyles);
   return (
@@ -63,7 +65,7 @@ export function StashChip({ chip, onRemove }: { chip: ContextChip; onRemove: () 
         hitSlop={10}
         style={styles.remove}
         accessibilityRole="button"
-        accessibilityLabel={`Remove ${chip.title}`}>
+        accessibilityLabel={t('Remove {title}', { title: chip.title })}>
         <Icon name="IconClose" size={10} color={colors.ground} />
       </Pressable>
     </View>

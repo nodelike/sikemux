@@ -1,4 +1,5 @@
 import type { Attachment } from '@/chat/uploads';
+import { translate } from '@/i18n';
 import { fetchStashFile, type StashItem } from './api';
 import { stashToken } from './store';
 import { carriesFile } from './words';
@@ -6,7 +7,7 @@ import { carriesFile } from './words';
 /** A stash file brought down to this phone, for a chat that does not exist yet to take. */
 export function downloadedFile(item: StashItem): Promise<Attachment> {
   const token = stashToken();
-  if (!token) return Promise.reject(new Error('Sign in again.'));
+  if (!token) return Promise.reject(new Error(translate('Sign in again.')));
   return fetchStashFile(token, item);
 }
 

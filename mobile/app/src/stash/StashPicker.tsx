@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Alert, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { translate, useT } from '@/i18n';
 import { haptics } from '@/ui/haptics';
 import { Icon } from '@/ui/Icon';
 import type { IconName } from '@/ui/icons.generated';
@@ -38,6 +39,7 @@ export function StashPicker({
   onBack: () => void;
   onClose: () => void;
 }) {
+  const t = useT();
   const colors = useColors();
   const styles = useStyles(makeStyles);
   const stash = useStash();
@@ -54,12 +56,12 @@ export function StashPicker({
 
   const remove = (item: StashItem) => {
     haptics.select();
-    Alert.alert('Remove from stash?', itemTitle(item), [
-      { text: 'Cancel', style: 'cancel' },
+    Alert.alert(translate('Remove from stash?'), itemTitle(item), [
+      { text: translate('Cancel'), style: 'cancel' },
       {
-        text: 'Remove',
+        text: translate('Remove'),
         style: 'destructive',
-        onPress: () => void removeStash(item.id).catch(alertFailure("Couldn't remove it")),
+        onPress: () => void removeStash(item.id).catch(alertFailure(translate("Couldn't remove it"))),
       },
     ]);
   };
@@ -92,7 +94,7 @@ export function StashPicker({
     );
   } else if (stash.state === 'loading') {
     body = (
-      <View style={styles.listPad} accessibilityLabel="Loading the stash">
+      <View style={styles.listPad} accessibilityLabel={t('Loading the stash')}>
         {Array.from({ length: GHOSTS }, (_, index) => (
           <View key={index} style={styles.row}>
             <View style={[styles.face, styles.ghostFace]} />
@@ -108,10 +110,10 @@ export function StashPicker({
     body = (
       <View style={styles.empty}>
         <PromptGlyph icon="IconGlobe" small />
-        <Text style={styles.emptyTitle}>{"Can't reach Sikemux"}</Text>
-        <Text style={styles.emptyText}>Check the phone is online.</Text>
+        <Text style={styles.emptyTitle}>{t("Can't reach Sikemux")}</Text>
+        <Text style={styles.emptyText}>{t('Check the phone is online.')}</Text>
         <View style={{ marginTop: 10 }}>
-          <Chip title="Try again" onPress={() => void refreshStash()} />
+          <Chip title={t('Try again')} onPress={() => void refreshStash()} />
         </View>
       </View>
     );
@@ -119,8 +121,8 @@ export function StashPicker({
     body = (
       <View style={styles.empty}>
         <PromptGlyph icon="IconStack" small />
-        <Text style={styles.emptyTitle}>Nothing stashed</Text>
-        <Text style={styles.emptyText}>Share a link, a photo or a file to Sikemux from any app to keep it here.</Text>
+        <Text style={styles.emptyTitle}>{t('Nothing stashed')}</Text>
+        <Text style={styles.emptyText}>{t('Share a link, a photo or a file to Sikemux from any app to keep it here.')}</Text>
       </View>
     );
   }
@@ -128,11 +130,11 @@ export function StashPicker({
   return (
     <View style={styles.wrap}>
       <View style={styles.head}>
-        <Pressable onPress={onClose} hitSlop={8} style={styles.close} accessibilityRole="button" accessibilityLabel="Close">
+        <Pressable onPress={onClose} hitSlop={8} style={styles.close} accessibilityRole="button" accessibilityLabel={t('Close')}>
           <Icon name="IconClose" size={15} color={colors.tertiary} />
         </Pressable>
         <Text style={styles.title} accessibilityRole="header">
-          Stash
+          {t('Stash')}
         </Text>
         {news.length ? (
           <Pressable
@@ -140,8 +142,8 @@ export function StashPicker({
             hitSlop={8}
             style={styles.headAction}
             accessibilityRole="button"
-            accessibilityLabel={`Add ${news.length} new`}>
-            <Text style={styles.headActionText}>Add {news.length} new</Text>
+            accessibilityLabel={t('Add {count} new', { count: news.length })}>
+            <Text style={styles.headActionText}>{t('Add {count} new', { count: news.length })}</Text>
           </Pressable>
         ) : (
           <View style={styles.close} />
@@ -153,8 +155,8 @@ export function StashPicker({
           style={({ pressed }) => [styles.stashPrompt, pressed && { backgroundColor: colors.active }]}
           accessibilityRole="button">
           <Icon name="IconStack" size={16} color={colors.ink} />
-          <Text style={styles.stashPromptText}>Stash this prompt</Text>
-          <Text style={styles.stashPromptHint}>Clears the composer</Text>
+          <Text style={styles.stashPromptText}>{t('Stash this prompt')}</Text>
+          <Text style={styles.stashPromptHint}>{t('Clears the composer')}</Text>
         </Pressable>
       ) : null}
       {body}
@@ -218,6 +220,7 @@ function Row({
   onPress: () => void;
   onLongPress: () => void;
 }) {
+  const t = useT();
   const styles = useStyles(makeStyles);
   const file = item.kind === 'file' || item.kind === 'video';
   const prompt = item.kind === 'prompt';
@@ -228,7 +231,7 @@ function Row({
       style={[styles.row, order > 0 && styles.rowOn]}
       accessibilityRole="button"
       accessibilityLabel={itemTitle(item)}
-      accessibilityHint="Hold to remove it from the stash"
+      accessibilityHint={t('Hold to remove it from the stash')}
       accessibilityState={{ selected: order > 0 }}>
       <Face item={item} bearer={bearer} />
       <View style={styles.body}>
@@ -236,7 +239,7 @@ function Row({
           <Text style={[styles.rowTitle, file && styles.mono]} numberOfLines={prompt ? 2 : 1}>
             {prompt ? item.text?.trim() : itemTitle(item)}
           </Text>
-          {fresh ? <Text style={styles.fresh}>NEW</Text> : null}
+          {fresh ? <Text style={styles.fresh}>{t('NEW')}</Text> : null}
         </View>
         {prompt && item.attachments?.length ? (
           <View style={styles.thumbs}>
@@ -251,7 +254,7 @@ function Row({
           </Text>
         ) : null}
         <Text style={styles.place} numberOfLines={1}>
-          {itemPlace(item)}
+          {itemPlace(item, t)}
         </Text>
       </View>
       <View style={[styles.pick, order > 0 && styles.pickOn]}>{order > 0 ? <Text style={styles.pickText}>{order}</Text> : null}</View>

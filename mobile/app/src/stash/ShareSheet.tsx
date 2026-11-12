@@ -3,6 +3,7 @@ import { Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 
 
 import { formatBytes } from '@shared/lib/format';
 import type { TokenSource } from '@/account/api';
+import { useT } from '@/i18n';
 import { problem as problemOf } from '@/core/problem';
 import { Button, Chip } from '@/ui/controls';
 import { haptics } from '@/ui/haptics';
@@ -39,6 +40,7 @@ export function ShareSheet({
   token: TokenSource;
   onDone: () => void;
 }) {
+  const t = useT();
   const colors = useColors();
   const styles = useStyles(makeStyles);
   const bottom = useBottomGap();
@@ -85,16 +87,24 @@ export function ShareSheet({
   const toChat = (chat: ShareChat) =>
     void send(
       { hostKey: chat.host, chatId: chat.chatId },
-      { at: 'done', title: `Added to ${chat.name ?? 'the chat'}'s draft`, detail: `Unsent, on ${chat.hostName}` },
+      {
+        at: 'done',
+        title: chat.name ? t("Added to {name}'s draft", { name: chat.name }) : t("Added to the chat's draft"),
+        detail: t('Unsent, on {host}', { host: chat.hostName }),
+      },
     );
   const newChat = chats.newChat;
   const toNewChat = () =>
     newChat &&
     void send(
       { hostKey: newChat.host, projectPath: newChat.projectPath, newChat: true },
-      { at: 'done', title: `In a new chat in ${newChat.project}`, detail: `Unsent, on ${newChat.hostName}` },
+      {
+        at: 'done',
+        title: t('In a new chat in {project}', { project: newChat.project }),
+        detail: t('Unsent, on {host}', { host: newChat.hostName }),
+      },
     );
-  const toStash = () => void send(undefined, { at: 'done', title: 'Stashed', detail: 'Attach it from + in any chat.' });
+  const toStash = () => void send(undefined, { at: 'done', title: t('Stashed'), detail: t('Attach it from + in any chat.') });
   const close = () => {
     cancel.current?.abort();
     onDone();
@@ -102,7 +112,7 @@ export function ShareSheet({
 
   const head = (
     <View style={styles.head}>
-      <Pressable onPress={close} hitSlop={8} style={styles.close} accessibilityRole="button" accessibilityLabel="Cancel">
+      <Pressable onPress={close} hitSlop={8} style={styles.close} accessibilityRole="button" accessibilityLabel={t('Cancel')}>
         <Icon name="IconClose" size={16} color={colors.tertiary} />
       </Pressable>
       <Text style={styles.title} accessibilityRole="header">
@@ -121,11 +131,11 @@ export function ShareSheet({
           <View style={failed ? undefined : styles.doneGlyph}>
             {failed ? <PromptGlyph icon="IconGlobe" small /> : <Icon name="IconCheck" size={22} color={colors.live} />}
           </View>
-          <Text style={styles.settledTitle}>{failed ? "Couldn't stash this" : phase.title}</Text>
+          <Text style={styles.settledTitle}>{failed ? t("Couldn't stash this") : phase.title}</Text>
           <Text style={styles.settledText}>{failed ? phase.problem : phase.detail}</Text>
           {failed && last ? (
             <View style={{ marginTop: 12 }}>
-              <Chip title="Try again" onPress={() => void send(last.target, last.done)} />
+              <Chip title={t('Try again')} onPress={() => void send(last.target, last.done)} />
             </View>
           ) : null}
         </View>
@@ -150,15 +160,16 @@ export function ShareSheet({
         ) : null}
         {big.length ? (
           <Text style={styles.big}>
-            {big.length === 1 && big[0].kind === 'file' ? big[0].file.name : `${big.length} files`} {big.length === 1 ? 'is' : 'are'} over
-            25 MB, too big to stash
+            {big.length === 1
+              ? t('{name} is over 25 MB, too big to stash', { name: big[0].kind === 'file' ? big[0].file.name : t('1 file') })
+              : t('{count} files are over 25 MB, too big to stash', { count: big.length })}
           </Text>
         ) : null}
         <View style={[sending && styles.dim]} pointerEvents={sending ? 'none' : 'auto'}>
           <TextInput
             value={note}
             onChangeText={setNote}
-            placeholder="Add a note"
+            placeholder={t('Add a note')}
             placeholderTextColor={colors.tertiary}
             multiline
             maxLength={2000}
@@ -167,13 +178,13 @@ export function ShareSheet({
           />
           {chats.chats.length || newChat ? (
             <>
-              <SectionLabel>To a chat</SectionLabel>
+              <SectionLabel>{t('To a chat')}</SectionLabel>
               <Rows>
                 {chats.chats.map((chat) => (
                   <Row
                     key={`${chat.host}:${chat.chatId}`}
                     mark={<AgentIcon provider={chat.provider} size={20} />}
-                    title={chat.title}
+                    title={chat.title ?? t('New chat')}
                     place={chat.project}
                     detail={chat.hostName}
                     name={chat.name}
@@ -183,7 +194,7 @@ export function ShareSheet({
                 {newChat ? (
                   <Row
                     mark={<Icon name="IconPlus" size={18} color={colors.secondary} />}
-                    title={`New chat in ${newChat.project}`}
+                    title={t('New chat in {project}', { project: newChat.project })}
                     detail={newChat.hostName}
                     onPress={sendable.length ? toNewChat : undefined}
                   />
@@ -197,7 +208,7 @@ export function ShareSheet({
         <Button
           kind="primary"
           icon="IconStack"
-          title={sending ? 'Stashing' : 'Stash'}
+          title={sending ? t('Stashing') : t('Stash')}
           busy={sending}
           disabled={!sendable.length}
           onPress={toStash}
@@ -208,6 +219,7 @@ export function ShareSheet({
 }
 
 function Preview({ items }: { items: readonly Outgoing[] }) {
+  const t = useT();
   const colors = useColors();
   const styles = useStyles(makeStyles);
   const files = items.flatMap((item) => (item.kind === 'file' ? [item.file] : []));
@@ -217,7 +229,11 @@ function Preview({ items }: { items: readonly Outgoing[] }) {
     const pictures = files.filter((file) => file.uri && file.mime.startsWith('image/'));
     const size = files.reduce((sum, file) => sum + file.size, 0);
     const named =
-      files.length === 1 ? files[0].name : pictures.length === files.length ? `${files.length} photos` : `${files.length} files`;
+      files.length === 1
+        ? files[0].name
+        : pictures.length === files.length
+          ? t('{count} photos', { count: files.length })
+          : t('{count} files', { count: files.length });
     return (
       <View style={[styles.card, styles.flat]}>
         {pictures.length ? (

@@ -7,7 +7,7 @@ import { FlashList, type FlashListRef } from '@shopify/flash-list';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { activityDoing } from '@shared/chat/chatStatus';
-import { useT } from '@/i18n';
+import { type Translate, useT } from '@/i18n';
 import { subagentsOf } from '@shared/chat/subagents';
 import type { ChatMessage } from '@shared/wire.generated';
 import { shareUrl } from '@shared/account/live';
@@ -32,27 +32,31 @@ import { fonts, type Palette, useColors, useStyles, useType } from '@/ui/theme';
 
 type Problem = { icon: Glyph; text: string };
 
-const PROBLEMS: Partial<Record<ShareSnapshot['status'], Problem>> = {
-  missing: { icon: 'IconPower', text: 'This chat is not running on its host right now.' },
-  notFound: { icon: 'IconUnlink', text: 'No chat is shared at this link.' },
-  signedOut: { icon: 'IconUser', text: 'Sign in to Sikemux to watch shared chats.' },
-  unreadable: { icon: 'IconUnlink', text: 'This link does not open the chat it points at. Check that the whole link was copied.' },
-};
-
-function problemOf(snapshot: ShareSnapshot): Problem | undefined {
-  if (snapshot.status === 'ended')
-    return snapshot.endedBecause === 'expired'
-      ? { icon: 'IconHourglass', text: 'This share has expired.' }
-      : { icon: 'IconStop', text: 'Sharing this chat has stopped.' };
-  return PROBLEMS[snapshot.status];
+function problemOf(snapshot: ShareSnapshot, t: Translate): Problem | undefined {
+  switch (snapshot.status) {
+    case 'ended':
+      return snapshot.endedBecause === 'expired'
+        ? { icon: 'IconHourglass', text: t('This share has expired.') }
+        : { icon: 'IconStop', text: t('Sharing this chat has stopped.') };
+    case 'missing':
+      return { icon: 'IconPower', text: t('This chat is not running on its host right now.') };
+    case 'notFound':
+      return { icon: 'IconUnlink', text: t('No chat is shared at this link.') };
+    case 'signedOut':
+      return { icon: 'IconUser', text: t('Sign in to Sikemux to watch shared chats.') };
+    case 'unreadable':
+      return { icon: 'IconUnlink', text: t('This link does not open the chat it points at. Check that the whole link was copied.') };
+    default:
+      return undefined;
+  }
 }
 
-function endsIn(expiresAt: number, now: number): string {
+function endsIn(expiresAt: number, now: number, t: Translate): string {
   const minutes = Math.max(1, Math.round((expiresAt - now) / 60_000));
-  if (minutes < 60) return `${minutes} min`;
+  if (minutes < 60) return t('{minutes} min', { minutes });
   const hours = Math.round(minutes / 60);
-  if (hours < 48) return hours === 1 ? '1 hour' : `${hours} hours`;
-  return `${Math.round(hours / 24)} days`;
+  if (hours < 48) return hours === 1 ? t('1 hour') : t('{hours} hours', { hours });
+  return t('{days} days', { days: Math.round(hours / 24) });
 }
 
 /** The key is after `#`, which a link that opened the app keeps; a link opened from inside it passes the key along. */
@@ -68,11 +72,12 @@ function useShareLink(): ShareLink | null {
 
 export default function SharedChatScreen() {
   const link = useShareLink();
+  const t = useT();
   if (!link)
     return (
       <Screen>
-        <Nav title={<Text>Shared chat</Text>} />
-        <Missing problem={{ icon: 'IconUnlink', text: 'This link is incomplete. Copy the whole link.' }} />
+        <Nav title={<Text>{t('Shared chat')}</Text>} />
+        <Missing problem={{ icon: 'IconUnlink', text: t('This link is incomplete. Copy the whole link.') }} />
       </Screen>
     );
   return <Watching key={link.id} link={link} />;
@@ -116,7 +121,8 @@ function SharedChat({ session }: { session: ShareSession }) {
   const snapshot = useSyncExternalStore(session.subscribe, session.snapshot);
   const state = snapshot.agent;
   const provider = snapshot.chat?.provider ?? 'agent';
-  const title = sharedChatTitle(snapshot);
+  const t = useT();
+  const title = sharedChatTitle(snapshot, t);
   const [folds] = useState(() => new Folds());
   const [openWork, setOpenWork] = useState<ReadonlySet<string>>(() => new Set());
   const workOpen = (id: string) => openWork.has(id);
@@ -135,10 +141,9 @@ function SharedChat({ session }: { session: ShareSession }) {
   const marks = useMemo(() => [liveId, openWork], [liveId, openWork]);
   const [since] = useState(Date.now);
   const now = useMinute() * 60_000;
-  const t = useT();
   const live = snapshot.status === 'live';
   const activity = live ? activityDoing(state.activity, t) : null;
-  const problem = problemOf(snapshot);
+  const problem = problemOf(snapshot, t);
   const list = useRef<FlashListRef<ChatMessage>>(null);
   const scroll = useTranscriptScroll(list, {
     has: snapshot.hasEarlier,
@@ -151,8 +156,10 @@ function SharedChat({ session }: { session: ShareSession }) {
   const emptyUnsent = useMemo(() => new Map(), []);
   const footer = !problem
     ? snapshot.hostOnline
-      ? `Read-only${snapshot.expiresAt ? ` · link ends in ${endsIn(snapshot.expiresAt, now)}` : ''}`
-      : 'Read-only · the sharer is offline'
+      ? snapshot.expiresAt
+        ? t('Read-only · link ends in {time}', { time: endsIn(snapshot.expiresAt, now, t) })
+        : t('Read-only')
+      : t('Read-only · the sharer is offline')
     : problem.text;
 
   return (
@@ -173,7 +180,7 @@ function SharedChat({ session }: { session: ShareSession }) {
         ) : (
           <View style={styles.attaching} accessibilityLiveRegion="polite">
             <Working />
-            <Text style={type.meta}>Opening the shared chat…</Text>
+            <Text style={type.meta}>{t('Opening the shared chat…')}</Text>
           </View>
         )
       ) : (
@@ -251,7 +258,7 @@ function SharedChat({ session }: { session: ShareSession }) {
                         <>
                           {state.permissions.map((request) => (
                             <Text key={request.requestId} style={styles.waiting}>
-                              Waiting for permission: {request.toolCall.title}
+                              {t('Waiting for permission: {tool}', { tool: request.toolCall.title })}
                             </Text>
                           ))}
                           {activity ? <Activity provider={provider} doing={activity} since={since} /> : null}
@@ -267,7 +274,7 @@ function SharedChat({ session }: { session: ShareSession }) {
                         style={styles.jump}
                         hitSlop={8}
                         accessibilityRole="button"
-                        accessibilityLabel="Jump to latest message">
+                        accessibilityLabel={t('Jump to latest message')}>
                         <Icon name="IconArrowDown" size={16} color={colors.inkDim} />
                       </Pressable>
                     ) : null}

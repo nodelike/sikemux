@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import type { Snapshot } from '@/core/protocol';
 import { knownDevices, liveOf, onAnyHost, useDevices, watch } from '@/devices/hub';
 import { deviceName, type PairedDevice } from '@/devices/paired';
+import { translate } from '@/i18n';
 import { projectAt, projectName, projectOf } from '@/devices/words';
 
 /** A chat the share sheet offers to put what is shared in, as an unsent draft attachment. */
@@ -11,7 +12,8 @@ export type ShareChat = {
   hostName: string;
   chatId: string;
   provider: string;
-  title: string;
+  /** Unset for a chat with no title yet. */
+  title?: string;
   /** What the core calls the agent, such as Otter. */
   name?: string;
   project: string;
@@ -30,7 +32,7 @@ function shareChats(hosts: readonly { device: PairedDevice; snapshot: Snapshot |
   const found: (ShareChat & { projectPath: string })[] = [];
   for (const { device, snapshot } of hosts) {
     if (device.access !== 'full' || !snapshot) continue;
-    const hostName = deviceName(device);
+    const hostName = deviceName(device, translate);
     for (const chat of snapshot.chats) {
       const shown = snapshot.inbox.agents.find((agent) => agent.agentId === chat.agentId);
       const where = projectOf(snapshot, chat.agentId) ?? chat.cwd;
@@ -39,7 +41,7 @@ function shareChats(hosts: readonly { device: PairedDevice; snapshot: Snapshot |
         hostName,
         chatId: chat.agentId,
         provider: chat.provider,
-        title: chat.title ?? shown?.title ?? 'New chat',
+        title: chat.title ?? shown?.title ?? undefined,
         name: chat.name ?? undefined,
         project: projectName(snapshot, where, chat.cwd),
         projectPath: projectAt(snapshot, where)?.path ?? chat.cwd,

@@ -1,5 +1,6 @@
 import { STASH_URI } from '@shared/wire.generated';
 import { formatAge, formatBytes } from '@shared/lib/format';
+import { english, type Say } from '@shared/lib/say';
 
 import type { StashItem } from './api';
 
@@ -15,22 +16,23 @@ export function itemTitle(item: StashItem): string {
 }
 
 /** The line under it: where a link goes or what the item is, then how long ago it was stashed. */
-export function itemPlace(item: StashItem): string {
+export function itemPlace(item: StashItem, say: Say = english): string {
   const what =
     item.kind === 'link'
       ? item.preview?.site || siteOf(item.url ?? '')
       : item.kind === 'text'
-        ? 'Text'
+        ? say('Text')
         : item.kind === 'prompt'
-          ? promptWords(item)
+          ? promptWords(item, say)
           : formatBytes(item.size ?? 0);
-  const age = formatAge(item.createdAt);
-  return `${what} · ${age === 'now' ? 'just now' : age}`;
+  const age = formatAge(item.createdAt, Date.now(), say);
+  return `${what} · ${age === say('now') ? say('just now') : age}`;
 }
 
-function promptWords(item: StashItem): string {
+function promptWords(item: StashItem, say: Say): string {
   const files = item.attachments?.length ?? 0;
-  return files ? `Prompt · ${files} ${files === 1 ? 'file' : 'files'}` : 'Prompt';
+  if (!files) return say('Prompt');
+  return files === 1 ? say('Prompt · 1 file') : say('Prompt · {count} files', { count: files });
 }
 
 export const carriesFile = (item: StashItem) => item.kind === 'image' || item.kind === 'video' || item.kind === 'file';
