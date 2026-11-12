@@ -26,7 +26,7 @@ HERE = Path(__file__).resolve().parent
 MOST_LIVE = 3
 # How much worse than the plain chat the apps chat may be before the check fails.
 SLOWEST_TWENTIETH_MS = 4.0
-LONG_FRAMES = 3
+LONG_FRAMES = 0
 MEMORY_MB = 400
 
 

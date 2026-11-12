@@ -33,8 +33,7 @@ const MAX_VIEWS: usize = 3;
 const DEFAULT_HEIGHT: f32 = 240.;
 const MAX_HEIGHT: f32 = 2000.;
 const HEADER_HEIGHT: f32 = 30.;
-/// How long the chat must rest before an app in sight borrows a view, so scrolling past apps,
-/// or flicking through a chat while reading it, never waits on WebKit.
+/// How often an app in sight waiting for the person to rest looks again.
 const SETTLE: Duration = Duration::from_millis(300);
 /// How long an app's card must have gone undrawn before another app in sight may take its
 /// view, which an app asks for only once the frame that saw it is drawn; taking a view whose
@@ -50,7 +49,8 @@ const IDLE: Duration = Duration::from_secs(120);
 const QUIET: Duration = Duration::from_secs(1);
 /// How often a running app is looked at, to take a fresh still or hand its view back.
 const TICK: Duration = Duration::from_millis(500);
-/// How long the person must have rested before a view is made for apps.
+/// How long the person must have rested before a view is made, lent or handed back, as each
+/// holds the main thread, so scrolling past apps keeps their pictures and never waits on WebKit.
 const REST: Duration = Duration::from_millis(1200);
 const HOST: &str = include_str!("app_host.html");
 const BLANK: &str = "<!doctype html><html><body></body></html>";
@@ -498,11 +498,7 @@ fn seen(id: &str, sight: &Rc<Sight>, top: f32, wake: &Wake, window: &mut Window,
         .spawn(cx, async move |cx| {
             loop {
                 cx.background_executor().timer(SETTLE).await;
-                let rested = sight
-                    .moved
-                    .get()
-                    .is_some_and(|moved| moved.elapsed() >= SETTLE);
-                if rested {
+                if cx.update(|_, cx| resting(apps(cx))).unwrap_or(true) {
                     break;
                 }
             }
@@ -602,11 +598,7 @@ fn warm(window: &mut Window, cx: &mut App) {
         .spawn(cx, async move |cx| loop {
             cx.background_executor().timer(TICK).await;
             let made = cx.update(|window, cx| {
-                if writing(apps(cx)) {
-                    return Some(false);
-                }
-                let scrolled = apps(cx).moved.is_some_and(|moved| moved.elapsed() < REST);
-                if scrolled || input_rest() < REST {
+                if !resting(apps(cx)) {
                     return Some(false);
                 }
                 let (events, heard) = tokio::sync::mpsc::unbounded_channel();
@@ -652,6 +644,12 @@ fn writing(pool: &mut Apps) -> bool {
         pool.moved = Some(Instant::now());
     }
     writing
+}
+
+/// Whether the person has rested and no agent writes in a chat with apps, as making or lending
+/// a view holds the main thread.
+fn resting(pool: &mut Apps) -> bool {
+    !writing(pool) && pool.moved.is_none_or(|moved| moved.elapsed() >= REST) && input_rest() >= REST
 }
 
 fn apps_full(cx: &mut AsyncWindowContext) -> bool {
@@ -854,6 +852,7 @@ async fn keep(id: String, round: u64, cx: &mut AsyncWindowContext) {
     loop {
         cx.background_executor().timer(TICK).await;
         let looked = cx.update(|_, cx| {
+            let rest = resting(apps(cx));
             let apps = apps(cx);
             let shown = apps.shown.get(&id).filter(|shown| shown.round == round)?;
             let has_still = shown.still.is_some();
@@ -873,7 +872,7 @@ async fn keep(id: String, round: u64, cx: &mut AsyncWindowContext) {
                 return Some(Look::Rest);
             }
             let since = *hidden_since.get_or_insert_with(Instant::now);
-            if since.elapsed() < GRACE {
+            if since.elapsed() < GRACE || !rest {
                 return Some(Look::Rest);
             }
             let kept = kept.id;
