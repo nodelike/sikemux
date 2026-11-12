@@ -1716,7 +1716,7 @@ pub(crate) fn close(core: &Core, agent_ids: &[String]) -> CoreResult<()> {
     let before = core.workspaces.agent_ids();
     core.workspaces.close_agents(agent_ids)?;
     agents_closed(core, before);
-    super::worktree::build_output::closed(core, trees);
+    super::worktree::build_output::closed(core, agent_ids, trees);
     Ok(())
 }
 

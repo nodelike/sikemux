@@ -35,7 +35,6 @@ impl Core {
                 super::board::chat_goal::turn_started(self, agent_id);
                 super::why::turn_started(agent_id);
                 self.ship.turn_started(agent_id);
-                super::worktree::build_output::turn_started(self, agent_id);
                 self.seen.started(agent_id);
                 self.inbox.started(agent_id);
                 super::pins::turn_started(self, agent_id);
@@ -110,7 +109,6 @@ impl Core {
 
     fn came_to_rest(&self, agent_id: &str) {
         self.ship.turn_ended(agent_id);
-        super::worktree::build_output::turn_ended(self, agent_id);
         if let Some(place) = super::activity_log::place(self, agent_id) {
             self.activity_log.turn_ended(agent_id, place);
         }
@@ -148,6 +146,7 @@ impl Core {
     /// [`Self::note_agent_gone`]; teammates on other hosts hear it sleeps, and wakes for them.
     pub(crate) fn note_agent_asleep(&self, agent_id: &str) {
         self.journal_here(agent_id, Happened::Gone);
+        super::worktree::build_output::slept(self, agent_id);
         super::hosts::route::asleep(self, agent_id);
         self.changed(What::Agents);
     }

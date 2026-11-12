@@ -126,6 +126,7 @@ impl Default for HostWatch {
 impl super::part::Part for HostWatch {
     fn start(&self, core: &Arc<Core>) -> Vec<JoinHandle<()>> {
         watch_pressure(Arc::downgrade(core));
+        super::worktree::build_output::remove_set_aside(core);
         vec![tokio::spawn(run(core.clone()))]
     }
 }
@@ -135,8 +136,13 @@ impl HostWatch {
         self.state.locked().record(epoch_ms(), what);
     }
 
-    fn disk_alerted(&self) -> bool {
-        self.state.locked().alert(HostAlertKind::Disk).is_some()
+    /// The disk's free space and its size at the latest look, once it has been looked at.
+    fn disk_free(&self) -> Option<(u64, u64)> {
+        let state = self.state.locked();
+        (state.disk_total > 0).then(|| {
+            let free = state.disk_total.saturating_sub(state.now.disk_used);
+            (free, state.disk_total)
+        })
     }
 
     fn watched(&self) -> bool {
@@ -396,8 +402,8 @@ async fn run(core: Arc<Core>) {
             looker = back;
             if host_due {
                 next_host = now + HISTORY_EVERY;
-                if core.host_watch.disk_alerted() {
-                    super::worktree::build_output::make_room(&core);
+                if let Some((free, total)) = core.host_watch.disk_free() {
+                    super::worktree::build_output::make_room(&core, free, total);
                 }
                 if now >= next_shown {
                     next_shown = now + LOAD_SHOWN_EVERY;
@@ -945,14 +951,6 @@ impl State {
         self.alerts = alerts;
         moved
     }
-}
-
-/// Whether the disk has dropped back below where a full disk's alert ends.
-pub(crate) fn disk_has_room() -> bool {
-    let Some(disk) = sikemux_process::paths::home().and_then(|home| machine::disk(&home)) else {
-        return true;
-    };
-    percent(disk.used, disk.total) < DISK_LIMITS.calm
 }
 
 /// Measures what takes the disk, in the background at the system's lowest priority, at most

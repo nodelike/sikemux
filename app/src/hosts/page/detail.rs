@@ -1732,8 +1732,13 @@ fn activity(host: &Listed, stats: &HostStats, t: &Tokens, cx: &mut Context<Workb
                             worktree = worktree,
                             size = model::size(*bytes)
                         ),
-                        ClearedFor::DiskFull => t!(
-                            "Removed build output from {worktree}, freeing {size}, as the disk was nearly full",
+                        ClearedFor::LowSpace => t!(
+                            "Removed build output from {worktree}, freeing {size}, as free space ran low",
+                            worktree = worktree,
+                            size = model::size(*bytes)
+                        ),
+                        ClearedFor::Unknown => t!(
+                            "Removed build output from {worktree}, freeing {size}",
                             worktree = worktree,
                             size = model::size(*bytes)
                         ),

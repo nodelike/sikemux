@@ -34,6 +34,12 @@ pub struct Disk {
     pub used: u64,
 }
 
+impl Disk {
+    pub fn free(&self) -> u64 {
+        self.total.saturating_sub(self.used)
+    }
+}
+
 pub fn about() -> About {
     let mut about = system::about();
     about.cores = std::thread::available_parallelism().map_or(1, |cores| cores.get()) as u32;

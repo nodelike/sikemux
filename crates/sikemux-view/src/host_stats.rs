@@ -274,8 +274,10 @@ pub enum ClearedFor {
     Closed,
     /// Its agent landed everything and ended its turn.
     Landed,
-    /// The disk was nearly full and nothing had built in it for longest.
-    DiskFull,
+    /// Free space ran low and nothing had built in it for longest.
+    LowSpace,
+    #[serde(other)]
+    Unknown,
 }
 
 /// Why a host cannot be reached, or this host cannot be reached, as a chain of steps each

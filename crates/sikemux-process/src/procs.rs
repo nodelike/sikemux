@@ -70,21 +70,75 @@ mod system {
         Some(std::ffi::OsStr::from_bytes(&buffer[..length]).into())
     }
 
+    fn folder(pid: u32) -> Option<std::path::PathBuf> {
+        use std::os::unix::ffi::OsStrExt;
+        let mut info = MaybeUninit::<libc::proc_vnodepathinfo>::zeroed();
+        let size = size_of::<libc::proc_vnodepathinfo>() as libc::c_int;
+        // SAFETY: `info` is a writable `proc_vnodepathinfo` of `size` bytes, and the kernel
+        // writes at most that many.
+        let written = unsafe {
+            libc::proc_pidinfo(
+                pid as libc::c_int,
+                libc::PROC_PIDVNODEPATHINFO,
+                0,
+                info.as_mut_ptr().cast(),
+                size,
+            )
+        };
+        if written != size {
+            return None;
+        }
+        // SAFETY: the kernel filled the whole struct when it wrote `size` bytes.
+        let info = unsafe { info.assume_init() };
+        let path: Vec<u8> = (info.pvi_cdir.vip_path.iter().flatten())
+            .take_while(|char| **char != 0)
+            .map(|char| *char as u8)
+            .collect();
+        (!path.is_empty()).then(|| std::ffi::OsStr::from_bytes(&path).into())
+    }
+
+    pub(super) fn places() -> Option<Vec<super::Place>> {
+        let (pids, whole) = listed_pids();
+        if !whole || pids.is_empty() {
+            return None;
+        }
+        let mut buffer = vec![0u8; argmax()?];
+        let mut found = Vec::new();
+        for pid in pids {
+            let arguments = procargs_into(pid, &mut buffer)
+                .and_then(|size| arguments_from_procargs(&buffer[..size]))
+                .unwrap_or_default();
+            let paths = [program(pid), folder(pid)]
+                .into_iter()
+                .flatten()
+                .chain(super::argument_paths(&arguments));
+            found.extend(paths.map(|path| super::Place { pid, path }));
+        }
+        Some(found)
+    }
+
     fn all_pids() -> Vec<u32> {
+        listed_pids().0
+    }
+
+    /// Every pid, and whether the list is whole: more processes may start between asking how
+    /// many there are and listing them, past the room left for them.
+    fn listed_pids() -> (Vec<u32>, bool) {
         // SAFETY: a null buffer asks only for how many pids there are.
         let count = unsafe { libc::proc_listallpids(std::ptr::null_mut(), 0) };
         let Ok(count) = usize::try_from(count) else {
-            return Vec::new();
+            return (Vec::new(), false);
         };
         let mut pids = vec![0 as libc::pid_t; count + 64];
         let size = (pids.len() * size_of::<libc::pid_t>()) as libc::c_int;
         // SAFETY: `pids` is a writable buffer of `size` bytes.
         let listed = unsafe { libc::proc_listallpids(pids.as_mut_ptr().cast(), size) };
         let listed = usize::try_from(listed).unwrap_or(0).min(pids.len());
-        pids[..listed]
+        let listed_pids = pids[..listed]
             .iter()
             .filter_map(|pid| u32::try_from(*pid).ok())
-            .collect()
+            .collect();
+        (listed_pids, listed > 0 && listed < pids.len())
     }
 
     pub(super) fn processes() -> Vec<(u32, u32, u64)> {
@@ -202,6 +256,13 @@ mod system {
     /// What `pid` was started with: argc, the executable path, padding, argv, then the
     /// environment.
     fn procargs(pid: u32) -> Option<Vec<u8>> {
+        let mut buffer = vec![0u8; argmax()?];
+        let size = procargs_into(pid, &mut buffer)?;
+        buffer.truncate(size);
+        Some(buffer)
+    }
+
+    fn argmax() -> Option<usize> {
         let mut argmax: libc::c_int = 0;
         let mut size = size_of::<libc::c_int>();
         let mut mib = [libc::CTL_KERN, libc::KERN_ARGMAX];
@@ -219,7 +280,11 @@ mod system {
         if status != 0 || argmax <= 0 {
             return None;
         }
-        let mut buffer = vec![0u8; argmax as usize];
+        usize::try_from(argmax).ok()
+    }
+
+    /// Reads `pid`'s `KERN_PROCARGS2` into `buffer`, answering how much of it was written.
+    fn procargs_into(pid: u32, buffer: &mut [u8]) -> Option<usize> {
         let mut size = buffer.len();
         let mut mib = [libc::CTL_KERN, libc::KERN_PROCARGS2, pid as libc::c_int];
         // SAFETY: `size` is the buffer's length; the kernel writes at most that much.
@@ -233,11 +298,7 @@ mod system {
                 0,
             )
         };
-        if status != 0 {
-            return None;
-        }
-        buffer.truncate(size);
-        Some(buffer)
+        (status == 0).then_some(size)
     }
 
     /// macOS hides the environment of Apple's own binaries. Agents are not
@@ -324,6 +385,37 @@ mod system {
                 Some((pid, parent, started))
             })
             .collect()
+    }
+
+    pub(super) fn places() -> Option<Vec<super::Place>> {
+        use std::io::Read;
+        let mut found = Vec::new();
+        let mut line = Vec::new();
+        for entry in fs::read_dir("/proc").ok()?.flatten() {
+            let Some(pid) = entry
+                .file_name()
+                .to_str()
+                .and_then(|name| name.parse().ok())
+            else {
+                continue;
+            };
+            let folder = entry.path();
+            line.clear();
+            let read = fs::File::open(folder.join("cmdline"))
+                .and_then(|mut file| file.read_to_end(&mut line));
+            let arguments: Vec<String> = match read {
+                Ok(_) => (line.split(|byte| *byte == 0))
+                    .map(|argument| String::from_utf8_lossy(argument).into_owned())
+                    .collect(),
+                Err(_) => Vec::new(),
+            };
+            let paths = ["exe", "cwd"]
+                .into_iter()
+                .filter_map(|link| fs::read_link(folder.join(link)).ok())
+                .chain(super::argument_paths(&arguments));
+            found.extend(paths.map(|path| super::Place { pid, path }));
+        }
+        Some(found)
     }
 
     /// Every process's usage, from `/proc/<pid>/stat`: CPU time in clock ticks, resident
@@ -423,6 +515,10 @@ mod system {
     pub(super) fn command_line(_pid: u32) -> Option<Vec<String>> {
         None
     }
+
+    pub(super) fn places() -> Option<Vec<super::Place>> {
+        None
+    }
 }
 
 /// When `pid` started, in the system's own terms, which tells it apart from a later process
@@ -444,6 +540,33 @@ pub fn name(pid: u32) -> Option<String> {
 #[cfg(target_os = "macos")]
 pub fn program(pid: u32) -> Option<std::path::PathBuf> {
     system::program(pid)
+}
+
+/// A file or folder a process runs from: its program, its working folder, or a path among its
+/// arguments.
+#[derive(Clone, Debug)]
+pub struct Place {
+    pub pid: u32,
+    pub path: std::path::PathBuf,
+}
+
+/// Where every process this user may look at runs from, or `None` where the system cannot say.
+pub fn places() -> Option<Vec<Place>> {
+    system::places()
+}
+
+/// The absolute paths among `arguments`, alone or after an `=`, as in `--manifest-path=/a/b`.
+#[cfg_attr(not(any(target_os = "macos", target_os = "linux")), allow(dead_code))]
+fn argument_paths(arguments: &[String]) -> impl Iterator<Item = std::path::PathBuf> + '_ {
+    arguments
+        .iter()
+        .map(|argument| {
+            argument
+                .split_once('=')
+                .map_or(argument.as_str(), |(_, value)| value)
+        })
+        .filter(|value| value.starts_with('/'))
+        .map(std::path::PathBuf::from)
 }
 
 /// Every process: its pid, its parent and when it started.

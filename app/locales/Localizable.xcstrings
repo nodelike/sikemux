@@ -75817,54 +75817,106 @@
         }
       }
     },
-    "Removed build output from {worktree}, freeing {size}, as the disk was nearly full": {
+    "Removed build output from {worktree}, freeing {size}": {
       "localizations": {
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Se eliminó la salida de compilación de {worktree} y se liberaron {size}, porque el disco estaba casi lleno"
+            "value": "Se eliminó la salida de compilación de {worktree} y se liberaron {size}"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "磁盘快满了，已从 {worktree} 移除构建输出，释放 {size}"
+            "value": "已从 {worktree} 移除构建输出，释放 {size}"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Build-Ausgabe aus {worktree} entfernt, {size} frei, da die Festplatte fast voll war"
+            "value": "Build-Ausgabe aus {worktree} entfernt, {size} frei"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sortie de build supprimée de {worktree}, {size} libérés, car le disque était presque plein"
+            "value": "Sortie de build supprimée de {worktree}, {size} libérés"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ディスクがほぼいっぱいのため、{worktree} のビルド出力を削除し、{size} を解放しました"
+            "value": "{worktree} のビルド出力を削除し、{size} を解放しました"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "디스크가 거의 가득 차서 {worktree}의 빌드 출력을 제거해 {size}를 확보했습니다"
+            "value": "{worktree}의 빌드 출력을 제거해 {size}를 확보했습니다"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Удалён вывод сборки из {worktree}, освобождено {size}, так как диск был почти заполнен"
+            "value": "Удалён вывод сборки из {worktree}, освобождено {size}"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Saída de compilação removida de {worktree}, liberando {size}, pois o disco estava quase cheio"
+            "value": "Saída de compilação removida de {worktree}, liberando {size}"
+          }
+        }
+      }
+    },
+    "Removed build output from {worktree}, freeing {size}, as free space ran low": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Se eliminó la salida de compilación de {worktree} y se liberaron {size}, porque quedaba poco espacio libre"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "可用空间不足，已从 {worktree} 移除构建输出，释放 {size}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Build-Ausgabe aus {worktree} entfernt, {size} frei, da der freie Speicher knapp wurde"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sortie de build supprimée de {worktree}, {size} libérés, car l’espace libre devenait insuffisant"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "空き容量が少なくなったため、{worktree} のビルド出力を削除し、{size} を解放しました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "여유 공간이 부족해져 {worktree}의 빌드 출력을 제거해 {size}를 확보했습니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Удалён вывод сборки из {worktree}, освобождено {size}, так как свободного места стало мало"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Saída de compilação removida de {worktree}, liberando {size}, pois o espaço livre ficou baixo"
           }
         }
       }
