@@ -92,6 +92,8 @@ struct Letter {
     puts: Option<String>,
     /// Files the person attached, which a chat takes as it takes the composer's.
     paths: Vec<String>,
+    /// It waits for an agent that has stopped, as an answer does, rather than being refused.
+    waits: bool,
 }
 
 /// A question the person answered, and the agent that asked it.
@@ -202,6 +204,7 @@ impl Letter {
             answers: None,
             puts: None,
             paths: Vec::new(),
+            waits: false,
         }
     }
 
@@ -674,6 +677,7 @@ pub(crate) fn task(
         answers: None,
         puts: None,
         paths: Vec::new(),
+        waits: false,
         note: Some(format!(
             "{lead_name}, another agent in Sikemux, started you to do this; it is your lead, not the person. {answer}"
         )),
@@ -1133,6 +1137,7 @@ pub(crate) async fn from_host(
         answers: carried.answered,
         puts: None,
         paths: Vec::new(),
+        waits: false,
     };
     if let Some((branch, count)) = landed {
         letter.text.push_str(&format!(
@@ -1269,6 +1274,7 @@ pub(crate) async fn answer(
             answers: Some(answered),
             puts: None,
             paths,
+            waits: false,
         }
     });
     let mut letter = letters.next().ok_or("there is no answer to send")?;
@@ -1423,7 +1429,7 @@ pub(crate) async fn for_person_waiting(
         .await
         .map_err(|error| error.to_string())?
     };
-    let letter = Letter::from_sender(
+    let mut letter = Letter::from_sender(
         Sender::Sikemux,
         MessageKind::Message,
         text,
@@ -1431,6 +1437,7 @@ pub(crate) async fn for_person_waiting(
             "Sent by Sikemux with the person's answer about an action it held for them.".to_owned(),
         ),
     );
+    letter.waits = true;
     deliver(core, &target, letter).await
 }
 
@@ -1535,6 +1542,7 @@ fn letter_from(
         answers: None,
         puts: None,
         paths: Vec::new(),
+        waits: false,
     }
 }
 
@@ -1691,7 +1699,9 @@ async fn handed(
                 }
             }
         }
-        Reach::Stopped if letter.answers.is_some() || letter.kind == MessageKind::Report => {
+        Reach::Stopped
+            if letter.answers.is_some() || letter.kind == MessageKind::Report || letter.waits =>
+        {
             held = Some("has stopped")
         }
         Reach::Stopped => {

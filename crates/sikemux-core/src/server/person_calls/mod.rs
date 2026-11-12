@@ -23,7 +23,7 @@ use super::access::Peer;
 use super::activity_log::ActivityLog;
 use super::changed::What;
 use super::questions::AnswerParams;
-use super::{messages, questions, ship, Core, CoreResult};
+use super::{messages, questions, ship, Core, CoreError, CoreResult};
 use crate::text::clipped;
 
 /// How long an answered or closed call stays in the device view.
@@ -59,8 +59,8 @@ struct Kept {
     key: Option<String>,
     /// The option that lets what it holds run, on a call where one does.
     yes: Option<String>,
-    /// What its yes lets run started, so a restart can't say nothing ran.
-    started: bool,
+    /// When what its yes lets run started, so a restart can't say nothing ran.
+    started: Option<u64>,
     /// The clients that drew it, and when each first did.
     seen: Vec<(CallClient, u64)>,
 }
@@ -226,7 +226,7 @@ fn apply(book: &mut Book, entry: Entry) {
             also,
             key,
             yes,
-            started: false,
+            started: None,
             seen,
         });
         return;
@@ -269,7 +269,7 @@ fn apply(book: &mut Book, entry: Entry) {
                 call.joined.retain(|asker| asker.agent_id != agent);
             }
         }
-        Entry::Started { .. } => kept.started = true,
+        Entry::Started { at, .. } => kept.started = Some(at),
         Entry::Shown { by, at, .. } => {
             if !kept.seen.iter().any(|(seer, _)| *seer == by) {
                 kept.seen.push((by, at));
@@ -377,34 +377,43 @@ impl PersonCalls {
                 closing.push(Entry::Came { id, outcome });
             }
         }
-        let unsettled = (book.iter())
-            .filter(|kept| kept.call.state == CallState::Answered && kept.call.outcome.is_none());
-        for kept in unsettled {
+        for kept in book.iter() {
             let id = kept.call.id.clone();
-            let picked = kept
-                .call
-                .answer
-                .as_ref()
-                .and_then(|answer| answer.option.as_deref());
-            if kept.yes.is_none() {
-                after_start.undelivered.push(id);
+            let ended =
+                |started: u64| (kept.call.outcome.as_ref()).is_some_and(|came| came.at > started);
+            if kept.started.is_some_and(|started| !ended(started)) {
+                let mut outcome = outcome(CallResult::MayHaveRun);
+                outcome.why = Some(CallWhy::Restarted);
+                after_start.interrupted.push(id.clone());
+                closing.push(Entry::Came { id, outcome });
                 continue;
             }
-            let mut outcome = outcome(CallResult::NotShipped);
-            if picked.is_some_and(|option| allows(kept, option)) {
-                outcome.why = Some(CallWhy::Restarted);
-                if kept.started {
-                    outcome.result = CallResult::MayHaveRun;
-                    after_start.interrupted.push(id.clone());
-                } else {
-                    after_start.lapsed.push(id.clone());
+            if kept.call.state != CallState::Answered || kept.call.outcome.is_some() {
+                continue;
+            }
+            let picked = (kept.call.answer.as_ref()).and_then(|answer| answer.option.as_deref());
+            let yes = match &kept.yes {
+                Some(_) => picked.is_some_and(|option| allows(kept, option)),
+                None if kept.call.kind == CallKind::Production => picked != Some(HOLD_REFUSE),
+                None => {
+                    after_start.undelivered.push(id);
+                    continue;
                 }
+            };
+            let mut outcome = outcome(CallResult::NotShipped);
+            if yes {
+                outcome.why = Some(CallWhy::Restarted);
+                after_start.lapsed.push(id.clone());
             }
             closing.push(Entry::Came { id, outcome });
         }
         for entry in closing {
             if let Some(project) = kept(&book, entry.id()).map(|kept| kept.call.project.clone()) {
-                log.append(&project, &entry, || still_open(&book, &project));
+                if let Err(error) =
+                    log.append(&project, &entry, false, || still_open(&book, &project))
+                {
+                    eprintln!("sikemux core: a call was not written down: {error}");
+                }
             }
             apply(&mut book, entry);
         }
@@ -416,17 +425,34 @@ impl PersonCalls {
         }
     }
 
-    /// Writes `entry` down in its project's file and applies it.
+    /// Writes `entry` down in its project's file and applies it, even when the file could not
+    /// take it: what the person sees goes on, and the next restart knows less.
     fn write(&self, book: &mut Book, entry: Entry) {
+        if let Err(error) = self.record(book, entry, false) {
+            eprintln!("sikemux core: a call was not written down: {error}");
+        }
+    }
+
+    /// Writes `entry` down and on to the disk itself before applying it, for what must outlast a
+    /// power loss before anything runs on it. Nothing is applied when it could not be.
+    fn write_sure(&self, book: &mut Book, entry: Entry) -> Result<(), String> {
+        self.record(book, entry, true)
+    }
+
+    fn record(&self, book: &mut Book, entry: Entry, sure: bool) -> Result<(), String> {
         let project = match &entry {
             Entry::Raised { call, .. } => Some(call.project.clone()),
             entry => kept(book, entry.id()).map(|kept| kept.call.project.clone()),
         };
         let Some(project) = project else {
-            return;
+            return Err(GONE.to_owned());
         };
-        self.log
-            .append(&project, &entry, || still_open(book, &project));
+        let written = (self.log).append(&project, &entry, sure, || still_open(book, &project));
+        if let (true, Err(error)) = (sure, &written) {
+            return Err(format!(
+                "Sikemux could not record it, so nothing ran: {error}"
+            ));
+        }
         let closes = closing(book, &entry);
         apply(book, entry);
         if let Some((kind, by, waited)) = closes {
@@ -441,6 +467,7 @@ impl PersonCalls {
                 Some(CallClient::Unknown) | None => self.activity.call_closed(kind, None, waited),
             }
         }
+        written
     }
 
     fn changed(&self, core: &Core) {
@@ -621,14 +648,15 @@ impl PersonCalls {
     /// Takes the person's answer to the open call `id`, which waits for what came of it.
     fn take_answer(&self, id: &str, answer: CallAnswer) -> CoreResult<(PersonCall, Source)> {
         let mut book = self.book.locked();
-        open(&book, id)?;
-        self.write(
-            &mut book,
-            Entry::Answered {
-                id: id.to_owned(),
-                answer,
-            },
-        );
+        let production = open(&book, id)?.call.kind == CallKind::Production;
+        let answered = Entry::Answered {
+            id: id.to_owned(),
+            answer,
+        };
+        match production {
+            true => self.write_sure(&mut book, answered)?,
+            false => self.write(&mut book, answered),
+        }
         let kept = kept(&book, id).ok_or(GONE)?;
         Ok((kept.call.clone(), kept.source.clone()))
     }
@@ -834,46 +862,48 @@ pub(crate) fn sync_holds(core: &Core, wanted: Vec<(String, PersonCall)>) {
 }
 
 /// What the yes of the call `id` lets run is about to start, so a restart says it may have run
-/// rather than that nothing did.
-pub(crate) fn started(core: &Core, id: &str) {
+/// rather than that nothing did. When that can't be recorded for sure, nothing may run.
+pub(crate) fn started(core: &Core, id: &str) -> Result<(), String> {
     let mut book = core.person_calls.book.locked();
-    if kept(&book, id).is_some_and(|kept| !kept.started) {
-        let at = epoch_ms();
-        core.person_calls.write(
-            &mut book,
-            Entry::Started {
+    match kept(&book, id) {
+        Some(kept) if kept.started.is_none() => {
+            let at = epoch_ms();
+            let started = Entry::Started {
                 id: id.to_owned(),
                 at,
-            },
-        );
+            };
+            core.person_calls.write_sure(&mut book, started)
+        }
+        _ => Ok(()),
     }
 }
 
 impl PersonCalls {
     /// Marks the call `id` started when its answer is the yes that runs what it holds now, as an
     /// approval's plugin call runs with the answer. A held action runs later, and says so itself.
-    fn starting_on_yes(&self, id: &str) {
+    fn starting_on_yes(&self, id: &str) -> Result<(), String> {
         let mut book = self.book.locked();
         let Some(kept) = kept(&book, id) else {
-            return;
+            return Ok(());
         };
-        let picked = kept
-            .call
-            .answer
-            .as_ref()
-            .and_then(|answer| answer.option.as_deref());
+        let picked = (kept.call.answer.as_ref()).and_then(|answer| answer.option.as_deref());
         let now = !matches!(kept.source, Source::Hold(_))
             && picked.is_some_and(|option| allows(kept, option));
-        if now && !kept.started {
-            let at = epoch_ms();
-            self.write(
-                &mut book,
-                Entry::Started {
-                    id: id.to_owned(),
-                    at,
-                },
-            );
+        if !now || kept.started.is_some() {
+            return Ok(());
         }
+        let started = Entry::Started {
+            id: id.to_owned(),
+            at: epoch_ms(),
+        };
+        self.write_sure(&mut book, started)
+    }
+
+    /// Takes back an answer whose yes could not be recorded as starting, so nothing ran on it.
+    fn unanswer(&self, core: &Core, id: &str, error: String) -> CoreError {
+        self.reopen(id);
+        self.changed(core);
+        CoreError::from(error)
     }
 }
 
@@ -1107,7 +1137,9 @@ pub(crate) async fn answer(
         may_pass(core, &call, peer, answer.option.as_deref())?;
     }
     let (call, source) = core.person_calls.take_answer(&call.id, answer)?;
-    core.person_calls.starting_on_yes(&call.id);
+    if let Err(error) = core.person_calls.starting_on_yes(&call.id) {
+        return Err(core.person_calls.unanswer(core, &call.id, error));
+    }
     core.person_calls.changed(core);
     let reached = deliver(core, &call, &source, typed).await;
     if let Err(error) = reached {
@@ -1226,7 +1258,9 @@ fn answered_before(
         may_pass(core, &call, peer, given.option.as_deref())?;
     }
     core.person_calls.take_answer(&id, given)?;
-    core.person_calls.starting_on_yes(&id);
+    if let Err(error) = core.person_calls.starting_on_yes(&id) {
+        return Err(core.person_calls.unanswer(core, &id, error));
+    }
     core.person_calls.changed(core);
     Ok(Some(id))
 }

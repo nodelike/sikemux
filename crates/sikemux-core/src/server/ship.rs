@@ -794,7 +794,13 @@ async fn allow_hold(core: &Arc<Core>, mut hold: Hold) {
 /// Runs a held tool call the person let go, without making them wait on it, and
 /// sends its agent what it answered.
 fn run_held(core: &Arc<Core>, hold: Hold, call: ToolCall, allowed: String) {
-    person_calls::started(core, &hold.token);
+    if let Err(error) = person_calls::started(core, &hold.token) {
+        person_calls::set_outcome(core, &hold.token, went(CallResult::NotShipped));
+        let text = format!("{allowed}, but {error}. Call it again to be asked again.");
+        let core = core.clone();
+        tokio::spawn(async move { messages::for_person_waiting(&core, hold.agent_id, text).await });
+        return;
+    }
     let core = core.clone();
     tokio::spawn(async move {
         let ran = as_caller(

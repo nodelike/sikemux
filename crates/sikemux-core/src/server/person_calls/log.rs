@@ -96,20 +96,19 @@ impl CallLog {
         ))
     }
 
-    /// Adds `entry` to its project's file. A file too full to take it starts over with what
-    /// `still_open` gives first.
+    /// Adds `entry` to its project's file, and when `sure`, on to the disk itself before
+    /// answering. A file too full to take it starts over with what `still_open` gives first.
     pub(super) fn append(
         &self,
         project: &str,
         entry: &Entry,
+        sure: bool,
         still_open: impl FnOnce() -> Vec<Entry>,
-    ) {
+    ) -> Result<(), String> {
         let Some((current, old)) = self.files(project) else {
-            return;
+            return Ok(());
         };
-        let Ok(line) = line_of(entry) else {
-            return;
-        };
+        let line = line_of(entry).map_err(|error| error.to_string())?;
         let full = std::fs::metadata(&current)
             .is_ok_and(|file| file.len() + line.len() as u64 > MAX_FILE_BYTES);
         let written = (|| {
@@ -131,11 +130,14 @@ impl CallLog {
             options.create(true).append(true);
             #[cfg(unix)]
             std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-            options.open(&current)?.write_all(&lines)
+            let mut file = options.open(&current)?;
+            file.write_all(&lines)?;
+            if sure {
+                file.sync_data()?;
+            }
+            Ok(())
         })();
-        if let Err(error) = written {
-            eprintln!("sikemux core: a call was not written down: {error}");
-        }
+        written.map_err(|error: std::io::Error| error.to_string())
     }
 
     /// Every entry kept, oldest first.
