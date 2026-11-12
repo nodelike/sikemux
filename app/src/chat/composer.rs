@@ -29,6 +29,7 @@ use crate::ui::{self, DockMenu, IconButton};
 use crate::workbench::Workbench;
 
 pub type Act = Rc<dyn Fn(&mut Window, &mut App)>;
+pub type PickMode = Rc<dyn Fn(PermissionMode, &mut Window, &mut App)>;
 
 /// The permission modes an agent can switch between, the one in force, and what picking one does;
 /// `held` while a change is still on its way or the agent waits on a permission.
@@ -36,7 +37,7 @@ pub struct Modes {
     pub current: PermissionMode,
     pub offered: Vec<PermissionMode>,
     pub held: bool,
-    pub pick: Rc<dyn Fn(PermissionMode, &mut Window, &mut App)>,
+    pub pick: PickMode,
 }
 
 /// The line under the composer: why the last message did not go, with what to do about it, or
