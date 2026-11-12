@@ -4545,6 +4545,8 @@ struct AgentNotice: Codable, Hashable, Sendable {
     var overruled: OverruledDecision?
     /// The chief's count of a week, as numbers the client words.
     var week: ChiefWeek?
+    /// A rule of the person's that left the list or was reworded by an agent, with Undo.
+    var ruleChange: RuleChange?
 }
 
 enum NoticeSeverity: String, Codable, Hashable, Sendable {
@@ -4625,6 +4627,26 @@ struct ChiefWeek: Codable, Hashable, Sendable {
     var answered: Int
     /// Of those, the ones answered as the asking agent picked.
     var asPicked: Int
+}
+
+/// A rule of the person's that an agent took off the list or reworded: now a check when a
+/// landed commit's check holds it, removed, or changed when `was` holds its words before.
+struct RuleChange: Codable, Hashable, Sendable {
+    var project: String
+    /// The rule, by id.
+    var rule: Int
+    /// The rule's words.
+    var text: String
+    /// The landed commit that made the check that holds it now.
+    var commit: String?
+    /// What it said before an agent reworded it.
+    var was: String?
+    /// The agent that did it, by name.
+    var by: String
+    /// The rule is back on the list: the line offers no Undo.
+    var restored: Bool?
+    /// The agent that brought it back, by name, as the person asked; none when the person did.
+    var backBy: String?
 }
 
 /// The core started a fresh session under the chat, from a brief it built from what it keeps.

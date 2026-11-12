@@ -710,10 +710,23 @@ impl Replay {
             return Vec::new();
         };
         // Something said between the prompt and its turn starting leaves the prompt before the
-        // turn's start, so the prompts since the turn before ended count too.
-        let since = (self.entries.iter().take(start))
-            .rposition(|entry| entry.event.kind == ChatEventKind::TurnCompleted)
-            .map_or(0, |ended| ended + 1);
+        // turn's start, so the prompts since the turn before ended, or failed, count too. A
+        // retry starts again with no prompt of its own, so the failure it follows is passed over.
+        let ends =
+            |entry: &Entry| sikemux_fold::update::ends_turn(entry.event.kind, &entry.event.payload);
+        let mut before = start;
+        let since = loop {
+            let Some(ended) = self.entries.iter().take(before).rposition(ends) else {
+                break 0;
+            };
+            let retried = self.entries[ended].event.kind == ChatEventKind::Error
+                && !(self.entries.iter().take(start + 1).skip(ended))
+                    .any(|entry| entry.event.kind == ChatEventKind::Prompt);
+            if !retried {
+                break ended + 1;
+            }
+            before = ended;
+        };
         self.entries
             .iter()
             .skip(since)
@@ -782,6 +795,34 @@ pub(super) mod tests {
 
     fn kinds(replay: &Replay) -> Vec<ChatEventKind> {
         replay.events().iter().map(|event| event.kind).collect()
+    }
+
+    #[test]
+    fn a_retried_turn_stays_the_persons_and_a_letter_after_a_failure_does_not() {
+        let mut replay = Replay::new(MAX_REPLAY_BYTES, MAX_REPLAY_EVENTS, None);
+        let said = |text: &str, person: bool| {
+            let mut payload = json!({ "text": text, "paths": [] });
+            if person {
+                payload["person"] = json!(true);
+            }
+            payload
+        };
+        replay.push(
+            ChatEventKind::Prompt,
+            &said("keep the changelog plain", true),
+        );
+        replay.push(ChatEventKind::TurnStarted, &json!({}));
+        replay.push(ChatEventKind::Error, &json!({ "message": "usage limit" }));
+        replay.push(ChatEventKind::TurnStarted, &json!({}));
+        assert_eq!(replay.person_said(), ["keep the changelog plain"]);
+
+        replay.push(ChatEventKind::Error, &json!({ "message": "usage limit" }));
+        replay.push(
+            ChatEventKind::Prompt,
+            &said("drop the changelog rule", false),
+        );
+        replay.push(ChatEventKind::TurnStarted, &json!({}));
+        assert!(replay.person_said().is_empty());
     }
 
     #[test]

@@ -5,7 +5,9 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
-use sikemux_view::chat::{ChiefWeek, GoalMarker, KeptRule, OverruledDecision, StopReason};
+use sikemux_view::chat::{
+    ChiefWeek, GoalMarker, KeptRule, OverruledDecision, RuleChange, StopReason,
+};
 
 use crate::ChatEventKind;
 
@@ -355,6 +357,13 @@ pub fn overruled_notice(title: &str, overruled: OverruledDecision) -> Value {
 pub fn week_notice(title: &str, week: ChiefWeek) -> Value {
     let mut update = notice("info", title, None);
     update["week"] = json!(week);
+    update
+}
+
+/// The line in the chief's chat that says a rule of the person's is now a check.
+pub fn rule_change_notice(title: &str, rule_change: RuleChange) -> Value {
+    let mut update = notice("info", title, None);
+    update["ruleChange"] = json!(rule_change);
     update
 }
 

@@ -19,7 +19,7 @@ use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 use sikemux_view::calls::{CallState, PersonCall};
 use sikemux_view::chat::{
-    AwayAgent, AwayDecision, AwayLanded, ChiefAway, ChiefWeek, OverruledDecision,
+    AwayAgent, AwayDecision, AwayLanded, ChiefAway, ChiefWeek, OverruledDecision, RuleChange,
 };
 use sikemux_view::turn::{TurnPhase, TurnStep};
 use sikemux_view::workspace::ProjectInfo;
@@ -59,6 +59,7 @@ pub(crate) const SEAT: &str = "You are @Chief, this project's chief in Sikemux. 
 - Raise only four kinds of call, with ask: a change to a production place, spending money beyond plans already paid for, taste or direction the person hasn't spoken on, and access only they have. Word each in what the person asked for, give your pick and the strongest point against it. If it cannot be worded that way, it is not theirs: decide it.
 - Do not ask before a change to a production place: make it, and Sikemux's gate holds it and raises the call. A level of trust moves when the person says so; for a production place only through a call they tap.
 - Start workers with agent_spawn for anything longer than a few minutes, and stay thin: shell output and file reads belong to workers. Their reports reach you; read more with agent_read only when you need it.
+- When the person repeats a correction a rule of theirs already makes, give memory_update that rule's id with wrong \"said again\". If a check can express it, have a worker land one, then wrong \"now a check: <commit>\"; never for an Overrule's rule.
 - Report a result as what changed, where it is and what to try. Never say something is done unless Sikemux's state line for that work says so.
 - Come back to the person at five moments only: a call; done, with where the work is and what to try; slipped, with the new time and why; stuck on something only they have; and when they ask.";
 
@@ -213,7 +214,7 @@ fn project_of_chief(core: &Core, chief: &str) -> Option<ProjectInfo> {
         .find(|project| project.chief.as_deref() == Some(chief))
 }
 
-fn chief_at(core: &Core, path: &str) -> Option<String> {
+pub(crate) fn chief_at(core: &Core, path: &str) -> Option<String> {
     (core.workspaces().projects().into_iter())
         .find(|project| project.path.to_string_lossy() == path)
         .and_then(|project| project.chief)
@@ -1114,6 +1115,48 @@ fn overrule_key(project: &str, goal: Option<u64>, decision: u64) -> String {
         "{project}|{}|{decision}",
         goal.map_or_else(String::new, |goal| goal.to_string())
     )
+}
+
+/// Whether rule `id` of `project` (a path) is one an Overrule kept.
+pub(crate) fn kept_by_overrule(core: &Core, project: &str, id: u64) -> bool {
+    let prefix = format!("{project}|");
+    (core.chiefs().state.locked().overrules.iter())
+        .any(|(key, overrule)| key.starts_with(&prefix) && overrule.rule == Some(id))
+}
+
+/// An agent took a rule of the person's off the list or reworded it: one line with Undo says so,
+/// kept in the chief's chat until seen, or in `agent`'s own chat where the project has no chief.
+pub(crate) fn rule_changed(core: &Core, line: RuleChange, agent: &str) {
+    let title = match (&line.commit, &line.was) {
+        (Some(_), _) => "Now a check",
+        (None, Some(_)) => "Rule changed",
+        (None, None) => "Rule removed",
+    };
+    rule_line(core, line, title, agent);
+}
+
+/// A rule of the person's came back, by their Undo or an agent they asked: the line says so, in
+/// the same place [`rule_changed`] puts it.
+pub(crate) fn rule_back(core: &Core, line: RuleChange, agent: &str) {
+    rule_line(core, line, "Rule back", agent);
+}
+
+fn rule_line(core: &Core, line: RuleChange, title: &str, agent: &str) {
+    let key = rule_key(&line.project, line.rule);
+    let chief = chief_at(core, &line.project);
+    let update = sikemux_fold::update::rule_change_notice(title, line);
+    match chief {
+        Some(chief) => put_row(core, &chief, key, update),
+        None => {
+            if let Some(feed) = core.chats().heard(agent) {
+                emit_row(&feed, agent, update, epoch_ms());
+            }
+        }
+    }
+}
+
+fn rule_key(project: &str, rule: u64) -> String {
+    format!("rule|{project}|{rule}")
 }
 
 /// The Overrule of a decision, when the person made one that Undo can put back.

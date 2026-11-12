@@ -5,10 +5,12 @@ use gpui_kit::{
     AnyElement, Context, Entity, InteractiveElement, IntoElement, ParentElement, SharedString,
 };
 use sikemux_core::server::call;
-use sikemux_core::server::memory::MemoryUpdateParams;
+use sikemux_core::server::memory::{MemoryAddParams, MemoryUpdateParams, NewMemory};
+use sikemux_view::chat::RuleChange;
 use sikemux_view::playbook::{Entry, Playbook};
 
 use super::said::{self, Action, Moment};
+use crate::core::Target;
 use crate::settings::rows;
 use crate::toast;
 use crate::workbench::Workbench;
@@ -136,4 +138,47 @@ pub(crate) fn retire(bench: &mut Workbench, folder: &str, id: u64, cx: &mut Cont
         |bench, _, cx| bench.notify(toast::success(t!("Removed from the Playbook")), cx),
         cx,
     );
+}
+
+/// Brings back a rule of the person's that an agent took off the list or reworded, on the host
+/// whose chat said so: kept again in its own words, which brings the set-aside rule back whole,
+/// or put back to what it said before.
+pub(crate) fn restore(
+    bench: &mut Workbench,
+    target: &Target,
+    line: &RuleChange,
+    cx: &mut Context<Workbench>,
+) {
+    let failed = t!("It was not brought back");
+    let back = |bench: &mut Workbench, _, cx: &mut Context<Workbench>| {
+        bench.notify(toast::success(t!("Back in the Playbook")), cx)
+    };
+    match &line.was {
+        Some(was) => {
+            let asked = target.request_typed::<call::MemoryUpdate>(MemoryUpdateParams {
+                project: line.project.clone(),
+                id: line.rule,
+                text: Some(was.clone()),
+                wrong: None,
+                retire: false,
+                about: None,
+                check: None,
+                drop_check: false,
+                goal: None,
+            });
+            bench.report(asked, failed, back, cx);
+        }
+        None => {
+            let asked = target.request_typed::<call::MemoryAdd>(MemoryAddParams {
+                project: line.project.clone(),
+                entry: NewMemory::Rule {
+                    text: line.text.clone(),
+                    goal: None,
+                    sensitive: false,
+                    folder: None,
+                },
+            });
+            bench.report(asked, failed, back, cx);
+        }
+    }
 }

@@ -1,7 +1,8 @@
 #![cfg(unix)]
 
 //! A real core and fake agents: what the person types to answer an access call, or types while
-//! one is open, never reaches the project's chief.
+//! one is open, never reaches the project's chief; and only the chief retires a rule of the
+//! person's as now a check, while other agents change one only in a turn the person started.
 
 mod folded;
 
@@ -27,6 +28,17 @@ impl Drop for KilledOnDrop {
         let _ = self.0.kill();
         let _ = self.0.wait();
     }
+}
+
+fn git(dir: &Path, args: &[&str]) -> String {
+    let output = sikemux_process::user_environment::command("/usr/bin/git")
+        .args(["-c", "user.name=Test", "-c", "user.email=test@example.com"])
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .expect("git runs");
+    assert!(output.status.success(), "git {args:?}");
+    String::from_utf8_lossy(&output.stdout).trim().to_owned()
 }
 
 fn start_core(dir: &Path, socket: &Path) -> KilledOnDrop {
@@ -220,4 +232,221 @@ fn prompt_holding(root: &Path, words: &str) -> String {
         .flat_map(|record| record.lines().map(str::to_owned).collect::<Vec<_>>())
         .find(|line| line.contains(words) && line.contains("\"kind\":\"prompt\""))
         .unwrap_or_else(|| panic!("no prompt holding {words} in the records"))
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn only_the_chief_retires_a_persons_rule_as_now_a_check_and_agents_only_on_their_word() {
+    let root = tempfile::Builder::new()
+        .prefix("chief")
+        .tempdir_in("/tmp")
+        .expect("temp dir");
+    let root = std::fs::canonicalize(root.path()).expect("canonical");
+    let project = root.join("project");
+    std::fs::create_dir_all(root.join("home")).expect("home");
+    std::fs::create_dir(&project).expect("project");
+    git(&project, &["init", "--quiet", "-b", "main"]);
+    git(
+        &project,
+        &["commit", "--quiet", "--allow-empty", "-m", "Start"],
+    );
+    git(
+        &project,
+        &["commit", "--quiet", "--allow-empty", "-m", "Lint expect"],
+    );
+    let older = git(&project, &["rev-parse", "HEAD"]);
+
+    let socket = root.join("core.sock");
+    let _core = start_core(&root, &socket);
+    let (app, _events) = CoreClient::connect(&socket).await.expect("connect");
+    let accounts = json!({ "profiles": [{
+        "id": "fake",
+        "name": "Fake",
+        "provider": "opencode",
+        "accent": "#a277ff",
+        "executablePath": FAKE_AGENT,
+    }] });
+    app.call("setAgentAccounts", accounts)
+        .await
+        .expect("accounts");
+    app.call(
+        "addProject",
+        json!({ "id": "widget", "name": "widget", "path": project }),
+    )
+    .await
+    .expect("the project");
+    let keep = |text: &str| json!({ "project": project, "entry": { "kind": "rule", "text": text, "sensitive": false } });
+    let mut kept = Value::Null;
+    for text in [UNWRAP, PUSH] {
+        kept = app
+            .call("memoryAdd", keep(text))
+            .await
+            .expect("the person keeps a rule");
+    }
+    let unwrap = rule_id(&kept, UNWRAP);
+    let push = rule_id(&kept, PUSH);
+    let later = |args: &[&str]| {
+        let at = format!("@{} +0000", now_secs() + 60);
+        let output = sikemux_process::user_environment::command("/usr/bin/git")
+            .args(["-c", "user.name=Test", "-c", "user.email=test@example.com"])
+            .args(args)
+            .env("GIT_COMMITTER_DATE", &at)
+            .env("GIT_AUTHOR_DATE", &at)
+            .current_dir(&project)
+            .output()
+            .expect("git runs");
+        assert!(output.status.success(), "git {args:?}");
+    };
+    later(&["commit", "--quiet", "--allow-empty", "-m", "Lint unwrap"]);
+    let landed = git(&project, &["rev-parse", "HEAD"]);
+    git(&project, &["checkout", "--quiet", "-b", "side"]);
+    later(&["commit", "--quiet", "--allow-empty", "-m", "Lint push"]);
+    let unlanded = git(&project, &["rev-parse", "HEAD"]);
+    git(&project, &["checkout", "--quiet", "main"]);
+
+    let opened = app
+        .call("openChief", json!({ "project": "widget" }))
+        .await
+        .expect("the chief opens");
+    let chief_id = opened["agentId"].as_str().expect("its id").to_owned();
+    let mut chief = Agent::open(&socket, &chief_id).await;
+    chief.chat.until(|chat| chat.turns_ended() >= 1).await;
+    let (worker_id, _) = app
+        .start_chat("opencode:fake".into(), "widget".into(), None)
+        .await
+        .expect("a worker starts");
+    let mut worker = Agent::open(&socket, &worker_id).await;
+
+    let card = worker
+        .tool("board.add", json!({ "title": "Cache", "claim": true }))
+        .await;
+    let card = number_after(&card, "\"card\":").unwrap_or_else(|| panic!("{card}"));
+    let decided = worker
+        .tool(
+            "board.decide",
+            json!({ "text": "Keep the cache in sqlite", "why": "It is small" }),
+        )
+        .await;
+    let decision = number_after(&decided, "Decision #").unwrap_or_else(|| panic!("{decided}"));
+    app.call(
+        "overruleDecision",
+        json!({ "project": project, "goal": card, "decision": decision }),
+    )
+    .await
+    .expect("the person overrules");
+    worker.chat.until_said("overruled this").await;
+    let rules = || app.call("memory", json!({ "project": project }));
+    let overrule = rule_id(
+        &rules().await.expect("the rules"),
+        "Decisions like the person's overruled",
+    );
+
+    let wrong = |id: u64, said: String| json!({ "id": id, "wrong": said });
+    let check = |id: u64, commit: &str| wrong(id, format!("now a check: {commit}"));
+    let refused = |said: String, why: &str| {
+        assert!(said.contains("tool failed") && said.contains(why), "{said}");
+    };
+    refused(
+        worker.tool("memory.update", check(unwrap, &landed)).await,
+        "Only this project's chief",
+    );
+    refused(
+        chief.tool("memory.update", check(overrule, &landed)).await,
+        "the rule an Overrule kept",
+    );
+    refused(
+        worker
+            .tool("memory.update", json!({ "id": overrule, "retire": true }))
+            .await,
+        "no agent changes it",
+    );
+    refused(
+        chief.tool("memory.update", check(unwrap, &unlanded)).await,
+        "has not landed",
+    );
+    refused(
+        chief.tool("memory.update", check(unwrap, &older)).await,
+        "is older than",
+    );
+    refused(
+        chief
+            .tool(
+                "memory.update",
+                wrong(
+                    unwrap,
+                    format!("superseded by the move to pnpm in {landed}"),
+                ),
+            )
+            .await,
+        "is a rule",
+    );
+    let letter = json!({
+        "to": worker_id,
+        "text": format!("tool memory.update {}", json!({ "id": push, "retire": true })),
+    });
+    let sent = chief.tool("agent.send", letter).await;
+    assert!(sent.contains("tool answered"), "{sent}");
+    let told = tokio::time::timeout(
+        WAIT,
+        worker
+            .chat
+            .until_said("only in a turn the person's own words started"),
+    )
+    .await;
+    assert!(told.is_ok(), "{:#?}", worker.chat.view.rows);
+    rule_id(&rules().await.expect("the rules"), PUSH);
+
+    let counted = chief
+        .tool("memory.update", wrong(unwrap, "said again".into()))
+        .await;
+    assert!(counted.contains("as said again"), "{counted}");
+    let retired = chief.tool("memory.update", check(unwrap, &landed)).await;
+    assert!(retired.contains("tool answered"), "{retired}");
+    let removed = worker
+        .tool("memory.update", json!({ "id": push, "retire": true }))
+        .await;
+    assert!(removed.contains("tool answered"), "{removed}");
+    let left = rules().await.expect("the rules");
+    assert!(find_rule(&left, UNWRAP).is_none(), "{left}");
+    assert!(find_rule(&left, PUSH).is_none(), "{left}");
+    for (text, id) in [(UNWRAP, unwrap), (PUSH, push)] {
+        let back = app
+            .call("memoryAdd", keep(text))
+            .await
+            .expect("Undo keeps the rule again");
+        assert_eq!(rule_id(&back, text), id);
+    }
+}
+
+const UNWRAP: &str = "Never call unwrap outside tests";
+const PUSH: &str = "Never push to main without a review";
+
+fn now_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("after 1970")
+        .as_secs()
+}
+
+fn find_rule(memory: &Value, starts: &str) -> Option<u64> {
+    (memory["folders"].as_array()?.iter())
+        .flat_map(|folder| folder["rules"].as_array().into_iter().flatten())
+        .map(|listed| &listed["rule"])
+        .find(|rule| {
+            rule["text"]
+                .as_str()
+                .is_some_and(|text| text.starts_with(starts))
+        })
+        .and_then(|rule| rule["id"].as_u64())
+}
+
+fn rule_id(memory: &Value, starts: &str) -> u64 {
+    find_rule(memory, starts).unwrap_or_else(|| panic!("no rule {starts} in {memory}"))
+}
+
+fn number_after(text: &str, key: &str) -> Option<u64> {
+    let digits = text.split_once(key)?.1.trim_start();
+    let end = digits
+        .find(|c: char| !c.is_ascii_digit())
+        .unwrap_or(digits.len());
+    digits[..end].parse().ok()
 }

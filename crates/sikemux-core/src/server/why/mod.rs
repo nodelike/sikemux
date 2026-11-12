@@ -456,6 +456,11 @@ fn call_facts(core: &Core, asked: &Asked, call: &PersonCall, facts: &mut Facts) 
 fn rule_facts(core: &Core, asked: &Asked, id: u64, facts: &mut Facts) {
     let (rules, _) = memory::for_playbook(core, &asked.project, &Peer::Local);
     let Some(rule) = rules.into_iter().find(|rule| rule.id == id) else {
+        let apart = (memory::set_aside(core, &asked.project).into_iter())
+            .find(|apart| apart.rule.id == id && !apart.rule.sensitive);
+        if let Some(apart) = apart {
+            set_aside_facts(core, &apart, facts);
+        }
         return;
     };
     facts.add(Fact {
@@ -486,6 +491,26 @@ fn rule_facts(core: &Core, asked: &Asked, id: u64, facts: &mut Facts) {
         ),
         at: Some(rule.learned.at),
         who: None,
+        pointer,
+    });
+}
+
+/// A rule of the person's that left the list: what it said, and who set it aside and why.
+fn set_aside_facts(core: &Core, apart: &memory::SetAside, facts: &mut Facts) {
+    let pointer = match &apart.commit {
+        Some(commit) => Pointer::Commit(commit.clone()),
+        None => Pointer::Rule(apart.rule.id),
+    };
+    facts.add(Fact {
+        said: format!(
+            "Your rule #{} \"{}\" was set aside by @{}, {}",
+            apart.rule.id,
+            apart.rule.text,
+            core.names().name_or_id(&apart.by),
+            memory::set_aside_why(apart)
+        ),
+        at: Some(apart.at),
+        who: Some(apart.by.clone()),
         pointer,
     });
 }
@@ -554,6 +579,12 @@ fn said_words(core: &Core, asked: &Asked, words: &str, facts: &mut Facts) {
             who: None,
             pointer: Pointer::Rule(rule.id),
         });
+    }
+    let apart = (memory::set_aside(core, &asked.project).into_iter())
+        .filter(|apart| !apart.rule.sensitive && holds(&apart.rule.text))
+        .take(2);
+    for apart in apart.collect::<Vec<_>>() {
+        set_aside_facts(core, &apart, facts);
     }
 }
 

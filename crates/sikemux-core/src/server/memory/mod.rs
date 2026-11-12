@@ -34,11 +34,13 @@ use crate::text::to_keep;
 
 mod brief;
 mod check;
+mod now_check;
 mod promote;
 mod seed;
 
 pub(crate) use brief::{brief, for_chat};
 pub(crate) use check::settle;
+pub(crate) use now_check::{set_aside, why as set_aside_why, SetAside};
 pub(crate) use promote::promote;
 pub(crate) use seed::{again as seed_again, keep as keep_seeded};
 
@@ -62,6 +64,9 @@ struct Held {
     /// project's own folder.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     seeding: Option<Seeding>,
+    /// Rules of the person's that left the list as a check or by an agent, kept to bring back.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    set_aside: Vec<now_check::SetAside>,
 }
 
 impl Held {
@@ -86,6 +91,8 @@ struct State {
     /// The rule being written into AGENTS.md. It stays listed but is saved as
     /// gone, so a core that stops halfway never brings it back.
     promoting: Option<u64>,
+    /// Each chief's turn, and the rules it named said again in that turn.
+    said_again: HashMap<String, (Option<u64>, HashSet<u64>)>,
 }
 
 impl State {
@@ -298,6 +305,7 @@ fn holding<'a>(state: &'a mut State, folder: &str) -> Result<&'a mut Held, Strin
         rules: Vec::new(),
         knowledge: Vec::new(),
         seeding: None,
+        set_aside: Vec::new(),
     }))
 }
 
@@ -465,16 +473,59 @@ fn change(
     let about = update.about.map(abouts).transpose()?;
     let check = update.check.map(checked_check).transpose()?;
     let id = update.id;
+    let only_id = saying == 0 && about.is_none() && check.is_none() && !update.drop_check;
+    if now_check::is_set_aside(core, project, id) {
+        return match only_id {
+            true => now_check::bring_back_asked(core, project, id, &by),
+            false => Err(format!("#{id} is set aside: {BRING_BACK}")),
+        };
+    }
+    let only_wrong = saying == 1 && about.is_none() && check.is_none() && !update.drop_check;
+    if let Some(said) = wrong
+        .as_deref()
+        .filter(|_| only_wrong && by.agent.is_some())
+    {
+        let is_rule = {
+            let state = core.memory().state.locked();
+            let found =
+                (state.applying(project)).any(|held| held.rules.iter().any(|rule| rule.id == id));
+            found
+        };
+        if let Some(done) = is_rule
+            .then(|| now_check::labelled(core, project, id, said, &by))
+            .flatten()
+        {
+            return done;
+        }
+    }
+    let acting = (by.agent.clone()).filter(|_| update.retire || text.is_some());
+    let persons_turn =
+        (acting.as_deref()).is_some_and(|agent| now_check::persons_turn(core, agent));
+    let overruled = acting.is_some() && crate::server::chief::kept_by_overrule(core, project, id);
+    let new_words_persons = match (acting.as_deref(), text.as_deref()) {
+        (Some(agent), Some(text)) => said_by_person(core, agent, text).is_ok(),
+        _ => false,
+    };
     let mut state = core.memory().state.locked();
     if state.promoting == Some(id) {
         return Err(format!("#{id} is being written into AGENTS.md"));
     }
     let folder = state.folder_of(project, id)?;
+    let persons_rule = (state.held.get(&folder))
+        .and_then(|held| held.rules.iter().find(|rule| rule.id == id))
+        .filter(|rule| rule.learned.agent.is_none());
+    if let Some(rule) = persons_rule.filter(|_| acting.is_some()) {
+        now_check::agent_may_change(rule, overruled, persons_turn)?;
+    }
+    let note_id =
+        (acting.is_some() && persons_rule.is_some() && text.is_some() && !new_words_persons)
+            .then(|| state.next_id(&folder));
     let held = state
         .held
         .get_mut(&folder)
         .ok_or("the folder went while it was being changed")?;
     let mut stale_moved = false;
+    let (mut line, mut back) = (None, None);
     if let Some(rule) = held.rules.iter_mut().find(|rule| rule.id == id) {
         let rule_change =
             wrong.is_none() && about.is_none() && check.is_none() && !update.drop_check;
@@ -483,12 +534,70 @@ fn change(
                 "#{id} is a rule: correct it with text, or retire it"
             ));
         }
-        if let Some(text) = text {
-            rule.was = Some(std::mem::replace(&mut rule.text, text));
-            rule.learned = by;
-        }
-        if update.retire {
-            held.rules.retain(|rule| rule.id != id);
+        let agent = (by.agent.clone()).filter(|_| rule.learned.agent.is_none());
+        match (text, agent) {
+            (Some(text), Some(agent)) if note_id.is_none() => {
+                let was = std::mem::replace(&mut rule.text, text);
+                let mut learned = by;
+                learned.with = (learned.agent.take()).map(|agent| sikemux_view::memory::SaidTo {
+                    agent,
+                    name: learned.name.take(),
+                });
+                rule.learned = learned;
+                line = Some((
+                    now_check::line(core, project, rule, &agent, None, Some(was.clone())),
+                    agent,
+                ));
+                rule.was = Some(was);
+            }
+            (Some(text), Some(agent)) => {
+                let at = (held.rules.iter().position(|rule| rule.id == id))
+                    .ok_or("the rule went while it was being changed")?;
+                let rule = held.rules.remove(at);
+                line = Some((
+                    now_check::line(core, project, &rule, &agent, None, None),
+                    agent.clone(),
+                ));
+                held.set_aside.push(now_check::SetAside {
+                    rule,
+                    commit: None,
+                    at: sikemux_process::clock::epoch_ms(),
+                    by: agent,
+                });
+                held.rules.push(MemoryRule {
+                    id: note_id.unwrap_or(id),
+                    text,
+                    sensitive: false,
+                    learned: by,
+                    was: None,
+                });
+            }
+            (Some(text), None) => {
+                let flat = crate::text::one_line(&text);
+                let put_back = (rule.was.clone()).filter(|was| crate::text::one_line(was) == flat);
+                let was = std::mem::replace(&mut rule.text, put_back.clone().unwrap_or(text));
+                let changed_by = (rule.learned.with.as_ref()).map(|with| with.agent.clone());
+                back = put_back.and(changed_by);
+                rule.learned = by;
+                rule.was = Some(was);
+            }
+            (None, agent) => {
+                let at = (held.rules.iter().position(|rule| rule.id == id))
+                    .ok_or("the rule went while it was being changed")?;
+                let rule = held.rules.remove(at);
+                if let Some(agent) = agent {
+                    line = Some((
+                        now_check::line(core, project, &rule, &agent, None, None),
+                        agent.clone(),
+                    ));
+                    held.set_aside.push(now_check::SetAside {
+                        rule,
+                        commit: None,
+                        at: sikemux_process::clock::epoch_ms(),
+                        by: agent,
+                    });
+                }
+            }
         }
     } else if let Some(known) = held.knowledge.iter_mut().find(|known| known.id == id) {
         if saying == 0 && about.is_none() && check.is_none() && !update.drop_check {
@@ -526,6 +635,18 @@ fn change(
     core.memory().save(&mut state, &folder);
     drop(state);
     tell_clients(core, stale_moved);
+    if let Some((line, agent)) = line {
+        crate::server::chief::rule_changed(core, line, &agent);
+    }
+    if let Some(agent) = back {
+        let rule = (core.memory().state.locked().held.get(&folder))
+            .and_then(|held| held.rules.iter().find(|rule| rule.id == id).cloned());
+        if let Some(rule) = rule {
+            let mut line = now_check::line(core, project, &rule, &agent, None, None);
+            line.restored = true;
+            crate::server::chief::rule_back(core, line, &agent);
+        }
+    }
     Ok(())
 }
 
@@ -865,6 +986,9 @@ pub(crate) async fn tool_update(
     let given: ToolUpdate = params(request.params.clone())?;
     let project = crate::server::caller::project_of(core, request);
     let id = given.id;
+    let said_again = (given.wrong.as_deref().map(str::trim_start))
+        .and_then(|said| said.get(..10))
+        .is_some_and(|label| label.eq_ignore_ascii_case("said again"));
     let core = core.clone();
     run(move || {
         let update = MemoryUpdateParams {
@@ -879,7 +1003,10 @@ pub(crate) async fn tool_update(
             drop_check: given.drop_check,
         };
         amend(&core, &project, update, learned(&core, Some(&agent)))?;
-        Ok(json!({ "id": id }))
+        Ok(match said_again {
+            true => json!({ "id": id, "note": format!("Counted #{id} as said again; the rule is unchanged") }),
+            false => json!({ "id": id }),
+        })
     })
     .await
 }
@@ -929,7 +1056,19 @@ pub(crate) async fn tool_list(core: &Arc<Core>, request: &HarnessRequest) -> Res
         }
     }
     drop(state);
-    Ok(json!({
+    let set_aside: Vec<Value> = (now_check::set_aside(core, &project).into_iter())
+        .map(|apart| {
+            json!({
+                "id": apart.rule.id,
+                "text": apart.rule.text,
+                "sensitive": apart.rule.sensitive,
+                "setAsideBy": core.names().name_or_id(&apart.by),
+                "at": apart.at,
+                "why": now_check::why(&apart),
+            })
+        })
+        .collect();
+    let mut listed = json!({
         "rules": rules,
         "knowledge": knowledge,
         "goal": goal.map(|(card, standing)| json!({
@@ -937,8 +1076,16 @@ pub(crate) async fn tool_list(core: &Arc<Core>, request: &HarnessRequest) -> Res
             "rules": standing.rules,
             "decisions": standing.decisions,
         })),
-    }))
+    });
+    if !set_aside.is_empty() {
+        listed["setAside"] = json!(set_aside);
+        listed["setAsideNote"] = json!(BRING_BACK);
+    }
+    Ok(listed)
 }
+
+const BRING_BACK: &str =
+    "memory_update with only a set-aside rule's id brings it back, when the person asks for it";
 
 async fn run<T: Send + 'static>(
     work: impl FnOnce() -> Result<T, String> + Send + 'static,
@@ -1021,7 +1168,22 @@ pub(crate) async fn person_add(
     let project = project_at(core, &params.project)?;
     let core = core.clone();
     run(move || {
-        keep(&core, &project, params.entry, learned(&core, None))?;
+        let set_aside = match &params.entry {
+            NewMemory::Rule {
+                text,
+                goal: None,
+                folder: None,
+                sensitive,
+            } => now_check::bring_back_words(&core, &project, text, *sensitive),
+            _ => None,
+        };
+        match set_aside {
+            Some(brought) => brought?,
+            None if now_check::kept_again(&core, &project, &params.entry) => {}
+            None => {
+                keep(&core, &project, params.entry, learned(&core, None))?;
+            }
+        }
         Ok(view(&core, &project, &peer))
     })
     .await

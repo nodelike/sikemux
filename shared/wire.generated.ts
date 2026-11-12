@@ -2895,6 +2895,8 @@ export interface AgentNotice {
     overruled?: OverruledDecision;
     /** The chief's count of a week, as numbers the client words. */
     week?: ChiefWeek;
+    /** A rule of the person's that left the list or was reworded by an agent, with Undo. */
+    ruleChange?: RuleChange;
 }
 
 export type NoticeSeverity = "info" | "warning" | "error";
@@ -2958,6 +2960,28 @@ export interface ChiefWeek {
     answered: number;
     /** Of those, the ones answered as the asking agent picked. */
     asPicked: number;
+}
+
+/**
+ * A rule of the person's that an agent took off the list or reworded: now a check when a
+ * landed commit's check holds it, removed, or changed when `was` holds its words before.
+ */
+export interface RuleChange {
+    project: string;
+    /** The rule, by id. */
+    rule: number;
+    /** The rule's words. */
+    text: string;
+    /** The landed commit that made the check that holds it now. */
+    commit?: string;
+    /** What it said before an agent reworded it. */
+    was?: string;
+    /** The agent that did it, by name. */
+    by: string;
+    /** The rule is back on the list: the line offers no Undo. */
+    restored?: boolean;
+    /** The agent that brought it back, by name, as the person asked; none when the person did. */
+    backBy?: string;
 }
 
 /**

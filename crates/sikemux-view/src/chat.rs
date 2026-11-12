@@ -1734,6 +1734,35 @@ pub struct AgentNotice {
     /// The chief's count of a week, as numbers the client words.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub week: Option<ChiefWeek>,
+    /// A rule of the person's that left the list or was reworded by an agent, with Undo.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rule_change: Option<RuleChange>,
+}
+
+/// A rule of the person's that an agent took off the list or reworded: now a check when a
+/// landed commit's check holds it, removed, or changed when `was` holds its words before.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuleChange {
+    pub project: String,
+    /// The rule, by id.
+    pub rule: u64,
+    /// The rule's words.
+    pub text: String,
+    /// The landed commit that made the check that holds it now.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub commit: Option<String>,
+    /// What it said before an agent reworded it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub was: Option<String>,
+    /// The agent that did it, by name.
+    pub by: String,
+    /// The rule is back on the list: the line offers no Undo.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub restored: bool,
+    /// The agent that brought it back, by name, as the person asked; none when the person did.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub back_by: Option<String>,
 }
 
 /// A week in a chief's project, counted by the core.

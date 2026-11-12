@@ -38,9 +38,9 @@ use sikemux_view::chat::{
     ChatDraft, ChatFailure, ChatGoal, ChatHead, ChatMessage, ChatPart, ChatRole, ChatTrigger,
     ChiefAway, Compactions, ContentBlock, ContextUsage, FailureKind, GuestMessage, LetterKind,
     MoveReason, NoticeSeverity, NoticeState, OverruledDecision, PermissionAsk, PermissionKind,
-    PermissionOption, PlanEntry, QueuedMessage, RestoredPart, Retrying, SentContext, SessionEnded,
-    StopReason, SubagentCard, SubagentState, TaskNotice, TaskState, TaskUsage, ToolDetail,
-    ToolStatus, TurnStart, Unsourced, UsageCost, WhyChip, WorkflowAgent, WHY_URI,
+    PermissionOption, PlanEntry, QueuedMessage, RestoredPart, Retrying, RuleChange, SentContext,
+    SessionEnded, StopReason, SubagentCard, SubagentState, TaskNotice, TaskState, TaskUsage,
+    ToolDetail, ToolStatus, TurnStart, Unsourced, UsageCost, WhyChip, WorkflowAgent, WHY_URI,
 };
 use sikemux_view::shown::{ResultRow, TurnShown};
 use sikemux_view::turn::TurnState;
@@ -2479,6 +2479,9 @@ impl Fold {
             week: update
                 .get("week")
                 .and_then(|week| serde_json::from_value(week.clone()).ok()),
+            rule_change: update
+                .get("ruleChange")
+                .and_then(|rule_change| serde_json::from_value(rule_change.clone()).ok()),
         };
         if let Some(undone) = notice
             .overruled
@@ -2487,6 +2490,15 @@ impl Fold {
         {
             self.overrule_undone(undone);
             return;
+        }
+        if let Some(back) = notice
+            .rule_change
+            .as_ref()
+            .filter(|rule_change| rule_change.restored)
+        {
+            if self.rule_restored(back) || back.back_by.is_none() {
+                return;
+            }
         }
         // A chat a usage limit stopped says when it resumes, or that it no longer will.
         if let Some(failure) = self
@@ -2506,7 +2518,10 @@ impl Fold {
         }
         // Between turns a goal's line, an Overrule's and a week's count stand on their own, so
         // the turn before keeps its fold and line.
-        let own_line = notice.goal.is_some() || notice.overruled.is_some() || notice.week.is_some();
+        let own_line = notice.goal.is_some()
+            || notice.overruled.is_some()
+            || notice.week.is_some()
+            || notice.rule_change.is_some();
         if own_line && !self.head.running {
             let at = stamped_at(update);
             self.push_between(index, at, |id| ChatPart::AgentNotice { id, notice });
@@ -2518,6 +2533,35 @@ impl Fold {
             |id| ChatPart::AgentNotice { id, notice },
             false,
         );
+    }
+
+    /// A rule an agent took off the list or reworded is back: its line says so. Answers whether
+    /// the chat held that line.
+    fn rule_restored(&mut self, back: &RuleChange) -> bool {
+        let found = (self.main.rows.iter().enumerate().rev()).find_map(|(position, held)| {
+            let part = held.msg.parts.iter().position(|part| {
+                matches!(part, ChatPart::AgentNotice { notice, .. }
+                if notice.rule_change.as_ref().is_some_and(|line| {
+                    line.project == back.project && line.rule == back.rule && !line.restored
+                }))
+            })?;
+            Some((position, part))
+        });
+        let Some((position, part)) = found else {
+            return false;
+        };
+        let held = &mut self.main.rows[position];
+        if let Some(ChatPart::AgentNotice { notice, .. }) = held.msg.parts.get_mut(part) {
+            if let Some(line) = notice.rule_change.as_mut() {
+                line.restored = true;
+                line.back_by = back.back_by.clone();
+                notice.title = "Rule back".to_owned();
+            }
+        }
+        held.touch_part(part);
+        self.main.touch(position);
+        self.note_main_change(&None, position);
+        true
     }
 
     /// The person undid an Overrule: its line in the chat says so, rather than a new line.

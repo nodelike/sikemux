@@ -103,8 +103,8 @@ fn find(core: &Core, project: &str) -> Vec<SeededRule> {
     });
     let kept: Vec<String> = (core.memory().state.locked().held.get(project))
         .map(|held| {
-            held.rules
-                .iter()
+            (held.rules.iter())
+                .chain(held.set_aside.iter().map(|apart| &apart.rule))
                 .map(|rule| rule.text.to_lowercase())
                 .collect()
         })

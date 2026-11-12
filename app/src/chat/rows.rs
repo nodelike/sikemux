@@ -1070,6 +1070,63 @@ fn overruled(notice: &AgentNotice, looks: &Drawn) -> AnyElement {
         .into_any_element()
 }
 
+/// The quiet line a rule leaves when a check in the repository holds it now, with Undo until the
+/// person brings it back.
+fn rule_change(notice: &AgentNotice, looks: &Drawn) -> AnyElement {
+    let Some(line) = notice.rule_change.clone() else {
+        return div().into_any_element();
+    };
+    let (head, tail) = match (line.restored, &line.commit, &line.was) {
+        (true, _, _) => (
+            t!("Rule back"),
+            (line.back_by.clone()).map(|name| t!("by @{name}", name = name)),
+        ),
+        (false, Some(commit), _) => (
+            t!("Now a check"),
+            Some(commit.chars().take(7).collect::<String>()),
+        ),
+        (false, None, Some(_)) => (
+            t!("Rule changed"),
+            Some(t!("by @{name}", name = line.by.clone())),
+        ),
+        (false, None, None) => (
+            t!("Rule removed"),
+            Some(t!("by @{name}", name = line.by.clone())),
+        ),
+    };
+    let quoted = t!("“{text}”", text = line.text.clone());
+    let (bench, agent) = (looks.bench.clone(), looks.agent.clone());
+    notice_box(looks)
+        .child(ui::icon(Icon::Check, 12.).text_color(looks.quiet))
+        .child(div().flex_none().child(head))
+        .child(
+            div()
+                .min_w_0()
+                .truncate()
+                .text_color(looks.ink)
+                .child(format!("· {quoted}")),
+        )
+        .children(tail.map(|tail| div().flex_none().child(format!("· {tail}"))))
+        .when(!line.restored, |row| {
+            row.child("·").child(
+                div()
+                    .id(SharedString::from(format!("rule-change-{}", line.rule)))
+                    .flex_none()
+                    .cursor_pointer()
+                    .text_color(looks.ink)
+                    .child(t!("Undo"))
+                    .on_click(move |_, _, cx| {
+                        let line = line.clone();
+                        let _ = bench.update(cx, |bench, cx| {
+                            let target = bench.chat_target(&agent);
+                            crate::playbook::restore_rule(bench, &target, &line, cx)
+                        });
+                    }),
+            )
+        })
+        .into_any_element()
+}
+
 /// The chief's count of last week, worded here from the core's numbers, under the time it came.
 fn week_count(week: &ChiefWeek, looks: &Drawn) -> AnyElement {
     use chrono::{Datelike, TimeZone};
@@ -1459,6 +1516,9 @@ pub(super) fn part(
         ChatPart::AgentNotice { notice, .. } if notice.rule.is_some() => kept_rule(notice, looks),
         ChatPart::AgentNotice { notice, .. } if notice.overruled.is_some() => {
             overruled(notice, looks)
+        }
+        ChatPart::AgentNotice { notice, .. } if notice.rule_change.is_some() => {
+            rule_change(notice, looks)
         }
         ChatPart::AgentNotice {
             notice: AgentNotice {

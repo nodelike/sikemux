@@ -1364,6 +1364,7 @@ mod reducer {
                     rule: None,
                     overruled: None,
                     week: None,
+                    rule_change: None,
                 }
             ),
             other => panic!("expected an agent notice, got {other:?}"),

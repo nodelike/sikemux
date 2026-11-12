@@ -33,6 +33,7 @@ fn outlives(part: &ChatPart) -> bool {
                 || notice.rule.is_some()
                 || notice.overruled.is_some()
                 || notice.week.is_some()
+                || notice.rule_change.is_some()
         }
         _ => false,
     }

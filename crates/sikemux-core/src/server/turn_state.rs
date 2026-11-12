@@ -516,7 +516,12 @@ fn work_of(core: &Arc<Core>, agent_id: &str) -> Option<Work> {
 
 /// Whether `head` has landed on the project's branch, as the project counts landing: on that
 /// branch once committed, else on its remote. A side branch, pushed or not, has not landed.
-fn landed(core: &Core, project: &str, worktree: Option<&AgentWorktree>, head: &str) -> bool {
+pub(crate) fn landed(
+    core: &Core,
+    project: &str,
+    worktree: Option<&AgentWorktree>,
+    head: &str,
+) -> bool {
     let repo = worktree.map_or(Path::new(project), |worktree| worktree.repo.as_path());
     let Some(branch) = super::landing::project_branch(repo) else {
         return false;
