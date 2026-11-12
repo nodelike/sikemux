@@ -3719,8 +3719,6 @@ struct ChatMessage: Codable, Hashable, Sendable {
     var fold: WorkFold?
     /// The run of messages between agents it belongs to, which folds to one line.
     var team: TeamFold?
-    /// Emoji the agent reacted to it with, on a message to the agent.
-    var reactions: [String]?
     /// What the claims in an answer rest on, by the `why` links it holds: a link that names none
     /// of these shows nothing.
     var chips: [WhyChip]?

@@ -1917,22 +1917,6 @@
       ]
     },
     {
-      "name": "react",
-      "gesture": true,
-      "method": "chat.react",
-      "description": "React to the person's message with one emoji. Do it on most messages. Silent: never mention it.",
-      "properties": {
-        "emoji": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 32
-        }
-      },
-      "required": [
-        "emoji"
-      ]
-    },
-    {
       "name": "gif",
       "gesture": true,
       "method": "chat.gif",

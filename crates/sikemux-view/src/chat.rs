@@ -738,9 +738,6 @@ pub struct ChatMessage {
     /// The run of messages between agents it belongs to, which folds to one line.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub team: Option<TeamFold>,
-    /// Emoji the agent reacted to it with, on a message to the agent.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub reactions: Vec<String>,
     /// What the claims in an answer rest on, by the `why` links it holds: a link that names none
     /// of these shows nothing.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

@@ -28,7 +28,7 @@ pub struct Tool {
     /// `screenshot` or `image`.
     #[serde(default)]
     pub answer: Option<String>,
-    /// A reaction or GIF, which an agent should have to hand without looking it up.
+    /// A GIF, which an agent should have to hand without looking it up.
     #[serde(default)]
     gesture: bool,
     /// How the app shows a call of it, which says whether it changes anything.

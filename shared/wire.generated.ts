@@ -2427,8 +2427,6 @@ export interface ChatMessage {
     fold?: WorkFold;
     /** The run of messages between agents it belongs to, which folds to one line. */
     team?: TeamFold;
-    /** Emoji the agent reacted to it with, on a message to the agent. */
-    reactions?: string[];
     /**
      * What the claims in an answer rest on, by the `why` links it holds: a link that names none
      * of these shows nothing.

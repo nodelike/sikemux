@@ -214,7 +214,6 @@ named_fields!(row_field, ChatMessage {
     "meta" => meta,
     "fold" => fold,
     "team" => team,
-    "reactions" => reactions,
     "chips" => chips,
     "leftOut" => left_out,
     "fromEvent" => from_event,

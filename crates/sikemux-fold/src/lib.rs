@@ -82,7 +82,7 @@ pub fn plan_in(kind: ChatEventKind, payload: &Value) -> Option<Vec<PlanEntry>> {
     plan_entries(update)
 }
 
-/// Whether a call is one of our gestures, such as a reaction, which a chat shows
+/// Whether a call is one of our gestures, such as a GIF, which a chat shows
 /// only by what it did.
 pub fn is_gesture(title: &str) -> bool {
     tools::is_gesture(title)
@@ -106,8 +106,6 @@ pub type Place = std::sync::Arc<dyn Fn(&str, &str) -> Option<u64> + Send + Sync>
 /// name instead of by its bytes: the row still says what it was.
 const MAX_IMAGE_DATA_CHARS: usize = 2 * 1024 * 1024;
 const MAX_COMMANDS: usize = 256;
-/// An agent reacting more than this to one message is noise.
-const MAX_REACTIONS: usize = 3;
 
 /// What streamed into an answer and when, which its speed is worked out from.
 #[derive(Clone, Copy, Default)]
@@ -169,7 +167,6 @@ impl Row {
                 fold: None,
                 team: None,
                 from_event: Some(index),
-                reactions: Vec::new(),
                 chips: Vec::new(),
                 left_out: Vec::new(),
             },
@@ -1779,7 +1776,6 @@ impl Fold {
             return false;
         };
         match tools::gesture(&raw) {
-            Some(tools::Gesture::React(emoji)) => self.react(within, emoji),
             Some(tools::Gesture::Gif(gif)) => {
                 let call = tools::root_call(self.folder.as_deref(), tools::call(&raw));
                 let part = |id| ChatPart::Tool {
@@ -1886,28 +1882,6 @@ impl Fold {
         if let Some(&first) = answer.first() {
             self.note_main_change(&within, first);
         }
-    }
-
-    /// Puts `emoji` on the latest message to the agent, the one it is answering.
-    fn react(&mut self, within: &Within, emoji: String) -> bool {
-        let Some(transcript) = self.transcript(within) else {
-            return false;
-        };
-        let Some(position) = transcript
-            .rows
-            .iter()
-            .rposition(|row| row.msg.role == ChatRole::User)
-        else {
-            return false;
-        };
-        let row = &mut transcript.rows[position];
-        if row.msg.reactions.contains(&emoji) || row.msg.reactions.len() >= MAX_REACTIONS {
-            return false;
-        }
-        row.msg.reactions.push(emoji);
-        row.set("reactions");
-        transcript.touch(position);
-        true
     }
 
     fn replace_tool(

@@ -1,6 +1,5 @@
-//! Reactions and GIFs: what an agent does in a chat without a row of its own.
-//! A chat reads what each call answered and shows only that, an emoji on the
-//! message it answers or a GIF where it sent it.
+//! GIFs: what an agent sends in a chat without a row of its own. A chat reads
+//! what each call answered and shows only the GIF, where it was sent.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -13,7 +12,7 @@ use crate::cli::protocol::HarnessRequest;
 
 /// What a chat agent with Sikemux's tools is told about its gestures, in its system prompt,
 /// where it weighs them as part of who it is rather than as one tool among many.
-pub(crate) const PERSONALITY: &str = "You have a personality in Sikemux: react to the person's messages with react, and send GIFs with gif wherever they fit, even mid-reply. Never mention either.";
+pub(crate) const PERSONALITY: &str = "You have a personality in Sikemux: send GIFs with gif wherever they fit, even mid-reply. Never mention them.";
 
 const KLIPY: &str = "https://api.klipy.com/api/v1";
 const KLIPY_KEY: Option<&str> = option_env!("KLIPY_API_KEY");
@@ -23,35 +22,6 @@ const RESULTS: &str = "8";
 /// The medium GIF is sharp at the size a chat draws it; one larger than this falls back to the
 /// small one, since every frame of it is held decoded while it shows.
 const MAX_GIF_BYTES: u64 = 6 * 1024 * 1024;
-/// Joined emoji such as a family or a flag run to several characters; anything
-/// longer is words.
-const MAX_EMOJI_CHARS: usize = 12;
-
-pub(super) fn react(request: &HarnessRequest) -> Result<Value, String> {
-    let emoji = request
-        .params
-        .get("emoji")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .unwrap_or_default();
-    if !is_emoji(emoji) {
-        return Err("emoji must be one emoji, such as 👍".into());
-    }
-    Ok(json!({
-        "reacted": emoji,
-        "next": "A GIF can go with it: call gif with a few words. Never mention either.",
-    }))
-}
-
-fn is_emoji(text: &str) -> bool {
-    !text.is_empty()
-        && text.chars().count() <= MAX_EMOJI_CHARS
-        && text.chars().any(|char| u32::from(char) >= 0xA9)
-        && !text
-            .chars()
-            .any(|char| char.is_whitespace() || char.is_alphabetic())
-}
-
 /// Sends KLIPY's best match for `query` under the agent's reply.
 pub(super) async fn gif(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, String> {
     let query = text(&request.params, "query")?;

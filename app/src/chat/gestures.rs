@@ -1,58 +1,18 @@
-//! What an agent's gestures leave in a chat: emoji on the message it answered,
-//! and GIFs where it sent them.
+//! What an agent's gestures leave in a chat: GIFs where it sent them.
 
 use gpui_kit::{
-    div, img, prelude::FluentBuilder, px, AnyElement, App, FontWeight, InteractiveElement,
-    IntoElement, ObjectFit, ParentElement, SharedString, Styled, StyledImage,
+    div, img, px, AnyElement, App, FontWeight, InteractiveElement, IntoElement, ObjectFit,
+    ParentElement, SharedString, Styled, StyledImage,
 };
-use sikemux_view::chat::{ChatMessage, GifRef};
+use sikemux_view::chat::GifRef;
 
 use super::Drawn;
 use crate::picture::{Picture, Remote};
-use crate::theme::{self, Tokens, SPACE_1, SPACE_2H, TEXT_3XS, TEXT_XS};
+use crate::theme::{self, Tokens, SPACE_1, TEXT_3XS};
 use crate::ui;
 
 /// The longest side a GIF is drawn at, in points.
 const GIF_SIDE: f32 = 300.;
-/// How far the emoji hang over the bottom of the bubble.
-const OVERHANG: f32 = 9.;
-/// An emoji draws a little taller than its font size, so its chip leaves room around it.
-const CHIP_HEIGHT: f32 = 22.;
-
-/// The emoji the agent reacted with, hanging off the bottom of the message it answered,
-/// in from the bubble's right corner when `right`, else its left.
-pub fn reactions(message: &ChatMessage, right: bool, looks: &Drawn) -> Option<AnyElement> {
-    if message.reactions.is_empty() {
-        return None;
-    }
-    Some(
-        div()
-            .mt(px(-OVERHANG))
-            .map(|chips| match right {
-                true => chips.mr(SPACE_2H),
-                false => chips.ml(SPACE_2H),
-            })
-            .flex()
-            .gap(SPACE_1)
-            .children(message.reactions.iter().map(|emoji| {
-                div()
-                    .h(px(CHIP_HEIGHT))
-                    .min_w(px(CHIP_HEIGHT + 6.))
-                    .px(px(7.))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .rounded_full()
-                    .border_1()
-                    .border_color(looks.line)
-                    .bg(looks.bubble)
-                    .child(
-                        ui::text(emoji.clone(), TEXT_XS, FontWeight::NORMAL).line_height(px(12.)),
-                    )
-            }))
-            .into_any_element(),
-    )
-}
 
 /// A GIF the agent sent, where it sent it, centred across the reply and credited as KLIPY asks.
 pub fn gif(id: &str, gif: &GifRef, looks: &Drawn, cx: &App) -> AnyElement {

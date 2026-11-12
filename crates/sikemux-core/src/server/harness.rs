@@ -597,7 +597,6 @@ async fn dispatch(
         "memory.add" => super::memory::tool_add(core, &request).await,
         "memory.update" => super::memory::tool_update(core, &request).await,
         "memory.list" => super::memory::tool_list(core, &request).await,
-        "chat.react" => super::gestures::react(&request),
         "chat.gif" => super::gestures::gif(core, &request).await,
         "trigger.add" => super::triggers::add(core, &request).await,
         "trigger.list" => super::triggers::list(core, &request),

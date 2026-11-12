@@ -289,7 +289,6 @@ fn field(row: &ChatMessage, name: &str) -> Value {
         "team" => serde_json::to_value(&row.team),
         "context" => serde_json::to_value(&row.context),
         "letters" => serde_json::to_value(&row.letters),
-        "reactions" => serde_json::to_value(&row.reactions),
         "chips" => serde_json::to_value(&row.chips),
         "leftOut" => serde_json::to_value(&row.left_out),
         _ => Ok(Value::Null),

@@ -233,7 +233,6 @@ pub(super) fn row(
                     .when(!parts.is_empty(), |column| {
                         column.child(bubble(looks).children(parts))
                     })
-                    .children(gestures::reactions(message, true, looks))
                     .when(!followed_by_own, |column| {
                         column.children(meta::line(rows, ix, &group, looks, cx))
                     })
@@ -653,25 +652,6 @@ pub(super) fn letters(
             }
         });
         ix += 1;
-    }
-    let answered_last = letters
-        .last()
-        .is_some_and(|letter| letter.kind == LetterKind::Answer);
-    if let Some(chips) = gestures::reactions(&row.message, answered_last, looks) {
-        let last = drawn.pop().map(|last| {
-            div()
-                .w_full()
-                .flex()
-                .flex_col()
-                .map(|column| match answered_last {
-                    true => column.items_end(),
-                    false => column.items_start(),
-                })
-                .child(last)
-                .child(chips)
-                .into_any_element()
-        });
-        drawn.extend(last);
     }
     div()
         .w_full()

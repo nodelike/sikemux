@@ -16,7 +16,6 @@ const HOUSEKEEPING: &[&str] = &[
     "StructuredOutput",
     "guide",
     "skills",
-    "react",
     "gif",
     "page_preview",
     "page_show",

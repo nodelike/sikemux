@@ -485,7 +485,7 @@ pub(super) fn started_run(raw: &Map<String, Value>) -> Option<(String, String)> 
     (!name.is_empty()).then(|| (file.to_owned(), name.to_owned()))
 }
 
-/// One of our tools the chat never draws as a row, such as a reaction.
+/// One of our tools the chat never draws as a row, such as a GIF.
 pub(super) fn is_gesture(title: &str) -> bool {
     let title = title.replace("sikemux_tools", "sikemux-tools");
     let name = sikemux_tool_name(&title);
@@ -494,7 +494,6 @@ pub(super) fn is_gesture(title: &str) -> bool {
 
 /// What a gesture leaves in the chat once it has finished.
 pub(super) enum Gesture {
-    React(String),
     Gif(GifRef),
 }
 
@@ -503,9 +502,6 @@ pub(super) fn gesture(raw: &Map<String, Value>) -> Option<Gesture> {
         return None;
     }
     let answer = printed(raw.get("rawOutput"), raw.get("content"))?;
-    if let Some(emoji) = text(answer.get("reacted")) {
-        return Some(Gesture::React(emoji.to_owned()));
-    }
     let gif = answer.get("gif")?;
     let dimension = |key: &str| {
         gif.get(key)
