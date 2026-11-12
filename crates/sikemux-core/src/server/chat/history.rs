@@ -130,6 +130,33 @@ pub(crate) fn persons_prompts(dir: &Path, name: &str, max_bytes: u64) -> Vec<Per
     said
 }
 
+/// The prompt the person sent that started the latest turn of the history file `name` in `dir`,
+/// read from its last `max_bytes`: the first of theirs since the turn before ended, by its own
+/// end or by a failure. None when the person's words did not start it, as when an agent or
+/// Sikemux did.
+pub(crate) fn turn_prompt(dir: &Path, name: &str, max_bytes: u64) -> Option<PersonSaid> {
+    let events = tail(dir, name, max_bytes);
+    let since = (events.iter())
+        .rposition(|(_, event)| sikemux_fold::update::ends_turn(event.kind, &event.payload))
+        .map_or(0, |ended| ended + 1);
+    let (index, event) = (events.get(since..)?.iter()).find(|(_, event)| {
+        event.kind == ChatEventKind::Prompt
+            && event
+                .payload
+                .get("person")
+                .and_then(serde_json::Value::as_bool)
+                == Some(true)
+    })?;
+    let payload = &event.payload;
+    Some(PersonSaid {
+        index: *index,
+        at: payload.get("at").and_then(serde_json::Value::as_u64),
+        text: payload.get("text")?.as_str()?.to_owned(),
+        answered: (payload.get("answered").cloned())
+            .and_then(|answered| serde_json::from_value(answered).ok()),
+    })
+}
+
 /// The events of the history file `name` in `dir` in its last `max_bytes`, oldest first, by
 /// index. Reads the file alone, never the chat's lock, so a chat streaming meanwhile is not held
 /// up; an event still being written is not there yet.

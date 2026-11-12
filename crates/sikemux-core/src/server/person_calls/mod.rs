@@ -19,6 +19,7 @@ use sikemux_view::calls::{
     AnswerCallParams, CallAnswer, CallAsker, CallBrief, CallClient, CallEvidence, CallKind,
     CallOption, CallOutcome, CallParams, CallPlace, CallResult, CallState, CallWhy, PersonCall,
 };
+use sikemux_wire::protocol::ErrorKind;
 
 use self::log::{CallLog, Entry};
 use super::access::Peer;
@@ -194,9 +195,14 @@ fn kept<'a>(book: &'a Book, id: &str) -> Option<&'a Kept> {
 }
 
 fn open<'a>(book: &'a Book, id: &str) -> CoreResult<&'a Kept> {
-    Ok(kept(book, id)
+    (kept(book, id))
         .filter(|kept| kept.call.state == CallState::Open)
-        .ok_or(GONE)?)
+        .ok_or_else(gone)
+}
+
+/// The call was answered or closed already, which a client tells apart from other refusals.
+fn gone() -> CoreError {
+    CoreError::of(ErrorKind::NotPending, GONE)
 }
 
 /// What `entry` changes of the calls kept.
@@ -1295,7 +1301,7 @@ fn answered_before(
         let settled =
             (core.person_calls().book.locked().iter()).any(|kept| raised_by(kept, source));
         return match settled {
-            true => Err(GONE.into()),
+            true => Err(gone()),
             false => Ok(None),
         };
     };

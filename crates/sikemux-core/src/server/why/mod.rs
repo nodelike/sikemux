@@ -658,14 +658,7 @@ fn started_by_person(core: &Core, agent: &str) -> bool {
     let (Some(chat), Some(dir)) = (core.chats().get(agent), core.chats().history_dir()) else {
         return false;
     };
-    let events = history::tail(dir, chat.feed.id(), MAX_TURN_BYTES);
-    let since = (events.iter())
-        .rposition(|(_, event)| event.kind == ChatEventKind::TurnCompleted)
-        .map_or(0, |ended| ended + 1);
-    events[since..].iter().any(|(_, event)| {
-        event.kind == ChatEventKind::Prompt
-            && event.payload.get("person") == Some(&Value::Bool(true))
-    })
+    history::turn_prompt(dir, chat.feed.id(), MAX_TURN_BYTES).is_some()
 }
 
 /// `agent`'s turn ended. If it called `why`, its answer is sourced off the chat's path.

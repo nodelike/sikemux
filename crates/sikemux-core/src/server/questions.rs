@@ -1197,7 +1197,6 @@ fn raise_of(
     if breaks.is_none() {
         missing.push("breaks: what breaks if that is wrong".to_owned());
     }
-    let asked_for = text_param(params, "askedFor", MAX_LABEL_CHARS)?;
     let context = text_param(params, "context", MAX_CONTEXT_CHARS)?;
     let evidence = evidence_of(params.get("evidence"))?;
     let brief = brief_of(params.get("brief"))?;
@@ -1206,7 +1205,7 @@ fn raise_of(
             reason,
             pick,
             breaks,
-            asked_for,
+            asked_for: None,
             context,
             evidence,
             brief,
@@ -1217,6 +1216,26 @@ fn raise_of(
         )),
     }
 }
+
+/// What the person asked `agent` for, in their own words, which heads a call it raises: the
+/// prompt of theirs that started its turn, as the core recorded it, cut to the card's heading.
+/// None when the person's words did not start the turn, answered a question, may hold a secret,
+/// or are marked as answering a call or as typed while one whose words are never kept was open.
+/// Reads the chat's history file, so it blocks.
+fn asked_for(core: &Core, agent: &str) -> Option<String> {
+    let chat = core.chats().get(agent)?;
+    let dir = core.chats().history_dir()?;
+    let said = super::chat::history::turn_prompt(dir, chat.feed.id(), MAX_ASKED_FOR_BYTES)?;
+    if said.answered.is_some() || said.text.trim_start().starts_with("<question-answer ") {
+        return None;
+    }
+    let words = crate::sessions::asked::person_prose(&said.text)?;
+    (!crate::sessions::asked::may_hold_secret(&words))
+        .then(|| clipped(&crate::text::one_line(&words), MAX_LABEL_CHARS))
+}
+
+/// How much of a chat's history is read for the prompt that started its turn.
+const MAX_ASKED_FOR_BYTES: u64 = 512 * 1024;
 
 /// What a raised question shows to look at before deciding.
 fn evidence_of(value: Option<&Value>) -> Result<Vec<CallEvidence>, String> {
@@ -1575,6 +1594,12 @@ pub(crate) async fn ask(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
     let mut raise = raised
         .then(|| raise_of(params, &text, &mut choices))
         .transpose()?;
+    if let Some(raise) = raise.as_mut() {
+        let (reading, asker) = (core.clone(), agent_id.clone());
+        raise.asked_for = super::connection::blocking(move || Ok(asked_for(&reading, &asker)))
+            .await
+            .map_err(|error| error.to_string())?;
+    }
     mark_pick(params, &mut choices)?;
     (core.harness().questions).keep_pictures(&request.project, &mut choices)?;
     (core.harness().questions).keep_evidence(&request.project, &mut raise)?;
@@ -1788,6 +1813,10 @@ pub(crate) fn pass_on_from(
     choices: &Value,
     raise: Raise,
 ) -> Result<Value, String> {
+    let raise = Raise {
+        asked_for: None,
+        ..raise
+    };
     let text = text_param(&json!({ "text": text }), "text", MAX_QUESTION_BYTES)?
         .ok_or("the question must be nonempty text")?;
     let mut choices = self::choices(Some(choices))?;
