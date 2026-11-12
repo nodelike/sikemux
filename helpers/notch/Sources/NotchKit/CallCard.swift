@@ -105,7 +105,7 @@ struct CallCard: View {
                     ForEach(Array(shown.enumerated()), id: \.offset) { _, item in
                         evidence(item.picture ?? "", width: shown.count > 1 ? (width - 6) / 2 : width)
                             .overlay(alignment: .bottomLeading) {
-                                if shown.count > 1 { PictureLabel(text: item.what) }
+                                if let label = PictureLabel.words(item.what) { PictureLabel(text: label) }
                             }
                     }
                 }
@@ -489,6 +489,13 @@ struct CallsInList: View {
 /// A picture's name on its corner, such as Now and New on two evidence pages side by side.
 struct PictureLabel: View {
     let text: String
+
+    /// An evidence item's own words, when they are short enough to be a name (Now, New), else none.
+    static func words(_ words: String) -> String? {
+        let trimmed = words.trimmingCharacters(in: .whitespacesAndNewlines)
+        let count = trimmed.split(whereSeparator: \.isWhitespace).count
+        return !trimmed.isEmpty && trimmed.count <= 20 && count <= 3 ? trimmed : nil
+    }
 
     var body: some View {
         Text(text)

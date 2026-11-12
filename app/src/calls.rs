@@ -569,8 +569,7 @@ fn card(
                 .filter_map(|evidence| Some((evidence.picture.as_deref()?, evidence.what.clone())))
                 .take(2)
                 .collect();
-            let labelled = shown.len() > 1;
-            let width = match labelled {
+            let width = match shown.len() > 1 {
                 true => (EVIDENCE_WIDTH - 6.) / 2.,
                 false => EVIDENCE_WIDTH,
             };
@@ -585,7 +584,7 @@ fn card(
                             Some(ratio) => Fill::Top(ratio, width),
                             None => Fill::Cover,
                         };
-                        let label = labelled.then(|| picture_label(what.clone()));
+                        let label = label_words(&what).map(picture_label);
                         picture(
                             SharedString::from(format!("call-evidence-{}-{ix}", call.id)),
                             path,
@@ -993,7 +992,7 @@ fn picture(
                     .w(px(height * ratio))
                     .h(px(height))
             }
-                .object_fit(ObjectFit::Cover),
+            .object_fit(ObjectFit::Cover),
         })
         .on_click(move |_, window, cx| {
             cx.stop_propagation();
@@ -1003,6 +1002,14 @@ fn picture(
                 })
                 .ok();
         })
+}
+
+/// An evidence item's own words, when they are short enough to be a name on its picture (Now,
+/// New), else none.
+fn label_words(words: &str) -> Option<String> {
+    let trimmed = words.trim();
+    let short = trimmed.chars().count() <= 20 && trimmed.split_whitespace().count() <= 3;
+    (!trimmed.is_empty() && short).then(|| trimmed.to_owned())
 }
 
 /// A picture's name on its corner, such as Now and New on two evidence pages side by side.

@@ -214,6 +214,13 @@ enum CallWords {
     }
     /// Said when a typed answer to a call carries files, which a call does not take yet.
     static let wordsAlone = "A call takes words alone for now. Answer it, then send the files to the agent."
+    /// The name on a picture's corner: an evidence item's own words, when they are short enough to be a name (Now,
+    /// New), else none.
+    static func pictureLabel(_ words: String) -> String? {
+        let trimmed = words.trimmingCharacters(in: .whitespacesAndNewlines)
+        let count = trimmed.split(whereSeparator: \.isWhitespace).count
+        return !trimmed.isEmpty && trimmed.count <= 20 && count <= 3 ? trimmed : nil
+    }
     /// The composer's chip while a call waits in the chat.
     static func answering(_ name: String, _ question: String) -> String { "Answering @\(name) · \(question)" }
     /// The composer's placeholder while a call waits in the chat.

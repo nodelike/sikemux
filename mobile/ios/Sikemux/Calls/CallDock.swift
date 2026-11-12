@@ -129,7 +129,7 @@ struct CallDock: View {
                 ForEach(Array(shown.enumerated()), id: \.offset) { _, evidence in
                     CallPicture(core: core, path: evidence.picture, top: true)
                         .overlay(alignment: .bottomLeading) {
-                            if shown.count > 1 { PictureLabel(text: evidence.what) }
+                            if let label = CallWords.pictureLabel(evidence.what) { PictureLabel(text: label) }
                         }
                         .accessibilityLabel(evidence.what)
                 }
