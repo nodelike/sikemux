@@ -11,9 +11,15 @@ struct ChatTitle: View {
     let provider: String
     var name: String?
     let title: String
+    /// The project's chief, which wears Sikemux's S.
+    var chief = false
 
     var body: some View {
-        AgentFaceView(agentId: agentId, provider: provider, group: group, turn: turn, size: 17)
+        if chief {
+            IconView(icon: Icons.logo, size: 13).foregroundStyle(palette.accent).frame(width: 17, height: 17)
+        } else {
+            AgentFaceView(agentId: agentId, provider: provider, group: group, turn: turn, size: 17)
+        }
         Text(title).font(Theme.ui(16, .semibold)).tracking(-0.25).foregroundStyle(palette.ink).lineLimit(1)
             .accessibilityAddTraits(.isHeader)
         if let name { Text("@\(name)").font(Theme.ui(12)).foregroundStyle(palette.tertiary).fixedSize() }

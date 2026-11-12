@@ -44,7 +44,11 @@ struct OverruledLine: View {
     }
 
     private func undo() {
-        guard let core = context.core, let connection = Hub.shared.live(core).connection, !sending else { return }
+        guard !sending else { return }
+        guard let core = context.core, let connection = Hub.shared.live(core).connection else {
+            refused = CallWords.notConnected
+            return
+        }
         sending = true
         refused = nil
         let params = UndoOverruleParams(project: overruled.project, goal: overruled.goal, decision: overruled.decision)

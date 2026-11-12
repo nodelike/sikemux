@@ -253,6 +253,8 @@ export const LANDED = "Landed";
 export const answerBelow = (count: number, say: Say = english) =>
     count === 1 ? say("Answer it in the card below") : say("Answer them in the card below");
 export const OVERRULE = "Overrule";
+/** Under an Overrule or Undo that has no host to send it to. */
+export const NOT_CONNECTED = "Not connected to the host.";
 export const UNDO = "Undo";
 export const OVERRULED = "Overruled";
 export const OVERRULED_UNDONE = "Overruled, then undone";
@@ -284,7 +286,7 @@ export function weekCount(week: { decided: number; overruled: number; answered: 
         week.answered === 1
             ? say("You answered {picked} of 1 call as I picked.", { picked: week.asPicked })
             : say("You answered {picked} of {answered} calls as I picked.", { picked: week.asPicked, answered: week.answered });
-    return `${first} ${second}`;
+    return say("{first} {second}", { first, second });
 }
 
 // An assumption

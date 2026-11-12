@@ -773,5 +773,6 @@
   "This stopped Auto's run, so it can't be put back": "Auto の実行を止めたため元に戻せません",
   "Decisions like this come to you from now on": "今後こうした決定はあなたに回ります",
   "Answer it in the card below": "下のカードで回答してください",
-  "Answer them in the card below": "下のカードで回答してください"
+  "Answer them in the card below": "下のカードで回答してください",
+  "{first} {second}": "{first}{second}"
 }

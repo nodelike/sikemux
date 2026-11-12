@@ -32,9 +32,9 @@ struct AwayCard: View {
             }
             if !decided.isEmpty {
                 section(CallWords.decidedForYou, decided.count)
-                ForEach(Array(decided.enumerated()), id: \.offset) { index, decision in
+                ForEach(decided, id: \.key) { decision in
                     AwayDecisionRow(core: core, decision: decision, full: full)
-                    if index < decided.count - 1 { Divider().overlay(palette.border) }
+                    if decision.key != decided.last?.key { Divider().overlay(palette.border) }
                 }
             }
             if !landed.isEmpty {
@@ -71,7 +71,7 @@ struct AwayCard: View {
 
     private func landedRow(_ work: AwayLanded) -> some View {
         HStack(spacing: 10) {
-            AskerMark(agentId: work.agentId, provider: provider(work.agentId), size: 16)
+            LandedMark(core: core, agentId: work.agentId)
                 .frame(width: 16)
                 .frame(maxHeight: .infinity, alignment: .top)
                 .padding(.top, 3)
@@ -91,9 +91,22 @@ struct AwayCard: View {
         .contentShape(Rectangle())
     }
 
-    private func provider(_ agentId: String) -> String {
-        Hub.shared.live(core).view?.workspace.agents?.first { $0.id == agentId }?.provider ?? "agent"
+}
+
+/// A landed agent's mark, apart so only it reads the host's view for the agent's kind.
+private struct LandedMark: View {
+    let core: String
+    let agentId: String
+
+    var body: some View {
+        let provider = Hub.shared.live(core).view?.workspace.agents?.first { $0.id == agentId }?.provider ?? "agent"
+        AskerMark(agentId: agentId, provider: provider, size: 16)
     }
+}
+
+extension AwayDecision {
+    /// Which decision it is, the same however the list moves.
+    var key: String { "\(goal.map(String.init) ?? "")/\(decision)" }
 }
 
 /// A decision made for the person, struck once they overrule it; Overrule only where the phone may act.
@@ -142,7 +155,11 @@ private struct AwayDecisionRow: View {
     }
 
     private func overrule() {
-        guard let connection = Hub.shared.live(core).connection, !sending else { return }
+        guard !sending else { return }
+        guard let connection = Hub.shared.live(core).connection else {
+            refused = CallWords.notConnected
+            return
+        }
         sending = true
         refused = nil
         let params = OverruleParams(project: decision.project, goal: decision.goal, decision: decision.decision)

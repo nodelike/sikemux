@@ -289,6 +289,8 @@ enum CallWords {
             ? String(localized: "Answer it in the card below") : String(localized: "Answer them in the card below")
     }
     static let overrule = String(localized: "Overrule")
+    /// Under an Overrule or Undo that has no host to send it to.
+    static let notConnected = String(localized: "Not connected to the host.")
     static let undo = String(localized: "Undo")
     static let overruled = String(localized: "Overruled")
     static let overruledUndone = String(localized: "Overruled, then undone")
@@ -324,7 +326,7 @@ enum CallWords {
             answered == 1
             ? String(localized: "You answered \(picked) of 1 call as I picked.")
             : String(localized: "You answered \(picked) of \(answered) calls as I picked.")
-        return "\(first) \(second)"
+        return String(localized: "\(first) \(second)")
     }
 
     // MARK: An assumption

@@ -773,5 +773,6 @@
   "This stopped Auto's run, so it can't be put back": "Auto 실행을 멈췄기 때문에 되돌릴 수 없습니다",
   "Decisions like this come to you from now on": "앞으로 이런 결정은 당신에게 갑니다",
   "Answer it in the card below": "아래 카드에서 답하세요",
-  "Answer them in the card below": "아래 카드에서 답하세요"
+  "Answer them in the card below": "아래 카드에서 답하세요",
+  "{first} {second}": "{first} {second}"
 }

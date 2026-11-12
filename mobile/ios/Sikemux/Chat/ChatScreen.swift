@@ -81,7 +81,8 @@ private struct ChatPane: View {
         Screen {
             Nav(back: nil, onBack: nil) {
                 ChatTitle(
-                    agentId: agentId, turn: rows.head.turn?.state, provider: provider, name: info?.name, title: title)
+                    agentId: agentId, turn: rows.head.turn?.state, provider: provider, name: info?.name, title: title,
+                    chief: rows.head.chief == true)
             } end: {
                 Button {
                     menu = true
@@ -118,6 +119,12 @@ private struct ChatPane: View {
         .onDisappear(perform: left)
         .onChange(of: session.rows.head.away?.calls) { _, calls in HostCalls.of(core).setAway(calls, for: agentId) }
         .onChange(of: scenePhase) { _, phase in OnScreen.shared.front(phase == .active) }
+        .onChange(of: Lock.shared.phase) { _, _ in OnScreen.shared.tellAll() }
+        .onChange(of: drawn) { _, _ in show() }
+        .onChange(of: full) { _, full in
+            context.acts = full
+            show()
+        }
         .onChange(of: info) { _, info in session.hostSaw(info) }
         .onChange(of: live.isOpen) { _, _ in
             OnScreen.shared.tell(core)
@@ -167,7 +174,7 @@ private struct ChatPane: View {
         Cards.dismiss(host: core, agent: agentId)
         context.acts = full
         HostCalls.of(core).setAway(session.rows.head.away?.calls, for: agentId)
-        if full { OnScreen.shared.show(core, agentId) }
+        show()
         watch = Hub.shared.watch(core)
         session.hostSaw(info)
         release = session.hold(live.connection)
@@ -237,8 +244,16 @@ private struct ChatPane: View {
         context.finding = nil
     }
 
+    /// The chat is live on screen, with or without rows yet, which is when the host may count it read.
+    private var drawn: Bool { session.attached == .live }
+
+    private func show() {
+        if full { OnScreen.shared.show(core, agentId, drawn: drawn) } else { OnScreen.shared.hide(core, agentId) }
+    }
+
     private func left() {
         OnScreen.shared.hide(core, agentId)
+        HostCalls.of(core).setAway(nil, for: agentId)
         stillness?()
         stillness = nil
         release?()

@@ -129,7 +129,7 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
     foundWords.current = undefined;
   }, [find]);
   const watchOnly = access === 'watch';
-  useOnScreen(core, agentId, access === 'full' && !!connection);
+  useOnScreen(core, agentId, access === 'full', chat.attached === 'live', connection);
   const canEdit = !watchOnly && state.capabilities.editing && state.connection === 'ready' && !state.running && chat.attached === 'live';
   if (editing !== undefined && !canEdit) setEditing(undefined);
   const editable = (message: ChatMessage) =>
@@ -295,7 +295,9 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
   const screen = (
     <Screen>
       <Nav
-        title={<ChatTitle agentId={agentId} turn={state.turn?.state} provider={provider} name={info?.name} title={title} />}
+        title={
+          <ChatTitle agentId={agentId} turn={state.turn?.state} provider={provider} name={info?.name} title={title} chief={state.chief} />
+        }
         end={
           <Pressable
             onPress={() => setMenu(true)}

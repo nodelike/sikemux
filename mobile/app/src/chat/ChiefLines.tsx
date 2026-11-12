@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import {
   FROM_NOW_ON,
+  NOT_CONNECTED,
   OVERRULED,
   OVERRULED_UNDONE,
   quoted,
@@ -43,8 +44,9 @@ export function OverruledLine({ overruled }: { overruled: OverruledDecision }) {
         : undefined;
   const offersUndo = acts && !overruled.undone && !overruled.stoppedAuto;
   const undo = () => {
+    if (sending) return;
     const connection = connectionOf(liveOf(core));
-    if (!connection || sending) return;
+    if (!connection) return setRefused(t(NOT_CONNECTED));
     setSending(true);
     setRefused(undefined);
     callHost(connection, 'undoOverrule', { project: overruled.project, goal: overruled.goal ?? null, decision: overruled.decision })

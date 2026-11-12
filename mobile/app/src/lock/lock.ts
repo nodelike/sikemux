@@ -51,6 +51,8 @@ function open() {
 
 /** Whether the person turned the lock on, so nothing outside the app shows what agents work on. */
 export const lockOn = () => lock.get().on;
+/** Nothing covers the app: it is in front and, with the lock on, unlocked. */
+export const lockOpen = () => lock.get().phase === 'open';
 export const onLockChange = (listener: () => void) => lock.subscribe(listener);
 
 export function useLock(): LockState {

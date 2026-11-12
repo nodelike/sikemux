@@ -2,10 +2,11 @@ import { StyleSheet, Text } from 'react-native';
 
 import type { TurnPhase } from '@shared/wire.generated';
 import { AgentFace } from '@/devices/Buddy';
-import { fonts, type Palette, useStyles } from '@/ui/theme';
+import { Icon } from '@/ui/Icon';
+import { fonts, type Palette, useColors, useStyles } from '@/ui/theme';
 
 /**
- * A chat's header: its agent's mark or buddy, its title, then its name dimmed, as the Mac's header reads; the same
+ * A chat's header: its agent's mark or buddy, or Sikemux's S for the project's chief, its title, then its name dimmed, as the Mac's header reads; the same
  * before and after the chat starts.
  */
 export function ChatTitle({
@@ -14,6 +15,7 @@ export function ChatTitle({
   provider,
   name,
   title,
+  chief,
 }: {
   agentId?: string;
   /** How its turn stands, which the face wears. */
@@ -21,11 +23,17 @@ export function ChatTitle({
   provider: string;
   name?: string | null;
   title: string;
+  chief?: boolean;
 }) {
   const styles = useStyles(makeStyles);
+  const colors = useColors();
   return (
     <>
-      <AgentFace agentId={agentId} provider={provider} turn={turn} size={17} />
+      {chief ? (
+        <Icon name="Logo" size={13} color={colors.accent} />
+      ) : (
+        <AgentFace agentId={agentId} provider={provider} turn={turn} size={17} />
+      )}
       <Text style={styles.title} numberOfLines={1} accessibilityRole="header">
         {title}
       </Text>

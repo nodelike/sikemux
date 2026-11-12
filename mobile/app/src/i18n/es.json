@@ -773,5 +773,6 @@
   "This stopped Auto's run, so it can't be put back": "Esto detuvo la ejecución de Auto, así que no se puede restaurar",
   "Decisions like this come to you from now on": "A partir de ahora, las decisiones como esta te llegan a ti",
   "Answer it in the card below": "Respóndela en la tarjeta de abajo",
-  "Answer them in the card below": "Respóndelas en la tarjeta de abajo"
+  "Answer them in the card below": "Respóndelas en la tarjeta de abajo",
+  "{first} {second}": "{first} {second}"
 }

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { answerBelow, AWAY_NEEDS_YOU, awayFor, DECIDED_FOR_YOU, LANDED, OVERRULE, WHILE_AWAY } from '@shared/calls/words';
+import { answerBelow, AWAY_NEEDS_YOU, awayFor, DECIDED_FOR_YOU, LANDED, NOT_CONNECTED, OVERRULE, WHILE_AWAY } from '@shared/calls/words';
 import { formatAge } from '@shared/lib/format';
 import type { AwayDecision, ChiefAway } from '@shared/wire.generated';
 import type { ConnectionLike } from '@sikemux/native';
@@ -126,7 +126,8 @@ function Decision({
   const [refused, setRefused] = useState<string>();
   const under = decision.why ?? (decision.by ? `@${decision.by.name}` : undefined);
   const overrule = () => {
-    if (!connection || sending) return;
+    if (sending) return;
+    if (!connection) return setRefused(t(NOT_CONNECTED));
     setSending(true);
     setRefused(undefined);
     callHost(connection, 'overruleDecision', { project: decision.project, goal: decision.goal ?? null, decision: decision.decision })

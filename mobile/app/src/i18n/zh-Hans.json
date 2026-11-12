@@ -773,5 +773,6 @@
   "This stopped Auto's run, so it can't be put back": "这停止了 Auto 的运行，因此无法恢复",
   "Decisions like this come to you from now on": "今后此类决定交给你",
   "Answer it in the card below": "请在下方卡片中回答",
-  "Answer them in the card below": "请在下方卡片中逐个回答"
+  "Answer them in the card below": "请在下方卡片中逐个回答",
+  "{first} {second}": "{first}{second}"
 }

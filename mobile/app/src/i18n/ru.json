@@ -773,5 +773,6 @@
   "This stopped Auto's run, so it can't be put back": "Это остановило Auto, поэтому вернуть нельзя",
   "Decisions like this come to you from now on": "Теперь такие решения приходят к вам",
   "Answer it in the card below": "Ответьте на него в карточке ниже",
-  "Answer them in the card below": "Ответьте на них в карточке ниже"
+  "Answer them in the card below": "Ответьте на них в карточке ниже",
+  "{first} {second}": "{first} {second}"
 }
