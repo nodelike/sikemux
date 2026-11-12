@@ -105,6 +105,8 @@ pub struct Composer {
     /// The Stash's tray, docked over the top edge.
     tray: Option<AnyElement>,
     notice: Option<Notice>,
+    /// What takes a SnapShot of another app's window into the draft.
+    snapshot: Option<Act>,
     /// The mic, and what it has heard so far.
     dictation: Option<AnyView>,
     heard: Option<SharedString>,
@@ -152,6 +154,7 @@ impl Composer {
             stash: None,
             tray: None,
             notice: None,
+            snapshot: None,
             dictation: None,
             heard: None,
             aside: None,
@@ -238,6 +241,11 @@ impl Composer {
         let chip: Chip =
             Rc::new(move |token, window, cx| chip(token, window, cx).into_any_element());
         self.attachments = Some((tiles, on_add, on_paste, chip));
+        self
+    }
+
+    pub fn snapshot(mut self, take: Act) -> Self {
+        self.snapshot = Some(take);
         self
     }
 
@@ -426,6 +434,7 @@ impl RenderOnce for Composer {
             .children(self.leading)
             .child(div().flex_1())
             .children(self.aside.map(|(_, aside)| aside(labelled)))
+            .children(self.snapshot.map(|take| snapshot_button(take, cx)))
             .children(self.dictation)
             .child(match self.send_label {
                 Some(label) => {
@@ -845,6 +854,16 @@ impl Room {
             _ => Room::Bare,
         }
     }
+}
+
+fn snapshot_button(take: Act, cx: &App) -> IconButton {
+    let keys = crate::keymap::hint_named(crate::snapshot::COMMAND, cx)
+        .map_or_else(String::new, |keys| format!(" {keys}"));
+    let label = format!("SnapShot the window you were in before Sikemux{keys}");
+    IconButton::new("composer-snapshot", Icon::Camera, label)
+        .glyph(16.)
+        .width(31.)
+        .on_click(move |_, window, cx| take(window, cx))
 }
 
 /// The room left for the bar's own controls at a composer `width` wide, and whether a control

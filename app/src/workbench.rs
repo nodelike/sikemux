@@ -208,6 +208,8 @@ impl Workbench {
             false
         });
         actions::install(asks.clone(), cx);
+        #[cfg(target_os = "macos")]
+        crate::snapshot::listen(window, cx);
         crate::hang_watch::start(window, cx);
         crate::ui::grain::animate(window, cx, |bench| {
             bench.battery.is_some_and(|battery| !battery.charging)

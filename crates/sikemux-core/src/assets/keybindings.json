@@ -536,6 +536,13 @@
         "other": "Ctrl+Shift+KeyX"
     },
     {
+        "id": "chat.snapshot",
+        "label": "SnapShot window to chat",
+        "detail": "Take the window you work in, in another app, to the chat as a picture with its app, title and text. Works from any app",
+        "category": "Agents",
+        "mac": "Meta+Shift+Digit2"
+    },
+    {
         "id": "browser.reload",
         "label": "Reload browser tab",
         "detail": "Reload the active embedded browser tab",

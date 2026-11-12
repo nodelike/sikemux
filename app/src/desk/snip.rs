@@ -10,11 +10,10 @@ use gpui_kit::{Context, Window};
 use serde_json::Value;
 use sikemux_browser::snip::{self, Snip, Snipped};
 use sikemux_browser::BrowserManager;
-use tokio::sync::{mpsc, oneshot, Notify};
+use tokio::sync::{mpsc, Notify};
 
 use super::{Desks, Heard};
-use crate::chat::SNIP_NAME;
-use crate::send_to::{self, Recipient};
+use crate::chat::{Made, SNIP_NAME};
 use crate::theme::Tokens;
 use crate::toast;
 use crate::workbench::Workbench;
@@ -153,74 +152,17 @@ impl Workbench {
 
     /// Hands a box the person took to the project's front chat, starting one when none is open.
     pub(crate) fn snipped(&mut self, snip: Snip, window: &mut Window, cx: &mut Context<Self>) {
-        let name = format!(
-            "{SNIP_NAME}{}.jpg",
-            chrono::Local::now().format("%Y%m%d-%H%M%S%3f")
-        );
-        let held = self
-            .desks
-            .update(cx, |desks, _| match &mut desks.snips_for_new_chat {
-                Some(waiting) => {
-                    waiting.push((name, snip));
-                    None
-                }
-                None => Some((name, snip)),
-            });
-        let Some((name, snip)) = held else {
-            return;
-        };
-        let Some(choice) = send_to::choices(self).into_iter().next() else {
-            self.notify(
-                toast::info("Start an agent first — snips go to its chat"),
-                cx,
-            );
-            return;
-        };
-        let (launcher, project) = match choice.to {
-            Recipient::Agent(agent) => return self.attach_snip(&agent, name, snip, window, cx),
-            Recipient::NewChat { launcher, project } => (launcher, project),
-        };
-        self.desks.update(cx, |desks, _| {
-            desks.snips_for_new_chat = Some(vec![(name, snip)]);
-        });
-        let (started, agent) = oneshot::channel();
-        self.target()
-            .start_chat(launcher, project, None, Some(started));
-        cx.spawn_in(window, async move |bench, cx| {
-            let agent = agent.await.ok();
-            let _ = bench.update_in(cx, |bench, window, cx| {
-                let waiting = bench
-                    .desks
-                    .update(cx, |desks, _| desks.snips_for_new_chat.take());
-                let Some(agent) = agent else {
-                    return;
-                };
-                for (name, snip) in waiting.into_iter().flatten() {
-                    bench.attach_snip(&agent, name, snip, window, cx);
-                }
-            });
-        })
-        .detach();
-    }
-
-    fn attach_snip(
-        &mut self,
-        agent: &str,
-        name: String,
-        snip: Snip,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
         let page = snip.page;
-        self.attach_picture(
-            agent,
-            name,
-            "image/jpeg",
-            snip.jpeg,
-            move |path| about(path, &page),
-            window,
-            cx,
-        );
+        let made = Made {
+            name: format!(
+                "{SNIP_NAME}{}.jpg",
+                chrono::Local::now().format("%Y%m%d-%H%M%S%3f")
+            ),
+            mime: "image/jpeg",
+            bytes: snip.jpeg,
+            about: Box::new(move |path| about(path, &page)),
+        };
+        self.hand_to_front_chat(made, "snips", window, cx);
     }
 }
 

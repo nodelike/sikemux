@@ -41,6 +41,7 @@ const COMMANDS: &[&str] = &[
     "chat.openWorker",
     "browser.tabNew",
     "browser.snip",
+    "chat.snapshot",
     "browser.width",
     "browser.widthAll",
     "text.sizeIncrease",

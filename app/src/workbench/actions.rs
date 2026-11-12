@@ -171,6 +171,8 @@ commands! {
     FocusAddress = "browser.address" acts |bench, _, cx| bench.focus_front_address(cx);
     /// Each box dragged over the front agent's page goes to the project's front chat.
     Snip = "browser.snip" acts |bench, _, cx| bench.toggle_front_snip(cx);
+    /// The window of the app in front of every other, to the project's front chat.
+    SnapShot = "chat.snapshot" acts |bench, window, cx| bench.snapshot(None, false, window, cx);
     ReloadPage = "browser.reload" (OnPage) acts |bench, _, cx| bench.reload_front_page(cx);
     PageBack = "browser.back" (OnPage) acts |bench, _, cx| bench.step_front_page(-1, cx);
     PageForward = "browser.forward" (OnPage) acts |bench, _, cx| bench.step_front_page(1, cx);

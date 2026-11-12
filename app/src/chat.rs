@@ -77,7 +77,7 @@ mod math;
 mod mention;
 mod mermaid;
 mod moving;
-pub(crate) use attach::{named, named_agents, pill, site_icon, Mention, SNIP_NAME};
+pub(crate) use attach::{named, named_agents, pill, site_icon, Made, Mention, SNIP_NAME};
 pub use mention::Tray;
 mod meta;
 pub mod model_picker;
@@ -607,6 +607,8 @@ pub struct Chats {
     pub(crate) deliveries: HashMap<String, String>,
     /// Files and the notes about them handed to agents whose composer is not made yet.
     pub(crate) held_files: HashMap<String, (Vec<PathBuf>, Vec<ChatContext>)>,
+    /// Pictures made in the app while the chat they go to starts.
+    pub(crate) pictures_for_new_chat: Option<Vec<attach::Made>>,
     /// Lets go of the chats out of sight once they have been for a while, counted from when
     /// the chat now in front came there.
     pub(crate) resting: Option<(Option<String>, gpui_kit::Task<()>)>,

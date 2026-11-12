@@ -487,10 +487,25 @@ pub fn drafting(
             Rc::new(attach::on_paste(owner, cx)),
             attach::chip(cx.weak_entity()),
         )
+        .when(cfg!(target_os = "macos"), |composer| {
+            composer.snapshot(snapshot(owner, &this))
+        })
         .dictation(composing.mic.clone(), bench.voice.read(cx).heard_for(owner))
         .suggestion(composing.suggested.clone())
         .menu(dock);
     Some((composer, offering))
+}
+
+/// Takes a SnapShot into `owner`'s draft.
+fn snapshot(owner: &str, this: &WeakEntity<Workbench>) -> Act {
+    let (this, owner) = (this.clone(), owner.to_owned());
+    Rc::new(move |window: &mut Window, cx: &mut App| {
+        crate::keymap::counted(crate::snapshot::COMMAND, cx);
+        this.update(cx, |bench, cx| {
+            bench.snapshot(Some(owner.clone()), false, window, cx)
+        })
+        .ok();
+    })
 }
 
 /// The Stash on `owner`'s bar and its tray over the draft while it is open, and whether it is.

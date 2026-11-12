@@ -72,6 +72,7 @@ pub mod settings;
 mod share;
 mod sim;
 mod skills_added;
+mod snapshot;
 mod space_editor;
 mod stash;
 mod swipe;

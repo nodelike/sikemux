@@ -35,6 +35,7 @@ use crate::core::ChatAsk;
 use crate::drag::{DraggedChat, DraggedPath};
 use crate::hosts::Place;
 use crate::icons::Icon;
+use crate::send_to::Recipient;
 use crate::theme::{self, Tokens, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, TEXT_SM, TEXT_XS};
 use crate::ui;
 use crate::workbench::Workbench;
@@ -144,6 +145,19 @@ fn mark_of(id: &str, tint: Hsla, named: Option<AgentRow>, cx: &App) -> gpui_kit:
         |icon| gpui_kit::img(icon).size(px(13.)).into_any_element(),
     )
 }
+
+/// A picture made in the app, such as a snip of a page or a SnapShot of a window, on its way to
+/// a chat. `about` writes, from where the picture was kept, a title and text the agent alone is
+/// told with it.
+pub struct Made {
+    pub name: String,
+    pub mime: &'static str,
+    pub bytes: Vec<u8>,
+    pub about: About,
+}
+
+/// Writes, from where a picture was kept, its title and the text the agent alone is told.
+pub type About = Box<dyn FnOnce(&Path) -> (String, String)>;
 
 /// Where the note the agent alone gets about picture `path` is filed, so it goes with the picture.
 fn about_uri(path: &Path) -> String {
@@ -348,20 +362,22 @@ impl Workbench {
         cx.notify();
     }
 
-    /// Hands `agent`'s next message a picture made in the app, such as a snip of a page, named at
-    /// its draft's caret. `about` writes, from where the picture was kept, a title and text the
-    /// agent alone is told with it; an agent in a terminal is typed its path and that text.
-    #[allow(clippy::too_many_arguments)]
-    pub fn attach_picture(
+    /// Hands `agent`'s next message a picture made in the app, named at its draft's caret, with
+    /// what `about` says of it for the agent alone; an agent in a terminal is typed its path and
+    /// that text.
+    pub(crate) fn attach_picture(
         &mut self,
         agent: &str,
-        name: String,
-        mime: &str,
-        bytes: Vec<u8>,
-        about: impl FnOnce(&Path) -> (String, String) + 'static,
+        made: Made,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let Made {
+            name,
+            mime,
+            bytes,
+            about,
+        } = made;
         let owner = agent.to_owned();
         let kept =
             move |bench: &mut Self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>| {
@@ -378,6 +394,47 @@ impl Workbench {
                 bench.attach_there(&owner, vec![path], vec![note], window, cx);
             };
         self.keep(agent, name, mime, bytes, kept, window, cx);
+    }
+
+    /// Hands a picture made in the app to the project's front chat, starting one when none is
+    /// open. `kind` names such pictures in what the person is told when no agent can take it.
+    pub(crate) fn hand_to_front_chat(
+        &mut self,
+        made: Made,
+        kind: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(waiting) = &mut self.chats.pictures_for_new_chat {
+            waiting.push(made);
+            return;
+        }
+        let Some(choice) = crate::send_to::choices(self).into_iter().next() else {
+            let note = format!("Start an agent first — {kind} go to its chat");
+            self.notify(crate::toast::info(note), cx);
+            return;
+        };
+        let (launcher, project) = match choice.to {
+            Recipient::Agent(agent) => return self.attach_picture(&agent, made, window, cx),
+            Recipient::NewChat { launcher, project } => (launcher, project),
+        };
+        self.chats.pictures_for_new_chat = Some(vec![made]);
+        let (started, agent) = oneshot::channel();
+        self.target()
+            .start_chat(launcher, project, None, Some(started));
+        cx.spawn_in(window, async move |bench, cx| {
+            let agent = agent.await.ok();
+            let _ = bench.update_in(cx, |bench, window, cx| {
+                let waiting = bench.chats.pictures_for_new_chat.take();
+                let Some(agent) = agent else {
+                    return;
+                };
+                for made in waiting.into_iter().flatten() {
+                    bench.attach_picture(&agent, made, window, cx);
+                }
+            });
+        })
+        .detach();
     }
 
     /// Reads files off the window's thread and has the chat's core keep each, attaching it

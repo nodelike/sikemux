@@ -268,6 +268,8 @@ pub fn bind(overrides: &BTreeMap<String, Option<String>>, cx: &mut App) {
         |name| shortcuts().iter().any(|shortcut| shortcut.id == name),
         cx,
     );
+    #[cfg(target_os = "macos")]
+    crate::snapshot::register(bound.get(crate::snapshot::COMMAND).map(String::as_str));
     let keymap = cx.global_mut::<Keymap>();
     keymap.bound = bound;
     keymap.overrides = Some(overrides.clone());
