@@ -6,6 +6,7 @@
 mod features;
 mod pricing;
 mod report;
+mod waits;
 
 pub(crate) use features::Counted;
 
@@ -31,7 +32,7 @@ use crate::launch::model_feed::Feed;
 use crate::launch::named_account;
 use pricing::Prices;
 pub use pricing::{PriceOverride, PricingInfo};
-pub(crate) use report::{ReportedDay, ReportedTokens};
+pub(crate) use report::{ReportedAnswers, ReportedDay, ReportedTokens};
 
 use super::Core;
 use crate::sessions::tokens::{ReadState, TokenCount};
@@ -439,6 +440,15 @@ const MIGRATIONS: &[&str] = &[
      ALTER TABLE tokens ADD COLUMN chat TEXT NOT NULL DEFAULT '';
      CREATE INDEX tokens_by_account ON tokens (account, at_ms);
      CREATE INDEX tokens_by_project ON tokens (project, at_ms);",
+    "CREATE TABLE answers (
+         day INTEGER NOT NULL,
+         kind TEXT NOT NULL,
+         via TEXT NOT NULL,
+         count INTEGER NOT NULL,
+         ms INTEGER NOT NULL,
+         PRIMARY KEY (day, kind, via)
+     );
+     CREATE TABLE waited (day INTEGER PRIMARY KEY, ms INTEGER NOT NULL);",
 ];
 
 fn migrate(connection: &Connection) -> rusqlite::Result<()> {

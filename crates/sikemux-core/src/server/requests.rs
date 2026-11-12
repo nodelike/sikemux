@@ -424,7 +424,8 @@ pub(super) async fn run(
                 request_id: permission,
                 option_id,
             }) => {
-                let result = chat::reply_permission(&core, &agent_id, &permission, option_id);
+                let result =
+                    chat::reply_permission(&core, &agent_id, &permission, option_id, &client.peer);
                 client.answer::<ask::AcpPermissionReply>(request_id, result);
             }
             Request::AcpStop(ask::AcpStop { agent_id }) => {

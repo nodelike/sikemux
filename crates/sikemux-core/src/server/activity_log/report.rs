@@ -27,6 +27,18 @@ pub(crate) struct ReportedDay {
     pub tokens: Vec<ReportedTokens>,
     /// How often each feature was used, by name and who asked for it.
     pub features: Vec<(String, String, i64)>,
+    /// Calls the person answered, by kind and client: how many, and the time they waited in all.
+    pub answers: Vec<ReportedAnswers>,
+    /// Time agents stood waiting on the person, added up over every agent.
+    pub waited_ms: i64,
+}
+
+#[derive(Default, Debug, PartialEq)]
+pub(crate) struct ReportedAnswers {
+    pub kind: String,
+    pub via: String,
+    pub count: i64,
+    pub ms: i64,
 }
 
 #[derive(Default, Debug, PartialEq)]
@@ -136,6 +148,25 @@ fn days_between(
     while let Some(row) = rows.next()? {
         let day = day_at(&mut days, row.get::<_, i64>(0)? * DAY_MS);
         day.features.push((row.get(1)?, row.get(2)?, row.get(3)?));
+    }
+
+    let mut statement =
+        db.prepare("SELECT day, kind, via, count, ms FROM answers WHERE day >= ?1 AND day < ?2")?;
+    let mut rows = statement.query(params![first, end])?;
+    while let Some(row) = rows.next()? {
+        let day = day_at(&mut days, row.get::<_, i64>(0)? * DAY_MS);
+        day.answers.push(ReportedAnswers {
+            kind: row.get(1)?,
+            via: row.get(2)?,
+            count: row.get(3)?,
+            ms: row.get(4)?,
+        });
+    }
+
+    let mut statement = db.prepare("SELECT day, ms FROM waited WHERE day >= ?1 AND day < ?2")?;
+    let mut rows = statement.query(params![first, end])?;
+    while let Some(row) = rows.next()? {
+        day_at(&mut days, row.get::<_, i64>(0)? * DAY_MS).waited_ms += row.get::<_, i64>(1)?;
     }
 
     let mut days: Vec<ReportedDay> = days.into_values().collect();

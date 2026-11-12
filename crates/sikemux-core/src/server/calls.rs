@@ -440,8 +440,8 @@ calls! { core, client, method, params;
         person_calls::answer_questions(&core, &client.peer, questions::AnswersParams { answers: vec![params] }).await?
     },
     "answerQuestions" AnswerQuestions (questions::AnswersParams) -> (): Full, counted => person_calls::answer_questions(&core, &client.peer, params).await?,
-    "allowShip" AllowShip (ship::HoldParams) -> (): Full => person_calls::answer_hold(&core, &client.peer, params, person_calls::HOLD_ALLOW).await?,
-    "refuseShip" RefuseShip (ship::HoldParams) -> (): Full => person_calls::answer_hold(&core, &client.peer, params, person_calls::HOLD_REFUSE).await?,
+    "allowShip" AllowShip (ship::HoldParams) -> (): Full, counted => person_calls::answer_hold(&core, &client.peer, params, person_calls::HOLD_ALLOW).await?,
+    "refuseShip" RefuseShip (ship::HoldParams) -> (): Full, counted => person_calls::answer_hold(&core, &client.peer, params, person_calls::HOLD_REFUSE).await?,
     "letShipGo" LetShipGo (ship::HoldParams) -> (): Full => person_calls::answer_hold(&core, &client.peer, params, person_calls::HOLD_ALWAYS).await?,
     "answerCall" AnswerCall (sikemux_view::calls::AnswerCallParams) -> (): Full, counted => person_calls::answer(&core, &client.peer, params).await?,
     "callSeen" CallSeen (sikemux_view::calls::CallParams) -> (): Watch => person_calls::seen(&core, &client.peer, params)?,
@@ -494,7 +494,7 @@ calls! { core, client, method, params;
     "boardAnswerCommand" BoardAnswerCommand (board::goal::AnswerCommandParams) -> board::ProjectBoard: Full => {
         board::goal::person_answer_command(&core, params).await?
     },
-    "overruleDecision" OverruleDecision (board::goal::OverruleParams) -> board::ProjectBoard: Full => {
+    "overruleDecision" OverruleDecision (board::goal::OverruleParams) -> board::ProjectBoard: Full, counted => {
         board::goal::overrule(&core, params).await?
     },
     "boardDecide" BoardDecide (board::goal::DecideParams) -> board::ProjectBoard: Full => {
@@ -513,7 +513,7 @@ calls! { core, client, method, params;
         board::chat_goal::undo(&core, params.agent_id).await?
     },
     "boardRetry" BoardRetry (board::BoardCardParams) -> board::ProjectBoard: Full => board::person_retry(&core, params).await?,
-    "boardPass" BoardPass (board::BoardPassParams) -> board::ProjectBoard: Full => board::person_pass(&core, params).await?,
+    "boardPass" BoardPass (board::BoardPassParams) -> board::ProjectBoard: Full, counted => board::person_pass(&core, params).await?,
     "boardNote" BoardNote (board::BoardNoteParams) -> board::ProjectBoard: Full => board::person_note(&core, params).await?,
     "edits": Watch, any_program => answer(edits::read_edits(&core, parse(params)?).await?),
     "changeOwners" ChangeOwners (sikemux_view::owners::CheckoutParams) -> sikemux_view::owners::Owners: Watch, any_program => edits::change_owners(&core, params).await?,

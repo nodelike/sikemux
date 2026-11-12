@@ -23,6 +23,7 @@ mod states;
 mod turn;
 mod usage;
 
+use crate::server::access::Peer;
 use crate::server::changed::What;
 use sikemux_fold::update::{notice, turn_answer};
 use sikemux_fold::UpdateKind;
@@ -808,9 +809,10 @@ impl Chat {
                 let asks = pending.request.pointer("/toolCall/toolCallId");
                 (asks.and_then(Value::as_str) == Some(tool_call_id)).then(|| id.clone())
             });
-            found.filter(|id| permissions.remove(id).is_some())
+            found.and_then(|id| permissions.remove(&id).map(|pending| (id, pending)))
         };
-        if let Some(id) = taken {
+        if let Some((id, pending)) = taken {
+            self.permission_closed(pending.at, None);
             self.feed.forget_permission(&id);
             self.cleared(&id);
         }
@@ -1051,9 +1053,18 @@ impl Chat {
         self.publish_state();
     }
 
+    fn permission_closed(&self, asked_at: u64, answered_by: Option<&Peer>) {
+        if let Some(core) = self.core.upgrade() {
+            let waited = Duration::from_millis(epoch_ms().saturating_sub(asked_at));
+            core.activity_log
+                .call_closed("permission", answered_by, waited);
+        }
+    }
+
     pub(crate) fn cancel_permissions(&self) {
         let pending: Vec<_> = self.permissions.locked().drain().collect();
         for (request_id, request) in pending {
+            self.permission_closed(request.at, None);
             self.feed.forget_permission(&request_id);
             self.cleared(&request_id);
             (request.answer)(None);
@@ -1066,7 +1077,12 @@ impl Chat {
         ids
     }
 
-    fn reply_permission(&self, request_id: &str, option_id: Option<String>) -> CoreResult<()> {
+    fn reply_permission(
+        &self,
+        request_id: &str,
+        option_id: Option<String>,
+        peer: &Peer,
+    ) -> CoreResult<()> {
         // Answered with the list held, so the answer is written to the agent
         // before the chat can let go of it.
         let mut permissions = self.permissions.locked();
@@ -1086,6 +1102,7 @@ impl Chat {
         };
         (request.answer)(option_id);
         drop(permissions);
+        self.permission_closed(request.at, Some(peer));
         self.feed.forget_permission(request_id);
         self.cleared(request_id);
         Ok(())

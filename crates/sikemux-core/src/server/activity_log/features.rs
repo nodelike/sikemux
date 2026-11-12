@@ -57,6 +57,16 @@ pub(super) struct Uses {
     written: Option<Instant>,
 }
 
+/// Who asked, as the report names them; a shared chat's viewers never count.
+pub(super) fn via(peer: &Peer) -> Option<&'static str> {
+    match peer {
+        Peer::App => Some("app"),
+        Peer::Local => Some("local"),
+        Peer::Device { .. } => Some("device"),
+        Peer::Share { .. } => None,
+    }
+}
+
 /// A name a counted call's params may give, as the plugins compiled in are named.
 fn plain(name: &str) -> bool {
     name.len() <= 32
@@ -73,11 +83,8 @@ impl ActivityLog {
         params: &Value,
         peer: &Peer,
     ) {
-        let via = match peer {
-            Peer::App => "app",
-            Peer::Local => "local",
-            Peer::Device { .. } => "device",
-            Peer::Share { .. } => return,
+        let Some(via) = via(peer) else {
+            return;
         };
         let feature = match counted {
             Counted::No => None,

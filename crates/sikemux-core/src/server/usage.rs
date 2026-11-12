@@ -14,7 +14,7 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use tokio::sync::Mutex;
 
-use super::activity_log::{ReportedDay, ReportedTokens};
+use super::activity_log::{ReportedAnswers, ReportedDay, ReportedTokens};
 use super::Core;
 use sikemux_view::prefs::{Preferences, UpdateChannel};
 use sikemux_wire::protocol::BuildChannel;
@@ -360,6 +360,9 @@ fn activity_events(
             "agent_commits": day.agent_commits,
             "tokens": day.tokens.iter().map(total).sum::<i64>(),
             "features": features(&day.features),
+            "answers": answers(&day.answers, |answers| answers.count),
+            "answer_seconds": answers(&day.answers, |answers| answers.ms / 1000),
+            "waited_on_person_seconds": day.waited_ms / 1000,
             "cost_usd": priced.iter().sum::<f64>(),
         }),
     )];
@@ -389,6 +392,23 @@ fn features(used: &[(String, String, i64)]) -> serde_json::Map<String, Value> {
         .map(|(feature, via, count)| match via.as_str() {
             "app" => (feature.clone(), json!(count)),
             via => (format!("{feature}@{via}"), json!(count)),
+        })
+        .collect()
+}
+
+/// Calls answered by kind, named with the client when it was not the app, as [`features`] are.
+fn answers(
+    answered: &[ReportedAnswers],
+    value: fn(&ReportedAnswers) -> i64,
+) -> serde_json::Map<String, Value> {
+    answered
+        .iter()
+        .map(|answers| {
+            let name = match answers.via.as_str() {
+                "app" => answers.kind.clone(),
+                via => format!("{}@{via}", answers.kind),
+            };
+            (name, json!(value(answers)))
         })
         .collect()
 }

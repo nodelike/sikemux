@@ -408,11 +408,12 @@ pub(crate) fn reply_permission(
     agent_id: &str,
     request_id: &str,
     option_id: Option<String>,
+    peer: &Peer,
 ) -> CoreResult<()> {
     core.chats
         .get(agent_id)
         .ok_or_else(super::permission_gone)?
-        .reply_permission(request_id, option_id)
+        .reply_permission(request_id, option_id, peer)
 }
 
 pub(crate) async fn set_permission_mode(
