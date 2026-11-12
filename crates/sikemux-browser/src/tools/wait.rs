@@ -203,7 +203,7 @@ pub(super) async fn arrived(
             );
             let mut waited = wait_for(manager, agent_id, &condition, limit).await;
             if limit < Duration::from_millis(asked) && waited["met"] == json!(false) {
-                waited["note"] = json!(format!("the load took part of the {asked} ms, so the wait gave up after {} ms; wait again with browser wait", limit.as_millis()));
+                waited["note"] = json!(format!("the load took part of the {asked} ms, so the wait gave up after {} ms; wait again with browser_wait", limit.as_millis()));
             }
             Some(waited)
         }
@@ -224,7 +224,7 @@ pub(super) async fn arrived(
         && result.get("loadError").is_none()
         && result["url"] != json!(BLANK_URL)
     {
-        result["note"] = json!("the page loaded but shows no text or controls yet; a web app may still be drawing it, so wait with browser wait and a text or selector");
+        result["note"] = json!("the page loaded but shows no text or controls yet; a web app may still be drawing it, so wait with browser_wait and a text or selector");
     }
     Ok(result)
 }

@@ -303,13 +303,13 @@
         const numbers = window.__sikemuxNumbers;
         if (!numbers || index >= numbers.next) {
             const latest = numbers && numbers.next ? `; this page has handed out [0] to [${numbers.next - 1}]` : "; this page has not been read yet";
-            throw new Error(`no element [${index}]${latest}. Numbers start again on every new page, so read browser state or browser find first`);
+            throw new Error(`no element [${index}]${latest}. Numbers start again on every new page, so read browser_state or browser_find first`);
         }
         const again = refound(index);
         if (again) return again;
         const label = element ? describe(element) : numbers.seen.get(index)?.label;
         const was = label ? ` ("${label}")` : "";
-        throw new Error(`no element [${index}]${was}: it has left the page or is hidden now, so read browser state or browser find again`);
+        throw new Error(`no element [${index}]${was}: it has left the page or is hidden now, so read browser_state or browser_find again`);
     };
     // Elements named by a CSS selector, searched through open shadow roots and
     // same-site frames the way the element list is.
@@ -461,7 +461,7 @@
         const sides = new Map();
         for (const [, listedEntry] of dropped) sides.set(listedEntry.offscreen.side, (sides.get(listedEntry.offscreen.side) || 0) + 1);
         const split = ["above", "below", "to the side"].filter((side) => sides.has(side)).map((side) => `${sides.get(side)} ${side}`);
-        return `${dropped.length} more ${what} offscreen and not listed (${split.join(", ")}); scroll toward them or use browser find`;
+        return `${dropped.length} more ${what} offscreen and not listed (${split.join(", ")}); scroll toward them or use browser_find`;
     };
     // Numbers the agent has not been shown yet are only listed once they come
     // into view or change, and only numbers it was shown are reported removed.
@@ -525,7 +525,7 @@
         const labelled = matching(target.text, target.role);
         const found = labelled.length || target.role ? labelled : textHolders(target.text);
         const otherRoles = target.role && !found.length ? matching(target.text, null) : [];
-        const hint = otherRoles.length ? `; these have that text with another role:\n${lines(otherRoles.slice(0, 10))}` : "; try browser find with part of the words";
+        const hint = otherRoles.length ? `; these have that text with another role:\n${lines(otherRoles.slice(0, 10))}` : "; try browser_find with part of the words";
         return { found, none: `nothing${scope} shows or is labelled "${target.text}"${hint}`, many: `${found.length} elements${scope} match "${target.text}"`, narrower: "a role or fuller text" };
     };
     const centre = (element) => {

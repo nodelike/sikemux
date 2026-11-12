@@ -214,7 +214,7 @@ impl TabStall {
     pub fn message(self) -> &'static str {
         match self {
             TabStall::Unresponsive => {
-                "the tab stopped responding; close it with browser close_tab and open a new one"
+                "the tab stopped responding; close it with browser_close_tab and open a new one"
             }
             TabStall::Crashed => {
                 "the tab's page crashed; navigate or reload to load it again, or close the tab"

@@ -36,7 +36,7 @@ pub(crate) fn typed_lately(tab_id: &str) -> Option<Duration> {
 pub(crate) fn leave_be(tab_id: &str) -> Result<(), String> {
     match typed_lately(tab_id) {
         Some(ago) => Err(format!(
-            "the person typed in this tab {}s ago, so it was left where it is; use browser navigate with newTab: true to look elsewhere",
+            "the person typed in this tab {}s ago, so it was left where it is; use browser_navigate with newTab: true to look elsewhere",
             ago.as_secs()
         )),
         None => Ok(()),

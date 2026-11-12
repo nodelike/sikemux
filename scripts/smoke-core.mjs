@@ -17,7 +17,14 @@ const STATE = {
   text: "ready",
   tabs: [],
 };
-const EXPECTED_TOOLS = ["browser", "workspace_inspect", "guide"];
+const EXPECTED_TOOLS = [
+  "browser_navigate",
+  "browser_state",
+  "browser_click",
+  "browser_screenshot",
+  "workspace_inspect",
+  "guide",
+];
 
 const TOKEN = "smoke-token";
 
@@ -117,8 +124,8 @@ async function exercise(core, environment, received) {
       throw new Error("the core does not carry its guide");
 
     const navigated = await mcp.request("tools/call", {
-      name: "browser",
-      arguments: { action: "navigate", url: "https://example.com" },
+      name: "browser_navigate",
+      arguments: { url: "https://example.com" },
     });
     if (
       navigated.isError ||

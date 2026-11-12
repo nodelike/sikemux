@@ -44,7 +44,7 @@ const UPLOAD_TIMEOUT: Duration = Duration::from_secs(3);
 const UPLOAD_LANDING: Duration = Duration::from_secs(2);
 /// How long a click waits for the element it names to show up.
 const APPEAR_WAIT: Duration = Duration::from_secs(3);
-/// A browser act call stops starting steps in time to answer within the core's wait.
+/// A browser_act call stops starting steps in time to answer within the core's wait.
 const ACT_TIME: Duration = Duration::from_millis(MAX_BLOCKING_MS - 10_000);
 /// What a step may take at worst: a click waiting for its element and then a load.
 const STEP_RESERVE: Duration = Duration::from_secs(LOAD_TIMEOUT.as_secs() + APPEAR_WAIT.as_secs());
@@ -244,7 +244,7 @@ async fn run(
                     note = Some("the tab was already on this url, so it was reloaded");
                 } else {
                     if crate::address::same_document(&current, &wanted) {
-                        note = Some("only the #fragment changed, so the page moved within itself and did not load again; use browser navigate with go reload to load it afresh");
+                        note = Some("only the #fragment changed, so the page moved within itself and did not load again; use browser_navigate with go reload to load it afresh");
                     }
                     manager
                         .navigate(agent_id, &url)
@@ -1131,7 +1131,7 @@ fn step_summary(step: &Value, mut result: Value) -> Value {
 fn blocks_the_rest(before: &Value, now: &Value, rest: &[Value]) -> Option<&'static str> {
     if now.get("dialog").is_some() {
         return Some(
-            "a dialog opened, so the steps after it were not run; answer it with browser dialog",
+            "a dialog opened, so the steps after it were not run; answer it with browser_dialog",
         );
     }
     if before["tabId"] != now["tabId"] {
@@ -1167,11 +1167,11 @@ catch (error) {{ return String(error); }}"#
 fn script_failure(error: &str, limit: Duration) -> String {
     if error.is_empty() {
         format!(
-            "the script did not finish within {} seconds; to wait for the page, use browser wait with text, selector or networkIdle instead of polling in a script",
+            "the script did not finish within {} seconds; to wait for the page, use browser_wait with text, selector or networkIdle instead of polling in a script",
             limit.as_secs()
         )
     } else if error.contains("no longer reachable") {
-        "the page navigated or reloaded while the script ran, so its result was lost; to reload, use browser navigate with go reload".into()
+        "the page navigated or reloaded while the script ran, so its result was lost; to reload, use browser_navigate with go reload".into()
     } else {
         error.to_owned()
     }
@@ -1281,7 +1281,7 @@ pub(crate) fn active(manager: &BrowserManager, agent_id: &str) -> Result<(String
     }
     match manager.dialog(&tab_id) {
         Some(dialog) => Err(format!(
-            "the page is waiting on a {} dialog saying \"{}\"; answer it with browser dialog",
+            "the page is waiting on a {} dialog saying \"{}\"; answer it with browser_dialog",
             dialog.kind, dialog.message
         )),
         None => Ok((tab_id, view)),
@@ -1292,7 +1292,7 @@ fn active_tab(manager: &BrowserManager, agent_id: &str) -> Result<(String, Tab),
     manager
         .active_view(agent_id)
         .map_err(|_| {
-            "no browser tab is open; call browser navigate first. Quitting Sikemux closes tabs; an update's restart keeps them, but each page loads again from its address".to_string()
+            "no browser tab is open; call browser_navigate first. Quitting Sikemux closes tabs; an update's restart keeps them, but each page loads again from its address".to_string()
         })
 }
 
@@ -1396,7 +1396,7 @@ async fn read_state(
             "url": page.url,
             "title": page.title,
             "dialog": dialog,
-            "note": "the page is frozen until this dialog is answered with browser dialog",
+            "note": "the page is frozen until this dialog is answered with browser_dialog",
         })
     } else if page.url == BLANK_URL {
         json!({ "url": BLANK_URL, "title": "", "elements": "", "text": "" })
@@ -1417,7 +1417,7 @@ async fn read_state(
         if narrow {
             viewport.insert(
                 "note".into(),
-                json!("the pane is narrow, so the page may show its phone layout; browser viewport with preset desktop lays it out wide"),
+                json!("the pane is narrow, so the page may show its phone layout; browser_viewport with preset desktop lays it out wide"),
             );
         }
     }
@@ -1500,8 +1500,8 @@ fn unwrap_answer(inner: Value) -> Result<Value, String> {
 pub(crate) async fn eval(view: &Tab, script: &str) -> Result<String, String> {
     match tokio::time::timeout(EVAL_TIMEOUT, view.eval(script)).await {
         Ok(Ok(result)) if !result.is_empty() => Ok(result),
-        Ok(_) => Err("the page did not answer, so it may not have loaded; browser network's documents show whether its load failed".into()),
-        Err(_) => Err("the page took over 10 s to answer, so a script is busy or a dialog holds it: answer any dialog with browser dialog, or wait and try again".into()),
+        Ok(_) => Err("the page did not answer, so it may not have loaded; browser_network's documents show whether its load failed".into()),
+        Err(_) => Err("the page took over 10 s to answer, so a script is busy or a dialog holds it: answer any dialog with browser_dialog, or wait and try again".into()),
     }
 }
 
@@ -1542,8 +1542,8 @@ pub(crate) async fn screenshot(
     match tokio::time::timeout(limit, receiver).await {
         Ok(Ok(result)) => result,
         Ok(Err(_)) => Err("screenshot was abandoned".into()),
-        Err(_) if height.is_some() => Err("a whole-page screenshot took over 30 s; capture the visible part after browser scroll, or one element by selector, instead".into()),
-        Err(_) => Err("the screenshot took over 10 s, so the page is busy; wait for it with browser wait and try again".into()),
+        Err(_) if height.is_some() => Err("a whole-page screenshot took over 30 s; capture the visible part after browser_scroll, or one element by selector, instead".into()),
+        Err(_) => Err("the screenshot took over 10 s, so the page is busy; wait for it with browser_wait and try again".into()),
     }
 }
 

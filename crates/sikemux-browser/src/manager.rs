@@ -1254,7 +1254,7 @@ pub(crate) fn validate_url(url: &str) -> BrowserResult<()> {
     let opens = matches!(parsed.scheme(), "http" | "https") || parsed.as_str() == BLANK_URL;
     if !opens {
         return Err(Error::BadArg(
-            "browser url scheme is not allowed; to show a local file, pass its path or file:// url to browser navigate",
+            "browser url scheme is not allowed; to show a local file, pass its path or file:// url to browser_navigate",
         ));
     }
     Ok(())

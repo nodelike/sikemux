@@ -107,7 +107,7 @@ fn every_served_tool_comes_from_the_manifest() {
     let manifest = Manifest::load();
     let served = manifest.declarations(&[]);
     let names: Vec<&str> = served.iter().map(|tool| field(tool, "name")).collect();
-    for expected in ["browser", "workspace_inspect", "guide"] {
+    for expected in ["browser_navigate", "workspace_inspect", "guide"] {
         assert!(names.contains(&expected), "{expected} is not served");
     }
     let mut unique = names.clone();
@@ -437,7 +437,7 @@ fn a_guide_topic_is_served_alone_and_an_unknown_one_lists_the_rest() {
     let reading = ask("browser-reading");
     assert_eq!(reading["isError"], json!(false));
     let body = field(&reading["content"][0], "text");
-    assert!(body.contains("browser find"));
+    assert!(body.contains("browser_find"));
     assert!(!body.contains("Working inside Sikemux"));
     let unknown = ask("cooking");
     assert_eq!(unknown["isError"], json!(true));
@@ -502,21 +502,21 @@ fn bad_arguments_are_named_the_way_the_agent_learned_them() {
             &offer,
             &unreachable_app,
             &unreachable_app,
-            "browser",
+            "sim",
             &arguments,
         );
         field(&answer["content"][0], "text").to_owned()
     };
     assert_eq!(
-        family(json!({ "action": "find" })),
-        "Input validation error: browser find: 'query' is a required property"
+        family(json!({ "action": "type" })),
+        "Input validation error: sim type: 'text' is a required property"
     );
-    let mixed = family(json!({ "action": "click", "url": "x" }));
+    let mixed = family(json!({ "action": "tap", "bundleId": "x" }));
     assert!(
-        mixed.starts_with("Input validation error: browser click: 'url' goes with navigate"),
+        mixed.starts_with("Input validation error: sim tap: 'bundleId' goes with launch"),
         "{mixed}"
     );
-    assert!(family(json!({ "query": "x" })).contains("'action' is a required property"));
+    assert!(family(json!({ "text": "x" })).contains("'action' is a required property"));
 }
 
 #[test]
@@ -702,9 +702,15 @@ fn plugin_tools_are_listed_after_the_built_in_ones() {
         &|method: &str, params: &Value| app.relay(method, params.clone()),
     );
     let names: Vec<&str> = listed.iter().map(|tool| field(tool, "name")).collect();
-    assert_eq!(names.first(), Some(&"browser"));
+    assert_eq!(names.first(), Some(&"browser_navigate"));
     assert_eq!(names.last(), Some(&"signoz_trace"));
-    assert!(!names.contains(&"browser_click"));
+    assert_eq!(
+        names
+            .iter()
+            .filter(|name| **name == "browser_click")
+            .count(),
+        1
+    );
     assert_eq!(app.received()["request"]["method"], json!("plugins.tools"));
 }
 
