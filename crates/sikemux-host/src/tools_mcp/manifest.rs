@@ -367,19 +367,14 @@ fn guide_properties(guide: &str) -> Map<String, Value> {
     properties
 }
 
-/// Length limits are still checked here and a number past a bound is held at it,
-/// so an agent never needs to read either; they are left out of what every request carries.
+/// Length limits are still checked here, but an agent never needs to read
+/// them, so they are left out of what every request carries.
 fn advertised(schema: &Value) -> Value {
     match schema {
         Value::Object(fields) => Value::Object(
             fields
                 .iter()
-                .filter(|(key, _)| {
-                    !matches!(
-                        key.as_str(),
-                        "maxLength" | "minLength" | "minimum" | "maximum"
-                    )
-                })
+                .filter(|(key, _)| !matches!(key.as_str(), "maxLength" | "minLength"))
                 .map(|(key, value)| (key.clone(), advertised(value)))
                 .collect(),
         ),
