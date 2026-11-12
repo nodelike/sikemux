@@ -5,7 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
-use sikemux_view::chat::{GoalMarker, KeptRule, StopReason};
+use sikemux_view::chat::{ChiefWeek, GoalMarker, KeptRule, OverruledDecision, StopReason};
 
 use crate::ChatEventKind;
 
@@ -350,6 +350,20 @@ pub fn notice(severity: &str, title: &str, description: Option<&str>) -> Value {
 pub fn goal_notice(title: &str, marker: GoalMarker) -> Value {
     let mut update = notice("info", title, None);
     update["goal"] = json!(marker);
+    update
+}
+
+/// The line in the chief's chat that says the person overruled a decision.
+pub fn overruled_notice(title: &str, overruled: OverruledDecision) -> Value {
+    let mut update = notice("info", title, None);
+    update["overruled"] = json!(overruled);
+    update
+}
+
+/// The line in the chief's chat that counts its week.
+pub fn week_notice(title: &str, week: ChiefWeek) -> Value {
+    let mut update = notice("info", title, None);
+    update["week"] = json!(week);
     update
 }
 

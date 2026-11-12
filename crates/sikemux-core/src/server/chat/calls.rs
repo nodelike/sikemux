@@ -81,6 +81,7 @@ pub(crate) async fn edit_with(
     mut context: Vec<ChatContext>,
 ) -> CoreResult<()> {
     core.workspaces.person_said(&agent_id);
+    crate::server::chief::person_wrote(core, &agent_id);
     super::wake_for_message(core, &agent_id, &mut context).await?;
     super::edit(core, &agent_id, message_id, text, paths, context).await
 }
@@ -88,6 +89,7 @@ pub(crate) async fn edit_with(
 /// What the person says to an agent running in a terminal goes in as a message.
 pub(crate) fn steer_terminal(core: &Arc<Core>, agent_id: &str, text: String) -> CoreResult<String> {
     core.workspaces.person_said(agent_id);
+    crate::server::chief::person_wrote(core, agent_id);
     crate::server::messages::from_person(core, agent_id, text)?;
     Ok("queued".to_owned())
 }
@@ -100,8 +102,10 @@ pub(crate) async fn steer_chat(
     mut context: Vec<ChatContext>,
 ) -> CoreResult<String> {
     core.workspaces.person_said(agent_id);
+    crate::server::chief::person_wrote(core, agent_id);
     super::wake_for_message(core, agent_id, &mut context).await?;
-    let steered = super::steer(core, agent_id, text, paths, context).await?;
+    let whose = super::Whose::typed_to(core, agent_id);
+    let steered = super::steer(core, agent_id, text, paths, context, whose).await?;
     Ok(steered.word().to_owned())
 }
 
@@ -149,12 +153,43 @@ pub(crate) fn prompt_awake(core: &Arc<Core>, params: PromptChatParams) -> CoreRe
         context,
     } = params;
     core.workspaces.person_said(&agent_id);
-    crate::server::person_calls::written(core, &agent_id, &text);
+    let typed = super::Whose::typed_to(core, &agent_id);
+    let answered = crate::server::person_calls::written(core, &agent_id, &text).max(typed.answered);
+    core.activity_log
+        .person_wrote(crate::server::chief::is_chief(core, &agent_id));
+    crate::server::chief::person_wrote(core, &agent_id);
     if core.workspaces.in_terminal(&agent_id) {
         crate::server::messages::from_person(core, &agent_id, text)
     } else {
-        super::prompt(core, &agent_id, message_id, text, paths, context)
+        let whose = super::Whose {
+            person: true,
+            answered,
+        };
+        super::prompt(core, &agent_id, message_id, text, paths, context, whose)
     }
+}
+
+/// Sends a mod's words to an agent, waking it first: never marked as the person's, since a
+/// page wrote them.
+pub(crate) async fn prompt_from_mod(
+    core: &Arc<Core>,
+    agent_id: &str,
+    text: String,
+) -> CoreResult<()> {
+    if core.workspaces.in_terminal(agent_id) {
+        return crate::server::messages::from_person(core, agent_id, text);
+    }
+    let mut context = Vec::new();
+    super::wake_for_prompt(core, agent_id, &mut context).await?;
+    super::prompt(
+        core,
+        agent_id,
+        None,
+        text,
+        Vec::new(),
+        context,
+        super::Whose::NOT_PERSON,
+    )
 }
 
 /// Sends the person's message, waking first what it needs: the agents, earlier chats and issues

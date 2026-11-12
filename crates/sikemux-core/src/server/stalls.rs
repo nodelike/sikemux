@@ -98,7 +98,14 @@ pub(crate) async fn look(core: &Arc<Core>, now: u64) {
         let told = match lead {
             Some(lead) => {
                 let text = note(core, &agent_id, since, now);
-                messages::work_from_sikemux(core, lead, text).await.is_ok()
+                messages::work_from_sikemux(
+                    core,
+                    lead,
+                    text,
+                    "because a worker of yours has stalled",
+                )
+                .await
+                .is_ok()
             }
             None => false,
         };

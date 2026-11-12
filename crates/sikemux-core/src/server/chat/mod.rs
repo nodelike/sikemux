@@ -99,6 +99,56 @@ pub(crate) const RESTART_WAIT: Duration = Duration::from_secs(1);
 const MAX_RESTARTS: usize = 3;
 const RESTART_WINDOW: Duration = Duration::from_secs(5 * 60);
 
+/// Whose words a prompt carries, as the chat's record keeps them.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct Whose {
+    /// The person typed them, rather than another agent or Sikemux.
+    pub person: bool,
+    /// They answered a call to the person.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub answered: Option<Answered>,
+}
+
+/// A call to the person that a prompt answered.
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum Answered {
+    Call,
+    /// One whose words are never kept: they may be a password or a token.
+    HiddenCall,
+}
+
+impl Whose {
+    pub(crate) const PERSON: Self = Self {
+        person: true,
+        answered: None,
+    };
+    pub(crate) const NOT_PERSON: Self = Self {
+        person: false,
+        answered: None,
+    };
+
+    /// The person's own words to `agent_id` as they arrive: hidden while it waits on a call
+    /// whose words are never kept.
+    pub(crate) fn typed_to(core: &Core, agent_id: &str) -> Self {
+        let hidden = crate::server::person_calls::hides_typed(core, agent_id);
+        Self {
+            person: true,
+            answered: hidden.then_some(Answered::HiddenCall),
+        }
+    }
+
+    pub(crate) fn of(person: bool) -> Self {
+        Self {
+            person,
+            answered: None,
+        }
+    }
+}
+
 pub(crate) enum ChatCommand {
     /// The person answered a dialog the agent's process is blocked on, by typing
     /// `answer` or by picking `choice`.
@@ -115,6 +165,7 @@ pub(crate) enum ChatCommand {
         context: Vec<ChatContext>,
         /// Its row was put in the chat as it was sent, while the agent was still starting.
         shown: bool,
+        whose: Whose,
     },
     SetPermissionMode {
         mode: PermissionMode,
@@ -129,6 +180,7 @@ pub(crate) enum ChatCommand {
         text: String,
         paths: Vec<String>,
         context: Vec<ChatContext>,
+        whose: Whose,
         reply: oneshot::Sender<Result<native::Steered, String>>,
     },
     /// A message from another agent: steered into the running turn, or the
@@ -945,6 +997,27 @@ impl Chat {
         }
     }
 
+    /// Puts a prompt in the chat's record, its words marked as hidden while the agent waits on a
+    /// call to the person whose words are never kept: the person may be typing a password or a
+    /// token, whether or not it answers that call.
+    pub(crate) fn record_prompt(
+        &self,
+        message_id: Option<&str>,
+        text: &str,
+        paths: &[String],
+        context: &[ChatContext],
+        mut whose: Whose,
+    ) {
+        let hidden = whose.person
+            && (self.core.upgrade()).is_some_and(|core| {
+                crate::server::person_calls::hides_typed(&core, self.agent_id())
+            });
+        if hidden {
+            whose.answered = Some(Answered::HiddenCall);
+        }
+        self.feed.prompted(message_id, text, paths, context, whose);
+    }
+
     pub(crate) fn mark_ready(&self, start: ChatStart) {
         if let Some(core) = self.core.upgrade() {
             if let Some(launcher) = &self.origin.launcher {
@@ -957,6 +1030,7 @@ impl Chat {
         self.tell_saved_usage(&start);
         self.readiness.send_replace(Readiness::Ready(start));
         if let Some(core) = self.core.upgrade() {
+            crate::server::chief::chat_ready(&core, self);
             core.changed(What::Agents);
         }
     }

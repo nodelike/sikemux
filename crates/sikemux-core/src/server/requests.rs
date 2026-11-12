@@ -465,6 +465,7 @@ pub(super) async fn run(
             }
             Request::PublishOnScreen(ask::PublishOnScreen { agent_ids, focused }) => {
                 super::launching::show_terminals(&core, &agent_ids);
+                super::chief::on_screen(&core, &agent_ids, focused);
                 core.seen.show(client.id, agent_ids, focused);
                 core.changed(What::View);
                 client.answer::<ask::PublishOnScreen>(request_id, Ok(()));

@@ -236,7 +236,7 @@ pub(crate) fn open_work(core: &Core, agent_id: &str) -> Vec<String> {
     lines
 }
 
-fn standing(turn: &TurnState, now: u64) -> String {
+pub(crate) fn standing(turn: &TurnState, now: u64) -> String {
     match turn.state {
         TurnPhase::Working => match &turn.on {
             Some(on) => format!("Working on {on}"),

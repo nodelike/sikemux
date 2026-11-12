@@ -1470,18 +1470,22 @@ pub(crate) async fn from_sikemux(
 }
 
 /// Gives an agent work from Sikemux itself, starting a turn when it is at rest, where a notice
-/// would be dropped. Fails when the agent has stopped or is gone.
+/// would be dropped; `why` says to the agent what Sikemux sends it for. Fails when the agent has
+/// stopped or is gone.
 pub(crate) async fn work_from_sikemux(
     core: &Arc<Core>,
     to: String,
     text: String,
+    why: &str,
 ) -> Result<Value, String> {
     let target = running(core, to).await?;
     let letter = Letter::from_sender(
         Sender::Sikemux,
         MessageKind::Message,
         text,
-        Some("Sent by Sikemux itself, not by the person or another agent.".to_owned()),
+        Some(format!(
+            "Sent by Sikemux itself {why}, not by the person or another agent."
+        )),
     );
     deliver(core, &target, letter).await
 }

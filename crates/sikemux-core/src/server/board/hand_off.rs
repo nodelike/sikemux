@@ -122,7 +122,17 @@ pub(crate) async fn hand_off(
     let card = started.card;
     let core = core.clone();
     let worker = agent.clone();
-    tokio::spawn(async move { hand_task(&core, &worker, started, text, params.files).await });
+    tokio::spawn(async move {
+        hand_task(
+            &core,
+            &worker,
+            started,
+            text,
+            params.files,
+            chat::Whose::PERSON,
+        )
+        .await
+    });
     Ok(HandedOff { card, agent, board })
 }
 
@@ -159,7 +169,17 @@ pub(super) async fn hand_on(
     })
     .await?;
     let core = core.clone();
-    tokio::spawn(async move { hand_task(&core, &agent, started, text, Vec::new()).await });
+    tokio::spawn(async move {
+        hand_task(
+            &core,
+            &agent,
+            started,
+            text,
+            Vec::new(),
+            chat::Whose::NOT_PERSON,
+        )
+        .await
+    });
     Ok(())
 }
 
@@ -241,14 +261,15 @@ async fn start_worker(
     Ok((agent, started))
 }
 
-/// Sets up the agent's checkout as the project asks, then sends it what the
-/// person typed, as the person, with how its work is checked and landed for it alone.
+/// Sets up the agent's checkout as the project asks, then sends it `text`, marked as the
+/// person's when `whose` says they typed it, with how its work is checked and landed for it alone.
 async fn hand_task(
     core: &Arc<Core>,
     agent: &str,
     started: Started,
     text: String,
     files: Vec<String>,
+    whose: chat::Whose,
 ) {
     let Started {
         project,
@@ -296,7 +317,7 @@ async fn hand_task(
         title: format!("Card #{card}"),
         text: message,
     };
-    if let Err(error) = chat::prompt(core, agent, None, text, files, vec![tracking]) {
+    if let Err(error) = chat::prompt(core, agent, None, text, files, vec![tracking], whose) {
         eprintln!("sikemux core: the agent handed card #{card} never got its task: {error}");
     }
 }

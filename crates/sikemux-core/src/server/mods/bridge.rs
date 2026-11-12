@@ -355,9 +355,7 @@ async fn run(
             }
             let send: Send = super::super::calls::parse(params)?;
             let agent_id = agent_named(core, &send.agent).await?;
-            let prompt =
-                super::super::calls::parse(json!({ "agentId": agent_id, "text": send.text }))?;
-            super::super::chat::calls::prompt_chat(core, prompt).await?;
+            super::super::chat::calls::prompt_from_mod(core, &agent_id, send.text).await?;
             Ok(Value::Null)
         }
         Reach::BoardAdd => {

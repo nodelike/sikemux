@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use sikemux_wire::protocol::ChatContext;
 
 use super::super::{Core, CoreResult};
-use super::{Chat, ChatCommand};
+use super::{Chat, ChatCommand, Whose};
 
 pub(crate) const MAX_QUEUED: usize = 20;
 
@@ -27,6 +27,8 @@ pub(crate) struct Queued {
     pub text: String,
     pub paths: Vec<String>,
     pub context: Vec<ChatContext>,
+    #[serde(skip)]
+    pub whose: Whose,
 }
 
 /// A message as the person wrote it.
@@ -47,12 +49,14 @@ impl Queued {
         text: String,
         paths: Vec<String>,
         context: Vec<ChatContext>,
+        whose: Whose,
     ) -> Self {
         Self {
             id: message_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
             text,
             paths,
             context,
+            whose,
         }
     }
 
@@ -62,20 +66,28 @@ impl Queued {
 }
 
 /// How many of the first messages go out together. A slash command only
-/// works as the whole prompt, so it goes on its own.
+/// works as the whole prompt, so it goes on its own, and the person's words
+/// never go out as one with words that are not theirs.
 pub(crate) fn batch_len(queued: &[Queued]) -> usize {
     match queued.first() {
         None => 0,
         Some(first) if first.is_command() => 1,
-        Some(_) => queued
+        Some(first) => queued
             .iter()
-            .position(Queued::is_command)
+            .position(|message| message.is_command() || message.whose.person != first.whose.person)
             .unwrap_or(queued.len()),
     }
 }
 
-/// Messages sent as one: their texts in order, and each attachment once.
-fn combine(messages: Vec<Queued>) -> (String, Vec<String>, Vec<ChatContext>) {
+/// Messages sent as one: their texts in order, each attachment once, and whose they are.
+fn combine(messages: Vec<Queued>) -> (String, Vec<String>, Vec<ChatContext>, Whose) {
+    let whose = Whose {
+        person: messages.first().is_some_and(|message| message.whose.person),
+        answered: messages
+            .iter()
+            .filter_map(|message| message.whose.answered)
+            .max(),
+    };
     let text = messages
         .iter()
         .map(|message| message.text.as_str())
@@ -99,7 +111,7 @@ fn combine(messages: Vec<Queued>) -> (String, Vec<String>, Vec<ChatContext>) {
                 .filter(|item| seen.insert(format!("uri:{}", item.uri))),
         );
     }
-    (text, paths, context)
+    (text, paths, context, whose)
 }
 
 impl Chat {
@@ -130,13 +142,14 @@ impl Chat {
 
 fn send(chat: &Chat, batch: Vec<Queued>) {
     let message_id = batch.first().map(|message| message.id.clone());
-    let (text, paths, context) = combine(batch);
+    let (text, paths, context, whose) = combine(batch);
     let _ = chat.send(ChatCommand::Prompt {
         message_id,
         text,
         paths,
         context,
         shown: false,
+        whose,
     });
 }
 
@@ -150,6 +163,7 @@ pub(crate) async fn steer(
 ) -> CoreResult<()> {
     let chat = core.chats.running(agent_id)?;
     core.workspaces.person_said(agent_id);
+    crate::server::chief::person_wrote(core, agent_id);
     let message = match message {
         Some(mut message) => {
             super::mentions::wake(core, agent_id, &mut message.context).await?;
@@ -160,13 +174,21 @@ pub(crate) async fn steer(
     let mut taken = chat.feed.take_queued(Some(&ids));
     taken.extend(message.map(|mut message| {
         super::mentions::fill(core, agent_id, &mut message.context);
-        Queued::new(None, message.text, message.paths, message.context)
+        Queued::new(
+            None,
+            message.text,
+            message.paths,
+            message.context,
+            Whose::typed_to(core, agent_id),
+        )
     }));
     if taken.is_empty() {
         return Ok(());
     }
-    let (text, paths, context) = combine(taken.clone());
-    if super::steer(core, agent_id, text, paths, context).await? == super::Steered::PromptRequired {
+    let (text, paths, context, whose) = combine(taken.clone());
+    if super::steer(core, agent_id, text, paths, context, whose).await?
+        == super::Steered::PromptRequired
+    {
         send(&chat, taken);
     }
     Ok(())
@@ -193,6 +215,7 @@ mod tests {
                     text: "body".into(),
                 })
                 .collect(),
+            Whose::PERSON,
         )
     }
 
@@ -209,7 +232,7 @@ mod tests {
 
     #[test]
     fn combined_messages_join_their_texts_and_name_each_attachment_once() {
-        let (text, paths, context) = combine(vec![
+        let (text, paths, context, _) = combine(vec![
             queued("a", &["/x", "/y"], &["u1"]),
             queued("", &[], &[]),
             queued("c", &["/y", "/z"], &["u1", "u2"]),

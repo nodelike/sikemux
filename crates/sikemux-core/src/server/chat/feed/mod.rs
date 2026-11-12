@@ -15,8 +15,8 @@ use sikemux_process::sync::Locked;
 
 use sikemux_process::clock::epoch_ms;
 use sikemux_view::chat::{
-    ChatChange, ChatDraft, ChatGoal, ChatPage, ChatTrigger, GuestMessage, PlanEntry, PlanStatus,
-    QueuedMessage, SentContext, ToolDetail,
+    ChatChange, ChatDraft, ChatGoal, ChatPage, ChatTrigger, ChiefAway, GuestMessage, PlanEntry,
+    PlanStatus, QueuedMessage, SentContext, ToolDetail,
 };
 use sikemux_view::shown::{ResultRow, TurnShown};
 use sikemux_view::turn::TurnState;
@@ -100,6 +100,10 @@ struct Inner {
     turn: Option<TurnState>,
     /// The chat is its project's chief.
     chief: bool,
+    /// The chief that hears what the person types here.
+    chief_hears: Option<String>,
+    /// What happened while the person was away from this chief.
+    away: Option<ChiefAway>,
     /// What other agents need of the person.
     needs: Vec<AgentNeed>,
     /// The folder the chat's agent works in, and where its edits sit in their files,
@@ -258,6 +262,8 @@ impl Feed {
                 goal: None,
                 turn: None,
                 chief: false,
+                chief_hears: None,
+                away: None,
                 needs: Vec::new(),
                 work: None,
                 waits_for_person: false,
@@ -345,6 +351,8 @@ impl Feed {
                 goal: None,
                 turn: None,
                 chief: false,
+                chief_hears: None,
+                away: None,
                 needs: Vec::new(),
                 work: None,
                 waits_for_person: false,
@@ -427,6 +435,8 @@ impl Feed {
             fold.set_goal(inner.goal.clone());
             fold.set_turn(inner.turn.clone());
             fold.set_chief(inner.chief);
+            fold.set_chief_hears(inner.chief_hears.clone());
+            fold.set_away(inner.away.clone());
             let (shown, results) = self.stand.locked().shown.clone();
             fold.set_shown(shown, results);
             fold.set_needs(inner.needs.clone());
@@ -526,11 +536,14 @@ impl Feed {
         text: &str,
         paths: &[String],
         context: &[ChatContext],
-        person: bool,
+        whose: super::Whose,
     ) {
         let mut payload = json!({ "text": text, "paths": paths });
-        if person {
+        if whose.person {
             payload["person"] = json!(true);
+        }
+        if let Some(answered) = whose.answered {
+            payload["answered"] = json!(answered);
         }
         if let Some(message_id) = message_id {
             payload["messageId"] = json!(message_id);
@@ -556,6 +569,11 @@ impl Feed {
     /// What the person's message `message_id` told the agent alone, which an edit tells it again.
     pub(crate) fn for_agent_of(&self, message_id: &str) -> Vec<ChatContext> {
         self.inner.locked().replay.for_agent_of(message_id)
+    }
+
+    /// The call the person's message `message_id` answered, which an edit of it answers too.
+    pub(crate) fn answered_of(&self, message_id: &str) -> Option<super::Answered> {
+        self.inner.locked().replay.answered_of(message_id)
     }
 
     /// The person took the chat back to before their message `message_id`:
@@ -669,6 +687,32 @@ impl Feed {
         inner.triggers = triggers.clone();
         if let Some(fold) = inner.fold.as_mut() {
             fold.set_triggers(triggers);
+            self.flush_locked(&mut inner);
+        }
+    }
+
+    /// The chief that hears what the person types here changed.
+    pub(crate) fn set_chief_hears(&self, chief: Option<String>) {
+        let mut inner = self.inner.locked();
+        if inner.chief_hears == chief {
+            return;
+        }
+        inner.chief_hears.clone_from(&chief);
+        if let Some(fold) = inner.fold.as_mut() {
+            fold.set_chief_hears(chief);
+            self.flush_locked(&mut inner);
+        }
+    }
+
+    /// What happened while the person was away from this chief, or none once it is done with.
+    pub(crate) fn set_away(&self, away: Option<ChiefAway>) {
+        let mut inner = self.inner.locked();
+        if inner.away == away {
+            return;
+        }
+        inner.away.clone_from(&away);
+        if let Some(fold) = inner.fold.as_mut() {
+            fold.set_away(away);
             self.flush_locked(&mut inner);
         }
     }
@@ -1455,7 +1499,13 @@ mod tests {
             Some(dir.path()),
         );
         feed.subscribe(&client);
-        feed.prompted(Some("first"), "first", &[], &[], true);
+        feed.prompted(
+            Some("first"),
+            "first",
+            &[],
+            &[],
+            super::super::Whose::PERSON,
+        );
         feed.emit(
             ChatEventKind::SessionUpdate,
             text("agent_message_chunk", Some("long"), &"x".repeat(1_200_000)),
@@ -1468,7 +1518,13 @@ mod tests {
         while frames.try_recv().is_ok() {}
 
         feed.hold();
-        feed.prompted(Some("second"), "second", &[], &[], true);
+        feed.prompted(
+            Some("second"),
+            "second",
+            &[],
+            &[],
+            super::super::Whose::PERSON,
+        );
         feed.let_out();
 
         let mut heard = Vec::new();
@@ -1601,7 +1657,13 @@ mod tests {
     }
 
     fn said_turn(feed: &Arc<Feed>, n: usize) {
-        feed.prompted(None, &format!("ask {n}"), &[], &[], true);
+        feed.prompted(
+            None,
+            &format!("ask {n}"),
+            &[],
+            &[],
+            super::super::Whose::PERSON,
+        );
         feed.emit(ChatEventKind::TurnStarted, json!({}));
         for piece in ["work", "ing"] {
             feed.emit(

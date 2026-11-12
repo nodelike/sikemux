@@ -513,6 +513,7 @@ pub(crate) struct Core {
     /// The repositories coming down into new projects.
     pub(crate) clones: new_project::Clones,
     pub(crate) look: themes::Look,
+    pub(crate) chiefs: chief::Chiefs,
 }
 
 /// Session and window call ids start from the clock, so an id a client still
@@ -672,6 +673,7 @@ impl Core {
             streams: streams::Streams::default(),
             clones: new_project::Clones::default(),
             look: themes::Look::default(),
+            chiefs: chief::Chiefs::new(data_dir),
         });
         from_app::carry(&core, data_dir);
         pictures::tidy(&core, false);

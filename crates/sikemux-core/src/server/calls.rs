@@ -533,6 +533,9 @@ calls! { core, client, method, params;
     "overruleDecision" OverruleDecision (board::goal::OverruleParams) -> board::ProjectBoard: Full, counted => {
         board::goal::overrule(&core, params).await?
     },
+    "undoOverrule" UndoOverrule (board::goal::UndoOverruleParams) -> board::ProjectBoard: Full, counted => {
+        board::goal::undo_overrule(&core, params).await?
+    },
     "boardDecide" BoardDecide (board::goal::DecideParams) -> board::ProjectBoard: Full => {
         board::goal::person_decide(&core, params).await?
     },

@@ -22,6 +22,7 @@ use self::log::{CallLog, Entry};
 use super::access::Peer;
 use super::activity_log::ActivityLog;
 use super::changed::What;
+use super::chat::Answered;
 use super::questions::AnswerParams;
 use super::{messages, questions, ship, Core, CoreError, CoreResult};
 use crate::text::clipped;
@@ -489,6 +490,21 @@ impl PersonCalls {
         crate::server::hosts::route::turns_moved(core);
     }
 
+    /// The calls of `project` the person answered from `from` to `to`: whether each answer was
+    /// the asker's pick.
+    pub(crate) fn answered_since(&self, project: &str, from: u64, to: u64) -> Vec<bool> {
+        let book = self.book.locked();
+        (book.iter())
+            .map(|kept| &kept.call)
+            .filter(|call| call.project == project)
+            .filter_map(|call| {
+                let answer =
+                    (call.answer.as_ref()).filter(|answer| (from..to).contains(&answer.at))?;
+                Some(call.pick.is_some() && answer.option == call.pick)
+            })
+            .collect()
+    }
+
     /// Every call the device view shows: those still open, oldest first, then those answered or
     /// closed lately, newest first.
     pub(crate) fn shown(&self) -> Vec<PersonCall> {
@@ -730,9 +746,19 @@ fn same_decision(one: &PersonCall, other: &PersonCall) -> bool {
         && labels(one) == labels(other)
 }
 
+/// Whether `agent_id` waits on a call to the person whose words are never kept.
+pub(crate) fn hides_typed(core: &Core, agent_id: &str) -> bool {
+    let book = core.person_calls.book.locked();
+    (book.iter()).map(|kept| &kept.call).any(|call| {
+        let asked = call.asker.agent_id == agent_id
+            || call.joined.iter().any(|joined| joined.agent_id == agent_id);
+        asked && call.state == CallState::Open && hides_words(call)
+    })
+}
+
 /// What the person types to a secret or an access call is never kept: it may be a password or a
 /// token.
-fn hides_words(call: &PersonCall) -> bool {
+pub(crate) fn hides_words(call: &PersonCall) -> bool {
     call.secret || call.kind == CallKind::Access
 }
 
@@ -962,11 +988,12 @@ const MAX_WRITTEN_CHARS: usize = 2000;
 /// answered by writing, one of taste, money or access its next turn takes back, that call is
 /// answered in the chat; with several, none is, and they stay open. The words reach only this
 /// chat, so a call other agents also wait on stays open for them. A production call is never
-/// answered by writing, and an access call never keeps what was typed.
-pub(crate) fn written(core: &Core, agent_id: &str, text: &str) {
+/// answered by writing, and an access call never keeps what was typed. Answers which kind of call
+/// the words answered, for the chat's record of them.
+pub(crate) fn written(core: &Core, agent_id: &str, text: &str) -> Option<Answered> {
     let questions = core.harness.questions.answered_by_writing(agent_id);
     if questions.is_empty() {
-        return;
+        return None;
     }
     let mut book = core.person_calls.book.locked();
     let answerable: Vec<&Kept> = (book.iter())
@@ -982,9 +1009,13 @@ pub(crate) fn written(core: &Core, agent_id: &str, text: &str) {
         })
         .collect();
     let kept = match answerable.as_slice() {
-        [] => return,
+        [] => return None,
         [kept] => *kept,
-        _ => return,
+        _ => return None,
+    };
+    let answered = match hides_words(&kept.call) {
+        true => Answered::HiddenCall,
+        false => Answered::Call,
     };
     let shared = std::iter::once(&kept.call.asker)
         .chain(&kept.call.joined)
@@ -1006,7 +1037,7 @@ pub(crate) fn written(core: &Core, agent_id: &str, text: &str) {
         }
         drop(book);
         core.person_calls.changed(core);
-        return;
+        return Some(answered);
     }
     let call = &kept.call;
     let words = clipped(text.trim(), MAX_WRITTEN_CHARS);
@@ -1037,6 +1068,7 @@ pub(crate) fn written(core: &Core, agent_id: &str, text: &str) {
     );
     drop(book);
     core.person_calls.changed(core);
+    Some(answered)
 }
 
 /// A client drew the call.

@@ -105,6 +105,8 @@ pub(crate) struct PersonSaid {
     /// When it was sent, in Unix milliseconds, where the history says.
     pub at: Option<u64>,
     pub text: String,
+    /// It answered a call to the person.
+    pub answered: Option<super::Answered>,
 }
 
 /// The prompts the person sent in the history file `name` in `dir`, newest first, from its last
@@ -119,6 +121,8 @@ pub(crate) fn persons_prompts(dir: &Path, name: &str, max_bytes: u64) -> Vec<Per
                 index,
                 at: payload.get("at").and_then(serde_json::Value::as_u64),
                 text: text.to_owned(),
+                answered: (payload.get("answered").cloned())
+                    .and_then(|answered| serde_json::from_value(answered).ok()),
             })
         })
         .collect();

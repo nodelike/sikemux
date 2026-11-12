@@ -1362,6 +1362,8 @@ mod reducer {
                     description: Some("Usage limit.".into()),
                     goal: None,
                     rule: None,
+                    overruled: None,
+                    week: None,
                 }
             ),
             other => panic!("expected an agent notice, got {other:?}"),

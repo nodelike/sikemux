@@ -213,6 +213,7 @@ pub(crate) async fn wake_for_message(
     mentions::wake(core, agent_id, context).await
 }
 
+/// Starts a turn of `agent_id`'s chat with `text`, whose the record says `whose` are.
 pub(crate) fn prompt(
     core: &Core,
     agent_id: &str,
@@ -220,6 +221,7 @@ pub(crate) fn prompt(
     text: String,
     paths: Vec<String>,
     mut context: Vec<ChatContext>,
+    whose: super::Whose,
 ) -> CoreResult<()> {
     // A sent message is edited later by its id, so one the client did not name gets one here.
     let message_id = match message_id {
@@ -241,8 +243,6 @@ pub(crate) fn prompt(
     });
     crate::server::workspace::retitle(core, agent_id, title, true);
     let chat = core.chats.running(agent_id)?;
-    core.activity_log
-        .person_wrote(crate::server::chief::is_chief(core, agent_id));
     context.extend(crate::server::questions::held_answers(core, agent_id));
     context.extend(crate::server::board::chat_goal::take_note(core, agent_id));
     context.extend(
@@ -253,8 +253,7 @@ pub(crate) fn prompt(
     // sees it sent now.
     let shown = !chat.is_ready() && chat.history_in_place();
     if shown {
-        chat.feed
-            .prompted(Some(&message_id), &text, &paths, &context, true);
+        chat.record_prompt(Some(&message_id), &text, &paths, &context, whose);
     }
     chat.send(ChatCommand::Prompt {
         message_id: Some(message_id),
@@ -262,6 +261,7 @@ pub(crate) fn prompt(
         paths,
         context,
         shown,
+        whose,
     })
 }
 
@@ -289,12 +289,14 @@ pub(crate) async fn edit(
         .map_err(CoreError::from)
 }
 
+/// Puts the person's `text` into the running turn, whose the record says `whose` are.
 pub(crate) async fn steer(
     core: &Core,
     agent_id: &str,
     text: String,
     paths: Vec<String>,
     mut context: Vec<ChatContext>,
+    whose: super::Whose,
 ) -> CoreResult<native::Steered> {
     mentions::fill(core, agent_id, &mut context);
     crate::server::messages::person_wrote(core, agent_id);
@@ -303,6 +305,7 @@ pub(crate) async fn steer(
         text,
         paths,
         context,
+        whose,
         reply,
     })?;
     answer

@@ -357,6 +357,7 @@ impl Chats {
         let chief = crate::server::chief::is_chief(core, &launch.agent_id);
         if chief {
             feed.seat_chief();
+            crate::server::chief::chat_opened(core, &launch.agent_id, &feed);
         }
         let keeper = Keeper::new(self.kept.as_deref(), feed.id());
         let chat = Arc::new(Chat {

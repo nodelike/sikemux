@@ -318,6 +318,15 @@ pub struct ChatHead {
     /// works under.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub chief: bool,
+    /// The project's chief by agent id, on every other chat of a project that has one: what the
+    /// person types here reaches the chief in its next digest.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chief_hears: Option<String>,
+    /// On the chief's chat, what happened while the person was away, from when they come back
+    /// after an hour or more until every call in it is answered, or, with none in it, until they
+    /// next write to it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub away: Option<ChiefAway>,
     /// The pages its latest turns changed, as the core took them, oldest first.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub shown: Vec<crate::shown::TurnShown>,
@@ -1696,6 +1705,100 @@ pub struct AgentNotice {
     /// The rule it says was kept from the person's words, which Undo retires.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rule: Option<KeptRule>,
+    /// The decision the person overruled, which Undo (`undoOverrule`) puts back.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub overruled: Option<OverruledDecision>,
+    /// The chief's count of a week, as numbers the client words.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub week: Option<ChiefWeek>,
+}
+
+/// A week in a chief's project, counted by the core.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChiefWeek {
+    /// When the week began and ended, in Unix milliseconds.
+    pub from: u64,
+    pub to: u64,
+    /// Decisions agents made in the project.
+    pub decided: u32,
+    /// Decisions the person overruled.
+    pub overruled: u32,
+    /// Calls of the project the person answered.
+    pub answered: u32,
+    /// Of those, the ones answered as the asking agent picked.
+    pub as_picked: u32,
+}
+
+/// A decision the person overruled, with the rule that now brings its kind to them, when one
+/// was kept.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OverruledDecision {
+    pub project: String,
+    /// The goal whose log keeps it; none for the project's own log.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub goal: Option<u64>,
+    pub decision: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rule: Option<u64>,
+    /// The person undid the Overrule: the decision stands again, and the line offers no Undo.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub undone: bool,
+}
+
+/// What happened while the person was away from their project's chief, as facts the client
+/// words: what needs them, what was decided for them and what landed.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChiefAway {
+    /// When the person was last with the chief, in Unix milliseconds.
+    pub since: u64,
+    /// The project's calls open now, by id, oldest first, as the device view lists them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub calls: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub decided: Vec<AwayDecision>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub landed: Vec<AwayLanded>,
+}
+
+/// A decision agents made while the person was away, which they can overrule.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AwayDecision {
+    pub project: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub goal: Option<u64>,
+    pub decision: u64,
+    pub text: String,
+    /// What it rested on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub why: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub by: Option<AwayAgent>,
+    pub at: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AwayAgent {
+    pub agent_id: String,
+    pub name: String,
+}
+
+/// Work an agent landed while the person was away.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AwayLanded {
+    pub agent_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    pub title: String,
+    pub at: u64,
+    /// Its turn offers Try it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub try_it: bool,
 }
 
 /// A rule kept from what the person said in a chat.

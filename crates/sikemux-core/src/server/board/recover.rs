@@ -661,11 +661,11 @@ pub(super) fn last_said(core: &Core, agent: &str) -> Option<String> {
 }
 
 /// The person overruled Auto taking a stalled slice on: its agent stops, and the slice waits for
-/// them as it did.
-pub(super) fn overruled(core: &Core, project: &str, goal: Option<u64>, decision: u64) {
+/// them as it did. Answers whether it was such a decision.
+pub(super) fn overruled(core: &Core, project: &str, goal: Option<u64>, decision: u64) -> bool {
     let mut state = core.boards.state.locked();
     let Some(board) = state.boards.get_mut(project) else {
-        return;
+        return false;
     };
     let found = board.cards.iter_mut().find(|card| {
         card.kept_run()
@@ -673,10 +673,10 @@ pub(super) fn overruled(core: &Core, project: &str, goal: Option<u64>, decision:
             .is_some_and(|took| took.goal == goal && took.decision == decision)
     });
     let Some(card) = found else {
-        return;
+        return false;
     };
     let Some(mut run) = card.auto.take() else {
-        return;
+        return false;
     };
     let took = run.recovery.took_on.take();
     card.owner = None;
@@ -704,4 +704,5 @@ pub(super) fn overruled(core: &Core, project: &str, goal: Option<u64>, decision:
     core.boards.save(&mut state, project);
     drop(state);
     core.boards.wake.now();
+    true
 }

@@ -520,6 +520,7 @@ fn landed(core: &Core, repo: &Path, stacked: &Stack) -> Landed {
         let waiting = &laid.waiting;
         let stays = land::follow(&waiting.worktree.path, &waiting.head, &laid.tip);
         core.build_outputs.landed(&waiting.agent);
+        crate::server::chief::landed(core, &project, &waiting.agent);
         core.repo_events.tell(RepoEvent::Landed {
             project: project.clone(),
             agent: waiting.agent.clone(),

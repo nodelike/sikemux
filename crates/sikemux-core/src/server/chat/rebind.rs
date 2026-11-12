@@ -37,6 +37,18 @@ pub(crate) struct Replay {
     /// The person sent it, rather than another agent or Sikemux.
     #[serde(default)]
     pub person: bool,
+    /// It answered a call to the person.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub answered: Option<super::Answered>,
+}
+
+impl Replay {
+    pub(crate) fn whose(&self) -> super::Whose {
+        super::Whose {
+            person: self.person,
+            answered: self.answered,
+        }
+    }
 }
 
 /// Starts the chat's agent again on the same session.

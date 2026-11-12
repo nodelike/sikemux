@@ -36,11 +36,11 @@ use sikemux_wire::protocol::PermissionMode;
 use sikemux_view::chat::{
     AccountMove, AgentNotice, AsyncTask, ChatCapabilities, ChatCommandInfo, ChatConnection,
     ChatDraft, ChatFailure, ChatGoal, ChatHead, ChatMessage, ChatPart, ChatRole, ChatTrigger,
-    Compactions, ContentBlock, ContextUsage, FailureKind, GuestMessage, LetterKind, MoveReason,
-    NoticeSeverity, NoticeState, PermissionAsk, PermissionKind, PermissionOption, PlanEntry,
-    QueuedMessage, RestoredPart, Retrying, SentContext, SessionEnded, StopReason, SubagentCard,
-    SubagentState, TaskNotice, TaskState, TaskUsage, ToolDetail, ToolStatus, TurnStart, Unsourced,
-    UsageCost, WhyChip, WorkflowAgent, WHY_URI,
+    ChiefAway, Compactions, ContentBlock, ContextUsage, FailureKind, GuestMessage, LetterKind,
+    MoveReason, NoticeSeverity, NoticeState, OverruledDecision, PermissionAsk, PermissionKind,
+    PermissionOption, PlanEntry, QueuedMessage, RestoredPart, Retrying, SentContext, SessionEnded,
+    StopReason, SubagentCard, SubagentState, TaskNotice, TaskState, TaskUsage, ToolDetail,
+    ToolStatus, TurnStart, Unsourced, UsageCost, WhyChip, WorkflowAgent, WHY_URI,
 };
 use sikemux_view::shown::{ResultRow, TurnShown};
 use sikemux_view::turn::TurnState;
@@ -781,6 +781,20 @@ impl Fold {
         if self.head.draft != draft {
             self.head.draft = draft;
             self.set_head("draft");
+        }
+    }
+
+    pub fn set_chief_hears(&mut self, chief: Option<String>) {
+        if self.head.chief_hears != chief {
+            self.head.chief_hears = chief;
+            self.set_head("chiefHears");
+        }
+    }
+
+    pub fn set_away(&mut self, away: Option<ChiefAway>) {
+        if self.head.away != away {
+            self.head.away = away;
+            self.set_head("away");
         }
     }
 
@@ -2450,7 +2464,21 @@ impl Fold {
             rule: update
                 .get("rule")
                 .and_then(|rule| serde_json::from_value(rule.clone()).ok()),
+            overruled: update
+                .get("overruled")
+                .and_then(|overruled| serde_json::from_value(overruled.clone()).ok()),
+            week: update
+                .get("week")
+                .and_then(|week| serde_json::from_value(week.clone()).ok()),
         };
+        if let Some(undone) = notice
+            .overruled
+            .as_ref()
+            .filter(|overruled| overruled.undone)
+        {
+            self.overrule_undone(undone);
+            return;
+        }
         // A chat a usage limit stopped says when it resumes, or that it no longer will.
         if let Some(failure) = self
             .head
@@ -2467,8 +2495,10 @@ impl Fold {
                 self.head_dirty.insert("failure");
             }
         }
-        // Between turns a goal's line stands on its own, so the turn before keeps its fold and line.
-        if notice.goal.is_some() && !self.head.running {
+        // Between turns a goal's line, an Overrule's and a week's count stand on their own, so
+        // the turn before keeps its fold and line.
+        let own_line = notice.goal.is_some() || notice.overruled.is_some() || notice.week.is_some();
+        if own_line && !self.head.running {
             let at = stamped_at(update);
             self.push_between(index, at, |id| ChatPart::AgentNotice { id, notice });
             return;
@@ -2479,6 +2509,33 @@ impl Fold {
             |id| ChatPart::AgentNotice { id, notice },
             false,
         );
+    }
+
+    /// The person undid an Overrule: its line in the chat says so, rather than a new line.
+    fn overrule_undone(&mut self, undone: &OverruledDecision) {
+        let same = |overruled: &OverruledDecision| {
+            (&overruled.project, overruled.goal, overruled.decision)
+                == (&undone.project, undone.goal, undone.decision)
+        };
+        let found = (self.main.rows.iter().enumerate().rev()).find_map(|(position, held)| {
+            let part = held.msg.parts.iter().position(|part| {
+                matches!(part, ChatPart::AgentNotice { notice, .. }
+                    if notice.overruled.as_ref().is_some_and(|overruled| same(overruled) && !overruled.undone))
+            })?;
+            Some((position, part))
+        });
+        let Some((position, part)) = found else {
+            return;
+        };
+        let held = &mut self.main.rows[position];
+        if let Some(ChatPart::AgentNotice { notice, .. }) = held.msg.parts.get_mut(part) {
+            if let Some(overruled) = notice.overruled.as_mut() {
+                overruled.undone = true;
+            }
+        }
+        held.touch_part(part);
+        self.main.touch(position);
+        self.note_main_change(&None, position);
     }
 
     /// A cancelled turn stops only the subagents it was waiting on, and the

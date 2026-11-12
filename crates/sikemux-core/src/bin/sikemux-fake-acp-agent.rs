@@ -163,6 +163,19 @@ fn prompt_text(params: &Value) -> String {
         .to_owned()
 }
 
+/// Every block of the prompt as text: what a turn said, and what came with it.
+fn prompt_all(params: &Value) -> String {
+    (params["prompt"].as_array().into_iter().flatten())
+        .map(|block| {
+            block["text"]
+                .as_str()
+                .or_else(|| block["resource"]["text"].as_str())
+                .map_or_else(|| block.to_string(), str::to_owned)
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 fn run_command(session: &Session, command: &str) -> String {
     let mut shell = sikemux_process::user_environment::command("/bin/sh");
     shell.args(["-c", command]);
@@ -542,7 +555,14 @@ fn handle(agent: &Arc<Agent>, message: Value, sessions: &AtomicU64) {
             std::thread::spawn(move || {
                 let session_id = params["sessionId"].as_str().unwrap_or_default().to_owned();
                 agent.cancelled.store(false, Ordering::Release);
-                let stop_reason = run_turn(&agent, &session_id, &prompt_text(&params));
+                let text = prompt_text(&params);
+                let stop_reason = match text.trim() {
+                    "context" => {
+                        agent.say(&session_id, "agent_message_chunk", &prompt_all(&params));
+                        "end_turn"
+                    }
+                    _ => run_turn(&agent, &session_id, &text),
+                };
                 agent.reply(&id, json!({ "stopReason": stop_reason }));
             });
         }

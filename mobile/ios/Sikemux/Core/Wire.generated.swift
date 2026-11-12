@@ -2944,6 +2944,13 @@ struct ChatHead: Codable, Hashable, Sendable {
     /// It is its project's chief, @Chief: the one chat of the project every other agent there
     /// works under.
     var chief: Bool?
+    /// The project's chief by agent id, on every other chat of a project that has one: what the
+    /// person types here reaches the chief in its next digest.
+    var chiefHears: String?
+    /// On the chief's chat, what happened while the person was away, from when they come back
+    /// after an hour or more until every call in it is answered, or, with none in it, until they
+    /// next write to it.
+    var away: ChiefAway?
     /// The pages its latest turns changed, as the core took them, oldest first.
     var shown: [TurnShown]?
     /// Its workers' finished work, oldest first; empty for a chat that leads nobody.
@@ -3561,6 +3568,44 @@ enum ChatActivity: Codable, Hashable, Sendable {
         var container = encoder.container(keyedBy: TagKey.self)
         try container.encode(tag, forKey: .tag)
     }
+}
+
+/// What happened while the person was away from their project's chief, as facts the client
+/// words: what needs them, what was decided for them and what landed.
+struct ChiefAway: Codable, Hashable, Sendable {
+    /// When the person was last with the chief, in Unix milliseconds.
+    var since: Int
+    /// The project's calls open now, by id, oldest first, as the device view lists them.
+    var calls: [String]?
+    var decided: [AwayDecision]?
+    var landed: [AwayLanded]?
+}
+
+/// A decision agents made while the person was away, which they can overrule.
+struct AwayDecision: Codable, Hashable, Sendable {
+    var project: String
+    var goal: Int?
+    var decision: Int
+    var text: String
+    /// What it rested on.
+    var why: String?
+    var by: AwayAgent?
+    var at: Int
+}
+
+struct AwayAgent: Codable, Hashable, Sendable {
+    var agentId: String
+    var name: String
+}
+
+/// Work an agent landed while the person was away.
+struct AwayLanded: Codable, Hashable, Sendable {
+    var agentId: String
+    var name: String?
+    var title: String
+    var at: Int
+    /// Its turn offers Try it.
+    var tryIt: Bool?
 }
 
 /// The pages a turn of this chat changed, as the core took them once it finished.
@@ -4358,6 +4403,10 @@ struct AgentNotice: Codable, Hashable, Sendable {
     var goal: GoalMarker?
     /// The rule it says was kept from the person's words, which Undo retires.
     var rule: KeptRule?
+    /// The decision the person overruled, which Undo (`undoOverrule`) puts back.
+    var overruled: OverruledDecision?
+    /// The chief's count of a week, as numbers the client words.
+    var week: ChiefWeek?
 }
 
 enum NoticeSeverity: String, Codable, Hashable, Sendable {
@@ -4405,6 +4454,33 @@ enum GoalMoment: String, Codable, Hashable, Sendable {
 struct KeptRule: Codable, Hashable, Sendable {
     var id: Int
     var project: String
+}
+
+/// A decision the person overruled, with the rule that now brings its kind to them, when one
+/// was kept.
+struct OverruledDecision: Codable, Hashable, Sendable {
+    var project: String
+    /// The goal whose log keeps it; none for the project's own log.
+    var goal: Int?
+    var decision: Int
+    var rule: Int?
+    /// The person undid the Overrule: the decision stands again, and the line offers no Undo.
+    var undone: Bool?
+}
+
+/// A week in a chief's project, counted by the core.
+struct ChiefWeek: Codable, Hashable, Sendable {
+    /// When the week began and ended, in Unix milliseconds.
+    var from: Int
+    var to: Int
+    /// Decisions agents made in the project.
+    var decided: Int
+    /// Decisions the person overruled.
+    var overruled: Int
+    /// Calls of the project the person answered.
+    var answered: Int
+    /// Of those, the ones answered as the asking agent picked.
+    var asPicked: Int
 }
 
 /// The core started a fresh session under the chat, from a brief it built from what it keeps.

@@ -364,6 +364,7 @@ pub(crate) fn carry_on_prompt(what: &str) -> rebind::Replay {
         paths: Vec::new(),
         context: Vec::new(),
         person: false,
+        answered: None,
     }
 }
 

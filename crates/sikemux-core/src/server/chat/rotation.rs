@@ -12,7 +12,7 @@ use sikemux_process::sync::Locked;
 use sikemux_view::chat::{
     BriefCounts, BriefSection, BriefSectionKind, RotationBrief, RotationReason,
 };
-use sikemux_wire::protocol::{ChatContext, FOR_AGENT_URI};
+use sikemux_wire::protocol::ChatContext;
 
 use super::{cap, Chat};
 use crate::server::{Core, CoreResult};
@@ -312,12 +312,11 @@ pub(crate) fn brief(core: &Core, chat: &Chat) -> Brief {
     };
     Brief {
         instructions,
-        message: ChatContext {
-            uri: format!("{FOR_AGENT_URI}rotation"),
-            title: "Where this chat stands".to_owned(),
-            // A line that would close the block early is kept as text.
-            text: message.replace("</context", "&lt;/context"),
-        },
+        message: crate::sessions::for_agent::sikemux_context(
+            "rotation",
+            "Where this chat stands",
+            &message,
+        ),
         whole,
     }
 }

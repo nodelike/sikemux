@@ -564,19 +564,52 @@ fn said_words(core: &Core, asked: &Asked, words: &str, facts: &mut Facts) {
 /// or anything that may be a secret. Read from
 /// the chat's history file, never under the chat's lock.
 fn persons_said(core: &Core, agent: &str) -> Vec<(String, Pointer, Option<u64>)> {
-    let (Some(chat), Some(dir)) = (core.chats.get(agent), core.chats.history_dir()) else {
+    let Some(chat) = core.chats.get(agent) else {
         return Vec::new();
     };
     let feed = chat.feed.id().to_owned();
-    (history::persons_prompts(dir, &feed, MAX_CHAT_BYTES as u64).into_iter())
+    (persons_said_in(core, &feed).into_iter())
         .filter_map(|said| {
-            let words = persons(&said.text)?;
             let pointer = Pointer::Said {
                 agent: agent.to_owned(),
                 feed: Some(feed.clone()),
                 index: Some(said.index),
             };
-            Some((words, pointer, said.at))
+            Some((said.words?, pointer, said.at))
+        })
+        .collect()
+}
+
+/// A prompt the person sent, as [`persons_said_in`] reads it back.
+pub(crate) struct Said {
+    pub index: u64,
+    pub at: Option<u64>,
+    /// What they typed, as one line; none when it may be a secret, answered a call whose words
+    /// are never kept, or holds no words of theirs.
+    pub words: Option<String>,
+    /// It answered a call whose words are never kept.
+    pub hidden: bool,
+    /// It was a slash command.
+    pub command: bool,
+}
+
+/// What the person typed into the chat run `feed`, newest first, as the core recorded each
+/// prompt they sent. Read from the chat's history file, never under the chat's lock, whether
+/// or not the chat runs now.
+pub(crate) fn persons_said_in(core: &Core, feed: &str) -> Vec<Said> {
+    let Some(dir) = core.chats.history_dir() else {
+        return Vec::new();
+    };
+    (history::persons_prompts(dir, feed, MAX_CHAT_BYTES as u64).into_iter())
+        .map(|said| {
+            let hidden = said.answered == Some(super::chat::Answered::HiddenCall);
+            Said {
+                index: said.index,
+                at: said.at,
+                words: (!hidden).then(|| persons(&said.text)).flatten(),
+                hidden,
+                command: super::chat::prompt::is_command(&said.text),
+            }
         })
         .collect()
 }

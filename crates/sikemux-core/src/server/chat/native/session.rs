@@ -36,7 +36,7 @@ use super::super::rebind::{
     Rebind, Replay,
 };
 use super::super::{cap, rotation};
-use super::super::{reset, stall_later, Asked, Chat, ChatCommand, Delivery, Respond};
+use super::super::{reset, stall_later, Asked, Chat, ChatCommand, Delivery, Respond, Whose};
 use super::process::{AgentRecord, Lines, Process, Released, Writer};
 use crate::server::activity_log::{Compaction, ModelCall};
 use crate::server::agent_accounts;
@@ -436,7 +436,8 @@ impl Sink {
 
     /// `text` went into the running turn; `person` when the person sent it.
     pub fn prompted(&self, text: &str, paths: &[String], person: bool) {
-        self.chat.feed.prompted(None, text, paths, &[], person);
+        self.chat
+            .record_prompt(None, text, paths, &[], Whose::of(person));
     }
 
     /// Asks the person about a tool call. `request` is shaped as an ACP
@@ -490,6 +491,15 @@ impl Sink {
 }
 
 /// Sends `command` to the chat's loop again once the running turn has ended.
+/// How what starts a turn came: a prompt, whose words `whose` says they are and whose row
+/// was put in the chat already when `shown`, or a message, carrying the person's own words
+/// when `person`.
+#[derive(Clone, Copy)]
+enum Sent {
+    Prompt { shown: bool, whose: Whose },
+    Letter { person: bool },
+}
+
 fn after_turn(chat: Arc<Chat>, command: ChatCommand) {
     tokio::spawn(async move {
         tokio::select! {
@@ -1058,12 +1068,12 @@ impl<B: Backend> Running<'_, B> {
     }
 
     fn show(&self, replay: &Replay) {
-        self.chat.feed.prompted(
+        self.chat.record_prompt(
             replay.message_id.as_deref(),
             &replay.text,
             &replay.paths,
             &replay.context,
-            replay.person,
+            replay.whose(),
         );
     }
 
@@ -1078,6 +1088,9 @@ impl<B: Backend> Running<'_, B> {
                 replay
                     .context
                     .extend(core.chats.handoffs.take(self.chat.agent_id()));
+                replay
+                    .context
+                    .extend(crate::server::chief::digest(&core, self.chat.agent_id()).await);
             }
         }
         // A slash command takes what follows it as its arguments, so the brief waits for
@@ -1237,7 +1250,7 @@ impl<B: Backend> Running<'_, B> {
             } if !self.chat.prompted() => {
                 let _ = reply.send(Delivery::NewTurn);
                 return self
-                    .prompt(None, text, paths, Vec::new(), false, Some(person))
+                    .prompt(None, text, paths, Vec::new(), Sent::Letter { person })
                     .await;
             }
             ChatCommand::Letter {
@@ -1252,9 +1265,16 @@ impl<B: Backend> Running<'_, B> {
                 paths,
                 context,
                 shown,
+                whose,
             } => {
                 return self
-                    .prompt(message_id, text, paths, context, shown, None)
+                    .prompt(
+                        message_id,
+                        text,
+                        paths,
+                        context,
+                        Sent::Prompt { shown, whose },
+                    )
                     .await
             }
             ChatCommand::Edit {
@@ -1279,8 +1299,9 @@ impl<B: Backend> Running<'_, B> {
                 text,
                 paths,
                 context,
+                whose,
                 reply,
-            } => self.steer(text, paths, context, reply),
+            } => self.steer(text, paths, context, whose, reply),
             ChatCommand::StopTask { task_id } => {
                 if let Err(error) = self.backend.stop_task(&task_id).await {
                     self.chat.error(error_message(error));
@@ -1349,8 +1370,7 @@ impl<B: Backend> Running<'_, B> {
         tokio::spawn(async move {
             let delivery = match steering.await {
                 Ok(Steered::Injected) => {
-                    chat.feed
-                        .prompted(None, &prompt.text, &prompt.paths, &[], person);
+                    chat.record_prompt(None, &prompt.text, &prompt.paths, &[], Whose::of(person));
                     Delivery::Steered
                 }
                 Ok(Steered::PromptRequired) => Delivery::TurnEnded,
@@ -1360,19 +1380,19 @@ impl<B: Backend> Running<'_, B> {
         });
     }
 
-    /// Starts a turn with what was sent, or holds it for after the running turn. `letter` when
-    /// a message starts it rather than the person's prompt, saying whether it carries the
-    /// person's own words.
+    /// Starts a turn with what was sent, or holds it for after the running turn.
     async fn prompt(
         &mut self,
         message_id: Option<String>,
         text: String,
         paths: Vec<String>,
         context: Vec<ChatContext>,
-        shown: bool,
-        letter: Option<bool>,
+        sent: Sent,
     ) -> ControlFlow<Outcome> {
-        let by_letter = letter.is_some();
+        let (shown, whose, by_letter) = match sent {
+            Sent::Prompt { shown, whose } => (shown, whose, false),
+            Sent::Letter { person } => (false, Whose::of(person), true),
+        };
         let chat = &self.chat;
         if chat.start_prompted() {
             // Another agent's message can start a turn just as the
@@ -1384,10 +1404,11 @@ impl<B: Backend> Running<'_, B> {
                     paths,
                     context,
                     shown,
+                    whose,
                 };
                 after_turn(chat.clone(), held);
             } else if !chat.feed.enqueue(super::super::queue::Queued::new(
-                message_id, text, paths, context,
+                message_id, text, paths, context, whose,
             )) {
                 chat.error(error_message("too many messages are waiting for this turn"));
             }
@@ -1401,7 +1422,8 @@ impl<B: Backend> Running<'_, B> {
             text,
             paths,
             context,
-            person: letter.unwrap_or(true),
+            person: whose.person,
+            answered: whose.answered,
         };
         // A sign-in made elsewhere since the agent started is only
         // read by a new agent process.
@@ -1444,6 +1466,7 @@ impl<B: Backend> Running<'_, B> {
             return;
         }
         context.extend(self.chat.feed.for_agent_of(&message_id));
+        let answered = self.chat.feed.answered_of(&message_id);
         let moved = match self.backend.rewind(&message_id).await {
             Ok(moved) => moved,
             Err(error) => {
@@ -1467,6 +1490,7 @@ impl<B: Backend> Running<'_, B> {
             paths,
             context,
             person: true,
+            answered,
         };
         self.show(&replay);
         self.chat.start_prompted();
@@ -1579,6 +1603,7 @@ impl<B: Backend> Running<'_, B> {
         text: String,
         paths: Vec<String>,
         context: Vec<ChatContext>,
+        whose: Whose,
         reply: tokio::sync::oneshot::Sender<Result<Steered, String>>,
     ) {
         if !self.chat.prompted() {
@@ -1598,8 +1623,7 @@ impl<B: Backend> Running<'_, B> {
         tokio::spawn(async move {
             let result = steering.await;
             if result == Ok(Steered::Injected) {
-                chat.feed
-                    .prompted(None, &prompt.text, &prompt.paths, &prompt.context, true);
+                chat.record_prompt(None, &prompt.text, &prompt.paths, &prompt.context, whose);
             }
             let _ = reply.send(result);
         });

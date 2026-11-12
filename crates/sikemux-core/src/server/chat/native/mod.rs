@@ -140,6 +140,9 @@ pub(crate) fn show_saved(chat: &Arc<Chat>) {
             );
         }
         chat.saved_reading.send_replace(false);
+        if let Some(core) = chat.core.upgrade() {
+            crate::server::chief::chat_ready(&core, &chat);
+        }
     });
 }
 

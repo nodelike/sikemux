@@ -124,6 +124,7 @@ pub(crate) fn sleep(core: &Core, agent_id: &str) -> bool {
     let stopped = core.chats.stop_if_idle(agent_id);
     if let Some(chat) = chat.filter(|_| stopped) {
         core.chats.rest(&chat);
+        super::chief::chat_rested(core, agent_id, chat.feed.id());
         core.workspaces.set_asleep(agent_id, true);
         core.note_agent_asleep(agent_id);
     }
@@ -140,6 +141,7 @@ pub(crate) fn sleep_all(core: &Core) {
     for chat in core.chats.stop_all() {
         core.workspaces.note_stopping(&chat);
         core.chats.rest(&chat);
+        super::chief::chat_rested(core, chat.agent_id(), chat.feed.id());
         core.workspaces.set_asleep(chat.agent_id(), true);
     }
     super::part::Part::flush(&core.workspaces);

@@ -574,22 +574,32 @@ impl Replay {
 
     /// What the person's message `message_id` told the agent alone, to tell it again.
     pub(crate) fn for_agent_of(&self, message_id: &str) -> Vec<ChatContext> {
-        let names = |event: &ChatEvent| names_message(event, message_id);
-        let held = (self.entries.iter())
-            .find(|entry| names(&entry.event))
-            .map(|entry| entry.event.clone());
-        let event = held.or_else(|| {
-            let history = self.history.as_ref()?;
-            let index = history.find(names)?;
-            let read = history.reader().ok()??.range(index, index + 1).ok()?;
-            read.into_iter().next().map(|(_, event)| event)
-        });
-        (event.as_ref())
+        (self.message(message_id).as_ref())
             .and_then(|event| {
                 (event.payload.get("forAgent")).or(event.payload.pointer("/update/forAgent"))
             })
             .and_then(|items| serde_json::from_value(items.clone()).ok())
             .unwrap_or_default()
+    }
+
+    /// The call the person's message `message_id` answered, as its record marks it.
+    pub(crate) fn answered_of(&self, message_id: &str) -> Option<super::super::Answered> {
+        let event = self.message(message_id)?;
+        serde_json::from_value(event.payload.get("answered")?.clone()).ok()
+    }
+
+    /// The event that holds the person's message `message_id`, here or on disk.
+    fn message(&self, message_id: &str) -> Option<ChatEvent> {
+        let names = |event: &ChatEvent| names_message(event, message_id);
+        let held = (self.entries.iter())
+            .find(|entry| names(&entry.event))
+            .map(|entry| entry.event.clone());
+        held.or_else(|| {
+            let history = self.history.as_ref()?;
+            let index = history.find(names)?;
+            let read = history.reader().ok()??.range(index, index + 1).ok()?;
+            read.into_iter().next().map(|(_, event)| event)
+        })
     }
 
     /// Forgets the person's message `message_id` and everything after it,

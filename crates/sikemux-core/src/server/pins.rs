@@ -610,6 +610,9 @@ async fn send(core: &Arc<Core>, pin: &Pin, words: &str, markup: Option<&str>) ->
     }];
     super::chat::wake_for_prompt(core, &pin.agent_id, &mut context).await?;
     core.workspaces.person_said(&pin.agent_id);
+    core.activity_log
+        .person_wrote(super::chief::is_chief(core, &pin.agent_id));
+    super::chief::person_wrote(core, &pin.agent_id);
     super::chat::prompt(
         core,
         &pin.agent_id,
@@ -617,5 +620,6 @@ async fn send(core: &Arc<Core>, pin: &Pin, words: &str, markup: Option<&str>) ->
         words.to_owned(),
         Vec::new(),
         context,
+        super::chat::Whose::typed_to(core, &pin.agent_id),
     )
 }

@@ -1364,7 +1364,9 @@ async fn tell_others(
 }
 
 async fn send_work(core: &Arc<Core>, to: String, text: String) {
-    if let Err(error) = super::messages::work_from_sikemux(core, to, text).await {
+    if let Err(error) =
+        super::messages::work_from_sikemux(core, to, text, "over the project's check").await
+    {
         eprintln!("sikemux core: a failed check did not reach the agent mending it: {error}");
     }
 }

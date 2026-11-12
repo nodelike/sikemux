@@ -238,9 +238,14 @@ impl Core {
         let turns: HashMap<String, TurnState> = (inbox.agents.iter())
             .filter_map(|agent| Some((agent.agent_id.clone(), agent.turn.clone()?)))
             .collect();
+        let chiefs = super::chief::seated(self);
         for agent in &inbox.agents {
             if let Some(chat) = self.chats.get(&agent.agent_id) {
                 chat.feed.set_turn(agent.turn.clone());
+                let hears = (agent.project.as_ref())
+                    .and_then(|project| chiefs.get(project))
+                    .filter(|chief| **chief != agent.agent_id);
+                chat.feed.set_chief_hears(hears.cloned());
                 chat.feed.set_shown(
                     self.pictures.turns_of(&agent.agent_id),
                     (workers.get(&agent.agent_id))
@@ -251,6 +256,7 @@ impl Core {
         }
         goals::view_moved(self, &inbox);
         let calls = super::person_calls::shown(self);
+        super::chief::refresh_away(self, &calls);
         let mut workspace = self.workspace_view();
         stand_projects(self, &mut workspace.projects, &turns, &calls);
         let layout = Box::new(layout::view(self, &workspace, &sessions, device));

@@ -984,6 +984,33 @@ pub(crate) async fn person_view(
     run(move || Ok(view(&core, &project, &peer))).await
 }
 
+/// Keeps a rule of the project's as the person's, as an Overrule makes one, and answers its id.
+pub(crate) fn keep_persons_rule(core: &Core, project: &str, text: String) -> Result<u64, String> {
+    let rule = NewMemory::Rule {
+        text,
+        goal: None,
+        sensitive: false,
+        folder: None,
+    };
+    add(core, project, rule, learned(core, None))
+}
+
+/// Retires a rule of the project's in the person's name, as undoing an Overrule does.
+pub(crate) fn retire_persons_rule(core: &Core, project: &str, id: u64) -> Result<(), String> {
+    let update = MemoryUpdateParams {
+        project: project.to_owned(),
+        id,
+        text: None,
+        wrong: None,
+        retire: true,
+        about: None,
+        check: None,
+        drop_check: false,
+        goal: None,
+    };
+    change(core, project, update, learned(core, None))
+}
+
 pub(crate) async fn person_add(
     core: &Arc<Core>,
     peer: Peer,

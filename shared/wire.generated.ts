@@ -1900,6 +1900,17 @@ export interface ChatHead {
      * works under.
      */
     chief?: boolean;
+    /**
+     * The project's chief by agent id, on every other chat of a project that has one: what the
+     * person types here reaches the chief in its next digest.
+     */
+    chiefHears?: string;
+    /**
+     * On the chief's chat, what happened while the person was away, from when they come back
+     * after an hour or more until every call in it is answered, or, with none in it, until they
+     * next write to it.
+     */
+    away?: ChiefAway;
     /** The pages its latest turns changed, as the core took them, oldest first. */
     shown?: TurnShown[];
     /** Its workers' finished work, oldest first; empty for a chat that leads nobody. */
@@ -2278,6 +2289,46 @@ export type ChatActivity =
     | {
           kind: "connecting";
       };
+
+/**
+ * What happened while the person was away from their project's chief, as facts the client
+ * words: what needs them, what was decided for them and what landed.
+ */
+export interface ChiefAway {
+    /** When the person was last with the chief, in Unix milliseconds. */
+    since: number;
+    /** The project's calls open now, by id, oldest first, as the device view lists them. */
+    calls?: string[];
+    decided?: AwayDecision[];
+    landed?: AwayLanded[];
+}
+
+/** A decision agents made while the person was away, which they can overrule. */
+export interface AwayDecision {
+    project: string;
+    goal?: number;
+    decision: number;
+    text: string;
+    /** What it rested on. */
+    why?: string;
+    by?: AwayAgent;
+    at: number;
+}
+
+export interface AwayAgent {
+    agentId: string;
+    name: string;
+}
+
+/** Work an agent landed while the person was away. */
+export interface AwayLanded {
+    agentId: string;
+    name?: string;
+    title: string;
+    at: number;
+    /** Its turn offers Try it. */
+    tryIt?: boolean;
+}
 
 /** The pages a turn of this chat changed, as the core took them once it finished. */
 export interface TurnShown {
@@ -2744,6 +2795,10 @@ export interface AgentNotice {
     goal?: GoalMarker;
     /** The rule it says was kept from the person's words, which Undo retires. */
     rule?: KeptRule;
+    /** The decision the person overruled, which Undo (`undoOverrule`) puts back. */
+    overruled?: OverruledDecision;
+    /** The chief's count of a week, as numbers the client words. */
+    week?: ChiefWeek;
 }
 
 export type NoticeSeverity = "info" | "warning" | "error";
@@ -2768,6 +2823,35 @@ export type GoalMoment = "started" | "step" | "done" | "stopped";
 export interface KeptRule {
     id: number;
     project: string;
+}
+
+/**
+ * A decision the person overruled, with the rule that now brings its kind to them, when one
+ * was kept.
+ */
+export interface OverruledDecision {
+    project: string;
+    /** The goal whose log keeps it; none for the project's own log. */
+    goal?: number;
+    decision: number;
+    rule?: number;
+    /** The person undid the Overrule: the decision stands again, and the line offers no Undo. */
+    undone?: boolean;
+}
+
+/** A week in a chief's project, counted by the core. */
+export interface ChiefWeek {
+    /** When the week began and ended, in Unix milliseconds. */
+    from: number;
+    to: number;
+    /** Decisions agents made in the project. */
+    decided: number;
+    /** Decisions the person overruled. */
+    overruled: number;
+    /** Calls of the project the person answered. */
+    answered: number;
+    /** Of those, the ones answered as the asking agent picked. */
+    asPicked: number;
 }
 
 /**

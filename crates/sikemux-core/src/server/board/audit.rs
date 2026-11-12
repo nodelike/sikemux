@@ -257,8 +257,16 @@ async fn start(core: &Arc<Core>, project: &str) -> Result<(), String> {
     let task = format!(
         "You are a fresh pair of eyes on this codebase, auditing its health; you have no history of the work, on purpose. {reading}\n\nLook for drift: dead code, the same logic written twice, docs and design notes that no longer match the code, rules in your brief the code breaks, checks or tests weakened, and whatever would confuse someone new here. Change nothing.\n\nFile each problem worth fixing as a card with board_add, parent {card}: a one-line title naming the place, and details saying what is wrong and why it matters. When you are through, close card #{card} with board_update, status done, and a result of two or three sentences on the codebase's health. If you find nothing worth fixing, say so there."
     );
-    chat::prompt(core, &agent, None, task, Vec::new(), Vec::new())
-        .map_err(|error| error.to_string())
+    chat::prompt(
+        core,
+        &agent,
+        None,
+        task,
+        Vec::new(),
+        Vec::new(),
+        chat::Whose::NOT_PERSON,
+    )
+    .map_err(|error| error.to_string())
 }
 
 /// The project's audits as clients show them; none when it never had any.

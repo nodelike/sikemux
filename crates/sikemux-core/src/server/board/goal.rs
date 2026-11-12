@@ -964,7 +964,8 @@ pub(crate) async fn overrule(
     core: &Arc<Core>,
     params: OverruleParams,
 ) -> Result<ProjectBoard, String> {
-    let (project, overruled, view) = {
+    let goal = params.goal;
+    let (project, overruled, stopped_auto, view) = {
         let core = core.clone();
         blocking(move || {
             let project = project_at(&core, &params.project)?;
@@ -983,22 +984,26 @@ pub(crate) async fn overrule(
             let overruled = decision.clone();
             core.boards.save(&mut state, &project);
             drop(state);
-            super::recover::overruled(&core, &project, params.goal, params.decision);
+            let stopped_auto =
+                super::recover::overruled(&core, &project, params.goal, params.decision);
             let view = project_view(&core, &project);
-            Ok((project, (overruled, params.instead), view))
+            Ok((project, (overruled, params.instead), stopped_auto, view))
         })
         .await
         .map_err(|error| error.to_string())?
     };
     let (decision, instead) = overruled;
-    let told = (decision.holder.iter()).chain(
-        decision
-            .learned
-            .agent
-            .iter()
-            .filter(|by| Some(*by) != decision.holder.as_ref()),
-    );
-    for agent in told {
+    let told: Vec<String> = (decision.holder.iter())
+        .chain(
+            decision
+                .learned
+                .agent
+                .iter()
+                .filter(|by| Some(*by) != decision.holder.as_ref()),
+        )
+        .cloned()
+        .collect();
+    for agent in &told {
         let name = core.names.name_or_id(agent);
         let answered = crate::server::messages::Answered {
             question: decision.says(),
@@ -1026,7 +1031,91 @@ pub(crate) async fn overrule(
             );
         }
     }
+    crate::server::chief::overruled(
+        core,
+        &project,
+        goal,
+        (decision.id, &decision.text),
+        stopped_auto,
+        told,
+    );
     Ok(view)
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UndoOverruleParams {
+    pub project: String,
+    pub goal: Option<u64>,
+    pub decision: u64,
+}
+
+/// Undoes the person's Overrule: the decision stands again, the rule that brought its kind to
+/// them is retired, and the agents the Overrule told and the chief hear it stands. Only a
+/// decision the person retired by Overrule comes back, and not one whose Overrule stopped Auto.
+pub(crate) async fn undo_overrule(
+    core: &Arc<Core>,
+    params: UndoOverruleParams,
+) -> Result<ProjectBoard, String> {
+    let (goal, id) = (params.goal, params.decision);
+    let (project, overrule, text, view) = {
+        let core = core.clone();
+        blocking(move || {
+            let project = project_at(&core, &params.project)?;
+            let overrule =
+                crate::server::chief::undoable(&core, &project, params.goal, params.decision)?;
+            let mut state = core.boards.state.locked();
+            let board = (state.boards.get_mut(&project))
+                .ok_or_else(|| "This project keeps no decisions".to_owned())?;
+            let kept = match params.goal {
+                Some(goal) => &mut board.card_mut(goal)?.goal,
+                None => &mut board.decided,
+            };
+            let decision = (kept.decisions.iter_mut())
+                .find(|decision| {
+                    decision.id == params.decision
+                        && decision
+                            .retired
+                            .as_ref()
+                            .is_some_and(|by| by.agent.is_none())
+                })
+                .ok_or("That decision is not overruled")?;
+            decision.retired = None;
+            let text = decision.text.clone();
+            core.boards.save(&mut state, &project);
+            drop(state);
+            let view = project_view(&core, &project);
+            Ok((project, overrule, text, view))
+        })
+        .await
+        .map_err(|error| error.to_string())?
+    };
+    crate::server::chief::overrule_undone(core, &project, goal, (id, &text), overrule).await;
+    Ok(view)
+}
+
+/// How many decisions agents made in `project` from `from` to `to`, and how many of all its
+/// decisions the person overruled then.
+pub(crate) fn counted_since(core: &Core, project: &str, from: u64, to: u64) -> (usize, usize) {
+    let state = core.boards.state.locked();
+    let Some(board) = state.boards.get(project) else {
+        return (0, 0);
+    };
+    let decisions = (board.cards.iter())
+        .map(|card| &card.goal)
+        .chain([&board.decided])
+        .flat_map(|goal| goal.decisions.iter());
+    let (mut decided, mut overruled) = (0, 0);
+    for decision in decisions {
+        let within = |at: u64| (from..to).contains(&at);
+        if decision.learned.agent.is_some() && within(decision.learned.at) {
+            decided += 1;
+        }
+        if (decision.retired.as_ref()).is_some_and(|by| by.agent.is_none() && within(by.at)) {
+            overruled += 1;
+        }
+    }
+    (decided, overruled)
 }
 
 #[derive(Deserialize)]
