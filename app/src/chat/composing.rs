@@ -1296,17 +1296,18 @@ impl Workbench {
         }
         self.focus_draft(&agent, window, cx);
         let steer_first = self.preferences().mid_turn_send == MidTurnSend::Steer;
+        let chief_hears = (self.chats.open.get(&agent))
+            .and_then(|chat| chat.state.as_ref())
+            .is_some_and(|head| head.chief_hears.is_some());
         let to = self.agent().and_then(|row| match row.chief {
             true => Some((t!("Tell @Chief what you want").to_owned(), true)),
-            false => (self
-                .project()
-                .is_some_and(|project| project.chief.is_some()))
-            .then_some(row.name)
-            .flatten()
-            .map(|name| (t!("Send to @{name}", name = name), false)),
+            false => chief_hears
+                .then_some(row.name)
+                .flatten()
+                .map(|name| (t!("Send to @{name} · @Chief is told", name = name), false)),
         });
         let call_waits = (self.chats.open.get(&agent))
-            .and_then(|chat| self.waiting_call(chat.target.place(), &agent))
+            .and_then(|chat| self.waiting_call(chat.target.place(), &agent, cx))
             .is_some();
         let Some(chat) = self.chats.open.get_mut(&agent) else {
             return;
@@ -1443,7 +1444,7 @@ impl Workbench {
         let text = draft.read(cx).value().trim().to_owned();
         if text.is_empty() && outgoing.0.is_empty() {
             let place = (self.chats.open.get(agent)).map(|chat| chat.target.place().clone());
-            let keyed = place.and_then(|place| self.keyed_call(&place, agent));
+            let keyed = place.and_then(|place| self.keyed_call(&place, agent, cx));
             if let Some(id) = keyed.filter(|_| primary) {
                 // A production call is never sent by a key; only its button sends it.
                 if !self.ships_to_production(&id) {

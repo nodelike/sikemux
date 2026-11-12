@@ -848,7 +848,7 @@ impl Workspaces {
             return false;
         }
         let title: String = match stand_in {
-            true => title.chars().take(STAND_IN_TITLE_CHARS).collect(),
+            true => crate::text::clipped(title, STAND_IN_TITLE_CHARS),
             false => title.to_owned(),
         };
         self.change(|saved| {

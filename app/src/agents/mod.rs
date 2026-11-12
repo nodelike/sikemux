@@ -190,7 +190,7 @@ fn page_panel(bench: &Workbench, page: TabRailPage, cx: &mut Context<Workbench>)
     if bench.has_older() && !recent.is_empty() && !bench.rails.folded(RECENT) {
         recent.push(older_when_seen(bench, cx));
     }
-    let quiet = rows.is_empty() && snoozed.is_empty() && settled.is_empty();
+    let quiet = chiefs.is_empty() && rows.is_empty() && snoozed.is_empty() && settled.is_empty();
     let empty = (quiet && pinned.is_empty() && recent.is_empty()).then(|| {
         let shown = (project.zip(other_host(bench)))
             .filter(|_| bench.filter_text().is_empty())

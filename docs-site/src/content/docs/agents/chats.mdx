@@ -161,7 +161,15 @@ A chat holds only the part of its transcript near what you're reading, so a long
 
 Every project has a chief, @Chief: one chat that stays with the project, where you say what you want and it starts and steers the agents that do the work. Its row is the first in the project's list in the tab rail, with Sikemux's purple S where other rows have a face, and what it is on beside its name. The row is there from the start; the chat is made the first time you open it or write to it, and spends nothing until then. Closed, it comes back as itself when you open it again.
 
-The chief runs on the agent and model a new chat in the project would use, and its chat's header says which, with the project and how many agents it has: **storefront · 14 agents · Opus 5.5**. The agents it starts are listed under it as any team is. Opening a worker's chat shows the chain down to it in the header, such as **@Chief › @Rohan › Stripe webhook retries**, and what you type there goes to that worker.
+The chief runs on the agent and model a new chat in the project would use, and its chat's header says which, with the project and how many agents it has: **storefront · 14 agents · Opus 5.5**. The agents it starts are listed under it as any team is. Opening a worker's chat shows the chain down to it in the header, such as **@Chief › @Rohan › Stripe webhook retries**, and what you type there goes to that worker. The composer says so, **Send to @Rohan · @Chief is told**: the chief hears what you wrote with its next turn.
+
+The first time you open a project's chief, it writes to you first: who it is, the chats open in the project and how each stands, and what waits on you. Your chats stay where they are, and you can still talk to any of them.
+
+When you come back to the chief after an hour or more, a **While you were away** card sits at the end of its chat. It holds the calls that wait on you, one open and the rest folded under it; what agents decided for you, each with **Overrule**; and what landed, with **Try it** where there is something to try. It stays until every call in it is answered, or, with none, until you next write to the chief.
+
+**Overrule** sends the decision back to the agent that made it and leaves one line in the chief's chat. When Sikemux kept a rule from it, the line says decisions like that come to you from now on. **Undo** on that line puts the decision back. An Overrule that stopped Auto's run can't be put back: its line says so and offers no Undo.
+
+On Monday mornings, the chief's chat shows a count of last week when anything was decided or answered: **Last week I decided 212 things, and you overruled 3. You answered 12 of 14 calls as I picked.**
 
 In **All projects**, each project's @Chief leads that project's agents, with the project's name beside it. The project that most needs you comes first: one with a call open or an agent that needs you, then one with work under way, then the rest. The island over the notch lists them the same way.
 

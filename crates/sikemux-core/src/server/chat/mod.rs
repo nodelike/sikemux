@@ -20,7 +20,7 @@ mod rebind;
 pub(crate) use rebind::on_account;
 mod registry;
 pub(crate) mod reset;
-pub(crate) mod rotation;
+pub mod rotation;
 pub mod side;
 mod start;
 use sikemux_drivers::server::chat::states;

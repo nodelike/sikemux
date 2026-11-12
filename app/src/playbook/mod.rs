@@ -3,11 +3,13 @@
 //! check command, the repository its Git views use, and its sikemux.json.
 
 mod automation;
+mod decisions;
 mod landing;
 mod places;
 mod rules;
 pub(crate) mod said;
 
+pub(crate) use decisions::{overrule, undo_overrule};
 pub(crate) use rules::retire as undo_rule;
 
 use sikemux_core::server::tasks::{ProjectConfigRead, ProjectParams, TrustProjectParams};

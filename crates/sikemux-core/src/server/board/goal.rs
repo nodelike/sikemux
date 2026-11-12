@@ -1057,7 +1057,7 @@ pub(crate) async fn overrule(
     Ok(view)
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UndoOverruleParams {
     pub project: String,

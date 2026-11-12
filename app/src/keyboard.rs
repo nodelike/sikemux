@@ -136,7 +136,7 @@ impl Workbench {
         let held = window.focused(cx);
         let kept = self.settings.read(cx).is_open()
             || self.overlays.take_keys()
-            || self.front_asks().is_some()
+            || self.front_asks(cx).is_some()
             || self.waits_for_keys();
         if kept {
             // What holds them may be a field not drawn yet, which takes them once it is.

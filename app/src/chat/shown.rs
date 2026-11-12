@@ -344,7 +344,7 @@ pub(super) fn result_row(row: &ResultRow, looks: &Looks, cx: &mut App) -> AnyEle
 }
 
 /// Takes `step` on `agent`'s work, as the person clicked it, saying so when the core refuses.
-fn take(
+pub(crate) fn take(
     bench: &gpui_kit::WeakEntity<crate::workbench::Workbench>,
     agent: &str,
     step: TurnStep,

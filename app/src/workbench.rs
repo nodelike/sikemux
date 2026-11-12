@@ -847,7 +847,7 @@ impl Render for Workbench {
         if asked.is_some() {
             crate::drive::trace(format_args!("question drawn"));
         }
-        let asking = self.asking_freely(window);
+        let asking = self.asking_freely(window, cx);
         let context = match asking {
             Some(_) => format!("{SHELL} QuestionDock"),
             None => SHELL.to_owned(),

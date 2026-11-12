@@ -483,7 +483,7 @@ pub(crate) fn forget(core: &Core, agent_id: &str) {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RotationBriefParams {
     pub agent_id: String,
@@ -491,7 +491,7 @@ pub struct RotationBriefParams {
     pub at: u64,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RotationBriefRead {
     pub brief: RotationBrief,

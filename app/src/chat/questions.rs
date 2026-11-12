@@ -1105,15 +1105,15 @@ impl Workbench {
 
     /// The chat in front while its question asks and nothing else holds the keys, as when the
     /// person clicked away from every field, so the question takes its keys from anywhere.
-    pub fn asking_freely(&self, window: &Window) -> Option<String> {
+    pub fn asking_freely(&self, window: &Window, cx: &App) -> Option<String> {
         if !self.keys.focus.is_focused(window) {
             return None;
         }
-        self.front_asks()
+        self.front_asks(cx)
     }
 
     /// The chat in front, while it shows a question its keys answer.
-    pub fn front_asks(&self) -> Option<String> {
+    pub fn front_asks(&self, cx: &App) -> Option<String> {
         let agent = self.agent()?;
         let chat = self.chats.open.get(&agent.id)?;
         let open: Vec<&Question> = self
@@ -1122,7 +1122,9 @@ impl Workbench {
             .filter(|question| question.asks(&agent.id))
             .collect();
         let asking = chat.current(&open).is_some() && !chat.is_folded(&open)
-            || self.keyed_call(chat.target.place(), &agent.id).is_some();
+            || self
+                .keyed_call(chat.target.place(), &agent.id, cx)
+                .is_some();
         (asking && !chat.sending_answers()).then_some(agent.id)
     }
 

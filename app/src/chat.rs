@@ -77,6 +77,7 @@ mod math;
 mod mention;
 mod mermaid;
 mod moving;
+mod rotation;
 pub(crate) use attach::{named, named_agents, pill, site_icon, Made, Mention, SNIP_NAME};
 pub use mention::Tray;
 mod meta;
@@ -86,7 +87,7 @@ mod questions;
 mod rows;
 mod schema;
 mod shown;
-pub(crate) use shown::{turn_picture, turn_picture_held};
+pub(crate) use shown::{take as take_step, turn_picture, turn_picture_held};
 pub(crate) mod status;
 mod team;
 mod tools;
@@ -525,6 +526,9 @@ struct Reading {
     shown: Vec<sikemux_view::shown::TurnShown>,
     /// Its workers' finished work.
     results: Vec<sikemux_view::shown::ResultRow>,
+    /// The whole briefs fresh sessions started from that the reader asked to read, by when
+    /// each started, or why it could not be read.
+    briefs: HashMap<u64, Result<sikemux_view::chat::RotationBrief, String>>,
 }
 
 impl Reading {
@@ -1663,7 +1667,21 @@ pub fn pane(
         .filter(|question| question.asks(&agent.id))
         .collect();
     let calls = bench.calls_of(chat.target.place(), &agent.id, chat.last_said(cx));
-    chat.calls.update(cx, |shown, cx| shown.show(calls, cx));
+    let head = (chat.state.as_ref()).and_then(|head| head.away.as_ref());
+    let away_calls: Vec<&sikemux_view::calls::PersonCall> = (head.iter())
+        .flat_map(|head| head.calls.iter())
+        .filter_map(|id| bench.call_at(id).map(|(_, call)| call))
+        .filter(|call| call.state == sikemux_view::calls::CallState::Open)
+        .collect();
+    let away = match chat.calls.read(cx).shows_away(head, &away_calls) {
+        true => crate::calls::Shown::Same,
+        false => crate::calls::Shown::New(head.map(|head| crate::calls::Away {
+            head: head.clone(),
+            calls: away_calls.into_iter().cloned().collect(),
+        })),
+    };
+    chat.calls
+        .update(cx, |shown, cx| shown.show(calls, away, cx));
     let permissions = chat
         .state
         .as_ref()
@@ -1773,7 +1791,9 @@ pub fn pane(
         .composer
         .as_ref()
         .is_some_and(|composing| composing.draft.read(cx).value().is_empty());
-    let keyed_call = bench.keyed_call(chat.target.place(), &agent.id).is_some();
+    let keyed_call = bench
+        .keyed_call(chat.target.place(), &agent.id, cx)
+        .is_some();
     let asking = empty
         && (keyed_call
             || chat.current(&open).is_some_and(|question| !question.secret)
@@ -1874,7 +1894,7 @@ fn pressed<A: gpui::Action, F: Fn(&A) -> Press + 'static>(
                 .collect();
             if open.is_empty() {
                 let place = bench.chats.open.get(&agent)?.target.place().clone();
-                let id = bench.keyed_call(&place, &agent)?;
+                let id = bench.keyed_call(&place, &agent, cx)?;
                 return bench
                     .press_call(&id, press(action), window, cx)
                     .then_some(());

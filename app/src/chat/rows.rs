@@ -2,7 +2,7 @@
 //! fired triggers, and subagents. Runs of messages between agents are in `team`.
 
 use super::*;
-use sikemux_view::chat::{GoalMoment, PageRef, TaskNotice};
+use sikemux_view::chat::{ChiefWeek, GoalMoment, PageRef, TaskNotice};
 use sikemux_view::slice::SliceState;
 
 use crate::theme::{
@@ -1009,6 +1009,137 @@ fn kept_rule(notice: &AgentNotice, looks: &Drawn) -> AnyElement {
         .into_any_element()
 }
 
+/// The quiet line an Overrule leaves in the chief's chat, with Undo until it is undone.
+fn overruled(notice: &AgentNotice, looks: &Drawn) -> AnyElement {
+    let Some(overruled) = notice.overruled.clone() else {
+        return div().into_any_element();
+    };
+    let (head, tail) = match (
+        overruled.undone,
+        overruled.stopped_auto,
+        overruled.rule.is_some(),
+    ) {
+        (true, _, _) => (t!("Overruled, then undone"), Some(t!("it stands again"))),
+        (false, true, _) => (
+            t!("Overruled"),
+            Some(t!("this stopped Auto's run, so it can't be put back")),
+        ),
+        (false, false, true) => (
+            t!("Overruled"),
+            Some(t!("decisions like this come to you from now on")),
+        ),
+        (false, false, false) => (t!("Overruled"), None),
+    };
+    let quoted =
+        (!overruled.text.is_empty()).then(|| t!("“{text}”", text = overruled.text.clone()));
+    let offers_undo = !overruled.undone && !overruled.stopped_auto;
+    let (bench, agent) = (looks.bench.clone(), looks.agent.clone());
+    let id = format!(
+        "overruled-{}-{}",
+        overruled.goal.unwrap_or_default(),
+        overruled.decision
+    );
+    notice_box(looks)
+        .child(ui::icon(Icon::Reply, 12.).text_color(looks.quiet))
+        .child(div().flex_none().child(head))
+        .children(quoted.map(|quoted| {
+            div()
+                .min_w_0()
+                .truncate()
+                .text_color(looks.ink)
+                .child(format!("· {quoted}"))
+        }))
+        .children(tail.map(|tail| div().flex_none().child(format!("· {tail}"))))
+        .when(offers_undo, |line| {
+            line.child("·").child(
+                div()
+                    .id(SharedString::from(id))
+                    .flex_none()
+                    .cursor_pointer()
+                    .text_color(looks.ink)
+                    .child(t!("Undo"))
+                    .on_click(move |_, _, cx| {
+                        let overruled = overruled.clone();
+                        let _ = bench.update(cx, |bench, cx| {
+                            let target = bench.chat_target(&agent);
+                            crate::playbook::undo_overrule(bench, &target, overruled, cx)
+                        });
+                    }),
+            )
+        })
+        .into_any_element()
+}
+
+/// The chief's count of last week, worded here from the core's numbers, under the time it came.
+fn week_count(week: &ChiefWeek, looks: &Drawn) -> AnyElement {
+    use chrono::{Datelike, TimeZone};
+    let came = (chrono::Local.timestamp_millis_opt(week.to as i64).single()).map(|at| {
+        let day = match at.weekday() {
+            chrono::Weekday::Mon => t!("Monday"),
+            chrono::Weekday::Tue => t!("Tuesday"),
+            chrono::Weekday::Wed => t!("Wednesday"),
+            chrono::Weekday::Thu => t!("Thursday"),
+            chrono::Weekday::Fri => t!("Friday"),
+            chrono::Weekday::Sat => t!("Saturday"),
+            chrono::Weekday::Sun => t!("Sunday"),
+        };
+        t!("{day} · {time}", day = day, time = at.format("%H:%M"))
+    });
+    let decided = week.decided;
+    let first = match (decided, week.overruled) {
+        (1, 0) => t!("Last week I decided 1 thing, and you overruled none.").to_owned(),
+        (1, overruled) => t!(
+            "Last week I decided 1 thing, and you overruled {overruled}.",
+            overruled = overruled
+        ),
+        (_, 0) => t!(
+            "Last week I decided {decided} things, and you overruled none.",
+            decided = decided
+        ),
+        (_, overruled) => t!(
+            "Last week I decided {decided} things, and you overruled {overruled}.",
+            decided = decided,
+            overruled = overruled
+        ),
+    };
+    let second = match week.answered {
+        0 => None,
+        1 => Some(t!(
+            "You answered {picked} of 1 call as I picked.",
+            picked = week.as_picked
+        )),
+        answered => Some(t!(
+            "You answered {picked} of {answered} calls as I picked.",
+            picked = week.as_picked,
+            answered = answered
+        )),
+    };
+    let words = match second {
+        Some(second) => t!("{first} {second}", first = first, second = second),
+        None => first,
+    };
+    let text = looks.styles.borrow().text.clone();
+    div()
+        .py(SPACE_2)
+        .flex()
+        .flex_col()
+        .gap(SPACE_1)
+        .child(
+            div()
+                .text_size(crate::theme::ui_text(TEXT_2XS_H))
+                .text_color(looks.faint)
+                .children(came),
+        )
+        .child(
+            div()
+                .text_size(text.text_size)
+                .line_height(gpui_kit::relative(text.line_height))
+                .text_color(looks.ink)
+                .child(words),
+        )
+        .into_any_element()
+}
+
 pub(super) fn notice_box(looks: &Drawn) -> Div {
     div()
         .min_h(px(26.))
@@ -1326,6 +1457,15 @@ pub(super) fn part(
             goal_marker(notice, looks, cx)
         }
         ChatPart::AgentNotice { notice, .. } if notice.rule.is_some() => kept_rule(notice, looks),
+        ChatPart::AgentNotice { notice, .. } if notice.overruled.is_some() => {
+            overruled(notice, looks)
+        }
+        ChatPart::AgentNotice {
+            notice: AgentNotice {
+                week: Some(week), ..
+            },
+            ..
+        } => week_count(week, looks),
         ChatPart::AgentNotice { notice, .. } => {
             let t = Tokens::get(cx);
             let (icon, tint, state) = match notice.severity {
@@ -1374,6 +1514,6 @@ pub(super) fn part(
                 .into_any_element()
         }
         ChatPart::Content { content, .. } => content::content(id, content, looks, cx),
-        ChatPart::Rotation { .. } => div().into_any_element(),
+        ChatPart::Rotation { rotation, .. } => super::rotation::line(rotation, looks, cx),
     }
 }
