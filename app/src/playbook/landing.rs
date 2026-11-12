@@ -11,7 +11,7 @@ use sikemux_view::playbook::{Lands, Playbook};
 use sikemux_view::turn::{Landed, LandedMeans, LandingHistory};
 
 use crate::settings::rows;
-use crate::theme::{self, Tokens, SPACE_1H, SPACE_2, TEXT_2XS_H};
+use crate::theme::{self, Tokens, SPACE_1H, SPACE_2, TEXT_2XS_H, TEXT_XS};
 use crate::toast;
 use crate::ui::{select, Pick, Segmented};
 use crate::workbench::Workbench;
@@ -70,16 +70,11 @@ pub(super) fn page(
         rows::row_with(
             None,
             "Branch",
-            Some(format!("{} · from Git", history.branch).into()),
-            select(
-                "playbook-branch",
-                history.branch.clone(),
-                Vec::new(),
-                None,
-                true,
-                |_, _, _| {},
-                cx,
-            ),
+            Some("Read from Git".into()),
+            div()
+                .text_size(theme::ui_text(TEXT_XS))
+                .text_color(Tokens::get(cx).text_primary)
+                .child(history.branch.clone()),
             cx,
         )
     });
