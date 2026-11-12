@@ -246,7 +246,10 @@ impl Telling {
 
     /// What the session's compaction is told to keep.
     pub fn keep_list(&self) -> String {
-        cap::keep_list(&self.chat)
+        match self.chat.core.upgrade() {
+            Some(core) => cap::keep_list(&core, &self.chat),
+            None => String::new(),
+        }
     }
 
     /// What the session is told after its compaction.

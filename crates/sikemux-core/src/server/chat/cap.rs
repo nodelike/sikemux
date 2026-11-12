@@ -9,8 +9,12 @@ use serde_json::{json, Value};
 use sikemux_process::clock::epoch_ms;
 use sikemux_wire::protocol::AgentState;
 
+use sikemux_view::calls::CallState;
+use sikemux_view::turn::{TurnPhase, TurnState, TurnWait, TurnWaitKind};
+
 use super::{Chat, ChatCommand};
-use crate::server::Core;
+use crate::server::messages::called_now;
+use crate::server::{person_calls, roster, turn_state, Core};
 
 /// Claude compacts about 33K tokens under the window it is given, so this compacts near 150K.
 pub(crate) const CLAUDE_WINDOW: &str = "183k";
@@ -76,65 +80,135 @@ impl Meter {
     }
 }
 
-/// What a compaction must keep: the person's own words as the core's record holds them,
-/// and what is still open.
-pub(crate) fn keep_list(chat: &Chat) -> String {
-    let head = "Sikemux keeps the record of this chat. In the summary, keep word for word, under \
-                their own heading: every message of the person's below, the questions put to the \
-                person that are still open, and what you or your workers are waiting on, with \
-                what each waits for.";
-    let budget = HOOK_CHARS.saturating_sub(head.len() + 64);
-    let said = chat.feed.persons_words(budget, LONGEST_SAID);
-    if said.is_empty() {
-        return head.to_owned();
+/// What a compaction must keep: what is still open, and the person's own words as the core's
+/// record holds them.
+pub(crate) fn keep_list(core: &Core, chat: &Chat) -> String {
+    let mut text =
+        "Sikemux keeps the record of this chat. In the summary, keep word for word, under \
+                    their own heading: every message of the person's below, every call still open \
+                    to the person, and what you and your workers are waiting on, with what each \
+                    waits for."
+            .to_owned();
+    let open = open_work(core, chat.agent_id());
+    if !open.is_empty() {
+        text.push_str("\n\nStill open, as Sikemux has it now:\n");
+        text.push_str(&open.join("\n"));
     }
-    let lines: Vec<String> = said.iter().map(|text| format!("- {text}")).collect();
-    format!(
-        "{head}\n\nThe person's messages, oldest first:\n{}",
-        lines.join("\n")
-    )
+    let budget = HOOK_CHARS.saturating_sub(text.len() + 64);
+    let said = chat.feed.persons_words(budget, LONGEST_SAID);
+    if !said.is_empty() {
+        text.push_str("\n\nThe person's messages, oldest first:\n");
+        let lines: Vec<String> = said.iter().map(|said| format!("- {said}")).collect();
+        text.push_str(&lines.join("\n"));
+    }
+    text.chars().take(HOOK_CHARS).collect()
 }
 
 /// What the core knows now that the session should have back after a compaction.
 pub(crate) fn facts(core: &Core, agent_id: &str) -> Option<String> {
-    let workers = workers(core, agent_id);
-    if workers.is_empty() {
+    let open = open_work(core, agent_id);
+    if open.is_empty() {
         return None;
     }
     let text = format!(
-        "Sikemux's facts as the session goes on after its compaction.\n\nYour workers now:\n{}",
-        workers.join("\n")
+        "Sikemux's facts as the session goes on after its compaction:\n{}",
+        open.join("\n")
     );
     Some(text.chars().take(HOOK_CHARS).collect())
 }
 
-fn workers(core: &Core, agent_id: &str) -> Vec<String> {
-    let mut workers: Vec<String> = core
-        .workspaces
-        .agent_leads()
+/// The calls open to the person in the chat's project, what the chat waits on, and where each
+/// of its workers stands.
+fn open_work(core: &Core, agent_id: &str) -> Vec<String> {
+    let listed = roster::listed(core);
+    let Some(own) = listed.iter().find(|agent| agent.agent_id == agent_id) else {
+        return Vec::new();
+    };
+    let asks = turn_state::Asks::of(core);
+    let now = epoch_ms();
+    let mut lines: Vec<String> = person_calls::shown(core)
         .into_iter()
-        .filter(|(_, lead)| lead == agent_id)
-        .filter_map(|(worker, _)| {
-            let agent = core.workspaces.agent(&worker)?;
-            let state = core
-                .chats
-                .get(&worker)
-                .map_or(AgentState::Stopped, |chat| chat.state_now());
-            let state = match state {
-                AgentState::Working => "working",
-                AgentState::Blocked => "waiting on the person",
-                AgentState::Idle => "idle",
-                _ => "stopped",
-            };
-            Some(format!(
-                "- {}: {}, {state}",
-                crate::server::messages::called_now(core, &worker),
-                agent.title,
-            ))
+        .filter(|call| call.state == CallState::Open && call.project == own.project)
+        .map(|call| {
+            format!(
+                "- A call to the person from @{}, open {}: {}",
+                call.asker.name,
+                ago(now, call.raised_at),
+                call.question
+            )
+        })
+        .collect();
+    let turn =
+        |agent: &roster::Listed| turn_state::of(core, &asks, &agent.agent_id, agent.standing(core));
+    if let Some(wait) = turn(own).and_then(|turn| turn.wait) {
+        lines.push(format!("- You wait on {}", waited(&wait, now)));
+    }
+    let leads = core.workspaces.agent_leads();
+    let mut workers: Vec<String> = (listed.iter())
+        .filter(|agent| leads.get(&agent.agent_id).map(String::as_str) == Some(agent_id))
+        .map(|worker| {
+            let title = worker.title.as_deref().unwrap_or("no title yet");
+            let stands =
+                turn(worker).map_or_else(|| "not started".to_owned(), |turn| standing(&turn, now));
+            format!(
+                "- Your worker {}: {title}. {stands}",
+                called_now(core, &worker.agent_id)
+            )
         })
         .collect();
     workers.sort();
-    workers
+    lines.extend(workers);
+    lines
+}
+
+fn standing(turn: &TurnState, now: u64) -> String {
+    match turn.state {
+        TurnPhase::Working => match &turn.on {
+            Some(on) => format!("Working on {on}"),
+            None => "Working".to_owned(),
+        },
+        TurnPhase::Waiting => match &turn.wait {
+            Some(wait) => format!("Waiting on {}", waited(wait, now)),
+            None => "Waiting".to_owned(),
+        },
+        TurnPhase::NeedsYou => match &turn.call {
+            Some(call) => format!("Needs the person: {}", call.question),
+            None => "Needs the person".to_owned(),
+        },
+        TurnPhase::Done => "Done".to_owned(),
+        TurnPhase::Stopped => match turn
+            .stopped
+            .as_ref()
+            .and_then(|stopped| stopped.left.as_deref())
+        {
+            Some(left) => format!("Stopped with this left: {left}"),
+            None => "Stopped".to_owned(),
+        },
+        TurnPhase::Failed => "Failed".to_owned(),
+        TurnPhase::Unknown => "Unknown".to_owned(),
+    }
+}
+
+fn waited(wait: &TurnWait, now: u64) -> String {
+    let kind = match wait.kind {
+        TurnWaitKind::Ci => "CI",
+        TurnWaitKind::Deploy => "a deploy",
+        TurnWaitKind::Agent => "an agent",
+        TurnWaitKind::Timer => "a timer",
+        TurnWaitKind::Process => "a process",
+        TurnWaitKind::Check => "a check",
+        TurnWaitKind::Unknown => "something",
+    };
+    format!("{kind}, {}, since {}", wait.what, ago(now, wait.started_at))
+}
+
+fn ago(now: u64, at: u64) -> String {
+    let minutes = now.saturating_sub(at) / 60_000;
+    match minutes {
+        0 => "a moment ago".to_owned(),
+        1..=89 => format!("{minutes} min ago"),
+        _ => format!("{} h ago", minutes / 60),
+    }
 }
 
 /// Asks each capped chat that has sat idle long enough to compact before its cache dies.
