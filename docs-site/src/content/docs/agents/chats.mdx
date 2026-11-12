@@ -213,7 +213,7 @@ A Claude Code or Codex chat that has already started moves too, with its history
 
 A chat that has begun can go on with another agent: open the model menu under its composer and pick the agent from the row at the top, such as Codex for a Claude chat. Stop its turn first. The chat stays one conversation, with its history in view, and the new agent starts a fresh session. Your next message takes the chat's words along: your first request, the latest exchanges word for word, and how the commands it ran went, about 16,000 tokens at most. It is a selection, not a summary; what doesn't fit is left out, and the new agent can read the whole chat with Sikemux's tools. The agent's reasoning, tool results and attachments don't go along.
 
-Until you send, a line above the composer says what will go and about how many tokens; **Leave out** sends your message without it. `/fork` does the same into a new chat with the same agent and account, leaving this one as it is.
+A chat that is asleep hands over what its agent's saved session holds, without the commands. Until you send, a line above the composer says what will go and about how many tokens, and it is still there after Sikemux restarts; **Leave out** sends your message without it. On the phone the handoff shows first in the chat's live strip and its sheet, with the same **Leave out**. `/fork` does the same into a new chat with the same agent and account, leaving this one as it is.
 
 ## Moving a new chat to another host
 

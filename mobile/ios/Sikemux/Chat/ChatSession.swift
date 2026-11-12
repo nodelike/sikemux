@@ -416,6 +416,18 @@ final class ChatSession {
     }
 
     /// Carries the chat on in another of the person's accounts, a turn that failed sent again there.
+    /// Hands the chat to another agent, which carries on with what it said.
+    func handOff(to provider: String) {
+        let params = HandOffParams(agentId: agentId, provider: provider)
+        Task { await ask("Could not hand the chat over") { _ = try await $0.call(PhoneCall.HandOff.self, params) } }
+    }
+
+    /// Sends the next message without the handoff waiting for it.
+    func dropHandoff() {
+        let params = DropHandoffParams(agentId: agentId)
+        Task { await ask("Could not leave the handoff out") { _ = try await $0.call(PhoneCall.DropHandoff.self, params) } }
+    }
+
     func moveToAccount(_ accountId: String) {
         let params = MoveChatParams(agentId: agentId, accountId: accountId)
         Task { await ask("Could not move the chat") { _ = try await $0.call(PhoneCall.MoveChatAccount.self, params) } }

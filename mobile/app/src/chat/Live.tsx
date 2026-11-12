@@ -20,7 +20,7 @@ import { Shimmer } from '@/ui/Shimmer';
 import { Dot, Working } from '@/devices/AgentMarks';
 import { fonts, mixed, type Palette, useColors, useStyles } from '@/ui/theme';
 import { counted } from '@/devices/words';
-import { liveStrip, type LiveWork, type PlanEntry, type StripPiece } from './liveWork';
+import { handoffDetail, handoffTitle, liveStrip, type LiveWork, type PlanEntry, type StripPiece } from './liveWork';
 
 const TASK_ICONS: Readonly<Record<string, IconName>> = { shell: 'IconCommand', workflow: 'IconWorkflow' };
 
@@ -60,6 +60,7 @@ function PieceIcon({ piece, provider }: { piece: StripPiece; provider: string })
   const colors = useColors();
   if (piece.task) return <TaskIcon kind={piece.task} color={colors.inkDim} />;
   if (piece.key === 'subagents') return <AgentIcon provider={provider} size={12} />;
+  if (piece.agent) return <AgentIcon provider={piece.agent} size={12} />;
   const icon: IconName = piece.key === 'guests' ? 'IconLink' : piece.key === 'queued' ? 'IconClock' : 'IconCheck';
   return <Icon name={icon} size={12} color={colors.inkDim} />;
 }
@@ -207,6 +208,7 @@ export function LiveSheet({
   onDrop,
   onSendGuest,
   onDismissGuest,
+  onLeaveOutHandoff,
 }: {
   visible: boolean;
   onClose: () => void;
@@ -222,6 +224,7 @@ export function LiveSheet({
   onDrop: (id: string) => void;
   onSendGuest: (id: string) => void;
   onDismissGuest: (id: string) => void;
+  onLeaveOutHandoff: () => void;
 }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
@@ -229,6 +232,25 @@ export function LiveSheet({
   return (
     <Sheet visible={visible} onClose={onClose}>
       <View style={styles.sheet}>
+        {work.handoff ? (
+          <>
+            <SectionLabel>handoff</SectionLabel>
+            <Line
+              mark={<AgentIcon provider={work.handoff.from} size={16} />}
+              title={handoffTitle(work.handoff, provider)}
+              detail={handoffDetail(work.handoff)}
+              end={
+                canAct ? (
+                  <SmallButton
+                    label="Leave out"
+                    onPress={onLeaveOutHandoff}
+                    accessibilityLabel="Send the next message without the handoff"
+                  />
+                ) : null
+              }
+            />
+          </>
+        ) : null}
         {work.subagents.length ? (
           <>
             <SectionLabel count={work.subagents.length}>{counted('subagent', work.subagents.length)}</SectionLabel>

@@ -38,6 +38,7 @@ struct Trouble: View {
                     failure?.kind == .limit
                     && (failure?.resumesAt).map { Double($0) / 1000 > now.timeIntervalSince1970 } == true
                 let moves = failure?.kind == .limit ? accounts?.others ?? [] : []
+                let carryOn = failure?.kind == .limit ? failure?.carryOnWith : nil
                 VStack(alignment: .leading, spacing: 8) {
                     said(
                         Icons.warning,
@@ -52,7 +53,7 @@ struct Trouble: View {
                         Text("Sign in to \(accounts?.account?.label ?? label) on \(hostName), then retry here.")
                             .font(Theme.ui(13)).lineSpacing(3).foregroundStyle(palette.tertiary).padding(.leading, 22)
                     }
-                    if canAct && (network || resumes || !moves.isEmpty || signIn) {
+                    if canAct && (network || resumes || !moves.isEmpty || carryOn != nil || signIn) {
                         actions {
                             if network {
                                 action("Retry now") { session.failedTurn(.retry) }
@@ -61,6 +62,11 @@ struct Trouble: View {
                             if resumes { action("Don't resume") { session.failedTurn(.cancelResume) } }
                             ForEach(moves, id: \.id) { other in
                                 action("Continue on \(other.label)") { session.moveToAccount(other.id) }
+                            }
+                            if let carryOn {
+                                action("Hand to \(Catalog.label(carryOn, core: session.core))") {
+                                    session.handOff(to: carryOn)
+                                }
                             }
                             if signIn { action("Retry") { session.failedTurn(.retry) } }
                         }

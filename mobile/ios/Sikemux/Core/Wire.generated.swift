@@ -162,8 +162,10 @@ enum PhoneCall {
     enum CreateAgentWorktree {}
     enum DiscardFailed {}
     enum DismissGuestMessage {}
+    enum DropHandoff {}
     enum DropQueued {}
     enum EditMessage {}
+    enum HandOff {}
     enum LiveActivity {}
     enum MoveChatAccount {}
     enum OpenChief {}
@@ -321,6 +323,12 @@ extension PhoneCall.DismissGuestMessage: PhoneCallable {
     typealias Answer = WireNull
 }
 
+extension PhoneCall.DropHandoff: PhoneCallable {
+    static let method = "dropHandoff"
+    typealias Params = DropHandoffParams
+    typealias Answer = WireNull
+}
+
 extension PhoneCall.DropQueued: PhoneCallable {
     static let method = "dropQueued"
     typealias Params = QueuedParams
@@ -331,6 +339,12 @@ extension PhoneCall.EditMessage: PhoneCallable {
     static let method = "editMessage"
     typealias Params = EditParams
     typealias Answer = WireNull
+}
+
+extension PhoneCall.HandOff: PhoneCallable {
+    static let method = "handOff"
+    typealias Params = HandOffParams
+    typealias Answer = ChatHandedOff
 }
 
 extension PhoneCall.LiveActivity: PhoneCallable {
@@ -7853,6 +7867,10 @@ struct GuestMessageParams: Codable, Hashable, Sendable {
     var id: String
 }
 
+struct DropHandoffParams: Codable, Hashable, Sendable {
+    var agentId: String
+}
+
 struct QueuedParams: Codable, Hashable, Sendable {
     var agentId: String
     var ids: [String]
@@ -7872,6 +7890,23 @@ struct EditParams: Codable, Hashable, Sendable {
     var messageId: String
     var text: String
     var paths: [String]?
+}
+
+struct HandOffParams: Codable, Hashable, Sendable {
+    var agentId: String
+    /// The agent taking the chat over, such as `codex`.
+    var provider: String
+    var profileId: String?
+    var model: String?
+    var modelProvider: String?
+    /// A new chat takes it over, and this one stays as it is.
+    var fork: Bool?
+}
+
+struct ChatHandedOff: Codable, Hashable, Sendable {
+    /// The chat that carries on: the same one, or the fork.
+    var agentId: String
+    var project: String
 }
 
 /// The push token of the Live Activity the calling phone shows this host's agents in; none once it ended.

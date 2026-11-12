@@ -91,6 +91,7 @@ export function Trouble({
   const network = failure?.kind === 'network';
   const name = accounts?.account?.label ?? agentLabel(provider);
   const moves = failure?.kind === 'limit' ? (accounts?.others ?? []) : [];
+  const carryOn = failure?.kind === 'limit' ? failure.carryOnWith : undefined;
   const signIn = failure?.kind === 'signIn';
   return (
     <View style={styles.trouble} accessibilityLiveRegion="polite">
@@ -110,7 +111,7 @@ export function Trouble({
         </Text>
       ) : null}
       {signIn ? <Text style={styles.host}>{`Sign in to ${name} on ${hostName}, then retry here.`}</Text> : null}
-      {canAct && (network || resumes || moves.length || signIn) ? (
+      {canAct && (network || resumes || moves.length || carryOn || signIn) ? (
         <View style={styles.actions}>
           {network ? <Action title="Retry now" onPress={() => session.failedTurn('retryFailed')} /> : null}
           {network ? <Action title="Discard" onPress={() => session.failedTurn('discardFailed')} /> : null}
@@ -118,6 +119,7 @@ export function Trouble({
           {moves.map((other) => (
             <Action key={other.id} title={`Continue on ${other.label}`} onPress={() => session.moveToAccount(other.id)} />
           ))}
+          {carryOn ? <Action title={`Hand to ${agentLabel(carryOn)}`} onPress={() => session.handOff(carryOn)} /> : null}
           {signIn ? <Action title="Retry" onPress={() => session.failedTurn('retryFailed')} /> : null}
         </View>
       ) : null}

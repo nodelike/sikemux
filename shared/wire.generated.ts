@@ -5146,6 +5146,10 @@ export interface GuestMessageParams {
     id: string;
 }
 
+export interface DropHandoffParams {
+    agentId: string;
+}
+
 export interface QueuedParams {
     agentId: string;
     ids: string[];
@@ -5165,6 +5169,23 @@ export interface EditParams {
     messageId: string;
     text: string;
     paths?: string[];
+}
+
+export interface HandOffParams {
+    agentId: string;
+    /** The agent taking the chat over, such as `codex`. */
+    provider: string;
+    profileId?: string;
+    model?: string;
+    modelProvider?: string;
+    /** A new chat takes it over, and this one stays as it is. */
+    fork?: boolean;
+}
+
+export interface ChatHandedOff {
+    /** The chat that carries on: the same one, or the fork. */
+    agentId: string;
+    project: string;
 }
 
 /** The push token of the Live Activity the calling phone shows this host's agents in; none once it ended. */
@@ -5299,8 +5320,10 @@ export interface CoreCalls {
     createAgentWorktree: { params: AgentWorktreeParams; answer: MadeAgentWorktree };
     discardFailed: { params: ChatAccountsParams; answer: null };
     dismissGuestMessage: { params: GuestMessageParams; answer: null };
+    dropHandoff: { params: DropHandoffParams; answer: null };
     dropQueued: { params: QueuedParams; answer: null };
     editMessage: { params: EditParams; answer: null };
+    handOff: { params: HandOffParams; answer: ChatHandedOff };
     liveActivity: { params: ActivityParams; answer: null };
     moveChatAccount: { params: MoveChatParams; answer: null };
     openChief: { params: OpenChiefParams; answer: OpenedChief };

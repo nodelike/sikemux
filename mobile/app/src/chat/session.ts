@@ -323,6 +323,16 @@ export class ChatSession {
   };
 
   /** Carries the chat on in another of the person's accounts, a turn that failed sent again there. */
+  /** Hands the chat to another agent, which carries on with what it said. */
+  handOff = (provider: string) => {
+    void this.ask((connection) => callHost(connection, 'handOff', { agentId: this.agentId, provider }), 'Could not hand the chat over');
+  };
+
+  /** Sends the next message without the handoff waiting for it. */
+  dropHandoff = () => {
+    void this.ask((connection) => callHost(connection, 'dropHandoff', { agentId: this.agentId }), 'Could not leave the handoff out');
+  };
+
   moveToAccount = (accountId: string) => {
     void this.ask((connection) => callHost(connection, 'moveChatAccount', { agentId: this.agentId, accountId }), 'Could not move the chat');
   };

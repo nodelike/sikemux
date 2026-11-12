@@ -2,6 +2,7 @@ import SwiftUI
 
 /// What the agent still has going besides the turn, and what waits to be sent.
 struct LiveWork: Equatable {
+    var handoff: Handoff?
     var guests: [GuestMessage]
     var subagents: [SubagentCard]
     var tasks: [(kind: String, tasks: [AsyncTask])]
@@ -9,6 +10,7 @@ struct LiveWork: Equatable {
     var plan: [PlanEntry]
 
     init(_ rows: ChatRows) {
+        handoff = rows.head.handoff
         guests = rows.head.guests ?? []
         subagents = rows.head.runningSubagents
         var kinds: [String] = []
@@ -24,16 +26,17 @@ struct LiveWork: Equatable {
     }
 
     static func == (a: LiveWork, b: LiveWork) -> Bool {
-        a.guests == b.guests && a.subagents == b.subagents && a.queued == b.queued && a.plan == b.plan
+        a.handoff == b.handoff && a.guests == b.guests && a.subagents == b.subagents && a.queued == b.queued && a.plan == b.plan
             && a.tasks.map(\.kind) == b.tasks.map(\.kind) && a.tasks.map(\.tasks) == b.tasks.map(\.tasks)
     }
 
     /// Some step of the plan is still to do.
     var planOpen: Bool { plan.contains { $0.status != .completed } }
-    var any: Bool { !guests.isEmpty || !subagents.isEmpty || !tasks.isEmpty || !queued.isEmpty || planOpen }
+    var any: Bool { handoff != nil || !guests.isEmpty || !subagents.isEmpty || !tasks.isEmpty || !queued.isEmpty || planOpen }
 
     struct Piece: Equatable {
         enum Kind: Hashable {
+            case handoff(String)
             case guests
             case subagents
             case task(String)
@@ -48,6 +51,9 @@ struct LiveWork: Equatable {
 
     var pieces: [Piece] {
         var pieces: [Piece] = []
+        if let handoff {
+            pieces.append(Piece(kind: .handoff(handoff.from), count: "~\(Self.thousands(handoff.tokens))k", word: "handoff"))
+        }
         if !guests.isEmpty {
             pieces.append(Piece(kind: .guests, count: "\(guests.count)", word: "from guests"))
         }
@@ -118,6 +124,25 @@ struct LiveWork: Equatable {
     static func agentCount(_ agents: [WorkflowAgent]) -> String {
         let finished = agents.filter { $0.state == .completed || $0.state == .failed }.count
         return "\(finished)/\(agents.count) \(agents.count == 1 ? "agent" : "agents")"
+    }
+
+    static func thousands(_ tokens: Int) -> Int { (tokens + 999) / 1000 }
+
+    /// What a handoff's line says first: where the chat goes, or where it was forked from.
+    static func handoffTitle(_ handoff: Handoff, to provider: String, core: String) -> String {
+        handoff.forkedFrom == nil
+            ? "Hands over to \(Catalog.label(provider, core: core))"
+            : "Forked from a \(Catalog.label(handoff.from, core: core)) chat"
+    }
+
+    /// What a handoff holds, as the Mac's dock line says it.
+    static func handoffDetail(_ handoff: Handoff) -> String {
+        var said: [String] = []
+        if handoff.request { said.append("first request") }
+        said.append(handoff.exchanges == 1 ? "the latest exchange" : "\(handoff.exchanges) latest exchanges")
+        if handoff.commands > 0 { said.append("\(handoff.commands) \(Format.counted("command", handoff.commands))") }
+        said.append("~\(thousands(handoff.tokens))k tokens")
+        return said.joined(separator: " · ")
     }
 
     static func queuedLabel(_ message: QueuedMessage) -> String {
@@ -200,6 +225,7 @@ struct LiveStrip: View {
         switch piece.kind {
         case .task(let task): IconView(icon: taskIcon(task), size: 12).foregroundStyle(palette.inkDim)
         case .subagents: AgentMark(provider: provider, size: 12)
+        case .handoff(let from): AgentMark(provider: from, size: 12)
         case .guests: IconView(icon: Icons.link, size: 12).foregroundStyle(palette.inkDim)
         case .queued: IconView(icon: Icons.clock, size: 12).foregroundStyle(palette.inkDim)
         case .plan: IconView(icon: Icons.check, size: 12).foregroundStyle(palette.inkDim)
@@ -221,6 +247,20 @@ struct LiveSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            if let handoff = work.handoff {
+                SectionLabel(text: "handoff") { EmptyView() }
+                Line(
+                    title: LiveWork.handoffTitle(handoff, to: provider, core: session.core),
+                    detail: LiveWork.handoffDetail(handoff)
+                ) {
+                    AgentMark(provider: handoff.from, size: 16)
+                } end: {
+                    if canAct {
+                        SmallButton(label: "Leave out") { session.dropHandoff() }
+                            .accessibilityLabel("Send the next message without the handoff")
+                    }
+                }
+            }
             if !work.subagents.isEmpty {
                 SectionLabel(Format.counted("subagent", work.subagents.count), count: work.subagents.count)
                 ForEach(work.subagents, id: \.sessionId) { subagent in

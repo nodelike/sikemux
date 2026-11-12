@@ -119,8 +119,11 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
     [chat.unsent, chat.sentFiles, liveId, open, openStrip, openWork, canEdit, editing],
   );
   const subagents = useMemo(() => subagentsOf(state.messages, state.subagentRows), [state.messages, state.subagentRows]);
-  const { guests, plan, runningSubagents, tasks, queued } = state;
-  const fresh = useMemo(() => liveWork({ guests, plan, runningSubagents, tasks, queued }), [guests, plan, runningSubagents, tasks, queued]);
+  const { handoff, guests, plan, runningSubagents, tasks, queued } = state;
+  const fresh = useMemo(
+    () => liveWork({ handoff, guests, plan, runningSubagents, tasks, queued }),
+    [handoff, guests, plan, runningSubagents, tasks, queued],
+  );
   // The strip redraws, and with it the composer, only when what it counts changes, not on every word streamed.
   const [work, setWork] = useState(fresh);
   if (liveKey(fresh) !== liveKey(work)) setWork(fresh);
@@ -524,6 +527,7 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
         onDrop={session.dropQueued}
         onSendGuest={session.sendGuest}
         onDismissGuest={session.dismissGuest}
+        onLeaveOutHandoff={session.dropHandoff}
       />
       <RecentSheet
         visible={recent}
