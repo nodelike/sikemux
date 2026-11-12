@@ -1087,6 +1087,7 @@ fn notice(call: &PersonCall, t: &Tokens) -> Option<AnyElement> {
             (CallResult::Shipped, None) => "shipped".to_owned(),
             (CallResult::NotShipped, _) => "not shipped".to_owned(),
             (CallResult::Failed, _) => "it failed".to_owned(),
+            (CallResult::MayHaveRun, _) => "may have run, Sikemux restarted".to_owned(),
             (CallResult::HandedBack, _) => format!("handed back to @{}", call.asker.name),
             (CallResult::Withdrawn, _) => {
                 format!("@{} went on without an answer", call.asker.name)
