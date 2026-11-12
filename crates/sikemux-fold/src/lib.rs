@@ -729,7 +729,6 @@ impl Fold {
         }
         if running {
             self.drop_suggestion();
-            self.drop_handoff();
         }
     }
 
@@ -823,6 +822,13 @@ impl Fold {
         }
     }
 
+    pub fn set_handoff(&mut self, handoff: Option<sikemux_view::chat::Handoff>) {
+        if self.head.handoff != handoff {
+            self.head.handoff = handoff;
+            self.set_head("handoff");
+        }
+    }
+
     pub fn set_goal(&mut self, goal: Option<ChatGoal>) {
         if self.head.goal != goal {
             self.head.goal = goal;
@@ -899,13 +905,6 @@ impl Fold {
         self.take_in(index, kind, payload, at);
         if self.head.running {
             self.drop_suggestion();
-            self.drop_handoff();
-        }
-    }
-
-    fn drop_handoff(&mut self) {
-        if self.head.handoff.take().is_some() {
-            self.set_head("handoff");
         }
     }
 
@@ -1382,11 +1381,6 @@ impl Fold {
                 if let Some(message) = text_of(update.get("messageId")) {
                     self.rewind(message);
                 }
-            }
-            UpdateKind::HandoffPending => {
-                let handoff = update.get("handoff").cloned().unwrap_or_default();
-                self.head.handoff = serde_json::from_value(handoff).ok().flatten();
-                self.set_head("handoff");
             }
             UpdateKind::PromptSuggestion => {
                 let suggestion = text_of(update.get("suggestion"))

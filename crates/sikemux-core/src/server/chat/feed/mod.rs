@@ -97,6 +97,8 @@ struct Inner {
     guests: Vec<GuestMessage>,
     triggers: Vec<ChatTrigger>,
     goal: Option<ChatGoal>,
+    /// What the chat's next message hands over, as the core keeps it.
+    handoff: Option<sikemux_view::chat::Handoff>,
     turn: Option<TurnState>,
     /// The chat is its project's chief.
     chief: bool,
@@ -260,6 +262,7 @@ impl Feed {
                 guests: Vec::new(),
                 triggers: Vec::new(),
                 goal: None,
+                handoff: None,
                 turn: None,
                 chief: false,
                 chief_hears: None,
@@ -349,6 +352,7 @@ impl Feed {
                 guests: Vec::new(),
                 triggers: Vec::new(),
                 goal: None,
+                handoff: None,
                 turn: None,
                 chief: false,
                 chief_hears: None,
@@ -433,6 +437,7 @@ impl Feed {
             fold.set_guests(inner.guests.clone());
             fold.set_triggers(inner.triggers.clone());
             fold.set_goal(inner.goal.clone());
+            fold.set_handoff(inner.handoff.clone());
             fold.set_turn(inner.turn.clone());
             fold.set_chief(inner.chief);
             fold.set_chief_hears(inner.chief_hears.clone());
@@ -739,6 +744,18 @@ impl Feed {
         inner.goal.clone_from(&goal);
         if let Some(fold) = inner.fold.as_mut() {
             fold.set_goal(goal);
+            self.flush_locked(&mut inner);
+        }
+    }
+
+    pub(crate) fn set_handoff(&self, handoff: Option<sikemux_view::chat::Handoff>) {
+        let mut inner = self.inner.locked();
+        if inner.handoff == handoff {
+            return;
+        }
+        inner.handoff.clone_from(&handoff);
+        if let Some(fold) = inner.fold.as_mut() {
+            fold.set_handoff(handoff);
             self.flush_locked(&mut inner);
         }
     }

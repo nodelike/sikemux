@@ -48,6 +48,7 @@ impl Chats {
             history: data_dir.map(|dir| dir.join("chat-history")),
             kept: data_dir.map(|dir| dir.join("chats")),
             resets: reset::LimitResumes::new(data_dir),
+            handoffs: handoff::Handoffs::new(data_dir),
             ..Self::default()
         }
     }
@@ -353,6 +354,7 @@ impl Chats {
             feed.offer_effort();
         }
         feed.work_in(launch.cwd.clone());
+        feed.set_handoff(self.handoffs.shown(&launch.agent_id));
         crate::server::triggers::seed(core, &feed, &launch.agent_id);
         let chief = crate::server::chief::is_chief(core, &launch.agent_id);
         if chief {

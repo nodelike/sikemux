@@ -4,6 +4,7 @@
 //! latest exchanges word for word, and how the commands run went. Every app shows it before then.
 
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
@@ -11,9 +12,12 @@ use sikemux_process::sync::Locked;
 use sikemux_view::chat::Handoff;
 use sikemux_wire::protocol::{ChatContext, FOR_AGENT_URI};
 
-use super::feed::Feed;
+use super::feed::HandedOver;
+use crate::agent_catalog::AgentKind;
 use crate::server::workspace::{AgentPatch, ChatChoice, UpdateAgentParams};
 use crate::server::{Core, CoreError, CoreResult};
+use crate::sessions::transcript::{self, Said};
+use sikemux_view::workspace::WorkspaceAgent;
 
 /// About how many tokens a handoff holds at most, leaving the agent taking over room to work.
 const BUDGET_TOKENS: usize = 16_000;
@@ -23,36 +27,83 @@ const REQUEST_CHARS: usize = 8_000;
 const LONGEST_SAID: usize = 6_000;
 const COMMANDS: usize = 20;
 const COMMAND_CHARS: usize = 200;
+/// The latest turns read from a sleeping chat's saved session.
+const SESSION_TURNS: usize = 60;
 
 /// A handoff waiting for the chat's next message.
+#[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct Pending {
     context: ChatContext,
     shown: Handoff,
 }
 
-/// The handoffs waiting, by the agent whose next message carries each.
+/// The handoffs waiting, by the agent whose next message carries each, each also on disk so a
+/// core that starts after this one still sends what its apps show.
 #[derive(Default)]
-pub(crate) struct Handoffs(std::sync::Mutex<HashMap<String, Pending>>);
+pub(crate) struct Handoffs {
+    folder: Option<PathBuf>,
+    pending: std::sync::Mutex<HashMap<String, Pending>>,
+}
 
 impl Handoffs {
+    pub(crate) fn new(data_dir: Option<&Path>) -> Self {
+        let folder = data_dir.map(|dir| dir.join("handoffs"));
+        let mut pending = HashMap::new();
+        let files = (folder.as_deref()).and_then(|folder| std::fs::read_dir(folder).ok());
+        for file in files.into_iter().flatten().flatten() {
+            let path = file.path();
+            let agent = path.file_stem().and_then(|stem| stem.to_str());
+            let read = std::fs::read(&path).ok();
+            let kept = read.and_then(|bytes| serde_json::from_slice::<Pending>(&bytes).ok());
+            if let (Some(agent), Some(kept)) = (agent, kept) {
+                pending.insert(agent.to_owned(), kept);
+            }
+        }
+        Self {
+            folder,
+            pending: std::sync::Mutex::new(pending),
+        }
+    }
+
+    fn file(&self, agent_id: &str) -> Option<PathBuf> {
+        Some(self.folder.as_ref()?.join(format!("{agent_id}.json")))
+    }
+
     fn set(&self, agent_id: &str, pending: Pending) {
-        self.0.locked().insert(agent_id.to_owned(), pending);
+        if let Some(file) = self.file(agent_id) {
+            let written = (file.parent().map_or(Ok(()), std::fs::create_dir_all)).and_then(|()| {
+                std::fs::write(&file, serde_json::to_vec(&pending).unwrap_or_default())
+            });
+            if let Err(error) = written {
+                eprintln!("sikemux core: a handoff was not kept on disk: {error}");
+            }
+        }
+        self.pending.locked().insert(agent_id.to_owned(), pending);
     }
 
     /// What goes with `agent_id`'s next message, once.
     pub(crate) fn take(&self, agent_id: &str) -> Option<ChatContext> {
-        self.0
-            .locked()
-            .remove(agent_id)
-            .map(|pending| pending.context)
+        let pending = self.pending.locked().remove(agent_id)?;
+        self.unkeep(agent_id);
+        Some(pending.context)
     }
 
-    fn shown(&self, agent_id: &str) -> Option<Handoff> {
-        (self.0.locked().get(agent_id)).map(|pending| pending.shown.clone())
+    pub(crate) fn shown(&self, agent_id: &str) -> Option<Handoff> {
+        (self.pending.locked().get(agent_id)).map(|pending| pending.shown.clone())
     }
 
     pub(crate) fn forget(&self, agent_id: &str) -> bool {
-        self.0.locked().remove(agent_id).is_some()
+        let had = self.pending.locked().remove(agent_id).is_some();
+        if had {
+            self.unkeep(agent_id);
+        }
+        had
+    }
+
+    fn unkeep(&self, agent_id: &str) {
+        if let Some(file) = self.file(agent_id) {
+            let _ = std::fs::remove_file(file);
+        }
     }
 }
 
@@ -78,10 +129,58 @@ fn cut_end(text: &str, most: usize) -> String {
     }
 }
 
-/// What `feed` hands over from the chat it holds, which ran on `from`, or nothing when the
-/// person has not said anything in it yet.
-fn build(feed: &Feed, from: &str, source: &str, forked: bool) -> Option<Pending> {
-    let (exchanges, commands) = feed.handed_over();
+/// What the chat said, from the feed the core holds of it, or for a chat asleep without one, from
+/// its agent's saved session.
+fn said(core: &Core, agent: &WorkspaceAgent) -> Option<HandedOver> {
+    if let Ok(feed) = core.chats.readable(&agent.id) {
+        return Some(feed.handed_over());
+    }
+    let session = agent.resume_id.as_deref()?;
+    let kind = AgentKind::from_name(&agent.provider)?;
+    let book = core.workspaces.accounts().unwrap_or_default();
+    let homes = (book.with_built_ins().profiles.into_iter())
+        .filter(|profile| profile.provider == agent.provider)
+        .filter_map(|profile| profile.config_path.map(PathBuf::from));
+    let path = homes
+        .map(Some)
+        .chain([None])
+        .find_map(|home| transcript::locate(kind, home.as_deref(), session))?;
+    let latest = transcript::read(kind, &path, None, SESSION_TURNS).ok()?;
+    let first = transcript::read(kind, &path, Some(0), 1).ok();
+    let first_ask = first.and_then(|first| {
+        first.said.into_iter().find_map(|(_, _, said)| match said {
+            Said::Asked(text) => Some(text),
+            _ => None,
+        })
+    });
+    let mut exchanges: Vec<(String, String)> = Vec::new();
+    for (_, _, said) in latest.said {
+        match said {
+            Said::Asked(text) => exchanges.push((text.trim().to_owned(), String::new())),
+            Said::Message(text) => {
+                if let Some((_, answer)) = exchanges.last_mut() {
+                    answer.push_str(&text);
+                }
+            }
+            _ => {}
+        }
+    }
+    if let Some(first_ask) = first_ask.map(|text| text.trim().to_owned()) {
+        if exchanges
+            .first()
+            .is_none_or(|(asked, _)| *asked != first_ask)
+        {
+            exchanges.insert(0, (first_ask, String::new()));
+        }
+    }
+    exchanges.retain(|(asked, answered)| !asked.is_empty() || !answered.trim().is_empty());
+    Some((exchanges, Vec::new()))
+}
+
+/// What the chat hands over from what it said, which ran on `from`, or nothing when the person
+/// has not said anything in it yet.
+fn build(said: HandedOver, from: &str, source: &str, forked: bool) -> Option<Pending> {
+    let (exchanges, commands) = said;
     let first = exchanges.first()?;
     let mut room = BUDGET_TOKENS * 4;
     let mut sections: Vec<String> = Vec::new();
@@ -170,11 +269,9 @@ fn build(feed: &Feed, from: &str, source: &str, forked: bool) -> Option<Pending>
 
 /// Tells the chat's apps what its next message hands over, or that nothing waits to be.
 fn tell(core: &Core, agent_id: &str) {
-    let Some(chat) = core.chats.get(agent_id) else {
-        return;
-    };
-    let shown = core.chats.handoffs.shown(agent_id);
-    super::offers::tell_update(&chat, sikemux_fold::update::handoff_pending(shown.as_ref()));
+    if let Some(feed) = core.chats.heard(agent_id) {
+        feed.set_handoff(core.chats.handoffs.shown(agent_id));
+    }
 }
 
 #[derive(Deserialize, Serialize)]
@@ -196,7 +293,7 @@ pub struct HandOffParams {
 
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct HandedOff {
+pub struct ChatHandedOff {
     /// The chat that carries on: the same one, or the fork.
     pub agent_id: String,
     pub project: String,
@@ -204,13 +301,14 @@ pub struct HandedOff {
 
 /// Hands the chat to another agent, or forks it, and has the chat that carries on wait for the
 /// person with the handoff shown.
-pub(crate) async fn hand_off(core: &Arc<Core>, params: HandOffParams) -> CoreResult<HandedOff> {
+pub(crate) async fn hand_off(core: &Arc<Core>, params: HandOffParams) -> CoreResult<ChatHandedOff> {
     let source = core.workspaces.agent_or_gone(&params.agent_id)?;
     if !params.fork && core.chats.at_work(&params.agent_id) {
         return Err("Stop the chat's turn before handing it to another agent".into());
     }
-    let feed = core.chats.readable(&params.agent_id)?;
-    let pending = build(&feed, &source.provider, &source.id, params.fork)
+    let said = said(core, &source)
+        .ok_or_else(|| CoreError::from("Sikemux no longer has what this chat said"))?;
+    let pending = build(said, &source.provider, &source.id, params.fork)
         .ok_or_else(|| CoreError::from("This chat has nothing to hand over yet"))?;
     if params.fork {
         let launcher = match &params.profile_id {
@@ -231,7 +329,7 @@ pub(crate) async fn hand_off(core: &Arc<Core>, params: HandOffParams) -> CoreRes
         let (agent_id, _) = crate::server::launching::start_new(core, None, choice).await?;
         core.chats.handoffs.set(&agent_id, pending);
         tell(core, &agent_id);
-        return Ok(HandedOff {
+        return Ok(ChatHandedOff {
             agent_id,
             project: source.project,
         });
@@ -262,7 +360,7 @@ pub(crate) async fn hand_off(core: &Arc<Core>, params: HandOffParams) -> CoreRes
     core.chats.handoffs.set(&agent_id, pending);
     crate::server::launching::start_saved(core, &agent_id, true).await?;
     tell(core, &agent_id);
-    Ok(HandedOff {
+    Ok(ChatHandedOff {
         agent_id,
         project: source.project,
     })

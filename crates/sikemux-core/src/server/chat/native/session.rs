@@ -1085,9 +1085,11 @@ impl<B: Backend> Running<'_, B> {
         if !crate::server::chat::prompt::is_command(&replay.text) {
             replay.context.extend(self.rotation_brief.take());
             if let Some(core) = self.chat.core.upgrade() {
-                replay
-                    .context
-                    .extend(core.chats.handoffs.take(self.chat.agent_id()));
+                let handoff = core.chats.handoffs.take(self.chat.agent_id());
+                if handoff.is_some() {
+                    self.chat.feed.set_handoff(None);
+                }
+                replay.context.extend(handoff);
                 replay
                     .context
                     .extend(crate::server::chief::digest(&core, self.chat.agent_id()).await);
