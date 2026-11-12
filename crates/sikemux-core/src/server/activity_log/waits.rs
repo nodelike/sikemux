@@ -20,9 +20,18 @@ impl ActivityLog {
         answered_by: Option<&Peer>,
         waited: Duration,
     ) {
+        self.closed(kind, answered_by.and_then(via), waited);
+    }
+
+    /// A call of kind `kind` the person answered by writing in its asker's chat, after `waited`.
+    pub(crate) fn call_answered_in_chat(self: &Arc<Self>, kind: &str, waited: Duration) {
+        self.closed(kind, Some("chat"), waited);
+    }
+
+    fn closed(self: &Arc<Self>, kind: &str, via: Option<&'static str>, waited: Duration) {
         let day = (epoch_ms() as i64).div_euclid(DAY_MS);
         let ms = waited.as_millis().min(i64::MAX as u128) as i64;
-        let answer = answered_by.and_then(via).map(|via| (kind.to_owned(), via));
+        let answer = via.map(|via| (kind.to_owned(), via));
         let log = self.clone();
         in_background(move || {
             log.with_database(|db| {

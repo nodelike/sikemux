@@ -329,14 +329,16 @@ impl PersonCalls {
         let closes = closing(book, &entry);
         apply(book, entry);
         if let Some((kind, by, waited)) = closes {
-            let peer = by.and_then(|by| match by {
-                CallClient::App => Some(Peer::App),
-                CallClient::Device { id } => Some(Peer::Device { id }),
-                CallClient::Chat => None,
-            });
-            let waited = std::time::Duration::from_millis(waited);
-            self.activity
-                .call_closed(kind_name(kind), peer.as_ref(), waited);
+            let (kind, waited) = (kind_name(kind), std::time::Duration::from_millis(waited));
+            match by {
+                Some(CallClient::App) => self.activity.call_closed(kind, Some(&Peer::App), waited),
+                Some(CallClient::Device { id }) => {
+                    let peer = Peer::Device { id };
+                    self.activity.call_closed(kind, Some(&peer), waited);
+                }
+                Some(CallClient::Chat) => self.activity.call_answered_in_chat(kind, waited),
+                None => self.activity.call_closed(kind, None, waited),
+            }
         }
     }
 
@@ -380,6 +382,19 @@ impl PersonCalls {
             waiting_since: top.raised_at,
             count: open.len(),
         })
+    }
+
+    /// What came of the newest production call `agent_id` asked or joined that has an outcome.
+    #[expect(
+        dead_code,
+        reason = "the turn state shows how an agent's last ship went through it"
+    )]
+    pub(crate) fn latest_outcome(&self, agent_id: &str) -> Option<CallOutcome> {
+        (self.book.locked().iter())
+            .map(|kept| &kept.call)
+            .filter(|call| call.kind == CallKind::Production && waits_on(call, agent_id))
+            .filter_map(|call| call.outcome.clone())
+            .max_by_key(|outcome| outcome.at)
     }
 
     /// The first call of `project` that `matches`, open or not.
