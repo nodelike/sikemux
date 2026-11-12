@@ -15,7 +15,7 @@ use crate::git::Git;
 use crate::server::codehost::ci::Shown;
 use crate::server::codehost::repo::{self as codehost, Checks, Conclusion, CI_START_WAIT_MS};
 use crate::server::connection::blocking;
-use crate::server::notify::Signal;
+use crate::server::notify::{CiEnded, Signal};
 use crate::server::Core;
 
 /// How long a CI trigger goes without looking, when the CI watch says nothing moved.
@@ -109,8 +109,12 @@ fn commit_of(dir: &Path, on: &str) -> Option<String> {
 const BLAME: &str =
     "who_wrote with a failed run's address names the commit that broke it, and why.";
 
-/// How the CI it waits on ended, as the prompt tells it, or none while it goes on.
-pub(super) async fn ended(core: &Arc<Core>, watch: &CiWatch) -> Result<Option<String>, String> {
+/// How the CI it waits on ended, as the prompt tells it and as the person is told it, or none
+/// while it goes on.
+pub(super) async fn ended(
+    core: &Arc<Core>,
+    watch: &CiWatch,
+) -> Result<Option<(String, CiEnded)>, String> {
     let repo = codehost::of_project(core, &watch.dir).await?;
     match &watch.on {
         CiOn::Run(id) => run_ended(&repo, id).await,
@@ -118,7 +122,7 @@ pub(super) async fn ended(core: &Arc<Core>, watch: &CiWatch) -> Result<Option<St
     }
 }
 
-async fn run_ended(repo: &codehost::Repo, id: &Value) -> Result<Option<String>, String> {
+async fn run_ended(repo: &codehost::Repo, id: &Value) -> Result<Option<(String, CiEnded)>, String> {
     let detail = codehost::run(repo, id).await?;
     let run = &detail["run"];
     if run["status"] != "completed" {
@@ -127,7 +131,12 @@ async fn run_ended(repo: &codehost::Repo, id: &Value) -> Result<Option<String>, 
     let conclusion = run["conclusion"].as_str().unwrap_or("ended");
     let url = run["url"].as_str().unwrap_or_default();
     let mut said = format!("CI run {} ended {conclusion}. {url}", id_text(id));
-    if Conclusion::of(conclusion) == Conclusion::Failed {
+    let how = match Conclusion::of(conclusion) {
+        Conclusion::Passed => CiEnded::Passed,
+        Conclusion::Failed => CiEnded::Failed,
+        Conclusion::Stopped => CiEnded::Stopped,
+    };
+    if how == CiEnded::Failed {
         let failed: Vec<&str> = detail["jobs"]
             .as_array()
             .into_iter()
@@ -142,25 +151,34 @@ async fn run_ended(repo: &codehost::Repo, id: &Value) -> Result<Option<String>, 
         }
         said.push_str(&format!("\n{BLAME}"));
     }
-    Ok(Some(said.trim_end().to_owned()))
+    Ok(Some((said.trim_end().to_owned(), how)))
 }
 
 async fn commit_ended(
     repo: &codehost::Repo,
     sha: &str,
     since: u64,
-) -> Result<Option<String>, String> {
+) -> Result<Option<(String, CiEnded)>, String> {
     let short: String = sha.chars().take(SHORT_SHA).collect();
     Ok(match codehost::commit_checks(repo, None, sha, &[]).await? {
         Checks::Running { .. } => None,
         Checks::None if epoch_ms().saturating_sub(since) < CI_START_WAIT_MS => None,
-        Checks::None => Some(format!(
-            "No CI run started on {short} within {} minutes of this trigger being set; it may not be pushed, or CI may skip it.",
-            CI_START_WAIT_MS / 60_000
+        Checks::None => Some((
+            format!(
+                "No CI run started on {short} within {} minutes of this trigger being set; it may not be pushed, or CI may skip it.",
+                CI_START_WAIT_MS / 60_000
+            ),
+            CiEnded::NeverStarted,
         )),
-        Checks::Passed => Some(format!("CI on {short} passed.")),
-        Checks::Failed(lines) => Some(format!("CI on {short} failed:\n{lines}\n{BLAME}")),
-        Checks::Stopped(lines) => Some(format!("CI on {short} was stopped:\n{lines}")),
+        Checks::Passed => Some((format!("CI on {short} passed."), CiEnded::Passed)),
+        Checks::Failed(lines) => Some((
+            format!("CI on {short} failed:\n{lines}\n{BLAME}"),
+            CiEnded::Failed,
+        )),
+        Checks::Stopped(lines) => Some((
+            format!("CI on {short} was stopped:\n{lines}"),
+            CiEnded::Stopped,
+        )),
     })
 }
 
@@ -207,8 +225,8 @@ pub(super) async fn look(core: Arc<Core>, id: u64) {
     };
     let Some(watch) = watch else { return };
     crate::server::codehost::ci::start(&core);
-    let said = match ended(&core, &watch).await {
-        Ok(Some(said)) => said,
+    let (said, how) = match ended(&core, &watch).await {
+        Ok(Some(ended)) => ended,
         Ok(None) => return,
         Err(error) => {
             eprintln!("sikemux core: CI trigger {id} could not read its CI: {error}");
@@ -220,9 +238,10 @@ pub(super) async fn look(core: Arc<Core>, id: u64) {
     };
     let took = epoch_ms().saturating_sub(watch.since);
     core.waits.took(&watch.waits_on(), took);
-    core.notify.send(Signal::WaitCleared {
+    core.notify.send(Signal::CiEnded {
         agent_id: trigger.agent_id.clone(),
         what: trigger.title.clone(),
+        how,
     });
     trigger.prompt = format!("{}\n\n{said}", trigger.prompt);
     fire(

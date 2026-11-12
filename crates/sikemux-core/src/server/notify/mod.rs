@@ -57,6 +57,8 @@ const PROBLEM_GAP_MS: u64 = 60_000;
 const PERMISSION_LIFE_MS: u64 = 60 * 60_000;
 const INPUT_LIFE_MS: u64 = 30 * 60_000;
 const FINISHED_LIFE_MS: u64 = 2 * 60_000;
+/// A turn that starts this soon after a CI wait's push is the one that wait woke.
+const WOKEN_WITHIN_MS: u64 = 60_000;
 const PROBLEM_LIFE_MS: u64 = 10 * 60_000;
 const CLEAR_LIFE_MS: u64 = 60 * 60_000;
 const MAX_TITLE_CHARS: usize = 100;
@@ -65,6 +67,15 @@ const MAX_DETAIL_CHARS: usize = 120;
 const MAX_OPTION_ID: usize = 128;
 
 /// Something that happened on this host that a phone may want to hear of.
+/// How the CI an agent waited on ended.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum CiEnded {
+    Passed,
+    Failed,
+    Stopped,
+    NeverStarted,
+}
+
 #[derive(Clone, Debug)]
 pub(crate) enum Signal {
     Attention(Box<Attention>),
@@ -88,9 +99,10 @@ pub(crate) enum Signal {
         message: String,
     },
     /// The CI an agent ended its turn waiting on ended, under the title it gave the wait.
-    WaitCleared {
+    CiEnded {
         agent_id: String,
         what: String,
+        how: CiEnded,
     },
     Question {
         id: String,
@@ -142,6 +154,11 @@ struct State {
     finished: HashMap<(String, String), u64>,
     problems: HashMap<(String, String), u64>,
     waiting_for_input: HashSet<String>,
+    /// Agents whose CI wait the person was just told ended, with when, so the turn that wait
+    /// wakes is not told again.
+    woken: HashMap<String, u64>,
+    /// Agents at work on a turn a CI wait woke.
+    on_woken_turn: HashSet<String>,
     /// Permission requests still waiting, by agent and request.
     pending: HashMap<(String, String), Attention>,
     /// Agents' questions still waiting on the person, by agent and question.
@@ -484,25 +501,45 @@ fn apply(core: &Core, signal: Signal, now: u64) {
         Signal::Pairing(device) => alert_all(core, &pairing(core, &device), now),
         Signal::PairingSettled { id } => clear_all(core, "", &pairing_card(&id), None, now),
         Signal::TurnStarted { agent_id } => {
-            core.notify.state.locked().turns.insert(agent_id, now);
+            let mut state = core.notify.state.locked();
+            let woken = (state.woken.remove(&agent_id))
+                .is_some_and(|at| now.saturating_sub(at) < WOKEN_WITHIN_MS);
+            match woken {
+                true => state.on_woken_turn.insert(agent_id.clone()),
+                false => state.on_woken_turn.remove(&agent_id),
+            };
+            state.turns.insert(agent_id, now);
         }
         Signal::TurnCompleted {
             agent_id,
             cancelled,
         } => {
-            let started = core.notify.state.locked().turns.remove(&agent_id);
+            let (started, woken) = {
+                let mut state = core.notify.state.locked();
+                let woken = state.on_woken_turn.remove(&agent_id);
+                (state.turns.remove(&agent_id), woken)
+            };
             let long =
                 started.is_some_and(|started| now.saturating_sub(started) >= FINISHED_AFTER_MS);
             let asking = core.harness.questions.waits_on_answer(&agent_id)
                 || core.harness.questions.asks_in_reply(&agent_id);
-            if long && !cancelled && !asking {
+            if long && !cancelled && !asking && !woken {
                 if let Some(draft) = finished(core, &agent_id, now) {
                     alert_all(core, &draft, now);
                 }
             }
         }
-        Signal::WaitCleared { agent_id, what } => {
-            if let Some(draft) = wait_cleared(core, &agent_id, &what, now) {
+        Signal::CiEnded {
+            agent_id,
+            what,
+            how,
+        } => {
+            core.notify
+                .state
+                .locked()
+                .woken
+                .insert(agent_id.clone(), now);
+            if let Some(draft) = ci_ended(core, &agent_id, &what, how, now) {
                 alert_all(core, &draft, now);
             }
         }
@@ -897,7 +934,7 @@ fn finished(core: &Core, agent_id: &str, now: u64) -> Option<Draft> {
     Some(draft)
 }
 
-fn wait_cleared(core: &Core, agent_id: &str, what: &str, now: u64) -> Option<Draft> {
+fn ci_ended(core: &Core, agent_id: &str, what: &str, how: CiEnded, now: u64) -> Option<Draft> {
     let named = name(core, agent_id)?;
     let mut draft = named.draft(
         NotificationKind::Finished,
@@ -906,7 +943,13 @@ fn wait_cleared(core: &Core, agent_id: &str, what: &str, now: u64) -> Option<Dra
         now,
         FINISHED_LIFE_MS,
     );
-    draft.title = clipped_line(&format!("{}'s CI ended", named.agent), MAX_TITLE_CHARS);
+    let how = match how {
+        CiEnded::Passed => "passed",
+        CiEnded::Failed => "failed",
+        CiEnded::Stopped => "was stopped",
+        CiEnded::NeverStarted => "never started",
+    };
+    draft.title = clipped_line(&format!("{}'s CI {how}", named.agent), MAX_TITLE_CHARS);
     draft.body = clipped_line(what, MAX_BODY_CHARS);
     Some(draft)
 }

@@ -595,7 +595,7 @@ pub(crate) async fn add(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
                 return Err("A CI trigger prompts this chat once CI ends, so give it no time, webhook or board".into());
             }
             let (watch, shown) = ci::watch(core, &request.project, on.trim()).await?;
-            if let Some(said) = ci::ended(core, &watch).await? {
+            if let Some((said, _)) = ci::ended(core, &watch).await? {
                 return Ok(
                     json!({ "ended": said, "note": "It already ended, so no trigger was set." }),
                 );
