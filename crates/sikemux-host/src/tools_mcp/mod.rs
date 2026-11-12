@@ -8,6 +8,7 @@
 //! answer is shown. This binary's own copy is used only when Sikemux cannot be
 //! reached.
 
+mod family;
 mod harness;
 mod manifest;
 
@@ -269,14 +270,7 @@ fn plugin_tools(answer: Value) -> Vec<Tool> {
 }
 
 fn declarations(manifest: &Manifest, plugins: &[Tool]) -> Vec<Value> {
-    let mut tools = manifest.declarations();
-    tools.extend(
-        plugins
-            .iter()
-            .filter(|tool| !manifest.declares(&tool.name))
-            .map(Tool::declaration),
-    );
-    tools
+    manifest.declarations(plugins)
 }
 
 /// One request to the app: a harness method and its params.
@@ -372,10 +366,10 @@ fn serve(offer: Arc<Offer>, agent_id: String) {
             } => {
                 let (offer, relays, calls) =
                     (Arc::clone(&offer), Arc::clone(&relays), Arc::clone(&calls));
-                calls.start(&id, &name);
-                let ticket = offer
-                    .manifest()
-                    .tool(&name)
+                let manifest = offer.manifest();
+                let member = manifest.member(&name, &arguments);
+                calls.start(&id, member.map_or(name.as_str(), |tool| tool.name.as_str()));
+                let ticket = member
                     .is_some_and(|tool| acts_on_tab(&tool.method))
                     .then(|| (Arc::clone(&tab_turns), tab_turns.take()));
                 // A call waits on the app, so it runs off the read loop; a host
@@ -651,34 +645,38 @@ fn call(
         };
     }
     let manifest = offer.built_in(quick);
-    if let Some(tool) = manifest.tool(name) {
-        let arguments = &tool.settle(arguments.clone());
-        if let Err(message) = tool.validate(arguments) {
-            return invalid(&message);
-        }
-        if tool.method == "browser.wait" {
-            return answer(tool, wait_longer(patient, arguments));
-        }
-        return answer(tool, patient(&tool.method, arguments));
-    }
     let plugins = offer.plugin_tools(quick);
-    let Some(tool) = plugins
-        .iter()
-        .find(|tool| tool.name == name && !manifest.declares(name))
-    else {
-        return content(vec![text(&format!("Unknown tool: {name}"))], true);
+    let (tool, arguments) = match manifest.chosen(&plugins, name, arguments) {
+        Some(Ok(chosen)) => (chosen.tool, chosen.arguments),
+        Some(Err(message)) => return invalid(&message),
+        None => {
+            let Some(tool) = manifest.tool(name).or_else(|| {
+                plugins
+                    .iter()
+                    .find(|tool| tool.name == name && !manifest.declares(name))
+            }) else {
+                return content(vec![text(&format!("Unknown tool: {name}"))], true);
+            };
+            let arguments = tool.settle(arguments.clone());
+            if let Err(message) = tool.validate(&arguments) {
+                return invalid(&message);
+            }
+            (tool, arguments)
+        }
     };
-    let arguments = &tool.settle(arguments.clone());
-    if let Err(message) = tool.validate(arguments) {
-        return invalid(&message);
+    if manifest.tool(&tool.name).is_none() {
+        return answer(
+            tool,
+            patient(
+                "plugins.call",
+                &json!({ "tool": tool.name, "arguments": arguments }),
+            ),
+        );
     }
-    answer(
-        tool,
-        patient(
-            "plugins.call",
-            &json!({ "tool": name, "arguments": arguments }),
-        ),
-    )
+    if tool.method == "browser.wait" {
+        return answer(tool, wait_longer(patient, &arguments));
+    }
+    answer(tool, patient(&tool.method, &arguments))
 }
 
 /// A browser_wait longer than one call to Sikemux may take, asked again until its

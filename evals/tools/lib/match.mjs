@@ -11,7 +11,10 @@ export function valueMatches(expected, actual) {
   if (expected && typeof expected === 'object' && !Array.isArray(expected)) {
     if ('$present' in expected) return (actual !== undefined) === expected.$present;
     if ('$not' in expected) return !valueMatches(expected.$not, actual);
-    if ('$any' in expected) return expected.$any.some((one) => valueMatches(one, actual));
+    if ('$any' in expected) {
+      const { $any, ...also } = expected;
+      return $any.some((one) => valueMatches(one, actual)) && (Object.keys(also).length === 0 || valueMatches(also, actual));
+    }
     if (!actual || typeof actual !== 'object') return false;
     return Object.entries(expected).every(([key, value]) => valueMatches(value, actual[key]));
   }

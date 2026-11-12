@@ -9,6 +9,8 @@ use serde_json::{json, Map, Value};
 use sikemux_core::cli::manifest::{GUIDE, TOOLS};
 use sikemux_core::cli::protocol::REVIEWER_OFFER;
 
+use super::family::{self, Chosen, Family};
+
 /// A tool from tools/tools.json, or one a plugin offers, which the app
 /// describes in the same shape.
 #[derive(Deserialize)]
@@ -32,6 +34,9 @@ pub struct Tool {
     /// How the app shows a call of it, which says whether it changes anything.
     #[serde(default)]
     row: Row,
+    /// The tool a plugin offers its tools as, which the core says beside each.
+    #[serde(default)]
+    family: Option<Family>,
 }
 
 #[derive(Default, Deserialize)]
@@ -50,6 +55,7 @@ pub struct Manifest {
     guide: Guide,
     guide_text: String,
     tools: Vec<Tool>,
+    families: Vec<Family>,
 }
 
 impl Manifest {
@@ -59,6 +65,8 @@ impl Manifest {
         struct Built {
             guide: Guide,
             tools: Vec<Tool>,
+            #[serde(default)]
+            families: Vec<Family>,
         }
         let built: Built =
             serde_json::from_str(TOOLS).expect("tools/tools.json is a valid tool manifest");
@@ -66,6 +74,7 @@ impl Manifest {
             guide: built.guide,
             guide_text: GUIDE.to_owned(),
             tools: built.tools,
+            families: built.families,
         }
     }
 
@@ -103,6 +112,10 @@ impl Manifest {
                 .iter()
                 .filter_map(|tool| Tool::deserialize(tool).ok())
                 .collect(),
+            families: manifest
+                .get("families")
+                .and_then(|families| Vec::<Family>::deserialize(families).ok())
+                .unwrap_or_default(),
         })
     }
 
@@ -223,19 +236,67 @@ impl Manifest {
         self.tools.iter().find(|tool| tool.name == name)
     }
 
-    /// Whether a name is already taken here, so a plugin tool cannot shadow it.
+    /// Whether a name is already taken here, so a plugin tool can neither shadow it
+    /// nor join one of these families.
     pub fn declares(&self, name: &str) -> bool {
-        name == self.guide.name || self.tool(name).is_some()
+        name == self.guide.name
+            || self.tool(name).is_some()
+            || self.families.iter().any(|family| family.owns(name))
     }
 
-    pub fn declarations(&self) -> Vec<Value> {
-        let mut declared: Vec<Value> = self.tools.iter().map(Tool::declaration).collect();
+    /// The built-in tools, then those of `plugins` that take no name of theirs.
+    fn with<'a>(&'a self, plugins: &'a [Tool]) -> Vec<&'a Tool> {
+        self.tools
+            .iter()
+            .chain(plugins.iter().filter(|tool| !self.declares(&tool.name)))
+            .collect()
+    }
+
+    fn families_with(&self, plugins: &[Tool]) -> Vec<Family> {
+        let mut families = self.families.clone();
+        for family in plugins.iter().filter_map(|tool| tool.family.as_ref()) {
+            if !families.contains(family) && !self.declares(&family.name) {
+                families.push(family.clone());
+            }
+        }
+        families
+    }
+
+    /// The tool a call of `name` runs, without checking its arguments: a family's member
+    /// by the action it names, or the built-in tool of that name.
+    pub fn member(&self, name: &str, arguments: &Value) -> Option<&Tool> {
+        family::member(&self.families, &self.with(&[]), name, arguments).or_else(|| self.tool(name))
+    }
+
+    /// The tool a call of a family's name means, with its arguments as that tool takes them.
+    pub fn chosen<'a>(
+        &'a self,
+        plugins: &'a [Tool],
+        name: &str,
+        arguments: &Value,
+    ) -> Option<Result<Chosen<'a>, String>> {
+        family::choose(
+            &self.families_with(plugins),
+            &self.with(plugins),
+            name,
+            arguments,
+        )
+    }
+
+    /// What `tools/list` gives: each family as one tool and the rest as they are, the
+    /// built-in ones and the guide before the plugins'.
+    pub fn declarations(&self, plugins: &[Tool]) -> Vec<Value> {
+        let tools = self.with(plugins);
+        let (built_in, theirs) = tools.split_at(self.tools.len());
+        let families = self.families_with(plugins);
+        let mut declared = family::declarations(&families, built_in);
         declared.push(declaration(
             &self.guide.name,
             &self.guide.description,
             &guide_properties(&self.guide_text),
             &[],
         ));
+        declared.extend(family::declarations(&families, theirs));
         declared
     }
 }
@@ -341,6 +402,10 @@ fn declaration(
 }
 
 impl Tool {
+    pub fn takes(&self, argument: &str) -> bool {
+        self.properties.contains_key(argument)
+    }
+
     pub fn declaration(&self) -> Value {
         let mut declared = declaration(
             &self.name,
@@ -574,7 +639,7 @@ fn settle_value(value: &mut Value, schema: &Value) {
 
 /// A listed value as agents may write it: in any case, with `-`, `_` or a space between words,
 /// or as an operator such as `=` and `!=`.
-fn spelled(value: &str) -> String {
+pub(super) fn spelled(value: &str) -> String {
     let words: String = value
         .chars()
         .filter(|letter| !matches!(letter, '-' | '_' | ' '))

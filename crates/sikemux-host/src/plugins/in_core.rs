@@ -2,13 +2,13 @@
 //! the window, agents and the board share one set of sign-ins and what the
 //! board does on code hosts and trackers goes on while the app is closed.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 use serde_json::{json, Value};
 use sikemux_core::server::plugins::{
-    AgentTool, Answer, Gated, Listing, Manifest, Plugins, Provided, Sink,
+    AgentTool, Answer, Gated, Listing, Manifest, Plugins, Provided, Sink, ToolFamily,
 };
 use sikemux_plugin_api::{vault, StreamSink};
 use sikemux_process::user_environment::UserEnvironment;
@@ -57,7 +57,13 @@ impl Plugins for PluginHost {
     }
 
     fn agent_tools<'a>(&'a self, remotes: &'a [String]) -> Listing<'a> {
-        Box::pin(async move { describe(self.agent_tools_for(remotes).await) })
+        Box::pin(async move {
+            let families: HashMap<&str, &ToolFamily> = self
+                .manifests()
+                .filter_map(|manifest| Some((manifest.id.as_str(), manifest.family.as_ref()?)))
+                .collect();
+            describe(self.agent_tools_for(remotes).await, &families)
+        })
     }
 
     fn gated(&self, name: &str) -> Option<Gated> {
@@ -78,7 +84,7 @@ impl Plugins for PluginHost {
     }
 }
 
-fn describe(tools: Vec<(&str, &AgentTool)>) -> Vec<Value> {
+fn describe(tools: Vec<(&str, &AgentTool)>, families: &HashMap<&str, &ToolFamily>) -> Vec<Value> {
     tools
         .into_iter()
         .map(|(plugin, tool)| {
@@ -89,6 +95,7 @@ fn describe(tools: Vec<(&str, &AgentTool)>) -> Vec<Value> {
                 "description": tool.description,
                 "properties": tool.properties,
                 "required": tool.required,
+                "family": families.get(plugin),
             })
         })
         .collect()
@@ -151,7 +158,7 @@ mod tests {
             "name": "github_runs", "method": "runs", "description": "Runs.",
         }))
         .expect("a tool");
-        let listed = describe(vec![("sikemux.github", &tool)]);
+        let listed = describe(vec![("sikemux.github", &tool)], &HashMap::new());
         assert_eq!(listed[0]["plugin"], "sikemux.github");
         assert_eq!(listed[0]["name"], "github_runs");
         assert_eq!(listed[0]["method"], "runs");

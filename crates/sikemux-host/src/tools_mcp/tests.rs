@@ -95,7 +95,7 @@ fn signoz_tool() -> Tool {
 }
 
 fn declarations() -> Vec<Value> {
-    Manifest::load().declarations()
+    Manifest::load().declarations(&[])
 }
 
 fn field<'a>(tool: &'a Value, name: &str) -> &'a str {
@@ -105,7 +105,7 @@ fn field<'a>(tool: &'a Value, name: &str) -> &'a str {
 #[test]
 fn every_served_tool_comes_from_the_manifest() {
     let manifest = Manifest::load();
-    let served = manifest.declarations();
+    let served = manifest.declarations(&[]);
     let names: Vec<&str> = served.iter().map(|tool| field(tool, "name")).collect();
     for expected in ["browser_navigate", "workspace_inspect", "guide"] {
         assert!(names.contains(&expected), "{expected} is not served");
@@ -115,10 +115,7 @@ fn every_served_tool_comes_from_the_manifest() {
     unique.dedup();
     assert_eq!(unique.len(), names.len(), "a tool is declared twice");
     for name in &names {
-        assert!(
-            *name == manifest.guide_name() || manifest.tool(name).is_some(),
-            "{name} has no harness method"
-        );
+        assert!(manifest.declares(name), "{name} has no harness method");
     }
     for tool in &served {
         assert_eq!(tool["inputSchema"]["additionalProperties"], json!(false));
@@ -128,20 +125,26 @@ fn every_served_tool_comes_from_the_manifest() {
 
 #[test]
 fn schemas_stay_lean_so_prose_lives_in_the_guide() {
-    let served = Manifest::load().offering(false, false).declarations();
+    let served = Manifest::load().offering(false, false).declarations(&[]);
     let mut prose = 0;
     for tool in &served {
         let description = field(tool, "description");
-        assert!(
-            description.len() <= 160,
-            "{} description belongs in the guide",
-            field(tool, "name")
-        );
-        prose += description.len();
+        for (index, line) in description.lines().enumerate() {
+            let said = match index {
+                0 => line,
+                _ => line.split_once(": ").map_or(line, |(_, said)| said),
+            };
+            assert!(
+                said.len() <= 160,
+                "{} description belongs in the guide: {said}",
+                field(tool, "name")
+            );
+            prose += said.len();
+        }
     }
     assert!(
         prose <= 2040,
-        "tool descriptions are paid on every request; explain it in SIKEMUX_GUIDE.md instead"
+        "tool descriptions are paid on every request; explain it in SIKEMUX_GUIDE.md instead ({prose} bytes)"
     );
 }
 
@@ -161,7 +164,7 @@ fn server_instructions_fit_before_agents_cut_them_off() {
 fn the_tool_list_every_agent_gets_stays_within_its_byte_budget() {
     let offered = Manifest::load().offering(false, false);
     let bytes =
-        Value::Array(offered.declarations()).to_string().len() + offered.instructions().len();
+        Value::Array(offered.declarations(&[])).to_string().len() + offered.instructions().len();
     assert!(
         bytes <= 33_400,
         "every agent is sent {bytes} bytes of tools and instructions on each request; cut before adding"
@@ -174,7 +177,7 @@ fn the_tool_list_every_agent_gets_stays_within_its_byte_budget() {
 fn the_simulator_tools_are_listed_only_where_they_work_and_stay_within_budget() {
     let names = |manifest: Manifest| -> Vec<String> {
         manifest
-            .declarations()
+            .declarations(&[])
             .iter()
             .map(|tool| field(tool, "name").to_owned())
             .collect()
@@ -198,7 +201,7 @@ fn the_simulator_tools_are_listed_only_where_they_work_and_stay_within_budget() 
 
     let simulator: Vec<Value> = Manifest::load()
         .offering(true, false)
-        .declarations()
+        .declarations(&[])
         .into_iter()
         .filter(|tool| field(tool, "name").starts_with("sim_"))
         .collect();
@@ -269,7 +272,7 @@ fn every_plugin_keeps_its_tools_within_budget() {
 fn the_guide_explains_what_the_schemas_no_longer_say() {
     let manifest = Manifest::load();
     let guide = manifest.guide_text(Some("all")).expect("the whole guide");
-    for tool in manifest.declarations() {
+    for tool in manifest.declarations(&[]) {
         let name = field(&tool, "name");
         if name == manifest.guide_name() {
             continue;
@@ -388,8 +391,11 @@ fn the_guide_opening_stays_small_and_lists_every_topic() {
         opening.len() <= 4096,
         "every agent reads the guide's opening; move detail into a topic"
     );
-    let topics = &manifest.declarations().last().cloned().expect("the guide")["inputSchema"]
-        ["properties"]["topic"]["enum"];
+    let topics = &manifest
+        .declarations(&[])
+        .last()
+        .cloned()
+        .expect("the guide")["inputSchema"]["properties"]["topic"]["enum"];
     let topics: Vec<&str> = topics
         .as_array()
         .expect("topics")
@@ -436,7 +442,7 @@ fn a_guide_topic_is_served_alone_and_an_unknown_one_lists_the_rest() {
 #[test]
 fn length_limits_are_checked_but_never_sent() {
     let manifest = Manifest::load();
-    let served = serde_json::to_string(&manifest.declarations()).expect("declarations");
+    let served = serde_json::to_string(&manifest.declarations(&[])).expect("declarations");
     assert!(!served.contains("maxLength") && !served.contains("minLength"));
     let navigate = manifest.tool("browser_navigate").expect("browser_navigate");
     assert!(navigate

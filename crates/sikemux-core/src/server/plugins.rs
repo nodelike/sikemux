@@ -21,7 +21,7 @@ use sikemux_plugin_api::SignInStatus;
 use sikemux_view::plugins::Listed;
 
 mod manifest;
-pub use manifest::{AgentTool, CodeHostSpec, Compare, Manifest};
+pub use manifest::{AgentTool, CodeHostSpec, Compare, Manifest, ToolFamily};
 
 use crate::cli::protocol::HarnessRequest;
 

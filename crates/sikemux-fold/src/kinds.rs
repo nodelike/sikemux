@@ -6,7 +6,7 @@ use serde_json::{Map, Value};
 use sikemux_view::chat::{ToolAction, ToolCall, ToolFamily, ToolIntent};
 
 use super::servers;
-use super::tools::sikemux_tool_name;
+use super::tools::{sikemux_tool, sikemux_tool_name};
 
 /// Calls the reader never needs to see as calls: they show as themselves, or only load
 /// what the agent goes on to use.
@@ -42,8 +42,8 @@ pub(super) fn kind(
     action: ToolAction,
     server: Option<&str>,
 ) -> Kind {
-    let ours = sikemux_tool_name(&tool.title);
-    let ours = (ours != tool.title.trim()).then_some(ours);
+    let called = sikemux_tool(&tool.title, args);
+    let ours = (sikemux_tool_name(&tool.title) != tool.title.trim()).then_some(called.as_ref());
     let name = ours
         .or(tool.name.as_deref())
         .or_else(|| server.and(Some(tool.title.as_str())))

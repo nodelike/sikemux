@@ -2,6 +2,8 @@
 //! back, so the chat keeps the change, the output and the failure rather than
 //! the payloads they came from.
 
+use std::borrow::Cow;
+
 use serde_json::{Map, Value};
 
 use sikemux_view::chat::{
@@ -9,7 +11,7 @@ use sikemux_view::chat::{
     ToolDiff, ToolOutput,
 };
 
-use super::tool_rows::GESTURES;
+use super::tool_rows::{FAMILIES, GESTURES};
 
 /// Past this the transcript is the wrong place to read the change: the row
 /// still names the file, and the diff pane shows the whole thing.
@@ -30,6 +32,18 @@ fn text(value: Option<&Value>) -> Option<&str> {
 
 pub(super) fn running(status: Option<&str>) -> bool {
     !matches!(status, Some("completed" | "failed" | "cancelled"))
+}
+
+/// The tool of ours a call ran: a family's by the action it names, as `browser` with
+/// `action: "click"` runs browser_click, else the one it names.
+pub(super) fn sikemux_tool<'a>(title: &'a str, args: &Map<String, Value>) -> Cow<'a, str> {
+    let name = sikemux_tool_name(title);
+    match text(args.get("action")) {
+        Some(action) if name != title.trim() && FAMILIES.contains(&name) => {
+            Cow::Owned(format!("{name}_{action}"))
+        }
+        _ => Cow::Borrowed(name),
+    }
 }
 
 /// Our own tools, under whatever server name a host put in front of them.

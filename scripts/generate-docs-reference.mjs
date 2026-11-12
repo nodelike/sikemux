@@ -94,14 +94,18 @@ await emitPage(
   ),
 );
 
-const { tools } = JSON.parse(
+const { tools, families = [] } = JSON.parse(
   await readFile(resolve(root, "tools/tools.json"), "utf8"),
 );
 const groups = new Map();
 for (const tool of tools) {
   const prefix = tool.name.split("_")[0];
+  const family = families.find(({ name }) => name === prefix);
+  const named = family
+    ? `${family.name} ${tool.name.slice(prefix.length + 1)}`
+    : tool.name;
   if (!groups.has(prefix)) groups.set(prefix, []);
-  groups.get(prefix).push(`| \`${tool.name}\` | ${cell(tool.description)} |`);
+  groups.get(prefix).push(`| \`${named}\` | ${cell(tool.description)} |`);
 }
 const toolSections = [...groups]
   .map(
@@ -114,7 +118,7 @@ await emitPage(
   page(
     "MCP tools",
     "The sikemux-tools MCP tools every agent in Sikemux gets.",
-    `Every agent Sikemux starts gets these tools through the \`sikemux-tools\` MCP server. The same calls work from a terminal with \`sikemux tool METHOD [JSON_PARAMS]\`.\n\n${toolSections}`,
+    `Every agent Sikemux starts gets these tools through the \`sikemux-tools\` MCP server. The same calls work from a terminal with \`sikemux tool METHOD [JSON_PARAMS]\`.${families.length > 0 ? ` A tool listed with an action, such as \`browser navigate\`, is one tool, \`browser\`, called with \`action: "navigate"\`.` : ""}\n\n${toolSections}`,
   ),
 );
 

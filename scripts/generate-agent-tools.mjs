@@ -229,6 +229,7 @@ for (const entry of await readdir(pluginsPath, { withFileTypes: true })) {
   plugins.push({
     where: `plugins/${entry.name}/manifest.json`,
     plugin: plugin.id,
+    family: plugin.family,
     tools: plugin.tools ?? [],
   });
 }
@@ -285,6 +286,33 @@ const unionOf = (source, type) =>
   );
 const icons = unionOf(await readFile(rowIconsPath, "utf8"), "ToolRowIcon");
 const kinds = unionOf(await readFile(wireTypesPath, "utf8"), "ToolAction");
+// A family is offered as one tool taking an action, so each must have members and
+// no tool may take a family's own name.
+const families = [
+  ...(manifest.families ?? []).map((family) => ({
+    where: "tools/tools.json",
+    family,
+    tools: manifest.tools,
+  })),
+  ...plugins
+    .filter((plugin) => plugin.family)
+    .map((plugin) => ({ ...plugin, family: plugin.family })),
+];
+for (const { where, family, tools } of families) {
+  if (!/^[a-z]+$/u.test(family.name ?? ""))
+    throw new Error(`${where}: family name "${family.name}" must be lowercase letters`);
+  if (!family.description)
+    throw new Error(`${where}: family ${family.name} has no description`);
+  if (!tools.some((tool) => tool.name.startsWith(`${family.name}_`)))
+    throw new Error(`${where}: family ${family.name} has no tool named ${family.name}_*`);
+}
+const familyNames = families.map(({ family }) => family.name);
+if (new Set(familyNames).size !== familyNames.length)
+  throw new Error("two families share a name");
+for (const name of names)
+  if (familyNames.includes(name))
+    throw new Error(`tools/tools.json: ${name} takes a family's name`);
+
 const described = [
   {
     where: "tools/tools.json",
@@ -378,6 +406,8 @@ ${specs}
 ];
 
 pub(super) const GESTURES: &[&str] = &[${gestures.map((name) => JSON.stringify(name)).join(", ")}];
+
+pub(super) const FAMILIES: &[&str] = &[${familyNames.map((name) => JSON.stringify(name)).join(", ")}];
 `;
 await emit(
   rowsOutputPath,

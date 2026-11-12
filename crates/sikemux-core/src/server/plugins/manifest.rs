@@ -20,6 +20,10 @@ pub struct Manifest {
     pub call_timeout_secs: Option<u64>,
     #[serde(default)]
     pub tools: Vec<AgentTool>,
+    /// The one tool agents are offered in place of `tools`, each of which is named
+    /// with its name and `_` before the action it stands for, as `jira_search` is `jira`'s `search`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub family: Option<ToolFamily>,
     /// Variables the plugin reads from the person's shell. An app opened from
     /// the Dock starts without them, so the host copies them in from the login shell.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -75,6 +79,13 @@ pub struct Compare {
     pub path: String,
     #[serde(default)]
     pub query: BTreeMap<String, String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ToolFamily {
+    pub name: String,
+    pub description: String,
 }
 
 /// A plugin method that agents may call as a tool. Only methods named here are
@@ -142,6 +153,20 @@ impl Manifest {
                 return Err(PluginError::new(
                     FailureCategory::Manifest,
                     format!("`{}` is not a usable agent tool name", tool.name),
+                ));
+            }
+            if let Some(family) = manifest.family.as_ref().filter(|family| {
+                !tool
+                    .name
+                    .strip_prefix(family.name.as_str())
+                    .is_some_and(|action| action.starts_with('_'))
+            }) {
+                return Err(PluginError::new(
+                    FailureCategory::Manifest,
+                    format!(
+                        "agent tool `{}` does not start with its family's name, `{}_`",
+                        tool.name, family.name
+                    ),
                 ));
             }
             if manifest

@@ -23,6 +23,6 @@ Each case runs the agent CLI (`claude -p`, or OMP for DeepSeek) in a temporary h
 - `judge`: a rubric for a judge model, for what calls alone cannot show.
 - `skip`: why a case cannot be replayed.
 
-A call matcher is `tool` (a name, a `prefix*` or a list) with optional `args`, or `any` of several matchers. Argument matchers compare values, `"/regex/flags"` strings, `{"$present": bool}`, `{"$not": …}` and `{"$any": […]}`.
+A call matcher is `tool` (a name, a `prefix*` or a list) with optional `args`, or `any` of several matchers. Argument matchers compare values, `"/regex/flags"` strings, `{"$present": bool}`, `{"$not": …}` and `{"$any": […]}`, which also checks any keys beside it. A tool that takes an `action`, such as `browser`, is matched as `{"tool": "browser", "args": {"action": "click"}}`.
 
 Runs land in `/tmp/sikemux-tool-eval/<time>/`, one folder per case with its transcript and every call the fake Sikemux answered; each case's home and repo are deleted once it is graded unless `--keep` is given. `--resume <run folder>` finishes a run that stopped, grading what finished and running the rest. `--shell` and `--shell-env` change the shell agents' commands run in. `--trials N` runs every case N times and reports the mean pass rate beside the cases that passed every trial. `--record <label>` also saves the result under `results/`, or under `--results-dir`. `--cases-dir` runs cases kept in another folder.

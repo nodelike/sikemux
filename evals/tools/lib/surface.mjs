@@ -25,6 +25,7 @@ export function loadSurface(plugins = SIGNED_IN_PLUGINS, at = null) {
       description: tool.description,
       properties: tool.properties ?? {},
       required: tool.required ?? [],
+      ...(plugin.family ? { family: plugin.family } : {}),
     }));
   });
   return { manifest, guide, byMethod, pluginTools };

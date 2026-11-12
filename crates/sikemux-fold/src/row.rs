@@ -11,7 +11,7 @@ use super::kinds;
 use super::own;
 use super::servers;
 use super::tool_rows::SPECS;
-use super::tools::sikemux_tool_name;
+use super::tools::{sikemux_tool, sikemux_tool_name};
 
 /// How a row of one of our tools reads, declared beside the tool's schema in
 /// tools/tools.json or its plugin's manifest. The first template whose every
@@ -32,14 +32,15 @@ const MAX_VERB_CHARS: usize = 12;
 
 pub(super) fn row(tool: &ToolCall) -> ToolRow {
     let args = arguments(tool.raw_input.as_ref());
-    let mut row = match spec(&tool.title).or_else(|| browser_spec(&tool.title)) {
-        Some(spec) => ours(spec, &args),
-        None => {
-            let mut row = theirs(tool, &args);
-            own::reword(tool, &args, &mut row);
-            row
-        }
-    };
+    let mut row =
+        match spec(&sikemux_tool(&tool.title, &args)).or_else(|| browser_spec(&tool.title)) {
+            Some(spec) => ours(spec, &args),
+            None => {
+                let mut row = theirs(tool, &args);
+                own::reword(tool, &args, &mut row);
+                row
+            }
+        };
     let kind = kinds::kind(tool, &args, row.action, row.server.as_deref());
     row.family = kind.family;
     row.intent = kind.intent;
