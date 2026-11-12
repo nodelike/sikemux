@@ -31,7 +31,7 @@ use super::{messages, person_calls, plugins, questions, Core, CoreResult};
 use crate::cli::protocol::HarnessRequest;
 use crate::git::Git;
 use crate::ship::{Looks, Ship, Target, ToolShip};
-use sikemux_view::calls::{CallAsker, CallKind, CallOption, CallState, PersonCall};
+use sikemux_view::calls::{CallAsker, CallKind, CallOption, CallPlace, CallState, PersonCall};
 
 /// More than an agent waits on at once; past this its oldest hold goes.
 const MAX_HOLDS_PER_AGENT: usize = 16;
@@ -1003,7 +1003,10 @@ fn held_call(core: &Core, hold: &Hold) -> PersonCall {
         evidence: Vec::new(),
         action: Some(hold.ship.what.clone()),
         brief: None,
-        place: hold.environment.clone(),
+        place: (hold.environment.clone()).map(|name| CallPlace {
+            id: name.clone(),
+            name,
+        }),
         can_hand_back: false,
         multi: false,
         secret: false,

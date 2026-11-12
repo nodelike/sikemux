@@ -1242,8 +1242,8 @@ export interface PersonCall {
     action?: string;
     /** A weighty call comes as a short brief. */
     brief?: CallBrief;
-    /** The production place it changes, by name. */
-    place?: string;
+    /** The production place it changes. */
+    place?: CallPlace;
     /** Not mine hands it back: never on a production call. */
     canHandBack: boolean;
     /** More than one option may be picked. */
@@ -1292,6 +1292,12 @@ export interface CallBrief {
     shows: string;
     /** What can't be undone once it goes. */
     cannotUndo: string;
+}
+
+/** A place a call changes, by an id that outlives a rename. */
+export interface CallPlace {
+    id: string;
+    name: string;
 }
 
 export type CallState = "open" | "answered" | "closed";

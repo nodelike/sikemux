@@ -10,7 +10,7 @@ use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 use sikemux_view::calls::{
     AnswerCallParams, CallAnswer, CallAsker, CallBrief, CallClient, CallEvidence, CallKind,
-    CallOption, CallOutcome, CallParams, CallResult, CallState, PersonCall,
+    CallOption, CallOutcome, CallParams, CallPlace, CallResult, CallState, PersonCall,
 };
 
 use super::access::Peer;
@@ -65,7 +65,7 @@ pub(crate) struct Raise {
     pub evidence: Vec<CallEvidence>,
     pub action: Option<String>,
     pub brief: Option<CallBrief>,
-    pub place: Option<String>,
+    pub place: Option<CallPlace>,
     /// What the call is about, such as one piece of work at one place. Agents that raise a call
     /// with the key of one still open join it.
     pub key: Option<String>,

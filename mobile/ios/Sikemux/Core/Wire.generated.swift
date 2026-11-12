@@ -1994,8 +1994,8 @@ struct PersonCall: Codable, Hashable, Sendable {
     var action: String?
     /// A weighty call comes as a short brief.
     var brief: CallBrief?
-    /// The production place it changes, by name.
-    var place: String?
+    /// The production place it changes.
+    var place: CallPlace?
     /// Not mine hands it back: never on a production call.
     var canHandBack: Bool
     /// More than one option may be picked.
@@ -2058,6 +2058,12 @@ struct CallBrief: Codable, Hashable, Sendable {
     var shows: String
     /// What can't be undone once it goes.
     var cannotUndo: String
+}
+
+/// A place a call changes, by an id that outlives a rename.
+struct CallPlace: Codable, Hashable, Sendable {
+    var id: String
+    var name: String
 }
 
 enum CallState: String, Codable, Hashable, Sendable {

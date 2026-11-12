@@ -67,6 +67,14 @@ pub struct CallEvidence {
     pub picture: Option<String>,
 }
 
+/// A place a call changes, by an id that outlives a rename.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CallPlace {
+    pub id: String,
+    pub name: String,
+}
+
 /// What a weighty call, such as a cutover or a public release, says before its options.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -178,9 +186,9 @@ pub struct PersonCall {
     /// A weighty call comes as a short brief.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub brief: Option<CallBrief>,
-    /// The production place it changes, by name.
+    /// The production place it changes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub place: Option<String>,
+    pub place: Option<CallPlace>,
     /// Not mine hands it back: never on a production call.
     pub can_hand_back: bool,
     /// More than one option may be picked.

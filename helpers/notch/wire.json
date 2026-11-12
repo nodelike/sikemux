@@ -30,6 +30,7 @@
     "CallBrief": "tried shows cannotUndo",
     "CallAnswer": "option options note words at waitedMs",
     "CallOutcome": "result healthy rollBack at",
+    "CallPlace": "id name",
     "CatalogAgent": "type label",
     "Preferences": "notch",
     "Response.ChatBegun": "agentId",
