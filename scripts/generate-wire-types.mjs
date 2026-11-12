@@ -1686,7 +1686,11 @@ ${calls
 
   const body = declarations.map(declare).join("\n\n");
   const glance = closure(GLANCE_ROOTS)
-    .map((d) => declare(byName.get(d.name) ?? fail(`${d.name} is not in the phone's view`)))
+    .map((d) =>
+      declare(
+        byName.get(d.name) ?? fail(`${d.name} is not in the phone's view`),
+      ),
+    )
     .join("\n\n");
   glanceSwift = `// ${BANNER}
 
