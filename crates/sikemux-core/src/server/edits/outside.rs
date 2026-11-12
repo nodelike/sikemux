@@ -392,7 +392,6 @@ enum Look<'a> {
 /// that no longer differs from its last commit.
 fn reconcile(store: &Store, top: &Path, seen: &Mutex<Seen>, look: Look<'_>) {
     let mut args = vec![
-        "--no-optional-locks",
         "status",
         "--porcelain=v1",
         "-z",

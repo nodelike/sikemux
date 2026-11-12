@@ -99,14 +99,17 @@ fn read_bounded_pipe(mut pipe: impl Read, exceeded: Arc<AtomicBool>) -> io::Resu
 
 /// Every git process the core starts goes through here. A repository's own
 /// config can name an fsmonitor program, which git would otherwise run on any
-/// read of the index, and nobody is there to answer a prompt or an editor.
+/// read of the index, and nobody is there to answer a prompt or an editor. A read
+/// such as `git status` would also lock the index to refresh it, and an agent's own
+/// git run at that moment would fail.
 pub fn git_command(dir: impl AsRef<std::path::Path>) -> Command {
     let mut command = sikemux_process::user_environment::command("git");
     command
         .args(["-c", "core.fsmonitor=false"])
         .current_dir(dir)
         .env("GIT_TERMINAL_PROMPT", "0")
-        .env("GIT_EDITOR", "true");
+        .env("GIT_EDITOR", "true")
+        .env("GIT_OPTIONAL_LOCKS", "0");
     command
 }
 

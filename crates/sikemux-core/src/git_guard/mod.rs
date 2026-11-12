@@ -137,7 +137,7 @@ fn refused(
 /// in the checkout.
 fn nothing_uncommitted(mut git: Command, options: &[String]) -> bool {
     git.args(options)
-        .args(["--no-optional-locks", "status", "--porcelain"])
+        .args(["status", "--porcelain"])
         .stdin(Stdio::null())
         .stderr(Stdio::null())
         .output()
