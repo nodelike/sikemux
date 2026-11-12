@@ -8,7 +8,9 @@ mod folded;
 use std::collections::BTreeMap;
 use std::io::Write;
 use std::os::unix::net::UnixStream as StdUnixStream;
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -29,6 +31,26 @@ const FAKE_CLAUDE: &str = env!("CARGO_BIN_EXE_sikemux-fake-claude");
 const FAKE_CODEX: &str = env!("CARGO_BIN_EXE_sikemux-fake-codex");
 const WAIT: Duration = Duration::from_secs(30);
 
+/// Where the person's own Claude account lives, which the core of these tests must not read:
+/// it finds the account there and moves a chat onto it at a limit. Only the live test hands
+/// these to its agent.
+const ACCOUNT_VARIABLES: [&str; 3] = ["HOME", "CLAUDE_CONFIG_DIR", "CODEX_HOME"];
+
+fn persons_account() -> &'static Vec<(String, OsString)> {
+    static PERSONS: OnceLock<Vec<(String, OsString)>> = OnceLock::new();
+    PERSONS.get_or_init(|| {
+        let persons = ACCOUNT_VARIABLES
+            .iter()
+            .filter_map(|name| Some((name.to_string(), std::env::var_os(name)?)))
+            .collect();
+        for name in ACCOUNT_VARIABLES {
+            std::env::remove_var(name);
+        }
+        std::env::set_var("HOME", tempfile::tempdir().expect("home").keep());
+        persons
+    })
+}
+
 struct TestCore {
     _dir: tempfile::TempDir,
     socket: PathBuf,
@@ -37,6 +59,7 @@ struct TestCore {
 
 impl TestCore {
     fn start() -> Self {
+        persons_account();
         sikemux_process::user_environment::search_path_only_from_now();
         let dir = tempfile::tempdir().expect("temp dir");
         let socket = dir.path().join("core.sock");
@@ -698,7 +721,10 @@ async fn live_claude_streams_edits_and_resumes() {
         cwd: folder.path().canonicalize().expect("folder"),
         program: PathBuf::from(program),
         args: Vec::new(),
-        env: BTreeMap::new(),
+        env: persons_account()
+            .iter()
+            .map(|(name, value)| (name.clone(), value.to_string_lossy().into_owned()))
+            .collect(),
         mcp_servers: Vec::new(),
         resume_id: None,
         permission_mode: PermissionMode::Bypass,
