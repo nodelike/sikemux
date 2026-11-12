@@ -283,6 +283,7 @@ pub(super) fn app(app: &McpAppRef, title: &str, looks: &Looks, cx: &mut App) -> 
                 .relative()
                 .w_full()
                 .h(px(height.clamp(1., MAX_HEIGHT)))
+                .children(ui::spot(|| format!("chat-app-{}", app.id)))
                 .child(body)
                 .child(watch),
         )

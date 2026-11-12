@@ -81,7 +81,7 @@ def seed(run, claude, prompt, calls):
     seeded = subprocess.run([run.seed_exe, run.socket, claude, prompt], env=env, capture_output=True, text=True, timeout=60)
     (run.root / "seed.log").open("a").write(seeded.stdout + seeded.stderr)
     chat = next((line.split()[1] for line in seeded.stdout.splitlines() if line.startswith("chat ")), None)
-    said = f"Call {calls} of {calls}."
+    said = f"Made {calls} calls."
     desk.until(lambda: any(said in text for lines in run.history().values() for line in lines for text in desk.strings(line)), 60)
     return chat
 
@@ -136,6 +136,7 @@ def main():
         apps_chat = seed(run, str(claude), f"apps {options.calls}", options.calls)
         run.drive("wait 4")
         run.capture("apps-start")
+        drawn = [name for name in ((run.state() or {}).get("spots") or {}) if name.startswith("chat-app-")]
         apps = scroll_through(run, apps_chat, "apps")
         print(json.dumps(plain), flush=True)
         print(json.dumps(apps), flush=True)
@@ -149,6 +150,8 @@ def main():
             failures.append(f"the core kept {len(kept)} apps of {options.calls}")
         if not reached:
             failures.append("no app reached its server")
+        if not drawn:
+            failures.append("no app card was drawn once the turn folded")
         if apps and plain:
             if apps["contentProcessesMost"] > MOST_LIVE:
                 failures.append(f"{apps['contentProcessesMost']} web content processes at once")
@@ -158,7 +161,7 @@ def main():
                 failures.append(f"{apps['over50']} frames past 50 ms against {plain['over50']}")
             if apps["totalMbMost"] > plain["totalMbMost"] + MEMORY_MB:
                 failures.append(f"{apps['totalMbMost']} MB against {plain['totalMbMost']} MB")
-        print(f"apps kept {len(kept)}, app calls that reached the server {len(reached)}", flush=True)
+        print(f"apps kept {len(kept)}, cards drawn at the end {len(drawn)}, app calls that reached the server {len(reached)}", flush=True)
     finally:
         run.tear_down()
         for built in ("Sikemux GPUI Test.app", "app", "bin"):

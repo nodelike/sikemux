@@ -13,7 +13,8 @@
 //! - `limit` fails the way Claude Code does when the account is out of usage;
 //! - `question` asks three questions, or `question {...}` asks the AskUserQuestion input given;
 //! - `suggest WORDS` says `Done.` and, started with `--prompt-suggestions`, predicts WORDS next;
-//! - `apps N` says a line and calls the `counter` server's `show_counter` N times, a tool that
+//! - `apps N` says a line and calls the `counter` server's `show_counter` N times, then says it
+//!   is done, a tool that
 //!   names an MCP App's page, after saying at the turn's start that it hosts MCP Apps as Claude
 //!   Code 2.1.301 does; `tools N` does the same with `count`, a tool with no page, for a chat
 //!   as long with no apps. With `FAKE_CLAUDE_APP_CALLS` set, each tool an app calls is
@@ -436,6 +437,10 @@ impl Claude {
                     self.record(result.clone());
                     self.send(result);
                 }
+                self.say(
+                    &format!("{message_id}-done"),
+                    &format!("Made {count} calls."),
+                );
                 self.finish(uuid, None);
             }
             "count" => {
