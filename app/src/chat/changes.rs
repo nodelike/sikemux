@@ -192,6 +192,7 @@ named_fields!(head_field, ChatHead {
     "activeTool" => active_tool,
     "suggestion" => suggestion,
     "handoff" => handoff,
+    "expiredCache" => expired_cache,
     "draft" => draft,
     "goal" => goal,
     "turn" => turn,
