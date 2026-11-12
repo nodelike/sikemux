@@ -69,7 +69,8 @@
             "relocatableSessions": true,
             "historyBeforeStart": true,
             "commitMessages": {
-                "models": ["sonnet", "opus", "haiku", "opusplan", "sonnet[1m]", "default"]
+                "models": ["haiku", "sonnet", "opus", "opusplan", "sonnet[1m]", "default"],
+                "careful": "opus"
             }
         },
         {

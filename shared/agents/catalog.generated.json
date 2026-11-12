@@ -15,7 +15,7 @@
         "bypass": true,
         "terminalBypass": true,
         "auto": true,
-        "commitModels": ["sonnet", "opus", "haiku", "opusplan", "sonnet[1m]", "default"],
+        "commitModels": ["haiku", "sonnet", "opus", "opusplan", "sonnet[1m]", "default"],
         "efforts": ["low", "medium", "high", "xhigh", "max"],
         "install": "curl -fsSL https://claude.ai/install.sh | bash",
         "login": ["auth", "login"],

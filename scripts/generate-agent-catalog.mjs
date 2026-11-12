@@ -410,6 +410,7 @@ ${[...FLAGS, ...CORE_FLAGS].map((flag) => `        ${snake(flag)}: ${agent[flag]
         bypass: ${terminal.bypass !== null || chat?.bypass === true},
         auto: ${terminal.auto !== null},
 ${rustList(8, "commit_models", agent.commitMessages?.models ?? [])}
+        careful_model: ${rustOption(agent.commitMessages?.careful, rustString)},
 ${rustList(8, "efforts", agent.efforts)}
         install: ${rustOption(agent.install, rustString)},
         login: ${rustOption(agent.login, (login) => `&[${login.map(rustString).join(", ")}]`)},
@@ -617,6 +618,9 @@ ${FLAGS.map((flag) => `    pub ${snake(flag)}: bool,`).join("\n")}
     pub auto: bool,
     /// The models it writes commit messages with, the default first; none when it cannot.
     pub commit_models: &'static [&'static str],
+    /// The model for answers the person reads as the record, such as a goal's summary,
+    /// where the first of \`commit_models\` slips; without one, that first model.
+    pub careful_model: Option<&'static str>,
     /// The reasoning efforts the CLI's own flag takes.
     pub efforts: &'static [&'static str],
     /// Its official install command, which puts it where its own updater expects.
