@@ -36,6 +36,7 @@ pub mod drafts;
 pub mod edits;
 mod entry;
 pub mod faces;
+mod fast_forward;
 mod follow;
 mod from_app;
 mod gestures;

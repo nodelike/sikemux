@@ -87,7 +87,7 @@ fn costs(worktree: &AgentWorktree) -> (usize, usize) {
     (dirty, unmerged)
 }
 
-pub(super) fn busy(core: &Core, agent_id: &str) -> bool {
+pub(crate) fn busy(core: &Core, agent_id: &str) -> bool {
     let state = core.agent_now(agent_id).chat_state();
     state.is_some_and(|state| state != AgentState::Idle)
 }
