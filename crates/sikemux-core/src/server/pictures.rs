@@ -328,7 +328,7 @@ fn serving_task(dir: &Path) -> Option<String> {
 /// one its process for serving or running holds, held by a process of that checkout. Only the
 /// preview's path is taken from `sikemux.json`, never its host. Looks at what listens, so off
 /// the view's path.
-fn served_at(core: &Core, dir: &Path) -> Option<String> {
+pub(crate) fn served_at(core: &Core, dir: &Path) -> Option<String> {
     let preview = match config::load(dir) {
         ConfigLoad::Valid { config, .. } => config.preview,
         _ => None,

@@ -29,6 +29,9 @@ use crate::workbench::Workbench;
 /// pushing each other out.
 const KEPT_PICTURES: usize = 16;
 
+/// How long a picture the core did not give waits before it is asked for again.
+const ASK_AGAIN: std::time::Duration = std::time::Duration::from_secs(30);
+
 /// What the desks keep of the pins they draw.
 #[derive(Default)]
 pub(crate) struct PinsShown {
@@ -46,8 +49,9 @@ struct Pictures {
     data: HashMap<String, String>,
     order: VecDeque<String>,
     fetching: HashSet<String>,
-    /// Pictures the core had no longer, asked for again only once a pin names them anew.
-    missing: HashSet<String>,
+    /// Pictures the core did not give, and when: each is asked for again after [`ASK_AGAIN`],
+    /// so one lost to a dropped connection comes back once it is up.
+    missing: HashMap<String, std::time::Instant>,
 }
 
 impl Pictures {
@@ -60,6 +64,7 @@ impl Pictures {
 
     fn keep(&mut self, id: String, data: String) {
         self.fetching.remove(&id);
+        self.missing.remove(&id);
         self.order.retain(|kept| kept != &id);
         self.order.push_back(id.clone());
         self.data.insert(id, data);
@@ -88,14 +93,6 @@ impl Pictures {
 /// The page a pin belongs to: its address without the query or the fragment.
 fn page_of(url: &str) -> &str {
     url.split(['?', '#']).next().unwrap_or(url)
-}
-
-/// A page this machine serves, which the private view off screen may load by itself.
-fn served_here(url: &str) -> bool {
-    url::Url::parse(url).is_ok_and(|url| {
-        url.scheme() == "http"
-            && matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "[::1]"))
-    })
 }
 
 /// What decides how a pin is drawn, so a page is told again only when one of these moves.
@@ -196,10 +193,7 @@ impl Workbench {
         let pins: Vec<Pin> = view.pins.clone();
         let t = Tokens::get(cx).clone();
         for pin in pins.iter().filter(|pin| {
-            pin.state == PinState::Answered
-                && pin.after.is_none()
-                && !pin.after_by_hand
-                && served_here(&pin.url)
+            pin.state == PinState::Answered && pin.after.is_none() && pin.after_private
         }) {
             self.take_after_privately(pin, &engine, cx);
         }
@@ -264,9 +258,7 @@ impl Workbench {
             }
             self.keep_pin_wait(&agent, !mine.is_empty(), &engine, cx);
             for pin in mine.iter().filter(|pin| {
-                pin.state == PinState::Answered
-                    && pin.after.is_none()
-                    && (pin.after_by_hand || !served_here(&pin.url))
+                pin.state == PinState::Answered && pin.after.is_none() && pin.after_by_hand
             }) {
                 self.take_after_by_hand(pin, &engine, cx);
             }
@@ -280,7 +272,10 @@ impl Workbench {
         let wanted = self.desks.update(cx, |desks, _| {
             let pictures = &mut desks.pins_shown.pictures;
             !pictures.data.contains_key(&id)
-                && !pictures.missing.contains(&id)
+                && pictures
+                    .missing
+                    .get(&id)
+                    .is_none_or(|at| at.elapsed() >= ASK_AGAIN)
                 && pictures.fetching.insert(id.clone())
         });
         if !wanted {
@@ -301,7 +296,7 @@ impl Workbench {
                             ),
                             Err(_) => {
                                 pictures.fetching.remove(&id);
-                                pictures.missing.insert(id);
+                                pictures.missing.insert(id, std::time::Instant::now());
                             }
                         }
                     });

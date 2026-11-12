@@ -31,6 +31,10 @@ pub struct Pin {
     /// front, the app takes it from their own tab.
     #[serde(default)]
     pub after_by_hand: bool,
+    /// The page is on a port its agent's checkout serves, so the after picture is taken in a
+    /// private view off screen that sees nothing signed in.
+    #[serde(default)]
+    pub after_private: bool,
     /// The checkout's commit when the pin was placed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub commit: Option<String>,

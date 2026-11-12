@@ -1487,6 +1487,11 @@ export interface Pin {
      * front, the app takes it from their own tab.
      */
     afterByHand?: boolean;
+    /**
+     * The page is on a port its agent's checkout serves, so the after picture is taken in a
+     * private view off screen that sees nothing signed in.
+     */
+    afterPrivate?: boolean;
     /** The checkout's commit when the pin was placed. */
     commit?: string;
     /** What the person and the agent said on it, oldest first. */
