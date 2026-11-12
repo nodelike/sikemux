@@ -217,12 +217,6 @@ pub(super) fn row(
             )),
             None => {
                 let group = SharedString::from(format!("sent:{}", message.id));
-                let quote = (message.context.iter())
-                    .find_map(|item| item.quote.as_deref())
-                    .map(|quote| {
-                        let id = format!("sent-quote-{}", message.id);
-                        attach::quote_card(id, quote, None, cx).mb(SPACE_2)
-                    });
                 let bench = looks.bench.clone();
                 let open = move |path: PathBuf, window: &mut Window, cx: &mut App| {
                     bench
@@ -236,8 +230,8 @@ pub(super) fn row(
                     .flex_col()
                     .items_end()
                     .children(attach::sent(message, open, looks.file_pressed(), cx))
-                    .when(!parts.is_empty() || quote.is_some(), |column| {
-                        column.child(bubble(looks).children(quote).children(parts))
+                    .when(!parts.is_empty(), |column| {
+                        column.child(bubble(looks).children(parts))
                     })
                     .children(gestures::reactions(message, true, looks))
                     .when(!followed_by_own, |column| {

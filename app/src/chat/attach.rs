@@ -1179,7 +1179,7 @@ pub fn tiles(
         .map(|(index, item)| {
             let forget = forget.clone();
             let remove: Remove = Box::new(move |window, cx| forget(index, window, cx));
-            quote_card(format!("quote-{index}"), &item.text, Some(remove), cx)
+            quote_card(format!("quote-{index}"), &item.text, remove, cx)
         })
         .collect();
     let shown = context.iter().enumerate();
@@ -1301,6 +1301,7 @@ fn context_chip(
         None if uri.starts_with(ANSWER_URI) || uri.starts_with(SIDE_URI) => {
             (Icon::Message, title.to_owned())
         }
+        None if uri.starts_with(REPLY_URI) => (Icon::Reply, title.to_owned()),
         None if web => (
             Icon::Globe,
             if title.is_empty() { uri } else { title }.to_owned(),
@@ -1311,10 +1312,12 @@ fn context_chip(
     Attachment::new()
         .id(SharedString::from(id))
         .with_size(gpui_kit::component::Size::Small)
-        .tooltip(match uri.starts_with(ANSWER_URI) {
-            true => title.clone(),
-            false => uri.to_owned(),
-        })
+        .tooltip(
+            match uri.starts_with(ANSWER_URI) || uri.starts_with(REPLY_URI) {
+                true => title.clone(),
+                false => uri.to_owned(),
+            },
+        )
         .media(AttachmentMedia::new().child(site_icon(uri, web, icon, asks, t)))
         .content(AttachmentContent::new().title(AttachmentTitle::new(title)))
 }
@@ -1366,7 +1369,7 @@ pub fn sent(
     file: super::files::FilePressed,
     cx: &App,
 ) -> Option<Div> {
-    if message.attachments.is_empty() && message.context.iter().all(|item| item.quote.is_some()) {
+    if message.attachments.is_empty() && message.context.is_empty() {
         return None;
     }
     let t = Tokens::get(cx).clone();
@@ -1398,12 +1401,14 @@ pub fn sent(
     });
     let context = message.context.iter().enumerate();
     let context: Vec<_> = context
-        .filter(|(_, item)| !in_text(&item.uri) && item.quote.is_none())
+        .filter(|(_, item)| !in_text(&item.uri))
         .map(|(index, item)| {
+            let quote = (item.quote.as_deref())
+                .map(|quote| quote.split_whitespace().collect::<Vec<_>>().join(" "));
             context_chip(
                 format!("sent-context-{}-{index}", message.id),
                 &item.uri,
-                &item.title,
+                quote.as_deref().unwrap_or(&item.title),
                 None,
                 &t,
             )
@@ -1427,14 +1432,14 @@ pub fn sent(
 }
 
 /// What takes a quote off a draft.
-pub type Remove = Box<dyn Fn(&mut Window, &mut App)>;
+type Remove = Box<dyn Fn(&mut Window, &mut App)>;
 
-/// The answer a message replies to, as the draft and the sent message show it: the reply mark
-/// over two lines of its words, on a sunken card, with a way to take it off while in a draft.
-pub fn quote_card(
+/// The answer a draft replies to: the reply mark beside two lines of its words, on a sunken
+/// card, with a way to take it off.
+fn quote_card(
     id: impl Into<SharedString>,
     quote: &str,
-    remove: Option<Remove>,
+    remove: Remove,
     cx: &App,
 ) -> gpui_kit::Stateful<Div> {
     let t = Tokens::get(cx);
@@ -1467,12 +1472,12 @@ pub fn quote_card(
                 .line_clamp(2)
                 .child(quote),
         )
-        .children(remove.map(|remove| {
+        .child(
             ui::IconButton::new("quote-remove", Icon::Close, "Remove quote")
                 .glyph(11.)
                 .width(18.)
-                .on_click(move |_, window, cx| remove(window, cx))
-        }))
+                .on_click(move |_, window, cx| remove(window, cx)),
+        )
 }
 
 /// One file a message carried: a picture as a tile that opens over the window, with the number its
