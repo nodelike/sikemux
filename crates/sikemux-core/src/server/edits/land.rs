@@ -251,8 +251,8 @@ pub(super) fn follow(tree: &Path, before: &str, after: &str) -> Option<String> {
 }
 
 /// The commits of `head` that `onto` lacks, made again on it in the repository
-/// at `repo`, their footers signed again with `signing`. None when `onto` has
-/// every one of them.
+/// at `repo`, their footers signed again with `signing`. None when `onto` holds
+/// every one of their changes, even as commits made again elsewhere.
 pub(super) fn lay(
     signing: &Signing,
     repo: &Path,
@@ -271,7 +271,7 @@ pub(super) fn lay(
         &commits.iter().collect::<Vec<_>>(),
         &format!("onto {base}, which changed the same lines since your checkout was cut. Run git_commit with sync: true, settle the clash, then land again"),
     )?;
-    Ok(Some(Laid {
+    Ok((tip != onto).then(|| Laid {
         listed: listed(&commits),
         tip,
     }))
@@ -601,6 +601,55 @@ mod tests {
             .err()
             .unwrap_or_default()
             .contains("a.txt"));
+        assert_eq!(git_in(&main, &["rev-parse", "main"]), before);
+    }
+
+    #[test]
+    fn landing_a_commit_a_push_already_made_again_adds_no_empty_copy() {
+        let root = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(root.path()).unwrap();
+        let main = root.join("project");
+        std::fs::create_dir(&main).unwrap();
+        git_in(&main, &["init", "-q", "-b", "main"]);
+        std::fs::write(main.join("a.txt"), "one\ntwo\nthree\nfour\nfive\nsix\n").unwrap();
+        git_in(&main, &["add", "."]);
+        git_in(&main, &["commit", "-qm", "base"]);
+        let start_sha = git_in(&main, &["rev-parse", "HEAD"]);
+        let tree = root.join("tree");
+        git_in(
+            &main,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                "-b",
+                "sikemux/work",
+                &tree.to_string_lossy(),
+            ],
+        );
+        std::fs::write(tree.join("a.txt"), "one\ntwo\nthree\nFOUR\nfive\nsix\n").unwrap();
+        git_in(&tree, &["commit", "-qam", "worker: fourth line"]);
+        std::fs::write(main.join("a.txt"), "ONE\ntwo\nthree\nfour\nfive\nsix\n").unwrap();
+        git_in(&main, &["commit", "-qam", "pushed first: first line"]);
+        std::fs::write(main.join("a.txt"), "ONE\ntwo\nthree\nFOUR\nfive\nsix\n").unwrap();
+        git_in(&main, &["commit", "-qam", "worker: fourth line"]);
+        let before = git_in(&main, &["rev-parse", "main"]);
+        let worktree = AgentWorktree {
+            repo: main.clone(),
+            path: tree.clone(),
+            branch: "sikemux/work".into(),
+            base: Some("main".into()),
+            start_sha,
+        };
+        let signing = Signing {
+            key: None,
+            hosts: Vec::new(),
+        };
+        let head = git_in(&tree, &["rev-parse", "HEAD"]);
+        assert!(lay(&signing, &main, &head, &before, "main")
+            .unwrap()
+            .is_none());
+        assert!(land_from(&worktree, &signing).is_err());
         assert_eq!(git_in(&main, &["rev-parse", "main"]), before);
     }
 
