@@ -270,7 +270,11 @@ for (const [key, name] of Object.entries(LINE_ICONS)) {
     ) ??
     // An icon drawn on a 24-unit grid, which makeSvgIcon24 gives its own viewBox.
     source
-      .match(new RegExp(`export const ${name} = makeSvgIcon24\\(([\\s\\S]*?)\\);\\n`))
+      .match(
+        new RegExp(
+          `export const ${name} = makeSvgIcon24\\(([\\s\\S]*?)\\);\\n`,
+        ),
+      )
       ?.slice(0, 2)
       .concat('{ viewBox: "0 0 24 24" }');
   if (!match) throw new Error(`shared/ui/Icons.tsx has no ${name}`);
