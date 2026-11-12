@@ -3,7 +3,8 @@
 // Builds `sikemux-notch`, the Swift helper that draws the island over the
 // MacBook notch, as an app of its own: the window server plays a background
 // process's trackpad haptics only when it is a real app. The macOS app carries
-// it in Contents/Helpers; `--dev` puts it beside a dev build instead.
+// it in Contents/Helpers; `--dev` puts it beside a dev build instead, and
+// `--snapshots` also builds `notch-snapshots`, which draws the island's states.
 
 import {
   chmodSync,
@@ -52,6 +53,17 @@ const swiftArgs = [
   "arm64",
 ];
 run("swift", swiftArgs);
+if (args.includes("--snapshots")) {
+  // The snapshot tool builds the core's types by hand, so a new field breaks it; checks build it to catch that.
+  // A release build of it cannot see NotchKit's module, so it builds as a debug build.
+  run("swift", [
+    "build",
+    "--package-path",
+    packageDir,
+    "--product",
+    "notch-snapshots",
+  ]);
+}
 const built = join(
   run("swift", [...swiftArgs, "--show-bin-path"], { capture: true }),
   name,
