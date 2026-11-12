@@ -263,6 +263,12 @@ impl Telling {
         self.chat.capped()
     }
 
+    /// Whether the chat's session gives way to fresh ones, so it may be asked for a handoff note.
+    pub fn rotates(&self) -> bool {
+        self.chat.capped()
+            && (self.chat.core.upgrade()).is_some_and(|core| super::super::rotation::on(&core))
+    }
+
     /// The core's own compaction has ended, done or not.
     pub fn compaction_over(&self) {
         self.chat.meter.compaction_over();

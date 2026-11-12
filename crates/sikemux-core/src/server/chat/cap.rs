@@ -25,6 +25,9 @@ pub(crate) const CLAUDE_WINDOW: u64 = 183_000;
 /// The callbacks Claude calls before it compacts and as it starts again after.
 pub(crate) const KEEP_HOOK: &str = "sikemux-keep";
 pub(crate) const AFTER_COMPACT_HOOK: &str = "sikemux-after-compact";
+/// The callback Claude calls before each tool, so a handoff note runs none, even one the
+/// person's settings allow without asking.
+pub(crate) const TOOL_HOOK: &str = "sikemux-tool";
 /// Claude cuts what a compaction hook answers past this many characters.
 const HOOK_CHARS: usize = 10_000;
 /// One message of the person's past this is cut, so a pasted log leaves room for the rest.
@@ -50,13 +53,17 @@ pub(crate) const IDLE_FOCUS: &str =
     "Keep what the person asked for and decided, and the work still open.";
 
 /// The hooks a Claude chat registers as it starts. Every chat is handed Sikemux's words back
-/// after a compaction; only a capped one is told what to keep before it.
-pub(crate) fn claude_hooks(capped: bool) -> Value {
+/// after a compaction; only a capped one is told what to keep before it, and only one that
+/// `rotates` has its tools refused while it writes a handoff note.
+pub(crate) fn claude_hooks(capped: bool, rotates: bool) -> Value {
     let mut hooks = json!({
         "SessionStart": [{ "matcher": "compact", "hookCallbackIds": [AFTER_COMPACT_HOOK] }],
     });
     if capped {
         hooks["PreCompact"] = json!([{ "hookCallbackIds": [KEEP_HOOK] }]);
+    }
+    if rotates {
+        hooks["PreToolUse"] = json!([{ "hookCallbackIds": [TOOL_HOOK] }]);
     }
     hooks
 }

@@ -604,10 +604,11 @@ impl Reader {
     }
 
     fn request(&mut self, request_id: String, request: Value) {
+        const HANDOFF_NO_TOOLS: &str = "Write the handoff note only, with no tools";
         match text(&request, "subtype") {
-            Some("can_use_tool") if self.shared.locked().hushed => self
-                .control
-                .refuse(&request_id, "Write the handoff note only, with no tools"),
+            Some("can_use_tool") if self.shared.locked().hushed => {
+                self.control.refuse(&request_id, HANDOFF_NO_TOOLS)
+            }
             Some("can_use_tool") => self.can_use_tool(request_id, request),
             Some("hook_callback") => {
                 let answer = match text(&request, "callback_id") {
@@ -624,6 +625,14 @@ impl Reader {
                         }),
                         None => json!({ "continue": true }),
                     },
+                    Some(cap::TOOL_HOOK) if self.shared.locked().hushed => json!({
+                        "continue": true,
+                        "hookSpecificOutput": {
+                            "hookEventName": "PreToolUse",
+                            "permissionDecision": "deny",
+                            "permissionDecisionReason": HANDOFF_NO_TOOLS,
+                        },
+                    }),
                     _ => json!({ "continue": true }),
                 };
                 self.control.respond(&request_id, answer)

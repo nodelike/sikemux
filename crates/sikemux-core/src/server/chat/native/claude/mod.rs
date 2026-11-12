@@ -435,7 +435,7 @@ impl Claude {
         let initialized = tokio::select! {
             answer = control.request(json!({
                 "subtype": "initialize",
-                "hooks": cap::claude_hooks(capped),
+                "hooks": cap::claude_hooks(capped, sink.rotates()),
                 "forwardSubagentText": true,
                 "perTaskStopAffordance": true,
             })) => answer,
@@ -861,7 +861,8 @@ impl Backend for Claude {
             shared.quiet = None;
             shared.hushed = false;
         };
-        // Tools it is not already allowed are refused without asking, so the turn only writes.
+        // The tool hook refuses every tool while hushed; this mode also refuses, without asking,
+        // any tool the person's settings do not already allow, should the hook not be asked.
         let refusing = self
             .running
             .control
