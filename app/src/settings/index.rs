@@ -52,7 +52,10 @@ pub const GROUPS: [(&str, &[Page]); 6] = [
     ),
     (n!("Models"), &[Accounts, Plans, Providers, LocalModels]),
     (n!("This Mac"), MAC_ONLY),
-    (n!("Connect"), &[Connectors, Mods, SignOn, Actions, Cli, OtherApps]),
+    (
+        n!("Connect"),
+        &[Connectors, Mods, SignOn, Actions, Cli, OtherApps],
+    ),
 ];
 
 /// The pages below the groups, at the foot of the list.
