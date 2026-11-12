@@ -748,6 +748,9 @@ impl Core {
                 .edit_agent(agent_id, |agent| agent.buddy = Some(buddy.clone()));
         }
         let (named, changed) = self.names.give(starting, self.open_agents());
+        if let Some(agent) = self.workspaces.agent(agent_id) {
+            (self.names).note_runs(vec![(agent.id, agent.profile_id, agent.terminal)]);
+        }
         if changed || reopened.is_some() {
             self.changed(What::View);
         }

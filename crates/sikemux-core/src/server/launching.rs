@@ -609,12 +609,13 @@ pub(crate) async fn reopen_agent(core: &Arc<Core>, agent_id: String) -> CoreResu
             project,
         });
     }
-    let choice = (core.workspaces).ran_choice(
+    let mut choice = (core.workspaces).ran_choice(
         &ran,
         saved.as_ref(),
         &core.chats.list(),
         &core.triggers.held(),
     )?;
+    choice.title = choice.title.or(ran.title);
     let project = choice.project.clone();
     let (agent_id, _) = start_new(core, None, choice).await?;
     Ok(SessionTaken { agent_id, project })
@@ -691,6 +692,7 @@ async fn start_new(
                 choice.permission_mode.unwrap_or(launcher.permission_mode),
             )
         })?;
+        super::workspace::retitle(core, &agent_id, choice.title, false);
         if let Some(resumed) = &resumed {
             super::worktree::agent::set_up_made_again(core, &agent_id, resumed);
         }

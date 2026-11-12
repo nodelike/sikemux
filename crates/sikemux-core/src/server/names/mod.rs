@@ -158,8 +158,6 @@ struct ClosedSession {
     chosen: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     buddy: Option<AgentBuddy>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    title: Option<String>,
 }
 
 /// The provider session an agent ran, and the project it ran in.
@@ -175,6 +173,9 @@ pub(crate) struct RanSession {
     /// It ran in its CLI in a terminal rather than as a chat.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub terminal: bool,
+    /// What it was last working on, as the app titled it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -643,6 +644,7 @@ impl Names {
                 project: entry.project.clone(),
                 profile: entry.profile.clone(),
                 terminal: entry.terminal,
+                title: entry.title.clone(),
             });
         }
         book.closed_sessions
@@ -885,7 +887,7 @@ impl Names {
                     name: closed.name.clone()?,
                     provider: closed.ran.provider.clone(),
                     session_id: closed.ran.session_id.clone(),
-                    title: closed.title.clone(),
+                    title: closed.ran.title.clone(),
                     buddy: closed.buddy.clone(),
                 })
             })
@@ -958,6 +960,7 @@ impl Book {
                         project: entry.project.clone(),
                         profile: entry.profile.clone(),
                         terminal: entry.terminal,
+                        title: entry.title.clone(),
                     },
                     name: Some(entry.name.clone()),
                     lead: entry.parent.clone(),
@@ -966,7 +969,6 @@ impl Book {
                     by_auto: entry.by_auto,
                     chosen: entry.chosen,
                     buddy: entry.buddy.clone(),
-                    title: entry.title.clone(),
                 });
                 self.closed_sessions.truncate(MAX_CLOSED_SESSIONS);
             }
@@ -1154,7 +1156,7 @@ impl Book {
             seen: false,
             chosen,
             buddy: closed.buddy,
-            title: closed.title,
+            title: closed.ran.title,
             profile: closed.ran.profile,
             terminal: closed.ran.terminal,
         });

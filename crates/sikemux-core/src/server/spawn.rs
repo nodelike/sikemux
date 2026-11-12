@@ -552,6 +552,12 @@ pub(crate) async fn spawn(core: &Arc<Core>, request: &HarnessRequest) -> Result<
         }
         None => None,
     };
+    if let (Some(saved), Some(caller)) = (&saved, &request.agent_id) {
+        let returning = (core.names).returning_id(Some(&saved.cli), &saved.session_id, open(core));
+        if core.names.leads(&returning, caller) {
+            return reopen_own_lead(core, request, saved, returning, prompt).await;
+        }
+    }
     let hired = match (&saved, &request.agent_id) {
         (None, Some(lead)) => {
             let provider = text_param(&request.params, "cli", 64)?
@@ -659,6 +665,35 @@ async fn send_to_open(
         "alreadyOpen": true,
         "sent": sent,
         "note": format!("{name} {opened} your prompt went to it as a message, as agent_send sends one."),
+    }))
+}
+
+/// Opens again, as itself, a closed agent that leads the caller, and hands it the prompt as
+/// a message: it comes back under its own lead rather than as the caller's worker.
+async fn reopen_own_lead(
+    core: &Arc<Core>,
+    request: &HarnessRequest,
+    saved: &Saved,
+    agent_id: String,
+    prompt: String,
+) -> Result<Value, String> {
+    let title = &saved.title;
+    let taken = launching::reopen_agent(core, agent_id)
+        .await
+        .map_err(|error| format!("reopening \"{title}\" failed: {error}"))?;
+    let agent_id = taken.agent_id;
+    let name = core.names.name_or_id(&agent_id);
+    let mut message = request.clone();
+    message.params = json!({ "to": agent_id, "text": prompt });
+    let sent = messages::send(core, &message).await?;
+    Ok(json!({
+        "name": name,
+        "agentId": agent_id,
+        "cli": saved.cli,
+        "resumed": saved.session_id,
+        "reportsBack": false,
+        "sent": sent,
+        "note": format!("{} leads you, so Sikemux reopened \"{title}\" as that agent itself, not as your worker, and your prompt went to it as a message, as agent_send sends one. It does not report back to you: a reply comes as a message only if it sends one.", messages::called(&name, &agent_id)),
     }))
 }
 
