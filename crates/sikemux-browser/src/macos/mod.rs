@@ -220,6 +220,8 @@ impl Parent<'_> {
 
 pub enum Start<'a> {
     Load(&'a str),
+    /// Loads it in a store of its own that keeps nothing, apart from every signed-in tab.
+    Private(&'a str),
     /// The window another page opened, which WebKit loads itself and keeps linked to that page.
     Opened(Opener),
 }
@@ -240,6 +242,16 @@ pub fn open(
     let mtm = parent.view.mtm();
     let (configuration, url) = match start {
         Start::Load(url) => (tab_configuration(mtm), Some(url)),
+        Start::Private(url) => {
+            let configuration = tab_configuration(mtm);
+            // SAFETY: main thread, as `mtm` proves; the configuration is fresh and only ours.
+            unsafe {
+                configuration.setWebsiteDataStore(
+                    &objc2_web_kit::WKWebsiteDataStore::nonPersistentDataStore(mtm),
+                );
+            }
+            (configuration, Some(url))
+        }
         Start::Opened(Opener(configuration)) => (configuration, None),
     };
     let frame = NSRect::new(

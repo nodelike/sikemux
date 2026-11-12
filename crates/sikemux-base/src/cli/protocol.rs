@@ -288,6 +288,9 @@ pub fn validate_harness(request: &HarnessRequest) -> Result<(), String> {
     {
         return Err("invalid agent ID".into());
     }
+    if request.method == BROWSER_PICTURE_METHOD {
+        return Err("browser.picture is the core's own, not a tool".into());
+    }
     if !HARNESS_METHODS.contains(&request.method.as_str())
         && !is_browser_method(&request.method)
         && !is_sim_method(&request.method)

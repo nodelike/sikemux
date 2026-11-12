@@ -813,10 +813,17 @@ async fn run(
         }
         BROWSER_PICTURE_METHOD => {
             let url = text("url").ok_or("url is required")?;
+            let loopback = url::Url::parse(&url).is_ok_and(|url| {
+                url.scheme() == "http"
+                    && matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "[::1]"))
+            });
+            if !loopback {
+                return Err("the core takes pictures only of pages served on this machine".into());
+            }
             let width = text("width").ok_or("width is required")?;
             let fixed =
                 Viewport::preset(&width).ok_or("width must be desktop, tablet or mobile")?;
-            let image = manager.picture_at(agent_id, &url, fixed).await?;
+            let image = manager.private_picture_at(agent_id, &url, fixed).await?;
             Ok(json!({
                 "url": url,
                 "width": fixed.width,
@@ -843,6 +850,7 @@ async fn run(
                 &url,
                 (width as f64, PAGE_VIEWPORT_HEIGHT as f64),
                 crate::USER_AGENT,
+                false,
             )?;
             preview.loaded(LOAD_TIMEOUT).await?;
             tokio::time::sleep(SETTLE).await;
@@ -1559,9 +1567,33 @@ impl BrowserManager {
         url: &str,
         fixed: crate::viewport::Viewport,
     ) -> Result<Vec<u8>, String> {
+        self.picture_in(&self.picturer, false, agent_id, url, fixed)
+            .await
+    }
+
+    /// [`Self::picture_at`] in a view of its own that keeps no cookies or storage and sees none
+    /// of the desk's, for the pictures the core takes by itself.
+    pub async fn private_picture_at(
+        &self,
+        agent_id: &str,
+        url: &str,
+        fixed: crate::viewport::Viewport,
+    ) -> Result<Vec<u8>, String> {
+        self.picture_in(&self.private_picturer, true, agent_id, url, fixed)
+            .await
+    }
+
+    async fn picture_in(
+        &self,
+        picturer: &tokio::sync::Mutex<Option<crate::preview::Preview>>,
+        private: bool,
+        agent_id: &str,
+        url: &str,
+        fixed: crate::viewport::Viewport,
+    ) -> Result<Vec<u8>, String> {
         let user_agent = fixed.user_agent().unwrap_or(crate::USER_AGENT);
         let size = (f64::from(fixed.width), f64::from(fixed.height));
-        let mut picturer = self.picturer.lock().await;
+        let mut picturer = picturer.lock().await;
         let view = match picturer.as_mut() {
             Some(view) => {
                 view.load(url, size, user_agent);
@@ -1573,6 +1605,7 @@ impl BrowserManager {
                 url,
                 size,
                 user_agent,
+                private,
             )?),
         };
         let taken = async {

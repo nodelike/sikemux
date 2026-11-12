@@ -123,6 +123,7 @@ impl Core {
     /// The agent stopped running, whether it ended by itself or was closed.
     pub(crate) fn note_agent_gone(&self, agent_id: &str) {
         self.journal_agent(agent_id, Happened::Gone);
+        super::pictures::tidy(self, true);
         self.changed(What::Agents);
     }
 

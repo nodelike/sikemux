@@ -435,18 +435,18 @@ pub(crate) fn read_work(core: &Core, agent_id: &str) {
         let Some(work) = work_of(&core, &agent_id) else {
             return;
         };
-        let shows = (work.can_try).then(|| (work.project.clone(), work.changes));
+        let shows = (work.can_try).then(|| (work.project.clone(), work.changes, work.head.clone()));
         if core.inbox.keep_work(&agent_id, work) {
             core.changed(What::View);
         }
-        let Some((project, changes)) = shows else {
+        let Some((project, changes, head)) = shows else {
             return;
         };
         let unchecked = changes == WorkAt::Uncommitted
             || super::checks::project_check(&core, &project).is_err();
         let started = core.inbox.ending(&agent_id).map(|ended| ended.started_at);
         if let (true, Some(turn)) = (unchecked, started) {
-            super::pictures::take(&core, &agent_id, &project, turn);
+            super::pictures::take(&core, &agent_id, &project, turn, head);
         }
     });
 }
@@ -480,8 +480,7 @@ fn work_of(core: &Arc<Core>, agent_id: &str) -> Option<Work> {
             _ => WorkAt::Committed,
         }
     };
-    let can_try =
-        pages && changes != WorkAt::None && super::pictures::servable(core, agent_id, &cwd);
+    let can_try = pages && changes != WorkAt::None && super::pictures::servable(core, &cwd);
     Some(Work {
         changes,
         head,
@@ -617,12 +616,7 @@ pub(crate) async fn take_step(core: &Arc<Core>, params: TakeStepParams) -> CoreR
     let done = turn.as_ref().and_then(|turn| turn.done.as_ref());
     let offered = match (&turn, params.step) {
         (Some(turn), TurnStep::CarryOn) => turn.state == TurnPhase::Stopped,
-        (_, TurnStep::Undo) => done.is_some_and(|done| {
-            matches!(
-                done.changes,
-                WorkAt::Landed | WorkAt::Staged | WorkAt::Shipped
-            )
-        }),
+        (_, TurnStep::Undo) => done.is_some_and(|done| done.changes == WorkAt::Landed),
         (_, step) => done.is_some_and(|done| done.next.iter().any(|next| next.step == step)),
     };
     if !offered {
@@ -631,13 +625,22 @@ pub(crate) async fn take_step(core: &Arc<Core>, params: TakeStepParams) -> CoreR
         ));
     }
     let text = match params.step {
-        TurnStep::Commit => "Commit your changes.",
-        TurnStep::Push => "Land your commits on the project's branch, as the project lands them.",
-        TurnStep::DeployStaging => "Deploy this to staging.",
-        TurnStep::ShipProduction => "Ship this to production.",
-        TurnStep::RollBack => "Roll back the last production deploy.",
-        TurnStep::CarryOn => "Carry on with what is left.",
-        TurnStep::Undo => "Take your commits back out of the project's branch: revert them there, as the project lands changes.",
+        TurnStep::Commit => "Commit your changes.".to_owned(),
+        TurnStep::Push => {
+            "Land your commits on the project's branch, as the project lands them.".to_owned()
+        }
+        TurnStep::DeployStaging => "Deploy this to staging.".to_owned(),
+        TurnStep::ShipProduction => "Ship this to production.".to_owned(),
+        TurnStep::RollBack => "Roll back the last production deploy.".to_owned(),
+        TurnStep::CarryOn => "Carry on with what is left.".to_owned(),
+        TurnStep::Undo => {
+            let (reading, agent_id) = (core.clone(), params.agent_id.clone());
+            super::connection::blocking(move || Ok(undo_words(&reading, &agent_id)))
+                .await?
+                .ok_or(
+                    "Sikemux found no commits of this agent's on the project's branch to take out",
+                )?
+        }
         TurnStep::TryIt => return try_it(core, &params.agent_id).await,
         TurnStep::Unknown => {
             return Err(CoreError::from(
@@ -645,7 +648,7 @@ pub(crate) async fn take_step(core: &Arc<Core>, params: TakeStepParams) -> CoreR
             ));
         }
     };
-    super::messages::step_from_person(core, params.agent_id, text.to_owned()).await?;
+    super::messages::step_from_person(core, params.agent_id, text).await?;
     Ok(())
 }
 
@@ -663,4 +666,37 @@ async fn try_it(core: &Arc<Core>, agent_id: &str) -> CoreResult<()> {
     };
     super::harness::forward(core, opened).await?;
     Ok(())
+}
+
+/// What tells a worker to take its landed work back out: the commits on the project's branch its
+/// footer names it in, made since its latest turn began. None when there are none.
+fn undo_words(core: &Core, agent_id: &str) -> Option<String> {
+    let started = core.inbox.ending(agent_id)?.started_at;
+    let project = core.names.get(agent_id)?.project;
+    let agent = core.workspaces.agent(agent_id);
+    let repo = (agent.and_then(|agent| agent.worktree))
+        .map_or_else(|| PathBuf::from(&project), |worktree| worktree.repo);
+    let branch = super::landing::project_branch(&repo)?;
+    let tip =
+        super::landing::remote_of(&repo, &branch).unwrap_or_else(|| format!("refs/heads/{branch}"));
+    let since = format!("--since=@{}", started / 1000);
+    let listed = Git::quick(&repo)
+        .text(&["log", &since, "--format=%H%x1f%s%x1f%B%x1e", &tip])
+        .ok()?;
+    let commits: Vec<String> = (listed.split('\x1e'))
+        .filter_map(|entry| {
+            let mut fields = entry.trim_start().splitn(3, '\x1f');
+            let (sha, subject, body) = (fields.next()?, fields.next()?, fields.next()?);
+            let ours = crate::trailers::agents(body)
+                .iter()
+                .any(|named| named.chat == agent_id);
+            ours.then(|| format!("{} {subject}", &sha[..sha.len().min(9)]))
+        })
+        .collect();
+    (!commits.is_empty()).then(|| {
+        format!(
+            "Take these commits of yours back out of {branch}, by reverting them there as the project lands changes:\n{}",
+            commits.join("\n")
+        )
+    })
 }

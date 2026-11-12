@@ -322,6 +322,7 @@ impl Tab {
         let id: Arc<str> = spec.tab_id.into();
         let (agent_id, tab_id) = (spec.agent_id.to_owned(), id.to_string());
         let (url, user_agent, size) = (spec.url.to_owned(), spec.user_agent.to_owned(), spec.size);
+        let private = spec.private;
         let window = NonZeroU32::new(parent.view as usize as u32)
             .ok_or("the window has no X11 id")?
             .get();
@@ -340,6 +341,7 @@ impl Tab {
                 .with_url(&url)
                 .with_user_agent(&user_agent)
                 .with_initialization_script(crate::RECORDER_SCRIPT)
+                .with_incognito(private)
                 .with_focused(false)
                 .with_visible(false)
                 .with_hotkeys_zoom(true)

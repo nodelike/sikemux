@@ -28,6 +28,7 @@ impl Preview {
         url: &str,
         size: (f64, f64),
         user_agent: &str,
+        private: bool,
     ) -> Result<Self, String> {
         let parent = host.window()?;
         let tab_id = format!("page-preview-{}", NEXT.fetch_add(1, Ordering::Relaxed));
@@ -42,6 +43,7 @@ impl Preview {
                 user_agent,
                 size,
                 opener: None,
+                private,
             },
             events.clone(),
         )?;

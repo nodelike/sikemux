@@ -89,7 +89,7 @@ pub(crate) use slice::{
     check_stands, follow, gate_key, gate_words, person_note, person_pass, screenshot_taken,
     slice_screenshots,
 };
-pub(crate) use slice::{verdict_on, DeployRan};
+pub(crate) use slice::{turn_pictures, verdict_on, DeployRan};
 pub use slice::{BoardNoteParams, BoardPassParams};
 pub(crate) use wait::owners_on_check;
 

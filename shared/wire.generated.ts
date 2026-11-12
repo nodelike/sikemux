@@ -2109,8 +2109,8 @@ export interface WidthShown {
 }
 
 export interface Picture {
-    /** The JPEG on the host, which a client reads as it reads a chat's files. */
-    path: string;
+    /** What a client fetches the JPEG by, with `turnPicture`. */
+    id: string;
     at: number;
 }
 

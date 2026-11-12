@@ -216,8 +216,8 @@ fn heard(core: &Arc<Core>, event: RepoEvent) {
         ..
     } = &event
     {
-        for (agent, turn) in core.inbox.showing(project, covered) {
-            crate::server::pictures::take(core, &agent, project, turn);
+        for (agent, turn, head) in core.inbox.showing(project, covered) {
+            crate::server::pictures::take(core, &agent, project, turn, head);
         }
     }
     if let RepoEvent::Deployed {

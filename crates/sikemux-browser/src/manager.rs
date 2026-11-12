@@ -145,6 +145,8 @@ pub struct BrowserManager {
     pub(crate) me: Weak<BrowserManager>,
     /// The view off screen that pictures of pages at other widths are taken in, made once.
     pub(crate) picturer: tokio::sync::Mutex<Option<crate::preview::Preview>>,
+    /// The view the core's own pictures are taken in, which shares nothing with the desk.
+    pub(crate) private_picturer: tokio::sync::Mutex<Option<crate::preview::Preview>>,
 }
 
 impl BrowserManager {
@@ -170,6 +172,7 @@ impl BrowserManager {
             host,
             me: me.clone(),
             picturer: tokio::sync::Mutex::new(None),
+            private_picturer: tokio::sync::Mutex::new(None),
         });
         crate::discard::watch_pressure(Arc::downgrade(&manager));
         manager
@@ -339,6 +342,7 @@ impl BrowserManager {
                 user_agent,
                 size,
                 opener: opened_by.and_then(|by| by.opener),
+                private: false,
             },
             events,
         )

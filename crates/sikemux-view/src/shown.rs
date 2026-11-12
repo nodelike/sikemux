@@ -38,8 +38,8 @@ pub struct WidthShown {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Picture {
-    /// The JPEG on the host, which a client reads as it reads a chat's files.
-    pub path: String,
+    /// What a client fetches the JPEG by, with `turnPicture`.
+    pub id: String,
     pub at: u64,
 }
 

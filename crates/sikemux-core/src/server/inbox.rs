@@ -446,8 +446,12 @@ impl Turns {
     }
 
     /// The agents whose latest turn changed a page of `project` and whose work is at one of
-    /// `covered`, with when that turn began.
-    pub(crate) fn showing(&self, project: &str, covered: &[String]) -> Vec<(String, u64)> {
+    /// `covered`, with when that turn began and that commit.
+    pub(crate) fn showing(
+        &self,
+        project: &str,
+        covered: &[String],
+    ) -> Vec<(String, u64, Option<String>)> {
         (self.turns.locked().iter())
             .filter(|(_, turn)| {
                 turn.work.as_ref().is_some_and(|work| {
@@ -459,7 +463,10 @@ impl Turns {
                             .is_some_and(|head| covered.contains(head))
                 })
             })
-            .map(|(agent, turn)| (agent.clone(), turn.started_at))
+            .map(|(agent, turn)| {
+                let head = turn.work.as_ref().and_then(|work| work.head.clone());
+                (agent.clone(), turn.started_at, head)
+            })
             .collect()
     }
 

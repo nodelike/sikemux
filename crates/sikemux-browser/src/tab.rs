@@ -58,6 +58,8 @@ pub struct TabSpec<'a> {
     pub size: (f64, f64),
     /// The page that opened this tab as its window. The engine then loads `url` itself.
     pub opener: Option<Opener>,
+    /// It keeps no cookies or storage, and sees none of the desk's: nothing it loads is signed in.
+    pub private: bool,
 }
 
 /// What a page that opens a window hands over for it. A tab made from it stays linked
@@ -125,12 +127,13 @@ impl Tab {
         events: Arc<dyn TabEvents>,
     ) -> Result<Tab, String> {
         let id: Arc<str> = spec.tab_id.into();
-        let (agent_id, url, user_agent, size, opener) = (
+        let (agent_id, url, user_agent, size, opener, private) = (
             spec.agent_id.to_owned(),
             spec.url.to_owned(),
             spec.user_agent.to_owned(),
             spec.size,
             spec.opener,
+            spec.private,
         );
         let tab_id = id.to_string();
         let make = move || {
@@ -146,9 +149,10 @@ impl Tab {
                 },
                 agent_id,
                 tab_id,
-                match opener {
-                    Some(opener) => crate::macos::Start::Opened(opener),
-                    None => crate::macos::Start::Load(&url),
+                match (opener, private) {
+                    (Some(opener), _) => crate::macos::Start::Opened(opener),
+                    (None, true) => crate::macos::Start::Private(&url),
+                    (None, false) => crate::macos::Start::Load(&url),
                 },
                 &user_agent,
                 size,

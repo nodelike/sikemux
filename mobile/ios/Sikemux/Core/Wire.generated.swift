@@ -3382,8 +3382,8 @@ struct WidthShown: Codable, Hashable, Sendable {
 }
 
 struct Picture: Codable, Hashable, Sendable {
-    /// The JPEG on the host, which a client reads as it reads a chat's files.
-    var path: String
+    /// What a client fetches the JPEG by, with `turnPicture`.
+    var id: String
     var at: Int
 }
 

@@ -212,7 +212,11 @@ impl Core {
         attentions.sort_by(|a, b| (a.at, &a.id).cmp(&(b.at, &b.id)));
         let recent = self.workspaces.recent(&chats, &self.triggers.held());
         let inbox = inbox::view(self, &chats, &sessions);
+        let mut workers: HashMap<&String, Vec<&String>> = HashMap::new();
         let leads = self.workspaces.agent_leads();
+        for (worker, lead) in &leads {
+            workers.entry(lead).or_default().push(worker);
+        }
         let turns: HashMap<String, sikemux_view::turn::TurnState> = (inbox.agents.iter())
             .filter_map(|agent| Some((agent.agent_id.clone(), agent.turn.clone()?)))
             .collect();
@@ -221,7 +225,9 @@ impl Core {
                 chat.feed.set_turn(agent.turn.clone());
                 chat.feed.set_shown(
                     self.pictures.turns_of(&agent.agent_id),
-                    super::pictures::results(self, &agent.agent_id, &leads, &turns),
+                    (workers.get(&agent.agent_id))
+                        .map(|workers| super::pictures::results(self, workers, &turns))
+                        .unwrap_or_default(),
                 );
             }
         }

@@ -71,7 +71,7 @@ mod notify;
 pub mod open_files;
 mod part;
 pub(crate) mod person_calls;
-mod pictures;
+pub mod pictures;
 pub mod playbook;
 pub mod plugins;
 pub mod ports;
@@ -109,7 +109,7 @@ pub mod themes;
 mod tools;
 pub mod triage;
 pub mod triggers;
-mod turn_state;
+pub mod turn_state;
 pub mod updates;
 mod upgrade;
 pub mod usage;
@@ -646,6 +646,7 @@ impl Core {
             look: themes::Look::default(),
         });
         from_app::carry(&core, data_dir);
+        pictures::tidy(&core, false);
         core.theme_changed();
         Ok(core)
     }

@@ -791,6 +791,34 @@ impl Slice {
     /// Keeps a piece of evidence on its latest commit, collected for
     /// `assertions`, letting the oldest go that no note is pinned to and is
     /// not an assertion's latest.
+    /// The core's pictures of the page the owner's work at `head` serves, as `opened`, kept
+    /// toward the gate the slice waits at.
+    pub(super) fn page(&mut self, owner: &str, head: &str, opened: &str, shots: &[Shot]) {
+        let Some(gate) = (self.waiting().or(self.ladder.last()))
+            .filter(|_| self.head() == Some(head))
+            .cloned()
+        else {
+            return;
+        };
+        for (path, width) in shots {
+            self.add_evidence(
+                &gate,
+                epoch_ms(),
+                Some(owner.to_owned()),
+                None,
+                Proof::Picture {
+                    path: path.clone(),
+                    seconds: None,
+                    feed: None,
+                    turn: None,
+                    width: *width,
+                    opened: Some(opened.to_owned()),
+                },
+                &[],
+            );
+        }
+    }
+
     fn add_evidence(
         &mut self,
         gate: &Step,
@@ -2284,6 +2312,27 @@ pub(crate) fn deployed(core: &Arc<Core>, project: &str, agent: &str, ran: Deploy
         if let Ok((_, notices)) = change_card(core, project, &By::Person, id, changes) {
             send_notices(core, notices);
         }
+    }
+}
+
+/// The core's pictures of the page `agent`'s turn changed, at `head`, kept as its working
+/// slice's evidence, so a slice that touched pages has its look's pictures.
+pub(crate) fn turn_pictures(
+    core: &Arc<Core>,
+    project: &str,
+    agent: &str,
+    head: &str,
+    opened: &str,
+    decoded: &[(Vec<u8>, Option<u32>)],
+) {
+    let card = {
+        let state = core.boards.state.locked();
+        (state.boards.get(project)).and_then(|board| follow::working_slice(board, agent))
+    };
+    if let Some(card) = card {
+        keep_shots(core, project, card, decoded, |slice, kept| {
+            slice.page(agent, head, opened, kept)
+        });
     }
 }
 
