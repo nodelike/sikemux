@@ -980,11 +980,13 @@ impl<B: Backend> Running<'_, B> {
 
     /// At rest after a turn, a session grown full writes its handoff note now, while its cache
     /// is warm; the fresh session starts with the next message. Once a fresh session has
-    /// answered its first message, the chat goes on in it.
+    /// answered a message, the chat goes on in it; until then each message carries its brief.
     async fn ready_rotation(&mut self) {
-        if let Some(from) = self.fresh_from.take() {
+        if self.fresh_from.is_some() && self.chat.rotation.fresh_answered() {
+            let from = self.fresh_from.take();
+            self.rotation_brief = None;
             let start = self.state.start();
-            if start.session_id != from {
+            if from.is_some_and(|from| start.session_id != from) {
                 self.chat.mark_ready(start.clone());
                 self.chat.emit(ChatEventKind::Ready, json!(start));
             }
@@ -1005,6 +1007,9 @@ impl<B: Backend> Running<'_, B> {
     /// A slash command runs in the old session, since it could not carry the brief.
     async fn rotate_if_due(&mut self) {
         const STARTING: std::time::Duration = std::time::Duration::from_secs(60);
+        if self.fresh_from.is_some() {
+            return;
+        }
         let Some(core) = self.chat.core.upgrade() else {
             return;
         };
@@ -1091,7 +1096,7 @@ impl<B: Backend> Running<'_, B> {
         self.state.turn += 1;
         self.chat.begin_turn();
         if !crate::server::chat::prompt::is_command(&replay.text) {
-            replay.context.extend(self.rotation_brief.take());
+            replay.context.extend(self.rotation_brief.clone());
             if let Some(core) = self.chat.core.upgrade() {
                 let handoff = core.chats().handoffs.take(self.chat.agent_id());
                 if handoff.is_some() {

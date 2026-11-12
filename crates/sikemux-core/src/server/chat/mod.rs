@@ -985,6 +985,7 @@ impl Chat {
     /// A turn of this chat was answered, so its provider has it saved.
     pub(crate) fn note_answered(&self) {
         self.turn.locked().answered = true;
+        self.rotation.answered();
     }
 
     /// Every agent still asks before some actions in its most open mode, such as

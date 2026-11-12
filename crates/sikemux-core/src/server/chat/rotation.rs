@@ -66,6 +66,8 @@ struct Inner {
     /// The session was found full as a turn ended; the next message starts the fresh one.
     full: bool,
     failed_at: u64,
+    /// A fresh session started and has not answered a turn yet.
+    unanswered: bool,
 }
 
 impl State {
@@ -97,6 +99,16 @@ impl State {
         inner.handoff = None;
         inner.full = false;
         inner.footing = Some(now);
+        inner.unanswered = true;
+    }
+
+    pub(crate) fn answered(&self) {
+        self.inner.locked().unanswered = false;
+    }
+
+    /// The session the chat rotated to last has answered a turn.
+    pub(crate) fn fresh_answered(&self) -> bool {
+        !self.inner.locked().unanswered
     }
 
     /// The fresh session did not start. Its note waits for the next try.
