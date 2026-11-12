@@ -36,6 +36,8 @@ impl Snip {
 pub enum Snipped {
     /// The person dragged a box over tab `tab_id`; `page` is what the page said of it.
     Boxed { tab_id: String, page: Value },
+    /// The person clicked an element and wrote a note on it: `pin` is what the page said of it.
+    Pinned { pin: Value },
     /// The person pressed Escape on the page.
     Ended,
     /// The wait ran out, or another took it over.
@@ -66,6 +68,11 @@ pub async fn wait(
     }
     if page["ended"] == true {
         return Ok(Snipped::Ended);
+    }
+    if page["pin"].is_object() {
+        return Ok(Snipped::Pinned {
+            pin: page["pin"].clone(),
+        });
     }
     Ok(Snipped::Boxed { tab_id, page })
 }

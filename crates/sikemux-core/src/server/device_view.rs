@@ -242,6 +242,7 @@ impl Core {
             recent,
             inbox,
             calls: super::person_calls::shown(self),
+            pins: super::pins::shown(self),
             layout,
             account: self.account.shown().map(Box::new),
             face_style: Box::new(self.faces.style()),

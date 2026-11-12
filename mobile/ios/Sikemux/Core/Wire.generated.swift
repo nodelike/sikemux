@@ -574,6 +574,8 @@ struct DeviceView: Codable, Hashable, Sendable {
     /// The calls of every project still open, then those answered lately with what came of
     /// them, newest first. Clients show only the projects they scope to.
     var calls: [PersonCall]?
+    /// Every project's pins still open on a page, and those answered, until closed.
+    var pins: [Pin]?
     /// Which project is in front, and each project's tabs.
     var layout: WireLayout
     /// Who this host is signed in to Sikemux as; none while nobody is.
@@ -2390,6 +2392,70 @@ enum CallResult: String, Codable, Hashable, Sendable {
 enum CallWhy: String, Codable, Hashable, Sendable {
     /// Sikemux restarted after the person said yes and before it ran, so the yes lapsed.
     case restarted
+    /// One added after this build.
+    case unknown
+
+    init(from decoder: any Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
+}
+
+struct Pin: Codable, Hashable, Sendable {
+    var id: String
+    var project: String
+    /// The agent the pin went to, whose desk it was placed on.
+    var agentId: String
+    var agentName: String?
+    /// The page's address and title when the pin was placed.
+    var url: String
+    var title: String
+    /// The size the page was laid out at.
+    var width: Int
+    var height: Int
+    /// What was pinned, in words: "Export button".
+    var label: String
+    /// Where the element is, for the page to find it again.
+    var selector: String
+    /// A picture of the spot when it was placed, and once answered, after; paths on the host.
+    var before: String?
+    var after: String?
+    /// The commit the page ran from, when its checkout said.
+    var commit: String?
+    /// What the person and the agent said on it, oldest first.
+    var notes: [PinNote]
+    var state: PinState
+    /// It was answered once and the person wrote again.
+    var reopened: Bool?
+    /// When it came to stand as it does: sent, answered or closed.
+    var since: Int
+    /// The agent is at work on it now. Worked out when the view is sent, never kept.
+    var working: Bool?
+}
+
+struct PinNote: Codable, Hashable, Sendable {
+    var by: PinBy
+    var words: String
+    var at: Int
+}
+
+enum PinBy: String, Codable, Hashable, Sendable {
+    case person
+    case agent
+    /// One added after this build.
+    case unknown
+
+    init(from decoder: any Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
+}
+
+enum PinState: String, Codable, Hashable, Sendable {
+    /// Sent to its agent and not yet answered.
+    case `open`
+    /// The agent's turn after the pin ended, with what it said.
+    case answered
+    /// The person said it looks right.
+    case closed
     /// One added after this build.
     case unknown
 

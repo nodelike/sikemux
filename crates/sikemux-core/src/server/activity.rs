@@ -71,6 +71,7 @@ impl Core {
                     let left = super::turn_state::left_open(self, agent_id);
                     self.inbox.ended(agent_id, None, left);
                     super::turn_state::read_work(self, agent_id);
+                    super::pins::turn_ended(self, agent_id);
                 }
                 self.notify.send(Signal::TurnCompleted {
                     agent_id: agent_id.to_owned(),

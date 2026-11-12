@@ -17,6 +17,7 @@ pub mod memory;
 pub mod notch;
 pub mod owners;
 pub mod places;
+pub mod pins;
 pub mod playbook;
 pub mod plugins;
 pub mod prefs;

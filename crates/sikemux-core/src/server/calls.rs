@@ -455,6 +455,10 @@ calls! { core, client, method, params;
     "confirmPlaces" ConfirmPlaces (super::places::PlacesParams) -> sikemux_view::places::Places: Full, counted => super::places::confirm(&core, params).await?,
     "addPlace" AddPlace (super::places::AddPlaceParams) -> sikemux_view::places::Places: Full, counted => super::places::add(&core, &client.peer, params).await?,
     "countAsProduction" CountAsProduction (super::places::SeenParams) -> sikemux_view::places::Places: Full, counted => super::places::count_as_production(&core, &client.peer, params).await?,
+    "placePin" PlacePin (sikemux_view::pins::PlacePinParams) -> sikemux_view::pins::PlacedPin: Full, counted => super::pins::place(&core, params).await?,
+    "notePin" NotePin (sikemux_view::pins::PinNoteParams) -> (): Full, counted => super::pins::note(&core, params).await?,
+    "pinLooksRight" PinLooksRight (sikemux_view::pins::PinParams) -> (): Full, counted => super::pins::looks_right(&core, params)?,
+    "pinAfter" PinAfter (sikemux_view::pins::PinAfterParams) -> (): Full => super::pins::after(&core, params)?,
     "checkWebWrite" CheckWebWrite (ship::WebWriteParams) -> Option<String>: Owner => ship::check_web_write(&core, params).await?,
     "agentMessages": Watch, any_program => answer(messages::agent_messages(&core, parse(params)?).await?),
     "agentMessageRows" AgentMessageRows (messages::AgentMessagesParams) -> messages::AgentMessageRows: Watch, any_program => {

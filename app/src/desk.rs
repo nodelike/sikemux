@@ -2,6 +2,7 @@
 
 mod address;
 mod downloads;
+mod pins;
 mod snip;
 mod width;
 
@@ -89,6 +90,8 @@ pub struct Desks {
     snips_for_new_chat: Option<Vec<(String, sikemux_browser::snip::Snip)>>,
     /// Pictures of pages at other widths, which All shows beside the live page.
     pictures: width::Pictures,
+    /// What the pages were last told of their pins.
+    pins_shown: pins::PinsShown,
     _theming: Subscription,
 }
 
@@ -215,6 +218,9 @@ enum Heard {
     Acting(String),
     Snipped(sikemux_browser::snip::Snip),
     SnipEnded(String),
+    /// A click in snip mode on `agent`'s page, with the note written on it.
+    Pinned(String, serde_json::Value),
+    PinAnswered(sikemux_browser::pins::PinAnswer),
 }
 
 impl Desks {
@@ -282,6 +288,7 @@ impl Desks {
             snips: HashMap::new(),
             snips_for_new_chat: None,
             pictures: width::Pictures::default(),
+            pins_shown: pins::PinsShown::default(),
             _theming: theming,
         }
     }
@@ -666,7 +673,10 @@ impl Workbench {
             Heard::Tabs => {
                 self.read_strips(cx);
                 self.desks.read(cx).rearm_snips();
+                self.show_pins(cx);
             }
+            Heard::Pinned(agent, pin) => self.pinned(&agent, pin, cx),
+            Heard::PinAnswered(answer) => self.pin_answered(answer, cx),
             Heard::Snipped(snip) => self.snipped(snip, window, cx),
             Heard::SnipEnded(agent) => self.snip_ended(&agent, cx),
             Heard::Downloaded(download) => {

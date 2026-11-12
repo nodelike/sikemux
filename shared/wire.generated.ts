@@ -86,6 +86,8 @@ export interface DeviceView {
      * them, newest first. Clients show only the projects they scope to.
      */
     calls?: PersonCall[];
+    /** Every project's pins still open on a page, and those answered, until closed. */
+    pins?: Pin[];
     /** Which project is in front, and each project's tabs. */
     layout: Layout;
     /** Who this host is signed in to Sikemux as; none while nobody is. */
@@ -1460,6 +1462,48 @@ export interface CallOutcome {
 export type CallResult = "heard" | "shipped" | "notShipped" | "failed" | "mayHaveRun" | "handedBack" | "withdrawn";
 
 export type CallWhy = "restarted";
+
+export interface Pin {
+    id: string;
+    project: string;
+    /** The agent the pin went to, whose desk it was placed on. */
+    agentId: string;
+    agentName?: string;
+    /** The page's address and title when the pin was placed. */
+    url: string;
+    title: string;
+    /** The size the page was laid out at. */
+    width: number;
+    height: number;
+    /** What was pinned, in words: "Export button". */
+    label: string;
+    /** Where the element is, for the page to find it again. */
+    selector: string;
+    /** A picture of the spot when it was placed, and once answered, after; paths on the host. */
+    before?: string;
+    after?: string;
+    /** The commit the page ran from, when its checkout said. */
+    commit?: string;
+    /** What the person and the agent said on it, oldest first. */
+    notes: PinNote[];
+    state: PinState;
+    /** It was answered once and the person wrote again. */
+    reopened?: boolean;
+    /** When it came to stand as it does: sent, answered or closed. */
+    since: number;
+    /** The agent is at work on it now. Worked out when the view is sent, never kept. */
+    working?: boolean;
+}
+
+export interface PinNote {
+    by: PinBy;
+    words: string;
+    at: number;
+}
+
+export type PinBy = "person" | "agent";
+
+export type PinState = "open" | "answered" | "closed";
 
 /** The tabs every desktop client draws, kept by the core. */
 export interface Layout {

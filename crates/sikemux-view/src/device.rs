@@ -24,6 +24,9 @@ pub struct DeviceView {
     /// them, newest first. Clients show only the projects they scope to.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub calls: Vec<crate::calls::PersonCall>,
+    /// Every project's pins still open on a page, and those answered, until closed.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pins: Vec<crate::pins::Pin>,
     /// Which project is in front, and each project's tabs.
     pub layout: Box<Layout>,
     /// Who this host is signed in to Sikemux as; none while nobody is.

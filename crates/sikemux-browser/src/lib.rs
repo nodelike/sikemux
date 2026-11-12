@@ -24,6 +24,7 @@ mod native;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 pub mod page_view;
 mod person;
+pub mod pins;
 mod preview;
 mod recording;
 pub mod snip;

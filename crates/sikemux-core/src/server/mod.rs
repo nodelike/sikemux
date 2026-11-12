@@ -73,6 +73,7 @@ mod part;
 pub(crate) mod person_calls;
 pub mod pictures;
 pub mod places;
+mod pins;
 pub mod playbook;
 pub mod plugins;
 pub mod ports;
@@ -436,6 +437,7 @@ pub(crate) struct Core {
     /// The decisions put to the person.
     pub(crate) person_calls: person_calls::PersonCalls,
     pub(crate) places: places::store::Store,
+    pub(crate) pins: pins::Pins,
     pub(crate) build_outputs: worktree::build_output::BuildOutputs,
     /// Builds agents start, taking turns.
     pub(crate) builds: builds::Builds,
@@ -600,6 +602,7 @@ impl Core {
             lifecycle: lifecycle::Lifecycle::default(),
             ship: ship::Ships::default(),
             person_calls,
+            pins: pins::Pins::new(data_dir),
             build_outputs: Default::default(),
             builds: builds::Builds::default(),
             session_watch: session_watch::SessionWatch::default(),

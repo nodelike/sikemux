@@ -172,6 +172,7 @@ impl Workbench {
                     self.parts.redraw(&self.parts.rail, cx);
                 }
                 self.forget_departed(cx);
+                self.show_pins(cx);
             }
             Place::Account(host) => {
                 self.feeds.host_mut(host).view = Some(view);
