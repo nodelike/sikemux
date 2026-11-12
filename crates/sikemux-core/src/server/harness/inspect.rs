@@ -2,6 +2,9 @@
 
 use super::*;
 
+const LISTED_FINISHED_RUNS: usize = 8;
+const FINISHED_COMMAND_CHARS: usize = 160;
+
 pub(super) async fn inspect(core: &Arc<Core>, request: HarnessRequest) -> Result<Value, String> {
     let project = request.project.clone();
     let agent_id = request.agent_id.clone();
@@ -32,16 +35,14 @@ pub(super) async fn inspect(core: &Arc<Core>, request: HarnessRequest) -> Result
             object.insert("note".into(), NO_WINDOW_NOTE.into());
         }
         core.harness.read(|state| {
-            object.insert(
-                "runs".into(),
-                state
-                    .runs
-                    .list(&project)
-                    .iter()
-                    .map(for_agent)
-                    .collect::<Vec<_>>()
-                    .into(),
-            );
+            let (runs, older) = listed_runs(&state.runs.list(&project));
+            object.insert("runs".into(), runs.into());
+            if older > 0 {
+                object.insert(
+                    "omitted".into(),
+                    json!([format!("{older} older finished runs")]),
+                );
+            }
             object.insert(
                 "cursor".into(),
                 state.journals.cursor(&project).to_string().into(),
@@ -49,6 +50,38 @@ pub(super) async fn inspect(core: &Arc<Core>, request: HarnessRequest) -> Result
         });
     }
     Ok(value)
+}
+
+/// Every live run, and only the latest finished ones, whose commands are clipped:
+/// a project's history of runs grows with every build and test.
+fn listed_runs(runs: &[Run]) -> (Vec<Value>, usize) {
+    let finished = runs.iter().filter(|run| !run.status.is_active()).count();
+    let older = finished.saturating_sub(LISTED_FINISHED_RUNS);
+    let mut skipped = 0;
+    let listed = runs
+        .iter()
+        .filter(|run| {
+            let skip = !run.status.is_active() && skipped < older;
+            skipped += usize::from(skip);
+            !skip
+        })
+        .map(|run| {
+            let mut value = for_agent(run);
+            if let Some(object) = value.as_object_mut() {
+                object.remove("project");
+                if !run.status.is_active() {
+                    if let Some(command) = &run.command {
+                        object.insert(
+                            "command".into(),
+                            crate::text::clipped(command, FINISHED_COMMAND_CHARS).into(),
+                        );
+                    }
+                }
+            }
+            value
+        })
+        .collect();
+    (listed, older)
 }
 
 /// The project's tabs and the views in them as the core keeps them, for a window that
