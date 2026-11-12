@@ -10,6 +10,7 @@ use std::sync::Mutex;
 use serde::{Deserialize, Serialize};
 use sikemux_process::sync::Locked;
 
+use sikemux_view::turn::TurnState;
 use sikemux_wire::protocol::AgentStatus;
 
 use super::super::kept::Kept;
@@ -40,6 +41,9 @@ pub(crate) struct Foreign {
     pub parent: Option<String>,
     pub role: Role,
     pub status: AgentStatus,
+    /// How its turn stands, as its host last said; none before its first turn.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn: Option<TurnState>,
     pub active_at: Option<u64>,
     /// The checkout of its lead's project here that its commits come back to.
     pub repo: Option<PathBuf>,
@@ -133,6 +137,10 @@ impl Team {
             .filter(|agent| agent.host == host)
             .cloned()
             .collect()
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.record.locked().agents.is_empty()
     }
 
     pub(crate) fn has_host(&self, host: &str) -> bool {

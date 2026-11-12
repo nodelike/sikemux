@@ -231,6 +231,7 @@ impl Core {
                 );
             }
         }
+        super::hosts::route::turns_moved(self, &inbox.agents);
         goals::view_moved(self, &inbox);
         let workspace = self.workspace_view();
         let layout = Box::new(layout::view(self, &workspace, &sessions, device));
@@ -290,6 +291,11 @@ impl Core {
     fn publish_device_view(&self) -> bool {
         let devices = self.view_watchers();
         if devices.is_empty() {
+            if !self.hosts.team.is_empty() {
+                let (chats, sessions) = self.ranked_infos();
+                let inbox = inbox::view(self, &chats, &sessions);
+                super::hosts::route::turns_moved(self, &inbox.agents);
+            }
             return false;
         }
         let fronted = layout::fronted(self);
@@ -334,7 +340,7 @@ pub(super) async fn serve(core: Arc<Core>) {
     let mut moving = true;
     let mut built = tokio::time::Instant::now();
     loop {
-        if core.view_watchers().is_empty() {
+        if core.view_watchers().is_empty() && core.hosts.team.is_empty() {
             core.device_view.watched.notified().await;
             ticker.reset();
         }

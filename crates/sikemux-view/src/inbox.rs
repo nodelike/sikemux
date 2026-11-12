@@ -487,6 +487,9 @@ pub struct RemoteAgent {
     pub group: AgentGroup,
     /// The word shown for its status, such as "Sleeping".
     pub label: String,
+    /// How its turn stands, as its host last said; none before its first turn.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn: Option<crate::turn::TurnState>,
     /// The agent here that started it, for a worker.
     pub lead: Option<String>,
     pub project: String,

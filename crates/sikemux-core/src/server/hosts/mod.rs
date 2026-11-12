@@ -143,6 +143,8 @@ pub(crate) struct Hosts {
     probes: Mutex<probe::Probes>,
     /// The linked hosts when the hosts were last listed, to see links come and go.
     listed_links: Mutex<Option<Vec<String>>>,
+    /// The turn each agent here last told the hosts its teammates run on, by its id.
+    pub(crate) turns_told: Mutex<HashMap<String, Option<sikemux_view::turn::TurnState>>>,
 }
 
 impl Hosts {
@@ -163,6 +165,7 @@ impl Hosts {
             setups: Mutex::default(),
             probes: Mutex::default(),
             listed_links: Mutex::default(),
+            turns_told: Mutex::default(),
         }
     }
 

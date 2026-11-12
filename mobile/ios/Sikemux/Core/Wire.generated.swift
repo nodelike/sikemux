@@ -1911,6 +1911,8 @@ struct RemoteAgent: Codable, Hashable, Sendable {
     var group: AgentGroup
     /// The word shown for its status, such as "Sleeping".
     var label: String
+    /// How its turn stands, as its host last said; none before its first turn.
+    var turn: TurnState?
     /// The agent here that started it, for a worker.
     var lead: String?
     var project: String
@@ -1918,82 +1920,6 @@ struct RemoteAgent: Codable, Hashable, Sendable {
     var reachable: Bool
     /// Its place on its lead's team, shown after the last of that team's agents here.
     var team: TeamLink?
-}
-
-/// Where an agent sits on its team: the lead heads it, the last worker ends it.
-enum TeamLink: String, Codable, Hashable, Sendable {
-    case head
-    case member
-    case last
-    /// One added after this build.
-    case unknown
-
-    init(from decoder: any Decoder) throws {
-        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
-    }
-}
-
-/// How devices show an open agent here.
-struct AgentShown: Codable, Hashable, Sendable {
-    var agentId: String
-    /// It is its project's chief, @Chief: the one chat of the project every other agent there
-    /// works under.
-    var chief: Bool?
-    /// What the core calls it, such as Otter.
-    var name: String?
-    /// The CLI it runs, such as `claude`.
-    var cli: String
-    /// What its row is titled: the chat's or terminal's own title, else what
-    /// it is, such as "New Claude chat".
-    var title: String
-    /// `title` is its own, not only what it is. A client may show its name instead.
-    var titled: Bool?
-    /// Its terminal; none for a chat.
-    var session: Int?
-    var status: AgentStatus
-    var group: AgentGroup
-    /// The word shown for its group, such as "Needs input".
-    var label: String
-    /// How its turn stands; none before its first turn.
-    var turn: TurnState?
-    var unread: Bool
-    var subagents: Int
-    var tasks: Int
-    /// Mid-turn or waiting on an answer, so stopping it now loses work.
-    var busy: Bool
-    /// Its last turn ended in a failure.
-    var failed: Bool
-    /// It still has subagents or shells running.
-    var background: Bool
-    var activeAt: Int?
-    /// When the soonest trigger set on it sends it a prompt, in Unix milliseconds.
-    var nextTrigger: Int?
-    /// How many triggers it set on its own chat, which pause when it closes.
-    var triggers: Int?
-    /// When a build it started began to wait for its turn on the host, while it waits, in
-    /// Unix milliseconds.
-    var buildQueuedAt: Int?
-    /// When the agent was last named with `@` or messaged by another agent.
-    var calledAt: Int?
-    /// The face it wears, as the workspace's agent does; none while it shows
-    /// its CLI's logo.
-    var face: AgentFace?
-    /// Its place on its lead's team, which the agents listed after a lead
-    /// belong to; none for an agent on its own.
-    var team: TeamLink?
-    /// The workspace project it is in, by id; none for one outside every project.
-    var project: String?
-    /// What to call where it works: its project, else its folder.
-    var projectName: String?
-    /// The attempt it is retrying a failed request on, 0 when it did not say.
-    var reconnecting: Int?
-    /// It is snoozed out of the main list until then, in Unix milliseconds. None once it
-    /// wakes, at that time or earlier when it asks the person something.
-    var snoozedUntil: Int?
-    /// When it was settled out of the main list; none while it is in it.
-    var settledAt: Int?
-    /// The core settled it by itself rather than the person, so a client offers Undo.
-    var autoSettled: Bool?
 }
 
 /// How an agent's turn stands now, and the facts each state carries.
@@ -2175,6 +2101,82 @@ enum Remedy: String, Codable, Hashable, Sendable {
     init(from decoder: any Decoder) throws {
         self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
     }
+}
+
+/// Where an agent sits on its team: the lead heads it, the last worker ends it.
+enum TeamLink: String, Codable, Hashable, Sendable {
+    case head
+    case member
+    case last
+    /// One added after this build.
+    case unknown
+
+    init(from decoder: any Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
+}
+
+/// How devices show an open agent here.
+struct AgentShown: Codable, Hashable, Sendable {
+    var agentId: String
+    /// It is its project's chief, @Chief: the one chat of the project every other agent there
+    /// works under.
+    var chief: Bool?
+    /// What the core calls it, such as Otter.
+    var name: String?
+    /// The CLI it runs, such as `claude`.
+    var cli: String
+    /// What its row is titled: the chat's or terminal's own title, else what
+    /// it is, such as "New Claude chat".
+    var title: String
+    /// `title` is its own, not only what it is. A client may show its name instead.
+    var titled: Bool?
+    /// Its terminal; none for a chat.
+    var session: Int?
+    var status: AgentStatus
+    var group: AgentGroup
+    /// The word shown for its group, such as "Needs input".
+    var label: String
+    /// How its turn stands; none before its first turn.
+    var turn: TurnState?
+    var unread: Bool
+    var subagents: Int
+    var tasks: Int
+    /// Mid-turn or waiting on an answer, so stopping it now loses work.
+    var busy: Bool
+    /// Its last turn ended in a failure.
+    var failed: Bool
+    /// It still has subagents or shells running.
+    var background: Bool
+    var activeAt: Int?
+    /// When the soonest trigger set on it sends it a prompt, in Unix milliseconds.
+    var nextTrigger: Int?
+    /// How many triggers it set on its own chat, which pause when it closes.
+    var triggers: Int?
+    /// When a build it started began to wait for its turn on the host, while it waits, in
+    /// Unix milliseconds.
+    var buildQueuedAt: Int?
+    /// When the agent was last named with `@` or messaged by another agent.
+    var calledAt: Int?
+    /// The face it wears, as the workspace's agent does; none while it shows
+    /// its CLI's logo.
+    var face: AgentFace?
+    /// Its place on its lead's team, which the agents listed after a lead
+    /// belong to; none for an agent on its own.
+    var team: TeamLink?
+    /// The workspace project it is in, by id; none for one outside every project.
+    var project: String?
+    /// What to call where it works: its project, else its folder.
+    var projectName: String?
+    /// The attempt it is retrying a failed request on, 0 when it did not say.
+    var reconnecting: Int?
+    /// It is snoozed out of the main list until then, in Unix milliseconds. None once it
+    /// wakes, at that time or earlier when it asks the person something.
+    var snoozedUntil: Int?
+    /// When it was settled out of the main list; none while it is in it.
+    var settledAt: Int?
+    /// The core settled it by itself rather than the person, so a client offers Undo.
+    var autoSettled: Bool?
 }
 
 /// Several agents shown as one: the group of the one that wants the person

@@ -12,7 +12,10 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sikemux_process::clock::epoch_ms;
+use sikemux_process::sync::Locked;
 
+use sikemux_view::inbox::AgentShown;
+use sikemux_view::turn::TurnState;
 use sikemux_wire::protocol::AgentStatus;
 
 use super::super::connection::blocking;
@@ -32,9 +35,11 @@ const WORKED_EVERY_MS: u64 = 30_000;
 /// How far up a chain of leads to look.
 const MAX_CHAIN: usize = 8;
 
-/// Names this host keeps for agents on linked hosts while they run there.
+/// Names this host keeps for agents on linked hosts while they run there. Their hosts then
+/// hear how each turn here stands, which the device view tells them.
 pub(crate) fn pin(core: &Core) {
     core.names.pin(core.hosts.team.ids());
+    core.view_watched();
 }
 
 /// The hosts that know `agent_id`, an agent here, as one of a team's: the one
@@ -98,6 +103,9 @@ fn status_of(happened: Happened) -> AgentStatus {
 const ENDED: &str = "agent.ended";
 /// What it hears when the agent's chat went to sleep, to wake when it is written to.
 const ASLEEP: &str = "agent.asleep";
+/// What it hears when how the agent's turn stands moved. A host that does not know it only
+/// takes the status.
+const TURN: &str = "agent.turn";
 
 /// Something happened to an agent here: the hosts its teammates run on hear. An agent that
 /// stopped running stays their teammate until it is closed.
@@ -106,12 +114,36 @@ pub(crate) fn happened(core: &Core, agent_id: &str, happened: Happened) {
         Happened::Gone => ENDED,
         happened => happened.kind(),
     };
-    tell_watchers(core, agent_id, kind, status_of(happened), false);
+    tell_watchers(core, agent_id, kind, status_of(happened), None, false);
 }
 
 /// An agent here went to sleep.
 pub(crate) fn asleep(core: &Core, agent_id: &str) {
-    tell_watchers(core, agent_id, ASLEEP, AgentStatus::Asleep, false);
+    tell_watchers(core, agent_id, ASLEEP, AgentStatus::Asleep, None, false);
+}
+
+/// The hosts each agent's teammates run on hear how its turn stands, whenever that moved.
+pub(crate) fn turns_moved(core: &Core, agents: &[AgentShown]) {
+    let moved: Vec<&AgentShown> = {
+        let mut told = core.hosts.turns_told.locked();
+        if core.hosts.team.is_empty() {
+            told.clear();
+            return;
+        }
+        let open: HashSet<&str> = agents.iter().map(|agent| agent.agent_id.as_str()).collect();
+        told.retain(|agent_id, _| open.contains(agent_id.as_str()));
+        let moved: Vec<&AgentShown> = (agents.iter())
+            .filter(|agent| told.get(&agent.agent_id) != Some(&agent.turn))
+            .collect();
+        for agent in &moved {
+            told.insert(agent.agent_id.clone(), agent.turn.clone());
+        }
+        moved
+    };
+    for agent in moved {
+        let turn = agent.turn.clone();
+        tell_watchers(core, &agent.agent_id, TURN, agent.status, turn, false);
+    }
 }
 
 /// The person closed these agents here: their teammates elsewhere let them go, and so does
@@ -123,13 +155,25 @@ pub(crate) fn closed(core: &Core, agent_ids: &[&String]) {
             agent_id,
             Happened::Gone.kind(),
             AgentStatus::Stopped,
+            None,
             true,
         );
         local_gone(core, agent_id);
     }
 }
 
-fn tell_watchers(core: &Core, agent_id: &str, kind: &str, status: AgentStatus, keep: bool) {
+fn tell_watchers(
+    core: &Core,
+    agent_id: &str,
+    kind: &str,
+    status: AgentStatus,
+    turn: Option<TurnState>,
+    keep: bool,
+) {
+    let key = match kind {
+        TURN => "turn",
+        _ => "happened",
+    };
     for host in watchers(core, agent_id) {
         post(core, &host, {
             let sending = Sending::new(
@@ -138,9 +182,10 @@ fn tell_watchers(core: &Core, agent_id: &str, kind: &str, status: AgentStatus, k
                     agent_id: agent_id.to_owned(),
                     kind: kind.to_owned(),
                     status,
+                    turn: turn.clone(),
                 }),
             )
-            .keyed(format!("happened:{agent_id}"))
+            .keyed(format!("{key}:{agent_id}"))
             .about(agent_id);
             if keep {
                 sending.kept()
@@ -186,6 +231,8 @@ pub(super) struct HappenedParams {
     agent_id: String,
     kind: String,
     status: AgentStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    turn: Option<TurnState>,
 }
 
 pub(super) fn happened_here(core: &Core, host: &str, params: HappenedParams) -> CoreResult<Value> {
@@ -199,13 +246,17 @@ pub(super) fn happened_here(core: &Core, host: &str, params: HappenedParams) -> 
     };
     let happened = match params.kind.as_str() {
         ENDED => Some(Happened::Gone),
-        ASLEEP => None,
+        ASLEEP | TURN => None,
         kind => Happened::of(kind),
     };
     let closed = params.kind == Happened::Gone.kind();
+    let turn = (params.kind == TURN).then_some(params.turn);
     core.hosts.team.update(&foreign.agent_id, |foreign| {
         foreign.status = params.status;
         foreign.active_at = Some(epoch_ms());
+        if let Some(turn) = turn {
+            foreign.turn = turn;
+        }
     });
     if let Some(happened) = happened {
         core.harness
@@ -273,6 +324,7 @@ pub(crate) fn resync(core: &Arc<Core>, host: &str) {
                 Some(Standing {
                     agent_id: agent_id.clone(),
                     status,
+                    turn: super::super::turn_state::now(&core, agent_id),
                 })
             })
             .collect();
@@ -363,6 +415,8 @@ pub(super) fn workers_here(
 pub(super) struct Standing {
     agent_id: String,
     status: AgentStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    turn: Option<TurnState>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -373,18 +427,19 @@ pub(super) struct TeamParams {
 /// What `host` says its agents of shared teams are doing. Those it no longer
 /// lists have stopped running there.
 pub(super) fn team_here(core: &Core, host: &str, params: TeamParams) -> CoreResult<Value> {
-    let present: HashMap<String, AgentStatus> = params
+    let present: HashMap<String, (AgentStatus, Option<TurnState>)> = params
         .agents
         .into_iter()
-        .map(|standing| (standing.agent_id, standing.status))
+        .map(|standing| (standing.agent_id, (standing.status, standing.turn)))
         .collect();
     for foreign in core.hosts.team.on(host) {
         match present.get(&foreign.agent_id) {
             None if foreign.pending.is_some() => {}
-            Some(status) => {
-                core.hosts
-                    .team
-                    .update(&foreign.agent_id, |foreign| foreign.status = *status);
+            Some((status, turn)) => {
+                core.hosts.team.update(&foreign.agent_id, |foreign| {
+                    foreign.status = *status;
+                    foreign.turn.clone_from(turn);
+                });
             }
             None => {
                 core.harness
@@ -728,6 +783,7 @@ pub(super) fn hire_here(core: &Core, host: &str, params: HireParams) -> CoreResu
         parent: Some(params.lead),
         role: Role::Worker,
         status: AgentStatus::Starting,
+        turn: None,
         active_at: Some(epoch_ms()),
         repo: lead.repo,
         landed: None,

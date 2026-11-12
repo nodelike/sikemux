@@ -248,6 +248,7 @@ fn remote_agents(core: &Core) -> Vec<RemoteAgent> {
             status: foreign.status,
             group: foreign.status.group(),
             label: display::status_label(foreign.status).to_owned(),
+            turn: foreign.turn,
             lead: foreign.parent,
             project: foreign.project,
             team: None,
