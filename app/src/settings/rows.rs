@@ -95,9 +95,13 @@ pub fn section_with(
                             .gap(SPACE_2)
                             .when(named, |line| {
                                 line.child(
-                                    ui::text(title, TEXT_SM, FontWeight::SEMIBOLD)
-                                        .whitespace_nowrap()
-                                        .text_color(t.text_primary),
+                                    ui::text(
+                                        crate::i18n::tr(&title).to_owned(),
+                                        TEXT_SM,
+                                        FontWeight::SEMIBOLD,
+                                    )
+                                    .whitespace_nowrap()
+                                    .text_color(t.text_primary),
                                 )
                             })
                             .children(meta.map(|meta| {

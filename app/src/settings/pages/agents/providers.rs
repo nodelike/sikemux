@@ -69,7 +69,7 @@ impl Fields {
     pub fn new(bench: &Workbench, window: &mut Window, cx: &mut Context<Workbench>) -> Self {
         let key = cx.new(|cx| {
             InputState::new(window, cx)
-                .placeholder("Paste the API key or its op:// reference")
+                .placeholder(t!("Paste the API key or its op:// reference"))
                 .masked(true)
         });
         let helper_model = cx.new(|cx| InputState::new(window, cx));
@@ -206,10 +206,14 @@ fn chats_on(bench: &Workbench, provider: &ModelProvider) -> String {
         .collect();
     match agents.split_last() {
         None => String::new(),
-        Some((last, [])) => format!("{last} chats can run on it from the model picker."),
-        Some((last, rest)) => format!(
-            "{} and {last} chats can run on it from the model picker.",
-            rest.join(", ")
+        Some((last, [])) => t!(
+            "{agent} chats can run on it from the model picker.",
+            agent = last
+        ),
+        Some((last, rest)) => t!(
+            "{agents} and {last} chats can run on it from the model picker.",
+            agents = rest.join(", "),
+            last = last
         ),
     }
 }
@@ -221,9 +225,13 @@ fn model_words(provider: &ModelProvider, model: &str) -> Vec<String> {
     let facts = provider.choices.facts.get(name);
     let mut words = Vec::new();
     if let Some(facts) = facts {
-        words.push(format!("{} context", compact(facts.context as f64)));
+        words.push(t!("{size} context", size = compact(facts.context as f64)));
         if let (Some(input), Some(output)) = (facts.input, facts.output) {
-            words.push(format!("${input}/${output} per 1M"));
+            words.push(t!(
+                "${input}/${output} per 1M",
+                input = input,
+                output = output
+            ));
         }
     }
     if let Some(check) = provider.checks.get(name) {
@@ -231,9 +239,9 @@ fn model_words(provider: &ModelProvider, model: &str) -> Vec<String> {
     } else if let Some(facts) = facts {
         words.push(
             if facts.tool_call {
-                "lists tool calls"
+                t!("lists tool calls")
             } else {
-                "no tool calls"
+                t!("no tool calls")
             }
             .into(),
         );
@@ -243,8 +251,8 @@ fn model_words(provider: &ModelProvider, model: &str) -> Vec<String> {
 
 fn check_words(check: &Check) -> &'static str {
     match check.works {
-        true => "works with agents",
-        false => "tool calls failed",
+        true => t!("works with agents"),
+        false => t!("tool calls failed"),
     }
 }
 
@@ -253,7 +261,7 @@ fn model_lines(provider: &ModelProvider) -> Vec<String> {
     let mut lines = Vec::new();
     if let Some(model) = provider.choices.model.as_deref() {
         let words = [vec![model.to_owned()], model_words(provider, model)].concat();
-        lines.push(format!("Starts on {}", words.join(" · ")));
+        lines.push(t!("Starts on {model}", model = words.join(" · ")));
     }
     for (model, check) in &provider.checks {
         let day = chrono::DateTime::from_timestamp_millis(check.at as i64)
@@ -263,7 +271,12 @@ fn model_lines(provider: &ModelProvider) -> Vec<String> {
                     .to_string()
             })
             .unwrap_or_default();
-        lines.push(format!("{model} {}, {day}", check_words(check)));
+        lines.push(t!(
+            "{model} {result}, {day}",
+            model = model,
+            result = check_words(check),
+            day = day
+        ));
     }
     lines
 }
@@ -294,9 +307,9 @@ fn check_button(
     let model = checked_model(provider)?;
     let id = provider.id.clone();
     let label = if busy {
-        "Checking…"
+        t!("Checking…")
     } else {
-        "Check tool calls"
+        t!("Check tool calls")
     };
     Some(button(
         format!("provider-check-{id}"),
@@ -352,7 +365,8 @@ fn keyed_row(
         (Some(message), _) => Some(lines(vec![message.clone()], true, cx)),
         (None, true) => {
             let first = format!(
-                "Connected. Agents started from now on can use it. {}",
+                "{} {}",
+                t!("Connected. Agents started from now on can use it."),
                 chats_on(bench, provider)
             );
             let added = provider
@@ -377,7 +391,11 @@ fn keyed_row(
     };
     let sign_up = provider.sign_up_url.clone();
     let custom = provider.custom;
-    let word = if custom { "Remove" } else { "Disconnect" };
+    let word = if custom {
+        t!("Remove")
+    } else {
+        t!("Disconnect")
+    };
     let controls = div()
         .flex()
         .items_center()
@@ -419,7 +437,7 @@ fn keyed_row(
                 .child(div().w(px(220.)).child(ui::Field::new(&fields.key)))
                 .child(button(
                     format!("provider-cancel-{id}"),
-                    "Cancel",
+                    t!("Cancel"),
                     ui::Variant::Outline,
                     busy,
                     this,
@@ -427,7 +445,11 @@ fn keyed_row(
                 ))
                 .child(button(
                     format!("provider-connect-{id}"),
-                    if busy { "Checking…" } else { "Connect" },
+                    if busy {
+                        t!("Checking…")
+                    } else {
+                        t!("Connect")
+                    },
                     ui::Variant::Primary,
                     busy || empty,
                     this,
@@ -439,7 +461,7 @@ fn keyed_row(
             controls
                 .child(button(
                     format!("provider-sign-up-{id}"),
-                    "Get a key",
+                    t!("Get a key"),
                     ui::Variant::Outline,
                     false,
                     this,
@@ -447,7 +469,7 @@ fn keyed_row(
                 ))
                 .child(button(
                     format!("provider-add-{id}"),
-                    "Add key",
+                    t!("Add key"),
                     ui::Variant::Outline,
                     false,
                     this,
@@ -513,11 +535,11 @@ fn local_row(
                 .unwrap_or_default();
             vec![t!("Nothing is answering at {host}.", host = host)]
         }
-        (true, true) => vec!["Running, with no models downloaded yet.".into()],
+        (true, true) => vec![t!("Running, with no models downloaded yet.").into()],
         (true, false) => [
             vec![format!(
-                "Running with {}. {}",
-                models.join(", "),
+                "{} {}",
+                t!("Running with {models}.", models = models.join(", ")),
                 chats_on(bench, provider)
             )
             .trim()
@@ -545,7 +567,7 @@ fn local_row(
         .when(!connected && !custom, |controls| {
             controls.child(button(
                 format!("runner-download-{id}"),
-                "Download",
+                t!("Download"),
                 ui::Variant::Outline,
                 false,
                 this,
@@ -559,9 +581,9 @@ fn local_row(
             controls.child(button(
                 format!("runner-again-{id}"),
                 if checking {
-                    "Checking…"
+                    t!("Checking…")
                 } else {
-                    "Check again"
+                    t!("Check again")
                 },
                 ui::Variant::Outline,
                 checking,
@@ -576,7 +598,7 @@ fn local_row(
             let removing = id.clone();
             controls.child(button(
                 format!("runner-remove-{id}"),
-                "Remove",
+                t!("Remove"),
                 ui::Variant::Outline,
                 busy,
                 this,
@@ -642,7 +664,7 @@ pub(in crate::settings::pages) fn rebuild_choices(
         .as_ref()
         .and_then(|agent| agents.iter().position(|(kind, _)| kind == agent))
         .map_or(0, |at| at + 1);
-    let labels: Vec<String> = std::iter::once("As the agent that starts them".to_owned())
+    let labels: Vec<String> = std::iter::once(t!("As the agent that starts them").to_owned())
         .chain(agents.iter().map(|(_, label)| label.clone()))
         .collect();
     let kinds: Vec<String> = agents.iter().map(|(kind, _)| kind.clone()).collect();
@@ -682,7 +704,7 @@ pub(in crate::settings::pages) fn rebuild_choices(
             .and_then(|current| routes.iter().position(|(id, _)| id == current))
             .map_or(0, |at| at + 1);
         let labels: Vec<String> =
-            std::iter::once(format!("{} account", bench.agent_name(&agent).to_owned()))
+            std::iter::once(t!("{agent} account", agent = bench.agent_name(&agent)))
                 .chain(routes.iter().map(|(_, label)| label.clone()))
                 .collect();
         let ids: Vec<String> = routes.iter().map(|(id, _)| id.clone()).collect();
@@ -713,7 +735,7 @@ pub(in crate::settings::pages) fn rebuild_choices(
             .find(|each| Some(&each.id) == helper.provider.as_ref())?;
         route.choices.defaults.get(&helper.agent).cloned()
     });
-    let placeholder = route.unwrap_or_else(|| "The agent's own".into());
+    let placeholder = route.unwrap_or_else(|| t!("The agent's own").into());
     change_fields(bench, cx, |fields, cx| {
         fields.helper_model.update(cx, |input, cx| {
             input.set_placeholder(placeholder, window, cx);
@@ -795,7 +817,7 @@ pub fn render(
             .children(adds);
         rows::section(
             title,
-            (count > 0).then(|| format!("{count} connected").into()),
+            (count > 0).then(|| t!("{count} connected", count = count).into()),
             Some(sub.into()),
             lit(title),
             body,
@@ -805,32 +827,32 @@ pub fn render(
     let section = match page {
         Page::Plans => keyed(
             Kind::Plan,
-        "Coding plans",
-        "Monthly subscriptions made for coding agents. Once its key is saved here, a plan's models show in every chat's model picker, run by an agent that can use them. Keys stay in your Keychain.",
+        n!("Coding plans"),
+        t!("Monthly subscriptions made for coding agents. Once its key is saved here, a plan's models show in every chat's model picker, run by an agent that can use them. Keys stay in your Keychain."),
         cx,
     ),
         Page::Providers => keyed(
             Kind::Api,
-        "API providers",
-        "Hosted models you pay the provider for by the token. Once its key is saved here, a provider's models show in every chat's model picker, run by an agent that can use them. Keys stay in your Keychain.",
+        n!("API providers"),
+        t!("Hosted models you pay the provider for by the token. Once its key is saved here, a provider's models show in every chat's model picker, run by an agent that can use them. Keys stay in your Keychain."),
         cx,
     ),
         Page::LocalModels => {
     let local = of_kind(Kind::Local);
     let running = connected(&local);
     rows::section(
-        t!("Local models"),
-        (running > 0).then(|| format!("{running} running").into()),
-        Some("Models served on this host by Ollama or LM Studio. They need no key, and nothing leaves this host.".into()),
+        n!("Local models"),
+        (running > 0).then(|| t!("{count} running", count = running).into()),
+        Some(t!("Models served on this host by Ollama or LM Studio. They need no key, and nothing leaves this host.").into()),
         lit("Local models"),
         div().children(local.iter().map(|provider| local_row(bench, fields, provider, this, cx))),
         cx,
     )
         }
         _ => rows::section(
-        t!("Helpers"),
+        n!("Helpers"),
         None,
-        Some("Agents that other agents start without naming a model run as set here, and Claude Code's own subagents take this model when their chat runs where helpers do. The agent you build with keeps the model you pick.".into()),
+        Some(t!("Agents that other agents start without naming a model run as set here, and Claude Code's own subagents take this model when their chat runs where helpers do. The agent you build with keeps the model you pick.").into()),
         lit("Helpers"),
         helpers(bench, fields, cx),
         cx,

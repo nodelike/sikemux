@@ -42,9 +42,10 @@ impl Fields {
             name,
             _typing: typing,
             program: cx
-                .new(|cx| InputState::new(window, cx).placeholder("Leave empty to use PATH")),
-            folder: cx
-                .new(|cx| InputState::new(window, cx).placeholder("Automatic, or ~/.claude-work")),
+                .new(|cx| InputState::new(window, cx).placeholder(t!("Leave empty to use PATH"))),
+            folder: cx.new(|cx| {
+                InputState::new(window, cx).placeholder(t!("Automatic, or ~/.claude-work"))
+            }),
         }
     }
 }
@@ -200,7 +201,10 @@ pub fn render(
                                 .child(format!(
                                     "{} · {}",
                                     profile.provider,
-                                    profile.executable_path.as_deref().unwrap_or("system PATH")
+                                    profile
+                                        .executable_path
+                                        .as_deref()
+                                        .unwrap_or(t!("system PATH"))
                                 )),
                         ),
                 )
@@ -279,9 +283,9 @@ pub fn render(
     let editor = div()
         .flex_1()
         .min_w_0()
-        .child(stacked("Name", None, field(&fields.name)))
+        .child(stacked(t!("Name"), None, field(&fields.name)))
         .child(stacked(
-            "Agent",
+            t!("Agent"),
             None,
             div()
                 .when(built_in, |row| row.opacity(0.5))
@@ -289,16 +293,16 @@ pub fn render(
                 .into_any_element(),
         ))
         .child(stacked(
-            "Executable path",
-            Some("Empty uses PATH.".into()),
+            t!("Executable path"),
+            Some(t!("Empty uses PATH.").into()),
             field(&fields.program),
         ))
         .when(has_accounts, |editor| {
             editor.child(stacked(
-                "Profile directory",
-                Some(format!(
-                    "Set this only when keeping several {} accounts side by side.",
-                    fields.provider
+                t!("Profile directory"),
+                Some(t!(
+                    "Set this only when keeping several {agent} accounts side by side.",
+                    agent = fields.provider
                 )),
                 field(&fields.folder),
             ))
@@ -325,7 +329,11 @@ pub fn render(
                 .child(
                     ui::Button::new(
                         "profile-save",
-                        if saved { "Save profile" } else { "Add profile" },
+                        if saved {
+                            t!("Save profile")
+                        } else {
+                            t!("Add profile")
+                        },
                         ui::Variant::Primary,
                     )
                     .icon(Icon::Check)
@@ -334,9 +342,9 @@ pub fn render(
                 ),
         );
     rows::section(
-        t!("Agent profiles"),
-        Some(format!("{} configured", profiles.len()).into()),
-        Some("Which local executable a launch uses. Profiles never hold credentials.".into()),
+        n!("Agent profiles"),
+        Some(t!("{count} configured", count = profiles.len()).into()),
+        Some(t!("Which local executable a launch uses. Profiles never hold credentials.").into()),
         lit("Agent profiles"),
         div()
             .flex()

@@ -113,8 +113,8 @@ const BUILD_RUNS: [u32; 9] = [0, 1, 2, 3, 4, 6, 8, 12, 16];
 
 /// The themes new agents' names come from: the core's word, and how the menu shows it.
 const NAMES: [(NameTheme, &str); 2] = [
-    (NameTheme::Nature, "Nature: Otter, Maple, Flint"),
-    (NameTheme::Anime, "Anime: Luffy, Gojo, Frieren"),
+    (NameTheme::Nature, n!("Nature: Otter, Maple, Flint")),
+    (NameTheme::Anime, n!("Anime: Luffy, Gojo, Frieren")),
 ];
 
 /// Asks the core what new agents are called, and offers the themes once it says.
@@ -132,7 +132,10 @@ pub fn read_names(bench: &Workbench, window: &mut Window, cx: &mut Context<Workb
             .unwrap_or(0);
         let _ = bench.update_in(cx, |bench, window, cx| {
             let names = Choice::new(
-                NAMES.iter().map(|(_, label)| *label).collect(),
+                NAMES
+                    .iter()
+                    .map(|(_, label)| crate::i18n::tr(*label))
+                    .collect(),
                 chosen,
                 |bench, at, _| {
                     Target::here(&bench.asks).call_typed::<call::SetAgentNameTheme>(
@@ -232,18 +235,18 @@ impl Fields {
 const MODES: [(PermissionMode, &str, &str); 3] = [
     (
         PermissionMode::WorkspaceWrite,
-        "Normal",
-        "Use the agent's normal approval and sandbox behavior.",
+        n!("Normal"),
+        n!("Use the agent's normal approval and sandbox behavior."),
     ),
     (
         PermissionMode::Auto,
-        "Auto",
-        "The agent's own reviewer approves safe actions and asks you the risky ones. Agents without one run as Normal.",
+        n!("Auto"),
+        n!("The agent's own reviewer approves safe actions and asks you the risky ones. Agents without one run as Normal."),
     ),
     (
         PermissionMode::Bypass,
         "YOLO",
-        "Bypass approvals and sandboxing.",
+        n!("Bypass approvals and sandboxing."),
     ),
 ];
 
@@ -295,13 +298,13 @@ pub fn boundary(
                         } else {
                             t.text_primary
                         })
-                        .child(*name),
+                        .child(crate::i18n::tr(*name)),
                 )
                 .child(
                     div()
                         .text_size(crate::theme::ui_text(TEXT_2XS_H))
                         .text_color(t.text_tertiary)
-                        .child(*detail),
+                        .child(crate::i18n::tr(*detail)),
                 )
                 .on_click(move |_, _, cx| {
                     this.update(cx, |bench, _| {
@@ -316,11 +319,11 @@ pub fn boundary(
     let name = MODES
         .iter()
         .find(|(mode, _, _)| *mode == current)
-        .map_or("Normal", |(_, name, _)| *name);
+        .map_or(n!("Normal"), |(_, name, _)| *name);
     rows::section(
-        t!("Launch boundary"),
-        Some(name.into()),
-        Some("Offered before every launch. Providers without a matching CLI control fall back to their own settings.".into()),
+        n!("Launch boundary"),
+        Some(crate::i18n::tr(name).into()),
+        Some(t!("Offered before every launch. Providers without a matching CLI control fall back to their own settings.").into()),
         lit("Launch boundary"),
         cards,
         cx,
@@ -392,7 +395,7 @@ pub fn render(
             t!("Only confirmed native session IDs are written to disk. Startup commands and terminal output never are."),
             cx,
         ));
-    rows::section(t!("Chats"), None, None, lit("Chats"), body, cx)
+    rows::section(n!("Chats"), None, None, lit("Chats"), body, cx)
 }
 
 /// Whether Sikemux says when an agent needs the person, and a test of it.
@@ -437,7 +440,7 @@ pub fn notifications(
             cx,
         ));
     rows::section(
-        t!("Notifications"),
+        n!("Notifications"),
         None,
         None,
         lit("Notifications"),

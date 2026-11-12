@@ -29,17 +29,17 @@ fn about(shown: &ModInfo) -> SharedString {
     }
     let mut said = Vec::new();
     if !shown.reads.is_empty() {
-        said.push(format!("reads {}", shown.reads.join(", ")));
+        said.push(t!("reads {names}", names = shown.reads.join(", ")));
     }
     if !shown.writes.is_empty() {
-        let allowed = match shown.allowed {
-            true => "allowed",
-            false => "asks first",
-        };
-        said.push(format!("changes {} ({allowed})", shown.writes.join(", ")));
+        let names = shown.writes.join(", ");
+        said.push(match shown.allowed {
+            true => t!("changes {names} (allowed)", names = names),
+            false => t!("changes {names} (asks first)", names = names),
+        });
     }
     if shown.project.is_some() {
-        said.push("shows in one project".to_owned());
+        said.push(t!("shows in one project").to_owned());
     }
     match said.is_empty() {
         true => SharedString::from(shown.description.clone()),
@@ -57,7 +57,7 @@ fn controls(shown: &ModInfo, this: &Entity<Workbench>) -> AnyElement {
         )
     };
     let (opening, open) = (this.clone(), (shown.id.clone(), shown.name.clone()));
-    let open = button("open", "Open")
+    let open = button("open", t!("Open"))
         .disabled(shown.off || shown.problem.is_some())
         .on_click(move |_, window, cx| {
             opening.update(cx, |bench, cx| {
@@ -67,7 +67,7 @@ fn controls(shown: &ModInfo, this: &Entity<Workbench>) -> AnyElement {
         });
     let (taking, taken) = (this.clone(), shown.id.clone());
     let take_back = (shown.allowed && !shown.writes.is_empty()).then(|| {
-        button("take-back", "Take back writes").on_click(move |_, _, cx| {
+        button("take-back", t!("Take back writes")).on_click(move |_, _, cx| {
             let id = taken.clone();
             taking.update(cx, |bench, _| {
                 bench.target().call_typed::<call::AllowMod>(AllowParams {
@@ -78,7 +78,7 @@ fn controls(shown: &ModInfo, this: &Entity<Workbench>) -> AnyElement {
         })
     });
     let (removing, removed) = (this.clone(), shown.clone());
-    let remove = button("remove", "Remove")
+    let remove = button("remove", t!("Remove"))
         .icon(Icon::Trash)
         .on_click(move |_, _, cx| removing.update(cx, |bench, cx| bench.remove_mod(&removed, cx)));
     let (switching, switched) = (this.clone(), shown.id.clone());
@@ -125,7 +125,12 @@ pub fn render(
             }))
             .into_any_element(),
     };
-    let folder = list.map(|list| format!("Each mod is a folder of {}.", list.folder.display()));
+    let folder = list.map(|list| {
+        t!(
+            "Each mod is a folder of {folder}. A mod reads only what its mod.json names, and asks you once before it changes anything.",
+            folder = list.folder.display()
+        )
+    });
     let examples = list
         .map(|list| list.examples.as_slice())
         .unwrap_or_default();
@@ -133,7 +138,11 @@ pub fn render(
         let (adding, id, name) = (this.clone(), example.id.clone(), example.name.clone());
         let add = ui::Button::new(
             SharedString::from(format!("mod-example-{}", example.id)),
-            if example.added { "Added" } else { "Add" },
+            if example.added {
+                t!("Added")
+            } else {
+                t!("Add")
+            },
             ui::Variant::Outline,
         )
         .disabled(example.added)
@@ -151,25 +160,22 @@ pub fn render(
             cx,
         )
     }));
-    vec![rows::section(
-        t!("Mods"),
-        None,
-        Some(
-            folder
-                .map(|folder| format!("{folder} A mod reads only what its mod.json names, and asks you once before it changes anything."))
-                .unwrap_or_default()
-                .into(),
+    vec![
+        rows::section(
+            n!("Mods"),
+            None,
+            Some(folder.unwrap_or_default().into()),
+            lit("Mods"),
+            body,
+            cx,
         ),
-        lit("Mods"),
-        body,
-        cx,
-    ),
-    rows::section(
-        t!("Examples"),
-        None,
-        Some("Mods Sikemux ships for you to copy into your mods folder and change.".into()),
-        lit("Examples"),
-        examples,
-        cx,
-    )]
+        rows::section(
+            n!("Examples"),
+            None,
+            Some(t!("Mods Sikemux ships for you to copy into your mods folder and change.").into()),
+            lit("Examples"),
+            examples,
+            cx,
+        ),
+    ]
 }

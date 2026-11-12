@@ -290,8 +290,8 @@ fn account(plugin: &Listed, fields: &Fields) -> Option<SharedString> {
     if plugin.id == DATABASE {
         return match fields.databases.len() {
             0 => None,
-            1 => Some("1 database".into()),
-            saved => Some(format!("{saved} databases").into()),
+            1 => Some(t!("1 database").into()),
+            saved => Some(t!("{count} databases", count = saved).into()),
         };
     }
     let who = plugin
@@ -311,7 +311,7 @@ fn trouble(plugin: &Listed, fields: &Fields) -> Option<SharedString> {
         return None;
     }
     if plugin.id == DATABASE && fields.databases.is_empty() {
-        return Some("No databases saved yet. Agents propose them for you to approve.".into());
+        return Some(t!("No databases saved yet. Agents propose them for you to approve.").into());
     }
     (plugin.signed_in == Some(false))
         .then(|| plugin.problem.clone().map(SharedString::from))
@@ -404,7 +404,7 @@ pub fn render(
             .into_any_element(),
     };
     let vault = super::vault::section(&fields.vault, lit("Account vault"), this, cx);
-    let connectors = rows::section(t!("Connectors"), None, None, lit("Connectors"), body, cx);
+    let connectors = rows::section(n!("Connectors"), None, None, lit("Connectors"), body, cx);
     vault.into_iter().chain([connectors]).collect()
 }
 
@@ -428,7 +428,7 @@ fn controls(plugin: &Listed, fields: &Fields, this: &Entity<Workbench>) -> AnyEl
         ui::IconButton::new(
             SharedString::from(format!("connector-settings-{id}")),
             Icon::Settings,
-            "Settings",
+            t!("Settings"),
         )
         .on_click(move |_: &ClickEvent, _: &mut Window, cx: &mut App| {
             let id = id.clone();
@@ -440,9 +440,9 @@ fn controls(plugin: &Listed, fields: &Fields, this: &Entity<Workbench>) -> AnyEl
     let signed_in = plugin.signed_in == Some(true);
     let button = (plugin.enabled && has_sign_in(plugin)).then(|| {
         let (label, signing_out) = match signed_in && plugin.sign_out {
-            true => ("Sign out", true),
-            false if signed_in => ("Sign in again", false),
-            false => ("Sign in", false),
+            true => (t!("Sign out"), true),
+            false if signed_in => (t!("Sign in again"), false),
+            false => (t!("Sign in"), false),
         };
         let (glyph, variant) = match (signing_out, plugin.problem.is_some() && !signed_in) {
             (true, _) => (Icon::LogOut, ui::Variant::Ghost),
@@ -533,14 +533,14 @@ fn settings(
             let wide = |input: &Entity<InputState>| div().w_full().child(ui::Field::new(input));
             vec![
                 setting(
-                    "Production words",
-                    Some("A job whose project or top folder holds one of these is production, and agents ask you before running it.".into()),
+                    t!("Production words"),
+                    Some(t!("A job whose project or top folder holds one of these is production, and agents ask you before running it.").into()),
                     wide(&lists.production),
                     cx,
                 ),
                 setting(
-                    "Branch options",
-                    Some("The job options that name the branch a run deploys.".into()),
+                    t!("Branch options"),
+                    Some(t!("The job options that name the branch a run deploys.").into()),
                     wide(&lists.branches),
                     cx,
                 ),
@@ -561,8 +561,8 @@ fn aws_settings(fields: &Fields, this: &Entity<Workbench>, cx: &App) -> Vec<AnyE
     };
     if aws.profiles.is_empty() {
         return vec![setting(
-            "No profiles yet",
-            Some("Add one to ~/.aws/config, then open this page again.".into()),
+            t!("No profiles yet"),
+            Some(t!("Add one to ~/.aws/config, then open this page again.").into()),
             div(),
             cx,
         )];
@@ -601,12 +601,12 @@ fn aws_settings(fields: &Fields, this: &Entity<Workbench>, cx: &App) -> Vec<AnyE
     let agents = aws.agents.clone().unwrap_or_default();
     vec![
         setting(
-            "Signed in with",
-            Some("The profile whose sign-in this page checks.".into()),
+            t!("Signed in with"),
+            Some(t!("The profile whose sign-in this page checks.").into()),
             ui::select(
                 "aws-account",
                 match account.is_empty() {
-                    true => "Pick a profile".to_owned(),
+                    true => t!("Pick a profile").to_owned(),
                     false => account.clone(),
                 },
                 picks(None),
@@ -618,15 +618,15 @@ fn aws_settings(fields: &Fields, this: &Entity<Workbench>, cx: &App) -> Vec<AnyE
             cx,
         ),
         setting(
-            "Profile agents start on",
-            Some("Set as AWS_PROFILE for every agent, unless your own shell sets one.".into()),
+            t!("Profile agents start on"),
+            Some(t!("Set as AWS_PROFILE for every agent, unless your own shell sets one.").into()),
             ui::select(
                 "aws-agents",
                 match agents.is_empty() {
-                    true => "Automatic".to_owned(),
+                    true => t!("Automatic").to_owned(),
                     false => agents.clone(),
                 },
-                picks(Some("Automatic")),
+                picks(Some(t!("Automatic"))),
                 Some(agents.into()),
                 false,
                 pick("pickAgentProfile"),
@@ -646,7 +646,7 @@ fn database_row(database: &Database, this: &Entity<Workbench>, cx: &App) -> AnyE
         ui::IconButton::new(
             SharedString::from(format!("database-remove-{name}")),
             Icon::Trash,
-            "Remove",
+            t!("Remove"),
         )
         .on_click(move |_: &ClickEvent, window: &mut Window, cx: &mut App| {
             let params = json!({ "database": name });
@@ -680,7 +680,7 @@ fn database_row(database: &Database, this: &Entity<Workbench>, cx: &App) -> AnyE
                 .gap(SPACE_4)
                 .child(database_switch(
                     &name,
-                    "Agents may change data",
+                    t!("Agents may change data"),
                     database.writable,
                     "setAgentWrites",
                     this,
@@ -688,7 +688,7 @@ fn database_row(database: &Database, this: &Entity<Workbench>, cx: &App) -> AnyE
                 ))
                 .child(database_switch(
                     &name,
-                    "Production",
+                    t!("Production"),
                     database.production,
                     "setProduction",
                     this,
@@ -1054,14 +1054,14 @@ pub fn dialog(
         || t!("Tools for your agents to use {name} for you.", name = name),
         |form| form.lede.clone(),
     ))
-    .foot(sign_in::KEPT);
+    .foot(crate::i18n::tr(sign_in::KEPT));
     if plugin.id == AWS {
         let chosen = signing.profile.clone().unwrap_or_default();
         let this = this.clone();
         screen = screen.child(ui::select(
             "connector-aws-profile",
             match chosen.is_empty() {
-                true => "Pick a profile".to_owned(),
+                true => t!("Pick a profile").to_owned(),
                 false => chosen.clone(),
             },
             profiles
@@ -1087,7 +1087,7 @@ pub fn dialog(
         screen = screen.child(match signing.browsing {
             true => sign_in::waiting(
                 "connector-browser",
-                "Finish signing in in your browser",
+                t!("Finish signing in in your browser"),
                 on(this, stop_browser),
                 cx,
             )
@@ -1106,7 +1106,7 @@ pub fn dialog(
     }
     if let Some(form) = form {
         if browser {
-            screen = screen.child(sign_in::or("or paste a token", cx));
+            screen = screen.child(sign_in::or(t!("or paste a token"), cx));
         }
         let (_, way) = form.way(signing.other_way);
         let boxes: Vec<_> = way
@@ -1142,9 +1142,9 @@ pub fn dialog(
             ui::Button::new(
                 "connector-token",
                 if signing.busy && !signing.browsing {
-                    "Signing in…"
+                    t!("Signing in…")
                 } else {
-                    "Sign in"
+                    t!("Sign in")
                 },
                 match browser {
                     true => ui::Variant::Outline,
@@ -1188,7 +1188,8 @@ pub fn dialog(
                 )
             })
             .child(
-                sign_in::link("connector-cancel", "Cancel", cx).on_click(on(this, close_sign_in)),
+                sign_in::link("connector-cancel", t!("Cancel"), cx)
+                    .on_click(on(this, close_sign_in)),
             ),
     );
     let close: dialog::Answer = {
@@ -1245,9 +1246,9 @@ fn settings_dialog(
         let this = this.clone();
         std::rc::Rc::new(move |_, cx| this.update(cx, close_settings))
     };
-    let foot = dialog::hinted_foot(dialog::escape("close", cx), cx).child(dialog::button(
+    let foot = dialog::hinted_foot(dialog::escape(t!("close"), cx), cx).child(dialog::button(
         "connector-settings-done",
-        "Done".into(),
+        t!("Done").into(),
         Some(t.accent),
         close.clone(),
         cx,
@@ -1255,7 +1256,7 @@ fn settings_dialog(
     Some(
         dialog::marked_sheet(
             mark(&plugin.id),
-            format!("{} settings", plugin.name).into(),
+            t!("{name} settings", name = plugin.name).into(),
             body,
             foot,
             close.clone(),

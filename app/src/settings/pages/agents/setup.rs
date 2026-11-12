@@ -42,7 +42,7 @@ pub fn render(
             .iter()
             .filter(|agent| matches!(agent.status, AgentStatus::Ready { .. }))
             .count();
-        SharedString::from(format!("{ready} ready"))
+        SharedString::from(t!("{count} ready", count = ready))
     });
     let behind = |found: &[Found]| found.iter().any(|agent| agent.update_to().is_some());
     let here_behind = setup.found.as_deref().is_some_and(behind);
@@ -50,19 +50,19 @@ pub fn render(
     let update_all = (here_behind || elsewhere_behind).then(|| {
         let this = this.clone();
         let label = if elsewhere_behind {
-            "Update every host"
+            t!("Update every host")
         } else {
-            "Update all"
+            t!("Update all")
         };
         ui::Button::new("agent-update-all", label, ui::Variant::Outline)
             .on_click(move |_, _, cx| this.update(cx, update_everywhere))
             .into_any_element()
     });
     let here = rows::section_with(
-        t!("Agents on this host"),
+        n!("Agents on this host"),
         ready,
         update_all,
-        Some("Install an agent here and it lands where its own updater expects, so it works in your terminal too.".into()),
+        Some(t!("Install an agent here and it lands where its own updater expects, so it works in your terminal too.").into()),
         lit("Agents on this host"),
         body,
         cx,
@@ -84,7 +84,7 @@ pub fn render(
                         let (this, place) = (this.clone(), place.clone());
                         ui::Button::new(
                             SharedString::from(format!("agent-update-all-{}", host.host)),
-                            "Update all",
+                            t!("Update all"),
                             ui::Variant::Outline,
                         )
                         .on_click(move |_, _, cx| {
@@ -94,7 +94,7 @@ pub fn render(
                         .into_any_element()
                     });
                     rows::section_with(
-                        format!("Agents on {}", bench.host_name(&host.host)),
+                        t!("Agents on {host}", host = bench.host_name(&host.host)),
                         None,
                         update_host,
                         None,
@@ -110,36 +110,44 @@ pub fn render(
 /// The release line under an agent's name: what it runs, what is out, and how an update goes.
 fn releases(agent: &Found) -> Option<SharedString> {
     match &agent.updating {
-        Some(Updating::Queued) => return Some("Waiting for another update to finish".into()),
+        Some(Updating::Queued) => return Some(t!("Waiting for another update to finish").into()),
         Some(Updating::Running { said }) => {
-            return Some(said.clone().unwrap_or_else(|| "Updating…".into()).into())
+            return Some(
+                said.clone()
+                    .unwrap_or_else(|| t!("Updating…").into())
+                    .into(),
+            )
         }
         Some(Updating::Failed { reason }) => {
-            return Some(format!("Update failed: {reason}").into())
+            return Some(t!("Update failed: {reason}", reason = reason).into())
         }
         None => {}
     }
     let version = agent.version.as_deref()?;
-    let mut line = version.to_owned();
+    let mut parts = vec![version.to_owned()];
     if let Some(latest) = agent.update_to() {
-        line.push_str(&format!(" · {latest} out"));
-        if !agent.unlocks.is_empty() {
-            line.push_str(&format!(", brings {}", agent.unlocks.join(", ")));
-        }
+        parts.push(match agent.unlocks.is_empty() {
+            true => t!("{version} out", version = latest),
+            false => t!(
+                "{version} out, brings {features}",
+                version = latest,
+                features = agent.unlocks.join(", ")
+            ),
+        });
     } else if agent.latest.is_some() {
-        line.push_str(" · newest");
+        parts.push(t!("newest").to_owned());
     }
     let older: Vec<&str> = (agent.running.iter())
         .filter(|running| running.as_str() != version)
         .map(String::as_str)
         .collect();
     if !older.is_empty() {
-        line.push_str(&format!(
-            " · open chats run {} until restarted",
-            older.join(", ")
+        parts.push(t!(
+            "open chats run {versions} until restarted",
+            versions = older.join(", ")
         ));
     }
-    Some(line.into())
+    Some(parts.join(" · ").into())
 }
 
 fn list(
@@ -215,7 +223,7 @@ fn list(
                     };
                     ui::Button::new(
                         SharedString::from(id),
-                        if failed { "Retry" } else { "Update" },
+                        if failed { t!("Retry") } else { t!("Update") },
                         ui::Variant::Outline,
                     )
                     .on_click(move |_, _, cx| {
@@ -235,12 +243,20 @@ fn list(
                 .child(status)
                 .children(update_button)
                 .children(sign_in.map(|sheet| {
-                    sheet_button(format!("agent-sign-in-{}", agent.kind), "Sign in", sheet)
+                    sheet_button(
+                        format!("agent-sign-in-{}", agent.kind),
+                        t!("Sign in"),
+                        sheet,
+                    )
                 }))
                 .children(install.map(|sheet| {
                     sheet_button(
                         format!("agent-install-{}", agent.kind),
-                        if broken { "Reinstall" } else { "Install" },
+                        if broken {
+                            t!("Reinstall")
+                        } else {
+                            t!("Install")
+                        },
                         sheet,
                     )
                 }));

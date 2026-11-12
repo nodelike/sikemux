@@ -88,17 +88,17 @@ pub fn render(
     let status = status.as_ref();
     let state = status.map(|status| status.state);
     let label: SharedString = match state {
-        None => "checking",
-        Some(CliInstallState::Unavailable) => "unavailable",
-        Some(CliInstallState::NotInstalled) => "not installed",
-        Some(CliInstallState::Installed) => "installed",
-        Some(CliInstallState::Outdated) => "outdated",
-        Some(CliInstallState::Conflict) => "conflict",
+        None => t!("checking"),
+        Some(CliInstallState::Unavailable) => t!("unavailable"),
+        Some(CliInstallState::NotInstalled) => t!("not installed"),
+        Some(CliInstallState::Installed) => t!("installed"),
+        Some(CliInstallState::Outdated) => t!("outdated"),
+        Some(CliInstallState::Conflict) => t!("conflict"),
     }
     .into();
     let message: SharedString = status
         .map_or(
-            "Checking the packaged command-line integration…",
+            t!("Checking the packaged command-line integration…"),
             |status| status.message.as_str(),
         )
         .to_owned()
@@ -110,10 +110,10 @@ pub fn render(
         .to_owned();
     let busy = pages.cli_busy;
     let button = match (busy, state) {
-        (true, _) => "Installing…",
-        (_, Some(CliInstallState::Outdated)) => "Update CLI",
-        (_, Some(CliInstallState::Installed)) => "Installed",
-        _ => "Install CLI",
+        (true, _) => t!("Installing…"),
+        (_, Some(CliInstallState::Outdated)) => t!("Update CLI"),
+        (_, Some(CliInstallState::Installed)) => t!("Installed"),
+        _ => t!("Install CLI"),
     };
     let can_install = !busy
         && matches!(
@@ -149,8 +149,8 @@ pub fn render(
         .flex_col()
         .gap(SPACE_2H)
         .p(SPACE_4)
-        .child(path_line("Command", "sikemux".into()))
-        .child(path_line("Install directory", install_dir.clone()))
+        .child(path_line(t!("Command"), "sikemux".into()))
+        .child(path_line(t!("Install directory"), install_dir.clone()))
         .child(
             div()
                 .flex()
@@ -175,10 +175,10 @@ pub fn render(
                 div()
                     .text_size(crate::theme::ui_text(TEXT_XS))
                     .text_color(t.danger)
-                    .child(format!(
-                    "Sikemux will not overwrite {}. Move the existing file yourself, then refresh.",
-                    status.map_or("", |status| status.cli_path.as_str())
-                )),
+                    .child(t!(
+                        "Sikemux will not overwrite {path}. Move the existing file yourself, then refresh.",
+                        path = status.map_or("", |status| status.cli_path.as_str())
+                    )),
             )
         })
         .when(
@@ -189,9 +189,7 @@ pub fn render(
                     div()
                         .text_size(crate::theme::ui_text(TEXT_XS))
                         .text_color(t.text_tertiary)
-                        .child(format!(
-                "Add {install_dir} to your shell’s PATH. Sikemux never edits shell startup files."
-            )),
+                        .child(t!("Add {install_dir} to your shell’s PATH. Sikemux never edits shell startup files.", install_dir = install_dir)),
                 )
             },
         );
@@ -207,11 +205,11 @@ pub fn render(
         .child("sikemux src/App.tsx:42:5")
         .child("sikemux open --wait README.md");
     vec![
-        rows::section(t!("Shell integration"), Some(label), Some(message), lit("Shell integration"), integration, cx),
+        rows::section(n!("Shell integration"), Some(label), Some(message), lit("Shell integration"), integration, cx),
         rows::section(
-            t!("Usage"),
+            n!("Usage"),
             None,
-            Some("Existing files open in an editor tab. Directories focus or create their workspace.".into()),
+            Some(t!("Existing files open in an editor tab. Directories focus or create their workspace.").into()),
             lit("Usage"),
             usage,
             cx,

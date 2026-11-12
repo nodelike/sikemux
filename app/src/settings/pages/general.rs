@@ -77,7 +77,7 @@ pub fn sent(bench: &mut Workbench, said: Option<SharedString>, cx: &mut App) {
 
 pub(super) fn make(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench>) {
     let path =
-        cx.new(|cx| InputState::new(window, cx).placeholder("~/proj    or    /Users/me/work"));
+        cx.new(|cx| InputState::new(window, cx).placeholder(t!("~/proj    or    /Users/me/work")));
     let entering = cx.subscribe_in(&path, window, |bench, _, event: &InputEvent, window, cx| {
         if matches!(event, InputEvent::PressEnter { .. }) {
             add_typed(bench, window, cx);
@@ -177,7 +177,7 @@ fn stepper(
             ui::IconButton::new(
                 SharedString::from(format!("{id}-less-{key}")),
                 Icon::Minus,
-                "One level less",
+                t!("One level less"),
             )
             .small()
             .on_click(move |_, _, cx| less(depth.saturating_sub(1), cx)),
@@ -194,7 +194,7 @@ fn stepper(
             ui::IconButton::new(
                 SharedString::from(format!("{id}-more-{key}")),
                 Icon::Plus,
-                "One level more",
+                t!("One level more"),
             )
             .small()
             .on_click(move |_, _, cx| more((depth + 1).min(MAX_PROJECT_DEPTH), cx)),
@@ -242,7 +242,7 @@ pub fn render(
             .child(
                 div().w(px(INDEX_COLUMN)).flex().justify_center().child(
                     Checkbox::new(SharedString::from(format!("root-itself-{key}")))
-                        .accessibility_label("Index itself")
+                        .accessibility_label(t!("Index itself"))
                         .checked(root.self_index)
                         .on_click(move |on: &bool, _, cx| {
                             let (on, path) = (*on, path_a.clone());
@@ -284,7 +284,7 @@ pub fn render(
                         ui::IconButton::new(
                             SharedString::from(format!("root-remove-{key}")),
                             Icon::Close,
-                            "Remove",
+                            t!("Remove"),
                         )
                         .small()
                         .on_click(move |_, _, cx| {
@@ -323,7 +323,7 @@ pub fn render(
                         cx,
                     ))
                     .child(
-                        ui::IconButton::new("root-browse", Icon::Folder, "Browse…").on_click(
+                        ui::IconButton::new("root-browse", Icon::Folder, t!("Browse…")).on_click(
                             move |_, window, cx| {
                                 browse.update(cx, |_, cx| {
                                     let picked = cx.prompt_for_paths(PathPromptOptions {
@@ -358,7 +358,7 @@ pub fn render(
             )
             .child(
                 Checkbox::new("root-add-itself")
-                    .label("Index the folder itself as a project")
+                    .label(t!("Index the folder itself as a project"))
                     .checked(fields.itself)
                     .on_click(move |on: &bool, _, cx| {
                         let on = *on;
@@ -379,15 +379,15 @@ pub fn render(
             .pb(SPACE_1)
             .border_b_1()
             .border_color(t.line_soft)
-            .child(div().flex_1().child(ui::caps("Folder", cx)))
+            .child(div().flex_1().child(ui::caps(t!("Folder"), cx)))
             .child(
                 div()
                     .w(px(INDEX_COLUMN))
                     .flex()
                     .justify_center()
-                    .child(ui::caps("Index itself", cx)),
+                    .child(ui::caps(t!("Index itself"), cx)),
             )
-            .child(div().w(px(DEPTH_COLUMN)).child(ui::caps("Depth", cx)))
+            .child(div().w(px(DEPTH_COLUMN)).child(ui::caps(t!("Depth"), cx)))
     });
     let body = div()
         .children(heads)
@@ -399,15 +399,18 @@ pub fn render(
         ));
     vec![
         rows::section(
-            t!("Project folders"),
-            Some(format!("{count} {}", if count == 1 { "folder" } else { "folders" }).into()),
-            Some("Each folder is scanned for git repos, as deep as its depth allows.".into()),
+            n!("Project folders"),
+            Some(match count {
+                1 => t!("1 folder").into(),
+                count => t!("{count} folders", count = count).into(),
+            }),
+            Some(t!("Each folder is scanned for git repos, as deep as its depth allows.").into()),
             lit("Project folders"),
             body,
             cx,
         ),
         rows::section(
-            t!("Startup"),
+            n!("Startup"),
             None,
             None,
             lit("Startup"),
@@ -427,9 +430,9 @@ pub fn render(
             cx,
         ),
         rows::section(
-            t!("Session transfer"),
+            n!("Session transfer"),
             None,
-            Some("Send the project in front to another host, with its chats and tabs.".into()),
+            Some(t!("Send the project in front to another host, with its chats and tabs.").into()),
             lit("Session transfer"),
             transfer(bench, &fields.transfer, this, cx),
             cx,
@@ -473,7 +476,6 @@ fn transfer(
     let (pick_host, pick_way, pick_changes, send) =
         (this.clone(), this.clone(), this.clone(), this.clone());
     let moving = transfer.moving;
-    let verb = if moving { "Move" } else { "Copy" };
     let name = project.name.clone();
     let body = div()
         .flex()
@@ -500,7 +502,7 @@ fn transfer(
                 .child(
                     ui::Segmented::words(
                         "transfer-way",
-                        vec![("Copy".into(), None), ("Move".into(), None)],
+                        vec![(t!("Copy").into(), None), (t!("Move").into(), None)],
                         usize::from(moving),
                     )
                     .on_select(move |at: &usize, _, cx| {
@@ -511,7 +513,7 @@ fn transfer(
         )
         .child(
             Checkbox::new("transfer-uncommitted")
-                .label("Bring uncommitted changes")
+                .label(t!("Bring uncommitted changes"))
                 .checked(transfer.uncommitted)
                 .on_click(move |on: &bool, _, cx| {
                     let on = *on;
@@ -522,7 +524,10 @@ fn transfer(
             div().flex().child(
                 ui::Button::new(
                     "transfer-send",
-                    format!("{verb} {name} to {label}"),
+                    match moving {
+                        true => t!("Move {name} to {host}", name = name, host = label),
+                        false => t!("Copy {name} to {host}", name = name, host = label),
+                    },
                     ui::Variant::Primary,
                 )
                 .disabled(transfer.sending)

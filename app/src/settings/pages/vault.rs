@@ -27,7 +27,7 @@ use crate::toast;
 use crate::ui;
 use crate::workbench::Workbench;
 
-const EVERY_PROJECT: &str = "Every project";
+const EVERY_PROJECT: &str = n!("Every project");
 
 /// What the page keeps of the vault while it shows.
 #[derive(Default)]
@@ -74,7 +74,7 @@ pub(super) fn read(bench: &mut Workbench, window: &mut Window, cx: &mut Context<
                 cx.new(|cx| {
                     InputState::new(window, cx)
                         .masked(true)
-                        .placeholder("Recovery key")
+                        .placeholder(t!("Recovery key"))
                 })
             });
             let mut scopes = HashMap::new();
@@ -105,9 +105,9 @@ fn scope_choice(
     window: &mut Window,
     cx: &mut Context<Workbench>,
 ) -> Choice {
-    let mut labels: Vec<String> = vec![EVERY_PROJECT.to_owned()];
+    let mut labels: Vec<String> = vec![crate::i18n::tr(EVERY_PROJECT).to_owned()];
     let chosen_label = match &host.projects {
-        None => EVERY_PROJECT.to_owned(),
+        None => crate::i18n::tr(EVERY_PROJECT).to_owned(),
         Some(chosen) if chosen.len() == 1 => chosen[0].clone(),
         Some(chosen) => chosen.join(", "),
     };
@@ -139,7 +139,7 @@ fn scope_choice(
                 host: key.clone(),
                 projects,
             });
-            report(asked, "Project access changed", cx);
+            report(asked, t!("Project access changed"), cx);
         },
         window,
         cx,
@@ -172,7 +172,7 @@ fn allow(bench: &Workbench, entry: &str, host: &str, cx: &mut Context<Workbench>
         host: host.to_owned(),
         projects: None,
     });
-    report(asked, "Allowed", cx);
+    report(asked, t!("Allowed"), cx);
 }
 
 fn revoke(bench: &Workbench, entry: &str, host: &str, cx: &mut Context<Workbench>) {
@@ -180,7 +180,7 @@ fn revoke(bench: &Workbench, entry: &str, host: &str, cx: &mut Context<Workbench
         entry: entry.to_owned(),
         host: host.to_owned(),
     });
-    report(asked, "Revoked", cx);
+    report(asked, t!("Revoked"), cx);
 }
 
 fn toggle_hosts(bench: &Workbench, id: &str, cx: &mut App) {
@@ -225,7 +225,7 @@ fn toggle_log(bench: &mut Workbench, id: &str, cx: &mut Context<Workbench>) {
 
 fn saved_recovery(bench: &Workbench, cx: &mut Context<Workbench>) {
     let asked = Target::here(&bench.asks).request_typed::<call::VaultRecoverySaved>(NoParams {});
-    report(asked, "Recovery key saved", cx);
+    report(asked, t!("Recovery key saved"), cx);
 }
 
 fn recover(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench>) {
@@ -286,7 +286,7 @@ pub(super) fn section(
     let t = Tokens::get(cx);
     let meta: Option<SharedString> = match shown.holders {
         0 => None,
-        1 => Some("Sealed · 1 host holds the key".into()),
+        1 => Some(t!("Sealed · 1 host holds the key").into()),
         many => Some(t!("Sealed · {many} hosts hold the key", many = many).into()),
     };
     let quiet = |text: SharedString| {
@@ -306,7 +306,7 @@ pub(super) fn section(
                 .gap(SPACE_2)
                 .px(SPACE_4)
                 .py(SPACE_3)
-                .child(quiet("Save this recovery key somewhere only you can reach. It is shown once, and it is the only way back in if every host that holds the vault is lost.".into()))
+                .child(quiet(t!("Save this recovery key somewhere only you can reach. It is shown once, and it is the only way back in if every host that holds the vault is lost.").into()))
                 .child(key_box(key, cx))
                 .child(
                     div()
@@ -339,7 +339,7 @@ pub(super) fn section(
                 .gap(SPACE_2)
                 .px(SPACE_4)
                 .py(SPACE_3)
-                .child(quiet("This host waits for one that holds the vault's key to let it in. If none is left, type the recovery key you saved when the vault was made.".into()))
+                .child(quiet(t!("This host waits for one that holds the vault's key to let it in. If none is left, type the recovery key you saved when the vault was made.").into()))
                 .children(fields.recovery.as_ref().map(|input| {
                     div()
                         .flex()
@@ -365,12 +365,12 @@ pub(super) fn section(
             shown
                 .failed
                 .clone()
-                .unwrap_or_else(|| "The account's vault could not be reached.".into()),
+                .unwrap_or_else(|| t!("The account's vault could not be reached.").into()),
             cx,
         ),
     };
     Some(rows::section(
-        t!("Account vault"),
+        n!("Account vault"),
         meta,
         None,
         lit,
@@ -410,11 +410,12 @@ fn sign_in_row(
     let t = Tokens::get(cx);
     let open = fields.open.contains(&sign_in.id);
     let allowed = sign_in.hosts.iter().filter(|host| host.allowed).count();
-    let summary = format!(
-        "{} · from {} · allowed on {allowed} of {} hosts",
-        sign_in.label,
-        sign_in.origin,
-        sign_in.hosts.len()
+    let summary = t!(
+        "{label} · from {origin} · allowed on {allowed} of {hosts} hosts",
+        label = sign_in.label,
+        origin = sign_in.origin,
+        allowed = allowed,
+        hosts = sign_in.hosts.len()
     );
     let toggling = this.clone();
     let id = sign_in.id.clone();
@@ -433,7 +434,7 @@ fn sign_in_row(
         .child(
             ui::Button::new(
                 SharedString::from(format!("vault-hosts-{}", sign_in.id)),
-                if open { "Hide hosts" } else { "Hosts" },
+                if open { t!("Hide hosts") } else { t!("Hosts") },
                 ui::Variant::Outline,
             )
             .on_click(move |_, _, cx| {
@@ -477,10 +478,10 @@ fn host_row(
             .bg(if host.online { t.live } else { t.text_tertiary });
     let mut notes = Vec::new();
     if host.this {
-        notes.push("this host");
+        notes.push(t!("this host"));
     }
     if host.refreshes {
-        notes.push("refreshes it");
+        notes.push(t!("refreshes it"));
     }
     let name = div()
         .flex_1()
@@ -502,21 +503,21 @@ fn host_row(
                 .text_color(t.text_tertiary)
                 .child(format!("· {}", notes.join(" · ")))
         }))
-        .children((!host.allowed).then(|| div().text_color(t.warn).child("· waits for you")));
+        .children((!host.allowed).then(|| div().text_color(t.warn).child(t!("· waits for you"))));
     let entry = sign_in.id.clone();
     let key = host.key.clone();
     let acting = this.clone();
     let action = if host.allowed {
         ui::Button::new(
             SharedString::from(format!("vault-revoke-{}-{}", sign_in.id, host.key)),
-            "Revoke",
+            t!("Revoke"),
             ui::Variant::Outline,
         )
         .on_click(move |_, _, cx| acting.update(cx, |bench, cx| revoke(bench, &entry, &key, cx)))
     } else {
         ui::Button::new(
             SharedString::from(format!("vault-allow-{}-{}", sign_in.id, host.key)),
-            "Allow",
+            t!("Allow"),
             ui::Variant::Outline,
         )
         .on_click(move |_, _, cx| acting.update(cx, |bench, cx| allow(bench, &entry, &key, cx)))
@@ -550,13 +551,13 @@ fn last_use(
 ) -> AnyElement {
     let t = Tokens::get(cx);
     let said = match &sign_in.last_use {
-        Some(used) => format!(
-            "Used {} by {} on {}",
-            ui::time::ago(used.at),
-            used.actor,
-            used.host
+        Some(used) => t!(
+            "Used {ago} by {actor} on {host}",
+            ago = ui::time::ago(used.at),
+            actor = used.actor,
+            host = used.host
         ),
-        None => "Not used here lately".to_owned(),
+        None => t!("Not used here lately").to_owned(),
     };
     let id = sign_in.id.clone();
     let opening = this.clone();
@@ -575,14 +576,21 @@ fn last_use(
                     div()
                         .text_size(theme::ui_text(TEXT_2XS_H))
                         .text_color(t.text_tertiary)
-                        .child(format!(
-                            "{} · {} on {} · {} {}",
-                            ui::time::ago(used.at),
-                            used.actor,
-                            used.host,
-                            used.count,
-                            if used.count == 1 { "use" } else { "uses" }
-                        ))
+                        .child(match used.count {
+                            1 => t!(
+                                "{ago} · {actor} on {host} · 1 use",
+                                ago = ui::time::ago(used.at),
+                                actor = used.actor,
+                                host = used.host
+                            ),
+                            count => t!(
+                                "{ago} · {actor} on {host} · {count} uses",
+                                ago = ui::time::ago(used.at),
+                                actor = used.actor,
+                                host = used.host,
+                                count = count
+                            ),
+                        })
                         .into_any_element()
                 })
                 .collect(),
@@ -610,7 +618,7 @@ fn last_use(
                         .cursor_pointer()
                         .text_color(t.accent)
                         .font_weight(FontWeight::MEDIUM)
-                        .child("Use log")
+                        .child(t!("Use log"))
                         .on_click(move |_, _, cx| {
                             opening.update(cx, |bench, cx| toggle_log(bench, &id, cx))
                         }),

@@ -28,7 +28,7 @@ pub struct Fields {
 }
 
 pub(super) fn make(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench>) {
-    let filter = cx.new(|cx| InputState::new(window, cx).placeholder("Find a settled chat"));
+    let filter = cx.new(|cx| InputState::new(window, cx).placeholder(t!("Find a settled chat")));
     let typing = super::follow_typing(bench, &filter, cx);
     let fields = Fields {
         filter,
@@ -40,13 +40,13 @@ pub(super) fn make(bench: &mut Workbench, window: &mut Window, cx: &mut Context<
 /// Who settled it and when, after its name.
 fn about(agent: &AgentShown) -> SharedString {
     let when = agent.settled_at.map(ui::time::ago).unwrap_or_default();
-    let by = match agent.auto_settled {
-        true => " by Sikemux",
-        false => "",
+    let when = match agent.auto_settled {
+        true => t!("{when} by Sikemux", when = when),
+        false => when,
     };
     match &agent.name {
-        Some(name) => format!("@{name} · {when}{by}"),
-        None => format!("{when}{by}"),
+        Some(name) => format!("@{name} · {when}"),
+        None => when,
     }
     .into()
 }
@@ -55,7 +55,7 @@ fn restore(agent: &AgentShown, this: &Entity<Workbench>) -> AnyElement {
     let (restoring, id) = (this.clone(), agent.agent_id.clone());
     ui::Button::new(
         SharedString::from(format!("restore-{}", agent.agent_id)),
-        "Restore",
+        t!("Restore"),
         ui::Variant::Outline,
     )
     .on_click(move |_, _, cx| {
@@ -97,18 +97,18 @@ pub fn render(
         .pb(SPACE_2)
         .child(ui::Field::new(&fields.filter).icon(Icon::Search));
     let mut sections = vec![rows::section(
-        t!("Settled chats"),
+        n!("Settled chats"),
         None,
         Some(
-            "Chats you or Sikemux settled out of the rail. One comes back by itself when its agent asks you something, or when you write to it."
+            t!("Chats you or Sikemux settled out of the rail. One comes back by itself when its agent asks you something, or when you write to it.")
                 .into(),
         ),
         lit("Settled chats"),
         div().child(field).children(settled.is_empty().then(|| {
             rows::note(
                 match query.is_empty() {
-                    true => "Nothing is settled.",
-                    false => "No settled chat matches.",
+                    true => t!("Nothing is settled."),
+                    false => t!("No settled chat matches."),
                 },
                 cx,
             )

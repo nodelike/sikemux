@@ -226,7 +226,7 @@ const CARD_ROW: f32 = 104.;
 const THEMES_SHOWN: f32 = 416.;
 /// Where each kind of theme comes in the library, and what its filter says.
 const SOURCES: [(ThemeSource, &str); 4] = [
-    (ThemeSource::Custom, "Yours"),
+    (ThemeSource::Custom, n!("Yours")),
     (ThemeSource::Omarchy, "Omarchy"),
     (ThemeSource::Sikemux, "Sikemux"),
     (ThemeSource::Ghostty, "Ghostty"),
@@ -293,7 +293,7 @@ fn slider(
 pub(super) fn make(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench>) {
     Target::here(&bench.asks).watch_plain(Read::Themes);
     let preferences = bench.preferences();
-    let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search themes"));
+    let search = cx.new(|cx| InputState::new(window, cx).placeholder(t!("Search themes")));
     let typing = cx.subscribe(&search, |bench, search, event: &InputEvent, cx| {
         if let InputEvent::Change = event {
             let query = search.read(cx).value();
@@ -459,7 +459,7 @@ fn picture_rows(
     };
     let colours = words(
         "pane-colours",
-        &["Theme", "Picture", "Custom"],
+        &[t!("Theme"), t!("Picture"), t!("Custom")],
         vec![
             PreferenceChange::PaneColours(PaneColours::Theme),
             PreferenceChange::PaneColours(PaneColours::Picture),
@@ -473,7 +473,7 @@ fn picture_rows(
     );
     let pattern = words(
         "pane-pattern",
-        &["2×2", "4×4", "8×8", "Noise"],
+        &["2×2", "4×4", "8×8", t!("Noise")],
         vec![
             PreferenceChange::PanePattern(PanePattern::Bayer2),
             PreferenceChange::PanePattern(PanePattern::Bayer4),
@@ -489,7 +489,7 @@ fn picture_rows(
     );
     let coverage = words(
         "pane-coverage",
-        &["Top", "Whole pane"],
+        &[t!("Top"), t!("Whole pane")],
         vec![
             PreferenceChange::PaneCoverage(PaneCoverage::Band),
             PreferenceChange::PaneCoverage(PaneCoverage::Full),
@@ -732,9 +732,9 @@ pub fn render(
         ui::Segmented::words(
             "theme-tone",
             vec![
-                ("All".into(), None),
-                ("Dark".into(), None),
-                ("Light".into(), None),
+                (t!("All").into(), None),
+                (t!("Dark").into(), None),
+                (t!("Light").into(), None),
             ],
             chosen,
         )
@@ -745,22 +745,25 @@ pub fn render(
             })
         })
     };
-    let offered: Vec<(Option<ThemeSource>, SharedString, Option<u64>)> =
-        std::iter::once((None, SharedString::from("All"), Some(themes.len() as u64)))
-            .chain(SOURCES.iter().filter_map(|(source, label)| {
-                let count = themes
-                    .iter()
-                    .filter(|theme| theme.source == *source)
-                    .count();
-                (count > 0).then(|| {
-                    (
-                        Some(*source),
-                        SharedString::from(*label),
-                        Some(count as u64),
-                    )
-                })
-            }))
-            .collect();
+    let offered: Vec<(Option<ThemeSource>, SharedString, Option<u64>)> = std::iter::once((
+        None,
+        SharedString::from(t!("All")),
+        Some(themes.len() as u64),
+    ))
+    .chain(SOURCES.iter().filter_map(|(source, label)| {
+        let count = themes
+            .iter()
+            .filter(|theme| theme.source == *source)
+            .count();
+        (count > 0).then(|| {
+            (
+                Some(*source),
+                SharedString::from(crate::i18n::tr(*label)),
+                Some(count as u64),
+            )
+        })
+    }))
+    .collect();
     let sources = {
         let this = this.clone();
         let picked: Vec<Option<ThemeSource>> =
@@ -806,9 +809,9 @@ pub fn render(
                                 SharedString::from(format!("theme-edit-{}", summary.id)),
                                 Icon::Pencil,
                                 if custom {
-                                    "Edit theme"
+                                    t!("Edit theme")
                                 } else {
-                                    "Customize a copy"
+                                    t!("Customize a copy")
                                 },
                             )
                             .small()
@@ -825,7 +828,7 @@ pub fn render(
                             ui::IconButton::new(
                                 SharedString::from(format!("theme-delete-{}", summary.id)),
                                 Icon::Trash,
-                                "Delete theme",
+                                t!("Delete theme"),
                             )
                             .small()
                             .on_click(move |_, _, cx| {
@@ -922,7 +925,7 @@ pub fn render(
                     Picture::PaneImage => "theme-from-pane-image",
                 },
                 if fields.reading == Some(picture) {
-                    "Reading…"
+                    t!("Reading…")
                 } else {
                     label
                 },
@@ -939,7 +942,7 @@ pub fn render(
         let kind = SOURCES
             .iter()
             .find(|(source, _)| *source == worn.source)
-            .map_or("", |(_, label)| *label);
+            .map_or("", |(_, label)| crate::i18n::tr(*label));
         div()
             .flex()
             .items_center()
@@ -958,7 +961,7 @@ pub fn render(
                     .flex()
                     .flex_col()
                     .gap(px(3.))
-                    .child(ui::caps("Wearing", cx))
+                    .child(ui::caps(t!("Wearing"), cx))
                     .child(
                         ui::text(worn.name.clone(), 17., gpui_kit::FontWeight::SEMIBOLD)
                             .truncate()
@@ -970,7 +973,7 @@ pub fn render(
                             .text_color(t.text_tertiary)
                             .child(format!(
                                 "{} · {kind}",
-                                if worn.dark { "Dark" } else { "Light" }
+                                if worn.dark { t!("Dark") } else { t!("Light") }
                             )),
                     )
                     .child(
@@ -982,7 +985,7 @@ pub fn render(
                             .child(
                                 ui::Button::new(
                                     "theme-change",
-                                    if custom { "Edit" } else { "Customize" },
+                                    if custom { t!("Edit") } else { t!("Customize") },
                                     ui::Variant::Outline,
                                 )
                                 .icon(Icon::Pencil)
@@ -997,10 +1000,10 @@ pub fn render(
                                 }),
                             )
                             .when(super::theme_editor::wallpaper_offered(), |row| {
-                                row.child(from(Picture::Wallpaper, "From wallpaper"))
+                                row.child(from(Picture::Wallpaper, t!("From wallpaper")))
                             })
                             .when(has_pane_image, |row| {
-                                row.child(from(Picture::PaneImage, "From pane image"))
+                                row.child(from(Picture::PaneImage, t!("From pane image")))
                             }),
                     ),
             )
@@ -1329,7 +1332,7 @@ pub fn render(
                 .collect();
             card(
                 "buddy-pack-all".into(),
-                "Every pack".into(),
+                t!("Every pack").into(),
                 mixed,
                 style.pack == "all",
                 choose("all".into(), "mixed".into()),
@@ -1354,7 +1357,7 @@ pub fn render(
                 .text_color(t.text_secondary)
                 .border_color(if mixing { t.border_strong } else { t.border })
                 .when(mixing, |chip| chip.bg(t.surface_chosen))
-                .child("Mix")
+                .child(t!("Mix"))
                 .on_click(choose(style.pack.clone(), "mixed".into())),
         )
         .children(chosen_pack.into_iter().flat_map(|pack| {
@@ -1415,16 +1418,16 @@ pub fn render(
             cx,
         ))
         .child(stacked(
-            "Pack",
-            "What new agents look like. Right-click an agent to give it its own.",
+            t!("Pack"),
+            t!("What new agents look like. Right-click an agent to give it its own."),
             pack_cards.into_any_element(),
         ))
         .child(stacked(
-            "Shape",
+            t!("Shape"),
             if chosen_pack.is_some() {
-                "Mix gives each agent its own shape from the pack."
+                t!("Mix gives each agent its own shape from the pack.")
             } else {
-                "Every pack mixes shapes too."
+                t!("Every pack mixes shapes too.")
             },
             shape_chips.into_any_element(),
         ))
@@ -1468,8 +1471,15 @@ pub fn render(
             sections.extend(current.map(|current| rows::card(lit("Wearing"), current, cx)));
             sections.extend(editing);
             sections.push(rows::section(
-                t!("Themes"),
-                Some(format!("{} built-in · {custom} yours", themes.len() - custom).into()),
+                n!("Themes"),
+                Some(
+                    t!(
+                        "{built_in} built-in · {custom} yours",
+                        built_in = themes.len() - custom,
+                        custom = custom
+                    )
+                    .into(),
+                ),
                 None,
                 lit("Themes"),
                 library,
@@ -1479,12 +1489,12 @@ pub fn render(
         }
         Page::Interface => {
             let mut sections = vec![
-                rows::section(t!("Text"), None, None, lit("Text"), text, cx),
-                rows::section(t!("Panes"), None, None, lit("Panes"), interface, cx),
+                rows::section(n!("Text"), None, None, lit("Text"), text, cx),
+                rows::section(n!("Panes"), None, None, lit("Panes"), interface, cx),
             ];
             if crate::settings::index::here(Page::Interface, "Window") {
                 sections.push(rows::section(
-                    t!("Window"),
+                    n!("Window"),
                     None,
                     None,
                     lit("Window"),
@@ -1495,7 +1505,7 @@ pub fn render(
             sections
         }
         _ => vec![rows::section(
-            t!("Buddies"),
+            n!("Buddies"),
             None,
             None,
             lit("Buddies"),

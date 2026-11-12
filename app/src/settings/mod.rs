@@ -406,7 +406,7 @@ pub fn view(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> 
                     .name
                     .clone()
                     .or_else(|| account.email.clone())
-                    .unwrap_or_else(|| "Signed in".into())
+                    .unwrap_or_else(|| t!("Signed in").into())
                     .into(),
             ),
             None => (
@@ -535,10 +535,10 @@ pub fn view(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> 
 
     let (title, about): (SharedString, SharedString) = match searching {
         true => (
-            "Search".into(),
+            t!("Search").into(),
             match found.len() {
-                1 => "1 place matches".into(),
-                count => format!("{count} places match").into(),
+                1 => t!("1 place matches").into(),
+                count => t!("{count} places match", count = count).into(),
             },
         ),
         false => (
@@ -575,7 +575,10 @@ pub fn view(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> 
         true if found.is_empty() => vec![div()
             .py(SPACE_6)
             .text_color(t.text_secondary)
-            .child(format!("No settings match “{}”", settings.query.trim()))
+            .child(t!(
+                "No settings match “{query}”",
+                query = settings.query.trim()
+            ))
             .into_any_element()],
         true => vec![div()
             .flex()

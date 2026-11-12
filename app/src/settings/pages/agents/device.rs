@@ -191,8 +191,8 @@ pub fn read_simulator(bench: &Workbench, cx: &mut Context<Workbench>) {
 
 fn xcode(path: Option<&str>) -> String {
     match path {
-        None => "No Xcode is selected. Install Xcode, or choose one with xcode-select.".into(),
-        Some(path) if path.contains("CommandLineTools") => "Only the Command Line Tools are selected, and simulators need Xcode. Install Xcode, or choose it with xcode-select.".into(),
+        None => t!("No Xcode is selected. Install Xcode, or choose one with xcode-select.").into(),
+        Some(path) if path.contains("CommandLineTools") => t!("Only the Command Line Tools are selected, and simulators need Xcode. Install Xcode, or choose it with xcode-select.").into(),
         Some(path) => path.to_owned(),
     }
 }
@@ -226,9 +226,9 @@ impl Fields {
             android: None,
             displays: choice(
                 vec![
-                    "Every display",
-                    "Built-in display only",
-                    "The display under the pointer",
+                    t!("Every display"),
+                    t!("Built-in display only"),
+                    t!("The display under the pointer"),
                 ],
                 match notch.displays {
                     NotchDisplays::All => 0,
@@ -246,7 +246,7 @@ impl Fields {
                 cx,
             ),
             open_with: choice(
-                vec!["Resting the pointer", "Clicking"],
+                vec![t!("Resting the pointer"), t!("Clicking")],
                 match notch.open_with {
                     NotchOpenWith::Hover => 0,
                     NotchOpenWith::Click => 1,
@@ -257,9 +257,9 @@ impl Fields {
             ),
             full_screen: choice(
                 vec![
-                    "Hide unless an agent needs you",
-                    "Always show",
-                    "Always hide",
+                    t!("Hide unless an agent needs you"),
+                    t!("Always show"),
+                    t!("Always hide"),
                 ],
                 match notch.full_screen {
                     NotchFullScreen::NeedsYou => 0,
@@ -278,9 +278,9 @@ impl Fields {
             ),
             peeks: choice(
                 vec![
-                    "An agent needs you or finishes",
-                    "An agent needs you",
-                    "Never",
+                    t!("An agent needs you or finishes"),
+                    t!("An agent needs you"),
+                    t!("Never"),
                 ],
                 match notch.peeks {
                     NotchPeeks::All => 0,
@@ -321,12 +321,12 @@ fn simulator_rows(fields: &Fields, cx: &App) -> Vec<Div> {
             status
                 .reason
                 .clone()
-                .unwrap_or_else(|| "The iOS Simulator is not available here.".to_owned())
+                .unwrap_or_else(|| t!("The iOS Simulator is not available here.").to_owned())
         })
     });
     let read = |describe: &dyn Fn(&Value) -> String| match &fields.sim_setup {
-        None => "Checking…".to_owned(),
-        Some(None) => "Could not read the developer tools.".to_owned(),
+        None => t!("Checking…").to_owned(),
+        Some(None) => t!("Could not read the developer tools.").to_owned(),
         Some(Some(setup)) => describe(setup),
     };
     let about = |text: String| -> Option<SharedString> { Some(text.into()) };
@@ -353,7 +353,7 @@ fn simulator_rows(fields: &Fields, cx: &App) -> Vec<Div> {
                     .filter_map(Value::as_str)
                     .collect();
                 match runtimes.is_empty() {
-                    true => "None installed. Add one in Xcode's Components settings.".into(),
+                    true => t!("None installed. Add one in Xcode's Components settings.").into(),
                     false => runtimes.join(", "),
                 }
             })),
@@ -364,9 +364,9 @@ fn simulator_rows(fields: &Fields, cx: &App) -> Vec<Div> {
             None,
             t!("Simulator helper"),
             about(read(&|setup| {
-                format!(
-                    "The helper that drives simulators is {}.",
-                    setup["helper"].as_str().unwrap_or_default()
+                t!(
+                    "The helper that drives simulators is {helper}.",
+                    helper = setup["helper"].as_str().unwrap_or_default()
                 )
             })),
             div(),
@@ -402,7 +402,7 @@ fn android_rows(
         return vec![rows::row_with(
             None,
             t!("Android SDK"),
-            about("Checking…".into()),
+            about(t!("Checking…").into()),
             div(),
             cx,
         )];
@@ -413,7 +413,10 @@ fn android_rows(
         Button::new("android-set-up")
             .primary()
             .compact()
-            .label(format!("Set up · {:.1} GB", bytes as f64 / 1e9))
+            .label(t!(
+                "Set up · {size} GB",
+                size = format!("{:.1}", bytes as f64 / 1e9)
+            ))
             .on_click(move |_, _, cx| {
                 this.update(cx, |bench, cx| {
                     bench
@@ -424,7 +427,7 @@ fn android_rows(
     });
     let sdk = match android["sdk"].as_str() {
         Some(path) => crate::ui::path::tilde(path, crate::ui::path::this_home().as_deref()),
-        None => "Not found. Sikemux can set up its own, with no Android Studio or Java.".into(),
+        None => t!("Not found. Sikemux can set up its own, with no Android Studio or Java.").into(),
     };
     let mut found = vec![rows::row_with(
         None,
@@ -476,18 +479,18 @@ pub fn render(
     };
     let model: SharedString = match (dictating, phase, downloading, reason) {
         (_, Phase::Unsupported, _, reason) => {
-            reason.unwrap_or_else(|| "Not available on this host.".into())
+            reason.unwrap_or_else(|| t!("Not available on this host.").into())
         }
         (_, _, _, Some(reason)) => reason,
-        (false, _, _, _) => "Parakeet by NVIDIA, run on the Neural Engine. About 600 MB, downloaded when you turn dictation on.".into(),
+        (false, _, _, _) => t!("Parakeet by NVIDIA, run on the Neural Engine. About 600 MB, downloaded when you turn dictation on.").into(),
         (true, Phase::Preparing, Some(fraction), _) => {
-            format!("Downloading… {}%", (fraction * 100.).round()).into()
+            t!("Downloading… {percent}%", percent = (fraction * 100.).round()).into()
         }
         (true, Phase::Preparing, None, _) => {
-            "Preparing for the Neural Engine. The first time takes about half a minute.".into()
+            t!("Preparing for the Neural Engine. The first time takes about half a minute.").into()
         }
-        (true, Phase::Off, _, _) => "Not loaded.".into(),
-        (true, _, _, _) => "Ready. Speech never leaves this host.".into(),
+        (true, Phase::Off, _, _) => t!("Not loaded.").into(),
+        (true, _, _, _) => t!("Ready. Speech never leaves this host.").into(),
     };
     let voice = div()
         .child(rows::row(
@@ -569,11 +572,11 @@ pub fn render(
         .children(simulator_rows(fields, cx));
 
     let section = match page {
-        Page::Voice => rows::section(t!("Voice"), None, None, lit("Voice"), voice, cx),
-        Page::Notch => rows::section(t!("Notch"), None, None, lit("Notch"), island, cx),
+        Page::Voice => rows::section(n!("Voice"), None, None, lit("Voice"), voice, cx),
+        Page::Notch => rows::section(n!("Notch"), None, None, lit("Notch"), island, cx),
         _ => {
             let android = rows::section(
-                t!("Android Emulator"),
+                n!("Android Emulator"),
                 None,
                 None,
                 lit("Android Emulator"),
@@ -581,7 +584,7 @@ pub fn render(
                 cx,
             );
             let ios = rows::section(
-                t!("iOS Simulator"),
+                n!("iOS Simulator"),
                 None,
                 None,
                 lit("iOS Simulator"),

@@ -57,7 +57,7 @@ pub(super) fn make(bench: &mut Workbench, window: &mut Window, cx: &mut Context<
     });
     let filter = cx.new(|cx| {
         let mut input =
-            InputState::new(window, cx).placeholder("Filter by name, description or key");
+            InputState::new(window, cx).placeholder(t!("Filter by name, description or key"));
         if let Some(label) = jump {
             input.set_value(label, window, cx);
         }
@@ -110,14 +110,14 @@ fn record(bench: &mut Workbench, id: &'static str, cx: &mut Context<Workbench>) 
     });
     say(
         bench,
-        "Press a shortcut. Backspace clears it; Escape cancels.".into(),
+        t!("Press a shortcut. Backspace clears it; Escape cancels.").into(),
         cx,
     );
 }
 
 fn keys_label(keys: Option<&str>) -> SharedString {
     keys.and_then(keymap::label)
-        .unwrap_or_else(|| "Unassigned".into())
+        .unwrap_or_else(|| t!("Unassigned").into())
 }
 
 /// Binds the recorded command to the keys pressed, unless they cannot take it.
@@ -133,12 +133,13 @@ fn capture(bench: &mut Workbench, keystroke: &Keystroke, cx: &mut Context<Workbe
         return;
     };
     match keystroke.key.as_str() {
-        "escape" => return stop(bench, "Change cancelled.".into(), cx),
+        "escape" => return stop(bench, t!("Change cancelled.").into(), cx),
         "backspace" | "delete" => {
             change(bench, |overrides| {
                 overrides.insert(id.to_owned(), None);
             });
-            return stop(bench, format!("{} is now unassigned.", shortcut.label), cx);
+            let name = crate::i18n::tr(shortcut.label);
+            return stop(bench, t!("{name} is now unassigned.", name = name), cx);
         }
         _ => {}
     }
@@ -148,8 +149,8 @@ fn capture(bench: &mut Workbench, keystroke: &Keystroke, cx: &mut Context<Workbe
     let shown = keys_label(Some(&keys));
     if !keymap::has_modifier(&keys) {
         let which = match cfg!(target_os = "macos") {
-            true => "Command, Control or Option",
-            false => "Control or Alt",
+            true => t!("Command, Control or Option"),
+            false => t!("Control or Alt"),
         };
         return say(
             bench,
@@ -163,7 +164,11 @@ fn capture(bench: &mut Workbench, keystroke: &Keystroke, cx: &mut Context<Workbe
     if let Some(what) = keymap::reserved(&keys) {
         return say(
             bench,
-            format!("{shown} is {what}, which stays where it is."),
+            t!(
+                "{keys} is {what}, which stays where it is.",
+                keys = shown,
+                what = crate::i18n::tr(what)
+            ),
             cx,
         );
     }
@@ -175,7 +180,11 @@ fn capture(bench: &mut Workbench, keystroke: &Keystroke, cx: &mut Context<Workbe
     if let Some(other) = taken {
         return say(
             bench,
-            format!("{shown} is already assigned to “{other}”."),
+            t!(
+                "{keys} is already assigned to “{other}”.",
+                keys = shown,
+                other = crate::i18n::tr(other)
+            ),
             cx,
         );
     }
@@ -185,14 +194,18 @@ fn capture(bench: &mut Workbench, keystroke: &Keystroke, cx: &mut Context<Workbe
     });
     stop(
         bench,
-        format!(
-            "{} changed to {shown}.{}",
-            shortcut.label,
-            match option_only {
-                true => " It stays with the terminal or text field while you type in one.",
-                false => "",
-            }
-        ),
+        match option_only {
+            true => t!(
+                "{name} changed to {keys}. It stays with the terminal or text field while you type in one.",
+                name = crate::i18n::tr(shortcut.label),
+                keys = shown
+            ),
+            false => t!(
+                "{name} changed to {keys}.",
+                name = crate::i18n::tr(shortcut.label),
+                keys = shown
+            ),
+        },
         cx,
     );
 }
@@ -231,7 +244,7 @@ fn keycap(
                 .border_color(t.border_selected)
                 .bg(t.surface_selected)
                 .text_color(t.accent)
-                .child(div().flex().child("press keys").child(caret)),
+                .child(div().flex().child(t!("press keys")).child(caret)),
             (false, filled) => cap
                 .border_color(t.border)
                 .bg(t.surface)
@@ -291,7 +304,7 @@ pub fn render(
                 ui::IconButton::new(
                     SharedString::from(format!("keycap-reset-{}", shortcut.id)),
                     Icon::Refresh,
-                    format!("Reset {}", shortcut.label),
+                    t!("Reset {name}", name = crate::i18n::tr(shortcut.label)),
                 )
                 .small()
                 .on_click(move |_, _, cx| {
@@ -302,7 +315,11 @@ pub fn render(
                         let restored = keys_label(shortcut.default_keys());
                         say(
                             bench,
-                            format!("{} restored to {restored}.", shortcut.label),
+                            t!(
+                                "{name} restored to {keys}.",
+                                name = crate::i18n::tr(shortcut.label),
+                                keys = restored
+                            ),
                             cx,
                         );
                     })
@@ -310,8 +327,8 @@ pub fn render(
             });
             rows::row_with(
                 None,
-                shortcut.label,
-                Some(shortcut.detail.into()),
+                crate::i18n::tr(shortcut.label),
+                Some(crate::i18n::tr(shortcut.detail).into()),
                 div()
                     .flex()
                     .items_center()
@@ -343,7 +360,7 @@ pub fn render(
                             div()
                                 .text_size(crate::theme::ui_text(TEXT_2XS))
                                 .text_color(t.text_secondary)
-                                .child(*category),
+                                .child(crate::i18n::tr(*category)),
                         )
                         .child(
                             div()
@@ -369,7 +386,7 @@ pub fn render(
                     change(bench, BTreeMap::clear);
                     stop(
                         bench,
-                        "All shortcuts restored to their defaults.".into(),
+                        t!("All shortcuts restored to their defaults.").into(),
                         cx,
                     );
                 })
@@ -391,7 +408,7 @@ pub fn render(
     let message = fields
         .message
         .clone()
-        .unwrap_or_else(|| "Select any keycap to record a replacement.".into());
+        .unwrap_or_else(|| t!("Select any keycap to record a replacement.").into());
     let status = div()
         .flex()
         .items_center()
@@ -414,9 +431,9 @@ pub fn render(
         )
         .child(message);
     let system = match cfg!(target_os = "macos") {
-        true => "macOS may keep system-reserved combinations before Sikemux can receive them.",
+        true => t!("macOS may keep system-reserved combinations before Sikemux can receive them."),
         false => {
-            "Your desktop may keep system-reserved combinations before Sikemux can receive them."
+            t!("Your desktop may keep system-reserved combinations before Sikemux can receive them.")
         }
     };
     let body = div()
@@ -424,13 +441,23 @@ pub fn render(
         .child(status)
         .children(groups)
         .when(nothing, |body| {
-            body.child(rows::note(format!("No commands match “{}”.", query), cx))
+            body.child(rows::note(
+                t!("No commands match “{query}”.", query = query),
+                cx,
+            ))
         })
         .child(rows::note(system, cx));
     vec![rows::section(
-        t!("Shortcuts"),
-        Some(format!("{} commands · {changed} changed", shortcuts.len()).into()),
-        Some("Select a keycap, then press a new combination. Conflicts are blocked.".into()),
+        n!("Shortcuts"),
+        Some(
+            t!(
+                "{count} commands · {changed} changed",
+                count = shortcuts.len(),
+                changed = changed
+            )
+            .into(),
+        ),
+        Some(t!("Select a keycap, then press a new combination. Conflicts are blocked.").into()),
         lit("Shortcuts"),
         body,
         cx,

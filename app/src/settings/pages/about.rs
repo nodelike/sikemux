@@ -62,8 +62,8 @@ pub fn render(
         ui::Segmented::new(
             "update-channel",
             vec![
-                (Icon::Shield, SharedString::from("Stable")),
-                (Icon::Flask, SharedString::from("Nightly")),
+                (Icon::Shield, SharedString::from(t!("Stable"))),
+                (Icon::Flask, SharedString::from(t!("Nightly"))),
             ],
             chosen,
         )
@@ -91,7 +91,7 @@ pub fn render(
                 let at = chrono::DateTime::from_timestamp_millis(checked.at as i64)?;
                 Some((checked, at))
             }) {
-                None => "Not checked yet this session.".into(),
+                None => t!("Not checked yet this session.").into(),
                 Some((checked, at)) => {
                     let when = at.with_timezone(&chrono::Local).format("%-I:%M:%S %p");
                     let channel = crate::updates::channel_name(checked.channel);
@@ -214,8 +214,8 @@ pub fn render(
         };
     let t = crate::theme::Tokens::get(cx).clone();
     let version = match bench.connection.version.is_empty() {
-        true => "Version unknown".to_owned(),
-        false => format!("Version {}", bench.connection.version),
+        true => t!("Version unknown").to_owned(),
+        false => t!("Version {version}", version = bench.connection.version),
     };
     let app = div()
         .flex()
@@ -248,12 +248,12 @@ pub fn render(
         );
     vec![
         rows::card(lit("Sikemux"), app, cx),
-        rows::section(t!("Updates"), None, None, lit("Updates"), updates, cx),
-        rows::section(t!("Privacy"), None, None, lit("Privacy"), privacy, cx),
+        rows::section(n!("Updates"), None, None, lit("Updates"), updates, cx),
+        rows::section(n!("Privacy"), None, None, lit("Privacy"), privacy, cx),
         rows::section(
-            t!("Help"),
+            n!("Help"),
             None,
-            Some("All three are also searchable from the command deck.".into()),
+            Some(t!("All three are also searchable from the command deck.").into()),
             lit("Help"),
             help,
             cx,
@@ -268,8 +268,8 @@ fn check_now(bench: &mut Workbench, cx: &mut Context<Workbench>) {
         let note = match checked.await {
             Ok(status) => {
                 let channel = match status.checked.as_ref().map(|checked| checked.channel) {
-                    Some(UpdateChannel::Nightly) => "nightly",
-                    _ => "stable",
+                    Some(UpdateChannel::Nightly) => t!("nightly"),
+                    _ => t!("stable"),
                 };
                 match status.available.as_ref().map(|release| &release.version) {
                     None => toast::info(t!("Sikemux is up to date on the {channel} channel.", channel = channel)),

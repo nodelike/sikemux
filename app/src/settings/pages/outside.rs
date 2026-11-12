@@ -186,16 +186,16 @@ pub fn render(
     };
     vec![
         rows::section(
-            t!("MCP server"),
+            n!("MCP server"),
             None,
             Some(t!("Apps on this computer, such as Claude Code and Codex in your own terminal, list, start, message and read your chats here. Only apps on this computer can sign in.").into()),
             lit("MCP server"),
             server,
             cx,
         ),
-        rows::section(t!("Add to an app"), None, None, lit("Add to an app"), add, cx),
+        rows::section(n!("Add to an app"), None, None, lit("Add to an app"), add, cx),
         rows::section(
-            t!("Allowed apps"),
+            n!("Allowed apps"),
             None,
             Some(t!("A sign-in lasts 30 days. Removing an app cuts it off at once.").into()),
             lit("Allowed apps"),

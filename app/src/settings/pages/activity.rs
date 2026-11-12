@@ -30,7 +30,7 @@ use crate::theme::{
     TEXT_2XS_H, TEXT_SM,
 };
 use crate::ui;
-use crate::ui::numbers::{compact, money, plural, whole};
+use crate::ui::numbers::{compact, money, whole};
 use crate::ui::time::total;
 use crate::workbench::Workbench;
 
@@ -51,10 +51,10 @@ pub struct Fields {
 
 /// Each price the form asks for, and whether it may be left empty.
 const PRICES: [(&str, &str, bool); 4] = [
-    ("input", "Input", false),
-    ("output", "Output", false),
-    ("cacheRead", "Cache read", true),
-    ("cacheWrite", "Cache write", true),
+    ("input", n!("Input"), false),
+    ("output", n!("Output"), false),
+    ("cacheRead", n!("Cache read"), true),
+    ("cacheWrite", n!("Cache write"), true),
 ];
 
 pub(super) fn make(bench: &mut Workbench, _: &mut Window, cx: &mut Context<Workbench>) {
@@ -106,7 +106,7 @@ fn edit(
                 .unwrap_or_default();
             cx.new(|cx| {
                 let mut input = InputState::new(window, cx).placeholder(if *optional {
-                    "same as input"
+                    t!("same as input")
                 } else {
                     "0.00"
                 });
@@ -313,9 +313,11 @@ fn shares(
             .map(|other| (other, other.of_share(share)))
             .filter(|(other, value)| *other != measure && *value > 0.)
             .map(|(other, value)| match other {
-                Metric::Sessions => plural(value, "session"),
-                Metric::Tokens => format!("{} tokens", compact(value)),
-                Metric::Commits => plural(value, "commit"),
+                Metric::Sessions if value == 1. => t!("1 session").to_owned(),
+                Metric::Sessions => t!("{count} sessions", count = whole(value)),
+                Metric::Tokens => t!("{count} tokens", count = compact(value)),
+                Metric::Commits if value == 1. => t!("1 commit").to_owned(),
+                Metric::Commits => t!("{count} commits", count = whole(value)),
                 _ => total(value),
             })
             .collect();
@@ -371,7 +373,9 @@ fn price_form(
             div()
                 .text_size(crate::theme::ui_text(TEXT_2XS_H))
                 .text_color(t.text_tertiary)
-                .child("USD per million tokens. Cache prices default to the input price."),
+                .child(t!(
+                    "USD per million tokens. Cache prices default to the input price."
+                )),
         )
         .child(
             div()
@@ -392,7 +396,7 @@ fn price_form(
                                     div()
                                         .text_size(crate::theme::ui_text(TEXT_2XS))
                                         .text_color(t.text_tertiary)
-                                        .child(*label),
+                                        .child(crate::i18n::tr(*label)),
                                 )
                                 .child(ui::Field::new(input))
                         }),
@@ -460,14 +464,18 @@ fn models(
             let own = prices.get(&id).copied();
             let cost = model.cost_usd;
             let details: Vec<String> = [
-                Some(format!(
-                    "{} tokens",
-                    compact((model.input + model.output + model.cache_write) as f64)
+                Some(t!(
+                    "{count} tokens",
+                    count = compact((model.input + model.output + model.cache_write) as f64)
                 )),
                 (model.cache_write > 0)
-                    .then(|| format!("{} written", compact(model.cache_write as f64))),
-                (model.fast_cost_usd > 0.)
-                    .then(|| format!("{}% fast", percent(model.fast_cost_usd, cost))),
+                    .then(|| t!("{count} written", count = compact(model.cache_write as f64))),
+                (model.fast_cost_usd > 0.).then(|| {
+                    t!(
+                        "{percent}% fast",
+                        percent = percent(model.fast_cost_usd, cost)
+                    )
+                }),
             ]
             .into_iter()
             .flatten()
@@ -488,7 +496,7 @@ fn models(
             };
             let value = match model.priced {
                 true => div().child(money(cost)).into_any_element(),
-                false => opener("Set price", "price-set").into_any_element(),
+                false => opener(t!("Set price"), "price-set").into_any_element(),
             };
             let row = share_row(
                 ui::mark(&model.agent, 20.),
@@ -499,7 +507,7 @@ fn models(
                 &t,
             );
             let row = match own.is_some() {
-                true => row.child(opener("your price", "price-own")),
+                true => row.child(opener(t!("your price"), "price-own")),
                 false => row,
             };
             let split = (model.priced && cost > 0.).then(|| cost_split(model, &t));
@@ -520,10 +528,10 @@ fn models(
 fn cost_split(model: &ActivityModel, t: &Tokens) -> AnyElement {
     let costs = &model.costs;
     let parts = [
-        ("Cache write", costs.cache_write, t.warn),
-        ("Output", costs.output, theme::brand(&model.agent)),
-        ("Cache read", costs.cache_read, t.accent),
-        ("Input", costs.input, t.text_tertiary),
+        (t!("Cache write"), costs.cache_write, t.warn),
+        (t!("Output"), costs.output, theme::brand(&model.agent)),
+        (t!("Cache read"), costs.cache_read, t.accent),
+        (t!("Input"), costs.input, t.text_tertiary),
     ];
     let total = costs.total().max(f64::EPSILON);
     div()
@@ -579,12 +587,15 @@ fn pricing_note(summary: &ActivitySummary, cx: &App) -> AnyElement {
     let fetched = (summary.pricing.fetched_at_ms)
         .and_then(|ms| chrono::Local.timestamp_millis_opt(ms).single());
     let source = match fetched {
-        Some(at) => format!("Prices from models.dev, {}", at.format("%b %-d")),
-        None => "Published prices could not be loaded".into(),
+        Some(at) => t!("Prices from models.dev, {date}", date = at.format("%b %-d")),
+        None => t!("Published prices could not be loaded").to_owned(),
     };
-    let unpriced = match unpriced > 0. {
-        true => format!("{} tokens have no price · ", compact(unpriced)),
-        false => String::new(),
+    let line = match unpriced > 0. {
+        true => {
+            let unpriced = t!("{count} tokens have no price", count = compact(unpriced));
+            format!("{unpriced} · {source}")
+        }
+        false => source,
     };
     div()
         .flex()
@@ -594,8 +605,10 @@ fn pricing_note(summary: &ActivitySummary, cx: &App) -> AnyElement {
         .py(SPACE_2H)
         .text_size(crate::theme::ui_text(TEXT_2XS_H))
         .text_color(t.text_tertiary)
-        .child("What these tokens would cost at API prices. Subscription plans bill separately.")
-        .child(format!("{unpriced}{source}"))
+        .child(t!(
+            "What these tokens would cost at API prices. Subscription plans bill separately."
+        ))
+        .child(line)
         .into_any_element()
 }
 
@@ -617,7 +630,7 @@ pub fn render(
     let since = totals
         .and_then(|totals| totals.first_at_ms)
         .and_then(|ms| chrono::Local.timestamp_millis_opt(ms).single())
-        .map(|at| SharedString::from(format!("since {}", at.format("%b %-d, %Y"))));
+        .map(|at| SharedString::from(t!("since {date}", date = at.format("%b %-d, %Y"))));
     let overview = match totals {
         _ if failed => rows::note(t!("Activity could not be read."), cx),
         Some(totals) if activity_view::is_empty(totals) => rows::note(
@@ -651,16 +664,16 @@ pub fn render(
         .children(summary.map(|summary| pricing_note(summary, cx)));
     vec![
         rows::section(
-            t!("Overview"),
+            n!("Overview"),
             since,
-            Some("Counted from agents run and commits made inside Sikemux. Work done elsewhere is never read.".into()),
+            Some(t!("Counted from agents run and commits made inside Sikemux. Work done elsewhere is never read.").into()),
             lit("Overview"),
             overview,
             cx,
         ),
-        rows::section(t!("Calendar"), None, None, lit("Calendar"), calendar, cx),
-        rows::section(t!("By model"), None, None, lit("By model"), by_model, cx),
-        rows::section(t!("By agent"), None, None, lit("By agent"), by_agent, cx),
-        rows::section(t!("By project"), None, None, lit("By project"), by_project, cx),
+        rows::section(n!("Calendar"), None, None, lit("Calendar"), calendar, cx),
+        rows::section(n!("By model"), None, None, lit("By model"), by_model, cx),
+        rows::section(n!("By agent"), None, None, lit("By agent"), by_agent, cx),
+        rows::section(n!("By project"), None, None, lit("By project"), by_project, cx),
     ]
 }

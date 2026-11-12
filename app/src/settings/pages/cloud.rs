@@ -62,14 +62,14 @@ pub(super) fn make(bench: &mut Workbench, window: &mut Window, cx: &mut Context<
     let (browser, typed_browser) = field(
         PreferenceChange::CloudBrowser,
         preferences.cloud_browser.clone(),
-        "Zen, Arc, Safari · empty = system default",
+        t!("Zen, Arc, Safari · empty = system default"),
         window,
         cx,
     );
     let (shortcut, typed_shortcut) = field(
         PreferenceChange::CloudBrowserShortcut,
         preferences.cloud_browser_shortcut.clone(),
-        "ctrl+3 · empty = no switch",
+        t!("ctrl+3 · empty = no switch"),
         window,
         cx,
     );
@@ -110,9 +110,9 @@ pub fn render(
             cx,
         ));
     vec![rows::section(
-        t!("Single sign-on"),
+        n!("Single sign-on"),
         None,
-        Some("Where an AWS or GCP sign-in URL opens, and where to go once it does.".into()),
+        Some(t!("Where an AWS or GCP sign-in URL opens, and where to go once it does.").into()),
         lit("Single sign-on"),
         body,
         cx,

@@ -24,9 +24,9 @@ const DELETE_ACCOUNT_URL: &str = "https://app.sikemux.com/delete-account";
 
 fn account_line(link: Option<&AccountLink>) -> &'static str {
     match link.map(|link| link.state) {
-        Some(AccountLinkState::Connecting) => "Connecting to your account",
-        Some(AccountLinkState::Offline) => "Can't reach your account, retrying",
-        _ => "Signed in to Sikemux",
+        Some(AccountLinkState::Connecting) => t!("Connecting to your account"),
+        Some(AccountLinkState::Offline) => t!("Can't reach your account, retrying"),
+        _ => t!("Signed in to Sikemux"),
     }
 }
 
@@ -35,12 +35,12 @@ fn removal_note(link: Option<&AccountLink>) -> Option<&'static str> {
     let link = link.filter(|link| link.state == AccountLinkState::Removed)?;
     Some(match link.reason {
         Some(RevokeReason::AccountDeleted) => {
-            "Your account was deleted. Phones already allowed stay allowed."
+            t!("Your account was deleted. Phones already allowed stay allowed.")
         }
         Some(RevokeReason::SignedOut) => {
-            "This host was signed out of your account. Phones already allowed stay allowed."
+            t!("This host was signed out of your account. Phones already allowed stay allowed.")
         }
-        _ => "This host was removed from your account at app.sikemux.com. Phones already allowed stay allowed.",
+        _ => t!("This host was removed from your account at app.sikemux.com. Phones already allowed stay allowed."),
     })
 }
 
@@ -77,13 +77,13 @@ fn sign_in_panel(
     let waiting = bench.signing_in;
     let (title, lede) = match waiting {
         true => (
-            "Finish signing in in your browser",
-            "Sikemux opened the sign-in page in your default browser.",
+            t!("Finish signing in in your browser"),
+            t!("Sikemux opened the sign-in page in your default browser."),
         ),
         false => (
-            "Sign in to your Sikemux account",
+            t!("Sign in to your Sikemux account"),
             removal_note(link).unwrap_or(
-                "Your phone finds this host through it. Sign in with Google, GitHub or your email, in your browser.",
+                t!("Your phone finds this host through it. Sign in with Google, GitHub or your email, in your browser."),
             ),
         ),
     };
@@ -137,8 +137,8 @@ pub fn render(
                 .rounded_full()
                 .bg(t.surface_raised)
                 .into_any_element(),
-            "Your account",
-            "Checking…",
+            t!("Your account"),
+            t!("Checking…"),
             div().into_any_element(),
             cx,
         ),
@@ -151,7 +151,7 @@ pub fn render(
                     .email
                     .clone()
                     .or_else(|| account.name.clone())
-                    .unwrap_or_else(|| "Signed in".into()),
+                    .unwrap_or_else(|| t!("Signed in").into()),
                 account_line(link),
                 div()
                     .flex()
@@ -178,7 +178,7 @@ pub fn render(
         }
     };
     vec![rows::section(
-        t!("Account"),
+        n!("Account"),
         None,
         None,
         lit("Account"),

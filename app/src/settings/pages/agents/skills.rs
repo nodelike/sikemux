@@ -69,16 +69,19 @@ impl Fields {
     pub fn new(bench: &Workbench, window: &mut Window, cx: &mut Context<Workbench>) -> Self {
         let name = cx.new(|cx| InputState::new(window, cx).placeholder("deploy-preview"));
         let description = cx.new(|cx| {
-            InputState::new(window, cx).placeholder("What it does and when an agent should use it")
+            InputState::new(window, cx)
+                .placeholder(t!("What it does and when an agent should use it"))
         });
-        let body = cx
-            .new(|cx| TextareaState::new(window, cx).placeholder("The instructions, in markdown"));
+        let body = cx.new(|cx| {
+            TextareaState::new(window, cx).placeholder(t!("The instructions, in markdown"))
+        });
         let source = cx.new(|cx| {
-            InputState::new(window, cx).placeholder("A folder with a SKILL.md, or a Git URL")
+            InputState::new(window, cx).placeholder(t!("A folder with a SKILL.md, or a Git URL"))
         });
         let subfolder = cx.new(|cx| {
-            InputState::new(window, cx)
-                .placeholder("Folder inside the repository, if the skill is not at its root")
+            InputState::new(window, cx).placeholder(t!(
+                "Folder inside the repository, if the skill is not at its root"
+            ))
         });
         let typing = vec![
             super::super::follow_typing(bench, &name, cx),
@@ -329,7 +332,10 @@ pub fn render(
         let line = match failed(&format!("remove:{name}")) {
             Some(message) => about(message, true, cx),
             None if clashes.contains(&name) => about(
-                format!("{description} One of your own skills has this name too."),
+                format!(
+                    "{description} {}",
+                    t!("One of your own skills has this name too.")
+                ),
                 false,
                 cx,
             ),
@@ -341,7 +347,7 @@ pub fn render(
             .gap(SPACE_2)
             .child(button(
                 format!("skill-reveal-{name}"),
-                ui::SHOW_IN_FILES,
+                crate::i18n::tr(ui::SHOW_IN_FILES),
                 ui::Variant::Outline,
                 false,
                 this,
@@ -349,7 +355,7 @@ pub fn render(
             ))
             .child(button(
                 format!("skill-remove-{name}"),
-                "Remove",
+                t!("Remove"),
                 ui::Variant::Outline,
                 busy,
                 this,
@@ -380,7 +386,7 @@ pub fn render(
                     div()
                         .text_size(crate::theme::ui_text(TEXT_SM))
                         .text_color(t.text_primary)
-                        .child("New skill"),
+                        .child(t!("New skill")),
                 )
                 .children(failed("form").map(|message| about(message, true, cx)))
                 .child(ui::Field::new(&fields.name))
@@ -400,7 +406,7 @@ pub fn render(
                         .gap(SPACE_2)
                         .child(button(
                             "skill-cancel".into(),
-                            "Cancel",
+                            t!("Cancel"),
                             ui::Variant::Outline,
                             busy,
                             this,
@@ -408,7 +414,7 @@ pub fn render(
                         ))
                         .child(button(
                             "skill-create".into(),
-                            "Create",
+                            t!("Create"),
                             ui::Variant::Primary,
                             busy || !ready,
                             this,
@@ -429,7 +435,7 @@ pub fn render(
                     div()
                         .text_size(crate::theme::ui_text(TEXT_SM))
                         .text_color(t.text_primary)
-                        .child("Install a skill"),
+                        .child(t!("Install a skill")),
                 )
                 .children(failed("form").map(|message| about(message, true, cx)))
                 .child(
@@ -439,7 +445,7 @@ pub fn render(
                         .child(div().flex_1().child(ui::Field::new(&fields.source).mono()))
                         .child(button(
                             "skill-choose".into(),
-                            "Choose folder",
+                            t!("Choose folder"),
                             ui::Variant::Outline,
                             false,
                             this,
@@ -456,7 +462,7 @@ pub fn render(
                         .gap(SPACE_2)
                         .child(button(
                             "skill-cancel".into(),
-                            "Cancel",
+                            t!("Cancel"),
                             ui::Variant::Outline,
                             busy,
                             this,
@@ -464,7 +470,11 @@ pub fn render(
                         ))
                         .child(button(
                             "skill-install".into(),
-                            if busy { "Installing…" } else { "Install" },
+                            if busy {
+                                t!("Installing…")
+                            } else {
+                                t!("Install")
+                            },
                             ui::Variant::Primary,
                             busy || source.is_empty(),
                             this,
@@ -480,14 +490,14 @@ pub fn render(
                 (true, false) => t!("Kept in {library}", library = library),
             };
             row(
-                "Add a skill".into(),
+                t!("Add a skill").into(),
                 about(line, false, cx),
                 div()
                     .flex()
                     .gap(SPACE_2)
                     .child(button(
                         "skill-install-open".into(),
-                        "Install…",
+                        t!("Install…"),
                         ui::Variant::Outline,
                         false,
                         this,
@@ -495,7 +505,7 @@ pub fn render(
                     ))
                     .child(button(
                         "skill-new".into(),
-                        "New skill",
+                        t!("New skill"),
                         ui::Variant::Primary,
                         false,
                         this,
@@ -508,9 +518,9 @@ pub fn render(
     };
 
     let skills_section = rows::section(
-        t!("Skills"),
-        (!skills.is_empty()).then(|| format!("{} in Sikemux", skills.len()).into()),
-        Some("Skills every agent Sikemux starts can use, in a terminal or a chat. They live only in Sikemux: the same agents run elsewhere never see them. Agents can make them too, with the skills tool. A new skill loads in the next session.".into()),
+        n!("Skills"),
+        (!skills.is_empty()).then(|| t!("{count} in Sikemux", count = skills.len()).into()),
+        Some(t!("Skills every agent Sikemux starts can use, in a terminal or a chat. They live only in Sikemux: the same agents run elsewhere never see them. Agents can make them too, with the skills tool. A new skill loads in the next session.").into()),
         lit("Skills"),
         div().children(listed).child(form),
         cx,
@@ -543,10 +553,10 @@ pub fn render(
                     div()
                         .flex()
                         .gap(SPACE_2)
-                        .child(button(format!("skill-move-cancel-{path}"), "Cancel", ui::Variant::Outline, false, this, Rc::new(|bench, _, cx| {
+                        .child(button(format!("skill-move-cancel-{path}"), t!("Cancel"), ui::Variant::Outline, false, this, Rc::new(|bench, _, cx| {
                             change_fields(bench, cx, |fields, _| fields.moving = None);
                         })))
-                        .child(button(format!("skill-move-{path}"), "Move", ui::Variant::Primary, busy, this, Rc::new(move |bench, _, cx| {
+                        .child(button(format!("skill-move-{path}"), t!("Move"), ui::Variant::Primary, busy, this, Rc::new(move |bench, _, cx| {
                             let path = moved.clone();
                             run::<call::AdoptSkill>(bench, format!("move:{path}"), Located { path: path.into() }, |fields| fields.moving = None, cx)
                         })))
@@ -554,7 +564,7 @@ pub fn render(
                 }
                 false => {
                     let asked = path.clone();
-                    button(format!("skill-move-ask-{path}"), "Move into Sikemux", ui::Variant::Outline, false, this, Rc::new(move |bench, _, cx| {
+                    button(format!("skill-move-ask-{path}"), t!("Move into Sikemux"), ui::Variant::Outline, false, this, Rc::new(move |bench, _, cx| {
                         change_fields(bench, cx, |fields, _| fields.moving = Some(asked.clone()));
                     }))
                     .into_any_element()
@@ -563,9 +573,9 @@ pub fn render(
             row(name, line, controls, &t)
         });
         rows::section(
-            t!("Your own skills"),
+            n!("Your own skills"),
             None,
-            Some("Skills in each agent's global folder. Agents load these inside and outside Sikemux, and Sikemux leaves them alone unless you move one in.".into()),
+            Some(t!("Skills in each agent's global folder. Agents load these inside and outside Sikemux, and Sikemux leaves them alone unless you move one in.").into()),
             false,
             div().children(rows_of_own),
             cx,

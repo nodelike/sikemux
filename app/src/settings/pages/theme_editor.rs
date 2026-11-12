@@ -36,86 +36,86 @@ type Group = (
 const GROUPS: [Group; 4] = [
     (
         "chrome",
-        "Interface",
-        "Window chrome, rails, accents.",
+        n!("Interface"),
+        n!("Window chrome, rails, accents."),
         &[
-            ("bg", "background"),
-            ("bgDim", "background dim"),
-            ("bgRaised", "background raised"),
-            ("ink", "text"),
-            ("inkDim", "text dim"),
-            ("inkMuted", "text muted"),
-            ("acc", "accent"),
-            ("accLine", "accent border"),
-            ("accDim", "accent wash"),
-            ("line", "border"),
-            ("hl", "row highlight"),
-            ("danger", "danger"),
+            ("bg", n!("background")),
+            ("bgDim", n!("background dim")),
+            ("bgRaised", n!("background raised")),
+            ("ink", n!("text")),
+            ("inkDim", n!("text dim")),
+            ("inkMuted", n!("text muted")),
+            ("acc", n!("accent")),
+            ("accLine", n!("accent border")),
+            ("accDim", n!("accent wash")),
+            ("line", n!("border")),
+            ("hl", n!("row highlight")),
+            ("danger", n!("danger")),
         ],
     ),
     (
         "editor",
-        "Editor",
-        "Code surface, caret, gutters.",
+        n!("Editor"),
+        n!("Code surface, caret, gutters."),
         &[
-            ("fg", "foreground"),
-            ("bg", "background"),
-            ("caret", "caret"),
-            ("selection", "selection"),
-            ("activeLine", "active line"),
-            ("gutter", "gutter"),
-            ("gutterActive", "gutter active"),
-            ("indent", "indent guide"),
-            ("indentActive", "indent active"),
+            ("fg", n!("foreground")),
+            ("bg", n!("background")),
+            ("caret", n!("caret")),
+            ("selection", n!("selection")),
+            ("activeLine", n!("active line")),
+            ("gutter", n!("gutter")),
+            ("gutterActive", n!("gutter active")),
+            ("indent", n!("indent guide")),
+            ("indentActive", n!("indent active")),
         ],
     ),
     (
         "highlight",
-        "Syntax",
-        "Token colours in the code editor.",
+        n!("Syntax"),
+        n!("Token colours in the code editor."),
         &[
-            ("keyword", "keyword"),
-            ("string", "string"),
-            ("comment", "comment"),
-            ("number", "number"),
-            ("function", "function"),
-            ("type", "type"),
-            ("variable", "variable"),
-            ("property", "property"),
-            ("tag", "tag"),
-            ("operator", "operator"),
-            ("link", "link"),
-            ("invalid", "invalid"),
-            ("meta", "meta"),
-            ("heading", "heading"),
+            ("keyword", n!("keyword")),
+            ("string", n!("string")),
+            ("comment", n!("comment")),
+            ("number", n!("number")),
+            ("function", n!("function")),
+            ("type", n!("type")),
+            ("variable", n!("variable")),
+            ("property", n!("property")),
+            ("tag", n!("tag")),
+            ("operator", n!("operator")),
+            ("link", n!("link")),
+            ("invalid", n!("invalid")),
+            ("meta", n!("meta")),
+            ("heading", n!("heading")),
         ],
     ),
     (
         "terminal",
-        "Terminal",
-        "The terminal's 16 colours, with its cursor and selection.",
+        n!("Terminal"),
+        n!("The terminal's 16 colours, with its cursor and selection."),
         &[
-            ("background", "background"),
-            ("foreground", "foreground"),
-            ("cursor", "cursor"),
-            ("cursorAccent", "cursor text"),
-            ("selectionBackground", "selection"),
-            ("black", "black"),
-            ("red", "red"),
-            ("green", "green"),
-            ("yellow", "yellow"),
-            ("blue", "blue"),
-            ("magenta", "magenta"),
-            ("cyan", "cyan"),
-            ("white", "white"),
-            ("brightBlack", "bright black"),
-            ("brightRed", "bright red"),
-            ("brightGreen", "bright green"),
-            ("brightYellow", "bright yellow"),
-            ("brightBlue", "bright blue"),
-            ("brightMagenta", "bright magenta"),
-            ("brightCyan", "bright cyan"),
-            ("brightWhite", "bright white"),
+            ("background", n!("background")),
+            ("foreground", n!("foreground")),
+            ("cursor", n!("cursor")),
+            ("cursorAccent", n!("cursor text")),
+            ("selectionBackground", n!("selection")),
+            ("black", n!("black")),
+            ("red", n!("red")),
+            ("green", n!("green")),
+            ("yellow", n!("yellow")),
+            ("blue", n!("blue")),
+            ("magenta", n!("magenta")),
+            ("cyan", n!("cyan")),
+            ("white", n!("white")),
+            ("brightBlack", n!("bright black")),
+            ("brightRed", n!("bright red")),
+            ("brightGreen", n!("bright green")),
+            ("brightYellow", n!("bright yellow")),
+            ("brightBlue", n!("bright blue")),
+            ("brightMagenta", n!("bright magenta")),
+            ("brightCyan", n!("bright cyan")),
+            ("brightWhite", n!("bright white")),
         ],
     ),
 ];
@@ -294,7 +294,7 @@ fn open(
 ) {
     let base = original["name"].as_str().unwrap_or_default().to_owned();
     let name = cx.new(|cx| {
-        let mut input = InputState::new(window, cx).placeholder("theme name");
+        let mut input = InputState::new(window, cx).placeholder(t!("theme name"));
         input.set_value(
             draft["name"].as_str().unwrap_or_default().to_owned(),
             window,
@@ -423,8 +423,8 @@ pub fn from_picture(
             change_appearance(bench, cx, |appearance, _| appearance.reading = None);
             if unread {
                 let note = match picture {
-                    Picture::Wallpaper => "This wallpaper's format can't be read.",
-                    Picture::PaneImage => "This pane image's format can't be read.",
+                    Picture::Wallpaper => t!("This wallpaper's format can't be read."),
+                    Picture::PaneImage => t!("This pane image's format can't be read."),
                 };
                 bench.notify(crate::toast::error(note), cx);
             }
@@ -573,7 +573,7 @@ fn sample(draft: &Value) -> AnyElement {
                     div()
                         .italic()
                         .text_color(paint("comment"))
-                        .child("// fork a base, tweak, save"),
+                        .child(t!("// fork a base, tweak, save")),
                 )
                 .child(
                     div()
@@ -632,10 +632,19 @@ pub fn view(editor: &Editor, this: &Entity<Workbench>, cx: &App) -> AnyElement {
         ui::Segmented::new(
             "theme-groups",
             vec![
-                (Icon::Window, SharedString::from(GROUPS[0].1)),
-                (Icon::Editor, SharedString::from(GROUPS[1].1)),
-                (Icon::Code, SharedString::from(GROUPS[2].1)),
-                (Icon::Terminal, SharedString::from(GROUPS[3].1)),
+                (
+                    Icon::Window,
+                    SharedString::from(crate::i18n::tr(GROUPS[0].1)),
+                ),
+                (
+                    Icon::Editor,
+                    SharedString::from(crate::i18n::tr(GROUPS[1].1)),
+                ),
+                (Icon::Code, SharedString::from(crate::i18n::tr(GROUPS[2].1))),
+                (
+                    Icon::Terminal,
+                    SharedString::from(crate::i18n::tr(GROUPS[3].1)),
+                ),
             ],
             editor.group,
         )
@@ -653,7 +662,7 @@ pub fn view(editor: &Editor, this: &Entity<Workbench>, cx: &App) -> AnyElement {
             div()
                 .text_size(crate::theme::ui_text(TEXT_2XS))
                 .text_color(t.text_tertiary)
-                .child(format!("based on {}", editor.base)),
+                .child(t!("based on {base}", base = editor.base)),
         );
     let head = div()
         .flex()
@@ -662,14 +671,14 @@ pub fn view(editor: &Editor, this: &Entity<Workbench>, cx: &App) -> AnyElement {
         .gap(SPACE_2)
         .child(button(
             "theme-dark",
-            if dark { "Dark" } else { "Light" },
+            if dark { t!("Dark") } else { t!("Light") },
             ui::Variant::Outline,
             this,
             |bench, _, cx| toggle_dark(bench, cx),
         ))
         .child(button(
             "theme-reset",
-            "Reset",
+            t!("Reset"),
             ui::Variant::Outline,
             this,
             reset,
@@ -677,7 +686,7 @@ pub fn view(editor: &Editor, this: &Entity<Workbench>, cx: &App) -> AnyElement {
         .child(
             button(
                 "theme-cancel",
-                "Cancel",
+                t!("Cancel"),
                 ui::Variant::Outline,
                 this,
                 |bench, _, cx| close(bench, cx),
@@ -687,7 +696,11 @@ pub fn view(editor: &Editor, this: &Entity<Workbench>, cx: &App) -> AnyElement {
         .child(
             button(
                 "theme-save",
-                if editor.new { "Save theme" } else { "Update" },
+                if editor.new {
+                    t!("Save theme")
+                } else {
+                    t!("Update")
+                },
                 ui::Variant::Primary,
                 this,
                 |bench, _, cx| save(bench, cx),
@@ -716,7 +729,7 @@ pub fn view(editor: &Editor, this: &Entity<Workbench>, cx: &App) -> AnyElement {
                             div()
                                 .text_size(crate::theme::ui_text(TEXT_2XS))
                                 .text_color(t.text_tertiary)
-                                .child(field.label),
+                                .child(crate::i18n::tr(field.label)),
                         )
                         .child(ui::Field::new(&field.text).mono()),
                 )
@@ -732,7 +745,7 @@ pub fn view(editor: &Editor, this: &Entity<Workbench>, cx: &App) -> AnyElement {
         .child(head)
         .child(sample(&editor.draft))
         .child(tabs)
-        .child(div().text_size(crate::theme::ui_text(TEXT_2XS_H)).text_color(t.text_tertiary).child(hint))
+        .child(div().text_size(crate::theme::ui_text(TEXT_2XS_H)).text_color(t.text_tertiary).child(crate::i18n::tr(hint)))
         .child(grid)
         .child(rows::note(
             t!("Any CSS colour works in the text box: use rgba(…) for a translucent wash. The picker sets hex."),
