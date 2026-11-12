@@ -153,6 +153,19 @@ impl Agent {
     }
 }
 
+/// Waits for `rev` in `dir` to leave `from`, as a queued land or push does once its check passes.
+async fn moved(dir: &Path, rev: &str, from: &str) -> String {
+    let deadline = Instant::now() + WAIT;
+    loop {
+        let now = git(dir, &["rev-parse", rev]);
+        if now != from {
+            return now;
+        }
+        assert!(Instant::now() < deadline, "{rev} never moved from {from}");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
 fn owners(answer: &Value) -> Vec<(String, String)> {
     answer["commits"][0]["owners"]
         .as_array()
@@ -250,11 +263,17 @@ async fn a_landed_commit_stays_its_agents_after_a_rebase_by_hand() {
              && GIT_SEQUENCE_EDITOR=true git rebase -q -i --autosquash main",
         )
         .await;
-    let landed = worker
+    let before = git(&project, &["rev-parse", "main"]);
+    let queued = worker
         .tool("git.commit", json!({ "land": true }))
         .await
         .expect("it lands");
-    assert_eq!(landed["landed"]["landed"].as_array().map(Vec::len), Some(3));
+    assert_eq!(
+        queued["queued"]["commits"].as_array().map(Vec::len),
+        Some(3),
+        "{queued}"
+    );
+    moved(&project, "main", &before).await;
 
     for commit in ["main", "main~1", "main~2"] {
         let found = git(&project, &["rev-parse", commit]);
@@ -291,15 +310,17 @@ async fn a_landed_commit_stays_its_agents_after_a_rebase_by_hand() {
     worker
         .run("printf 'last\\n' > last.txt && git add last.txt && git commit -qm 'worker: last'")
         .await;
-    let pushed = worker
+    let before = git(&origin, &["rev-parse", "main"]);
+    let queued = worker
         .tool("git.commit", json!({ "land": true, "push": true }))
         .await
         .expect("it pushes");
     assert_eq!(
-        pushed["pushed"]["pushed"].as_array().map(Vec::len),
+        queued["queued"]["commits"].as_array().map(Vec::len),
         Some(1),
-        "{pushed}"
+        "{queued}"
     );
+    moved(&origin, "main", &before).await;
     assert_eq!(
         git(&origin, &["log", "--format=%s", "main"]),
         "worker: last\nworker: picked\nworker: clash\nworker: one\nmain moves on\nbase"
