@@ -43,6 +43,9 @@
 //!   settings PAGE               opens settings at the page of that name
 //!   wait S / mark KIND / still NAME / end [HOLD]
 //!   snap NAME                   saves the window alone as drawn, without the stage or cursor
+//!   calls FILE                  puts the calls FILE lists, as the core's view writes them, to
+//!                               the person: each asked by the agent of its asker's name, in the
+//!                               project of its project's name, raised its raisedAt ms ago
 
 mod director;
 #[cfg(target_os = "macos")]
@@ -302,6 +305,7 @@ fn main() -> anyhow::Result<()> {
         bench: bench.borrow().clone(),
         #[cfg(target_os = "macos")]
         stand_in,
+        calls: Vec::new(),
         signed_in: args.world["signedIn"]["name"].as_str().map(|name| {
             sikemux_view::device::AccountInfo {
                 name: Some(name.into()),

@@ -84,6 +84,9 @@ pub(super) struct Director {
     pub(super) stand_in: Option<native::StandIn>,
     /// Who the rail shows as signed in, kept over whatever the core says.
     pub(super) signed_in: Option<sikemux_view::device::AccountInfo>,
+    /// Calls the scene put to the person that no agent asked, kept in this host's view over
+    /// whatever the core says.
+    pub(super) calls: Vec<sikemux_view::calls::PersonCall>,
     pub(super) compositor: Compositor,
     pub(super) output: (u32, u32),
     pub(super) sink: Sink,
@@ -217,6 +220,45 @@ impl Director {
                         view.account = Some(Box::new(account));
                         cx.notify();
                     }
+                }
+            })
+        });
+    }
+
+    /// Puts the scene's calls in this host's view, each asked by the agent of its asker's name,
+    /// in the project of its project's name.
+    pub(super) fn seed_calls(&mut self) {
+        let Some(bench) = self.bench.clone().filter(|_| !self.calls.is_empty()) else {
+            return;
+        };
+        let calls = self.calls.clone();
+        self.cx.update(|cx| {
+            bench.update(cx, |bench, cx| {
+                let Some(view) = bench.feeds.this.view.as_mut() else {
+                    return;
+                };
+                let mut moved = false;
+                for call in &calls {
+                    if view.calls.iter().any(|shown| shown.id == call.id) {
+                        continue;
+                    }
+                    let mut call = call.clone();
+                    let asker = (view.inbox.agents.iter())
+                        .find(|agent| agent.name.as_deref() == Some(call.asker.name.as_str()));
+                    let Some(asker) = asker else {
+                        continue;
+                    };
+                    call.asker.agent_id = asker.agent_id.clone();
+                    if let Some(project) = (view.workspace.projects.iter())
+                        .find(|project| project.name == call.project)
+                    {
+                        call.project = project.path.to_string_lossy().into_owned();
+                    }
+                    view.calls.push(call);
+                    moved = true;
+                }
+                if moved {
+                    cx.notify();
                 }
             })
         });
@@ -376,6 +418,7 @@ impl Director {
             self.ticks += 1;
             self.write_clock();
             self.sign_in();
+            self.seed_calls();
             self.apply()?;
             self.cx.advance_clock(step);
             self.pump();
@@ -834,6 +877,18 @@ impl Director {
             "still" => {
                 self.still = Some(self.stills.join(format!("{}.png", step.text(0)?)));
                 self.frame()?;
+            }
+            "calls" => {
+                let path = step.text(0)?;
+                let read = std::fs::read(path)
+                    .with_context(|| format!("line {}: reading {path}", step.line))?;
+                let mut calls: Vec<sikemux_view::calls::PersonCall> = serde_json::from_slice(&read)
+                    .with_context(|| format!("line {}: {path} holds no calls", step.line))?;
+                let now = sikemux_process::clock::epoch_ms();
+                for call in &mut calls {
+                    call.raised_at = now.saturating_sub(call.raised_at);
+                }
+                self.calls = calls;
             }
             "snap" => {
                 self.snap = Some(self.stills.join(format!("{}.png", step.text(0)?)));
