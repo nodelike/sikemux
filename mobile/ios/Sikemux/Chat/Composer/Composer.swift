@@ -5,6 +5,8 @@ struct ComposerQuestion {
     let name: String
     let cli: String
     let text: String
+    /// Said, before anything uploads, when the answer cannot carry the context chips on the draft.
+    var chipsRefused: String?
     let onRemove: () -> Void
     let onAnswer: (WrittenAnswer) async -> Bool
 }
@@ -86,7 +88,8 @@ struct Composer: View {
         guard let call = calls.waiting(for: session.agentId) else { return nil }
         return AnyView(
             CallDock(
-                core: core, call: call, queue: calls.queue(for: session.agentId), draft: calls.draft(call),
+                core: core, call: call, chat: session.agentId, queue: calls.queue(for: session.agentId),
+                draft: calls.draft(call),
                 canAnswer: !watchOnly && !offline, report: session.report
             )
             .id(call.id))
@@ -353,7 +356,7 @@ struct Composer: View {
         Haptics.tap()
         if let question {
             Task {
-                if await session.answerWith(text, question.onAnswer) { sent() }
+                if await session.answerWith(text, question) { sent() }
             }
         } else if session.send(text, steers: steers) {
             sent()

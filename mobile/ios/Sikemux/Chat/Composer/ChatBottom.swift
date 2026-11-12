@@ -15,9 +15,9 @@ struct ChatBottom: View {
     var body: some View {
         let rows = session.rows
         let calls = HostCalls.of(context.core)
-        let composing = context.watchOnly ? nil : calls.composing(for: context.agentId)
         let assumptions = Assumptions.of(context.core, context.agentId)
-        let changing = context.watchOnly || composing != nil ? nil : assumptions.changing
+        let changing = context.watchOnly ? nil : assumptions.changing
+        let composing = context.watchOnly || changing != nil ? nil : calls.composing(for: context.agentId)
         let info = Hub.shared.live(context.core).view?.chats.first { $0.agentId == context.agentId }
         Composer(
             session: session,
@@ -25,8 +25,8 @@ struct ChatBottom: View {
             provider: context.provider,
             running: rows.running && !session.stoppingTurn,
             steers: context.steers,
-            placeholder: composing.map { CallWords.typeYourAnswer($0.asker.name) }
-                ?? changing.map { CallWords.typeYourAnswer($0.name) } ?? placeholder(rows),
+            placeholder: changing.map { CallWords.typeYourAnswer($0.name) }
+                ?? composing.map { CallWords.typeYourAnswer($0.asker.name) } ?? placeholder(rows),
             modeLocked: rows.running || !session.permissions.isEmpty || rows.head.connection != .ready
                 || context.offline,
             watchOnly: context.watchOnly,
@@ -35,20 +35,21 @@ struct ChatBottom: View {
             onSent: context.onSent,
             strip: context.strip,
             onRecent: !context.watchOnly && RecentSheet.offered(rows) ? { focus.recent = true } : nil,
-            question: composing.map { call in
+            question: changing.map { question in
                 ComposerQuestion(
-                    name: call.asker.name, cli: call.asker.cli, text: call.question,
-                    onRemove: { calls.stopComposing(call) },
-                    onAnswer: { written in await calls.answer(call, written: written, report: session.report) }
+                    name: question.name, cli: question.cli, text: question.text,
+                    onRemove: assumptions.stopChanging,
+                    onAnswer: { written in
+                        await assumptions.answer(question, written: written, report: session.report)
+                    }
                 )
             }
-                ?? changing.map { question in
+                ?? composing.map { call in
                     ComposerQuestion(
-                        name: question.name, cli: question.cli, text: question.text,
-                        onRemove: assumptions.stopChanging,
-                        onAnswer: { written in
-                            await assumptions.answer(question, written: written, report: session.report)
-                        }
+                        name: call.asker.name, cli: call.asker.cli, text: call.question,
+                        chipsRefused: CallWords.noChips,
+                        onRemove: { calls.stopComposing(call) },
+                        onAnswer: { written in await calls.answer(call, written: written, report: session.report) }
                     )
                 },
             focus: focus,

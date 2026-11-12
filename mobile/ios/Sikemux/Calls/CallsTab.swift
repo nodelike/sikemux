@@ -54,7 +54,7 @@ struct CallsTab: View {
         Row(
             title: call.question,
             onPress: {
-                if call.state == .open { HostCalls.of(core).focus(call) }
+                if call.state == .open { HostCalls.of(core).focus(call, in: call.asker.agentId) }
                 Router.shared.push(.chat(core: core, agent: call.asker.agentId))
             },
             mark: {

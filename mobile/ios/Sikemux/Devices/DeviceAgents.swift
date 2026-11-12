@@ -14,6 +14,10 @@ struct DeviceAgents: View {
     /// Opens an agent's snooze sheet; absent for a phone that can only watch.
     let onHold: ((String) -> Void)?
 
+    @Environment(\.accessibilityReduceMotion) private var still
+    /// The projects' order while a finger is on the list, so a tap never lands on a row that moved under it.
+    @State private var held: [String]?
+
     var body: some View {
         // The open agents in the order the host lists them on every device: the main list, what wants the person
         // first, then the snoozed and then the settled ones.
@@ -21,9 +25,10 @@ struct DeviceAgents: View {
         let open = agents.filter { agent in
             agent.snoozedUntil == nil && agent.settledAt == nil && (provider != nil || agent.chief != true)
         }
-        let teams = teams(open)
-        let snoozed = agents.filter { $0.snoozedUntil != nil && $0.settledAt == nil }
-        let settled = agents.filter { $0.settledAt != nil }
+        let teams = keptStill(teams(open))
+        let away = agents.filter { provider != nil || $0.chief != true }
+        let snoozed = away.filter { $0.snoozedUntil != nil && $0.settledAt == nil }
+        let settled = away.filter { $0.settledAt != nil }
         let workers = view.inbox.remoteAgents
         let leads = Set(open.map(\.agentId))
         let strays =
@@ -55,6 +60,12 @@ struct DeviceAgents: View {
                         }
                         ForEach(strays, id: \.agentId) { WorkerRow(worker: $0) }
                     }
+                    .animation(still ? nil : .snappy(duration: 0.28), value: teams.map(\.id))
+                    .simultaneousGesture(
+                        DragGesture(minimumDistance: 0)
+                            .onChanged { _ in if held == nil { held = teams.map(\.id) } }
+                            .onEnded { _ in held = nil }
+                    )
                     .padding(.top, 10)
                 }
                 AwayGroup(label: "Snoozed", fold: .snoozed, agents: snoozed) { row($0, now: now) }
@@ -92,6 +103,15 @@ struct DeviceAgents: View {
         let loose = open.filter { agent in agent.project.map { !placed.contains($0) } ?? true }
         if !loose.isEmpty { teams.append(Team(project: nil, agents: loose)) }
         return teams
+    }
+
+    /// The teams in the order they had when a finger came down, while it stays; new ones after them.
+    private func keptStill(_ teams: [Team]) -> [Team] {
+        guard let held else { return teams }
+        let at = Dictionary(held.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
+        return teams.enumerated()
+            .sorted { (at[$0.element.id] ?? held.count + $0.offset) < (at[$1.element.id] ?? held.count + $1.offset) }
+            .map(\.element)
     }
 
     /// How much a project needs the person: 0 with an open call or an agent that needs them, 1 with work under way,
@@ -315,11 +335,7 @@ struct WorkerRow: View {
             dim: !worker.reachable,
             mark: { AgentMark(provider: worker.cli, size: 16).opacity(worker.reachable ? 1 : 0.5) },
             end: {
-                if worker.reachable {
-                    AgentStateMark(group: worker.group)
-                } else {
-                    Dot(color: palette.rest, hollow: true)
-                }
+                if worker.reachable { AgentStateMark(group: worker.group) }
             }
         )
         .padding(.leading, nested ? 30 : 0)

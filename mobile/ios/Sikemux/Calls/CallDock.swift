@@ -8,7 +8,9 @@ struct CallDock: View {
     @Environment(\.palette) private var palette
     let core: String
     let call: PersonCall
-    /// Every call its asker waits on, oldest first, `call` among them.
+    /// The agent whose chat the card docks on.
+    let chat: String
+    /// Every call waiting in that chat, oldest first, `call` among them.
     let queue: [PersonCall]
     @Bindable var draft: CallDraft
     let canAnswer: Bool
@@ -77,7 +79,7 @@ struct CallDock: View {
                 ForEach(others, id: \.id) { other in
                     Button {
                         Haptics.select()
-                        calls.focus(other)
+                        calls.focus(other, in: chat)
                     } label: {
                         HStack(spacing: 10) {
                             AskerMark(
@@ -273,7 +275,7 @@ struct CallDock: View {
     }
 
     private var goButton: some View {
-        let seen = calls.seen.contains(call.id)
+        let seen = call.kind != .production || calls.seen.contains(call.id)
         let ready = (!chosen.isEmpty || typed) && !draft.sending && canAnswer && seen
         return Button(action: goWithThis) {
             Text(seen ? CallWords.goWithThis : CallWords.connecting)
@@ -382,6 +384,8 @@ struct PictureLabel: View {
     var body: some View {
         Text(text)
             .font(Theme.ui(12, .medium))
+            .lineLimit(1)
+            .truncationMode(.tail)
             .foregroundStyle(.white)
             .padding(.horizontal, 7)
             .padding(.vertical, 3)

@@ -1018,6 +1018,7 @@ fn picture_label(text: String) -> gpui_kit::Div {
         .absolute()
         .left(px(6.))
         .bottom(px(6.))
+        .max_w(relative(0.9))
         .px(px(6.))
         .py(px(2.))
         .rounded(px(5.))
@@ -1025,7 +1026,7 @@ fn picture_label(text: String) -> gpui_kit::Div {
         .text_color(gpui_kit::white())
         .text_size(theme::ui_text(11.))
         .font_weight(FontWeight::MEDIUM)
-        .child(text)
+        .child(div().min_w_0().truncate().child(text))
 }
 
 /// A taste call's pictures, one per option: the chosen option's leads, large, and the others

@@ -74,8 +74,12 @@ extension ChatSession {
 
     /// Answers a question with `text` and the files picked for it, named in the answer once they are all on the host.
     /// The files stay in the composer when the answer did not go out.
-    func answerWith(_ text: String, _ answer: (WrittenAnswer) async -> Bool) async -> Bool {
+    func answerWith(_ text: String, _ question: ComposerQuestion) async -> Bool {
         notice = nil
+        if let refused = question.chipsRefused, !draft.chips.isEmpty {
+            notice = refused
+            return false
+        }
         var attachments: [Attachment] = []
         if !draft.attachments.isEmpty {
             guard !draft.uploading else { return false }
@@ -89,7 +93,8 @@ extension ChatSession {
             }
             draft.attachments = []
         }
-        if await answer(WrittenAnswer(answer: text, paths: Uploads.paths(attachments), context: draft.chips)) {
+        if await question.onAnswer(WrittenAnswer(answer: text, paths: Uploads.paths(attachments), context: draft.chips))
+        {
             draft.chips = []
             return true
         }

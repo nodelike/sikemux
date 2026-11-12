@@ -60,7 +60,7 @@ final class HostCalls {
     /// The calls the core has taken word that this phone drew, which a production call needs before its answer counts.
     private(set) var seen: Set<String> = []
     @ObservationIgnored private var seeing: Set<String> = []
-    /// The call of an agent's that its chat shows, when the person chose one other than the oldest.
+    /// The call a chat shows, by the chat's agent, when the person chose one other than the oldest.
     private var focused: [String: String] = [:]
     /// Why an answer from a notification did not go, by call.
     private(set) var failed: [String: String] = [:]
@@ -101,9 +101,9 @@ final class HostCalls {
         return queue.first { $0.id == focused[agentId] } ?? queue.first
     }
 
-    /// Makes `call` the one its asker's chat docks.
-    func focus(_ call: PersonCall) {
-        focused[call.asker.agentId] = call.id
+    /// Makes `call` the one the chat of agent `chat` docks.
+    func focus(_ call: PersonCall, in chat: String) {
+        focused[chat] = call.id
     }
 
     /// The call whatever a chat's composer sends answers, while one waits there and the person has not taken its chip
@@ -132,18 +132,22 @@ final class HostCalls {
         call.outcome?.at ?? call.answer?.at ?? call.raisedAt
     }
 
-    /// Tells the host this phone drew the call, until the core has taken it; the card calls it again when the
-    /// connection comes.
+    /// Tells the host this phone drew the call, until the core has taken it: a few tries a few seconds apart, and
+    /// again when the card sees a new connection.
     func see(_ call: PersonCall) async {
-        guard !seen.contains(call.id), !seeing.contains(call.id), let connection = Hub.shared.live(core).connection
-        else { return }
+        guard !seen.contains(call.id), !seeing.contains(call.id) else { return }
         seeing.insert(call.id)
         defer { seeing.remove(call.id) }
-        do {
-            _ = try await connection.call(PhoneCall.CallSeen.self, CallParams(id: call.id))
-            seen.insert(call.id)
-        } catch {
-            print("sikemux: the host did not take that this phone drew a call: \(error)")
+        for wait in [0, 2, 5, 10] {
+            if wait > 0 { try? await Task.sleep(for: .seconds(wait)) }
+            guard !Task.isCancelled, let connection = Hub.shared.live(core).connection else { return }
+            do {
+                _ = try await connection.call(PhoneCall.CallSeen.self, CallParams(id: call.id))
+                seen.insert(call.id)
+                return
+            } catch {
+                print("sikemux: the host did not take that this phone drew a call: \(error)")
+            }
         }
     }
 
@@ -170,20 +174,18 @@ final class HostCalls {
         }
     }
 
-    /// Answers the call waiting in a chat with what the person typed in its composer. A call takes no files yet, so
-    /// an answer with some stays in the composer and says so, rather than going without them.
+    /// Answers the call waiting in a chat with what the person typed in its composer, with the files they sent.
     func answer(_ call: PersonCall, written: WrittenAnswer, report: @escaping (String) -> Void) async -> Bool {
-        guard written.paths.isEmpty else {
-            report(CallWords.wordsAlone)
-            return false
-        }
         guard let connection = Hub.shared.live(core).connection else { return false }
         do {
             _ = try await connection.call(
-                PhoneCall.AnswerCall.self, AnswerCallParams(id: call.id, words: written.answer))
+                PhoneCall.AnswerCall.self,
+                AnswerCallParams(id: call.id, words: written.answer, paths: written.paths.isEmpty ? nil : written.paths)
+            )
             return true
         } catch {
             Haptics.failure()
+            report(problem(error))
             return false
         }
     }

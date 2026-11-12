@@ -212,8 +212,6 @@ enum CallWords {
         let characters = "\(text.count) character\(text.count == 1 ? "" : "s") hidden"
         return lines > 1 ? "\(lines) lines, \(characters)" : characters
     }
-    /// Said when a typed answer to a call carries files, which a call does not take yet.
-    static let wordsAlone = "A call takes words alone for now. Answer it, then send the files to the agent."
     /// The name on a picture's corner: an evidence item's own words, when they are short enough to be a name (Now,
     /// New), else none.
     static func pictureLabel(_ words: String) -> String? {
@@ -221,6 +219,9 @@ enum CallWords {
         let count = trimmed.split(whereSeparator: \.isWhitespace).count
         return !trimmed.isEmpty && trimmed.count <= 20 && count <= 3 ? trimmed : nil
     }
+    /// Said when an answer to a call carries context chips, which a call's answer does not take.
+    static let noChips =
+        "A call's answer takes words and files, not chips. Take the chips off, or send them to the agent."
     /// The composer's chip while a call waits in the chat.
     static func answering(_ name: String, _ question: String) -> String { "Answering @\(name) · \(question)" }
     /// The composer's placeholder while a call waits in the chat.
@@ -235,6 +236,8 @@ enum CallWords {
 
     /// The chief's row: what follows it is its chat's own title, and where projects share the list, the project.
     static let chief = "@Chief"
+    /// Under the chief's row when a tap cannot reach the host to open its chat.
+    static let chiefOffline = "Not connected to this host yet, so its chief can't open."
 
     // MARK: An assumption
 

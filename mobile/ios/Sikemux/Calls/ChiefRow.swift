@@ -14,6 +14,8 @@ struct ChiefRow: View {
     let now: Date
     @State private var opening = false
     @State private var refused: String?
+    /// The row is on screen, so the chat it asked for may open over it.
+    @State private var here = false
 
     var body: some View {
         Row(
@@ -36,6 +38,8 @@ struct ChiefRow: View {
                 }
             }
         )
+        .onAppear { here = true }
+        .onDisappear { here = false }
     }
 
     private func open() {
@@ -43,14 +47,19 @@ struct ChiefRow: View {
             Router.shared.push(.chat(core: core, agent: shown.agentId))
             return
         }
-        guard !opening, let connection = Hub.shared.live(core).connection else { return }
+        guard !opening else { return }
+        guard let connection = Hub.shared.live(core).connection else {
+            Haptics.failure()
+            refused = CallWords.chiefOffline
+            return
+        }
         opening = true
         refused = nil
         Task {
             defer { opening = false }
             do {
                 let opened = try await connection.call(PhoneCall.OpenChief.self, OpenChiefParams(project: project.id))
-                Router.shared.push(.chat(core: core, agent: opened.agentId))
+                if here { Router.shared.push(.chat(core: core, agent: opened.agentId)) }
             } catch {
                 Haptics.failure()
                 refused = problem(error)

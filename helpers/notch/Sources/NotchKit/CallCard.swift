@@ -500,6 +500,8 @@ struct PictureLabel: View {
     var body: some View {
         Text(text)
             .font(Theme.ui(11, .medium))
+            .lineLimit(1)
+            .truncationMode(.tail)
             .foregroundStyle(.white)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
