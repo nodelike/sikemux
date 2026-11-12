@@ -118,6 +118,12 @@ pub(super) async fn pull_request_url(
 
 /// The repository of `project`, preferring the one the person picked for it.
 async fn project_repo(core: &Core, project: String) -> Result<status::ProjectRepo, String> {
+    if core.clones.holds(Path::new(&project)) {
+        return Ok(status::ProjectRepo {
+            repo: None,
+            repos: Some(Vec::new()),
+        });
+    }
     let chosen = core
         .preferences
         .get()

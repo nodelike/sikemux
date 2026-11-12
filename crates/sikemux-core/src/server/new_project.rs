@@ -12,7 +12,7 @@ use sikemux_view::workspace::{Cloning, ProjectInfo};
 use tokio::io::AsyncReadExt;
 use tokio::task::AbortHandle;
 
-use super::changed::What;
+use super::changed::{Topic, What};
 use super::connection::blocking;
 use super::workspace::AddProjectParams;
 use super::{Core, CoreError, CoreResult};
@@ -30,25 +30,36 @@ pub struct CloneProjectParams {
 
 /// The clones under way, by project id.
 #[derive(Default)]
-pub(crate) struct Clones(Mutex<HashMap<String, (Cloning, Option<AbortHandle>)>>);
+pub(crate) struct Clones(Mutex<HashMap<String, Running>>);
+
+struct Running {
+    shown: Cloning,
+    folder: PathBuf,
+    task: Option<AbortHandle>,
+}
 
 impl Clones {
     pub(crate) fn of(&self, project: &str) -> Option<Cloning> {
         self.0
             .locked()
             .get(project)
-            .map(|(cloning, _)| cloning.clone())
+            .map(|clone| clone.shown.clone())
     }
 
     fn set(&self, project: &str, change: impl FnOnce(&mut Cloning)) {
-        if let Some((cloning, _)) = self.0.locked().get_mut(project) {
-            change(cloning);
+        if let Some(clone) = self.0.locked().get_mut(project) {
+            change(&mut clone.shown);
         }
+    }
+
+    /// Whether git is still cloning into `folder`, which is no repository to read until it is done.
+    pub(crate) fn holds(&self, folder: &Path) -> bool {
+        (self.0.locked().values()).any(|clone| clone.folder == folder)
     }
 
     /// Stops the clone into `project`, answering whether one was there.
     pub(crate) fn stop(&self, project: &str) -> bool {
-        let Some((_, task)) = self.0.locked().remove(project) else {
+        let Some(Running { task, .. }) = self.0.locked().remove(project) else {
             return false;
         };
         if let Some(task) = task {
@@ -200,13 +211,17 @@ pub(crate) async fn clone(core: &Arc<Core>, params: CloneProjectParams) -> CoreR
         phase: "Starting".into(),
         ..Cloning::default()
     };
-    core.clones
-        .0
-        .locked()
-        .insert(project.id.clone(), (cloning, None));
+    core.clones.0.locked().insert(
+        project.id.clone(),
+        Running {
+            shown: cloning,
+            folder: project.path.clone(),
+            task: None,
+        },
+    );
     let task = tokio::spawn(run(core.clone(), project.id.clone(), url, dir));
-    if let Some((_, handle)) = core.clones.0.locked().get_mut(&project.id) {
-        *handle = Some(task.abort_handle());
+    if let Some(clone) = core.clones.0.locked().get_mut(&project.id) {
+        clone.task = Some(task.abort_handle());
     }
     core.changed(What::View);
     Ok(ProjectInfo {
@@ -221,6 +236,8 @@ async fn run(core: Arc<Core>, project: String, url: String, dir: PathBuf) {
         Ok(()) => {
             core.clones.0.locked().remove(&project);
             super::git::follow_projects(&core);
+            let folder = dir.to_string_lossy();
+            core.changed(What::ReadIn(Topic::Git, Some(&folder), None));
         }
         Err(error) => core.clones.set(&project, |cloning| {
             cloning.failed = Some(error);
