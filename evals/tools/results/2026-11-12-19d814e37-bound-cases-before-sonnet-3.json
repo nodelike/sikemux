@@ -1,0 +1,153 @@
+{
+ "commit": "19d814e37641519408428ac3d205e1bbcb09ca2c",
+ "dirty": false,
+ "shell": "/bin/zsh",
+ "claude": "2.1.322 (Claude Code)",
+ "variants": [
+  {
+   "label": "sonnet",
+   "model": "claude-sonnet-5-5",
+   "search": true,
+   "trials": 3,
+   "cases": [
+    {
+     "id": "bound-01",
+     "category": "oversized_result",
+     "tools": [
+      "workspace_inspect",
+      "process_start"
+     ],
+     "tokens": {
+     },
+     "runs": [
+      {
+       "id": "bound-01",
+       "trial": 1,
+       "category": "oversized_result",
+       "tools": [
+        "workspace_inspect",
+        "process_start"
+       ],
+       "judge": null,
+       "tokens": {
+       },
+       "turns": 7,
+       "calls": [
+        "ToolSearch",
+        "guide",
+        "workspace_inspect",
+       ]
+      },
+      {
+       "id": "bound-01",
+       "trial": 2,
+       "category": "oversized_result",
+       "tools": [
+        "workspace_inspect",
+        "process_start"
+       ],
+       "judge": null,
+       "tokens": {
+       },
+       "calls": [
+        "guide",
+        "workspace_inspect",
+        "Bash",
+       ]
+      },
+      {
+       "id": "bound-01",
+       "trial": 3,
+       "category": "oversized_result",
+       "tools": [
+        "workspace_inspect",
+        "process_start"
+       ],
+       "judge": null,
+       "tokens": {
+       },
+       "calls": [
+        "guide",
+        "ToolSearch",
+        "workspace_inspect",
+        "Bash",
+       ]
+      }
+     ]
+    },
+    {
+     "id": "bound-02",
+     "category": "oversized_result",
+     "tools": [
+      "agent_read"
+     ],
+     "pass": true,
+     "rate": 1,
+     "failures": [],
+     "tokens": {
+     },
+     "runs": [
+      {
+       "id": "bound-02",
+       "trial": 1,
+       "category": "oversized_result",
+       "tools": [
+        "agent_read"
+       ],
+       "pass": true,
+       "failures": [],
+       "judge": null,
+       "tokens": {
+       },
+       "calls": [
+        "react",
+        "guide",
+        "agent_list",
+        "agent_read",
+       ]
+      },
+      {
+       "id": "bound-02",
+       "trial": 2,
+       "category": "oversized_result",
+       "tools": [
+        "agent_read"
+       ],
+       "pass": true,
+       "failures": [],
+       "judge": null,
+       "tokens": {
+       },
+       "calls": [
+        "ToolSearch",
+        "react",
+        "agent_list",
+        "agent_read",
+        "Bash"
+       ]
+      },
+      {
+       "id": "bound-02",
+       "trial": 3,
+       "category": "oversized_result",
+       "tools": [
+        "agent_read"
+       ],
+       "pass": true,
+       "failures": [],
+       "judge": null,
+       "tokens": {
+       },
+       "calls": [
+        "react",
+        "agent_list",
+        "agent_read",
+        "Bash"
+       ]
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}
