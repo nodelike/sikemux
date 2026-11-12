@@ -19,7 +19,7 @@ use crate::server::messages::called_now;
 use crate::server::{inbox, person_calls, roster, Core};
 
 /// Claude compacts about 33K tokens under the window it is given, so this compacts near 150K.
-pub(crate) const CLAUDE_WINDOW: &str = "183k";
+pub(crate) const CLAUDE_WINDOW: u64 = 183_000;
 /// The callbacks Claude calls before it compacts and as it starts again after.
 pub(crate) const KEEP_HOOK: &str = "sikemux-keep";
 pub(crate) const FACTS_HOOK: &str = "sikemux-facts";

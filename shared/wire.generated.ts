@@ -1879,6 +1879,8 @@ export type StopReason = "end_turn" | "max_tokens" | "max_turn_requests" | "refu
 export interface ContextUsage {
     used: number;
     size: number;
+    /** Where the agent will compact the conversation on its own, when it says. */
+    compactAt?: number;
     cost?: UsageCost;
 }
 

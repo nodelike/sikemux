@@ -25,6 +25,7 @@ use super::super::json::{self, text};
 use super::super::pending::{Answered, Purpose};
 use super::super::process::Reads;
 use super::super::session::{Sink, TurnEnd};
+use super::compaction::AutoCompact;
 use super::control::Control;
 use super::failure;
 use super::messages::{
@@ -151,6 +152,8 @@ pub(crate) struct ReaderState {
     used: Option<u64>,
     size: u64,
     model: Option<String>,
+    #[serde(default)]
+    auto_compact: AutoCompact,
     /// The session's calls to the model and its compactions since Claude last answered.
     #[serde(default)]
     calls: Vec<ModelCall>,
@@ -442,6 +445,7 @@ impl Reader {
                 used: None,
                 size: 200_000,
                 model: None,
+                auto_compact: AutoCompact::default(),
                 calls: Vec::new(),
                 compactions: Vec::new(),
                 others_called: false,
@@ -478,6 +482,10 @@ impl Reader {
         if claude_model::names_long_window(model) {
             self.data.size = claude_model::LONG_WINDOW;
         }
+    }
+
+    pub fn compacts(&mut self, auto_compact: AutoCompact) {
+        self.data.auto_compact = auto_compact;
     }
 
     fn turn_running(&self) -> bool {
@@ -1011,6 +1019,10 @@ impl Reader {
         let used = self.data.used;
         if let Some(used) = used {
             let mut update = sikemux_fold::update::usage(used, self.data.size);
+            let model = self.data.model.as_deref();
+            if let Some(at) = self.data.auto_compact.at(model, self.data.size) {
+                update["compactAt"] = json!(at);
+            }
             if let Some(cost) = result.total_cost_usd {
                 update["cost"] = json!({ "amount": cost, "currency": "USD" });
             }

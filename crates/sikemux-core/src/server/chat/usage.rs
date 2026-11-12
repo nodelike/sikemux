@@ -9,7 +9,7 @@ use crate::sessions::context::read_session_context;
 use sikemux_fold::ChatEventKind;
 use sikemux_wire::protocol::ChatStart;
 
-use super::native::saved_window;
+use super::native::{saved_window, AutoCompact};
 use super::Chat;
 
 impl Chat {
@@ -25,6 +25,7 @@ impl Chat {
         let core = self.core.clone();
         let agent_id = self.agent_id().to_owned();
         let generation = self.generation;
+        let capped = self.capped();
         let start = start.clone();
         tokio::task::spawn_blocking(move || {
             let cwd = launch.cwd.to_string_lossy();
@@ -37,13 +38,17 @@ impl Chat {
             let Some(chat) = core.upgrade().and_then(|core| core.chats.get(&agent_id)) else {
                 return;
             };
+            let mut update = sikemux_fold::update::usage(saved.used, size);
+            if kind == AgentKind::Claude {
+                let model = launch.model.as_deref();
+                if let Some(at) = AutoCompact::of(&launch, capped).at(model, size) {
+                    update["compactAt"] = json!(at);
+                }
+            }
             if chat.generation == generation {
                 chat.feed.emit(
                     ChatEventKind::SessionUpdate,
-                    json!({
-                        "sessionId": start.session_id,
-                        "update": sikemux_fold::update::usage(saved.used, size),
-                    }),
+                    json!({ "sessionId": start.session_id, "update": update }),
                 );
             }
         });

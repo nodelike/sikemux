@@ -451,7 +451,14 @@ fn context_usage(update: &Value) -> Option<ContextUsage> {
             currency: text_of(cost.get("currency"))?.to_owned(),
         })
     });
-    Some(ContextUsage { used, size, cost })
+    let compact_at = (update.get("compactAt").and_then(Value::as_f64))
+        .filter(|at| at.is_finite() && *at > 0.0 && *at < size);
+    Some(ContextUsage {
+        used,
+        size,
+        compact_at,
+        cost,
+    })
 }
 
 /// An agent says it is retrying as a warning-level failure, in the same shape

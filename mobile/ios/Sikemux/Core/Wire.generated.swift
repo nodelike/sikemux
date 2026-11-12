@@ -2937,6 +2937,8 @@ enum StopReason: String, Codable, Hashable, Sendable {
 struct ContextUsage: Codable, Hashable, Sendable {
     var used: Double
     var size: Double
+    /// Where the agent will compact the conversation on its own, when it says.
+    var compactAt: Double?
     var cost: UsageCost?
 }
 

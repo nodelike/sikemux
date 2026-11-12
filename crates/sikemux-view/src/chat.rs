@@ -476,6 +476,9 @@ pub struct ChatFailure {
 pub struct ContextUsage {
     pub used: f64,
     pub size: f64,
+    /// Where the agent will compact the conversation on its own, when it says.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compact_at: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cost: Option<UsageCost>,
 }

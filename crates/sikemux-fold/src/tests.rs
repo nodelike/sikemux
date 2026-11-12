@@ -336,6 +336,7 @@ mod reducer {
             Some(ContextUsage {
                 used: 84_000.0,
                 size: 200_000.0,
+                compact_at: None,
                 cost: Some(UsageCost {
                     amount: 1.25,
                     currency: "USD".into()
@@ -347,6 +348,7 @@ mod reducer {
         let codex = Some(ContextUsage {
             used: 90_000.0,
             size: 272_000.0,
+            compact_at: None,
             cost: None,
         });
         assert_eq!(chat.head().usage, codex);
@@ -922,6 +924,7 @@ mod reducer {
             Some(ContextUsage {
                 used: 1.0,
                 size: 10.0,
+                compact_at: None,
                 cost: None
             })
         );
@@ -1413,6 +1416,7 @@ mod reducer {
         let bare = Some(ContextUsage {
             used: 1.0,
             size: 10.0,
+            compact_at: None,
             cost: None,
         });
         assert_eq!(

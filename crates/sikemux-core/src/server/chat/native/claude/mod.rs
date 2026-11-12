@@ -1,6 +1,7 @@
 //! Claude Code, driven over its stream-json control protocol: the protocol
 //! Anthropic's own Agent SDK speaks to the `claude` binary.
 
+mod compaction;
 mod config;
 mod control;
 mod failure;
@@ -38,6 +39,7 @@ use super::process::{self, Lines, Process, Reading, Released, Writer};
 use super::servers;
 use super::session::{Backend, Opened, Prompt, Sink, Steered, Telling};
 use crate::sessions::for_agent::context_text;
+pub(crate) use compaction::AutoCompact;
 pub(crate) use config::saved_window;
 use control::Control;
 use reader::{Asking, Reader, ReaderState, Shared, Turn};
@@ -356,7 +358,10 @@ impl Claude {
         args.extend(["--permission-mode".to_owned(), mode.to_owned()]);
         let capped = sink.capped();
         if capped {
-            args.extend(["--autocompact".to_owned(), cap::CLAUDE_WINDOW.to_owned()]);
+            args.extend([
+                "--autocompact".to_owned(),
+                format!("{}k", cap::CLAUDE_WINDOW / 1000),
+            ]);
         }
         if let Some(settings) = crate::git_guard::shim::claude_settings() {
             args.extend(["--settings".to_owned(), settings]);
@@ -405,6 +410,7 @@ impl Claude {
         if let Some(model) = model {
             reader.note_model(model);
         }
+        reader.compacts(AutoCompact::of(launch, capped));
         let asking = reader.asking();
         let (reading, task_stops) = Reading::start(reader, lines);
         let running = Running {
