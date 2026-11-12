@@ -1005,7 +1005,10 @@ fn remote_row(worker: &RemoteAgent, cx: &mut Context<Workbench>) -> AnyElement {
             .mark(22., ui::mark(&worker.cli, 20.))
             .quiet()
             .when_some(status, |row, status| {
-                row.status(ui::status_mark(&worker.agent_id, status, cx))
+                row.status(
+                    ui::turn_mark(&worker.agent_id, worker.turn.as_ref())
+                        .or_else(|| ui::status_mark(&worker.agent_id, status, cx)),
+                )
             }),
         )
         .children(team_lines(team, false, cx))
