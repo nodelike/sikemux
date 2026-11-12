@@ -95,6 +95,9 @@ impl World {
             .arg("--cli-endpoint")
             .arg(work.join("cli.json"))
             .env("HOME", &home)
+            // Agents' commands find the core by the endpoint it hands them only when it lies in
+            // their config folder, so the core keeps the throwaway home's.
+            .env_remove(sikemux_process::vars::CONFIG_DIR)
             .env("SIKEMUX_CORE_SOCKET", &socket)
             .env(sikemux_process::vars::AGENT_SEARCH, "path")
             .env("FAKE_CLAUDE_MODEL", SEEDED_MODEL)
@@ -401,7 +404,15 @@ impl World {
             Ok(())
         };
         git(&["init", "-q", "-b", "main"])?;
-        git(&["add", "-A"])?;
+        let mut copied: Vec<String> = std::fs::read_dir(&path)?
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .filter(|name| name != ".git")
+            .collect();
+        copied.sort();
+        let mut add = vec!["add", "--"];
+        add.extend(copied.iter().map(String::as_str));
+        git(&add)?;
         git(&["commit", "-q", "-m", "Start"])?;
         self.call(
             "addProject",
@@ -589,6 +600,11 @@ impl World {
             "open" => {
                 let (project, path) = self.project()?.clone();
                 self.open_tab(&project, &path, step.text(0)?)?;
+            }
+            "core" => {
+                let (_, path) = self.project()?.clone();
+                let params = step.text(1)?.replace("$project", &path.to_string_lossy());
+                self.call(step.text(0)?, serde_json::from_str(&params)?)?;
             }
             _ => return Ok(false),
         }

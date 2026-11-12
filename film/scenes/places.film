@@ -1,0 +1,38 @@
+# The Playbook's Places page on a project with a Vercel site and a release workflow that tells
+# nightlies apart, before the person confirms the list, after, and with a level's menu open.
+stage 1760 1000
+window 1760 1000
+prefer themeId aura-noir
+project storefront places-shop
+core addPlace "{\"project\":\"$project\",\"name\":\"staging.acme.dev and Vercel previews\",\"production\":false,\"recognise\":[{\"kind\":\"vercelTarget\",\"production\":false}]}"
+chat Lars
+settle 6
+click 792,838
+type "shell curl -s -o /dev/null --max-time 3 -X POST -d {} https://hooks.slack.com/services/TFILM/BFILM/film" 800
+key enter
+hold 6
+click 792,838
+type "shell curl -s -o /dev/null --max-time 3 -X POST -d {} https://hooks.slack.com/services/TFILM/BFILM/film" 800
+key enter
+hold 6
+chat Ivo
+settle 6
+click 792,838
+type "shell curl -s -o /dev/null --max-time 3 -X POST -d {} https://api.resend.com/emails" 800
+key enter
+hold 6
+click 101,363
+settle 3
+click 370,191
+settle 2
+snap places-fresh
+click 1140,397
+settle 3
+click 1154,281
+settle 1
+click 1153,341
+settle 3
+snap places-confirmed
+click 1154,221
+settle 1
+snap places-level-menu
