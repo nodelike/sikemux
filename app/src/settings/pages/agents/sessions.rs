@@ -9,7 +9,7 @@ use gpui_kit::{
 use sikemux_core::server::calls::NoParams;
 use sikemux_core::server::names::{NameTheme, NameThemeParams};
 use sikemux_view::prefs::PreferenceChange;
-use sikemux_view::prefs::{MidTurnSend, RailDensity};
+use sikemux_view::prefs::{MidTurnSend, RailDensity, ScreenReader};
 use sikemux_wire::protocol::PermissionMode;
 
 use crate::settings::rows::{self, Choice};
@@ -69,6 +69,12 @@ pub(in crate::settings) const ENTRIES: &[crate::settings::index::Entry] = &[
     crate::settings::index::row(
         crate::settings::index::Page::Chats,
         "Chats",
+        "Screen reader",
+        "voiceover accessibility announce read aloud blind a11y",
+    ),
+    crate::settings::index::row(
+        crate::settings::index::Page::Chats,
+        "Chats",
         "Agent names",
         "name theme anime nature naruto one piece characters words",
     ),
@@ -89,10 +95,18 @@ pub(in crate::settings) const ENTRIES: &[crate::settings::index::Entry] = &[
 pub struct Fields {
     mid_turn: Choice,
     density: Choice,
+    screen_reader: Choice,
     builds: Choice,
     /// What new agents are called, once the core has said.
     names: Option<Choice>,
 }
+
+/// How much of the chat in front a screen reader hears, in the order the menu offers it.
+const READINGS: [ScreenReader; 3] = [
+    ScreenReader::Status,
+    ScreenReader::Messages,
+    ScreenReader::Everything,
+];
 
 /// How many builds agents start may run at once; 0 lets the host size it.
 const BUILD_RUNS: [u32; 9] = [0, 1, 2, 3, 4, 6, 8, 12, 16];
@@ -172,6 +186,18 @@ impl Fields {
             window,
             cx,
         );
+        let screen_reader = Choice::new(
+            vec!["Status only", "Status and messages", "Everything"],
+            READINGS
+                .iter()
+                .position(|reading| *reading == preferences.screen_reader)
+                .unwrap_or(0),
+            |bench, at, _| {
+                crate::settings::set(bench, PreferenceChange::ScreenReader(READINGS[at]))
+            },
+            window,
+            cx,
+        );
         let builds = Choice::new(
             BUILD_RUNS
                 .iter()
@@ -191,6 +217,7 @@ impl Fields {
         Self {
             mid_turn,
             density,
+            screen_reader,
             builds,
             names: None,
         }
@@ -324,6 +351,12 @@ pub fn render(
             "Rail density",
             Some("Compact fits more sessions while keeping every state symbol visible."),
             fields.density.view(),
+            cx,
+        ))
+        .child(rows::row(
+            "Screen reader",
+            Some("What VoiceOver hears of the chat in front while its turn runs. Messages are read once the agent moves on from them; the closing reply is left for you."),
+            fields.screen_reader.view(),
             cx,
         ))
         .children(fields.names.as_ref().map(|names| {

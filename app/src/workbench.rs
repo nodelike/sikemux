@@ -297,6 +297,13 @@ impl Workbench {
                 }
             }),
         ];
+        let rails = crate::rail::Rails::new(cx);
+        for edge in [crate::rail::Edge::Start, crate::rail::Edge::End] {
+            cx.on_blur(&rails.keyed(edge).focus, window, move |bench, _, cx| {
+                bench.redraw_rail(edge, cx)
+            })
+            .detach();
+        }
         let sims = cx.new(crate::sim::pane::Simulators::new);
         let desks = cx.new(|cx| crate::desk::Desks::new(window, cx));
         let calls = cx.new(|_| crate::calls::Cards::default());
@@ -329,7 +336,7 @@ impl Workbench {
             chat_drag: None,
             place: None,
             last_place: None,
-            rails: crate::rail::Rails::new(cx),
+            rails,
             strip: Default::default(),
             closing_tabs: Default::default(),
             agent_card: crate::agents::card::Card::default(),
@@ -742,7 +749,10 @@ impl Parts {
                 true,
             ),
             rail: part(
-                |bench, _, cx| rail::side_rail(bench, cx).into_any_element(),
+                |bench, window, cx| {
+                    bench.rails.keyed(rail::Edge::Start).begin(window);
+                    rail::side_rail(bench, cx).into_any_element()
+                },
                 false,
             ),
             stage: part(
@@ -768,7 +778,8 @@ impl Parts {
                 false,
             ),
             tabs: part(
-                |bench, _, cx| {
+                |bench, window, cx| {
+                    bench.rails.keyed(rail::Edge::End).begin(window);
                     bench.accounts.limits.drawing_rail();
                     let rail = agents::tab_rail(bench, cx);
                     bench.settle_limits();

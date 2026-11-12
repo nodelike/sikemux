@@ -113,6 +113,9 @@ commands! {
     FocusAgents = "window.agents" opens Workbench::focus_agents;
     FocusHosts = "window.hosts" opens |bench, _, _| bench.open_hosts(None);
     FocusPlaybook = "window.playbook" opens |bench, _, _| bench.open_playbook();
+    /// Moves the keys to the next of the window's areas: the rails and the view in front.
+    NextArea = "window.nextArea" acts |bench, window, cx| bench.step_area(1, window, cx);
+    PreviousArea = "window.previousArea" acts |bench, window, cx| bench.step_area(-1, window, cx);
     NextPlace = "session.next" acts |bench, window, cx| bench.step_place(1, window, cx);
     PreviousPlace = "session.previous" acts |bench, window, cx| bench.step_place(-1, window, cx);
     OpenCommands = "palette.commands" (OverModals) acts |bench, window, cx| {
@@ -263,6 +266,7 @@ pub(super) fn install(asks: mpsc::UnboundedSender<Ask>, cx: &mut App) {
     crate::chat::install(cx);
     crate::terminal::install(cx);
     crate::files::install(cx);
+    crate::ui::keyed::install(cx);
     crate::command_popup::install(cx);
     crate::pairing::install(cx);
     crate::editor::install(cx);

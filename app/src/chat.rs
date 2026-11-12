@@ -56,6 +56,7 @@ use crate::workbench::Workbench;
 use crate::worktrees::switch::Switch;
 use crate::{motion, syntax, theme, ui};
 
+mod announce;
 mod attach;
 mod cards;
 pub mod changes;
@@ -632,6 +633,8 @@ pub struct Chat {
     plan_open: bool,
     /// The line under the last row saying what the agent is doing.
     activity_line: Entity<status::Activity>,
+    /// What a screen reader hears of the turn as it runs.
+    announcer: Entity<announce::Announcer>,
     /// The calls the agent asks, over the activity line.
     calls: Entity<crate::calls::InChat>,
     /// The core of the host the agent runs on, which every ask of the chat goes to.
@@ -830,6 +833,7 @@ impl Chat {
             finding: None,
             plan_open: false,
             activity_line,
+            announcer: cx.new(|_| announce::Announcer::default()),
             calls,
             target,
             _rows: [emptied, rows_changed],
@@ -1086,9 +1090,16 @@ impl Chat {
             }
         });
         let turn = self.state.as_ref().and_then(|head| head.turn.as_ref());
+        let step = doing.as_ref().map(status::Doing::whole);
         self.activity_line.update(cx, |activity, cx| {
             activity.set_turn(turn, cx);
             activity.set(doing, cx)
+        });
+        let transcript = self.transcript.clone();
+        self.announcer.update(cx, |announcer, cx| {
+            if announcer.follow(turn, transcript.read(cx).rows(), step) {
+                cx.notify();
+            }
         });
     }
 
@@ -1572,6 +1583,10 @@ pub fn pane(
     let bench_handle = cx.weak_entity();
     chat.activity_line
         .update(cx, |line, cx| line.wear(agent, bench_handle, cx));
+    let level = bench.preferences().screen_reader;
+    chat.announcer.update(cx, |announcer, _| {
+        announcer.wear(level, agent.name.as_deref())
+    });
     chat.reader.update(cx, |reading, cx| {
         if reading.worktree != worktree {
             reading.worktree = worktree;
@@ -1849,7 +1864,9 @@ pub fn pane(
         .on_action(text_size::<TextSizeIncrease>(&this, Some(true)))
         .on_action(text_size::<TextSizeDecrease>(&this, Some(false)))
         .on_action(text_size::<TextSizeReset>(&this, None))
+        .relative()
         .child(pane)
+        .child(chat.announcer.clone())
 }
 
 /// Makes the chat's text bigger or smaller by `step`, or back to its designed size without

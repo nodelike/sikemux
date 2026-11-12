@@ -5039,6 +5039,8 @@ struct Preferences: Codable, Hashable, Sendable {
     /// How much what is behind the window blurs, in points.
     var windowBlur: Double
     var railDensity: RailDensity
+    /// What a screen reader hears of the chat in front while its turn runs.
+    var screenReader: ScreenReader
     /// The iOS Simulator is drawn inside a device's frame.
     var simulatorFrame: Bool
     /// The keys the person bound to actions in place of their defaults, by
@@ -5294,6 +5296,21 @@ enum PaneColours: String, Codable, Hashable, Sendable {
 enum RailDensity: String, Codable, Hashable, Sendable {
     case comfortable
     case compact
+    /// One added after this build.
+    case unknown
+
+    init(from decoder: any Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
+}
+
+enum ScreenReader: String, Codable, Hashable, Sendable {
+    /// When a turn starts, waits on the person, and ends.
+    case status
+    /// Also each message the agent finishes and then keeps working after.
+    case messages
+    /// Also the step the agent is on.
+    case everything
     /// One added after this build.
     case unknown
 

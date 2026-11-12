@@ -280,6 +280,22 @@
         "other": "Ctrl+Shift+KeyW"
     },
     {
+        "id": "window.nextArea",
+        "label": "Next area",
+        "detail": "Move the keys to the next area: the side rail, the view in front, the tab rail",
+        "category": "Navigation",
+        "mac": "F6",
+        "other": "F6"
+    },
+    {
+        "id": "window.previousArea",
+        "label": "Previous area",
+        "detail": "Move the keys back to the area before",
+        "category": "Navigation",
+        "mac": "Shift+F6",
+        "other": "Shift+F6"
+    },
+    {
         "id": "window.previous",
         "label": "Previous tab",
         "detail": "Move one tab left along the strip",

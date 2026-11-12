@@ -60,10 +60,11 @@ mod terminal_pages;
 
 pub fn tab_rail(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
     let frame = bench.rails.frame.clone();
-    ui::panel(cx)
+    let rail = ui::panel(cx)
         .relative()
         .w(px(bench.rail_width(Edge::End)))
-        .flex_none()
+        .flex_none();
+    crate::rail::keyed_rail(rail, Edge::End, bench, cx)
         .child(
             canvas(
                 |_, _, _| {},
@@ -600,7 +601,8 @@ fn recent_row(bench: &Workbench, recent: &RecentInfo, cx: &mut Context<Workbench
         .id(SharedString::from(format!("recent-menu-{}", recent.id)))
         .group(RECENT_ROW)
         .relative();
-    crate::drag::chat(wrap, dragged, cx.weak_entity())
+    let (keyed_id, label) = (format!("recent-{}", recent.id), recent.title.clone());
+    let row = crate::drag::chat(wrap, dragged, cx.weak_entity())
         .when(waiting > 0, |wrap| {
             let rest = key.clone();
             wrap.on_hover(cx.listener(move |bench, inside: &bool, _, cx| {
@@ -650,8 +652,8 @@ fn recent_row(bench: &Workbench, recent: &RecentInfo, cx: &mut Context<Workbench
                     .item(cx)
                     .on_click(on(delete_recent)),
             )
-        }))
-        .into_any_element()
+        }));
+    (bench.rails.keyed(Edge::End)).row(keyed_id, label, row, cx)
 }
 
 /// The foot of Recent, which brings the next page of older chats once it scrolls into view.
@@ -1045,7 +1047,7 @@ fn agent_row(
     fold: Option<Fold>,
     glided: bool,
     cx: &mut Context<Workbench>,
-) -> impl IntoElement {
+) -> AnyElement {
     let t = Tokens::get(cx).clone();
     let elsewhere = agent.place != bench.place();
     let project = bench
@@ -1214,7 +1216,12 @@ fn agent_row(
         .id(SharedString::from(format!("agent-menu-{}", agent.id)))
         .group(AGENT_ROW)
         .relative();
-    crate::drag::chat(wrap, dragged, cx.weak_entity())
+    let label = match &agent.name {
+        Some(name) if agent.titled => format!("{}, @{name}", agent.title),
+        _ => agent.title.clone(),
+    };
+    let keyed_id = format!("agent-{}", agent.id);
+    let row = crate::drag::chat(wrap, dragged, cx.weak_entity())
         .when(
             matches!(team, Some(TeamLink::Member | TeamLink::Last)),
             |wrap| wrap.pl(px(18.)),
@@ -1239,7 +1246,8 @@ fn agent_row(
         .context_menu(ui::menu(move |popup, window, cx| match &menu {
             Some(menu) => menu.build(popup, window, cx),
             None => popup,
-        }))
+        }));
+    (bench.rails.keyed(Edge::End)).row(keyed_id, label, row, cx)
 }
 
 /// The projects a list of every project shows, each led by its @Chief: those with a chief's chat

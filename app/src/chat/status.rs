@@ -83,7 +83,7 @@ impl Doing {
         Doing { what: None, ..self }
     }
 
-    fn whole(&self) -> SharedString {
+    pub(super) fn whole(&self) -> SharedString {
         match &self.what {
             Some(what) => format!("{} {what}", self.verb).into(),
             None => self.verb.clone(),

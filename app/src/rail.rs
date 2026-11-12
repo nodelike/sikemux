@@ -1,3 +1,4 @@
+use crate::ui::keyed::{self, KeyedRows};
 use crate::workbench::actions;
 use sikemux_view::layout::At;
 use sikemux_view::layout::OpenTab;
@@ -76,6 +77,11 @@ const PEEK_REACH: f32 = 28.;
 
 impl Rails {
     pub fn new(cx: &mut Context<Workbench>) -> Self {
+        let scroll = gpui_kit::ScrollHandle::default();
+        let keyed = [
+            KeyedRows::new(cx.focus_handle(), gpui_kit::ScrollHandle::default()),
+            KeyedRows::new(cx.focus_handle(), scroll.clone()),
+        ];
         Self {
             side_open: true,
             tab_open: true,
@@ -94,11 +100,16 @@ impl Rails {
             folded_teams: HashSet::new(),
             folded_groups: Vec::new(),
             seen: Default::default(),
-            scroll: Default::default(),
+            scroll,
             glide: Default::default(),
             frame: Rc::default(),
             slide: crate::track::Slide::default(),
+            keyed,
         }
+    }
+
+    pub(crate) fn keyed(&self, edge: Edge) -> &KeyedRows {
+        &self.keyed[edge as usize]
     }
 
     /// Opens, sizes and pages the rails as the person's preferences keep them.
@@ -161,6 +172,8 @@ pub struct Rails {
     pub(crate) frame: Rc<std::cell::Cell<[f32; 4]>>,
     /// The tab rail's pages while they move between one another.
     pub(crate) slide: crate::track::Slide<TabRailPage>,
+    /// The side rail's rows and the tab rail's, as the keys walk them.
+    pub(crate) keyed: [crate::ui::keyed::KeyedRows; 2],
 }
 
 pub const SIDE_RAIL: RailWidth = RailWidth {
@@ -180,9 +193,10 @@ pub fn side_rail(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoEle
         Some(space) => format!("no projects in {}", space.name),
         None => "no projects".to_owned(),
     };
-    ui::panel(cx)
+    let rail = ui::panel(cx)
         .w(px(bench.rail_width(Edge::Start)))
-        .flex_none()
+        .flex_none();
+    keyed_rail(rail, Edge::Start, bench, cx)
         .child(masthead(bench, cx))
         .child(
             div()
@@ -192,6 +206,7 @@ pub fn side_rail(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoEle
                 .pt(SPACE_2H)
                 .px(SPACE_2H)
                 .pb(SPACE_4)
+                .track_scroll(&bench.rails.keyed(Edge::Start).scroll)
                 .overflow_y_scroll()
                 .child(
                     Group::new("Projects", empty)
@@ -820,21 +835,20 @@ fn terminals(bench: &Workbench, cx: &mut Context<Workbench>) -> Vec<AnyElement> 
         .into_iter()
         .map(|session| {
             let id = session.id.to_string();
-            Row::new(
-                SharedString::from(format!("terminal-{id}")),
-                session.rail_name.clone().unwrap_or_default(),
-            )
-            .chosen(!bench.settings.read(cx).is_open() && front.as_ref() == Some(&id))
-            .on_click(cx.listener(move |bench, _, _, _| {
-                bench.open_here(OpenTab::new(
-                    At::terminals(),
-                    PaneKind::Terminal,
-                    id.clone(),
-                ));
-            }))
-            .mark(16., ui::icon(Icon::Terminal, 13.).text_color(live))
-            .quiet()
-            .into_any_element()
+            let name = session.rail_name.clone().unwrap_or_default();
+            let row = Row::new(SharedString::from(format!("terminal-{id}")), name.clone())
+                .chosen(!bench.settings.read(cx).is_open() && front.as_ref() == Some(&id))
+                .on_click(cx.listener(move |bench, _, _, _| {
+                    bench.open_here(OpenTab::new(
+                        At::terminals(),
+                        PaneKind::Terminal,
+                        id.clone(),
+                    ));
+                }))
+                .mark(16., ui::icon(Icon::Terminal, 13.).text_color(live))
+                .quiet();
+            let keyed = bench.rails.keyed(Edge::Start);
+            keyed.row(format!("terminal-{}", session.id), name, row, cx)
         })
         .collect()
 }
@@ -1029,13 +1043,14 @@ fn project_tree(
         .context_menu(ui::menu(menu))
         .child(row)
         .children(close);
+    let row = (bench.rails.keyed(Edge::Start)).row(format!("project-{key}"), name, row, cx);
     let copies = (folded.copies.len() > 1)
         .then(|| crate::copies::copy_row(bench, folded, cx))
         .flatten();
     div().flex().flex_col().child(row).when(active, |tree| {
         tree.pb(SPACE_1)
             .children(copies.map(|copies| div().ml(px(13.5)).pt(SPACE_0).child(copies)))
-            .child(surfaces(lit_surface(bench), cx))
+            .child(surfaces(bench, lit_surface(bench), cx))
     })
 }
 
@@ -1223,7 +1238,12 @@ fn rollup(bench: &Workbench, folded: &Folded, cx: &App) -> Option<gpui_kit::AnyE
 
 /// The project's surfaces and its Playbook, hung off a spine with a tick to each, the one in
 /// front lit.
-fn surfaces(front: Option<PaneKind>, cx: &Context<Workbench>) -> impl IntoElement {
+fn surfaces(
+    workbench: &Workbench,
+    front: Option<PaneKind>,
+    cx: &Context<Workbench>,
+) -> impl IntoElement {
+    let keyed = workbench.rails.keyed(Edge::Start);
     let bench = cx.entity().downgrade();
     let surfaces = crate::pane_kind::SURFACES
         .into_iter()
@@ -1231,7 +1251,7 @@ fn surfaces(front: Option<PaneKind>, cx: &Context<Workbench>) -> impl IntoElemen
         .map(|(index, surface)| {
             let (kind, command) = (surface.kind, surface.command);
             let bench = bench.clone();
-            tree_row(
+            let row = tree_row(
                 SharedString::from(format!("surface-{index}")),
                 crate::pane_kind::of(kind).icon,
                 surface.label,
@@ -1249,8 +1269,8 @@ fn surfaces(front: Option<PaneKind>, cx: &Context<Workbench>) -> impl IntoElemen
                     });
                 }
                 keymap::dispatch(command, window, cx);
-            })
-            .into_any_element()
+            });
+            keyed.row(format!("surface-{index}"), surface.label, row, cx)
         });
     let playbook = crate::workbench::actions::FocusPlaybook::ID;
     let playbook = tree_row(
@@ -1263,6 +1283,7 @@ fn surfaces(front: Option<PaneKind>, cx: &Context<Workbench>) -> impl IntoElemen
         cx,
     )
     .on_click(move |_, window, cx| keymap::dispatch(playbook, window, cx));
+    let playbook = keyed.row("surface-playbook", "Playbook", playbook, cx);
     div()
         .flex()
         .flex_col()
@@ -1739,7 +1760,77 @@ fn sign_in(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
         )
 }
 
+/// `rail` taking the keys, whose arrows walk the rows it lists.
+pub(crate) fn keyed_rail(rail: Div, edge: Edge, bench: &Workbench, cx: &Context<Workbench>) -> Div {
+    fn on<A: gpui_kit::Action>(
+        edge: Edge,
+        cx: &Context<Workbench>,
+    ) -> impl Fn(&A, &mut Window, &mut App) + use<A> {
+        let this = cx.weak_entity();
+        move |key: &A, window: &mut Window, cx: &mut App| {
+            this.update(cx, |bench, cx| {
+                if bench.rails.keyed[edge as usize].key(key, window, cx) {
+                    bench.redraw_rail(edge, cx);
+                }
+            })
+            .ok();
+        }
+    }
+    rail.track_focus(&bench.rails.keyed(edge).focus)
+        .key_context(keyed::CONTEXT)
+        .on_action(on::<keyed::Previous>(edge, cx))
+        .on_action(on::<keyed::Next>(edge, cx))
+        .on_action(on::<keyed::First>(edge, cx))
+        .on_action(on::<keyed::Last>(edge, cx))
+        .on_action(on::<keyed::Open>(edge, cx))
+        .on_action(on::<keyed::ShowMenu>(edge, cx))
+        .on_action(
+            cx.listener(|bench, _: &keyed::Leave, window, cx| bench.keys_to_stage(window, cx)),
+        )
+}
+
 impl Workbench {
+    pub(crate) fn redraw_rail(&self, edge: Edge, cx: &mut App) {
+        let part = match edge {
+            Edge::Start => &self.parts.rail,
+            Edge::End => &self.parts.tabs,
+        };
+        self.parts.redraw(part, cx);
+    }
+
+    /// Gives the keys to the view in front, else the window.
+    pub(crate) fn keys_to_stage(&self, window: &mut Window, cx: &mut Context<Self>) {
+        match self.focused_view() {
+            Some(view) => self.focus_view(&view, window, cx),
+            None => self.keys.focus.focus(window, cx),
+        }
+    }
+
+    /// Moves the keys `by` one area along the window's: the side rail, the view in front and
+    /// the tab rail, leaving out a closed rail, and around.
+    pub(crate) fn step_area(&mut self, by: isize, window: &mut Window, cx: &mut Context<Self>) {
+        let areas: Vec<Option<Edge>> = [
+            (Some(Edge::Start), self.rails.side_open),
+            (None, true),
+            (Some(Edge::End), self.rails.tab_open),
+        ]
+        .into_iter()
+        .filter_map(|(area, open)| open.then_some(area))
+        .collect();
+        let now = [Edge::Start, Edge::End]
+            .into_iter()
+            .find(|edge| self.rails.keyed(*edge).focus.contains_focused(window, cx));
+        let at = areas.iter().position(|area| *area == now).unwrap_or(0);
+        let to = areas[(at as isize + by).rem_euclid(areas.len() as isize) as usize];
+        match to {
+            Some(edge) => {
+                self.rails.keyed[edge as usize].take_keys(window, cx);
+                self.redraw_rail(edge, cx);
+            }
+            None => self.keys_to_stage(window, cx),
+        }
+    }
+
     /// Keeps a rail open, or closes it; a peeking rail that is kept stays where it is.
     pub fn toggle_rail(&mut self, edge: Edge, cx: &mut Context<Self>) {
         let open = match edge {

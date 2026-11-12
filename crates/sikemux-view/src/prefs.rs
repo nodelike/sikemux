@@ -146,6 +146,8 @@ pub struct Preferences {
     /// How much what is behind the window blurs, in points.
     pub window_blur: f64,
     pub rail_density: RailDensity,
+    /// What a screen reader hears of the chat in front while its turn runs.
+    pub screen_reader: ScreenReader,
     /// The iOS Simulator is drawn inside a device's frame.
     pub simulator_frame: bool,
     /// The keys the person bound to actions in place of their defaults, by
@@ -264,6 +266,7 @@ preference_changes! {
     WindowOpacity window_opacity: f64,
     WindowBlur window_blur: f64,
     RailDensity rail_density: RailDensity,
+    ScreenReader screen_reader: ScreenReader,
     SimulatorFrame simulator_frame: bool,
     KeybindingOverrides keybinding_overrides: BTreeMap<String, Option<String>>,
     SideRailOpen side_rail_open: bool,
@@ -374,6 +377,18 @@ pub enum RailDensity {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub enum ScreenReader {
+    /// When a turn starts, waits on the person, and ends.
+    #[default]
+    Status,
+    /// Also each message the agent finishes and then keeps working after.
+    Messages,
+    /// Also the step the agent is on.
+    Everything,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum UpdateChannel {
     #[default]
     Stable,
@@ -433,6 +448,7 @@ impl Default for Preferences {
             window_opacity: 1.0,
             window_blur: 0.0,
             rail_density: RailDensity::default(),
+            screen_reader: ScreenReader::default(),
             simulator_frame: true,
             keybinding_overrides: BTreeMap::new(),
             side_rail_open: true,

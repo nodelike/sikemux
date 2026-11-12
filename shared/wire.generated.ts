@@ -3199,6 +3199,8 @@ export interface Preferences {
     /** How much what is behind the window blurs, in points. */
     windowBlur: number;
     railDensity: RailDensity;
+    /** What a screen reader hears of the chat in front while its turn runs. */
+    screenReader: ScreenReader;
     /** The iOS Simulator is drawn inside a device's frame. */
     simulatorFrame: boolean;
     /**
@@ -3382,6 +3384,8 @@ export type NotchPeeks = "all" | "needsYou" | "never";
 export type PaneColours = "theme" | "picture" | "custom";
 
 export type RailDensity = "comfortable" | "compact";
+
+export type ScreenReader = "status" | "messages" | "everything";
 
 export type TabRailPage = "agents" | "terminals" | "files";
 
