@@ -67,7 +67,12 @@ export function Row({
       onPress={onPress}
       onLongPress={onLongPress}
       accessibilityRole={onPress ? 'button' : undefined}
-      style={({ pressed }) => [styles.row, after ? styles.rowBeside : null, pressed && onPress && styles.rowPressed]}>
+      style={({ pressed }) => [
+        styles.row,
+        !place && !detail && !under && styles.rowOneLine,
+        after ? styles.rowBeside : null,
+        pressed && onPress && styles.rowPressed,
+      ]}>
       {mark ? <View style={styles.mark}>{mark}</View> : null}
       <View style={styles.rowBody}>
         <View style={styles.rowLabel}>
@@ -142,6 +147,7 @@ const makeStyles = (colors: Palette) => {
       paddingVertical: 6,
       borderRadius: 9,
     },
+    rowOneLine: { minHeight: 36 },
     rowPressed: { backgroundColor: colors.active },
     rowWith: { flexDirection: 'row', alignItems: 'center', paddingRight: ROW_INSET },
     rowBeside: { flex: 1, minWidth: 0 },

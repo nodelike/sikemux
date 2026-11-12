@@ -102,6 +102,10 @@ struct Row<Mark: View, End: View, After: View>: View {
         }
     }
 
+    private var oneLine: Bool {
+        place == nil && detail == nil && detailText == nil && under == nil && underText == nil
+    }
+
     private var content: some View {
         let handle = name.map { "@\($0)" }
         let onHost = host.map { "on \($0)" }
@@ -161,7 +165,7 @@ struct Row<Mark: View, End: View, After: View>: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
-        .frame(minHeight: 48)
+        .frame(minHeight: oneLine ? 36 : 48)
         .contentShape(Rectangle())
     }
 }
