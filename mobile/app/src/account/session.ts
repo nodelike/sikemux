@@ -9,6 +9,7 @@ import { liveUrl } from '@shared/account/live';
 import { externalValue, useExternalValue } from '@shared/lib/externalValue';
 
 import { problem as problemOf } from '@/core/problem';
+import { translate } from '@/i18n';
 import { alertFailure } from '@/ui/prompt';
 import { notifier } from '../../modules/notify';
 import { deviceIdentity } from '@/phone/identity';
@@ -83,9 +84,13 @@ export function useAccountStatus(): AccountStatus | undefined {
 async function askAboutNewDevice(token: TokenSource, key: string) {
   const device = await accountDevice(token, key).catch(() => undefined);
   if (!device) return;
-  Alert.alert('New device on your account', device.name, [
-    { text: 'Keep', style: 'cancel' },
-    { text: 'Remove', style: 'destructive', onPress: () => void removeAccountDevice(token, key).catch(alertFailure("Couldn't remove it")) },
+  Alert.alert(translate('New device on your account'), device.name, [
+    { text: translate('Keep'), style: 'cancel' },
+    {
+      text: translate('Remove'),
+      style: 'destructive',
+      onPress: () => void removeAccountDevice(token, key).catch(alertFailure(translate("Couldn't remove it"))),
+    },
   ]);
 }
 

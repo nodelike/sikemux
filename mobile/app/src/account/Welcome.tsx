@@ -10,6 +10,7 @@ import * as WebBrowser from 'expo-web-browser';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 
 import { problem as problemOf } from '@/core/problem';
+import { useT } from '@/i18n';
 import { GitHubMark, GoogleG } from '@/ui/brands';
 import { AgentIcon, Icon } from '@/ui/Icon';
 import { Button } from '@/ui/controls';
@@ -38,6 +39,7 @@ const ROW = 56;
 const REEL_HEIGHT = 340;
 
 function ReelRow({ row }: { row: (typeof REEL)[number] }) {
+  const t = useT();
   return (
     <View style={styles.row}>
       <AgentIcon provider={row.provider} size={22} />
@@ -47,7 +49,7 @@ function ReelRow({ row }: { row: (typeof REEL)[number] }) {
         </Text>
         <View style={styles.rowPlace}>
           <Icon name="IconFolder" size={11} color={colors.live} />
-          <Text style={styles.rowDetail}>{`${row.place} · ${row.doing}`}</Text>
+          <Text style={styles.rowDetail}>{`${row.place} · ${t(row.doing)}`}</Text>
         </View>
       </View>
       <View style={styles.state}>
@@ -132,6 +134,7 @@ function useProviderSignIn() {
 export function Welcome() {
   const bottom = useBottomGap();
   const provider = useProviderSignIn();
+  const t = useT();
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
       <Reel />
@@ -140,25 +143,25 @@ export function Welcome() {
           <Icon name="Logo" size={22} color={colors.ink} />
           <Text style={styles.markText}>Sikemux</Text>
         </View>
-        <Text style={styles.title}>Your agents,{'\n'}on your phone.</Text>
+        <Text style={styles.title}>{t('Your agents,\non your phone.')}</Text>
       </View>
       <View style={[styles.actions, { paddingBottom: bottom }]}>
         <Button
-          title="Continue with Google"
+          title={t('Continue with {provider}', { provider: 'Google' })}
           icon={<GoogleG />}
           busy={provider.busy === 'oauth_google'}
           onPress={() => provider.start('oauth_google')}
           style={styles.provider}
         />
         <Button
-          title="Continue with GitHub"
+          title={t('Continue with {provider}', { provider: 'GitHub' })}
           icon={<GitHubMark color={colors.ink} />}
           busy={provider.busy === 'oauth_github'}
           onPress={() => provider.start('oauth_github')}
           style={styles.provider}
         />
         <Pressable onPress={() => router.push('/sign-in')} style={styles.paste} accessibilityRole="button">
-          <Text style={styles.pasteText}>Continue with email</Text>
+          <Text style={styles.pasteText}>{t('Continue with email')}</Text>
         </Pressable>
         {provider.problem ? <Text style={styles.problem}>{provider.problem}</Text> : null}
       </View>

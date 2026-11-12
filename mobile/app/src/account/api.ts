@@ -2,6 +2,7 @@ import type { Device, DeviceRegistration, JoinTicket, PushApp, PushTokenRegistra
 import { ApiProblem, connectApi } from '@shared/account/api';
 
 import { deviceIdentity } from '@/phone/identity';
+import { translate } from '@/i18n';
 import { phoneName } from '@/phone/name';
 import { apiUrl } from './config';
 
@@ -18,7 +19,7 @@ export class AccountDeleting extends Error {
 
 export const OFFLINE = "Can't reach Sikemux. Check the phone is online.";
 
-export const api = (token: TokenSource) => connectApi({ url: apiUrl(), token, offline: OFFLINE });
+export const api = (token: TokenSource) => connectApi({ url: apiUrl(), token, offline: translate(OFFLINE), say: translate });
 
 /**
  * Adds this phone to the account, proving it holds its key. Doing it again only updates its name.

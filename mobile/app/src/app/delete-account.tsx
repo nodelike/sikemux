@@ -9,26 +9,22 @@ import { ConfirmItsYou, ReverifyCancelled, useRecentSignIn } from '@/account/Con
 import { confirmed, deletion, START } from '@/account/deletion';
 import { signOutHere } from '@/account/leave';
 import { RETENTION } from '@/account/config';
+import { useT } from '@/i18n';
 import { Button, Field } from '@/ui/controls';
 import { Prompt } from '@/ui/prompt';
 import { Nav, Screen, useBottomGap } from '@/ui/screen';
 import { type Palette, typeFor, useStyles } from '@/ui/theme';
 
-const GONE = [
-  'Hosts are signed out.',
-  'Phones, this one too, are signed out and removed from every host.',
-  `After ${RETENTION.restorableDays} days your sign-in, device keys and history are erased, and backups ${RETENTION.backupDays} days later.`,
-];
-
 /** Deletes the account, after the person types the word and, when the server asks, proves it is them again. */
 export default function DeleteAccount() {
   const styles = useStyles(makeStyles);
+  const t = useT();
   const bottom = useBottomGap();
   const { getToken, signOut } = useAuth();
   const { user } = useUser();
   const email = user?.primaryEmailAddress?.emailAddress;
   const [state, dispatch] = useReducer(deletion, START);
-  const recent = useRecentSignIn('Delete it at app.sikemux.com/delete-account.');
+  const recent = useRecentSignIn(t('Delete it at app.sikemux.com/delete-account.'));
 
   const start = async () => {
     if (!confirmed(state) || state.phase.name !== 'confirm') return;
@@ -51,15 +47,25 @@ export default function DeleteAccount() {
         onEnter={recent.enter}
         onCheck={(entry) => void recent.check(entry)}
         onBack={recent.cancel}
-        action={{ title: 'Delete account', icon: 'IconTrash', kind: 'danger' }}
+        action={{ title: t('Delete account'), icon: 'IconTrash', kind: 'danger' }}
       />
     );
 
   const phase = state.phase;
   const busy = phase.name !== 'confirm';
+  const gone = [
+    t('Hosts are signed out.'),
+    t('Phones, this one too, are signed out and removed from every host.'),
+    t('After {days} days your sign-in, device keys and history are erased, and backups {backupDays} days later.', {
+      days: RETENTION.restorableDays,
+      backupDays: RETENTION.backupDays,
+    }),
+  ];
+  const [deletesBefore, deletesAfter = ''] = t('This deletes {account}. You can restore it within 30 days.').split('{account}');
+  const [typeBefore, typeAfter = ''] = t('Type {word} to confirm').split('{word}');
   return (
     <Screen>
-      <Nav back="Back" onBack={() => router.back()} />
+      <Nav back={t('Back')} onBack={() => router.back()} />
       <ScrollView
         contentContainerStyle={{ paddingBottom: bottom }}
         keyboardShouldPersistTaps="handled"
@@ -67,12 +73,22 @@ export default function DeleteAccount() {
         <Prompt
           icon="IconTrash"
           tone="danger"
-          title="Delete your account"
-          detail={<>This deletes {email ? <Text style={styles.ink}>{email}</Text> : 'your account'}. You can restore it within 30 days.</>}
+          title={t('Delete your account')}
+          detail={
+            email ? (
+              <>
+                {deletesBefore}
+                <Text style={styles.ink}>{email}</Text>
+                {deletesAfter}
+              </>
+            ) : (
+              t('This deletes your account. You can restore it within 30 days.')
+            )
+          }
         />
         <View style={styles.form}>
           <View style={styles.list}>
-            {GONE.map((line) => (
+            {gone.map((line) => (
               <View key={line} style={styles.item}>
                 <Text style={styles.bullet}>•</Text>
                 <Text style={styles.itemText}>{line}</Text>
@@ -80,7 +96,9 @@ export default function DeleteAccount() {
             ))}
           </View>
           <Text style={styles.label}>
-            Type <Text style={styles.word}>{CONFIRM_WORD}</Text> to confirm
+            {typeBefore}
+            <Text style={styles.word}>{CONFIRM_WORD}</Text>
+            {typeAfter}
           </Text>
           <Field
             value={state.typed}
@@ -92,11 +110,11 @@ export default function DeleteAccount() {
             returnKeyType="go"
             onSubmitEditing={() => void start()}
           />
-          {state.problem ? <Text style={styles.problem}>{state.problem}</Text> : null}
+          {state.problem ? <Text style={styles.problem}>{t(state.problem)}</Text> : null}
           <Button
             kind="danger"
             icon="IconTrash"
-            title={busy ? 'Deleting…' : 'Delete account'}
+            title={busy ? t('Deleting…') : t('Delete account')}
             disabled={busy || !confirmed(state)}
             onPress={() => void start()}
           />

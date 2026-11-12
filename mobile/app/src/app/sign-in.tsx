@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSignIn, useSignUp } from '@clerk/expo';
 import { explain, signInFlow, type CodePurpose, type SignInStep } from '@shared/account/account';
 
+import { type Translate, useT } from '@/i18n';
 import { CodeEntry } from '@/ui/CodeEntry';
 import { goBack, goHome } from '@/ui/navigate';
 import { Button, Field, PasswordField } from '@/ui/controls';
@@ -10,18 +11,26 @@ import { Prompt } from '@/ui/prompt';
 import { Nav, Screen } from '@/ui/screen';
 import { fonts, type Palette, typeFor, useStyles } from '@/ui/theme';
 
-const TITLES: Record<SignInStep['kind'], string> = {
-  email: 'Continue with email',
-  password: 'Enter your password',
-  create: 'Choose a password',
-  code: 'Check your email',
-  'new-password': 'Choose a new password',
-};
+function titleOf(kind: SignInStep['kind'], t: Translate): string {
+  switch (kind) {
+    case 'email':
+      return t('Continue with email');
+    case 'password':
+      return t('Enter your password');
+    case 'create':
+      return t('Choose a password');
+    case 'code':
+      return t('Check your email');
+    case 'new-password':
+      return t('Choose a new password');
+  }
+}
 
 export { Crashed as ErrorBoundary } from '@/ui/Crashed';
 
 export default function SignIn() {
   const styles = useStyles(makeStyles);
+  const t = useT();
   const { signIn } = useSignIn();
   const { signUp } = useSignUp();
   const [step, setStep] = useState<SignInStep>({ kind: 'email' });
@@ -56,8 +65,8 @@ export default function SignIn() {
     go,
     done: goHome,
     unsupported: {
-      signIn: 'This account needs a sign-in step the app does not do yet; sign in on the web first.',
-      signUp: 'The account needs more than this app asks for; finish signing up on the web.',
+      signIn: t('This account needs a sign-in step the app does not do yet; sign in on the web first.'),
+      signUp: t('The account needs more than this app asks for; finish signing up on the web.'),
     },
   });
 
@@ -83,21 +92,21 @@ export default function SignIn() {
     step.kind === 'email'
       ? undefined
       : step.kind === 'code'
-        ? `Sikemux sent a code to ${email}.`
+        ? t('Sikemux sent a code to {email}.', { email })
         : step.kind === 'create'
-          ? 'At least 15 characters.'
+          ? t('At least 15 characters.')
           : email;
 
   return (
     <Screen>
-      <Nav back="Back" onBack={back} />
-      <Prompt icon="Logo" title={TITLES[step.kind]} detail={detail}>
+      <Nav back={t('Back')} onBack={back} />
+      <Prompt icon="Logo" title={titleOf(step.kind, t)} detail={detail}>
         {step.kind === 'code' ? (
           <>
             <View style={styles.tiles}>
               <CodeEntry code={code} onChange={typeCode} disabled={busy} failed={problem !== undefined && code.length === 0} />
             </View>
-            {problem ? <Text style={[styles.problem, styles.centered]}>{problem}</Text> : null}
+            {problem ? <Text style={[styles.problem, styles.centered]}>{t(problem)}</Text> : null}
           </>
         ) : null}
       </Prompt>
@@ -124,7 +133,7 @@ export default function SignIn() {
               key={step.kind}
               value={password}
               onChangeText={setPassword}
-              placeholder="Password"
+              placeholder={t('Password')}
               autoFocus
               textContentType={step.kind === 'password' ? 'password' : 'newPassword'}
               autoComplete={step.kind === 'password' ? 'current-password' : 'new-password'}
@@ -134,17 +143,17 @@ export default function SignIn() {
               }
             />
           )}
-          {problem ? <Text style={styles.problem}>{problem}</Text> : null}
+          {problem ? <Text style={styles.problem}>{t(problem)}</Text> : null}
           <Button
             kind="primary"
             title={
               step.kind === 'email'
-                ? 'Continue'
+                ? t('Continue')
                 : step.kind === 'password'
-                  ? 'Sign in'
+                  ? t('Sign in')
                   : step.kind === 'create'
-                    ? 'Create account'
-                    : 'Save password'
+                    ? t('Create account')
+                    : t('Save password')
             }
             disabled={busy || (step.kind === 'email' ? !email.trim() : !password)}
             onPress={() =>
@@ -159,7 +168,7 @@ export default function SignIn() {
           />
           {step.kind === 'password' ? (
             <Pressable onPress={() => void forgot()} disabled={busy} style={styles.link} accessibilityRole="button">
-              <Text style={styles.linkText}>Forgot your password?</Text>
+              <Text style={styles.linkText}>{t('Forgot your password?')}</Text>
             </Pressable>
           ) : null}
         </View>

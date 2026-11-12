@@ -5,6 +5,7 @@ import { useReverification, useSession } from '@clerk/expo';
 import { chooseFactor, errorCode, explain, orReverify } from '@shared/account/account';
 
 import { type Verify, verifying } from '@/account/reverify';
+import { translate, useT } from '@/i18n';
 import { CodeEntry } from '@/ui/CodeEntry';
 import { Button, PasswordField } from '@/ui/controls';
 import type { IconName } from '@/ui/icons.generated';
@@ -37,10 +38,10 @@ export function useRecentSignIn(elsewhere: string) {
 
   const ask = async () => {
     try {
-      if (!session) throw new Error('Sign in again.');
+      if (!session) throw new Error(translate('Sign in again.'));
       const started = await session.startVerification({ level: 'first_factor' });
-      const factor = chooseFactor(started.supportedFirstFactors ?? []);
-      if (!factor) throw new Error(`This account can't confirm it's you in the app. ${elsewhere}`);
+      const factor = chooseFactor(started.supportedFirstFactors ?? [], translate);
+      if (!factor) throw new Error(translate("This account can't confirm it's you in the app. {elsewhere}", { elsewhere }));
       if (factor.strategy === 'email_code') {
         await session.prepareFirstFactorVerification({ strategy: 'email_code', emailAddressId: factor.emailAddressId });
       }
@@ -80,7 +81,7 @@ export function useRecentSignIn(elsewhere: string) {
         verify.factor.strategy === 'password' ? { strategy: 'password', password: entry } : { strategy: 'email_code', code: entry },
       );
       if (result.status !== 'complete') {
-        giveUp(`This account also needs a second step to confirm it. ${elsewhere}`);
+        giveUp(translate('This account also needs a second step to confirm it. {elsewhere}', { elsewhere }));
         return;
       }
     } catch (error) {
@@ -116,12 +117,16 @@ export function ConfirmItsYou({
   action: { title: string; icon?: IconName; kind: 'primary' | 'danger' };
 }) {
   const styles = useStyles(makeStyles);
+  const t = useT();
   const { factor, entry, checking, problem } = verify;
   const byEmail = factor.strategy === 'email_code';
   return (
     <Screen>
-      <Nav back="Back" onBack={onBack} />
-      <Prompt icon="IconShield" title="Confirm it's you" detail={byEmail ? `Sikemux sent a code to ${factor.to}.` : undefined}>
+      <Nav back={t('Back')} onBack={onBack} />
+      <Prompt
+        icon="IconShield"
+        title={t("Confirm it's you")}
+        detail={byEmail ? t('Sikemux sent a code to {email}.', { email: factor.to }) : undefined}>
         {byEmail ? (
           <View style={styles.tiles}>
             <CodeEntry
@@ -135,14 +140,14 @@ export function ConfirmItsYou({
             />
           </View>
         ) : null}
-        {byEmail && problem ? <Text style={[styles.problem, styles.underTiles]}>{problem}</Text> : null}
+        {byEmail && problem ? <Text style={[styles.problem, styles.underTiles]}>{t(problem)}</Text> : null}
       </Prompt>
       {byEmail ? null : (
         <View style={styles.form}>
           <PasswordField
             value={entry}
             onChangeText={onEnter}
-            placeholder="Password"
+            placeholder={t('Password')}
             autoFocus
             textContentType="password"
             autoComplete="current-password"
@@ -152,11 +157,11 @@ export function ConfirmItsYou({
           <Button
             kind={action.kind}
             icon={action.icon}
-            title={checking ? 'Checking…' : action.title}
+            title={checking ? t('Checking…') : action.title}
             disabled={checking || !entry}
             onPress={() => onCheck(entry)}
           />
-          {problem ? <Text style={styles.problem}>{problem}</Text> : null}
+          {problem ? <Text style={styles.problem}>{t(problem)}</Text> : null}
         </View>
       )}
     </Screen>

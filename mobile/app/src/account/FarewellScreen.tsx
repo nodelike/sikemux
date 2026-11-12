@@ -1,25 +1,31 @@
 import { RETENTION } from '@/account/config';
 import { sayFarewell, type Farewell as Reason } from '@/account/farewell';
+import { type Translate, useT } from '@/i18n';
 import { Button } from '@/ui/controls';
 import { type Glyph, PromptScreen } from '@/ui/prompt';
 
-const RESTORE = `Sign in again within ${RETENTION.restorableDays} days to restore it.`;
-
-const WORDS: Record<Reason, { icon: Glyph; title: string; body?: string }> = {
-  removed: { icon: 'IconPhone', title: 'This phone was removed from your account' },
-  deleted: { icon: 'IconTrash', title: 'Your account was deleted', body: RESTORE },
-  'deleted-here': { icon: 'IconTrash', title: 'Your account is deleted', body: RESTORE },
-};
+function wordsFor(reason: Reason, t: Translate): { icon: Glyph; title: string; body?: string } {
+  const restore = t('Sign in again within {days} days to restore it.', { days: RETENTION.restorableDays });
+  switch (reason) {
+    case 'removed':
+      return { icon: 'IconPhone', title: t('This phone was removed from your account') };
+    case 'deleted':
+      return { icon: 'IconTrash', title: t('Your account was deleted'), body: restore };
+    case 'deleted-here':
+      return { icon: 'IconTrash', title: t('Your account is deleted'), body: restore };
+  }
+}
 
 /** Says why the phone signed out, before the welcome screen. */
 export function Farewell({ reason }: { reason: Reason }) {
-  const words = WORDS[reason];
+  const t = useT();
+  const words = wordsFor(reason, t);
   return (
     <PromptScreen
       icon={words.icon}
       title={words.title}
       detail={words.body}
-      actions={<Button kind="primary" title="Continue" onPress={() => sayFarewell(null)} />}
+      actions={<Button kind="primary" title={t('Continue')} onPress={() => sayFarewell(null)} />}
     />
   );
 }

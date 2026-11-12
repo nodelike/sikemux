@@ -9,20 +9,22 @@ import { DevicesList } from '@/devices/DevicesList';
 import { Farewell } from '@/account/FarewellScreen';
 import { RestoreAccount } from '@/account/RestoreAccount';
 import { Welcome } from '@/account/Welcome';
+import { useT } from '@/i18n';
 import { Button } from '@/ui/controls';
 import { alertFailure, PromptScreen } from '@/ui/prompt';
 
 function Unreadable({ problem }: { problem: string }) {
+  const t = useT();
   return (
     <PromptScreen
       icon="IconWarning"
-      title="Couldn't read your paired hosts"
+      title={t("Couldn't read your paired hosts")}
       detail={problem}
       actions={
         <Button
           kind="primary"
-          title="Try again"
-          onPress={() => readDevicesAgain().catch(alertFailure("Couldn't read your paired hosts"))}
+          title={t('Try again')}
+          onPress={() => readDevicesAgain().catch(alertFailure(t("Couldn't read your paired hosts")))}
         />
       }
     />

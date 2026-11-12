@@ -26,11 +26,8 @@ import { Sheet } from '@/ui/Sheet';
 import { restartToUpdate, useUpdateWaiting } from '@/updates/overTheAir';
 import { fonts, type Palette, typeFor, useColors, useStyles, useType } from '@/ui/theme';
 
-const VERSION = versionLabel(versionFromBuild(nativeBuildVersion) ?? nativeApplicationVersion, process.env.EXPO_PUBLIC_COMMIT ?? null, {
-  id: Updates.updateId,
-  createdAt: Updates.createdAt,
-  embedded: Updates.isEmbeddedLaunch,
-});
+const INSTALLED = versionFromBuild(nativeBuildVersion) ?? nativeApplicationVersion;
+const RUNNING = { id: Updates.updateId, createdAt: Updates.createdAt, embedded: Updates.isEmbeddedLaunch };
 
 export function AccountSheet({ visible, onClose }: { visible: boolean; onClose: () => void }) {
   const colors = useColors();
@@ -47,6 +44,7 @@ export function AccountSheet({ visible, onClose }: { visible: boolean; onClose: 
   const provider = providerName(user?.externalAccounts[0]?.provider);
   const name = user?.fullName?.trim() || undefined;
   const email = user?.primaryEmailAddress?.emailAddress;
+  const version = versionLabel(INSTALLED, process.env.EXPO_PUBLIC_COMMIT ?? null, RUNNING, t);
   const how = provider ? t('Signed in with {provider}', { provider }) : t('Signed in with email');
 
   /** Takes the notification token and then the phone off the account first, so hosts hear of it; when that fails, it asks before leaving them there. */
@@ -156,7 +154,7 @@ export function AccountSheet({ visible, onClose }: { visible: boolean; onClose: 
           <Text style={[styles.linkText, styles.update]}>{t('Restart to update')}</Text>
         </Pressable>
       ) : null}
-      <Text style={styles.version}>Sikemux {VERSION}</Text>
+      <Text style={styles.version}>Sikemux {version}</Text>
     </Sheet>
   );
 }

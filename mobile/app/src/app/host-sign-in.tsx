@@ -9,6 +9,7 @@ import { problem as problemOf } from '@/core/problem';
 import { api } from '@/account/api';
 import { ConfirmItsYou, ReverifyCancelled, useRecentSignIn } from '@/account/ConfirmItsYou';
 import { retryHosts } from '@/account/session';
+import { type Translate, useT } from '@/i18n';
 import { haptics } from '@/ui/haptics';
 import { Icon } from '@/ui/Icon';
 import { Button, Field } from '@/ui/controls';
@@ -20,9 +21,9 @@ import { type Palette, typeFor, useColors, useStyles } from '@/ui/theme';
 
 type Step = { kind: 'enter' } | { kind: 'check'; code: string; host: PendingHost } | { kind: 'done'; name: string; added: boolean };
 
-function asked(at: string): string {
-  const ago = formatAgo(at);
-  return `Asked ${ago === 'now' ? 'just now' : ago}`;
+function asked(at: string, t: Translate): string {
+  const ago = formatAgo(at, Date.now(), t);
+  return ago === t('now') ? t('Asked just now') : t('Asked {ago}', { ago });
 }
 
 /**
@@ -32,9 +33,10 @@ function asked(at: string): string {
 export default function HostSignIn() {
   const styles = useStyles(makeStyles);
   const colors = useColors();
+  const t = useT();
   const bottom = useBottomGap();
   const { getToken } = useAuth();
-  const recent = useRecentSignIn('Add it at app.sikemux.com/host.');
+  const recent = useRecentSignIn(t('Add it at app.sikemux.com/host.'));
   const [typed, setTyped] = useState('');
   const [step, setStep] = useState<Step>({ kind: 'enter' });
   const [busy, setBusy] = useState<'look' | 'add' | 'refuse' | undefined>();
@@ -60,14 +62,14 @@ export default function HostSignIn() {
   if (step.kind === 'done')
     return (
       <Screen>
-        <Nav back="Devices" />
+        <Nav back={t('Devices')} />
         <Prompt
           icon={step.added ? 'IconCheck' : 'IconClose'}
-          title={step.added ? `${step.name} is on your account` : 'Refused'}
-          detail={step.added ? undefined : `${step.name} was not added.`}
+          title={step.added ? t('{name} is on your account', { name: step.name }) : t('Refused')}
+          detail={step.added ? undefined : t('{name} was not added.', { name: step.name })}
         />
         <View style={styles.form}>
-          <Button title="Done" onPress={goBack} />
+          <Button title={t('Done')} onPress={goBack} />
         </View>
       </Screen>
     );
@@ -79,7 +81,7 @@ export default function HostSignIn() {
         onEnter={recent.enter}
         onCheck={(entry) => void recent.check(entry)}
         onBack={recent.cancel}
-        action={{ title: 'Add host', kind: 'primary' }}
+        action={{ title: t('Add host'), kind: 'primary' }}
       />
     );
 
@@ -88,32 +90,36 @@ export default function HostSignIn() {
     const near = host.requestedNear ?? host.requestedFrom;
     return (
       <Screen>
-        <Nav back="Back" onBack={() => setStep({ kind: 'enter' })} />
+        <Nav back={t('Back')} onBack={() => setStep({ kind: 'enter' })} />
         <ScrollView contentContainerStyle={{ paddingBottom: bottom }} showsVerticalScrollIndicator={false}>
           <Prompt
             icon={host.platform === 'linux' ? 'desktop' : 'laptop'}
-            title={`Add ${host.name} to your account?`}
-            detail={`${platformName(host.platform)} · ${host.channel}. Only add a computer you are setting up right now.`}
+            title={t('Add {name} to your account?', { name: host.name })}
+            detail={t('{platform} · {channel}. Only add a computer you are setting up right now.', {
+              platform: platformName(host.platform),
+              channel: host.channel,
+            })}
           />
           <View style={styles.form}>
             <Rows>
-              <Row mark={<Icon name="IconClock" size={18} color={colors.secondary} />} title={asked(host.requestedAt)} />
+              <Row mark={<Icon name="IconClock" size={18} color={colors.secondary} />} title={asked(host.requestedAt, t)} />
               <Row
                 mark={<Icon name="IconGlobe" size={18} color={colors.secondary} />}
-                title={near ? `From ${near}` : 'From an unknown place'}
+                title={near ? t('From {place}', { place: near }) : t('From an unknown place')}
                 detail={host.requestedNear && host.requestedFrom ? host.requestedFrom : undefined}
               />
             </Rows>
             {host.removedAt ? (
               <Text style={styles.warning}>
-                This host was removed from your account on {formatDay(host.removedAt)}. Add it back only if you are setting it up again
-                yourself.
+                {t('This host was removed from your account on {day}. Add it back only if you are setting it up again yourself.', {
+                  day: formatDay(host.removedAt),
+                })}
               </Text>
             ) : null}
             {problem ? <Text style={styles.problem}>{problem}</Text> : null}
             <Button
               kind="primary"
-              title="Add host"
+              title={t('Add host')}
               busy={busy === 'add'}
               disabled={busy !== undefined}
               onPress={() =>
@@ -126,7 +132,7 @@ export default function HostSignIn() {
             />
             <Button
               kind="danger"
-              title="Not mine"
+              title={t('Not mine')}
               busy={busy === 'refuse'}
               disabled={busy !== undefined}
               onPress={() =>
@@ -143,19 +149,22 @@ export default function HostSignIn() {
   }
 
   const entered = typed.trim();
+  const [enterBefore, enterAfter = ''] = t('Enter the code {command} shows on the computer.').split('{command}');
   return (
     <Screen>
-      <Nav back="Devices" />
+      <Nav back={t('Devices')} />
       <ScrollView
         contentContainerStyle={{ paddingBottom: bottom }}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}>
         <Prompt
           icon="IconServer"
-          title="Add a host with a code"
+          title={t('Add a host with a code')}
           detail={
             <>
-              Enter the code <Text style={styles.mono}>sikemux login</Text> shows on the computer.
+              {enterBefore}
+              <Text style={styles.mono}>sikemux login</Text>
+              {enterAfter}
             </>
           }
         />
@@ -171,13 +180,13 @@ export default function HostSignIn() {
             autoFocus
             returnKeyType="go"
             onSubmitEditing={() => entered && void look(entered)}
-            accessibilityLabel="Code"
+            accessibilityLabel={t('Code')}
             style={styles.code}
           />
           {problem ? <Text style={styles.problem}>{problem}</Text> : null}
           <Button
             kind="primary"
-            title="Continue"
+            title={t('Continue')}
             busy={busy === 'look'}
             disabled={!entered || busy !== undefined}
             onPress={() => void look(entered)}
