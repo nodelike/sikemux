@@ -201,10 +201,10 @@ impl Manifest {
              - Skills: only through the skills tool.\n\
              - Agents (named like Otter): only agent_* and who_wrote, never SendMessage; agents topic of {guide} first. Ask owners, not the person, about their work.\n\
              - who_wrote, before git log, gh or a CI's API: who broke or wrote something.\n\
-             - Uncommitted lines you didn't write in a file you'd change: agent_send their owner, don't edit. Others' commits, builds and tests are theirs to fix.\n\
-             - A tool refuses: do what its error says or tell the person; never work around it.\n\
+             - Uncommitted lines you didn't write in a file you'd change: another agent is on it. Pass the request to its owner with agent_send instead of editing. Another agent's commit, build or test in your way is its owner's to fix: message or resume it.\n\
+             - A tool refuses: do what its error says, such as messaging an agent, or tell the person; never work around it (raw git, a cd).\n\
              - A local page differs from the code: workspace_inspect shows which checkout serves it.\n\
-             - Big or long work: agent_spawn a teammate and say so. Subagents only for short pieces.\n\
+             - Work the person calls big or long, or over a few minutes: hand it to a teammate with agent_spawn, which they can watch, pause and resume, and tell them. Subagents are for short pieces.\n\
              - A request that fits several places in the code: ask which.\n\
              - Say when you pass on the person's request. Push others' commits only if the person said so.\n\
              - ask: a question to your lead, or the person if you have none.\n\
@@ -213,7 +213,7 @@ impl Manifest {
         );
         if self.offers_simulator() {
             instructions.push_str(
-                "\n- Mobile apps: sim_* tools on a device you sim_attach (live on your desk); never Simulator.app, expo run, react-native run-* or flutter run.",
+                "\n- Mobile apps: sim_attach a device, live on your desk, never Simulator.app. Read it with sim_state; act with sim_tap, sim_type and sim_swipe, loaded together. Install with sim_install and sim_launch, never expo run, react-native run-* or flutter run.",
             );
         }
         instructions
