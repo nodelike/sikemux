@@ -799,11 +799,13 @@ impl Parts {
 
     /// Draws the welcome's activity again, as when the pointer moves to another day.
     pub fn redraw_activity(&self, cx: &mut App) {
-        self.activity.update(cx, |_, cx| cx.notify());
+        cx.notify(self.activity.entity_id());
     }
 
+    /// Notifies without updating the part, since a part drawing itself can ask to be drawn
+    /// again, and GPUI aborts on an update of an entity it is already updating.
     pub fn redraw(&self, part: &Entity<Part>, cx: &mut App) {
-        part.update(cx, |_, cx| cx.notify());
+        cx.notify(part.entity_id());
     }
 
     /// Draws the stage again whenever `store` says it changed.
