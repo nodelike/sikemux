@@ -3772,6 +3772,8 @@ export interface BoardSettings {
     provider: string | null;
     model: string | null;
     landing: Landing;
+    /** What counts as landed, as the person set it; none reads it from the project's history. */
+    landed?: Landed;
     /**
      * Who reviews each change before it merges; none for any signed-in
      * agent on another CLI than its builder's.
@@ -3794,6 +3796,9 @@ export interface Landing {
 
 /** Who puts work on the project's branch. */
 export type Lands = "agents" | "person";
+
+/** What counts as landed in a project. */
+export type Landed = "committed" | "pushed" | "merged";
 
 export interface ReviewerChoice {
     /**

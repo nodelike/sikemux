@@ -3572,6 +3572,12 @@ pub(crate) fn judge_ship(
     environments::judged_within(&levels(&state, project), ship)
 }
 
+/// What the person set to count as landed in `project`, when they did.
+pub(crate) fn landed_set(core: &Core, project: &str) -> Option<sikemux_view::turn::Landed> {
+    let state = core.boards.state.locked();
+    state.boards.get(project)?.settings.landed
+}
+
 /// Whether `project` deploys somewhere before production, and whether it deploys at all, by
 /// its nearest environments: the last of them is production.
 pub(crate) fn deploys_to(core: &Core, project: &str) -> (bool, bool) {

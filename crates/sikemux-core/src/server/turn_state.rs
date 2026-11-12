@@ -10,8 +10,8 @@ use std::sync::Arc;
 use sikemux_view::chat::FailureKind;
 use sikemux_view::slice::Verdict;
 use sikemux_view::turn::{
-    ChecksStand, NextStep, Remedy, TurnCall, TurnDone, TurnFailed, TurnPhase, TurnState, TurnStep,
-    TurnStopped, WorkAt,
+    ChecksStand, Landed, NextStep, Remedy, TurnCall, TurnDone, TurnFailed, TurnPhase, TurnState,
+    TurnStep, TurnStopped, WorkAt,
 };
 use sikemux_view::workspace::AgentWorktree;
 use sikemux_wire::protocol::AgentStatus;
@@ -264,7 +264,7 @@ fn work_of(core: &Arc<Core>, agent_id: &str) -> Option<Work> {
     } else {
         let worktree = agent.and_then(|agent| agent.worktree);
         match head.as_deref() {
-            Some(head) if landed(&cwd, worktree.as_ref(), head) => WorkAt::Landed,
+            Some(head) if landed(core, &project, &cwd, worktree.as_ref(), head) => WorkAt::Landed,
             _ => WorkAt::Committed,
         }
     };
@@ -275,9 +275,15 @@ fn work_of(core: &Arc<Core>, agent_id: &str) -> Option<Work> {
     })
 }
 
-/// Whether `head` has landed on the project's branch: on its remote, or on the branch itself
-/// when it has none.
-fn landed(cwd: &Path, worktree: Option<&AgentWorktree>, head: &str) -> bool {
+/// Whether `head` has landed on the project's branch, as the project counts landing: on the
+/// branch itself once committed, else on its remote.
+fn landed(
+    core: &Core,
+    project: &str,
+    cwd: &Path,
+    worktree: Option<&AgentWorktree>,
+    head: &str,
+) -> bool {
     let (repo, branch) = match worktree {
         Some(worktree) => match &worktree.base {
             Some(base) => (worktree.repo.as_path(), base.clone()),
@@ -301,7 +307,8 @@ fn landed(cwd: &Path, worktree: Option<&AgentWorktree>, head: &str) -> bool {
         ])
         .ok()
         .filter(|name| name.starts_with("refs/remotes/"));
-    match upstream {
+    let on_commit = super::landing::means_now(core, project).means == Landed::Committed;
+    match upstream.filter(|_| !on_commit) {
         Some(upstream) => holds(&upstream),
         None => holds(&format!("refs/heads/{branch}")),
     }

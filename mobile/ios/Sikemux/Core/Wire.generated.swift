@@ -5912,6 +5912,8 @@ struct BoardSettings: Codable, Hashable, Sendable {
     var provider: String?
     var model: String?
     var landing: Landing
+    /// What counts as landed, as the person set it; none reads it from the project's history.
+    var landed: Landed?
     /// Who reviews each change before it merges; none for any signed-in
     /// agent on another CLI than its builder's.
     var reviewer: ReviewerChoice?
@@ -5934,6 +5936,19 @@ enum Lands: String, Codable, Hashable, Sendable {
     case agents
     /// Nothing counts as landed until the person lands it.
     case person
+    /// One added after this build.
+    case unknown
+
+    init(from decoder: any Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
+}
+
+/// What counts as landed in a project.
+enum Landed: String, Codable, Hashable, Sendable {
+    case committed
+    case pushed
+    case merged
     /// One added after this build.
     case unknown
 

@@ -50,6 +50,7 @@ pub mod hosts;
 pub mod inbox;
 mod join;
 mod kept;
+pub mod landing;
 pub mod launching;
 pub mod layout;
 mod lifecycle;
@@ -443,6 +444,7 @@ pub(crate) struct Core {
     pub(crate) repo_events: repo_events::RepoEvents,
     pub(crate) memory: memory::Memory,
     pub(crate) triggers: triggers::Triggers,
+    pub(crate) landing: landing::Histories,
     pub(crate) changes: changed::Changes,
     pub(crate) ports: ports::Ports,
     pub(crate) spares: spare::Spares,
@@ -601,6 +603,7 @@ impl Core {
             goal_summaries: goal_summary::Summaries::new(data_dir),
             goals: goals::Goals::default(),
             repo_events: repo_events::RepoEvents::default(),
+            landing: landing::Histories::default(),
             memory: memory::Memory::new(data_dir),
             triggers: triggers::Triggers::new(data_dir),
             changes: changed::Changes::default(),

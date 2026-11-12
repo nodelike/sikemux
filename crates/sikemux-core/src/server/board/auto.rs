@@ -26,6 +26,7 @@ use crate::server::names::Starting;
 use crate::server::spawn::Ending;
 use crate::server::worktree::{self, AgentWorktree};
 use crate::server::{chat, messages, Core};
+use sikemux_view::turn::Landed;
 use sikemux_wire::protocol::{ChatLaunch, Event};
 
 pub(super) const MAX_SLOTS: u32 = crate::server::names::MAX_SPAWNED_PER_PROJECT as u32;
@@ -76,6 +77,9 @@ pub struct BoardSettings {
     pub provider: Option<String>,
     pub model: Option<String>,
     pub landing: Landing,
+    /// What counts as landed, as the person set it; none reads it from the project's history.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub landed: Option<Landed>,
     /// Who reviews each change before it merges; none for any signed-in
     /// agent on another CLI than its builder's.
     pub reviewer: Option<ReviewerChoice>,
@@ -140,6 +144,7 @@ impl Default for BoardSettings {
             provider: None,
             model: None,
             landing: Landing::Core,
+            landed: None,
             reviewer: None,
             environments: Vec::new(),
             spend_ceiling: None,
@@ -194,6 +199,12 @@ pub struct BoardSettingsParams {
     pub reviewer: Option<Option<BoardReviewerParams>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub landing: Option<Landing>,
+    #[serde(
+        default,
+        deserialize_with = "given",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub landed: Option<Option<Landed>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub environments: Option<Vec<Environment>>,
     #[serde(
@@ -271,6 +282,9 @@ impl BoardSettings {
         }
         if let Some(landing) = params.landing {
             settings.landing = landing;
+        }
+        if let Some(landed) = params.landed {
+            settings.landed = landed;
         }
         if let Some(environments) = params.environments {
             settings.environments = super::environments::checked(environments)?;
