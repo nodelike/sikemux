@@ -64,6 +64,10 @@ struct CallCard: View {
     let island: IslandModel
     let call: PersonCall
     @Bindable var draft: CallDraft
+    /// The card alone on hover is 418 points; in the agent list it takes the list's width.
+    var width: CGFloat = CallCard.width
+    /// Who asks is said by the row the card opens under in the list.
+    var showsWho = true
     @FocusState private var fieldFocused: Bool
 
     static let width: CGFloat = 418
@@ -82,12 +86,11 @@ struct CallCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            who
+            if showsWho { who.padding(.bottom, 8) }
             Text(call.question)
                 .font(Theme.ui(15, .semibold))
                 .foregroundStyle(Theme.ink)
                 .lineSpacing(2)
-                .padding(.top, 8)
                 .padding(.bottom, 3)
             if let context {
                 prose(context)
@@ -114,7 +117,7 @@ struct CallCard: View {
             }
             footer.padding(.top, 14)
         }
-        .frame(width: Self.width, alignment: .leading)
+        .frame(width: width, alignment: .leading)
         .onAppear { store.saw(call) }
         .onChange(of: typed || fieldFocused, initial: true) { _, held in island.callHeld = held }
     }
@@ -165,8 +168,8 @@ struct CallCard: View {
     private func evidence(_ path: String) -> some View {
         let ratio = CallPictures.image(path).map { $0.size.width / max(1, $0.size.height) } ?? 2
         return picture(path)
-            .frame(width: Self.width, height: Self.width / ratio)
-            .frame(width: Self.width, height: 148, alignment: .top)
+            .frame(width: width, height: width / ratio)
+            .frame(width: width, height: 148, alignment: .top)
             .clipShape(RoundedRectangle(cornerRadius: 8))
             .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.hairline, lineWidth: 1))
     }
@@ -191,7 +194,7 @@ struct CallCard: View {
                 }
             }
         }
-        .frame(width: Self.width, height: 132)
+        .frame(width: width, height: 132)
     }
 
     /// A picture filling its place without widening it: a filled image wants all of its own width.
@@ -270,24 +273,37 @@ struct CallCard: View {
         }
     }
 
+    /// The sentence shows whole or not at all: where the buttons leave no room for it, the card goes without.
     private var footer: some View {
-        HStack(spacing: 2) {
-            HStack(spacing: 6) {
-                IconView(icon: Icons.clock, size: 11)
-                Text("Nothing happens until you answer").lineLimit(1)
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 2) {
+                HStack(spacing: 6) {
+                    IconView(icon: Icons.clock, size: 11)
+                    Text("Nothing happens until you answer")
+                }
+                .font(Theme.ui(11.5))
+                .foregroundStyle(Theme.inkFaint)
+                .fixedSize()
+                Spacer(minLength: 8)
+                buttons
             }
-            .font(Theme.ui(11.5))
-            .foregroundStyle(Theme.inkFaint)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            if call.canHandBack {
-                TextButton(title: "Not mine") { store.notMine(call) }
+            HStack(spacing: 2) {
+                Spacer(minLength: 0)
+                buttons
             }
-            TextButton(title: "Open chat", icon: Icons.message) { store.focus(call.asker.agentId) }
-            if call.secret == true {
-                GoButton(title: "Answer in Sikemux", enabled: true) { store.focus(call.asker.agentId) }
-            } else {
-                GoButton(title: "Go with this", enabled: (!chosen.isEmpty || typed) && !draft.sending, action: goWithThis)
-            }
+        }
+    }
+
+    @ViewBuilder
+    private var buttons: some View {
+        if call.canHandBack {
+            TextButton(title: "Not mine") { store.notMine(call) }
+        }
+        TextButton(title: "Open chat", icon: Icons.message) { store.focus(call.asker.agentId) }
+        if call.secret == true {
+            GoButton(title: "Answer in Sikemux", enabled: true) { store.focus(call.asker.agentId) }
+        } else {
+            GoButton(title: "Go with this", enabled: (!chosen.isEmpty || typed) && !draft.sending, action: goWithThis)
         }
     }
 
@@ -428,5 +444,61 @@ struct CallCount: View {
                 .foregroundStyle(Theme.warn)
             StateMark(mark: .needs)
         }
+    }
+}
+
+/// The calls waiting, first in the agent list: a row each, the one chosen open under its row as its card.
+struct CallsInList: View {
+    let store: NotchStore
+    @Bindable var island: IslandModel
+    /// The list's width, which the open card takes less the box it sits in.
+    let width: CGFloat
+
+    var body: some View {
+        let open = island.listCall ?? store.calls.first?.id
+        ForEach(store.calls, id: \.id) { call in
+            VStack(alignment: .leading, spacing: 0) {
+                CallRow(store: store, call: call) { island.listCall = call.id }
+                if call.id == open, let draft = store.drafts[call.id] {
+                    CallCard(store: store, island: island, call: call, draft: draft, width: width - 24, showsWho: false)
+                        .padding(.top, 10)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, call.id == open ? 10 : 0)
+            .padding(.bottom, call.id == open ? 2 : 0)
+            .background(RoundedRectangle(cornerRadius: 14).fill(call.id == open ? Theme.raised : .clear))
+            .padding(.bottom, 2)
+        }
+    }
+}
+
+/// A waiting call in the list, laid out as an agent row: the asker's own face and what it works on, the project, who
+/// and how long the call has waited; its card under it says what it asks.
+private struct CallRow: View {
+    let store: NotchStore
+    let call: PersonCall
+    let open: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        let entry = store.entries.first { $0.agentId == call.asker.agentId }
+        Button(action: open) {
+            HStack(spacing: 10) {
+                AgentLook(face: entry?.agent?.face, provider: call.asker.cli, mark: .needs, size: 20)
+                Text(entry?.title ?? call.question).font(Theme.ui(13, .semibold)).foregroundStyle(Theme.ink).lineLimit(1)
+                Spacer(minLength: 8)
+                if let project = store.projectName(call.project) {
+                    Text(project).font(Theme.ui(11.5)).foregroundStyle(Theme.inkDim).lineLimit(1)
+                }
+                Text("@\(call.asker.name)").font(Theme.ui(11)).foregroundStyle(Theme.inkFaint)
+                Text(CallCard.age(call.raisedAt)).font(Theme.ui(11.5)).monospacedDigit().foregroundStyle(Theme.warn)
+            }
+            .frame(height: 36)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .opacity(hovering ? 0.85 : 1)
     }
 }

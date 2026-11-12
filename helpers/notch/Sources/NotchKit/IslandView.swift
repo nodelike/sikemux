@@ -96,7 +96,7 @@ struct IslandView: View {
         .shadow(color: lifted ? .black.opacity(0.7) : .clear, radius: 6)
         .onHover { island.pointer(entered: $0, opensOnHover: store.settings.openWith == .hover) }
         .onTapGesture {
-            if !island.isOpen, !island.asksToConnect { island.set(island.opening) }
+            if !island.isAgentList, !island.asksToConnect { island.set(.open) }
         }
         .onExitCommand { island.set(.closed) }
         .offset(x: shift)

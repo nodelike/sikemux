@@ -75,6 +75,8 @@ final class IslandModel {
     var topCall: String?
     /// Something is typed on the card on show, which keeps the island open when the pointer leaves.
     var callHeld = false
+    /// The call whose card is open in the agent list, else the newest.
+    var listCall: String?
 
     /// The island leans into a swipe: about a percent per twentieth of the way, never under 60%.
     var pullScale: CGFloat { pull == 0 ? 1 : max(0.6, 1 + pull * 0.01) }
@@ -97,12 +99,16 @@ final class IslandModel {
 
     var isOpen: Bool { mode == .open || mode == .drop || showsCall }
 
+    /// The agents are on show, or a dropped file's targets: what a click on the island leaves alone.
+    var isAgentList: Bool { mode == .open || mode == .drop }
+
     var showsCall: Bool {
         if case .call = mode { return true }
         return false
     }
 
-    /// What opening the island shows: the newest call while any waits, else the agents.
+    /// What resting the pointer opens on: the newest call while any waits, else the agents. A click
+    /// or a swipe opens the agents, where waiting calls lead the list.
     var opening: Mode { topCall.map(Mode.call) ?? .open }
 
     func set(_ mode: Mode, animation: Animation? = nil) {
@@ -244,6 +250,7 @@ final class IslandModel {
     /// here or anywhere else.
     func callsChanged(_ ids: [String]) {
         topCall = ids.first
+        if let open = listCall, !ids.contains(open) { listCall = nil }
         guard case .call(let id) = mode, !ids.contains(id) else { return }
         callHeld = false
         set(hovering ? opening : .closed)
@@ -273,7 +280,7 @@ final class IslandModel {
         guard pull != 0 else { return }
         pull = 0
         Haptics.tick()
-        set(direction == .down ? opening : .closed)
+        set(direction == .down ? .open : .closed)
     }
 
     func swipeEnded() {

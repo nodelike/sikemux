@@ -374,7 +374,11 @@ render("P2-finished", agents: ["a2", "a4"]) { $0.mode = .peekDone("agent:a4") }
 render("P3-connect", agents: ["a2", "a3"], height: 240, devices: [PendingDevice(id: "d1", name: "Pixel 8", platform: "android", expiresAt: now + 112_000)]) {
     $0.mode = .connect("d1")
 }
-render("O1-inbox", height: 520) { $0.mode = .open }
+render("O1-inbox", height: 720) { $0.mode = .open }
+render("O1b-list-call", agents: ["a1", "a2", "a12"], height: 620) {
+    $0.mode = .open
+    $0.listCall = "7"
+}
 render("O2-new-agent", height: 300) {
     $0.mode = .open
     $0.tab = .compose

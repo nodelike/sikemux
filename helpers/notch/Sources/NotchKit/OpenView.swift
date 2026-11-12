@@ -96,6 +96,9 @@ struct AgentList: View {
     let island: IslandModel
     let marks: Namespace.ID
 
+    /// The open island's width inside its inset, as IslandView lays it out.
+    private var listWidth: CGFloat { (island.geometry.hasNotch ? 680 : 560) - 2 * (Radii.open.top + 12) }
+
     var body: some View {
         if store.entries.isEmpty && store.view.hostAlerts.isEmpty && store.view.busy == nil {
             VStack(spacing: 14) {
@@ -121,6 +124,7 @@ struct AgentList: View {
         } else {
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 0) {
+                    CallsInList(store: store, island: island, width: listWidth)
                     if let busy = store.view.busy {
                         BusyRow(store: store, busy: busy)
                     }

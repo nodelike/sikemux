@@ -273,6 +273,15 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: def
 .call .go { height: 26px; padding: 0 11px; display: inline-flex; align-items: center; border-radius: 5px; font-size: 12px; font-weight: 500; background: var(--acc); color: var(--on-accent); }
 .call .go[disabled] { opacity: 0.5; }
 .group .calls { font-size: 12px; font-weight: 600; color: var(--warn); }
+.call.listed { width: auto; padding-top: 0; }
+.call.listed h4 { margin-top: 10px; }
+.call-box { padding: 0 12px; border-radius: 14px; margin-bottom: 2px; }
+.call-box.open { background: var(--raised); padding: 10px 12px 12px; }
+.call-row { display: flex; align-items: center; gap: 10px; height: 36px; cursor: pointer; font-size: 13px; }
+.call-row .q { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.call-row .sp { flex: 1; }
+.call-row .proj, .call-row .agent-name { flex: none; }
+.call-row .age { flex: none; font-size: 11.5px; color: var(--warn); font-variant-numeric: tabular-nums; }
 
 .sub svg { flex: 0 0 auto; margin-right: 4px; color: var(--ink-faint); }
 .sub { display: flex; align-items: center; }
@@ -763,8 +772,11 @@ function invoice(label) {
         <div class="tabs"><span>Card</span><span class="on">${label}</span></div></div>`;
 }
 
-/** A call's card, as call-card.html option A draws it. `card` holds what the person did on it. */
-function callCard(call, card) {
+/**
+ * A call's card, as call-card.html option A draws it. `card` holds what the person did on it. In the agent list
+ * (`listed`) it takes the list's width and its row says who asks.
+ */
+function callCard(call, card, listed = false) {
     const chosen = card.chosen ?? (call.pick == null ? [] : [call.pick]);
     const lit = card.focus || !!card.typed;
     const hint = chosen.length ? "Add a note…" : "Or answer in your own words…";
@@ -779,14 +791,16 @@ function callCard(call, card) {
         ? `<div class="runs${card.runs ? " open" : ""}" data-runs>${GLYPH.chevronSmall}What runs</div>${card.runs ? `<div class="runs-cmd">${call.action}</div>` : ""}`
         : "";
     const ready = chosen.length || card.typed;
-    return `<div class="call">
-        <div class="who"><span class="tile">${face(call.agent, "blocked")}</span><b>@${call.agent.name}</b><span class="sep">·</span>${call.agent.project}<span class="sep">·</span>${call.age}</div>
+    // The sentence shows whole or not at all: beside Not mine, Open chat and Go with this, 418 points leave no room.
+    const wait = listed || !call.handBack ? `<span class="wait">${GLYPH.clock}Nothing happens until you answer</span>` : `<span class="wait"></span>`;
+    return `<div class="call${listed ? " listed" : ""}" data-call="${call.id}">
+        ${listed ? "" : `<div class="who"><span class="tile">${face(call.agent, "blocked")}</span><b>@${call.agent.name}</b><span class="sep">·</span>${call.agent.project}<span class="sep">·</span>${call.age}</div>`}
         <h4>${call.question}</h4>${call.context ? `<p class="ctx">${call.context}</p>` : ""}
         ${pictures}
         <div class="rows${lit ? " lit" : ""}">${rows}${field}</div>
         ${call.against ? `<p class="vs"><em>Against it:</em> ${call.against}</p>` : ""}
         ${runs}
-        <div class="foot"><span class="wait">${GLYPH.clock}Nothing happens until you answer</span>${
+        <div class="foot">${wait}${
             call.handBack ? `<button class="lnk" data-not-mine>Not mine</button>` : ""}<button class="lnk">${GLYPH.message}Open chat</button><button class="go" data-go ${ready ? "" : "disabled"}>Go with this</button></div>
     </div>`;
 }
@@ -808,6 +822,7 @@ class Island {
         this.tab = opts.tab || "agents";
         this.peekAgent = opts.peekAgent || null;
         this.callId = opts.callId || null;
+        this.listCall = opts.listCall || null;
         this.cards = opts.cards || {};
         this.device = opts.device || null;
         this.hover = !!opts.hover;
@@ -1026,7 +1041,14 @@ class Island {
                     <div style="margin-top:14px"><button class="btn primary" data-tab="new">${GLYPH.plus.replace("<svg", '<svg width="12" height="12"')} New agent</button></div></div>`;
             } else {
                 const items = listed(this.agents);
-                body = (this.busy ? `
+                const waiting = callsOf(this.agents);
+                const open = waiting.find((c) => c.id === this.listCall) || waiting[0];
+                body = waiting.map((c) => `
+                    <div class="call-box${c === open ? " open" : ""}">
+                        <div class="call-row" data-call-row="${c.id}"><span class="mark">${face(c.agent, "blocked")}</span><span class="q">${c.agent.title}</span><span class="sp"></span>
+                            <span class="proj">${GLYPH.folderSmall}${c.agent.project}</span><span class="agent-name">@${c.agent.name}</span><span class="age">${c.age}</span></div>
+                        ${c === open ? callCard(c, this.card(c.id), true) : ""}
+                    </div>`).join("") + (this.busy ? `
                     <div class="row">
                         <span class="mark host">${GLYPH.server}</span>
                         <span class="head"><span class="title">Mac busy</span></span>
@@ -1211,9 +1233,12 @@ class Island {
                 this.answerDevice();
                 return;
             }
-            const call = callsOf(this.agents).find((c) => c.id === this.callId);
+            const row = e.target.closest("[data-call-row]");
+            if (row) { this.listCall = row.dataset.callRow; this.render(); return; }
+            const callEl = e.target.closest("[data-call]");
+            const call = callEl && callsOf(this.agents).find((c) => c.id === callEl.dataset.call);
             const option = e.target.closest("[data-option]");
-            if (option && call && this.mode === "call") {
+            if (option && call) {
                 const card = this.card(call.id);
                 const at = Number(option.dataset.option);
                 const chosen = card.chosen ?? (call.pick == null ? [] : [call.pick]);
@@ -1225,7 +1250,13 @@ class Island {
             if ((e.target.closest("[data-go]") || e.target.closest("[data-not-mine]")) && call) {
                 call.agent.calls = call.agent.calls.filter((c) => c.id !== call.id);
                 if (!call.agent.calls.length && call.agent.tier === "needs") Object.assign(call.agent, { tier: "progress", state: "working" });
-                this.mode = this.hover ? this.opening() : "closed";
+                if (this.mode === "call") this.mode = this.hover ? this.opening() : "closed";
+                this.render();
+                return;
+            }
+            if (this.mode !== "open" && this.mode !== "drop" && !e.target.closest("button, [data-option], .fld")) {
+                clearTimeout(openTimer);
+                this.mode = "open";
                 this.render();
                 return;
             }
@@ -1327,7 +1358,7 @@ const SECTIONS = [
               shows: "The agent by its name, its task, the inbox's words for what it needs and the exact command, with Deny, Always allow and Allow (⏎). Anything else the island cannot answer offers Open in Sikemux.",
               leaves: "Answering closes it. Unanswered, it shrinks to C3 after 6 s.", opts: { agents: () => freshAgents(), mode: "peek-ask", peekAgent: "a1" } },
             { id: "P4", name: "A call", when: "An agent puts a call to the person: a question raised with ask, or one its lead passes on.",
-              shows: "The call's card alone, at its own 418-point width, as the Mac draws it: who asks with its project and how long ago, the question, its context, the options as radios in one block with the pick chosen and tagged with the S, the note field as their last row, the point against, then Nothing happens until you answer, Not mine on a call about taste, Open chat, which opens the asker's chat on the Mac, and Go with this. Clicking the chosen row again clears it, and the field then takes your own words. The card tells the core it was seen as it draws.",
+              shows: "The call's card alone, at its own 418-point width, as the Mac draws it: who asks with its project and how long ago, the question, its context, the options as radios in one block with the pick chosen and tagged with the S, the note field as their last row, the point against, then Nothing happens until you answer, Not mine on a call about taste, Open chat, which opens the asker's chat on the Mac, and Go with this. The sentence shows whole or not at all: beside Not mine there is no room for it at this width, so that card goes without it. Clicking the chosen row again clears it, and the field then takes your own words. The card tells the core it was seen as it draws.",
               leaves: "Go with this, or an answer in the chat, on the Mac or on a phone, closes it: the first answer wins. Unanswered, it shrinks to C3 after 6 s; resting the pointer keeps it, and typing in its field keeps it open when the pointer leaves.",
               opts: { agents: () => only(["a2", "a9"]), mode: "call", callId: "q1" } },
             { id: "P5", name: "A production call", when: "An agent's push, merge, deploy or write that leaves this Mac waits on the person, or a gate raises a ship to production.",
@@ -1355,11 +1386,11 @@ const SECTIONS = [
         id: "open", letter: "O", title: "Open",
         lede: "Opened by resting the pointer for 0.3 s. The header sits in the menu-bar band, split around the camera: tabs on the left, Sikemux on the right.",
         states: [
-            { id: "O1", name: "Agents", when: "Opened, on the Agents tab, while no call waits.",
-              shows: "Every open agent once, in the order the app's rail lists them, what wants you first, with no labels between them. Each row reads as the rail does: what the agent works on with how long ago, its project, then the name Sikemux gave it with its counts and state together at the end. Idle agents are listed too, with no mark at the end. A permission can be answered in place. Clicking a row opens that agent in Sikemux.",
+            { id: "O1", name: "Agents", when: "Opened on the Agents tab: by a click or a swipe, or by resting the pointer while no call waits.",
+              shows: "First, each call waiting on the person as a row: the asker's face, what it works on, the project, who and how long the call has waited. The newest is open under its row as its card, at the list's width, in a raised box; clicking another row opens that one instead. Then every open agent once, in the order the app's rail lists them, what wants you first, with no labels between them. Each row reads as the rail does: what the agent works on with how long ago, its project, then the name Sikemux gave it with its counts and state together at the end. Idle agents are listed too, with no mark at the end. A permission can be answered in place. Clicking a row opens that agent in Sikemux.",
               leaves: "The pointer leaves, and 0.1 s later it closes.", opts: { agents: () => freshAgents(), mode: "open" } },
-            { id: "O8", name: "Calls waiting", when: "Opened while calls wait on the person.",
-              shows: "The newest call alone, as its card (P4): resting the pointer or clicking opens on it rather than on the agents. Answering it moves on to the next call, and the last one answered opens the agents (O1).",
+            { id: "O8", name: "Calls waiting", when: "The pointer rests on the island while calls wait on the person.",
+              shows: "The newest call alone, as its card (P4), rather than the agents. Answering it moves on to the next call, and the last one answered opens the agents (O1). A click on the island, away from the card's controls, opens the agents with the calls at the top.",
               leaves: "The pointer leaves, and 0.1 s later it closes, unless something is typed in the card's field.", opts: { agents: () => freshAgents(), mode: "call", callId: "q1" } },
             { id: "O2", name: "New agent", when: "Opened, on the New agent tab.",
               shows: "Sikemux's own composer: add files, the yolo toggle, the model picker (agent mark + model, in accent), effort, project and send.",
