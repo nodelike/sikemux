@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <style>
 html, body { margin: 0; padding: 0; overflow: hidden; background: __GROUND__; }
+html.expanded, html.expanded body { height: 100%; }
+html.expanded iframe { height: 100% !important; }
 iframe { display: block; border: 0; width: 100%; height: __HEIGHT__px; background: transparent; }
 </style>
 </head>
@@ -18,8 +20,14 @@ iframe { display: block; border: 0; width: 100%; height: __HEIGHT__px; backgroun
   const answer = (id, result) => send({ id, result });
   const refuse = (id, code, message) => send({ id, error: { code, message } });
   let told = false;
+  let mode = "inline";
   window.__sikemuxApp = {
     reply: (id, ok, value) => (ok ? answer(id, value) : refuse(id, -32000, String(value))),
+    show: (shown) => {
+      mode = shown;
+      document.documentElement.classList.toggle("expanded", mode === "fullscreen");
+      if (told) send({ method: "ui/notifications/host-context-changed", params: { displayMode: mode } });
+    },
   };
   addEventListener("message", (event) => {
     if (event.source !== frame.contentWindow) return;
@@ -63,9 +71,12 @@ iframe { display: block; border: 0; width: 100%; height: __HEIGHT__px; backgroun
         }
         return;
       }
-      case "ui/request-display-mode":
-        if (asks) answer(id, { mode: "inline" });
+      case "ui/request-display-mode": {
+        const wanted = params && params.mode;
+        if (wanted === "inline" || wanted === "fullscreen") tell({ kind: "app", message: { method, params: { mode: wanted } } });
+        if (asks) answer(id, { mode: wanted === "inline" || wanted === "fullscreen" ? wanted : mode });
         return;
+      }
       case "tools/call":
       case "resources/read":
         if (asks) tell({ kind: "app", message: { id, method, params: params || {} } });

@@ -61,6 +61,8 @@ pub enum PageEvent {
     Mod(serde_json::Value),
     /// A message an MCP app's page sent its host.
     App(serde_json::Value),
+    /// Escape was pressed in an app's page.
+    Escape,
 }
 
 impl PageEvent {

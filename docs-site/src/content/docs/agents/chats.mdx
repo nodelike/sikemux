@@ -123,7 +123,7 @@ An agent can answer with a page it built, such as a chart, a table or a comparis
 
 ## MCP apps in a reply
 
-Some MCP servers give a tool a page of its own, an [MCP App](https://github.com/modelcontextprotocol/ext-apps). When a Claude chat calls such a tool, the reply shows the page in place of the call, in a card that names the server and the tool. It needs Claude Code 2.1.301 or newer, and works with any MCP server Claude is set up with.
+Some MCP servers give a tool a page of its own, an [MCP App](https://github.com/modelcontextprotocol/ext-apps). When a Claude chat calls such a tool, the reply shows the page in place of the call, in a card that names the server and the tool. **Expand** in the card's corner grows the app over the whole chat, still running as it was, and Esc or **Collapse** puts it back; an app can ask to grow itself too. It needs Claude Code 2.1.301 or newer, and works with any MCP server Claude is set up with.
 
 The app runs in a sandbox of its own: it keeps no cookies or storage, can reach only the domains its server declared, and can't open windows or leave its card. It can call its own server's tools, through the chat's agent and under the chat's permissions, read that server's resources, and ask for a link to open on the agent's desk. It can't reach any other server or the agent's conversation. Calls it makes don't go into the conversation either. While the chat's agent isn't running, the app can still show what its call returned, but its own calls are refused until you send a message.
 

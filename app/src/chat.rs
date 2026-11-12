@@ -1655,7 +1655,8 @@ pub fn pane(
                 },
             )
         })
-        .children(welcome.map(|welcome| crate::home::centred(welcome).absolute().inset_0()));
+        .children(welcome.map(|welcome| crate::home::centred(welcome).absolute().inset_0()))
+        .children(app::expanded(&agent.id, cx));
     let open: Vec<&Question> = bench
         .feeds
         .questions_outside_calls()

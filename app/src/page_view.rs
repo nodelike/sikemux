@@ -27,6 +27,14 @@ impl View {
         done(None);
     }
 
+    /// Lets the page fill its room and scroll itself, or puts it back to scrolling with its reply.
+    pub(crate) fn fill(&self, fills: bool) {
+        #[cfg(target_os = "macos")]
+        self.page.fill(fills);
+        #[cfg(not(target_os = "macos"))]
+        let _ = fills;
+    }
+
     /// Runs `script` in the page, with no answer waited for.
     pub(crate) fn run(&self, script: &str) {
         self.page.run_script(script);

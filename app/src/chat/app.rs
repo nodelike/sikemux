@@ -11,8 +11,9 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use gpui_kit::{
-    canvas, div, img, px, AnyElement, App, AsyncWindowContext, FontWeight, Global, Image,
-    ImageFormat, IntoElement, ObjectFit, ParentElement, SharedString, Styled, StyledImage, Window,
+    canvas, div, img, px, AnyElement, App, AsyncWindowContext, FocusHandle, FontWeight, Global,
+    Image, ImageFormat, InteractiveElement, IntoElement, KeyDownEvent, ObjectFit, ParentElement,
+    SharedString, Styled, StyledImage, Window,
 };
 use gpui_native_view::native_view;
 use serde_json::{json, Value};
@@ -43,11 +44,21 @@ const HOST: &str = include_str!("app_host.html");
 #[derive(Default)]
 struct Apps {
     shown: HashMap<String, Shown>,
+    /// The app grown over its whole chat, as MCP Apps' fullscreen display.
+    expanded: Option<Expanded>,
+}
+
+struct Expanded {
+    id: String,
+    label: SharedString,
+    wake: Wake,
+    focus: FocusHandle,
 }
 
 impl Global for Apps {}
 
 struct Shown {
+    label: SharedString,
     height: Rc<Cell<f32>>,
     /// Where the card was last drawn in sight, and when it last moved there.
     sight: Rc<Sight>,
@@ -96,6 +107,7 @@ pub(super) fn app(app: &McpAppRef, title: &str, looks: &Looks, cx: &mut App) -> 
         .shown
         .entry(app.id.clone())
         .or_insert_with(|| Shown {
+            label: label(title),
             height: Rc::new(Cell::new(DEFAULT_HEIGHT)),
             sight: Rc::default(),
             still: None,
@@ -110,6 +122,7 @@ pub(super) fn app(app: &McpAppRef, title: &str, looks: &Looks, cx: &mut App) -> 
         shown.live.as_ref().map(|live| live.view.surface.clone()),
         shown.failed.clone(),
     );
+    let surface = surface.filter(|_| !is_expanded(&app.id, cx));
     let t = Tokens::get(cx);
     let ground = theme::page_ground(t);
     let body: AnyElement = match (surface, still, failed) {
@@ -169,7 +182,25 @@ pub(super) fn app(app: &McpAppRef, title: &str, looks: &Looks, cx: &mut App) -> 
                 .border_color(t.border)
                 .text_color(t.text_secondary)
                 .child(ui::icon(Icon::Plug, 13.).text_color(t.text_tertiary))
-                .child(ui::text(label(title), 11.5, FontWeight::NORMAL).truncate()),
+                .child(
+                    ui::text(label(title), 11.5, FontWeight::NORMAL)
+                        .flex_1()
+                        .min_w_0()
+                        .truncate(),
+                )
+                .child({
+                    let (id, label, wake) = (app.id.clone(), label(title), Wake::of(looks));
+                    ui::Button::new(
+                        SharedString::from(format!("app-expand-{}", app.id)),
+                        "Expand",
+                        ui::Variant::Outline,
+                    )
+                    .icon(Icon::Resize)
+                    .sized(22., 8., 11.5)
+                    .on_click(move |_, window, cx| {
+                        expand(id.clone(), label.clone(), wake.clone(), window, cx)
+                    })
+                }),
         )
         .child(
             div()
@@ -180,6 +211,143 @@ pub(super) fn app(app: &McpAppRef, title: &str, looks: &Looks, cx: &mut App) -> 
                 .child(watch),
         )
         .into_any_element()
+}
+
+fn label_of(id: &str, cx: &mut App) -> SharedString {
+    apps(cx)
+        .shown
+        .get(id)
+        .map(|shown| shown.label.clone())
+        .unwrap_or_default()
+}
+
+fn is_expanded(id: &str, cx: &mut App) -> bool {
+    apps(cx)
+        .expanded
+        .as_ref()
+        .is_some_and(|expanded| expanded.id == id)
+}
+
+/// Grows the app over its whole chat, the same view and state, until Escape or Collapse.
+fn expand(id: String, label: SharedString, wake: Wake, window: &mut Window, cx: &mut App) {
+    collapse(cx);
+    let focus = cx.focus_handle();
+    window.focus(&focus, cx);
+    apps(cx).expanded = Some(Expanded {
+        id: id.clone(),
+        label,
+        wake: wake.clone(),
+        focus,
+    });
+    let live = apps(cx)
+        .shown
+        .get(&id)
+        .and_then(|shown| shown.live.as_ref().map(|live| live.view.clone()));
+    match live {
+        Some(view) => shows(&view, true),
+        None => {
+            if room(apps(cx)) {
+                start(id, wake.clone(), window, cx);
+            }
+        }
+    }
+    redraw(&wake, cx);
+}
+
+/// Puts the app grown over its chat back in its reply.
+fn collapse(cx: &mut App) {
+    let Some(expanded) = apps(cx).expanded.take() else {
+        return;
+    };
+    let live = apps(cx)
+        .shown
+        .get(&expanded.id)
+        .and_then(|shown| shown.live.as_ref().map(|live| live.view.clone()));
+    if let Some(view) = live {
+        shows(&view, false);
+    }
+    redraw(&expanded.wake, cx);
+}
+
+/// Tells the app's view, and the app, whether it fills its chat.
+fn shows(view: &page_view::View, expanded: bool) {
+    view.fill(expanded);
+    let mode = if expanded { "fullscreen" } else { "inline" };
+    view.run(&format!(
+        "window.__sikemuxApp && window.__sikemuxApp.show({mode:?})"
+    ));
+}
+
+fn redraw(wake: &Wake, cx: &mut App) {
+    wake.reader.update(cx, |_, cx| cx.notify());
+    let _ = wake.bench.update(cx, |_, cx| cx.notify());
+}
+
+/// The app of `agent`'s chat grown over the chat, drawn over its rows.
+pub(super) fn expanded(agent: &str, cx: &mut App) -> Option<AnyElement> {
+    let expanded = apps(cx)
+        .expanded
+        .as_ref()
+        .filter(|expanded| expanded.wake.agent == agent)?;
+    let (id, label, focus) = (
+        expanded.id.clone(),
+        expanded.label.clone(),
+        expanded.focus.clone(),
+    );
+    let surface = apps(cx)
+        .shown
+        .get(&id)
+        .and_then(|shown| shown.live.as_ref().map(|live| live.view.surface.clone()));
+    let t = Tokens::get(cx);
+    let body = match surface {
+        Some(surface) => native_view(SharedString::from(format!("app-{id}")), &surface)
+            .size_full()
+            .into_any_element(),
+        None => div().size_full().into_any_element(),
+    };
+    Some(
+        div()
+            .id("app-expanded")
+            .track_focus(&focus)
+            .on_key_down(|event: &KeyDownEvent, _, cx| {
+                if event.keystroke.key == "escape" {
+                    collapse(cx);
+                }
+            })
+            .absolute()
+            .inset_0()
+            .flex()
+            .flex_col()
+            .bg(theme::page_ground(t))
+            .child(
+                div()
+                    .h(px(HEADER_HEIGHT))
+                    .flex_none()
+                    .flex()
+                    .items_center()
+                    .gap(px(7.))
+                    .px(px(10.))
+                    .border_b_1()
+                    .border_color(t.border)
+                    .text_color(t.text_secondary)
+                    .child(ui::icon(Icon::Plug, 13.).text_color(t.text_tertiary))
+                    .child(
+                        ui::text(label, 11.5, FontWeight::NORMAL)
+                            .flex_1()
+                            .min_w_0()
+                            .truncate(),
+                    )
+                    .child(ui::meta("esc", cx))
+                    .child(
+                        ui::Button::new("app-collapse", "Collapse", ui::Variant::Outline)
+                            .icon(Icon::Resize)
+                            .sized(22., 8., 11.5)
+                            .on_click(|_, _, cx| collapse(cx)),
+                    ),
+            )
+            .child(div().flex_1().min_h_0().child(body))
+            .into_any_element(),
+    )
 }
 
 /// What an app needs to reach its chat when it wakes.
@@ -310,6 +478,13 @@ fn start(id: String, wake: Wake, window: &mut Window, cx: &mut App) {
                         Err(error) => shown.failed = Some(error.into()),
                     }
                 }
+                let view = apps(cx)
+                    .shown
+                    .get(&id)
+                    .and_then(|shown| shown.live.as_ref().map(|live| live.view.clone()));
+                if let Some(view) = view.filter(|_| is_expanded(&id, cx)) {
+                    shows(&view, true);
+                }
                 wake.reader.update(cx, |_, cx| cx.notify());
             });
             keep(id, wake, cx).await;
@@ -382,7 +557,7 @@ fn host_page(id: &str, app: &McpApp, height: f32, cx: &App) -> String {
             "theme": if t.dark { "dark" } else { "light" },
             "styles": { "variables": variables },
             "displayMode": "inline",
-            "availableDisplayModes": ["inline"],
+            "availableDisplayModes": ["inline", "fullscreen"],
             "containerDimensions": { "maxHeight": MAX_HEIGHT },
             "platform": "desktop",
             "userAgent": "Sikemux",
@@ -412,13 +587,16 @@ fn listen(
         .spawn(cx, async move |cx| {
             while let Some(event) = heard.recv().await {
                 changed.set(true);
-                let applied = cx.update(|_, cx| match event {
+                let applied = cx.update(|window, cx| match event {
+                    PageEvent::Height(_) if is_expanded(&id, cx) => {}
                     PageEvent::Height(height) => {
                         if let Some(shown) = apps(cx).shown.get(&id) {
                             shown.height.set(height as f32);
                         }
                         wake.reader.update(cx, |_, cx| cx.notify());
                     }
+                    PageEvent::Escape if is_expanded(&id, cx) => collapse(cx),
+                    PageEvent::Escape => {}
                     PageEvent::Pointer(over) => pointer_over.set(over),
                     PageEvent::Link(url) => {
                         let _ = wake
@@ -434,6 +612,19 @@ fn listen(
                                 });
                             }
                         });
+                    }
+                    PageEvent::App(message)
+                        if message.get("method").and_then(Value::as_str)
+                            == Some("ui/request-display-mode") =>
+                    {
+                        match message.pointer("/params/mode").and_then(Value::as_str) {
+                            Some("fullscreen") if !is_expanded(&id, cx) => {
+                                let label = label_of(&id, cx);
+                                expand(id.clone(), label, wake.clone(), window, cx)
+                            }
+                            Some("inline") if is_expanded(&id, cx) => collapse(cx),
+                            _ => {}
+                        }
                     }
                     PageEvent::App(message) => ask(&id, message, &view, &wake, cx),
                     PageEvent::Mod(_) => {}

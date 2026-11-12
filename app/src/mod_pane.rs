@@ -178,7 +178,8 @@ impl ModPane {
                     PageEvent::Height(_)
                     | PageEvent::Wheel(_)
                     | PageEvent::Pointer(_)
-                    | PageEvent::App(_) => {}
+                    | PageEvent::App(_)
+                    | PageEvent::Escape => {}
                 });
                 if heard.is_err() {
                     break;

@@ -1,4 +1,5 @@
 use std::cell::Cell;
+use std::rc::Rc;
 
 use block2::RcBlock;
 use objc2::rc::Retained;
@@ -18,7 +19,7 @@ use objc2_web_kit::{
 use super::{PageEvent, Room, BOOTSTRAP};
 
 pub struct PageIvars {
-    events: Box<dyn Fn(PageEvent)>,
+    events: Rc<dyn Fn(PageEvent)>,
     /// The address the page's text is read from.
     loaded: String,
 }
@@ -87,9 +88,11 @@ define_class!(
 
 pub struct WebIvars {
     /// Whether the page fills its room and scrolls itself.
-    fills: bool,
+    fills: Cell<bool>,
     /// Whether a click on the page takes the keyboard.
     takes_keys: bool,
+    /// Where an app's Escape is told, which the page may also use.
+    events: Option<Rc<dyn Fn(PageEvent)>>,
     /// Whether the scroll under way goes up or down.
     vertical: Cell<bool>,
 }
@@ -112,7 +115,7 @@ define_class!(
                 self.ivars().vertical.set(is_vertical(event));
             }
             // SAFETY: main thread, where AppKit delivers scrolls; the next responder holds the page.
-            let next = (!self.ivars().fills && self.ivars().vertical.get())
+            let next = (!self.ivars().fills.get() && self.ivars().vertical.get())
                 .then(|| unsafe { self.nextResponder() })
                 .flatten();
             match next {
@@ -128,8 +131,23 @@ define_class!(
         fn accepts_first_responder(&self) -> bool {
             self.ivars().takes_keys
         }
+
+        // SAFETY: matches NSResponder's `keyDown:`: an event in, nothing out.
+        #[unsafe(method(keyDown:))]
+        fn key_down(&self, event: &NSEvent) {
+            if event.keyCode() == ESCAPE_KEY {
+                if let Some(events) = &self.ivars().events {
+                    events(PageEvent::Escape);
+                }
+            }
+            // SAFETY: hands the event on to WKWebView's own handler, on the main thread.
+            unsafe { msg_send![super(self), keyDown: event] }
+        }
     }
 );
+
+/// The Escape key's code on a Mac keyboard.
+const ESCAPE_KEY: u16 = 53;
 
 /// Whether a scroll that starts with `event` goes up or down rather than sideways or to zoom.
 fn is_vertical(event: &NSEvent) -> bool {
@@ -155,6 +173,7 @@ impl PageView {
         room: Room,
         events: impl Fn(PageEvent) + 'static,
     ) -> Self {
+        let events: Rc<dyn Fn(PageEvent)> = Rc::new(events);
         let (fills, clear, base) = match room {
             Room::Grows | Room::App => (false, true, None),
             Room::Panel => (true, true, None),
@@ -171,7 +190,7 @@ impl PageView {
             .and_then(|base| base.absoluteString())
             .map(|base| base.to_string());
         let messages = mtm.alloc::<PageMessages>().set_ivars(PageIvars {
-            events: Box::new(events),
+            events: events.clone(),
             loaded: super::loads_as(loaded.as_deref()).to_owned(),
         });
         // SAFETY: NSObject's `init` takes nothing and returns the object it was sent to.
@@ -198,8 +217,9 @@ impl PageView {
             let frame = NSRect::new(NSPoint::ZERO, NSSize::new(1.0, 1.0));
             let view: Retained<PageWebView> = msg_send![
                 super(PageWebView::alloc(mtm).set_ivars(WebIvars {
-                    fills,
+                    fills: Cell::new(fills),
                     takes_keys: fills || matches!(room, Room::App),
+                    events: matches!(room, Room::App).then(|| events.clone()),
                     vertical: Cell::new(false),
                 })),
                 initWithFrame: frame,
@@ -245,6 +265,12 @@ impl PageView {
 }
 
 impl PageView {
+    /// Lets the page fill its room and scroll itself, as an app put over its whole chat does,
+    /// or puts it back to scrolling with what holds it.
+    pub fn fill(&self, fills: bool) {
+        self.view.ivars().fills.set(fills);
+    }
+
     /// A still of what the view shows now, as sharp as the screen draws it, as a JPEG made off
     /// the main thread. The page must paint its own ground, as a JPEG keeps no see-through.
     pub fn still(&self, done: Box<dyn FnOnce(Option<Vec<u8>>) + Send>) {
