@@ -77,7 +77,6 @@ mod moving;
 pub(crate) use attach::{named, named_agents, pill, site_icon, Mention, SNIP_NAME};
 pub use mention::Tray;
 mod meta;
-pub(crate) use meta::clock;
 pub mod model_picker;
 pub(crate) mod page;
 mod questions;

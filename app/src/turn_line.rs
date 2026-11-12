@@ -52,7 +52,13 @@ pub fn said(turn: &TurnState, maker: &str, now: u64) -> Option<Said> {
             )
         }
         TurnPhase::Done => {
-            let done = turn.done.as_ref()?;
+            let Some(done) = turn.done.as_ref() else {
+                return Some(Said {
+                    word: "Done".into(),
+                    phase: turn.state,
+                    parts: Vec::new(),
+                });
+            };
             let mut parts = vec![changed(done.changes).to_owned()];
             if done.changes != WorkAt::None {
                 match (done.checks, done.tests) {

@@ -179,7 +179,7 @@ impl Activity {
                     take(next.step, variant)
                 })
                 .collect(),
-            TurnPhase::NeedsYou => vec![step_button("Look", Variant::Primary).into_any_element()],
+            TurnPhase::NeedsYou => self.look().into_iter().collect(),
             TurnPhase::Stopped => take(TurnStep::CarryOn, Variant::Outline)
                 .into_iter()
                 .collect(),
@@ -190,6 +190,24 @@ impl Activity {
             centred(turn_line::line(self.mark(cx), &said, key, buttons, cx).px(px(22.)))
                 .pt(SPACE_3)
                 .pb(px(END_SPACE))
+                .into_any_element(),
+        )
+    }
+
+    /// Look: the chat's end, where the call it waits on sits, with the keys on its card.
+    fn look(&self) -> Option<AnyElement> {
+        let agent = self.agent.as_ref()?.id.clone();
+        let bench = self.bench.clone()?;
+        Some(
+            step_button("Look", Variant::Primary)
+                .on_click(move |_, window, cx| {
+                    bench
+                        .update(cx, |bench, cx| {
+                            bench.show_latest(&agent, cx);
+                            bench.focus_draft(&agent, window, cx);
+                        })
+                        .ok();
+                })
                 .into_any_element(),
         )
     }
