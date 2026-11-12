@@ -402,7 +402,7 @@ pub(super) fn pane(
     let kind = viewer.about.as_ref().map(|about| kind_of(&about.mime));
     let body: AnyElement = match (&viewer.failed, kind) {
         (Some(error), _) => message(error.clone(), &t),
-        (None, None) => message("Reading…".into(), &t),
+        (None, None) => message(t!("Reading…").into(), &t),
         (None, Some(Kind::Image)) => {
             let picture = Picture {
                 path: viewer.local.clone().unwrap_or_else(|| path.to_owned()),
@@ -553,7 +553,7 @@ fn document(viewer: &Viewer, key: &FileKey, t: &Tokens) -> AnyElement {
             .into_any_element()
         }
         Some(None) => {}
-        None => return message("Opening…".into(), t),
+        None => return message(t!("Opening…").into(), t),
     }
     card(viewer, key, t)
 }
@@ -592,7 +592,7 @@ fn card(viewer: &Viewer, key: &FileKey, t: &Tokens) -> AnyElement {
             div().mt(SPACE_2).child(
                 ui::Button::new(
                     "viewer-open-default",
-                    "Open in default app",
+                    t!("Open in default app"),
                     ui::Variant::Outline,
                 )
                 .icon(Icon::Share)
@@ -711,13 +711,13 @@ fn bar(this: &Entity<Workbench>, key: &FileKey, viewer: &Viewer, cx: &App) -> im
         .children(about.map(|about| div().text_color(t.text_tertiary).child(about.mime.clone())))
         .child(div().flex_1())
         .when(image, |bar| {
-            bar.child(zoom("viewer-fit", "Fit", |_| None))
+            bar.child(zoom("viewer-fit", t!("Fit"), |_| None))
                 .child(zoom("viewer-actual", "1:1", |_| Some(1.)))
                 .child(zoom("viewer-out", "−", |scale| Some(scale / ZOOM_STEP)))
                 .child(zoom("viewer-in", "+", |scale| Some(scale * ZOOM_STEP)))
         })
         .child(
-            ui::IconButton::new("viewer-reload", Icon::Refresh, "Read it again")
+            ui::IconButton::new("viewer-reload", Icon::Refresh, t!("Read it again"))
                 .small()
                 .on_click(move |_, _, cx| {
                     let path = reload.clone();
@@ -725,13 +725,17 @@ fn bar(this: &Entity<Workbench>, key: &FileKey, viewer: &Viewer, cx: &App) -> im
                 }),
         )
         .children(open.map(|open| {
-            ui::IconButton::new("viewer-open", Icon::Share, "Open in its own app")
+            ui::IconButton::new("viewer-open", Icon::Share, t!("Open in its own app"))
                 .small()
                 .on_click(move |_, _, cx| cx.open_with_system(&open))
         }))
         .children(reveal.map(|reveal| {
-            ui::IconButton::new("viewer-reveal", Icon::Folder, ui::SHOW_IN_FILES)
-                .small()
-                .on_click(move |_, _, cx| cx.reveal_path(&reveal))
+            ui::IconButton::new(
+                "viewer-reveal",
+                Icon::Folder,
+                crate::i18n::tr(ui::SHOW_IN_FILES),
+            )
+            .small()
+            .on_click(move |_, _, cx| cx.reveal_path(&reveal))
         }))
 }

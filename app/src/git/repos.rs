@@ -45,18 +45,24 @@ pub fn picker(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
             .items_center()
             .justify_center()
             .gap(SPACE_1H)
-            .child(ui::text("Not a repository", TEXT_XS_H, FontWeight::MEDIUM).text_color(t.danger))
+            .child(
+                ui::text(t!("Not a repository"), TEXT_XS_H, FontWeight::MEDIUM)
+                    .text_color(t.danger),
+            )
             .child(ui::meta(
-                format!("No repository at {folder}, and none in the folders directly inside it."),
+                t!(
+                    "No repository at {folder}, and none in the folders directly inside it.",
+                    folder = folder
+                ),
                 cx,
             ))
             .into_any_element();
     }
     let chosen = bench.preferences().default_git_repos.get(&folder).cloned();
     let count = if repos.len() == 1 {
-        "1 repository inside".to_owned()
+        t!("1 repository inside").to_owned()
     } else {
-        format!("{} repositories inside", repos.len())
+        t!("{count} repositories inside", count = repos.len())
     };
     let rows = repos.iter().enumerate().map(|(index, repo)| {
         let path = repo.path.clone();
@@ -91,7 +97,7 @@ pub fn picker(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
                     .child(repo.name.clone()),
             )
             .child(
-                ui::mono(branch.unwrap_or("no commits").to_owned(), TEXT_2XS, cx)
+                ui::mono(branch.unwrap_or(t!("no commits")).to_owned(), TEXT_2XS, cx)
                     .text_color(t.text_secondary),
             )
             .when(ahead > 0, |row| {
@@ -122,9 +128,9 @@ pub fn picker(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
                     ("git-repo-default", index),
                     Icon::Star,
                     if default {
-                        "Opened by default; click to stop"
+                        t!("Opened by default; click to stop")
                     } else {
-                        "Open this one by default in this project"
+                        t!("Open this one by default in this project")
                     },
                 )
                 .small()

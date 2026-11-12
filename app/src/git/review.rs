@@ -405,7 +405,7 @@ pub fn review(pane: &mut GitPane, window: &mut Window, cx: &mut Context<GitPane>
             .justify_center()
             .text_size(crate::theme::ui_text(TEXT_XS))
             .text_color(t.text_secondary)
-            .child("Nothing to review.")
+            .child(t!("Nothing to review."))
             .into_any_element();
     }
     let core = pane.core.clone();
@@ -514,11 +514,11 @@ fn draw(
             let (change, word) = match section.side {
                 Some(Side::Staged) => (
                     file.map_or(GitChange::Unchanged, |file| file.index),
-                    "STAGED",
+                    t!("STAGED"),
                 ),
                 _ => (
                     file.map_or(GitChange::Unchanged, |file| file.worktree),
-                    "UNSTAGED",
+                    t!("UNSTAGED"),
                 ),
             };
             body(
@@ -541,9 +541,9 @@ fn draw(
         Item::Note(card, at) => {
             let section = &review.cards[card].sections[at];
             let (text, colour) = match &section.diff {
-                None => ("loading diff...".to_owned(), t.text_tertiary),
+                None => (t!("loading diff...").to_owned(), t.text_tertiary),
                 Some(Err(error)) => (format!("x {error}"), t.danger),
-                Some(Ok(_)) => ("No changes.".to_owned(), t.text_tertiary),
+                Some(Ok(_)) => (t!("No changes.").to_owned(), t.text_tertiary),
             };
             body(
                 div()

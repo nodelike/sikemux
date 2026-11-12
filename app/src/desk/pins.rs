@@ -117,7 +117,7 @@ fn drawn(pin: &Pin, pictures: &mut Pictures) -> Value {
     let who = pin
         .agent_name
         .as_ref()
-        .map_or_else(|| "The agent".to_owned(), |name| format!("@{name}"));
+        .map_or_else(|| t!("The agent").to_owned(), |name| format!("@{name}"));
     let notes: Vec<Value> = (pin.notes.iter())
         .map(|note| {
             let by = match note.by {
@@ -449,7 +449,7 @@ impl Workbench {
         let to = self
             .agent_by_id(agent)
             .and_then(|row| row.handle().map(|name| format!("@{name}")))
-            .unwrap_or_else(|| "the agent".to_owned());
+            .unwrap_or_else(|| t!("the agent").to_owned());
         let target = self.chat_target(agent);
         let bench = cx.weak_entity();
         let (agent, area) = (agent.to_owned(), pin["rect"].clone());
@@ -462,8 +462,8 @@ impl Workbench {
             let placed = target.request_typed::<call::PlacePin>(params).await;
             cx.update(|cx| {
                 let note = match placed {
-                    Ok(_) => toast::success(format!("Pin sent to {to}")),
-                    Err(error) => toast::error(format!("The pin did not go: {error}")),
+                    Ok(_) => toast::success(t!("Pin sent to {to}", to = to)),
+                    Err(error) => toast::error(t!("The pin did not go: {error}", error = error)),
                 };
                 toast::show(&bench, note, cx);
             })
@@ -492,7 +492,7 @@ impl Workbench {
         let (asked, done): (Asked, &str) = match answer {
             PinAnswer::Note { id, words } => (
                 Box::pin(target.request_typed::<call::NotePin>(PinNoteParams { id, words })),
-                "Sent back to the agent",
+                t!("Sent back to the agent"),
             ),
             PinAnswer::LooksRight { id } => {
                 self.forget_pin_pictures(&id, cx);

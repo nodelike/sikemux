@@ -170,7 +170,7 @@ impl Workbench {
             .unwrap_or_default();
         let input = cx.new(|cx| {
             InputState::new(window, cx)
-                .placeholder("Search or enter address")
+                .placeholder(t!("Search or enter address"))
                 .default_value(shown)
         });
         let typing = cx.subscribe_in(

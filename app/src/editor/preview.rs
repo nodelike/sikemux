@@ -126,12 +126,12 @@ pub(super) fn toolbar(
         .border_b_1()
         .border_color(t.border)
         .text_size(crate::theme::ui_text(TEXT_XS))
-        .child(choice("markdown-source", "Source", Mode::Source))
+        .child(choice("markdown-source", t!("Source"), Mode::Source))
         .child(choice(
             "markdown-preview",
             match look {
-                Look::Markdown | Look::Page => "Preview",
-                Look::Diagram => "Diagram",
+                Look::Markdown | Look::Page => t!("Preview"),
+                Look::Diagram => t!("Diagram"),
             },
             Mode::Preview,
         ))
@@ -256,7 +256,7 @@ pub(super) fn open_find(
         return;
     };
     let input = finding.unwrap_or_else(|| {
-        let input = cx.new(|cx| InputState::new(window, cx).placeholder("Find in file"));
+        let input = cx.new(|cx| InputState::new(window, cx).placeholder(t!("Find in file")));
         let typed = {
             let key = key.clone();
             cx.subscribe(&input, move |bench, _, event: &InputEvent, cx| {
@@ -387,7 +387,7 @@ pub(super) fn bar(this: &Entity<Workbench>, key: &FileKey, finding: &Finding, cx
     let label = match finding.found.as_ref().map(|found| found.found()) {
         Some((current, total)) if total > 0 => format!("{}/{total}", current + 1),
         _ if finding.input.read(cx).value().is_empty() => "0/0".to_owned(),
-        _ => "No results".to_owned(),
+        _ => t!("No results").to_owned(),
     };
     let on = |act: fn(&mut Workbench, &FileKey, &mut Window, &mut Context<Workbench>)| {
         let (this, key) = (this.clone(), key.clone());

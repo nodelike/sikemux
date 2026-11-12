@@ -23,9 +23,9 @@ use crate::workbench::Workbench;
 
 /// The fixed widths, each by the preset the browser knows it as, its name and its icon.
 const WIDTHS: [(&str, &str, Icon); 3] = [
-    ("mobile", "Phone", Icon::Phone),
-    ("tablet", "Tablet", Icon::Tablet),
-    ("desktop", "Desktop", Icon::Laptop),
+    ("mobile", n!("Phone"), Icon::Phone),
+    ("tablet", n!("Tablet"), Icon::Tablet),
+    ("desktop", n!("Desktop"), Icon::Laptop),
 ];
 
 /// How many pages' pictures are kept, the least recently taken let go first.
@@ -88,7 +88,9 @@ fn named(preset: &str) -> (&'static str, Icon) {
     WIDTHS
         .iter()
         .find(|(known, ..)| *known == preset)
-        .map_or(("Fit", Icon::Resize), |(_, name, icon)| (*name, *icon))
+        .map_or((t!("Fit"), Icon::Resize), |(_, name, icon)| {
+            (crate::i18n::tr(*name), *icon)
+        })
 }
 
 /// The chip at the right of the address bar: the width's icon and name, and a menu of the
@@ -108,8 +110,8 @@ pub(super) fn chip(
         .as_ref()
         .is_some_and(|engine| engine.all_widths(agent, tab_id));
     let (icon, label): (Icon, SharedString) = match (all, held) {
-        (true, _) => (Icon::Viewport, "All".into()),
-        (false, None) => (Icon::Resize, "Fit".into()),
+        (true, _) => (Icon::Viewport, t!("All").into()),
+        (false, None) => (Icon::Resize, t!("Fit").into()),
         (false, Some(held)) => match held.preset {
             Some(preset) => {
                 let (name, icon) = named(preset);
@@ -122,7 +124,7 @@ pub(super) fn chip(
         },
     };
     let face = BaseButton::new("desk-width-face")
-        .accessibility_label(format!("Width: {label}"))
+        .accessibility_label(t!("Width: {label}", label = label))
         .flex_none()
         .h(px(20.))
         .pl(px(7.))
@@ -153,10 +155,10 @@ pub(super) fn chip(
         face,
         move |mut popup, _, cx| {
             popup = popup.min_w(px(200.));
-            let fit = std::iter::once((None, "Fit", Icon::Resize));
+            let fit = std::iter::once((None, t!("Fit"), Icon::Resize));
             let fixed = WIDTHS
                 .iter()
-                .map(|(preset, name, icon)| (Some(*preset), *name, *icon));
+                .map(|(preset, name, icon)| (Some(*preset), crate::i18n::tr(*name), *icon));
             for (preset, name, icon) in fit.chain(fixed) {
                 let size = preset.and_then(Viewport::preset);
                 let (bench, agent, tab_id) = (bench.clone(), agent.clone(), tab_id.clone());
@@ -184,7 +186,7 @@ pub(super) fn chip(
             }
             let (bench, agent, tab_id) = (bench.clone(), agent.clone(), tab_id.clone());
             popup.separator().item(
-                MenuRow::new("All three")
+                MenuRow::new(t!("All three"))
                     .icon(Icon::Viewport)
                     .chosen(all)
                     .item(cx)
@@ -268,7 +270,7 @@ pub(super) fn all(
                 .justify_center()
                 .gap(SPACE_1H)
                 .child(div().size(px(6.)).rounded_full().bg(t.live))
-                .child(label(named(live_at).0, " · live".to_owned())),
+                .child(label(named(live_at).0, format!(" · {}", t!("live")))),
         )
         .child(div().flex_1().min_h_0().child(live));
     let others =
@@ -291,7 +293,7 @@ pub(super) fn all(
                     .gap(SPACE_1H)
                     .cursor_pointer()
                     .group("desk-width-picture")
-                    .child(label(name, after))
+                    .child(label(crate::i18n::tr(*name), after))
                     .child(
                         div()
                             .w_full()
@@ -338,7 +340,7 @@ pub(super) fn all(
         .children(others)
         .child(
             ui::text(
-                "Taken by Sikemux. Click one to try it live.",
+                t!("Taken by Sikemux. Click one to try it live."),
                 TEXT_2XS_H,
                 FontWeight::NORMAL,
             )

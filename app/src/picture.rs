@@ -420,7 +420,7 @@ pub fn thumb(
                 .max_h(height)
                 .object_fit(ObjectFit::Contain)
                 .with_fallback(move || {
-                    ui::text("Couldn't load the picture", TEXT_XS, FontWeight::NORMAL)
+                    ui::text(t!("Couldn't load the picture"), TEXT_XS, FontWeight::NORMAL)
                         .text_color(quiet)
                         .into_any_element()
                 }),
@@ -459,7 +459,7 @@ impl Workbench {
             let room = window.viewport_size();
             let save = {
                 let (this, picture) = (this.clone(), picture.clone());
-                Button::new("picture-save", "Save to Downloads", Variant::Outline)
+                Button::new("picture-save", t!("Save to Downloads"), Variant::Outline)
                     .icon(Icon::Download)
                     .on_click(move |_, window, cx| {
                         this.update(cx, |bench, cx| bench.keep_picture(&picture, window, cx))
@@ -543,11 +543,11 @@ impl Workbench {
                 },
             };
             let said = match kept {
-                Ok(saved) => {
-                    let name = saved.rsplit('/').next().unwrap_or("the picture");
-                    format!("Saved {name} to Downloads")
-                }
-                Err(error) => format!("Could not save the picture: {error}"),
+                Ok(saved) => match saved.rsplit('/').next() {
+                    Some(name) => t!("Saved {name} to Downloads", name = name),
+                    None => t!("Saved the picture to Downloads").to_owned(),
+                },
+                Err(error) => t!("Could not save the picture: {error}", error = error),
             };
             cx.update(|window, cx| window.push_notification(said, cx))
                 .ok();

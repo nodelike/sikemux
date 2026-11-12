@@ -115,8 +115,10 @@ pub fn top_bar(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoEleme
                                 "focus",
                                 Icon::Focus,
                                 match crate::keymap::hint(actions::FocusMode::ID, cx) {
-                                    Some(keys) => format!("Focus mode — hide rails — {keys}"),
-                                    None => "Focus mode — hide rails".to_owned(),
+                                    Some(keys) => {
+                                        t!("Focus mode — hide rails — {keys}", keys = keys)
+                                    }
+                                    None => t!("Focus mode — hide rails").to_owned(),
                                 },
                             )
                             .width(30.)
@@ -198,12 +200,12 @@ fn git_chip(bench: &Workbench, cx: &App) -> Option<AnyElement> {
         .unwrap_or_default();
     about.push(git.branch.clone());
     about.push(if git.dirty {
-        "changed".into()
+        t!("changed").into()
     } else {
-        "clean".into()
+        t!("clean").into()
     });
-    about.extend((git.ahead > 0).then(|| format!("ahead {}", git.ahead)));
-    about.extend((git.behind > 0).then(|| format!("behind {}", git.behind)));
+    about.extend((git.ahead > 0).then(|| t!("ahead {count}", count = git.ahead)));
+    about.extend((git.behind > 0).then(|| t!("behind {count}", count = git.behind)));
     let count = |arrow: &str, count: u32, color| {
         (count > 0).then(|| {
             ui::text(format!("{arrow}{count}"), TEXT_3XS, FontWeight::NORMAL).text_color(color)
@@ -478,9 +480,9 @@ pub fn tab_menu(
         let (strip, tab) = (strip.clone(), tab.clone());
         popup.separator().item(
             PopupMenuItem::new(if kind == PaneKind::Files {
-                "Move Focused File Back to Editor"
+                t!("Move Focused File Back to Editor")
             } else {
-                "Move Focused Pane Back to Tab Bar"
+                t!("Move Focused Pane Back to Tab Bar")
             })
             .on_click(on_bench(&bench, move |bench, _| {
                 bench.separate_pane(&strip, &tab, &view)
@@ -570,7 +572,7 @@ impl TabMenu {
                     .on_click(on_bench(&self.bench, move |bench, cx| {
                         let (strip, tab) = (strip.clone(), tab.clone());
                         bench.prompt(
-                            "Rename tab",
+                            t!("Rename tab"),
                             label.clone(),
                             move |bench, name, _, _| {
                                 if !name.is_empty() {
@@ -662,14 +664,14 @@ impl TabMenu {
         };
         let mut popup = popup
             .item(
-                close("Close", vec![self.tab.clone()], true)
+                close(t!("Close"), vec![self.tab.clone()], true)
                     .action(Box::new(crate::workbench::actions::CloseTab)),
             )
-            .item(close("Close Others", others, false))
-            .item(close("Close to the Left", left, false))
-            .item(close("Close to the Right", right, false))
-            .item(close("Close Saved", saved, false))
-            .item(close("Close All", all, true));
+            .item(close(t!("Close Others"), others, false))
+            .item(close(t!("Close to the Left"), left, false))
+            .item(close(t!("Close to the Right"), right, false))
+            .item(close(t!("Close Saved"), saved, false))
+            .item(close(t!("Close All"), all, true));
         if let Some((path, relative)) = &self.file {
             let (copied, relative, revealed) = (path.clone(), relative.clone(), path.clone());
             popup = popup
@@ -679,7 +681,7 @@ impl TabMenu {
                         .icon(Icon::Copy)
                         .on_click(move |_, window, cx| {
                             cx.write_to_clipboard(ClipboardItem::new_string(copied.clone()));
-                            window.push_notification(toast::success("Copied path"), cx);
+                            window.push_notification(toast::success(t!("Copied path")), cx);
                         }),
                 )
                 .item(
@@ -687,12 +689,13 @@ impl TabMenu {
                         .icon(Icon::Copy)
                         .on_click(move |_, window, cx| {
                             cx.write_to_clipboard(ClipboardItem::new_string(relative.clone()));
-                            window.push_notification(toast::success("Copied relative path"), cx);
+                            window
+                                .push_notification(toast::success(t!("Copied relative path")), cx);
                         }),
                 )
                 .separator()
                 .item(
-                    PopupMenuItem::new(ui::REVEAL)
+                    PopupMenuItem::new(crate::i18n::tr(ui::REVEAL))
                         .icon(Icon::Folder)
                         .on_click(move |_, _, cx| cx.reveal_path(Path::new(&revealed))),
                 );
@@ -725,7 +728,7 @@ pub fn view_label(bench: &Workbench, pane: &Pane) -> SharedString {
     match first_view(pane) {
         Some((PaneKind::Agent, target)) => bench
             .agent_by_id(target)
-            .map_or_else(|| "Agent".into(), |agent| agent.title.into()),
+            .map_or_else(|| t!("Agent").into(), |agent| agent.title.into()),
         Some((PaneKind::Terminal, target)) => bench
             .session(target)
             .and_then(|session| {
@@ -734,9 +737,9 @@ pub fn view_label(bench: &Workbench, pane: &Pane) -> SharedString {
                     .clone()
                     .or_else(|| session.title.clone())
             })
-            .map_or_else(|| "Terminal".into(), SharedString::from),
+            .map_or_else(|| t!("Terminal").into(), SharedString::from),
         Some((PaneKind::Files, target)) => Path::new(target).file_name().map_or_else(
-            || "Files".into(),
+            || t!("Files").into(),
             |name| SharedString::from(name.to_string_lossy().into_owned()),
         ),
         Some((kind, _)) => crate::pane_kind::of(kind).label.into(),

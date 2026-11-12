@@ -131,10 +131,10 @@ impl GitPane {
         self.menu(
             format!("#{number} · {}", listed.pull.title),
             vec![
-                Pick::new('r', "review this", |pane, cx| {
+                Pick::new('r', t!("review this"), |pane, cx| {
                     pane.start_on_pull(Task::Review, cx)
                 }),
-                Pick::new('f', "fix the comments", |pane, cx| {
+                Pick::new('f', t!("fix the comments"), |pane, cx| {
                     pane.start_on_pull(Task::Answer, cx)
                 }),
             ],
@@ -177,7 +177,11 @@ impl GitPane {
             pane.update(cx, |pane, cx| match handed {
                 Ok(handed) => {
                     pane.say(
-                        toast::success(format!("Started card #{} on #{number}", handed.card)),
+                        toast::success(t!(
+                            "Started card #{card} on #{number}",
+                            card = handed.card,
+                            number = number
+                        )),
                         cx,
                     );
                     pane.read_pulls(cx);
@@ -204,9 +208,11 @@ pub(super) fn pulls_page(pane: &mut GitPane, cx: &mut Context<GitPane>) -> impl 
         pane.pulls.read,
         pane.pulls.listed.is_empty(),
     ) {
-        (false, ..) => Some("This repository is on no code host Sikemux is signed in to."),
-        (true, false, _) => Some("Reading pull requests…"),
-        (true, true, true) => Some("No open pull requests."),
+        (false, ..) => Some(t!(
+            "This repository is on no code host Sikemux is signed in to."
+        )),
+        (true, false, _) => Some(t!("Reading pull requests…")),
+        (true, true, true) => Some(t!("No open pull requests.")),
         _ => None,
     };
     let query = pane.filters[super::Page::Pulls as usize].query.clone();
@@ -263,7 +269,7 @@ fn pull_row(
     match slice {
         Some(slice) => {
             meta.push(said(
-                slice.gate.unwrap_or("Slice").to_owned(),
+                slice.gate.unwrap_or(t!("Slice")).to_owned(),
                 t.text_secondary,
             ));
             if slice.passed > 0 {
@@ -273,7 +279,7 @@ fn pull_row(
                 meta.push(said(format!("✗{}", slice.failed), t.danger));
             }
         }
-        None => meta.push(said("No slice".to_owned(), t.text_tertiary)),
+        None => meta.push(said(t!("No slice").to_owned(), t.text_tertiary)),
     }
     if let Some(author) = &listed.pull.author {
         meta.push(said(format!("@{author}"), t.text_tertiary));
@@ -295,7 +301,7 @@ fn pull_row(
                 .border_color(t.border)
                 .text_size(crate::theme::ui_text(TEXT_3XS))
                 .text_color(t.text_secondary)
-                .child("Start")
+                .child(t!("Start"))
                 .into_any_element(),
         ),
     };

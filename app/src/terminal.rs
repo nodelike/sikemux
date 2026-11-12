@@ -786,13 +786,13 @@ fn shell_chip(shell: &ShellMetadataSnapshot, cx: &App) -> impl IntoElement {
         )
     });
     let phase = match (shell.phase, shell.last_exit_code) {
-        (ShellPhase::Finished, Some(0)) => Some("done".to_owned()),
-        (ShellPhase::Finished, Some(code)) => Some(format!("exit {code}")),
+        (ShellPhase::Finished, Some(0)) => Some(t!("done").to_owned()),
+        (ShellPhase::Finished, Some(code)) => Some(t!("exit {code}", code = code)),
         (ShellPhase::Unknown, _) => None,
-        (ShellPhase::Prompt, _) => Some("prompt".to_owned()),
-        (ShellPhase::Input, _) => Some("input".to_owned()),
-        (ShellPhase::Running, _) => Some("running".to_owned()),
-        (ShellPhase::Finished, None) => Some("finished".to_owned()),
+        (ShellPhase::Prompt, _) => Some(t!("prompt").to_owned()),
+        (ShellPhase::Input, _) => Some(t!("input").to_owned()),
+        (ShellPhase::Running, _) => Some(t!("running").to_owned()),
+        (ShellPhase::Finished, None) => Some(t!("finished").to_owned()),
     };
     let dot = match shell.phase {
         ShellPhase::Running | ShellPhase::Input => t.live,
@@ -1658,7 +1658,8 @@ fn open_find(bench: &mut Workbench, id: TermKey, window: &mut Window, cx: &mut C
     let input = match &terminal.find {
         Some(find) => find.input.clone(),
         None => {
-            let input = cx.new(|cx| InputState::new(window, cx).placeholder("Find in terminal"));
+            let input =
+                cx.new(|cx| InputState::new(window, cx).placeholder(t!("Find in terminal")));
             let typing = cx.subscribe(&input, move |bench, _, event: &InputEvent, cx| {
                 if let InputEvent::Change = event {
                     find_in(bench, id, Step::Typed, cx);
@@ -1808,7 +1809,7 @@ fn paste_picture(id: TermKey, image: Image, window: &mut Window, cx: &mut Contex
         let kept = match asked.await {
             Ok(kept) => kept,
             Err(error) => {
-                let note = format!("The pasted picture was not kept: {error}");
+                let note = t!("The pasted picture was not kept: {error}", error = error);
                 cx.update(|window, cx| window.push_notification(note, cx))
                     .ok();
                 return;
@@ -1955,18 +1956,18 @@ fn terminal_menu(
         let mut popup = popup
             .when_some(focus, PopupMenu::action_context)
             .item(
-                PopupMenuItem::new("Copy")
+                PopupMenuItem::new(t!("Copy"))
                     .icon(Icon::Copy)
                     .action(Box::new(Copy))
                     .disabled(!selected),
             )
             .item(
-                PopupMenuItem::new("Paste")
+                PopupMenuItem::new(t!("Paste"))
                     .icon(Icon::Text)
                     .action(Box::new(Paste)),
             )
             .item(
-                PopupMenuItem::new("Select All")
+                PopupMenuItem::new(t!("Select All"))
                     .icon(Icon::Text)
                     .action(Box::new(SelectAll)),
             );
@@ -1979,7 +1980,7 @@ fn terminal_menu(
             };
             popup = send_to::submenu(
                 popup,
-                "Send Selection to Agent…",
+                t!("Send Selection to Agent…"),
                 bench.clone(),
                 chosen,
                 window,
@@ -1989,18 +1990,18 @@ fn terminal_menu(
         popup
             .separator()
             .item(
-                PopupMenuItem::new("Find")
+                PopupMenuItem::new(t!("Find"))
                     .icon(Icon::Search)
                     .action(Box::new(OpenFind)),
             )
             .item(
-                PopupMenuItem::new("Copy Scrollback")
+                PopupMenuItem::new(t!("Copy Scrollback"))
                     .icon(Icon::Copy)
                     .on_click(ask(|| TerminalAsk::Copy(None))),
             )
             .separator()
             .item(
-                PopupMenuItem::new("Clear Terminal")
+                PopupMenuItem::new(t!("Clear Terminal"))
                     .icon(Icon::Discard)
                     .on_click(ask(|| TerminalAsk::Clear)),
             )

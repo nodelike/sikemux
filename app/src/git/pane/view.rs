@@ -162,7 +162,7 @@ pub(crate) fn command_log(pane: &GitPane, cx: &mut Context<GitPane>) -> impl Int
                     div()
                         .text_color(t.text_primary)
                         .font_weight(FontWeight::SEMIBOLD)
-                        .child("command log"),
+                        .child(t!("command log")),
                 )
                 .child(
                     div()
@@ -172,20 +172,20 @@ pub(crate) fn command_log(pane: &GitPane, cx: &mut Context<GitPane>) -> impl Int
                 )
                 .child(div().flex_1())
                 .child(
-                    button("git-log-clear", "clear", "Clear log", empty).on_click(cx.listener(
-                        |pane, _, _, cx| {
+                    button("git-log-clear", t!("clear"), t!("Clear log"), empty).on_click(
+                        cx.listener(|pane, _, _, cx| {
                             pane.commands.clear();
                             cx.notify();
-                        },
-                    )),
+                        }),
+                    ),
                 )
                 .child(
-                    button("git-log-close", "close", "Hide log (@)", false).on_click(cx.listener(
-                        |pane, _, _, cx| {
+                    button("git-log-close", t!("close"), t!("Hide log (@)"), false).on_click(
+                        cx.listener(|pane, _, _, cx| {
                             pane.commands_open = false;
                             cx.notify();
-                        },
-                    )),
+                        }),
+                    ),
                 ),
         )
         .child(
@@ -203,7 +203,7 @@ pub(crate) fn command_log(pane: &GitPane, cx: &mut Context<GitPane>) -> impl Int
                             .text_size(crate::theme::ui_text(TEXT_2XS_H))
                             .italic()
                             .text_color(t.text_tertiary)
-                            .child("log empty — every git command will appear here"),
+                            .child(t!("log empty — every git command will appear here")),
                     )
                 })
                 .children(rows),
@@ -232,25 +232,25 @@ pub(crate) fn pages(pane: &GitPane, cx: &mut Context<GitPane>) -> impl IntoEleme
         .child(page(
             "git-page-changes",
             Icon::File,
-            "Changes — 1",
+            t!("Changes — 1"),
             Page::Changes,
         ))
         .child(page(
             "git-page-history",
             Icon::Commit,
-            "History — 2",
+            t!("History — 2"),
             Page::History,
         ))
         .child(page(
             "git-page-branches",
             Icon::Git,
-            "Branches — 3",
+            t!("Branches — 3"),
             Page::Branches,
         ))
         .child(page(
             "git-page-pulls",
             Icon::PullRequest,
-            "Pull requests — 4",
+            t!("Pull requests — 4"),
             Page::Pulls,
         ))
 }
@@ -271,7 +271,7 @@ pub(crate) fn history_list(pane: &mut GitPane, cx: &mut Context<GitPane>) -> imp
                     .p(SPACE_5)
                     .text_size(crate::theme::ui_text(TEXT_XS))
                     .text_color(t.text_tertiary)
-                    .child("No commits on this branch yet."),
+                    .child(t!("No commits on this branch yet.")),
             )
         })
         .child(
@@ -299,7 +299,7 @@ pub(crate) fn other_repos(pane: &GitPane, cx: &mut Context<GitPane>) -> Option<i
         ui::IconButton::new(
             "git-other-repos",
             Icon::Chevron,
-            "Other repositories in this folder",
+            t!("Other repositories in this folder"),
         )
         .turned(std::f32::consts::PI)
         .small()
@@ -316,16 +316,16 @@ pub(crate) fn head(pane: &mut GitPane, cx: &mut Context<GitPane>) -> impl IntoEl
     let branch = match (&pane.overview, status) {
         (None, _) => "…".to_owned(),
         (_, Some(status)) if !status.branch.is_empty() => status.branch.clone(),
-        _ => "detached".to_owned(),
+        _ => t!("detached").to_owned(),
     };
     let (ahead, behind) = status.map_or((0, 0), |status| (status.ahead, status.behind));
     let upstream = status.is_some_and(|status| status.upstream.is_some());
     let failed = matches!(pane.overview, Some(Err(_)));
     let busy = pane.busy.clone();
     let held = if busy.is_some() {
-        Some("Wait for the running git command")
+        Some(t!("Wait for the running git command"))
     } else if pane.branches.remotes_read && pane.branches.remotes.is_empty() {
-        Some("This repository has no remote yet")
+        Some(t!("This repository has no remote yet"))
     } else {
         None
     };
@@ -390,7 +390,6 @@ pub(crate) fn head(pane: &mut GitPane, cx: &mut Context<GitPane>) -> impl IntoEl
                 )
             })
     };
-    let plural = |count: i32| if count == 1 { "" } else { "s" };
     div()
         .flex()
         .flex_col()
@@ -424,7 +423,7 @@ pub(crate) fn head(pane: &mut GitPane, cx: &mut Context<GitPane>) -> impl IntoEl
                             .font_family(theme::MONO)
                             .text_size(crate::theme::ui_text(TEXT_2XS))
                             .text_color(t.danger)
-                            .child("git error"),
+                            .child(t!("git error")),
                     )
                 })
                 .children(busy.map(|busy| {
@@ -445,8 +444,8 @@ pub(crate) fn head(pane: &mut GitPane, cx: &mut Context<GitPane>) -> impl IntoEl
                 .child(sync(
                     "git-fetch",
                     Icon::Fetch,
-                    "Fetch",
-                    "Fetch all remotes (F)".into(),
+                    t!("Fetch"),
+                    t!("Fetch all remotes (F)").into(),
                     0,
                     false,
                     GitPane::fetch,
@@ -456,11 +455,11 @@ pub(crate) fn head(pane: &mut GitPane, cx: &mut Context<GitPane>) -> impl IntoEl
                 .child(sync(
                     "git-pull",
                     Icon::Pull,
-                    "Pull",
-                    if behind > 0 {
-                        format!("Pull {behind} commit{} (p)", plural(behind))
-                    } else {
-                        "Pull (p)".into()
+                    t!("Pull"),
+                    match behind {
+                        0 => t!("Pull (p)").into(),
+                        1 => t!("Pull 1 commit (p)").into(),
+                        behind => t!("Pull {count} commits (p)", count = behind),
                     },
                     behind,
                     false,
@@ -471,13 +470,15 @@ pub(crate) fn head(pane: &mut GitPane, cx: &mut Context<GitPane>) -> impl IntoEl
                 .child(sync(
                     "git-push",
                     Icon::Push,
-                    if upstream { "Push" } else { "Publish" },
+                    if upstream { t!("Push") } else { t!("Publish") },
                     if !upstream {
-                        "Publish branch and set upstream (P)".into()
+                        t!("Publish branch and set upstream (P)").into()
+                    } else if ahead == 1 {
+                        t!("Push 1 commit (P)").into()
                     } else if ahead > 0 {
-                        format!("Push {ahead} commit{} (P)", plural(ahead))
+                        t!("Push {count} commits (P)", count = ahead)
                     } else {
-                        "Push (P)".into()
+                        t!("Push (P)").into()
                     },
                     ahead,
                     ahead > 0 || !upstream,
@@ -488,8 +489,8 @@ pub(crate) fn head(pane: &mut GitPane, cx: &mut Context<GitPane>) -> impl IntoEl
                 .child(sync(
                     "git-pr",
                     Icon::PullRequest,
-                    "PR",
-                    "Open pull request (⌃P)".into(),
+                    t!("PR"),
+                    t!("Open pull request (⌃P)").into(),
                     0,
                     false,
                     GitPane::pull_request,
@@ -530,8 +531,8 @@ pub(crate) fn branch_switch(
         "git-branch-switch",
         Anchor::TopLeft,
         BaseButton::new("git-switch")
-            .accessibility_label("Switch branch")
-            .tooltip(ui::tooltip("Switch branch"))
+            .accessibility_label(t!("Switch branch"))
+            .tooltip(ui::tooltip(t!("Switch branch")))
             .h(px(26.))
             .px(SPACE_1H)
             .min_w_0()
@@ -559,13 +560,15 @@ pub(crate) fn branch_switch(
             popup = popup
                 .item(menu_line(
                     &view,
-                    ui::MenuRow::new("New branch…").icon(Icon::Plus).hint("N"),
+                    ui::MenuRow::new(t!("New branch…"))
+                        .icon(Icon::Plus)
+                        .hint("N"),
                     |pane, cx| pane.new_branch(None, cx),
                     cx,
                 ))
                 .item(menu_line(
                     &view,
-                    ui::MenuRow::new("Check out by name…")
+                    ui::MenuRow::new(t!("Check out by name…"))
                         .icon(Icon::Checkout)
                         .hint("c"),
                     |pane, cx| pane.checkout_by_name(cx),
@@ -573,7 +576,7 @@ pub(crate) fn branch_switch(
                 ))
                 .item(menu_line(
                     &view,
-                    ui::MenuRow::new("Show all branches")
+                    ui::MenuRow::new(t!("Show all branches"))
                         .icon(Icon::Git)
                         .hint("3"),
                     |pane, cx| pane.turn(Page::Branches, cx),
@@ -583,7 +586,7 @@ pub(crate) fn branch_switch(
             for (name, current, upstream) in &branches {
                 let checked = name.clone();
                 let hint = match current {
-                    true => Some("current".to_owned()),
+                    true => Some(t!("current").to_owned()),
                     false => upstream.clone(),
                 };
                 popup = popup.item(
@@ -615,8 +618,9 @@ pub(crate) fn away_note(host: &str, cx: &App) -> Div {
         .bg(t.warn.opacity(0.08))
         .text_size(crate::theme::ui_text(TEXT_XS))
         .text_color(t.text_primary)
-        .child(format!(
-            "{host} is out of reach. Showing what it last said; changes wait until it is back."
+        .child(t!(
+            "{host} is out of reach. Showing what it last said; changes wait until it is back.",
+            host = host
         ))
 }
 
@@ -630,12 +634,17 @@ pub(crate) fn more_menu(pane: &GitPane, cx: &mut Context<GitPane>) -> impl IntoE
     ui::menu_button(
         "git-more",
         Anchor::TopRight,
-        ui::IconButton::new("git-more-button", Icon::More, "Remotes, stashes and more").glyph(13.),
+        ui::IconButton::new(
+            "git-more-button",
+            Icon::More,
+            t!("Remotes, stashes and more"),
+        )
+        .glyph(13.),
         move |popup, _, cx| {
             popup
                 .item(menu_line(
                     &view,
-                    ui::MenuRow::new("Fetch all remotes")
+                    ui::MenuRow::new(t!("Fetch all remotes"))
                         .icon(Icon::Fetch)
                         .hint("F"),
                     GitPane::fetch,
@@ -643,7 +652,7 @@ pub(crate) fn more_menu(pane: &GitPane, cx: &mut Context<GitPane>) -> impl IntoE
                 ))
                 .item(menu_line(
                     &view,
-                    ui::MenuRow::new("Add remote…").icon(Icon::Plus),
+                    ui::MenuRow::new(t!("Add remote…")).icon(Icon::Plus),
                     GitPane::add_remote,
                     cx,
                 ))
@@ -651,7 +660,7 @@ pub(crate) fn more_menu(pane: &GitPane, cx: &mut Context<GitPane>) -> impl IntoE
                 .item(
                     menu_line(
                         &view,
-                        ui::MenuRow::new("Stash changes…")
+                        ui::MenuRow::new(t!("Stash changes…"))
                             .icon(Icon::Stack)
                             .hint("s"),
                         GitPane::stash_menu,
@@ -662,7 +671,7 @@ pub(crate) fn more_menu(pane: &GitPane, cx: &mut Context<GitPane>) -> impl IntoE
                 .item(
                     menu_line(
                         &view,
-                        ui::MenuRow::new("Discard unstaged changes…")
+                        ui::MenuRow::new(t!("Discard unstaged changes…"))
                             .icon(Icon::Discard)
                             .danger(true),
                         GitPane::discard_all,
@@ -674,9 +683,9 @@ pub(crate) fn more_menu(pane: &GitPane, cx: &mut Context<GitPane>) -> impl IntoE
                     menu_line(
                         &view,
                         ui::MenuRow::new(if stashes > 0 {
-                            format!("Stashes ({stashes})…")
+                            t!("Stashes ({count})…", count = stashes)
                         } else {
-                            "No stashes".to_owned()
+                            t!("No stashes").to_owned()
                         })
                         .icon(Icon::Stack),
                         GitPane::stashes_menu,
@@ -687,16 +696,18 @@ pub(crate) fn more_menu(pane: &GitPane, cx: &mut Context<GitPane>) -> impl IntoE
                 .separator()
                 .item(menu_line(
                     &view,
-                    ui::MenuRow::new("Refresh").icon(Icon::Refresh).hint("r"),
+                    ui::MenuRow::new(t!("Refresh"))
+                        .icon(Icon::Refresh)
+                        .hint("r"),
                     GitPane::refresh,
                     cx,
                 ))
                 .item(menu_line(
                     &view,
                     ui::MenuRow::new(if commands_open {
-                        "Hide command log"
+                        t!("Hide command log")
                     } else {
-                        "Show command log"
+                        t!("Show command log")
                     })
                     .icon(Icon::LogLines)
                     .hint("@"),
@@ -708,7 +719,7 @@ pub(crate) fn more_menu(pane: &GitPane, cx: &mut Context<GitPane>) -> impl IntoE
                 ))
                 .item(menu_line(
                     &view,
-                    ui::MenuRow::new("Keyboard shortcuts")
+                    ui::MenuRow::new(t!("Keyboard shortcuts"))
                         .icon(Icon::Keyboard)
                         .hint("?"),
                     |pane, cx| {
@@ -763,19 +774,19 @@ pub(crate) fn changes(
     let note = match &pane.overview {
         _ if !empty => None,
         None => Some((
-            "Loading changed files".to_owned(),
+            t!("Loading changed files").to_owned(),
             String::new(),
             t.text_tertiary,
         )),
-        Some(Err(error)) => Some(("Git error".to_owned(), error.clone(), t.danger)),
+        Some(Err(error)) => Some((t!("Git error").to_owned(), error.clone(), t.danger)),
         Some(Ok(_)) if !query.is_empty() => Some((
-            "No matches".to_owned(),
-            format!("Nothing matches \"{query}\"."),
+            t!("No matches").to_owned(),
+            t!("Nothing matches \"{query}\".", query = query),
             t.text_tertiary,
         )),
         Some(Ok(_)) => Some((
-            "Nothing to commit".to_owned(),
-            "The working tree is clean.".to_owned(),
+            t!("Nothing to commit").to_owned(),
+            t!("The working tree is clean.").to_owned(),
             t.text_tertiary,
         )),
     };
@@ -823,8 +834,8 @@ pub(crate) fn writer_picker(pane: &GitPane, cx: &mut Context<GitPane>) -> impl I
         "git-writer",
         Anchor::TopLeft,
         BaseButton::new("git-writer-pick")
-            .accessibility_label("Pick the agent and model")
-            .tooltip(ui::tooltip("Pick the agent and model"))
+            .accessibility_label(t!("Pick the agent and model"))
+            .tooltip(ui::tooltip(t!("Pick the agent and model")))
             .size(px(28.))
             .flex_none()
             .flex()
@@ -876,20 +887,20 @@ pub(crate) fn composer(pane: &mut GitPane, cx: &mut Context<GitPane>) -> impl In
                 .map_or(model.as_str(), |(_, model)| model);
             format!("{label} · {model}")
         }
-        None => "Write message".to_owned(),
+        None => t!("Write message").to_owned(),
     };
     let staged = pane.staged_count();
     let message = !pane.draft.read(cx).value().trim().is_empty();
     let can_commit = pane.busy.is_none() && staged > 0 && message;
-    let label = if staged > 0 {
-        format!("Commit {staged} file{}", if staged == 1 { "" } else { "s" })
-    } else {
-        "Commit".to_owned()
+    let label = match staged {
+        0 => t!("Commit").to_owned(),
+        1 => t!("Commit 1 file").to_owned(),
+        staged => t!("Commit {count} files", count = staged),
     };
     let tip = if staged > 0 {
         format!("{label} (⌘⏎)")
     } else {
-        "Stage files to commit them".to_owned()
+        t!("Stage files to commit them").to_owned()
     };
     div()
         .flex_none()
@@ -927,8 +938,10 @@ pub(crate) fn composer(pane: &mut GitPane, cx: &mut Context<GitPane>) -> impl In
                 .pb(SPACE_2)
                 .child(
                     BaseButton::new("git-generate")
-                        .accessibility_label("Write the message from the staged changes")
-                        .tooltip(ui::tooltip("Write the message from the staged changes (g)"))
+                        .accessibility_label(t!("Write the message from the staged changes"))
+                        .tooltip(ui::tooltip(t!(
+                            "Write the message from the staged changes (g)"
+                        )))
                         .h(px(28.))
                         .px(SPACE_2)
                         .min_w_0()
@@ -948,7 +961,7 @@ pub(crate) fn composer(pane: &mut GitPane, cx: &mut Context<GitPane>) -> impl In
                         .on_click(cx.listener(|pane, _, _, cx| pane.generate(cx)))
                         .child(ui::icon(Icon::Sparkle, 11.).text_color(t.cmd))
                         .child(div().min_w_0().truncate().child(if pane.generating {
-                            "writing…".to_owned()
+                            t!("writing…").to_owned()
                         } else {
                             writer_label
                         })),
@@ -1079,7 +1092,7 @@ pub fn file_actions(
                 format!("open:{key}"),
                 Icon::File,
                 12.,
-                format!("Open {}", file.path),
+                t!("Open {path}", path = file.path),
                 cx,
             )
             .on_click(move |_, window, cx| {
@@ -1094,7 +1107,7 @@ pub fn file_actions(
         actions.push(action(
             format!("discard:{key}"),
             Icon::Discard,
-            "Discard changes".into(),
+            t!("Discard changes").into(),
             Rc::new(move |pane, cx| pane.discard(&discarded, cx)),
         ));
     }
@@ -1103,7 +1116,7 @@ pub fn file_actions(
         actions.push(action(
             format!("unstage:{key}"),
             Icon::Minus,
-            format!("Unstage {}", file.path),
+            t!("Unstage {path}", path = file.path),
             Rc::new(move |pane, cx| pane.unstage(&moved, cx)),
         ));
     }
@@ -1112,7 +1125,7 @@ pub fn file_actions(
         actions.push(action(
             format!("stage:{key}"),
             Icon::Plus,
-            format!("Stage {}", file.path),
+            t!("Stage {path}", path = file.path),
             Rc::new(move |pane, cx| pane.stage(&moved, cx)),
         ));
     }
@@ -1346,7 +1359,11 @@ pub(crate) fn group_row(
                         )
                         .child(
                             ui::text(
-                                if staged { "Staged Changes" } else { "Changes" },
+                                if staged {
+                                    t!("Staged Changes")
+                                } else {
+                                    t!("Changes")
+                                },
                                 TEXT_XS,
                                 FontWeight::MEDIUM,
                             )
@@ -1367,9 +1384,9 @@ pub(crate) fn group_row(
                                         Icon::CollapseAll
                                     },
                                     if pane.review_folded {
-                                        "Expand all diffs"
+                                        t!("Expand all diffs")
                                     } else {
-                                        "Collapse all diffs"
+                                        t!("Collapse all diffs")
                                     },
                                     |pane, cx| {
                                         pane.review_folded = !pane.review_folded;
@@ -1382,7 +1399,7 @@ pub(crate) fn group_row(
                                 actions.child(button(
                                     "git-stash",
                                     Icon::Stash,
-                                    "Stash",
+                                    t!("Stash"),
                                     GitPane::stash_menu,
                                 ))
                             })
@@ -1390,7 +1407,7 @@ pub(crate) fn group_row(
                                 actions.child(button(
                                     "git-discard-all",
                                     Icon::Discard,
-                                    "Discard all",
+                                    t!("Discard all"),
                                     GitPane::discard_all,
                                 ))
                             })
@@ -1399,14 +1416,14 @@ pub(crate) fn group_row(
                                     actions.child(button(
                                         "git-unstage-all",
                                         Icon::Minus,
-                                        "Unstage all",
+                                        t!("Unstage all"),
                                         GitPane::unstage_all,
                                     ))
                                 } else {
                                     actions.child(button(
                                         "git-stage-all",
                                         Icon::Plus,
-                                        "Stage all",
+                                        t!("Stage all"),
                                         GitPane::stage_all,
                                     ))
                                 }

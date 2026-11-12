@@ -189,33 +189,33 @@ fn flatten(symbols: &[LspDocumentSymbol], depth: usize, flat: &mut Vec<Symbol>) 
 /// A symbol's kind as the protocol numbers them, in a word.
 fn kind_word(kind: u32) -> &'static str {
     match kind {
-        1 => "file",
-        2 => "module",
-        3 => "namespace",
-        4 => "package",
-        5 => "class",
-        6 => "method",
-        7 => "property",
-        8 => "field",
-        9 => "constructor",
-        10 => "enum",
-        11 => "interface",
-        12 => "function",
-        13 => "variable",
-        14 => "constant",
-        15 => "string",
-        16 => "number",
-        17 => "boolean",
-        18 => "array",
-        19 => "object",
-        20 => "key",
-        21 => "null",
-        22 => "member",
-        23 => "struct",
-        24 => "event",
-        25 => "operator",
-        26 => "type",
-        _ => "symbol",
+        1 => n!("file"),
+        2 => n!("module"),
+        3 => n!("namespace"),
+        4 => n!("package"),
+        5 => n!("class"),
+        6 => n!("method"),
+        7 => n!("property"),
+        8 => n!("field"),
+        9 => n!("constructor"),
+        10 => n!("enum"),
+        11 => n!("interface"),
+        12 => n!("function"),
+        13 => n!("variable"),
+        14 => n!("constant"),
+        15 => n!("string"),
+        16 => n!("number"),
+        17 => n!("boolean"),
+        18 => n!("array"),
+        19 => n!("object"),
+        20 => n!("key"),
+        21 => n!("null"),
+        22 => n!("member"),
+        23 => n!("struct"),
+        24 => n!("event"),
+        25 => n!("operator"),
+        26 => n!("type"),
+        _ => n!("symbol"),
     }
 }
 
@@ -292,15 +292,15 @@ pub(super) fn bar(
         .border_color(t.border)
         .child(tab(
             "insights-problems",
-            format!("Problems {}", problems.len()).into(),
+            t!("Problems {count}", count = problems.len()).into(),
             Tab::Problems,
         ))
-        .child(tab("insights-outline", "Outline".into(), Tab::Outline))
+        .child(tab("insights-outline", t!("Outline").into(), Tab::Outline))
         .child(div().flex_1())
         .when(insights.open && insights.tab == Tab::Outline, |header| {
             let (this, path) = (this.clone(), path.to_owned());
             header.child(
-                ui::IconButton::new("outline-refresh", Icon::Refresh, "Refresh the outline")
+                ui::IconButton::new("outline-refresh", Icon::Refresh, t!("Refresh the outline"))
                     .small()
                     .on_click(move |_, _, cx| {
                         this.update(cx, |bench, cx| read_outline(bench, &path, cx))
@@ -316,7 +316,11 @@ pub(super) fn bar(
                 } else {
                     Icon::ArrowUp
                 },
-                if insights.open { "Hide" } else { "Show" },
+                if insights.open {
+                    t!("Hide")
+                } else {
+                    t!("Show")
+                },
             )
             .small()
             .on_click(move |_, _, cx| {
@@ -386,7 +390,11 @@ pub(super) fn bar(
                         };
                         row(this, ("symbol", index), at, &t)
                             .pl(px(12. + 14. * symbol.depth as f32))
-                            .child(div().text_color(t.text_tertiary).child(symbol.kind))
+                            .child(
+                                div()
+                                    .text_color(t.text_tertiary)
+                                    .child(crate::i18n::tr(symbol.kind)),
+                            )
                             .child(div().text_color(t.text_primary).child(symbol.name.clone()))
                             .children(symbol.detail.clone().map(|detail| {
                                 div()
@@ -410,12 +418,14 @@ pub(super) fn bar(
                         .map(|name| name.to_string_lossy().into_owned())
                         .unwrap_or_default();
                     let said = match outline {
-                        Outline::Loading(_) => "Loading outline…".to_owned(),
+                        Outline::Loading(_) => t!("Loading outline…").to_owned(),
                         Outline::Failed => {
-                            "The language server could not provide an outline".to_owned()
+                            t!("The language server could not provide an outline").to_owned()
                         }
-                        Outline::Symbols(..) => format!("No symbols in {name}"),
-                        Outline::Unavailable => "Outline is unavailable for this file".to_owned(),
+                        Outline::Symbols(..) => t!("No symbols in {name}", name = name),
+                        Outline::Unavailable => {
+                            t!("Outline is unavailable for this file").to_owned()
+                        }
                     };
                     vec![div()
                         .px(SPACE_3)
@@ -465,7 +475,7 @@ fn problem_menu(
         let message = message.clone();
         let popup = popup
             .item(
-                PopupMenuItem::new("Go to Problem")
+                PopupMenuItem::new(t!("Go to Problem"))
                     .icon(Icon::Editor)
                     .on_click(move |_, _, cx| {
                         let at = at.clone();
@@ -473,7 +483,7 @@ fn problem_menu(
                     }),
             )
             .item(
-                PopupMenuItem::new("Copy Message")
+                PopupMenuItem::new(t!("Copy Message"))
                     .icon(Icon::Copy)
                     .on_click(move |_, _, cx| {
                         cx.write_to_clipboard(ClipboardItem::new_string(message.to_string()))
@@ -482,7 +492,7 @@ fn problem_menu(
             .separator();
         send_to::submenu_with_text(
             popup,
-            "Send to Agent…",
+            t!("Send to Agent…"),
             this.downgrade(),
             delivery.clone(),
             window,

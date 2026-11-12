@@ -93,7 +93,7 @@ pub(super) async fn bring(
     cx: &mut gpui_kit::AsyncApp,
 ) -> Result<PathBuf, String> {
     if size > CAP {
-        return Err("This file is too large to bring over from its host.".into());
+        return Err(t!("This file is too large to bring over from its host.").into());
     }
     let made = editors
         .update(cx, |editors, cx| {
@@ -110,7 +110,7 @@ pub(super) async fn bring(
             copies.made += 1;
             copies.made
         })
-        .map_err(|_| "The window closed.".to_owned())?;
+        .map_err(|_| t!("The window closed.").to_owned())?;
     let name = key
         .path
         .file_name()
@@ -126,7 +126,7 @@ pub(super) async fn bring(
     let kept = path.clone();
     editors
         .update(cx, |editors, _| editors.copies.keep(key, kept, size))
-        .map_err(|_| "The window closed.".to_owned())?;
+        .map_err(|_| t!("The window closed.").to_owned())?;
     Ok(path)
 }
 
@@ -175,7 +175,7 @@ async fn fetch(
             break;
         }
         if at > CAP {
-            return Err("This file is too large to bring over from its host.".into());
+            return Err(t!("This file is too large to bring over from its host.").into());
         }
     }
     let mut readable = file

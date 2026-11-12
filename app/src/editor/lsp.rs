@@ -203,7 +203,7 @@ fn attach_trusted(
                                     super::peek(
                                         bench,
                                         &FileKey::new(Place::This, current.clone()),
-                                        "Definitions",
+                                        t!("Definitions"),
                                         places,
                                         cx,
                                     )
@@ -250,7 +250,14 @@ fn report(
             ))
         });
     let Some((bin, label, by_brew)) = missing else {
-        bench.notify(toast::error(format!("LSP {language} open: {error}")), cx);
+        bench.notify(
+            toast::error(t!(
+                "LSP {language} open: {error}",
+                language = language,
+                error = error
+            )),
+            cx,
+        );
         return;
     };
     if !by_brew {
@@ -263,9 +270,7 @@ fn report(
         let _ = bench.update(cx, |bench, cx| match brew {
             true => offer_install(bench, &language, &bin, &label, path, cx),
             false => bench.notify(
-                toast::error(format!(
-                    "{label} needs {bin}. Install the {bin} package with your system's package manager to enable go-to-definition and references."
-                )),
+                toast::error(t!("{label} needs {bin}. Install the {bin} package with your system's package manager to enable go-to-definition and references.", label = label, bin = bin)),
                 cx,
             ),
         });
@@ -282,8 +287,10 @@ fn offer_install(
     cx: &mut Context<Workbench>,
 ) {
     let (this, language, bin) = (cx.weak_entity(), language.to_owned(), bin.to_owned());
-    let note = toast::error(format!(
-        "{label} needs {bin}. Install it to enable go-to-definition and references."
+    let note = toast::error(t!(
+        "{label} needs {bin}. Install it to enable go-to-definition and references.",
+        label = label,
+        bin = bin
     ))
     .action(move |_, _, cx| {
         let (this, language, path, note, bin) = (
@@ -294,7 +301,7 @@ fn offer_install(
             bin.clone(),
         );
         Button::new("lsp-install")
-            .label(format!("Install {bin}"))
+            .label(t!("Install {bin}", bin = bin))
             .on_click(move |_, window, cx| {
                 note.update(cx, |note, cx| note.dismiss(window, cx));
                 let (language, path, bin) = (language.clone(), path.clone(), bin.clone());
@@ -320,10 +327,13 @@ fn install(
         .editors
         .update(cx, |editors, _| editors.lsp_installing.insert(installing))
     {
-        bench.notify(toast::info(format!("{bin} install already running")), cx);
+        bench.notify(
+            toast::info(t!("{bin} install already running", bin = bin)),
+            cx,
+        );
         return;
     }
-    bench.notify(toast::info(format!("Installing {bin}…")), cx);
+    bench.notify(toast::info(t!("Installing {bin}…", bin = bin)), cx);
     let asked = Target::here(&bench.asks).request_typed::<call::LspInstall>(LspLanguage {
         language: language.clone(),
     });
@@ -339,12 +349,20 @@ fn install(
             });
             match installed {
                 Ok(at) => {
-                    bench.notify(toast::success(format!("Installed {bin} at {at}")), cx);
+                    bench.notify(
+                        toast::success(t!("Installed {bin} at {at}", bin = bin, at = at)),
+                        cx,
+                    );
                     attach(bench, path, window, cx);
                 }
-                Err(error) => {
-                    bench.notify(toast::error(format!("{bin} install failed: {error}")), cx)
-                }
+                Err(error) => bench.notify(
+                    toast::error(t!(
+                        "{bin} install failed: {error}",
+                        bin = bin,
+                        error = error
+                    )),
+                    cx,
+                ),
             }
         });
     })
@@ -596,10 +614,10 @@ pub(super) fn navigate(
     let Some(position) = served.hovered.get() else {
         return false;
     };
-    let (kind, word) = if references {
-        (LspKind::References, "references")
+    let (kind, none_found) = if references {
+        (LspKind::References, t!("No references found"))
     } else {
-        (LspKind::Implementation, "implementation")
+        (LspKind::Implementation, t!("No implementation found"))
     };
     let asked = Target::here(&bench.asks).request_typed::<call::LspLocations>(LspLocations {
         document: served.document(),
@@ -617,10 +635,10 @@ pub(super) fn navigate(
             .collect();
         places.dedup_by(|a, b| a.path == b.path && a.line == b.line && a.column == b.column);
         let _ = bench.update(cx, |bench, cx| match (references, places.len()) {
-            (_, 0) => bench.notify(toast::info(format!("No {word} found")), cx),
+            (_, 0) => bench.notify(toast::info(none_found), cx),
             (false, 1) => super::go(bench, places.remove(0), cx),
-            (true, _) => super::peek(bench, &key, "References", places, cx),
-            (false, _) => super::peek(bench, &key, "Implementations", places, cx),
+            (true, _) => super::peek(bench, &key, t!("References"), places, cx),
+            (false, _) => super::peek(bench, &key, t!("Implementations"), places, cx),
         });
     })
     .detach();

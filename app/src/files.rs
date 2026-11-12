@@ -493,7 +493,7 @@ pub fn page(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement 
         .as_ref()
         .and_then(|root| root.file_name())
         .map_or_else(
-            || "files".to_owned(),
+            || t!("files").to_owned(),
             |name| name.to_string_lossy().into_owned(),
         );
     let rows = bench.files.rows();
@@ -529,29 +529,32 @@ pub fn page(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement 
                         .flex()
                         .gap(SPACE_0)
                         .opacity(0.6)
-                        .child(action("files-find", Icon::Search, "Find a file").on_click(
-                            |_, window, cx| {
-                                crate::keymap::dispatch(
-                                    crate::workbench::actions::OpenFile::ID,
-                                    window,
-                                    cx,
-                                )
-                            },
-                        ))
-                        .child(action("files-new", Icon::FilePlus, "New file").on_click(
-                            cx.listener(|bench, _, window, cx| {
-                                bench.name_new_entry(false, window, cx)
-                            }),
-                        ))
                         .child(
-                            action("files-new-folder", Icon::FolderPlus, "New folder").on_click(
+                            action("files-find", Icon::Search, t!("Find a file")).on_click(
+                                |_, window, cx| {
+                                    crate::keymap::dispatch(
+                                        crate::workbench::actions::OpenFile::ID,
+                                        window,
+                                        cx,
+                                    )
+                                },
+                            ),
+                        )
+                        .child(
+                            action("files-new", Icon::FilePlus, t!("New file")).on_click(
                                 cx.listener(|bench, _, window, cx| {
-                                    bench.name_new_entry(true, window, cx)
+                                    bench.name_new_entry(false, window, cx)
                                 }),
                             ),
                         )
                         .child(
-                            action("files-collapse", Icon::CollapseAll, "Collapse folders")
+                            action("files-new-folder", Icon::FolderPlus, t!("New folder"))
+                                .on_click(cx.listener(|bench, _, window, cx| {
+                                    bench.name_new_entry(true, window, cx)
+                                })),
+                        )
+                        .child(
+                            action("files-collapse", Icon::CollapseAll, t!("Collapse folders"))
                                 .on_click(cx.listener(|bench, _, _, cx| {
                                     bench.files.collapse_all();
                                     cx.notify();
@@ -1053,7 +1056,11 @@ impl Workbench {
         };
         let input = cx.new(|cx| {
             InputState::new(window, cx)
-                .placeholder(if dir { "folder name" } else { "file name" })
+                .placeholder(if dir {
+                    t!("folder name")
+                } else {
+                    t!("file name")
+                })
                 .default_value(name.clone())
         });
         input.update(cx, |input, cx| {
@@ -1193,9 +1200,9 @@ impl Workbench {
             .file_name()
             .map_or_else(String::new, |name| name.to_string_lossy().into_owned());
         self.confirm(
-            format!("Move \"{name}\" to the Trash?"),
+            t!("Move \"{name}\" to the Trash?", name = name),
             path.to_string_lossy().into_owned(),
-            "Move to Trash",
+            t!("Move to Trash"),
             true,
             move |bench, yes, _, cx| {
                 if !yes {
@@ -1270,9 +1277,9 @@ impl Workbench {
     pub fn copy_in(&mut self, from: Vec<PathBuf>, into: PathBuf, cx: &mut Context<Self>) {
         if self.place() != crate::hosts::Place::This {
             return self.notify(
-                toast::error(
-                    "Files from this device can't be dropped into another host's project.",
-                ),
+                toast::error(t!(
+                    "Files from this device can't be dropped into another host's project."
+                )),
                 cx,
             );
         }
@@ -1328,7 +1335,7 @@ fn row_menu(
     let mut popup = if dir {
         popup
             .item(
-                PopupMenuItem::new("New File")
+                PopupMenuItem::new(t!("New File"))
                     .icon(Icon::FilePlus)
                     .on_click(on(|bench, path, _, window, cx| {
                         bench.files.selected_dir = Some(path.to_owned());
@@ -1336,7 +1343,7 @@ fn row_menu(
                     })),
             )
             .item(
-                PopupMenuItem::new("New Folder")
+                PopupMenuItem::new(t!("New Folder"))
                     .icon(Icon::FolderPlus)
                     .on_click(on(|bench, path, _, window, cx| {
                         bench.files.selected_dir = Some(path.to_owned());
@@ -1345,7 +1352,7 @@ fn row_menu(
             )
     } else {
         popup.item(
-            PopupMenuItem::new("Open")
+            PopupMenuItem::new(t!("Open"))
                 .icon(Icon::File)
                 .on_click(on(|bench, path, _, _, cx| bench.open_file(path, cx))),
         )
@@ -1354,14 +1361,14 @@ fn row_menu(
         popup = popup
             .separator()
             .item(
-                PopupMenuItem::new("Rename…")
+                PopupMenuItem::new(t!("Rename…"))
                     .icon(Icon::Pencil)
                     .on_click(on(|bench, path, dir, window, cx| {
                         bench.rename_entry(path, dir, window, cx)
                     })),
             )
             .item(
-                ui::MenuRow::new("Delete")
+                ui::MenuRow::new(t!("Delete"))
                     .icon(Icon::Trash)
                     .danger(true)
                     .item(cx)
@@ -1374,7 +1381,7 @@ fn row_menu(
     if here {
         let revealed = path.to_owned();
         popup = popup.item(
-            PopupMenuItem::new(ui::REVEAL)
+            PopupMenuItem::new(crate::i18n::tr(ui::REVEAL))
                 .icon(Icon::Folder)
                 .on_click(move |_, _, cx| cx.reveal_path(&revealed)),
         );
@@ -1383,12 +1390,16 @@ fn row_menu(
         .and_then(|root| path.strip_prefix(root).ok())
         .map(|relative| relative.to_string_lossy().into_owned());
     let mut copies = vec![(
-        "Copy Path",
+        t!("Copy Path"),
         path.to_string_lossy().into_owned(),
-        "Copied path",
+        t!("Copied path"),
     )];
     if let Some(relative) = relative.filter(|_| !whole) {
-        copies.push(("Copy Relative Path", relative, "Copied relative path"));
+        copies.push((
+            t!("Copy Relative Path"),
+            relative,
+            t!("Copied relative path"),
+        ));
     }
     for (label, copied, said) in copies {
         popup = popup.item(PopupMenuItem::new(label).icon(Icon::Copy).on_click(

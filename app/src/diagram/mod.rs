@@ -682,7 +682,7 @@ impl Render for Diagram {
                 .justify_center()
                 .text_size(theme::ui_text(TEXT_SM))
                 .text_color(t.text_tertiary)
-                .child("No tables in this file yet")
+                .child(t!("No tables in this file yet"))
                 .into_any_element();
         }
         let frame = Frame {
@@ -703,21 +703,15 @@ impl Render for Diagram {
         };
         let this = cx.entity().downgrade();
         let shared = self.viewport.clone();
-        let summary = format!(
-            "{} {} · {} {}",
-            self.schema.tables.len(),
-            if self.schema.tables.len() == 1 {
-                "table"
-            } else {
-                "tables"
-            },
-            self.schema.refs.len(),
-            if self.schema.refs.len() == 1 {
-                "relationship"
-            } else {
-                "relationships"
-            },
-        );
+        let tables = match self.schema.tables.len() {
+            1 => t!("1 table").to_owned(),
+            count => t!("{count} tables", count = count),
+        };
+        let relationships = match self.schema.refs.len() {
+            1 => t!("1 relationship").to_owned(),
+            count => t!("{count} relationships", count = count),
+        };
+        let summary = format!("{tables} · {relationships}");
         let percent = format!("{}%", (self.zoom * 100.).round());
         let height = self.embedded.then(|| self.height());
         div()
@@ -789,7 +783,7 @@ impl Render for Diagram {
                     .text_size(theme::ui_text(TEXT_2XS))
                     .text_color(t.text_secondary)
                     .child(
-                        IconButton::new("diagram-zoom-out", Icon::Minus, "Zoom out")
+                        IconButton::new("diagram-zoom-out", Icon::Minus, t!("Zoom out"))
                             .compact()
                             .on_click(
                                 cx.listener(|diagram, _, _, cx| diagram.zoom_centre(1. / 1.25, cx)),
@@ -806,7 +800,7 @@ impl Render for Diagram {
                             .rounded(theme::RADIUS_2)
                             .cursor_pointer()
                             .hover(|reset| reset.bg(t.surface_hover))
-                            .tooltip(crate::ui::tooltip("Actual size"))
+                            .tooltip(crate::ui::tooltip(t!("Actual size")))
                             .on_click(cx.listener(|diagram, _, _, cx| {
                                 let factor = 1. / diagram.zoom;
                                 diagram.zoom_centre(factor, cx)
@@ -814,7 +808,7 @@ impl Render for Diagram {
                             .child(percent),
                     )
                     .child(
-                        IconButton::new("diagram-zoom-in", Icon::Plus, "Zoom in")
+                        IconButton::new("diagram-zoom-in", Icon::Plus, t!("Zoom in"))
                             .compact()
                             .on_click(
                                 cx.listener(|diagram, _, _, cx| diagram.zoom_centre(1.25, cx)),
@@ -822,12 +816,17 @@ impl Render for Diagram {
                     )
                     .child(div().w(px(1.)).h(px(14.)).mx(px(3.)).bg(t.border))
                     .child(
-                        text_button("diagram-fit", "Fit", "Show every table", &t)
+                        text_button("diagram-fit", t!("Fit"), t!("Show every table"), &t)
                             .on_click(cx.listener(|diagram, _, _, cx| diagram.fit(cx))),
                     )
                     .child(
-                        text_button("diagram-arrange", "Arrange", "Lay the tables out again", &t)
-                            .on_click(cx.listener(|diagram, _, _, cx| diagram.rearrange(cx))),
+                        text_button(
+                            "diagram-arrange",
+                            t!("Arrange"),
+                            t!("Lay the tables out again"),
+                            &t,
+                        )
+                        .on_click(cx.listener(|diagram, _, _, cx| diagram.rearrange(cx))),
                     ),
             )
             .into_any_element()
@@ -1501,10 +1500,10 @@ impl Frame {
         match spot.column.and_then(|column| table.columns.get(column)) {
             Some(column) => {
                 let flags: Vec<&str> = [
-                    (column.pk, "primary key"),
-                    (column.not_null, "not null"),
-                    (column.unique, "unique"),
-                    (column.increment, "increment"),
+                    (column.pk, t!("primary key")),
+                    (column.not_null, t!("not null")),
+                    (column.unique, t!("unique")),
+                    (column.increment, t!("increment")),
                 ]
                 .into_iter()
                 .filter_map(|(on, said)| on.then_some(said))
@@ -1513,7 +1512,7 @@ impl Frame {
                     lines.push((flags.join(" · "), false));
                 }
                 if let Some(default) = &column.default {
-                    lines.push((format!("default {default}"), false));
+                    lines.push((t!("default {default}", default = default), false));
                 }
                 if let Some(note) = &column.note {
                     lines.extend(wrap(note, 56).into_iter().map(|line| (line, true)));

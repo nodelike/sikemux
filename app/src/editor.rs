@@ -434,7 +434,7 @@ pub fn pane(
                     .border_b_1()
                     .border_color(t.border)
                     .text_size(crate::theme::ui_text(TEXT_XS))
-                    .child(div().text_color(t.text_tertiary).child("Go to line"))
+                    .child(div().text_color(t.text_tertiary).child(t!("Go to line")))
                     .child(
                         Input::new(input)
                             .appearance(false)
@@ -849,7 +849,7 @@ fn peek_panel(this: &Entity<Workbench>, peek: &Peek, cx: &App) -> impl IntoEleme
                 )
                 .child(div().flex_1())
                 .child(
-                    ui::IconButton::new("peek-close", crate::icons::Icon::Close, "Close — esc")
+                    ui::IconButton::new("peek-close", crate::icons::Icon::Close, t!("Close — esc"))
                         .small()
                         .on_click({
                             let this = this.clone();
@@ -879,7 +879,7 @@ fn open_goto(
     if !bench.editors.read(cx).open.contains_key(key) {
         return;
     }
-    let input = cx.new(|cx| InputState::new(window, cx).placeholder("line[:column]"));
+    let input = cx.new(|cx| InputState::new(window, cx).placeholder(t!("line[:column]")));
     let asked_for = key.clone();
     let entered = cx.subscribe_in(
         &input,
@@ -951,17 +951,20 @@ fn notice_bar(
     );
     let text: SharedString = match &notice {
         Notice::Failed(error) => error.clone().into(),
-        Notice::Conflict(error) => {
-            format!("{name} has an external change. Your editor buffer was preserved. {error}")
-                .into()
-        }
+        Notice::Conflict(error) => t!(
+            "{name} has an external change. Your editor buffer was preserved. {error}",
+            name = name,
+            error = error
+        )
+        .into(),
         Notice::Trust(project) => {
             let folder = Path::new(project).file_name().map_or_else(
                 || project.clone(),
                 |name| name.to_string_lossy().into_owned(),
             );
-            format!(
-                "Start language servers for {folder}? They can run code from this project, such as its build scripts and installed tools. Only allow this for projects you trust."
+            t!(
+                "Start language servers for {folder}? They can run code from this project, such as its build scripts and installed tools. Only allow this for projects you trust.",
+                folder = folder
             )
             .into()
         }
@@ -977,7 +980,7 @@ fn notice_bar(
         let key = key.clone();
         button(
             "editor-reload",
-            "Reload disk",
+            t!("Reload disk"),
             ui::Variant::Outline,
             Rc::new(move |bench, window, cx| reload(bench, key.clone(), window, cx)),
         )
@@ -1003,10 +1006,15 @@ fn notice_bar(
                     as Rc<dyn Fn(&mut Workbench, &mut Window, &mut Context<Workbench>)>
             };
             vec![
-                button("editor-trust", "Allow", ui::Variant::Primary, answer(true)),
+                button(
+                    "editor-trust",
+                    t!("Allow"),
+                    ui::Variant::Primary,
+                    answer(true),
+                ),
                 button(
                     "editor-distrust",
-                    "Don't allow",
+                    t!("Don't allow"),
                     ui::Variant::Outline,
                     answer(false),
                 ),
@@ -1253,7 +1261,7 @@ async fn read_file(target: &Target, path: String) -> Result<(String, String), Ca
             break;
         }
     }
-    Err(format!("{path} kept changing while it was read").into())
+    Err(t!("{path} kept changing while it was read", path = path).into())
 }
 
 /// Reads the file into its editor, replacing what it shows.
@@ -1276,7 +1284,8 @@ fn read(bench: &mut Workbench, key: FileKey, window: &mut Window, cx: &mut Conte
                     Ok((_, version)) if document.version.as_ref() == Some(&version) => {}
                     Ok(_) if document.dirty => {
                         document.notice = Some(Notice::Conflict(
-                            "The disk version changed while this editor had unsaved work.".into(),
+                            t!("The disk version changed while this editor had unsaved work.")
+                                .into(),
                         ));
                     }
                     Ok((text, version)) => {
@@ -1425,7 +1434,7 @@ async fn write_file(
         if !more {
             return written
                 .version
-                .ok_or_else(|| format!("{path} was saved without a version").into());
+                .ok_or_else(|| t!("{path} was saved without a version", path = path).into());
         }
         upload = written.upload;
         rest = after;
@@ -1502,21 +1511,21 @@ pub fn close_unsaved(
     let (title, body) = match lost.as_slice() {
         [] => return close(bench, cx),
         [one] => (
-            format!(
-                "Close {} without saving?",
-                crate::ui::path::file_name(&one.path)
+            t!(
+                "Close {name} without saving?",
+                name = crate::ui::path::file_name(&one.path)
             ),
-            "Its unsaved changes are lost.",
+            t!("Its unsaved changes are lost."),
         ),
         many => (
-            format!("Close {} files without saving?", many.len()),
-            "Their unsaved changes are lost.",
+            t!("Close {count} files without saving?", count = many.len()),
+            t!("Their unsaved changes are lost."),
         ),
     };
     bench.confirm(
         title,
         body,
-        "Close",
+        t!("Close"),
         true,
         move |bench, yes, _, cx| {
             if !yes {

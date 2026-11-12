@@ -521,17 +521,18 @@ pub fn commit_card(
                 .child(commit.hash.clone()),
         )
         .child(
-            ui::IconButton::new("copy-hash", crate::icons::Icon::Copy, "Copy hash")
+            ui::IconButton::new("copy-hash", crate::icons::Icon::Copy, t!("Copy hash"))
                 .glyph(12.)
                 .on_click(move |_, window, cx| {
                     cx.write_to_clipboard(ClipboardItem::new_string(full.clone()));
-                    window.push_notification(toast::success(format!("Copied {short}")), cx);
+                    window
+                        .push_notification(toast::success(t!("Copied {short}", short = short)), cx);
                 }),
         );
     if commit.unpushed {
-        hash = hash.child(chip("not pushed".into(), t.warn, t.warn.opacity(0.35)));
+        hash = hash.child(chip(t!("not pushed").into(), t.warn, t.warn.opacity(0.35)));
     } else if pushed {
-        hash = hash.child(chip("pushed".into(), t.text_secondary, t.border));
+        hash = hash.child(chip(t!("pushed").into(), t.text_secondary, t.border));
     }
     for name in commit.refs.iter().filter(|name| *name != "HEAD") {
         let shown = name
@@ -560,7 +561,7 @@ pub fn commit_card(
                 .gap(SPACE_1)
                 .text_size(crate::theme::ui_text(TEXT_2XS))
                 .child(fact(
-                    "Author",
+                    t!("Author"),
                     div()
                         .flex()
                         .items_center()
@@ -571,10 +572,10 @@ pub fn commit_card(
                         .into_any_element(),
                 ))
                 .child(fact(
-                    "Date",
+                    t!("Date"),
                     div().child(commit.date.clone()).into_any_element(),
                 ))
-                .child(fact("Commit", hash.into_any_element())),
+                .child(fact(t!("Commit"), hash.into_any_element())),
         );
     ui::panel(cx)
         .flex_none()
@@ -613,14 +614,14 @@ fn commit_foot(commit: &GitCommit, cx: &mut Context<GitPane>) -> Div {
         .border_t_1()
         .border_color(t.border)
         .child(
-            foot_button("commit-branch", Icon::Git, "Branch from here").on_click(
+            foot_button("commit-branch", Icon::Git, t!("Branch from here")).on_click(
                 cx.listener(move |pane, _, _, cx| pane.branch_from(branched.clone(), cx)),
             ),
         )
         .child(ui::menu_button(
             "commit-undo",
             Anchor::BottomLeft,
-            foot_button("commit-undo-button", Icon::Discard, "Undo this commit").child(
+            foot_button("commit-undo-button", Icon::Discard, t!("Undo this commit")).child(
                 ui::icon(Icon::Chevron, 9.)
                     .text_color(t.text_tertiary)
                     .with_transformation(Transformation::rotate(radians(FRAC_PI_2))),
@@ -630,7 +631,7 @@ fn commit_foot(commit: &GitCommit, cx: &mut Context<GitPane>) -> Div {
                 let (reset, reverted) = (reset.clone(), reverted.clone());
                 popup
                     .item(
-                        ui::MenuRow::new("Reset to here…")
+                        ui::MenuRow::new(t!("Reset to here…"))
                             .icon(Icon::Discard)
                             .hint("r")
                             .item(cx)
@@ -639,7 +640,7 @@ fn commit_foot(commit: &GitCommit, cx: &mut Context<GitPane>) -> Div {
                             }),
                     )
                     .item(
-                        ui::MenuRow::new("Revert…")
+                        ui::MenuRow::new(t!("Revert…"))
                             .icon(Icon::Discard)
                             .hint("v")
                             .danger(true)
@@ -658,11 +659,11 @@ fn describe(owner: &AgentOwner) -> String {
         None => owner.name.clone(),
     };
     let reach = if owner.open.is_some() {
-        "open now"
+        t!("open now")
     } else if owner.session_id.is_some() {
-        "click to resume"
+        t!("click to resume")
     } else {
-        "its session is gone"
+        t!("its session is gone")
     };
     let cli = match &owner.cli_version {
         Some(version) => format!("{} {version}", owner.cli),
@@ -679,7 +680,12 @@ fn describe(owner: &AgentOwner) -> String {
     .into_iter()
     .flatten()
     .collect();
-    format!("{who} ({}) wrote this · {reach}", ran.join(", "))
+    t!(
+        "{who} ({ran}) wrote this · {reach}",
+        who = who,
+        ran = ran.join(", "),
+        reach = reach
+    )
 }
 
 /// Brings forward the agent that has the session open, else takes the session up again

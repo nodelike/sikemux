@@ -139,7 +139,7 @@ impl Workbench {
     pub fn toggle_front_snip(&mut self, cx: &mut Context<Self>) {
         match self.front_pages(cx) {
             Some(agent) => self.toggle_snip(&agent, cx),
-            None => self.notify(toast::info("Open a page on the desk to snip it"), cx),
+            None => self.notify(toast::info(t!("Open a page on the desk to snip it")), cx),
         }
     }
 

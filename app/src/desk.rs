@@ -1189,7 +1189,9 @@ impl Workbench {
             .max_by_key(|(active_at, ..)| *active_at);
         let Some((_, agent, (strip, tab, view))) = placed else {
             self.notify(
-                toast::info("Start an agent first — the desk and its browser belong to one"),
+                toast::info(t!(
+                    "Start an agent first — the desk and its browser belong to one"
+                )),
                 cx,
             );
             return None;
@@ -1677,7 +1679,7 @@ pub fn prepare(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Work
             }
         }
         let address =
-            cx.new(|cx| InputState::new(window, cx).placeholder("Search or enter address"));
+            cx.new(|cx| InputState::new(window, cx).placeholder(t!("Search or enter address")));
         let typed = agent.clone();
         let typing = cx.subscribe_in(
             &address,
@@ -1738,8 +1740,8 @@ pub fn prepare(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Work
 
 fn snip_toggle(bench: &Workbench, agent: &str, cx: &Context<Workbench>) -> IconButton {
     let label = match crate::keymap::hint(crate::workbench::actions::Snip::ID, cx) {
-        Some(keys) => format!("Snip to chat {keys}"),
-        None => "Snip to chat".to_owned(),
+        Some(keys) => t!("Snip to chat {keys}", keys = keys),
+        None => t!("Snip to chat").to_owned(),
     };
     let agent = agent.to_owned();
     IconButton::new("desk-snip", Icon::Snip, label)
@@ -1796,7 +1798,7 @@ fn elsewhere(bench: &Workbench, host: &str, cx: &mut Context<Workbench>) -> AnyE
         .flex()
         .items_center()
         .justify_center()
-        .child(ui::meta(format!("This runs on {name}"), cx))
+        .child(ui::meta(t!("This runs on {name}", name = name), cx))
         .into_any_element()
 }
 
@@ -1877,7 +1879,7 @@ pub fn pane(
         let label = if !page.title.is_empty() {
             page.title.clone()
         } else if page.url == sikemux_browser::BLANK_URL {
-            "New tab".to_owned()
+            t!("New tab").to_owned()
         } else {
             page.url.clone()
         };
@@ -2030,7 +2032,7 @@ pub fn pane(
         .when(kind == DeskKind::Pages, |head| {
             head.child(
                 div().flex_none().pl(SPACE_1).child(
-                    IconButton::new("desk-new-page", Icon::Plus, "New browser tab")
+                    IconButton::new("desk-new-page", Icon::Plus, t!("New browser tab"))
                         .glyph(13.)
                         .width(24.)
                         .height(24.)
@@ -2054,7 +2056,7 @@ pub fn pane(
         .border_b_1()
         .border_color(t.border)
         .child(
-            IconButton::new("desk-back", Icon::Chevron, "Back")
+            IconButton::new("desk-back", Icon::Chevron, t!("Back"))
                 .glyph(11.)
                 .turned(std::f32::consts::PI)
                 .disabled(!front.is_some_and(|tab| tab.can_go_back))
@@ -2063,7 +2065,7 @@ pub fn pane(
                 })),
         )
         .child(
-            IconButton::new("desk-forward", Icon::Chevron, "Forward")
+            IconButton::new("desk-forward", Icon::Chevron, t!("Forward"))
                 .glyph(11.)
                 .disabled(!front.is_some_and(|tab| tab.can_go_forward))
                 .on_click(cx.listener(move |bench, _, _, cx| {
@@ -2071,7 +2073,7 @@ pub fn pane(
                 })),
         )
         .child(
-            IconButton::new("desk-reload", Icon::Refresh, "Reload")
+            IconButton::new("desk-reload", Icon::Refresh, t!("Reload"))
                 .glyph(12.)
                 .on_click(cx.listener(move |bench, _, _, cx| {
                     bench.with_engine(cx, |engine| engine.reload(&reload))
@@ -2178,7 +2180,7 @@ pub fn pane(
                     .items_center()
                     .justify_center()
                     .text_color(t.text_tertiary)
-                    .child(ui::text("No pages yet", TEXT_XS_H, FontWeight::NORMAL)),
+                    .child(ui::text(t!("No pages yet"), TEXT_XS_H, FontWeight::NORMAL)),
             )
         })
         .children(address::overlay(bench, agent, cx));
@@ -2362,7 +2364,7 @@ fn pill(
                 .child(
                     div()
                         .relative()
-                        .child(ui::close_button(close_id, "Close tab", close, cx))
+                        .child(ui::close_button(close_id, t!("Close tab"), close, cx))
                         .children(close_spot),
                 ),
         )
@@ -2396,7 +2398,7 @@ fn tab_menu(
                 DeskTab::Page { id, .. } => Err(id.clone()),
                 DeskTab::Item(item) => Ok(item.clone()),
             };
-            PopupMenuItem::new("Close")
+            PopupMenuItem::new(t!("Close"))
                 .icon(Icon::Close)
                 .on_click(move |_, _, cx| {
                     let _ = bench.update(cx, |bench, cx| {
@@ -2421,18 +2423,18 @@ fn tab_menu(
                 let revealed = path.clone();
                 popup
                     .item(
-                        PopupMenuItem::new("Copy Path")
+                        PopupMenuItem::new(t!("Copy Path"))
                             .icon(Icon::Copy)
-                            .on_click(copy(path.to_string_lossy().into_owned(), "Copied path")),
+                            .on_click(copy(path.to_string_lossy().into_owned(), t!("Copied path"))),
                     )
                     .item(
-                        PopupMenuItem::new("Copy Relative Path")
+                        PopupMenuItem::new(t!("Copy Relative Path"))
                             .icon(Icon::Copy)
-                            .on_click(copy(relative, "Copied relative path")),
+                            .on_click(copy(relative, t!("Copied relative path"))),
                     )
                     .separator()
                     .item(
-                        PopupMenuItem::new(ui::REVEAL)
+                        PopupMenuItem::new(crate::i18n::tr(ui::REVEAL))
                             .icon(Icon::Folder)
                             .on_click(move |_, _, cx| cx.reveal_path(&revealed)),
                     )
@@ -2441,10 +2443,10 @@ fn tab_menu(
             }
             DeskTab::Page { url, .. } => popup
                 .item(
-                    PopupMenuItem::new("Copy Link")
+                    PopupMenuItem::new(t!("Copy Link"))
                         .icon(Icon::Copy)
                         .disabled(url.is_empty() || url == sikemux_browser::BLANK_URL)
-                        .on_click(copy(url.clone(), "Copied link")),
+                        .on_click(copy(url.clone(), t!("Copied link"))),
                 )
                 .separator()
                 .item(close),
@@ -2483,7 +2485,7 @@ fn kinds(
         (
             "desk-pages",
             Icon::Globe,
-            "Browser",
+            t!("Browser"),
             DeskKind::Pages,
             pages.len() + held(DeskKind::Pages),
             pages.iter().any(|page| page.acting),
@@ -2491,7 +2493,7 @@ fn kinds(
         (
             "desk-files",
             Icon::Editor,
-            "Files",
+            t!("Files"),
             DeskKind::Files,
             held(DeskKind::Files),
             false,
@@ -2499,7 +2501,7 @@ fn kinds(
         (
             "desk-terminals",
             Icon::Terminal,
-            "Terminals",
+            t!("Terminals"),
             DeskKind::Terminals,
             held(DeskKind::Terminals),
             false,
@@ -2507,7 +2509,7 @@ fn kinds(
         (
             "desk-simulator",
             Icon::Phone,
-            "Simulators",
+            t!("Simulators"),
             DeskKind::Simulator,
             0,
             false,

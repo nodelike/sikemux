@@ -870,7 +870,10 @@ impl Workbench {
             let side = match core.request_typed::<call::StartSideChat>(params).await {
                 Ok(side) => side,
                 Err(error) => {
-                    let note = crate::toast::error(format!("The side chat did not open: {error}"));
+                    let note = crate::toast::error(t!(
+                        "The side chat did not open: {error}",
+                        error = error
+                    ));
                     let _ = bench.update(cx, |bench, cx| bench.notify(note, cx));
                     return;
                 }

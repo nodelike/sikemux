@@ -40,7 +40,7 @@ pub(super) struct Note {
 fn note(commit: &BlameCommit) -> Note {
     let uncommitted = commit.uncommitted;
     let text = match uncommitted {
-        true => "You · Uncommitted changes".to_owned(),
+        true => t!("You · Uncommitted changes").to_owned(),
         false => format!("{}, {} · {}", commit.author, commit.time, commit.summary),
     };
     let text = match text.chars().count() > MAX_NOTE {

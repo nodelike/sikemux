@@ -19,19 +19,24 @@ pub(crate) fn downloaded(download: &BrowserDownload) -> Notification {
         |name| name.to_string_lossy().into_owned(),
     );
     match download.state {
-        DownloadState::Started => toast::info(format!("Downloading {name}")),
-        DownloadState::Failed => toast::error(format!("Download of {name} failed")).autohide(false),
+        DownloadState::Started => toast::info(t!("Downloading {name}", name = name)),
+        DownloadState::Failed => {
+            toast::error(t!("Download of {name} failed", name = name)).autohide(false)
+        }
         DownloadState::Finished => {
-            toast::success(format!("Downloaded {name}")).action(move |_, _, cx| {
+            toast::success(t!("Downloaded {name}", name = name)).action(move |_, _, cx| {
                 let (note, held) = (cx.entity(), held.clone());
                 Button::new("keep-download")
-                    .label("Keep in Downloads")
+                    .label(t!("Keep in Downloads"))
                     .children(ui::spot(|| "keep-download".into()))
                     .on_click(move |_, window, cx| {
                         match keep_download(&held) {
                             Ok(kept) => cx.reveal_path(&kept),
                             Err(error) => window.push_notification(
-                                toast::error(format!("The download was not kept: {error}")),
+                                toast::error(t!(
+                                    "The download was not kept: {error}",
+                                    error = error
+                                )),
                                 cx,
                             ),
                         }
@@ -46,11 +51,11 @@ pub(crate) fn downloaded(download: &BrowserDownload) -> Notification {
 /// there. A link keeps the file as macOS marked it on download and never replaces another.
 pub(crate) fn keep_download(held: &Path) -> Result<PathBuf, String> {
     let downloads = sikemux_process::paths::home()
-        .ok_or("this account has no home folder")?
+        .ok_or(t!("this account has no home folder"))?
         .join("Downloads");
     let name = held
         .file_name()
-        .ok_or("the download has no name")?
+        .ok_or(t!("the download has no name"))?
         .to_string_lossy()
         .into_owned();
     let (stem, extension) = match name.rfind('.') {
@@ -71,5 +76,8 @@ pub(crate) fn keep_download(held: &Path) -> Result<PathBuf, String> {
             Err(error) => return Err(error.to_string()),
         }
     }
-    Err(format!("Downloads already has 100 files named like {name}"))
+    Err(t!(
+        "Downloads already has 100 files named like {name}",
+        name = name
+    ))
 }

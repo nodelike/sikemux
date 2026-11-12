@@ -136,7 +136,7 @@ impl GitPane {
                     .on_no(done(&pane))
                     .into_any_element()
             }
-            Asking::Keys => Cheatsheet::new("Git pane keybindings", &KEYS)
+            Asking::Keys => Cheatsheet::new(t!("Git pane keybindings"), &KEYS)
                 .on_close(done(&pane))
                 .into_any_element(),
             Asking::Menu { title, choices } => {
@@ -174,12 +174,12 @@ impl GitPane {
             move |pane: &mut GitPane, cx: &mut Context<GitPane>| {
                 pane.prompt(
                     title,
-                    "(optional) stash message",
+                    t!("(optional) stash message"),
                     "",
                     move |pane, message, cx| {
                         let message = (!message.is_empty()).then_some(message);
                         pane.run(
-                            format!("stashing ({mode})"),
+                            t!("stashing ({mode})", mode = mode),
                             git_call::StashPush {
                                 repo: pane.repo.clone(),
                                 mode: mode.to_owned(),
@@ -194,22 +194,22 @@ impl GitPane {
             }
         };
         self.menu(
-            "Stash",
+            t!("Stash"),
             vec![
                 Pick::new(
                     's',
-                    "stash everything (working tree + index + untracked)",
-                    stash("all", "Stash everything"),
+                    t!("stash everything (working tree + index + untracked)"),
+                    stash("all", t!("Stash everything")),
                 ),
                 Pick::new(
                     'i',
-                    "stash staged only",
-                    stash("staged", "Stash staged changes"),
+                    t!("stash staged only"),
+                    stash("staged", t!("Stash staged changes")),
                 ),
                 Pick::new(
                     'u',
-                    "stash unstaged only (keep index)",
-                    stash("unstaged", "Stash unstaged changes"),
+                    t!("stash unstaged only (keep index)"),
+                    stash("unstaged", t!("Stash unstaged changes")),
                 ),
             ],
             cx,
@@ -231,15 +231,32 @@ impl GitPane {
             return;
         };
         let count = paths.len();
-        let files = format!("{count} file{}", if count > 1 { "s" } else { "" });
-        let label = if count > 1 {
-            format!("Discard {count} files")
+        let name = first.rsplit('/').next().unwrap_or(&first);
+        let one = count == 1;
+        let files = if one {
+            t!("1 file").to_owned()
         } else {
-            format!(
-                "Discard changes — {}",
-                first.rsplit('/').next().unwrap_or(&first)
-            )
+            t!("{count} files", count = count)
         };
+        let label = if one {
+            t!("Discard changes — {name}", name = name)
+        } else {
+            t!("Discard {count} files", count = count)
+        };
+        let bodies = if one {
+            [
+                t!("This will discard BOTH staged and unstaged changes in 1 file. Cannot be undone.").to_owned(),
+                t!("Discard unstaged changes in 1 file? (staged changes preserved)").to_owned(),
+                t!("Unstage 1 file from the index? (worktree preserved)").to_owned(),
+            ]
+        } else {
+            [
+                t!("This will discard BOTH staged and unstaged changes in {count} files. Cannot be undone.", count = count),
+                t!("Discard unstaged changes in {count} files? (staged changes preserved)", count = count),
+                t!("Unstage {count} files from the index? (worktree preserved)", count = count),
+            ]
+        };
+        let [all_body, unstaged_body, staged_body] = bodies;
         let apply = |mode: &'static str, body: String, yes: &'static str| {
             let (paths, label, files) = (paths.clone(), label.clone(), files.clone());
             move |pane: &mut GitPane, cx: &mut Context<GitPane>| {
@@ -251,7 +268,7 @@ impl GitPane {
                     yes,
                     move |pane, cx| {
                         pane.run(
-                            format!("discarding {files} ({mode})"),
+                            t!("discarding {files} ({mode})", files = files, mode = mode),
                             git_call::DiscardFiles {
                                 repo: pane.repo.clone(),
                                 paths: paths.clone(),
@@ -268,12 +285,24 @@ impl GitPane {
         self.menu(
             label.clone(),
             vec![
-                Pick::new('d', "discard all changes", apply("all", format!("This will discard BOTH staged and unstaged changes in {files}. Cannot be undone."), "discard"))
-                    .hint("staged + worktree")
-                    .destructive(),
-                Pick::new('u', "discard unstaged changes", apply("unstaged", format!("Discard unstaged changes in {files}? (staged changes preserved)"), "discard"))
-                    .destructive(),
-                Pick::new('s', "unstage changes", apply("staged", format!("Unstage {files} from the index? (worktree preserved)"), "unstage")),
+                Pick::new(
+                    'd',
+                    t!("discard all changes"),
+                    apply("all", all_body, t!("discard")),
+                )
+                .hint(t!("staged + worktree"))
+                .destructive(),
+                Pick::new(
+                    'u',
+                    t!("discard unstaged changes"),
+                    apply("unstaged", unstaged_body, t!("discard")),
+                )
+                .destructive(),
+                Pick::new(
+                    's',
+                    t!("unstage changes"),
+                    apply("staged", staged_body, t!("unstage")),
+                ),
             ],
             cx,
         );
@@ -296,7 +325,7 @@ impl GitPane {
                 .hint(stash.refname.clone())
             })
             .collect();
-        self.menu("Stashes", picks, cx);
+        self.menu(t!("Stashes"), picks, cx);
     }
 
     pub(crate) fn stash_menu_of(&mut self, stash: &GitStash, cx: &mut Context<Self>) {
@@ -307,7 +336,7 @@ impl GitPane {
                 refname: refname.clone(),
                 sha: sha.clone(),
             };
-            stash_step(format!("applying {refname}"), call)
+            stash_step(t!("applying {refname}", refname = refname), call)
         };
         let pop = {
             let call = git_call::StashPop {
@@ -315,7 +344,7 @@ impl GitPane {
                 refname: refname.clone(),
                 sha: sha.clone(),
             };
-            stash_step(format!("popping {refname}"), call)
+            stash_step(t!("popping {refname}", refname = refname), call)
         };
         let drop = {
             let call = git_call::StashDrop {
@@ -323,27 +352,27 @@ impl GitPane {
                 refname: refname.clone(),
                 sha,
             };
-            stash_step(format!("dropping {refname}"), call)
+            stash_step(t!("dropping {refname}", refname = refname), call)
         };
         let (branched, renamed) = (stash.clone(), stash.clone());
         let refname = stash.refname.clone();
         self.menu(
             format!("{} · {}", stash.refname, stash.message),
             vec![
-                Pick::new('a', "apply stash", apply).hint("keep stash"),
-                Pick::new('p', "pop stash", pop).hint("apply + drop"),
-                Pick::new('b', "create branch from stash", move |pane, cx| {
+                Pick::new('a', t!("apply stash"), apply).hint(t!("keep stash")),
+                Pick::new('p', t!("pop stash"), pop).hint(t!("apply + drop")),
+                Pick::new('b', t!("create branch from stash"), move |pane, cx| {
                     let stash = branched.clone();
                     pane.prompt(
-                        format!("Branch from {}", stash.refname),
-                        "branch name",
+                        t!("Branch from {refname}", refname = stash.refname),
+                        t!("branch name"),
                         "",
                         move |pane, name, cx| {
                             if name.is_empty() {
                                 return;
                             }
                             pane.run(
-                                format!("branching from {}", stash.refname),
+                                t!("branching from {refname}", refname = stash.refname),
                                 git_call::StashBranch {
                                     repo: pane.repo.clone(),
                                     refname: stash.refname.clone(),
@@ -357,10 +386,10 @@ impl GitPane {
                         cx,
                     );
                 }),
-                Pick::new('r', "rename stash", move |pane, cx| {
+                Pick::new('r', t!("rename stash"), move |pane, cx| {
                     let stash = renamed.clone();
                     pane.prompt(
-                        format!("Rename {}", stash.refname),
+                        t!("Rename {refname}", refname = stash.refname),
                         "",
                         stash.message.clone(),
                         move |pane, message, cx| {
@@ -368,7 +397,7 @@ impl GitPane {
                                 return;
                             }
                             pane.run(
-                                format!("renaming {}", stash.refname),
+                                t!("renaming {refname}", refname = stash.refname),
                                 git_call::StashRename {
                                     repo: pane.repo.clone(),
                                     refname: stash.refname.clone(),
@@ -382,12 +411,12 @@ impl GitPane {
                         cx,
                     );
                 }),
-                Pick::new('d', "drop stash", move |pane, cx| {
+                Pick::new('d', t!("drop stash"), move |pane, cx| {
                     let drop = drop.clone();
                     pane.ask(
-                        format!("Drop {refname}?"),
-                        "This permanently deletes the stash entry.",
-                        "drop",
+                        t!("Drop {refname}?", refname = refname),
+                        t!("This permanently deletes the stash entry."),
+                        t!("drop"),
                         move |pane, cx| drop(pane, cx),
                         cx,
                     );
@@ -414,14 +443,14 @@ impl GitPane {
             vec![
                 Pick::new(
                     'b',
-                    "create branch from commit",
+                    t!("create branch from commit"),
                     GitPane::branch_from_commit,
                 ),
-                Pick::new('r', "reset to this commit", GitPane::reset_menu)
-                    .hint("choose soft / mixed / hard"),
-                Pick::new('v', "revert this commit", GitPane::revert_commit)
-                    .hint("new inverse commit"),
-                Pick::new('y', "copy hash", move |pane, cx| {
+                Pick::new('r', t!("reset to this commit"), GitPane::reset_menu)
+                    .hint(t!("choose soft / mixed / hard")),
+                Pick::new('v', t!("revert this commit"), GitPane::revert_commit)
+                    .hint(t!("new inverse commit")),
+                Pick::new('y', t!("copy hash"), move |pane, cx| {
                     pane.copy(full.clone(), short.clone(), cx)
                 }),
             ],
@@ -437,15 +466,15 @@ impl GitPane {
 
     pub(super) fn branch_from(&mut self, hash: String, cx: &mut Context<Self>) {
         self.prompt(
-            format!("Branch from {hash}"),
-            "branch name",
+            t!("Branch from {hash}", hash = hash),
+            t!("branch name"),
             "",
             move |pane, name, cx| {
                 if name.is_empty() {
                     return;
                 }
                 pane.run(
-                    format!("creating {name} from {hash}"),
+                    t!("creating {name} from {hash}", name = name, hash = hash),
                     git_call::BranchCreate {
                         repo: pane.repo.clone(),
                         name: name.clone(),
@@ -470,10 +499,15 @@ impl GitPane {
             let hash = hash.clone();
             move |pane: &mut GitPane, cx: &mut Context<GitPane>| {
                 let hash = hash.clone();
+                let (title, yes) = match mode {
+                    "soft" => (t!("Soft reset to {hash}?", hash = hash), t!("soft reset")),
+                    "mixed" => (t!("Mixed reset to {hash}?", hash = hash), t!("mixed reset")),
+                    _ => (t!("Hard reset to {hash}?", hash = hash), t!("hard reset")),
+                };
                 pane.confirm(
-                    format!("{mode} reset to {hash}?"),
+                    title,
                     body,
-                    format!("{mode} reset"),
+                    yes,
                     mode == "hard",
                     move |pane, cx| {
                         pane.run(
@@ -492,12 +526,12 @@ impl GitPane {
             }
         };
         self.menu(
-            format!("Reset to {hash}"),
+            t!("Reset to {hash}", hash = hash),
             vec![
-                Pick::new('s', "soft reset", reset("soft", "Moves HEAD to this commit and keeps all later changes staged.")).hint("keep changes staged"),
-                Pick::new('m', "mixed reset", reset("mixed", "Moves HEAD to this commit and keeps all later changes in the working tree.")).hint("keep changes unstaged"),
-                Pick::new('h', "hard reset", reset("hard", "Moves HEAD to this commit and discards all later changes from the index and working tree."))
-                    .hint("discard later changes")
+                Pick::new('s', t!("soft reset"), reset("soft", t!("Moves HEAD to this commit and keeps all later changes staged."))).hint(t!("keep changes staged")),
+                Pick::new('m', t!("mixed reset"), reset("mixed", t!("Moves HEAD to this commit and keeps all later changes in the working tree."))).hint(t!("keep changes unstaged")),
+                Pick::new('h', t!("hard reset"), reset("hard", t!("Moves HEAD to this commit and discards all later changes from the index and working tree.")))
+                    .hint(t!("discard later changes"))
                     .destructive(),
             ],
             cx,
@@ -512,13 +546,13 @@ impl GitPane {
 
     pub(super) fn revert(&mut self, hash: String, cx: &mut Context<Self>) {
         self.confirm(
-            format!("Revert {hash}?"),
-            "Creates a new commit that reverses this commit. Existing history is preserved.",
-            "revert",
+            t!("Revert {hash}?", hash = hash),
+            t!("Creates a new commit that reverses this commit. Existing history is preserved."),
+            t!("revert"),
             false,
             move |pane, cx| {
                 pane.run(
-                    format!("reverting {hash}"),
+                    t!("reverting {hash}", hash = hash),
                     git_call::Revert {
                         repo: pane.repo.clone(),
                         rev: hash.clone(),
@@ -533,23 +567,23 @@ impl GitPane {
 
     pub(crate) fn add_remote(&mut self, cx: &mut Context<Self>) {
         self.prompt(
-            "Add remote",
-            "name (e.g. upstream) — then you'll enter the URL",
+            t!("Add remote"),
+            t!("name (e.g. upstream) — then you'll enter the URL"),
             "",
             |pane, name, cx| {
                 if name.is_empty() {
                     return;
                 }
                 pane.prompt(
-                    format!("Add remote · {name}"),
-                    "URL (https://… or git@…)",
+                    t!("Add remote · {name}", name = name),
+                    t!("URL (https://… or git@…)"),
                     "",
                     move |pane, url, cx| {
                         if url.is_empty() {
                             return;
                         }
                         pane.run(
-                            format!("adding remote {name}"),
+                            t!("adding remote {name}", name = name),
                             git_call::RemoteAdd {
                                 repo: pane.repo.clone(),
                                 name: name.clone(),

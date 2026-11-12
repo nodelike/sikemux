@@ -103,14 +103,14 @@ fn moved_to(file: &GitFile, side: Side) -> GitFile {
 fn decoration(change: GitChange, t: &Tokens) -> Option<(&'static str, Hsla, &'static str)> {
     Some(match change {
         GitChange::Unchanged => return None,
-        GitChange::Untracked => ("U", Mark::Untracked.colour(t), "untracked"),
-        GitChange::Unmerged => ("U", Mark::Conflicted.colour(t), "unmerged"),
-        GitChange::Added => ("A", Mark::Added.colour(t), "added"),
-        GitChange::Deleted => ("D", Mark::Deleted.colour(t), "deleted"),
-        GitChange::Renamed => ("R", Mark::Renamed.colour(t), "renamed"),
-        GitChange::Copied => ("C", Mark::Renamed.colour(t), "copied"),
-        GitChange::TypeChanged => ("T", Mark::Modified.colour(t), "type changed"),
-        GitChange::Modified => ("M", Mark::Modified.colour(t), "modified"),
+        GitChange::Untracked => ("U", Mark::Untracked.colour(t), t!("untracked")),
+        GitChange::Unmerged => ("U", Mark::Conflicted.colour(t), t!("unmerged")),
+        GitChange::Added => ("A", Mark::Added.colour(t), t!("added")),
+        GitChange::Deleted => ("D", Mark::Deleted.colour(t), t!("deleted")),
+        GitChange::Renamed => ("R", Mark::Renamed.colour(t), t!("renamed")),
+        GitChange::Copied => ("C", Mark::Renamed.colour(t), t!("copied")),
+        GitChange::TypeChanged => ("T", Mark::Modified.colour(t), t!("type changed")),
+        GitChange::Modified => ("M", Mark::Modified.colour(t), t!("modified")),
     })
 }
 
@@ -345,7 +345,7 @@ impl GitPane {
         let draft = cx.new(|cx| {
             TextareaState::new(window, cx)
                 .auto_grow(3, 9)
-                .placeholder("Message (⌘⏎ to commit)")
+                .placeholder(t!("Message (⌘⏎ to commit)"))
         });
         let drafting = cx.subscribe(&draft, |pane, _, event: &InputEvent, cx| {
             if let InputEvent::Change = event {
@@ -532,10 +532,10 @@ impl GitPane {
             return Some(field.clone());
         }
         let placeholder = match page {
-            Page::Changes => "Filter files",
-            Page::History => "Search commits",
-            Page::Branches => "Filter branches",
-            Page::Pulls => "Filter pull requests",
+            Page::Changes => t!("Filter files"),
+            Page::History => t!("Search commits"),
+            Page::Branches => t!("Filter branches"),
+            Page::Pulls => t!("Filter pull requests"),
         };
         let field = cx.new(|cx| InputState::new(window, cx).placeholder(placeholder));
         let typing = cx.subscribe_in(

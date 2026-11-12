@@ -174,8 +174,8 @@ impl SearchPane {
                 cx.new(|cx| InputState::new(window, cx).placeholder(placeholder))
             };
             let fields = Fields {
-                find: field("find in project", window, cx),
-                replace: field("replace with…", window, cx),
+                find: field(t!("find in project"), window, cx),
+                replace: field(t!("replace with…"), window, cx),
                 include: field("src/**/*.ts", window, cx),
                 exclude: field("**/*.test.ts", window, cx),
             };
@@ -402,7 +402,13 @@ impl SearchPane {
                         pane.windows.truncate(WINDOWS_KEPT);
                         pane.colour_window(cx);
                     }
-                    Err(error) => pane.error = Some(format!("could not load {path}: {error}")),
+                    Err(error) => {
+                        pane.error = Some(t!(
+                            "could not load {path}: {error}",
+                            path = path,
+                            error = error
+                        ))
+                    }
                 }
                 cx.notify();
             })
@@ -494,7 +500,7 @@ impl SearchPane {
                     }
                     Err(error) => {
                         pane.previewed = None;
-                        let note = toast::error(format!("replace failed: {error}"));
+                        let note = toast::error(t!("replace failed: {error}", error = error));
                         window.push_notification(note.autohide(false), cx);
                     }
                 }
@@ -521,15 +527,18 @@ impl SearchPane {
                     .into_owned()
             })
             .collect();
-        let (shown, more) = match unsaved.len() {
+        Some(match unsaved.len() {
             0 => return None,
-            count if count > 3 => (&unsaved[..3], format!(" and {} more", count - 3)),
-            _ => (&unsaved[..], String::new()),
-        };
-        Some(format!(
-            "Save or close unsaved files before replacing: {}{more}",
-            shown.join(", ")
-        ))
+            count if count > 3 => t!(
+                "Save or close unsaved files before replacing: {files} and {more} more",
+                files = unsaved[..3].join(", "),
+                more = count - 3
+            ),
+            _ => t!(
+                "Save or close unsaved files before replacing: {files}",
+                files = unsaved.join(", ")
+            ),
+        })
     }
 
     fn replaced_with(&mut self, results: ReplaceResults) {
@@ -593,23 +602,24 @@ impl SearchPane {
 /// What a replace did, as a note: how many matches in how many files, and how many
 /// files it skipped.
 fn replaced(results: &ReplaceResults) -> Notification {
-    let matches = if results.match_count == 1 {
-        "match"
-    } else {
-        "matches"
+    let (matches, files) = (results.match_count, results.file_count);
+    let said = match (matches == 1, files == 1) {
+        (true, true) => t!("replaced 1 match in 1 file").to_owned(),
+        (true, false) => t!("replaced 1 match in {files} files", files = files),
+        (false, true) => t!("replaced {matches} matches in 1 file", matches = matches),
+        (false, false) => t!(
+            "replaced {matches} matches in {files} files",
+            matches = matches,
+            files = files
+        ),
     };
-    let files = if results.file_count == 1 {
-        "file"
-    } else {
-        "files"
-    };
-    let said = format!(
-        "replaced {} {matches} in {} {files}",
-        results.match_count, results.file_count
-    );
     match results.errors.len() {
         0 => toast::success(said),
-        skipped => toast::info(format!("{said} · {skipped} skipped")),
+        skipped => toast::info(t!(
+            "{said} · {skipped} skipped",
+            said = said,
+            skipped = skipped
+        )),
     }
 }
 
@@ -772,19 +782,20 @@ fn head(pane: &SearchPane, cx: &mut Context<SearchPane>) -> impl IntoElement {
     let replace_label = if pane.replacing {
         "…".to_owned()
     } else if let Some(previewed) = &pane.previewed {
-        format!("commit {}", previewed.match_count)
+        t!("commit {count}", count = previewed.match_count)
     } else if matches > 0 {
-        format!("preview {matches}")
+        t!("preview {count}", count = matches)
     } else {
-        "preview".to_owned()
+        t!("preview").to_owned()
     };
     let replace_tip = match &pane.previewed {
-        Some(previewed) => format!(
-            "Commit {} replacements across {} files",
-            previewed.match_count, previewed.file_count
+        Some(previewed) => t!(
+            "Commit {matches} replacements across {files} files",
+            matches = previewed.match_count,
+            files = previewed.file_count
         ),
-        None if can_replace => "Preview replacements".to_owned(),
-        None => "Run a search first".to_owned(),
+        None if can_replace => t!("Preview replacements").to_owned(),
+        None => t!("Run a search first").to_owned(),
     };
     div()
         .flex_none()
@@ -797,14 +808,14 @@ fn head(pane: &SearchPane, cx: &mut Context<SearchPane>) -> impl IntoElement {
                 .child(
                     BaseButton::new("search-replace-open")
                         .accessibility_label(if pane.replace_open {
-                            "Hide replace"
+                            t!("Hide replace")
                         } else {
-                            "Show replace"
+                            t!("Show replace")
                         })
                         .tooltip(ui::tooltip(if pane.replace_open {
-                            "Hide replace"
+                            t!("Hide replace")
                         } else {
-                            "Show replace"
+                            t!("Show replace")
                         }))
                         .w(px(14.))
                         .h(px(18.))
@@ -850,21 +861,21 @@ fn head(pane: &SearchPane, cx: &mut Context<SearchPane>) -> impl IntoElement {
                         .child(toggle(
                             "search-case",
                             "Aa",
-                            "Match case",
+                            t!("Match case"),
                             pane.options.case_sensitive,
                             |pane, cx| pane.toggle(|options| &mut options.case_sensitive, cx),
                         ))
                         .child(toggle(
                             "search-word",
                             "ab",
-                            "Whole word",
+                            t!("Whole word"),
                             pane.options.whole_word,
                             |pane, cx| pane.toggle(|options| &mut options.whole_word, cx),
                         ))
                         .child(toggle(
                             "search-regex",
                             ".*",
-                            "Regex",
+                            t!("Regex"),
                             pane.options.is_regex,
                             |pane, cx| pane.toggle(|options| &mut options.is_regex, cx),
                         )),
@@ -888,8 +899,8 @@ fn head(pane: &SearchPane, cx: &mut Context<SearchPane>) -> impl IntoElement {
             )
         })
         .when(pane.scope_open, |head| {
-            head.child(scope_field("in", &fields.include))
-                .child(scope_field("not", &fields.exclude))
+            head.child(scope_field(t!("in"), &fields.include))
+                .child(scope_field(t!("not"), &fields.exclude))
         })
         .child(
             row()
@@ -901,9 +912,9 @@ fn head(pane: &SearchPane, cx: &mut Context<SearchPane>) -> impl IntoElement {
                     "search-scope",
                     "…",
                     if pane.scope_open {
-                        "Hide file scope"
+                        t!("Hide file scope")
                     } else {
-                        "Files to include / exclude"
+                        t!("Files to include / exclude")
                     },
                     pane.scope_open,
                     |pane, cx| {
@@ -923,10 +934,12 @@ fn head(pane: &SearchPane, cx: &mut Context<SearchPane>) -> impl IntoElement {
                         .when(pane.stale, |stats| {
                             stats.child(
                                 BaseButton::new("search-stale")
-                                    .accessibility_label("Files changed on disk — rerun the search")
-                                    .tooltip(ui::tooltip(
-                                        "Files changed on disk — rerun the search",
+                                    .accessibility_label(t!(
+                                        "Files changed on disk — rerun the search"
                                     ))
+                                    .tooltip(ui::tooltip(t!(
+                                        "Files changed on disk — rerun the search"
+                                    )))
                                     .mr(SPACE_0)
                                     .pr(SPACE_1H)
                                     .border_b_1()
@@ -934,7 +947,7 @@ fn head(pane: &SearchPane, cx: &mut Context<SearchPane>) -> impl IntoElement {
                                     .text_color(t.warn)
                                     .font_weight(FontWeight::SEMIBOLD)
                                     .on_click(cx.listener(|pane, _, _, cx| pane.rerun(cx)))
-                                    .child("stale ↻"),
+                                    .child(t!("stale ↻")),
                             )
                         })
                         .map(|stats| match summary {
@@ -954,11 +967,13 @@ fn head(pane: &SearchPane, cx: &mut Context<SearchPane>) -> impl IntoElement {
                                 )
                                 .child(div().ml(SPACE_1).child(format!("{}ms", summary.elapsed_ms)))
                                 .when(summary.truncated, |stats| {
-                                    stats.child(div().ml(SPACE_1).text_color(t.warn).child("trunc"))
+                                    stats.child(
+                                        div().ml(SPACE_1).text_color(t.warn).child(t!("trunc")),
+                                    )
                                 })
                                 .when(summary.cancelled, |stats| {
                                     stats.child(
-                                        div().ml(SPACE_1).text_color(t.warn).child("partial"),
+                                        div().ml(SPACE_1).text_color(t.warn).child(t!("partial")),
                                     )
                                 }),
                             None => stats.child("·"),
@@ -1023,23 +1038,30 @@ fn results(pane: &SearchPane, cx: &mut Context<SearchPane>) -> AnyElement {
             .into_any_element()
     };
     if pane.status == Status::Failed {
-        let error = pane.error.clone().unwrap_or_else(|| "search failed".into());
+        let error = pane
+            .error
+            .clone()
+            .unwrap_or_else(|| t!("search failed").into());
         return notice(error, None, t.danger);
     }
     if pane.query.trim().is_empty() {
         return notice(
-            "Search across your project".into(),
-            Some("Enter a word, symbol, or pattern above. Expand Replace to edit matching text."),
+            t!("Search across your project").into(),
+            Some(t!(
+                "Enter a word, symbol, or pattern above. Expand Replace to edit matching text."
+            )),
             t.text_tertiary,
         );
     }
     if pane.rows.is_empty() && pane.status == Status::Searching {
-        return notice("searching…".into(), None, t.text_tertiary);
+        return notice(t!("searching…").into(), None, t.text_tertiary);
     }
     if pane.rows.is_empty() {
         return notice(
-            format!("No matches for “{}”", pane.query),
-            Some("Try a shorter term or adjust the case, pattern, and file filters above."),
+            t!("No matches for “{query}”", query = pane.query),
+            Some(t!(
+                "Try a shorter term or adjust the case, pattern, and file filters above."
+            )),
             t.text_tertiary,
         );
     }
@@ -1089,9 +1111,9 @@ fn file_header(
         .cursor_pointer()
         .hover(move |row| row.bg(t.surface_hover))
         .tooltip(ui::tooltip(if collapsed {
-            "Expand file"
+            t!("Expand file")
         } else {
-            "Collapse file"
+            t!("Collapse file")
         }))
         .on_click(move |_, _, cx| {
             folding.update(cx, |pane, cx| {
@@ -1259,17 +1281,17 @@ fn preview(pane: &SearchPane, cx: &mut Context<SearchPane>) -> AnyElement {
             .into_any_element()
     };
     if pane.query.trim().is_empty() {
-        return notice("preview will appear here");
+        return notice(t!("preview will appear here"));
     }
     if pane.files.is_empty() {
         return notice(if pane.status == Status::Searching {
-            "searching…"
+            t!("searching…")
         } else {
-            "nothing to preview"
+            t!("nothing to preview")
         });
     }
     let Some((file, hit, at)) = pane.chosen_hit() else {
-        return notice("no match selected");
+        return notice(t!("no match selected"));
     };
     let (dir, name) = match file.path.rsplit_once('/') {
         Some((dir, name)) => (format!("{dir}/"), name.to_owned()),
@@ -1287,10 +1309,14 @@ fn preview(pane: &SearchPane, cx: &mut Context<SearchPane>) -> AnyElement {
             && hit.line < shown.window.start_line + shown.window.doc.lines().count().max(1) as u32
     });
     let body: AnyElement = match shown {
-        None => notice("loading…"),
+        None => notice(t!("loading…")),
         Some(shown) => window_lines(shown, hit, &t),
     };
-    let tip = format!("Open {} at line {}", file.path, hit.line);
+    let tip = t!(
+        "Open {path} at line {line}",
+        path = file.path,
+        line = hit.line
+    );
     div()
         .size_full()
         .flex()
@@ -1330,11 +1356,11 @@ fn preview(pane: &SearchPane, cx: &mut Context<SearchPane>) -> AnyElement {
                         .ml_auto()
                         .flex()
                         .text_color(t.text_tertiary)
-                        .child(format!(
-                            "line {} · {} of {}",
-                            hit.line,
-                            at + 1,
-                            file.matches.len()
+                        .child(t!(
+                            "line {line} · {at} of {count}",
+                            line = hit.line,
+                            at = at + 1,
+                            count = file.matches.len()
                         ))
                         .when(!pane.replace.is_empty(), |meta| {
                             meta.child(
@@ -1442,10 +1468,12 @@ fn foot(cx: &App) -> Div {
         .border_color(t.border)
         .text_size(crate::theme::ui_text(TEXT_3XS_H))
         .text_color(t.text_tertiary)
-        .child(hint("⏎".into(), "open"))
-        .child(hint("tab".into(), "replace"))
-        .child(hint("⌘⏎".into(), "replace all"))
-        .children(crate::keymap::hint(actions::FocusSearch::ID, cx).map(|keys| hint(keys, "focus")))
+        .child(hint("⏎".into(), t!("open")))
+        .child(hint("tab".into(), t!("replace")))
+        .child(hint("⌘⏎".into(), t!("replace all")))
+        .children(
+            crate::keymap::hint(actions::FocusSearch::ID, cx).map(|keys| hint(keys, t!("focus"))),
+        )
 }
 
 impl Workbench {

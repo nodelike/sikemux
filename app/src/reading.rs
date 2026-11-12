@@ -90,8 +90,8 @@ pub(crate) fn code_card(t: &Tokens) -> CodeCard {
         })),
         title: Some(Rc::new(|lang, code| {
             match shell_like(lang, code) || commands(lang) {
-                true => ("Terminal".into(), false),
-                false => (lang.unwrap_or("Code").to_owned().into(), true),
+                true => (t!("Terminal").into(), false),
+                false => (lang.unwrap_or(t!("Code")).to_owned().into(), true),
             }
         })),
     }

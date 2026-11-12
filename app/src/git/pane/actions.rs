@@ -72,7 +72,10 @@ impl GitPane {
             return;
         }
         if let Some(host) = &self.out_of_reach {
-            let said = format!("{host} is out of reach, so this waits until it is back.");
+            let said = t!(
+                "{host} is out of reach, so this waits until it is back.",
+                host = host
+            );
             self.fail(&said, cx);
             return;
         }
@@ -145,7 +148,7 @@ impl GitPane {
 
     pub(crate) fn copy(&self, text: String, what: String, cx: &mut Context<Self>) {
         cx.write_to_clipboard(ClipboardItem::new_string(text));
-        self.say(toast::success(format!("Copied {what}")), cx);
+        self.say(toast::success(t!("Copied {what}", what = what)), cx);
     }
 
     /// Moves files between the groups at once; git's next overview confirms the move
@@ -304,18 +307,18 @@ impl GitPane {
             .unwrap_or(&file.path)
             .to_owned();
         let body = if file.worktree == GitChange::Untracked {
-            "The file is new and will be deleted. This can't be undone."
+            t!("The file is new and will be deleted. This can't be undone.")
         } else {
-            "Unstaged changes to this file will be lost. This can't be undone."
+            t!("Unstaged changes to this file will be lost. This can't be undone.")
         };
         let path = file.path.clone();
         self.ask(
-            format!("Discard changes to {name}?"),
+            t!("Discard changes to {name}?", name = name),
             body,
-            "discard",
+            t!("discard"),
             move |pane, cx| {
                 pane.run(
-                    format!("discarding {path}"),
+                    t!("discarding {path}", path = path),
                     git_call::DiscardFiles {
                         repo: pane.repo.clone(),
                         paths: vec![path.clone()],
@@ -342,24 +345,33 @@ impl GitPane {
             .iter()
             .filter(|file| file.worktree == GitChange::Untracked)
             .count();
-        let count = format!(
-            "{} file{}",
-            unstaged.len(),
-            if unstaged.len() == 1 { "" } else { "s" }
-        );
+        let files = unstaged.len();
+        let (title, doing) = match files {
+            1 => (
+                t!("Discard unstaged changes in 1 file?").to_owned(),
+                t!("discarding 1 file").to_owned(),
+            ),
+            files => (
+                t!("Discard unstaged changes in {count} files?", count = files),
+                t!("discarding {count} files", count = files),
+            ),
+        };
         let fate = match added {
-            0 => "Every file goes back to what is staged or committed. ".to_owned(),
-            1 => "1 new file is deleted and the rest go back to what is staged or committed. ".to_owned(),
-            added => format!("{added} new files are deleted and the rest go back to what is staged or committed. "),
+            0 => t!("Every file goes back to what is staged or committed.").to_owned(),
+            1 => t!("1 new file is deleted and the rest go back to what is staged or committed.").to_owned(),
+            added => t!("{added} new files are deleted and the rest go back to what is staged or committed.", added = added),
         };
         let paths: Vec<String> = unstaged.into_iter().map(|file| file.path).collect();
         self.ask(
-            format!("Discard unstaged changes in {count}?"),
-            format!("{fate}Staged changes are kept. This can't be undone."),
-            "discard all",
+            title,
+            format!(
+                "{fate} {}",
+                t!("Staged changes are kept. This can't be undone.")
+            ),
+            t!("discard all"),
             move |pane, cx| {
                 pane.run(
-                    format!("discarding {count}"),
+                    doing.clone(),
                     git_call::DiscardFiles {
                         repo: pane.repo.clone(),
                         paths: paths.clone(),
@@ -379,7 +391,7 @@ impl GitPane {
             return;
         }
         if self.staged_count() == 0 {
-            self.fail("Stage the changes you want to commit first.", cx);
+            self.fail(t!("Stage the changes you want to commit first."), cx);
             return;
         }
         let params = CommitParams {
@@ -387,7 +399,7 @@ impl GitPane {
             message: message.clone(),
         };
         self.run_call::<call::CommitStaged>(
-            "Commit staged changes",
+            t!("Commit staged changes"),
             params,
             cx,
             move |pane, answer, cx| {
@@ -408,25 +420,25 @@ impl GitPane {
             Some((kind, label, model)) => (Some(kind), label, Some(model)),
             None => (None, "Hermes".to_owned(), None),
         };
-        self.quietly::<git_call::AiMessage>(format!("Generate message with {label}"), git_call::AiMessage { repo: self.repo.clone(), provider: provider.clone(), model: model.clone() }, cx, move |pane, answer, cx| {
+        self.quietly::<git_call::AiMessage>(t!("Generate message with {label}", label = label), git_call::AiMessage { repo: self.repo.clone(), provider: provider.clone(), model: model.clone() }, cx, move |pane, answer, cx| {
             pane.generating = false;
             let Ok(message) = answer else {
                 return;
             };
             if message.trim().is_empty() {
-                pane.fail("The provider returned an empty message. Your draft was kept.", cx);
+                pane.fail(t!("The provider returned an empty message. Your draft was kept."), cx);
             } else if pane.draft.read(cx).value() != before {
-                pane.fail("Your draft changed during generation. It was kept; generate again when ready.", cx);
+                pane.fail(t!("Your draft changed during generation. It was kept; generate again when ready."), cx);
             } else {
                 pane.write(message, cx);
-                pane.done("Commit message generated. Review it before committing.", cx);
+                pane.done(t!("Commit message generated. Review it before committing."), cx);
             }
         });
     }
 
     pub(crate) fn fetch(&mut self, cx: &mut Context<Self>) {
         self.run(
-            "fetching all remotes…",
+            t!("fetching all remotes…"),
             git_call::Fetch {
                 repo: self.repo.clone(),
                 remote: None,
@@ -438,7 +450,7 @@ impl GitPane {
 
     pub(crate) fn pull(&mut self, cx: &mut Context<Self>) {
         self.run(
-            "pulling…",
+            t!("pulling…"),
             git_call::Pull {
                 repo: self.repo.clone(),
             },
@@ -449,7 +461,7 @@ impl GitPane {
 
     pub(crate) fn push(&mut self, cx: &mut Context<Self>) {
         self.run(
-            "pushing…",
+            t!("pushing…"),
             git_call::Push {
                 repo: self.repo.clone(),
             },
@@ -462,11 +474,16 @@ impl GitPane {
         let params = PullRequestUrlParams {
             repo: self.repo.clone(),
         };
-        self.quietly::<call::GitPullRequestUrl>("opening PR…", params, cx, |_, answer, cx| {
-            if let Ok(url) = answer {
-                cx.open_url(&url);
-            }
-        });
+        self.quietly::<call::GitPullRequestUrl>(
+            t!("opening PR…"),
+            params,
+            cx,
+            |_, answer, cx| {
+                if let Ok(url) = answer {
+                    cx.open_url(&url);
+                }
+            },
+        );
     }
 }
 
