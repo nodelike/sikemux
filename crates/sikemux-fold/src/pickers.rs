@@ -74,11 +74,14 @@ fn collect<'a>(
     }
 }
 
+/// A model's group, family and release number, as `release` reads them.
+type Release<'a> = (Option<&'a str>, String, Vec<u64>);
+
 /// Marks each model the same group also offers a newer release of, read from their names
 /// alone ("Opus 5" under "Opus 5.5"), so a model released later folds its elders away
 /// without Sikemux knowing it.
 fn mark_superseded(found: &mut [(Option<&str>, ConfigChoice)]) {
-    let releases: Vec<Option<(Option<&str>, String, Vec<u64>)>> = found
+    let releases: Vec<Option<Release>> = found
         .iter()
         .map(|(group, choice)| {
             let (family, version) = release(&choice.label)?;
