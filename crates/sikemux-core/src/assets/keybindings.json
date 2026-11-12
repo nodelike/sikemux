@@ -160,6 +160,14 @@
         "other": "Ctrl+Shift+KeyY"
     },
     {
+        "id": "sikemux.triage",
+        "label": "Triage Sikemux",
+        "detail": "Hand Sikemux's logs, secrets taken out, to Claude Code or Codex in a new terminal to find what is wrong",
+        "category": "Workspace",
+        "mac": null,
+        "other": null
+    },
+    {
         "id": "terminal.new",
         "label": "New terminal",
         "detail": "A terminal tab in this project, another login on this host, or a new terminal under Terminals",

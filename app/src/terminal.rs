@@ -2114,6 +2114,25 @@ impl Workbench {
         }
     }
 
+    /// Opens a terminal among those of no project running `sikemux triage`, which hands
+    /// Sikemux's logs to the person's own agent.
+    pub fn triage(&self, cx: &mut App) {
+        self.take_keys_when_shown(TakesKeys::Terminal, cx);
+        let opened = self
+            .target()
+            .request_typed::<call::NewTerminal>(NewTerminal::loose());
+        let asks = self.asks.clone();
+        cx.spawn(async move |_| {
+            let Ok(Ok(session)) = opened.await.map(|id| id.parse::<SessionId>()) else {
+                return;
+            };
+            let text = "sikemux triage\r".to_owned();
+            let input = TerminalAsk::Input(TerminalInput::Text { text });
+            let _ = asks.send(Ask::Terminal(session, input));
+        })
+        .detach();
+    }
+
     pub fn new_loose_terminal(&self, cx: &mut App) {
         self.take_keys_when_shown(TakesKeys::Terminal, cx);
         self.target()

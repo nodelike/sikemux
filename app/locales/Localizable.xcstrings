@@ -8436,6 +8436,7 @@
         }
       }
     },
+    "Hand Sikemux's logs, secrets taken out, to Claude Code or Codex in a new terminal to find what is wrong": {},
     "Haptic feedback": {
       "localizations": {
         "es": {
@@ -26282,6 +26283,7 @@
         }
       }
     },
+    "Triage Sikemux": {},
     "Try again": {
       "localizations": {
         "es": {

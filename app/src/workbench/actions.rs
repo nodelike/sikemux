@@ -142,6 +142,7 @@ commands! {
         cx.notify();
     };
     NewTerminal = "terminal.new" opens |bench, _, cx| bench.new_terminal(cx);
+    Triage = "sikemux.triage" opens |bench, _, cx| bench.triage(cx);
     /// Bigger text in the chat, editor or terminal that has the focus.
     TextSizeIncrease = "text.sizeIncrease" (KeepsSettings) acts |bench, _, _| {
         bench.resize_front_text(Some(true))
