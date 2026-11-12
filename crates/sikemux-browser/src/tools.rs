@@ -829,6 +829,7 @@ async fn run(
                 agent_id,
                 &url,
                 (width as f64, PAGE_VIEWPORT_HEIGHT as f64),
+                crate::USER_AGENT,
             )?;
             preview.loaded(LOAD_TIMEOUT).await?;
             tokio::time::sleep(SETTLE).await;
@@ -1534,6 +1535,22 @@ impl BrowserManager {
             .await;
         tokio::time::sleep(SETTLE).await;
         screenshot(&view, None, None).await
+    }
+
+    /// A picture of `url` laid out at `fixed`, taken in a view of its own off screen, so the
+    /// agent's tab and whatever the person is doing in it are left alone.
+    pub async fn picture_at(
+        &self,
+        agent_id: &str,
+        url: &str,
+        fixed: crate::viewport::Viewport,
+    ) -> Result<Vec<u8>, String> {
+        let user_agent = fixed.user_agent().unwrap_or(crate::USER_AGENT);
+        let size = (f64::from(fixed.width), f64::from(fixed.height));
+        let mut view = crate::preview::Preview::open(self.host(), agent_id, url, size, user_agent)?;
+        view.loaded(LOAD_TIMEOUT).await?;
+        tokio::time::sleep(SETTLE).await;
+        screenshot(view.view(), None, None).await
     }
 
     pub fn page(&self, agent_id: &str, tab_id: &str) -> Option<super::TabPage> {

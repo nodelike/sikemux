@@ -11,7 +11,6 @@ use tokio::sync::watch;
 use crate::host::Host;
 use crate::{
     viewport, DocumentEvent, Opener, PageDialog, PageLoad, Tab, TabEvents, TabSpec, TabStall,
-    USER_AGENT,
 };
 
 static NEXT: AtomicU64 = AtomicU64::new(1);
@@ -27,6 +26,7 @@ impl Preview {
         agent_id: &str,
         url: &str,
         size: (f64, f64),
+        user_agent: &str,
     ) -> Result<Self, String> {
         let parent = host.window()?;
         let tab_id = format!("page-preview-{}", NEXT.fetch_add(1, Ordering::Relaxed));
@@ -37,7 +37,7 @@ impl Preview {
                 agent_id,
                 tab_id: &tab_id,
                 url,
-                user_agent: USER_AGENT,
+                user_agent,
                 size,
                 opener: None,
             },

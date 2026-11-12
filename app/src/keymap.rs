@@ -290,9 +290,14 @@ pub fn dispatch_named(id: &str, window: &mut Window, cx: &mut App) {
 /// themselves; a control that runs the command on one agent rather than the one in front calls this.
 pub fn count(id: &str, cx: &App) {
     if shortcuts().iter().any(|shortcut| shortcut.id == id) {
-        let used = crate::core::typed_call::<call::CommandUsed>(CommandUsed { id: id.to_owned() });
-        let _ = cx.global::<Keymap>().used.send(used);
+        counted(id, cx);
     }
+}
+
+/// Counts a use of `id` for the usage report, for a choice no shortcut makes.
+pub fn counted(id: &str, cx: &App) {
+    let used = crate::core::typed_call::<call::CommandUsed>(CommandUsed { id: id.to_owned() });
+    let _ = cx.global::<Keymap>().used.send(used);
 }
 
 /// The command whose shortcut `keystroke` is now.

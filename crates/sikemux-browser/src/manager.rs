@@ -3,7 +3,7 @@
 //! pages get real input, real pixels, and the system cookie jar. Whoever hosts
 //! the engine draws the chrome around it and says where the page area is.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, Weak};
@@ -74,6 +74,8 @@ pub(crate) struct AgentBrowser {
     /// or that it will not.
     pub(crate) desk_coming: bool,
     pub(crate) viewports: HashMap<String, viewport::Viewport>,
+    /// The tabs shown with pictures of their page at the other widths beside them.
+    pub(crate) all_widths: HashSet<String>,
     /// What each tab's view was last given, so a swipe moving one page every
     /// frame does not also re-place every tab parked behind it.
     pub(crate) applied: HashMap<String, (viewport::Layout, bool)>,
@@ -705,6 +707,7 @@ impl BrowserManager {
             drop(gone);
             let view = agent.views.remove(tab_id);
             agent.viewports.remove(tab_id);
+            agent.all_widths.remove(tab_id);
             self.tabs.locked().remove(tab_id);
             if agent.strip.order.is_empty() {
                 agents.remove(agent_id);
@@ -1010,6 +1013,23 @@ impl BrowserManager {
         };
         view.set_zoom(1.0);
         Ok(view)
+    }
+
+    /// Shows the tab with pictures of its page at the other widths beside it, or without.
+    pub fn set_all_widths(&self, agent_id: &str, tab_id: &str, all: bool) {
+        if let Some(agent) = self.agents.locked().get_mut(agent_id) {
+            match all {
+                true => agent.all_widths.insert(tab_id.to_owned()),
+                false => agent.all_widths.remove(tab_id),
+            };
+        }
+    }
+
+    pub fn all_widths(&self, agent_id: &str, tab_id: &str) -> bool {
+        self.agents
+            .locked()
+            .get(agent_id)
+            .is_some_and(|agent| agent.all_widths.contains(tab_id))
     }
 
     pub fn viewport(&self, agent_id: &str, tab_id: &str) -> Option<viewport::Viewport> {

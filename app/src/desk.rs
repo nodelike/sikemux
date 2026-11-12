@@ -3,6 +3,7 @@
 mod address;
 mod downloads;
 mod snip;
+mod width;
 
 use crate::desk::downloads::downloaded;
 use gpui_kit::Task;
@@ -86,6 +87,8 @@ pub struct Desks {
     snips: HashMap<String, snip::Snipper>,
     /// Boxes taken while the chat they go to starts.
     snips_for_new_chat: Option<Vec<(String, sikemux_browser::snip::Snip)>>,
+    /// Pictures of pages at other widths, which All shows beside the live page.
+    pictures: width::Pictures,
     _theming: Subscription,
 }
 
@@ -287,6 +290,7 @@ impl Desks {
             told: heard,
             snips: HashMap::new(),
             snips_for_new_chat: None,
+            pictures: width::Pictures::default(),
             _theming: theming,
         }
     }
@@ -818,6 +822,7 @@ impl Workbench {
             if emptied {
                 self.shut_empty_desk(&agent, cx);
             }
+            self.take_pictures(&agent, cx);
         }
     }
 
@@ -1758,61 +1763,6 @@ pub fn prepare(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Work
     }
 }
 
-/// The size the desk's front page lays out at: the pane's own, or a held desktop, tablet or phone one.
-fn viewport_select(
-    bench: &Workbench,
-    agent: &str,
-    tab_id: &str,
-    cx: &Context<Workbench>,
-) -> AnyElement {
-    use sikemux_browser::viewport::Viewport;
-    const SIZES: [(Option<&str>, &str, Icon); 4] = [
-        (None, "Fit", Icon::Resize),
-        (Some("desktop"), "Desktop", Icon::Laptop),
-        (Some("tablet"), "Tablet", Icon::Tablet),
-        (Some("mobile"), "Phone", Icon::Phone),
-    ];
-    let held =
-        (bench.desks.read(cx).engine.as_ref()).and_then(|engine| engine.viewport(agent, tab_id));
-    let chosen = move |preset: Option<&str>| match held {
-        None => preset.is_none(),
-        Some(fixed) => preset.is_some() && fixed.preset == preset,
-    };
-    let (bench, agent, tab_id) = (cx.entity().downgrade(), agent.to_owned(), tab_id.to_owned());
-    ui::menu_button(
-        "desk-viewport",
-        gpui_kit::Anchor::TopRight,
-        IconButton::new("desk-viewport-face", Icon::Viewport, "Viewport").glyph(13.),
-        move |mut popup, _, cx| {
-            for (preset, label, icon) in SIZES {
-                let size = preset.and_then(Viewport::preset);
-                let (bench, agent, tab_id) = (bench.clone(), agent.clone(), tab_id.clone());
-                popup = popup.item(
-                    ui::MenuRow::new(label)
-                        .icon(icon)
-                        .when_some(size, |row, size| {
-                            row.hint(format!("{}×{}", size.width, size.height))
-                        })
-                        .item(cx)
-                        .checked(chosen(preset))
-                        .on_click(move |_, _, cx| {
-                            bench
-                                .update(cx, |bench, cx| {
-                                    bench.with_engine(cx, |engine| {
-                                        engine.set_viewport(&agent, &tab_id, size)
-                                    });
-                                    cx.notify();
-                                })
-                                .ok();
-                        }),
-                );
-            }
-            popup
-        },
-    )
-    .into_any_element()
-}
-
 fn snip_toggle(bench: &Workbench, agent: &str, cx: &Context<Workbench>) -> IconButton {
     let label = match crate::keymap::hint(crate::workbench::actions::Snip::ID, cx) {
         Some(keys) => format!("Snip to chat {keys}"),
@@ -2184,7 +2134,7 @@ pub fn pane(
                     field.child(Input::new(&page.address).appearance(false))
                 })
         }))
-        .children(front.map(|tab| viewport_select(bench, agent, &tab.id, cx)))
+        .children(front.map(|tab| width::chip(bench, agent, &tab.id, cx)))
         .child(snip_toggle(bench, agent, cx));
     if let Some(item) = front_item {
         let shown = match item {
@@ -2221,19 +2171,24 @@ pub fn pane(
         .relative()
         .key_context("BrowserPage")
         .children(page.filter(|_| !no_pages).map(|page| {
-            if front.is_some_and(idle_blank) {
-                div()
+            match front {
+                Some(tab) if idle_blank(tab) => div()
                     .track_focus(&page.focus)
                     .size_full()
-                    .into_any_element()
-            } else {
-                native_view(
-                    SharedString::from(format!("desk-page-{agent}")),
-                    &page.surface,
-                )
-                .track_focus(&page.focus)
-                .size_full()
-                .into_any_element()
+                    .into_any_element(),
+                _ => {
+                    let live = native_view(
+                        SharedString::from(format!("desk-page-{agent}")),
+                        &page.surface,
+                    )
+                    .track_focus(&page.focus)
+                    .size_full()
+                    .into_any_element();
+                    match front.filter(|tab| width::shows_all(bench, agent, tab, cx)) {
+                        Some(tab) => width::all(bench, agent, tab, live, cx),
+                        None => live,
+                    }
+                }
             }
         }))
         .when(no_pages, |body| {

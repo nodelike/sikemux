@@ -37,7 +37,7 @@ impl Viewport {
 
     pub fn preset(name: &str) -> Option<Self> {
         let (preset, width, height) = match name {
-            "desktop" => ("desktop", 1280, 800),
+            "desktop" => ("desktop", 1440, 900),
             "tablet" => ("tablet", 820, 1180),
             "mobile" => ("mobile", 390, 844),
             _ => return None,
@@ -189,7 +189,7 @@ mod tests {
         else {
             panic!("the shown tab was parked");
         };
-        assert_eq!(page, Some((1280.0, 800.0)));
+        assert_eq!(page, Some((1440.0, 900.0)));
         assert_eq!((frame.width, frame.height), (640.0, 400.0));
         assert_eq!((frame.x, frame.y), (100.0, 50.0));
     }

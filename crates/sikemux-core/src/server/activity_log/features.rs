@@ -39,6 +39,8 @@ const COMMANDS: &[&str] = &[
     "window.hosts",
     "browser.tabNew",
     "browser.snip",
+    "browser.width",
+    "browser.widthAll",
     "text.sizeIncrease",
 ];
 
