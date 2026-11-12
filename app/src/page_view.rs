@@ -59,6 +59,7 @@ pub(crate) fn open(
         surface: NativeSurface::new(Shows {
             _page: page.clone(),
             view,
+            parks: matches!(room, Room::App),
         }),
         page,
     })
@@ -103,12 +104,21 @@ pub(crate) fn open(
 struct Shows {
     _page: std::rc::Rc<sikemux_browser::page_view::PageView>,
     view: gpui_native_view::OwnedView,
+    /// Out of sight it shrinks to nothing rather than hiding: WebKit holds the main thread for up
+    /// to a quarter second when a hidden view shows again while its page is busy, as an app's
+    /// view is each time it is lent to another app.
+    parks: bool,
 }
 
 #[cfg(target_os = "macos")]
 impl gpui_native_view::Surface for Shows {
     fn place(&self, frame: Option<gpui_native_view::Frame>) {
-        self.view.place(frame);
+        let parked = gpui_native_view::Frame {
+            bounds: gpui_kit::Bounds::default(),
+            visible: gpui_kit::Bounds::default(),
+        };
+        self.view
+            .place(frame.or_else(|| self.parks.then_some(parked)));
     }
 
     fn responder(&self) -> Option<gpui_native_view::Retained<gpui_native_view::NSView>> {

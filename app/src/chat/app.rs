@@ -36,10 +36,16 @@ const HEADER_HEIGHT: f32 = 30.;
 /// How long the chat must rest before an app in sight borrows a view, so scrolling past apps,
 /// or flicking through a chat while reading it, never waits on WebKit.
 const SETTLE: Duration = Duration::from_millis(300);
+/// How long an app's card must have gone undrawn before another app in sight may take its
+/// view, which an app asks for only once the frame that saw it is drawn; taking a view whose
+/// card is still in sight would pass views round and round when more apps are in sight than
+/// there are views.
+const UNSEEN: Duration = Duration::from_millis(150);
 /// How long an app may be out of sight before it hands its view back.
 const GRACE: Duration = Duration::from_millis(1500);
-/// How long a view no app borrows is kept before it is let go.
-const IDLE: Duration = Duration::from_secs(30);
+/// How long a view no app borrows is kept before it is let go; making one again holds the main
+/// thread for a sixth of a second.
+const IDLE: Duration = Duration::from_secs(120);
 /// How long an app must be still before a fresh picture of it is taken.
 const QUIET: Duration = Duration::from_secs(1);
 /// How often a running app is looked at, to take a fresh still or hand its view back.
@@ -84,6 +90,8 @@ struct Shown {
 struct Sight {
     top: Cell<f32>,
     moved: Cell<Option<Instant>>,
+    /// When the card was last drawn in sight.
+    seen: Cell<Option<Instant>>,
     /// The chat rested long enough after this app last moved in sight to give it a view.
     settled: Cell<bool>,
     waiting: Cell<bool>,
@@ -133,7 +141,7 @@ impl Apps {
     }
 
     /// A view for one more app: one no app borrows, room for a new one, or the view of the app
-    /// longest out of sight; with every view showing an app in sight there is none.
+    /// whose card has gone undrawn longest; with every view showing an app in sight there is none.
     fn spare(&mut self) -> Option<Spare> {
         if let Some(kept) = self.views.iter().find(|kept| kept.app.is_none()) {
             return Some(Spare::Kept(kept.id));
@@ -145,13 +153,13 @@ impl Apps {
         let out_of_sight = self
             .views
             .iter()
-            .filter(|kept| kept.view.surface.placed().is_none())
             .filter_map(|kept| {
                 let app = kept.app.clone()?;
-                let moved = self.shown.get(&app)?.sight.moved.get();
-                Some((app, moved))
+                let seen = self.shown.get(&app)?.sight.seen.get();
+                seen.is_none_or(|seen| seen.elapsed() >= UNSEEN)
+                    .then_some((app, seen))
             })
-            .min_by_key(|(_, moved)| *moved)
+            .min_by_key(|(_, seen)| *seen)
             .map(|(app, _)| app)?;
         self.hand_back(&out_of_sight);
         self.spare()
@@ -432,6 +440,7 @@ impl Wake {
 
 /// The card was drawn in sight: once the chat rests with it there, the app gets a view.
 fn seen(id: &str, sight: &Rc<Sight>, top: f32, wake: &Wake, window: &mut Window, cx: &mut App) {
+    sight.seen.set(Some(Instant::now()));
     if (sight.top.get() - top).abs() > 0.5 || sight.moved.get().is_none() {
         sight.top.set(top);
         sight.moved.set(Some(Instant::now()));
@@ -445,7 +454,8 @@ fn seen(id: &str, sight: &Rc<Sight>, top: f32, wake: &Wake, window: &mut Window,
     }
     if sight.settled.get() {
         sight.settled.set(false);
-        start(id.to_owned(), wake.clone(), window, cx);
+        let (id, wake) = (id.to_owned(), wake.clone());
+        window.defer(cx, move |window, cx| start(id, wake, window, cx));
         return;
     }
     if sight.waiting.replace(true) {
