@@ -1475,14 +1475,19 @@ export interface Pin {
     /** The size the page was laid out at. */
     width: number;
     height: number;
-    /** What was pinned, in words: "Export button". */
+    /** What was pinned, in the page's own words: "Export button". */
     label: string;
     /** Where the element is, for the page to find it again. */
     selector: string;
-    /** A picture of the spot when it was placed, and once answered, after; paths on the host. */
+    /** Pictures of the spot when placed and once answered, by id, fetched with `pinPicture`. */
     before?: string;
     after?: string;
-    /** The commit the page ran from, when its checkout said. */
+    /**
+     * No after picture could be taken without the person: the next time they have the page in
+     * front, the app takes it from their own tab.
+     */
+    afterByHand?: boolean;
+    /** The checkout's commit when the pin was placed. */
     commit?: string;
     /** What the person and the agent said on it, oldest first. */
     notes: PinNote[];
@@ -1491,6 +1496,10 @@ export interface Pin {
     reopened?: boolean;
     /** When it came to stand as it does: sent, answered or closed. */
     since: number;
+    /** When the turn that took its last note began; only that turn's own end answers it. */
+    turn?: number;
+    /** The turn that took it was stopped or failed, so nobody is at work on it. */
+    stopped?: boolean;
     /** The agent is at work on it now. Worked out when the view is sent, never kept. */
     working?: boolean;
 }

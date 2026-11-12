@@ -1384,6 +1384,9 @@
             drawPins();
             return {};
         },
+        pageAt() {
+            return location.href;
+        },
         // Where the element `selector` finds sits in the viewport, when it is in sight; nothing
         // scrolls.
         pinRect(selector) {

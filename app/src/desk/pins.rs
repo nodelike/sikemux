@@ -44,6 +44,8 @@ struct Pictures {
     data: HashMap<String, String>,
     order: VecDeque<String>,
     fetching: HashSet<String>,
+    /// Pictures the core had no longer, asked for again only once a pin names them anew.
+    missing: HashSet<String>,
 }
 
 impl Pictures {
@@ -182,6 +184,14 @@ impl Workbench {
         }
         let pins: Vec<Pin> = view.pins.clone();
         let t = Tokens::get(cx).clone();
+        for pin in pins.iter().filter(|pin| {
+            pin.state == PinState::Answered
+                && pin.after.is_none()
+                && !pin.after_by_hand
+                && served_here(&pin.url)
+        }) {
+            self.take_after_privately(pin, &engine, cx);
+        }
         let fronts: Vec<(String, Option<BrowserTab>)> = (self.desks.read(cx).strips.iter())
             .map(|(agent, strip)| {
                 (
@@ -254,7 +264,9 @@ impl Workbench {
     fn fetch_pin_picture(&mut self, id: String, cx: &mut Context<Self>) {
         let wanted = self.desks.update(cx, |desks, _| {
             let pictures = &mut desks.pins_shown.pictures;
-            !pictures.data.contains_key(&id) && pictures.fetching.insert(id.clone())
+            !pictures.data.contains_key(&id)
+                && !pictures.missing.contains(&id)
+                && pictures.fetching.insert(id.clone())
         });
         if !wanted {
             return;
@@ -274,6 +286,7 @@ impl Workbench {
                             ),
                             Err(_) => {
                                 pictures.fetching.remove(&id);
+                                pictures.missing.insert(id);
                             }
                         }
                     });
@@ -314,9 +327,9 @@ impl Workbench {
         });
     }
 
-    /// The after picture from the person's own tab, which shows the pin's page now, when the
-    /// element is in sight there.
-    fn take_after_by_hand(
+    /// The after picture of a page this machine serves, from the private view off screen. When
+    /// it cannot be had there, the core is told, and the person's own tab takes it later.
+    fn take_after_privately(
         &mut self,
         pin: &Pin,
         engine: &Arc<BrowserManager>,
@@ -325,6 +338,44 @@ impl Workbench {
         let fresh = self.desks.update(cx, |desks, _| {
             desks.pins_shown.taking.insert(pin.id.clone())
         });
+        if !fresh {
+            return;
+        }
+        let Ok(fixed) = sikemux_browser::viewport::Viewport::sized(pin.width, pin.height) else {
+            return;
+        };
+        let (engine, agent, url, selector) = (
+            engine.clone(),
+            pin.agent_id.clone(),
+            pin.url.clone(),
+            pin.selector.clone(),
+        );
+        let target = crate::core::Target::here(&self.asks);
+        let id = pin.id.clone();
+        super::spawn(async move {
+            let taken = engine
+                .private_picture_of(&agent, &url, fixed, &selector)
+                .await
+                .ok();
+            target.call_typed::<call::PinAfter>(PinAfterParams {
+                id,
+                after: taken.map(|jpeg| encoded(&jpeg)),
+            });
+        });
+    }
+
+    /// The after picture from the person's own tab, which shows the pin's page now, when the
+    /// element is in sight there.
+    fn take_after_by_hand(
+        &mut self,
+        pin: &Pin,
+        engine: &Arc<BrowserManager>,
+        cx: &mut Context<Self>,
+    ) {
+        let hand = format!("hand:{}", pin.id);
+        let fresh = self
+            .desks
+            .update(cx, |desks, _| desks.pins_shown.taking.insert(hand.clone()));
         if !fresh {
             return;
         }
@@ -350,7 +401,7 @@ impl Workbench {
                         .update(cx, |bench, cx| {
                             bench
                                 .desks
-                                .update(cx, |desks, _| desks.pins_shown.taking.remove(&id))
+                                .update(cx, |desks, _| desks.pins_shown.taking.remove(&hand))
                         })
                         .ok();
                 }

@@ -1567,7 +1567,7 @@ impl BrowserManager {
         url: &str,
         fixed: crate::viewport::Viewport,
     ) -> Result<Vec<u8>, String> {
-        self.picture_in(&self.picturer, false, agent_id, url, fixed)
+        self.picture_in(&self.picturer, false, agent_id, url, fixed, None)
             .await
     }
 
@@ -1579,8 +1579,29 @@ impl BrowserManager {
         url: &str,
         fixed: crate::viewport::Viewport,
     ) -> Result<Vec<u8>, String> {
-        self.picture_in(&self.private_picturer, true, agent_id, url, fixed)
+        self.picture_in(&self.private_picturer, true, agent_id, url, fixed, None)
             .await
+    }
+
+    /// [`Self::private_picture_at`] cropped to the element `selector` finds, for a pin's spot.
+    /// It refuses when the view lands off `url`'s page, as on a redirect to sign in, or the
+    /// element is not there.
+    pub async fn private_picture_of(
+        &self,
+        agent_id: &str,
+        url: &str,
+        fixed: crate::viewport::Viewport,
+        selector: &str,
+    ) -> Result<Vec<u8>, String> {
+        self.picture_in(
+            &self.private_picturer,
+            true,
+            agent_id,
+            url,
+            fixed,
+            Some(selector),
+        )
+        .await
     }
 
     async fn picture_in(
@@ -1590,6 +1611,7 @@ impl BrowserManager {
         agent_id: &str,
         url: &str,
         fixed: crate::viewport::Viewport,
+        selector: Option<&str>,
     ) -> Result<Vec<u8>, String> {
         let user_agent = fixed.user_agent().unwrap_or(crate::USER_AGENT);
         let size = (f64::from(fixed.width), f64::from(fixed.height));
@@ -1611,7 +1633,19 @@ impl BrowserManager {
         let taken = async {
             view.loaded(LOAD_TIMEOUT).await?;
             tokio::time::sleep(SETTLE).await;
-            screenshot(view.view(), None, None).await
+            let Some(selector) = selector else {
+                return screenshot(view.view(), None, None).await;
+            };
+            let landed = call(view.view(), "pageAt", &[]).await?;
+            let page = |url: &str| url.split(['?', '#']).next().unwrap_or(url).to_owned();
+            if landed.as_str().map(page) != Some(page(url)) {
+                return Err("the page went elsewhere, as to sign in".into());
+            }
+            let area = call(view.view(), "areaOf", &[json!({ "selector": selector })])
+                .await
+                .map_err(|_| "the pinned element is not on the page".to_string())?;
+            tokio::time::sleep(SETTLE).await;
+            screenshot(view.view(), None, Some(crate::pins::with_room(&area, size))).await
         }
         .await;
         view.view().hide();

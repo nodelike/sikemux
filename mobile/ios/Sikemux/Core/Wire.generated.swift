@@ -2412,14 +2412,17 @@ struct Pin: Codable, Hashable, Sendable {
     /// The size the page was laid out at.
     var width: Int
     var height: Int
-    /// What was pinned, in words: "Export button".
+    /// What was pinned, in the page's own words: "Export button".
     var label: String
     /// Where the element is, for the page to find it again.
     var selector: String
-    /// A picture of the spot when it was placed, and once answered, after; paths on the host.
+    /// Pictures of the spot when placed and once answered, by id, fetched with `pinPicture`.
     var before: String?
     var after: String?
-    /// The commit the page ran from, when its checkout said.
+    /// No after picture could be taken without the person: the next time they have the page in
+    /// front, the app takes it from their own tab.
+    var afterByHand: Bool?
+    /// The checkout's commit when the pin was placed.
     var commit: String?
     /// What the person and the agent said on it, oldest first.
     var notes: [PinNote]
@@ -2428,6 +2431,10 @@ struct Pin: Codable, Hashable, Sendable {
     var reopened: Bool?
     /// When it came to stand as it does: sent, answered or closed.
     var since: Int
+    /// When the turn that took its last note began; only that turn's own end answers it.
+    var turn: Int?
+    /// The turn that took it was stopped or failed, so nobody is at work on it.
+    var stopped: Bool?
     /// The agent is at work on it now. Worked out when the view is sent, never kept.
     var working: Bool?
 }
@@ -2452,9 +2459,9 @@ enum PinBy: String, Codable, Hashable, Sendable {
 enum PinState: String, Codable, Hashable, Sendable {
     /// Sent to its agent and not yet answered.
     case `open`
-    /// The agent's turn after the pin ended, with what it said.
+    /// The turn that took it ended by itself, with what the agent said.
     case answered
-    /// The person said it looks right.
+    /// The person said it looks right, or its agent or project went.
     case closed
     /// One added after this build.
     case unknown

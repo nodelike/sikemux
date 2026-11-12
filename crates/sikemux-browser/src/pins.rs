@@ -62,7 +62,7 @@ pub async fn wait(manager: &BrowserManager, agent_id: &str) -> Result<PinAnswer,
 const ROOM: f64 = 16.0;
 
 /// `area` of the page's viewport with room around it, kept inside the viewport.
-fn with_room(area: &Value, viewport: (f64, f64)) -> (f64, f64, f64, f64) {
+pub(crate) fn with_room(area: &Value, viewport: (f64, f64)) -> (f64, f64, f64, f64) {
     let side = |key: &str| area[key].as_f64().unwrap_or(0.0);
     let left = (side("left") - ROOM).max(0.0);
     let top = (side("top") - ROOM).max(0.0);
