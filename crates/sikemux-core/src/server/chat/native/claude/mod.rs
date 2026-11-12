@@ -744,10 +744,16 @@ impl Backend for Claude {
     }
 
     async fn cancel(&mut self) -> Result<(), String> {
-        {
+        let (hidden, restore) = {
             let mut shared = self.shared.locked();
-            shared.quiet = None;
-            shared.hushed = false;
+            let hidden = shared.quiet.take().is_some();
+            (
+                hidden,
+                std::mem::take(&mut shared.hushed).then(|| shared.mode.clone()),
+            )
+        };
+        if let Some(mode) = restore {
+            self.running.control.restore_mode(&mode, 0)?;
         }
         let running = match self.shared.locked().turn.as_mut() {
             Some(turn) => {
@@ -756,7 +762,7 @@ impl Backend for Claude {
             }
             None => false,
         };
-        if !running {
+        if !running && !hidden {
             return Ok(());
         }
         self.running
@@ -869,10 +875,7 @@ impl Backend for Claude {
         if let Err(error) = self.writer().send(&user_message(&uuid, vec![ask], None)) {
             unhush(&self.shared);
             let mode = self.shared.locked().mode.clone();
-            let _ = self.running.control.send_for(
-                json!({ "subtype": "set_permission_mode", "mode": mode }),
-                Purpose::Mode,
-            );
+            let _ = self.running.control.restore_mode(&mode, 0);
             return Err(error);
         }
         // Past the wait the turn stays hushed: whatever it says late never reaches the chat.

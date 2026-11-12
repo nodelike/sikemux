@@ -58,6 +58,14 @@ impl Control {
         self.write(&id, request)
     }
 
+    /// Puts the chat's own permission mode back after a hidden turn ran in another.
+    pub fn restore_mode(&self, mode: &str, asked_before: u8) -> Result<(), String> {
+        self.send_for(
+            json!({ "subtype": "set_permission_mode", "mode": mode }),
+            Purpose::Mode(asked_before),
+        )
+    }
+
     pub fn writer(&self) -> &Writer {
         &self.writer
     }
