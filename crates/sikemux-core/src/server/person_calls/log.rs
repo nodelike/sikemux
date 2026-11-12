@@ -22,13 +22,19 @@ pub(super) enum Entry {
     Raised {
         call: Box<PersonCall>,
         source: Source,
+        /// What else raised the same call and waits on its answer.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        also: Vec<Source>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         key: Option<String>,
     },
+    /// Another agent waits on it, raising it again from `source`.
     #[serde(rename_all = "camelCase")]
     Joined {
         id: String,
         asker: CallAsker,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        source: Option<Source>,
         at: u64,
     },
     /// A client drew it.

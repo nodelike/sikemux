@@ -35,6 +35,10 @@ data class NotificationCard(
   /** Milliseconds since the Unix epoch. */
   val at: Long,
   val expiresAt: Long,
+  /** The call it puts to the person, answered with `answerCall`. */
+  val callId: String?,
+  /** The answers a call of taste offers as buttons, the asker's pick first. */
+  val options: List<NotificationOption>?,
 ) {
   companion object {
     /** Null when `json` is not one. */
@@ -61,6 +65,8 @@ data class NotificationCard(
           rejectOptionId = if (json.isNull("rejectOptionId")) null else json.getString("rejectOptionId"),
           at = json.getLong("at"),
           expiresAt = json.getLong("expiresAt"),
+          callId = if (json.isNull("callId")) null else json.getString("callId"),
+          options = if (json.isNull("options")) null else json.getJSONArray("options").let { list -> (0 until list.length()).mapNotNull { NotificationOption.of(list.getJSONObject(it)) } },
         )
       } catch (_: JSONException) {
         null
@@ -113,5 +119,24 @@ enum class NotificationCategory(val wire: String) {
 
   companion object {
     fun of(wire: String): NotificationCategory = entries.firstOrNull { it.wire == wire } ?: UNKNOWN
+  }
+}
+
+/** One answer a card offers, by the call option it picks. */
+data class NotificationOption(
+  val id: String,
+  val label: String,
+) {
+  companion object {
+    /** Null when `json` is not one. */
+    fun of(json: JSONObject): NotificationOption? =
+      try {
+        NotificationOption(
+          id = json.getString("id"),
+          label = json.getString("label"),
+        )
+      } catch (_: JSONException) {
+        null
+      }
   }
 }

@@ -1158,6 +1158,8 @@ function cardKotlin() {
         return type.name;
       case "option":
         return `${typeOf(type.of)}?`;
+      case "list":
+        return `List<${typeOf(type.of)}>`;
       default:
         fail(`Kotlin cannot read ${type.kind}`);
     }
@@ -1180,6 +1182,10 @@ function cardKotlin() {
         return `${type.name}.of(json.getString(${key}))`;
       case "option":
         return `if (json.isNull(${key})) null else ${read(type.of, key)}`;
+      case "list":
+        if (type.of.kind !== "named" || kinds.get(type.of.name) !== "struct")
+          fail(`Kotlin reads only lists of structs, not of ${type.of.kind}`);
+        return `json.getJSONArray(${key}).let { list -> (0 until list.length()).mapNotNull { ${type.of.name}.of(list.getJSONObject(it)) } }`;
       default:
         fail(`Kotlin cannot read ${type.kind}`);
     }

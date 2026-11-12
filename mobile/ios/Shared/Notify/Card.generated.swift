@@ -32,6 +32,10 @@ struct NotificationCard: Codable, Hashable {
     /// Milliseconds since the Unix epoch.
     let at: Int
     let expiresAt: Int
+    /// The call it puts to the person, answered with `answerCall`.
+    let callId: String?
+    /// The answers a call of taste offers as buttons, the asker's pick first.
+    let options: [NotificationOption]?
 }
 
 enum NotificationKind: String, Codable, Hashable {
@@ -81,4 +85,10 @@ enum NotificationCategory: String, Codable, Hashable {
     init(from decoder: Decoder) throws {
         self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
     }
+}
+
+/// One answer a card offers, by the call option it picks.
+struct NotificationOption: Codable, Hashable {
+    let id: String
+    let label: String
 }

@@ -29,8 +29,11 @@ use crate::accounts::live::Push;
 use crate::accounts::protocol::PushKind;
 use crate::push::{self, MAX_PLAINTEXT};
 use crate::text::clipped_line;
+use sikemux_view::calls::{CallKind, PersonCall};
 use sikemux_view::inbox::InboxItem;
-use sikemux_view::push::{NotificationCard, NotificationCategory, NotificationKind};
+use sikemux_view::push::{
+    NotificationCard, NotificationCategory, NotificationKind, NotificationOption,
+};
 use sikemux_wire::protocol::{
     AgentState, Attention, Event, NotifyPrefs, NotifyWhen, PendingDevice,
 };
@@ -321,6 +324,13 @@ fn noted(core: &Core, away: bool, now: u64) {
     }
 }
 
+/// Something the person is told of once while it waits on them.
+enum Told<'a> {
+    Item(&'a InboxItem),
+    /// A call nothing else tells of.
+    Call(&'a PersonCall),
+}
+
 /// Tells of each inbox item that needs the person and was not there at the last
 /// look, once, and takes each that no longer does off where it was told. What
 /// the first look finds counts as told everywhere already, as it was before
@@ -337,19 +347,31 @@ fn inbox(core: &Core, now: u64) {
         return;
     }
     let items = super::inbox::told(core);
+    let raised = super::person_calls::raised_open(core);
+    let told = (items.iter().map(|item| (item.id.clone(), Told::Item(item)))).chain(
+        raised
+            .iter()
+            .map(|call| (format!("call|{}", call.id), Told::Call(call))),
+    );
     let (fresh, gone) = {
         let mut state = core.notify.state.locked();
         let first = state.inbox.is_none();
         let before = state.inbox.take().unwrap_or_default();
         let mut kept = HashMap::new();
         let mut fresh = Vec::new();
-        for item in &items {
-            match before.get(&item.id) {
+        for (id, told) in told {
+            match before.get(&id) {
                 Some(draft) => {
-                    kept.insert(item.id.clone(), draft.clone());
+                    kept.insert(id, draft.clone());
                 }
                 None => {
-                    let draft = needed(core, item, now);
+                    let draft = match told {
+                        Told::Item(item) => needed(core, item, now),
+                        Told::Call(call) => match called(core, call, id.clone()) {
+                            Some(draft) => draft,
+                            None => continue,
+                        },
+                    };
                     if first {
                         for to in std::iter::once(APP).chain(phones.iter().map(String::as_str)) {
                             state.alerted.insert((to.to_owned(), draft.card.clone()));
@@ -357,7 +379,7 @@ fn inbox(core: &Core, now: u64) {
                     } else {
                         fresh.push(draft.clone());
                     }
-                    kept.insert(item.id.clone(), draft);
+                    kept.insert(id, draft);
                 }
             }
         }
@@ -533,6 +555,8 @@ struct Draft {
     reject_option_id: Option<String>,
     at: u64,
     expires_at: u64,
+    call_id: Option<String>,
+    options: Vec<NotificationOption>,
 }
 
 /// What the person would call an agent and where it works.
@@ -655,6 +679,8 @@ impl Named {
             request_id: None,
             allow_option_id: None,
             reject_option_id: None,
+            call_id: None,
+            options: Vec::new(),
             at,
             expires_at: at + life,
         }
@@ -691,6 +717,11 @@ fn permission(core: &Core, attention: &Attention) -> Option<Draft> {
 }
 
 fn question(core: &Core, agent_id: &str, id: &str, asked: &Asked) -> Option<Draft> {
+    match super::person_calls::asked_by(core, id) {
+        Some(call) if call.id == id => return called(core, &call, question_card(agent_id, id)),
+        Some(_) => return None,
+        None => {}
+    }
     let named = name(core, agent_id)?;
     let mut draft = named.draft(
         NotificationKind::Input,
@@ -711,6 +742,10 @@ fn question(core: &Core, agent_id: &str, id: &str, asked: &Asked) -> Option<Draf
 /// What the person is told of an inbox item that needs them, in the inbox's words:
 /// who, what is needed, and the detail or where.
 fn needed(core: &Core, item: &InboxItem, now: u64) -> Draft {
+    let call = (item.hold.as_ref()).and_then(|hold| super::person_calls::open_call(core, &hold.id));
+    if let Some(draft) = call.and_then(|call| called(core, &call, inbox_card(&item.id))) {
+        return draft;
+    }
     let agent_id = item.agent_id.clone().unwrap_or_default();
     let named = name(core, &agent_id);
     let who = (item.name.clone())
@@ -738,6 +773,8 @@ fn needed(core: &Core, item: &InboxItem, now: u64) -> Draft {
             request_id: None,
             allow_option_id: None,
             reject_option_id: None,
+            call_id: None,
+            options: Vec::new(),
             at: now,
             expires_at: now + PERMISSION_LIFE_MS,
         },
@@ -764,6 +801,55 @@ fn needed(core: &Core, item: &InboxItem, now: u64) -> Draft {
         None => draft.body = clipped_line(&place, MAX_BODY_CHARS),
     }
     draft
+}
+
+/// The most answers a call's card offers as buttons.
+const MAX_CARD_OPTIONS: usize = 4;
+
+/// A call as the person is told of it, in its own words: the decision, then the pick as a
+/// sentence. Only a call of taste offers its answers as buttons; a production call is answered
+/// where it is seen, so its card says to open it.
+fn called(core: &Core, call: &PersonCall, card: String) -> Option<Draft> {
+    let named = name(core, &call.asker.agent_id)?;
+    let mut draft = named.draft(
+        NotificationKind::Input,
+        card,
+        &call.asker.agent_id,
+        call.raised_at,
+        PERMISSION_LIFE_MS,
+    );
+    let label = |id: &String| call.options.iter().find(|option| option.id == *id);
+    let pick = call.pick.as_ref().and_then(label);
+    let said = pick.map(|pick| format!("My pick: {}", pick.label));
+    let open = (call.kind == CallKind::Production).then(|| "Open to answer.".to_owned());
+    let body = [said, open]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>()
+        .join(". ");
+    draft.title = clipped_line(&call.question, MAX_TITLE_CHARS);
+    draft.body = clipped_line(&body, MAX_BODY_CHARS);
+    let place = named
+        .project
+        .clone()
+        .unwrap_or_else(|| project_name(core, &call.project));
+    draft.detail = Some(clipped_line(
+        &format!("{place} · @{}", named.agent),
+        MAX_DETAIL_CHARS,
+    ));
+    draft.call_id = Some(call.id.clone());
+    if call.kind == CallKind::Taste && !call.multi {
+        let picked = pick.into_iter();
+        let others = (call.options.iter()).filter(|option| Some(&option.id) != call.pick.as_ref());
+        draft.options = (picked.chain(others))
+            .take(MAX_CARD_OPTIONS)
+            .map(|option| NotificationOption {
+                id: option.id.clone(),
+                label: clipped_line(&option.label, MAX_TITLE_CHARS),
+            })
+            .collect();
+    }
+    Some(draft)
 }
 
 fn needs_input(core: &Core, agent_id: &str, now: u64) -> Option<Draft> {
@@ -838,6 +924,8 @@ fn pairing(core: &Core, device: &PendingDevice) -> Draft {
         request_id: None,
         allow_option_id: None,
         reject_option_id: None,
+        call_id: None,
+        options: Vec::new(),
         at: epoch_ms(),
         expires_at: device.expires_at,
     }
@@ -942,6 +1030,8 @@ fn address(draft: &Draft, host: &str, host_name: &str, target: &NotifyTarget) ->
         reject_option_id: draft.reject_option_id.clone(),
         at: draft.at,
         expires_at: draft.expires_at,
+        call_id: draft.call_id.clone(),
+        options: draft.options.clone(),
     };
     let mut plaintext = serde_json::to_vec(&notification).ok()?;
     if plaintext.len() > MAX_PLAINTEXT {
@@ -1081,6 +1171,8 @@ fn clear_all(core: &Core, agent_id: &str, card: &str, request_id: Option<String>
             request_id: request_id.clone(),
             allow_option_id: None,
             reject_option_id: None,
+            call_id: None,
+            options: Vec::new(),
             at: now,
             expires_at: now + CLEAR_LIFE_MS,
         };

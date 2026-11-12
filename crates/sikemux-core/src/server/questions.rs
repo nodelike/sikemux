@@ -2778,8 +2778,8 @@ pub(crate) fn settle(core: &Arc<Core>) {
     if let Some(next) = next {
         core.harness.questions.wake.at(next);
     }
-    tell_phones(core);
     tell_calls(core);
+    tell_phones(core);
     tell_window(core);
 }
 

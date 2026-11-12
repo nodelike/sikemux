@@ -84,4 +84,18 @@ pub struct NotificationCard {
     /// Milliseconds since the Unix epoch.
     pub at: u64,
     pub expires_at: u64,
+    /// The call it puts to the person, answered with `answerCall`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub call_id: Option<String>,
+    /// The answers a call of taste offers as buttons, the asker's pick first.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub options: Vec<NotificationOption>,
+}
+
+/// One answer a card offers, by the call option it picks.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NotificationOption {
+    pub id: String,
+    pub label: String,
 }

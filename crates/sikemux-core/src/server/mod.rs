@@ -555,8 +555,10 @@ impl Core {
         let hosts = hosts::Hosts::new(data_dir);
         names.pin(hosts.team.ids());
         let harness = harness::Harness::new(data_dir, |agent_id| names.get(agent_id).is_some());
-        let person_calls =
-            person_calls::PersonCalls::new(data_dir, |id| harness.questions.is_open(id));
+        let activity_log = Arc::new(activity_log::ActivityLog::new(data_dir));
+        let person_calls = person_calls::PersonCalls::new(data_dir, activity_log.clone(), |id| {
+            harness.questions.is_open(id)
+        });
         let core = Arc::new_cyclic(|me| Self {
             me: me.clone(),
             started,
@@ -591,7 +593,7 @@ impl Core {
             build_outputs: Default::default(),
             builds: builds::Builds::default(),
             session_watch: session_watch::SessionWatch::default(),
-            activity_log: Arc::new(activity_log::ActivityLog::new(data_dir)),
+            activity_log,
             device_view: device_view::DeviceViews::default(),
             host_watch: host_stats::HostWatch::default(),
             names,

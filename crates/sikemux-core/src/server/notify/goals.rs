@@ -157,5 +157,7 @@ fn draft(core: &Core, gathered: &Gathered, now: u64) -> Draft {
         reject_option_id: None,
         at: now,
         expires_at: now + GOAL_LIFE_MS,
+        call_id: None,
+        options: Vec::new(),
     }
 }
