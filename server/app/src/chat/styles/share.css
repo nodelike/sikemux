@@ -65,3 +65,57 @@
     display: none;
   }
 }
+
+/* A viewer's composer: the agent's own composer fill and edge, a send button and nothing else. */
+.shared-chat-composer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  width: min(100%, 820px);
+  margin: 0 auto;
+  padding: var(--space-2) var(--space-2) var(--space-1h) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-4);
+  background: var(--chat-composer-fill);
+}
+
+.shared-chat-composer textarea {
+  resize: none;
+  border: 0;
+  outline: none;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
+.shared-chat-composer textarea::placeholder {
+  color: var(--ink-faint);
+}
+
+.shared-chat-composer-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  color: var(--danger);
+  font-family: var(--ui);
+  font-size: var(--text-xs);
+}
+
+.shared-chat-composer button {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-full);
+  background: var(--acc);
+  color: var(--void);
+}
+
+.shared-chat-composer button:disabled {
+  background: var(--line);
+  color: var(--ink-faint);
+}

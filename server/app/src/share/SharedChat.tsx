@@ -23,7 +23,13 @@ import { RemoteOriginContext } from "../chat/transcript/origin";
 import { subagentsOf } from "@shared/chat/subagents";
 import { useMessageArrival } from "../chat/transcript/useMessageArrival";
 import { useStickToBottom } from "../chat/transcript/useStickToBottom";
-import { AgentIcon, IconArrowDown, IconEye, IconPlug } from "@shared/ui/Icons";
+import {
+  AgentIcon,
+  IconArrowDown,
+  IconArrowUp,
+  IconEye,
+  IconPlug,
+} from "@shared/ui/Icons";
 import {
   sharedChatTitle,
   type ShareSession,
@@ -50,8 +56,8 @@ function endedText(snapshot: ShareSnapshot): string {
 }
 
 /**
- * Someone's chat, shared read-only: the same header and transcript as the agent's own pane,
- * without a composer, and a line under it saying whose it is and how long it stays open.
+ * Someone's chat, shared: the same header and transcript as the agent's own pane, a composer
+ * whose messages wait for the sharer to send or dismiss, and a line saying how long it stays open.
  */
 export function SharedChat({
   session,
@@ -105,6 +111,7 @@ export function SharedChat({
       ? endedText(snapshot)
       : PROBLEMS[snapshot.status];
   const title = sharedChatTitle(snapshot);
+  const guests = state.guests ?? [];
 
   const before = (
     <>
@@ -157,7 +164,7 @@ export function SharedChat({
                   <div className="agent-surface-controls">
                     <span className="shared-chat-badge">
                       <IconEye size={13} />
-                      <span>Read-only</span>
+                      <span>Guest</span>
                     </span>
                     <div className="agent-view-switch">
                       <button
@@ -193,12 +200,20 @@ export function SharedChat({
                             <IconArrowDown size={14} />
                           </button>
                         )}
-                        {(state.runningSubagents.length > 0 ||
+                        {(guests.length > 0 ||
+                          state.runningSubagents.length > 0 ||
                           state.tasks.length > 0) && (
                           <LiveStack
+                            guests={guests}
                             subagents={state.runningSubagents}
                             tasks={state.tasks}
                             folds={liveFolds}
+                          />
+                        )}
+                        {snapshot.status === "live" && (
+                          <GuestComposer
+                            session={session}
+                            hostOnline={snapshot.hostOnline}
                           />
                         )}
                         <SharedChatFoot snapshot={snapshot} />
@@ -213,6 +228,69 @@ export function SharedChat({
         </ChatAgentContext.Provider>
       </PathRootsProvider>
     </RemoteOriginContext>
+  );
+}
+
+/** Where a viewer writes to the agent; what it sends waits for the sharer to send or dismiss. */
+function GuestComposer({
+  session,
+  hostOnline,
+}: {
+  session: ShareSession;
+  hostOnline: boolean;
+}) {
+  const [text, setText] = useState("");
+  const [sending, setSending] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  const ready = hostOnline && !sending && text.trim() !== "";
+  const send = () => {
+    if (!ready) return;
+    setSending(true);
+    setProblem(null);
+    void session.sendMessage(text).then((refused) => {
+      setSending(false);
+      if (refused) setProblem(refused);
+      else setText("");
+    });
+  };
+  return (
+    <form
+      className="shared-chat-composer"
+      onSubmit={(event) => {
+        event.preventDefault();
+        send();
+      }}
+    >
+      <textarea
+        value={text}
+        rows={2}
+        maxLength={10_000}
+        placeholder={
+          hostOnline
+            ? "Write to the agent. The sharer sends or dismisses it"
+            : "The sharer's computer is offline"
+        }
+        disabled={!hostOnline}
+        aria-label="Message for the agent"
+        onChange={(event) => setText(event.target.value)}
+        onKeyDown={(event) => {
+          if (
+            event.key === "Enter" &&
+            !event.shiftKey &&
+            !event.nativeEvent.isComposing
+          ) {
+            event.preventDefault();
+            send();
+          }
+        }}
+      />
+      <div className="shared-chat-composer-foot">
+        <span role="status">{problem}</span>
+        <button type="submit" disabled={!ready} aria-label="Send to the sharer">
+          <IconArrowUp size={14} />
+        </button>
+      </div>
+    </form>
   );
 }
 
@@ -231,7 +309,7 @@ function SharedChatFoot({ snapshot }: { snapshot: ShareSnapshot }) {
       <span
         className={`shared-chat-state${snapshot.hostOnline && live ? " live" : ""}`}
       >
-        {state ?? "Read-only"}
+        {state ?? "Not live"}
       </span>
       {live && snapshot.expiresAt !== null && (
         <span>Link ends in {formatTimeLeft(snapshot.expiresAt, now)}</span>

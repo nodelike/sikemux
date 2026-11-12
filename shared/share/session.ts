@@ -65,9 +65,10 @@ const SHARING_CORE = "share";
 const ANSWER_WAIT_MS = 30_000;
 
 /**
- * One shared chat, watched read-only through the accounts server. It holds the rows the host's
- * snapshot sends and makes the changes that follow, and asks the host, sealed, for the turns
- * before them, for what a tool call changed and printed, and for the pictures pasted into them.
+ * One shared chat, watched through the accounts server. It holds the rows the host's snapshot
+ * sends and makes the changes that follow, and asks the host, sealed, for the turns before them,
+ * for what a tool call changed and printed, and for the pictures pasted into them. A message the
+ * viewer writes waits on the host until the sharer sends or dismisses it.
  */
 export class ShareSession {
     private listeners = new Set<() => void>();
@@ -153,6 +154,13 @@ export class ShareSession {
     /** What a tool call changed and printed, or null when the host will not or cannot say. */
     readToolDetail = (toolCallId: string): Promise<ToolDetail | null> =>
         this.ask({ type: "toolDetail", toolCallId }).then((answer) => answer?.toolDetail ?? null);
+
+    /** Writes the agent a message that waits until the sharer sends or dismisses it. Resolves to why it was not taken, or null. */
+    sendMessage = async (text: string): Promise<string | null> => {
+        const answer = await this.request({ type: "message", text });
+        if (!answer) return this.hostOnline ? "The sharer's computer did not answer." : "The sharer's computer is offline.";
+        return answer.error ?? null;
+    };
 
     /** A picture pasted into the chat, as a data URL, or null when the host will not or cannot send it. */
     readImage = (path: string): Promise<string | null> => {
@@ -342,6 +350,12 @@ export class ShareSession {
 
     /** Asks the host something, sealed. Answers null when the host is away or will not say. */
     private async ask(question: Question): Promise<ShareReply | null> {
+        const answer = await this.request(question);
+        return answer?.error ? null : answer;
+    }
+
+    /** The host's answer, error and all, or null when it is away or does not answer in time. */
+    private async request(question: Question): Promise<ShareReply | null> {
         const socket = this.socket;
         if (!socket || !this.hostOnline) return null;
         const id = (this.asked += 1);
@@ -351,7 +365,7 @@ export class ShareSession {
             this.answers.set(id, (answer) => {
                 clearTimeout(timer);
                 this.answers.delete(id);
-                resolve(answer?.error ? null : answer);
+                resolve(answer);
             });
             this.send(socket, { type: "ask", sealed });
         });

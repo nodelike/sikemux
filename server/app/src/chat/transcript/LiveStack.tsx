@@ -4,6 +4,7 @@ import {
   IconChevron,
   IconClose,
   IconCommand,
+  IconMessage,
   IconTimer,
   IconWorkflow,
 } from "@shared/ui/Icons";
@@ -21,6 +22,7 @@ import {
 } from "@shared/chat/transcript";
 import type {
   AsyncTask,
+  GuestMessage,
   SubagentCard,
   WorkflowAgent,
 } from "@shared/wire.generated";
@@ -213,18 +215,51 @@ function Group({
   );
 }
 
-/** What is still going on under the transcript: running subagents and background tasks. */
+/** Messages a shared chat's viewers wrote, waiting for the sharer to send or dismiss them. */
+function WaitingGuests({
+  guests,
+  folds,
+}: {
+  guests: GuestMessage[];
+  folds: GroupFolds;
+}) {
+  if (guests.length === 0) return null;
+  return (
+    <Group
+      label="waiting message"
+      count={guests.length}
+      fold={{
+        folded: folds.folded.has("guests"),
+        onToggle: () => folds.toggle("guests"),
+        icon: <IconMessage size={12} />,
+        peek: guests.map((guest) => guest.text),
+      }}
+    >
+      {guests.map((guest) => (
+        <div className="chat-task" key={guest.id}>
+          <IconMessage size={12} />
+          <span className="chat-task-name">{guest.text}</span>
+        </div>
+      ))}
+    </Group>
+  );
+}
+
+/** What is still going on under the transcript: guests' waiting messages, running subagents and background tasks. */
 export default function LiveStack({
+  guests,
   subagents,
   tasks,
   folds,
 }: {
+  guests: GuestMessage[];
   subagents: SubagentCard[];
   tasks: AsyncTask[];
   folds: GroupFolds;
 }) {
   return (
     <div className="chat-live-stack">
+      <WaitingGuests guests={guests} folds={folds} />
       <RunningSubagents subagents={subagents} folds={folds} />
       <BackgroundTasks tasks={tasks} folds={folds} />
     </div>
