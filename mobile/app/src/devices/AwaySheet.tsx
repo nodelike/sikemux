@@ -155,7 +155,7 @@ function Choices({ core, shown, onClose, onDone }: { core: string; shown: AgentS
       {failed ? <Text style={styles.failed}>{failed}</Text> : null}
       <View style={styles.items}>
         {settled ? (
-          <MenuItem icon="IconRotate" label={t('Restore')} onPress={() => act((connection) => settle(connection, ids, false))} />
+          <MenuItem icon="IconRestore" label={t('Restore')} onPress={() => act((connection) => settle(connection, ids, false))} />
         ) : (
           <MenuItem
             icon="IconCheck"

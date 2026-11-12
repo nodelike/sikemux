@@ -118,6 +118,10 @@ const DRAWN = {
   rocket: [ICONS, "IconRocket"],
   "hand-off": [ICONS, "IconHandOff"],
   rotate: [ICONS, "IconRotate"],
+  resume: [ICONS, "IconResume"],
+  restore: [ICONS, "IconRestore"],
+  wand: [ICONS, "IconWand"],
+  replace: [ICONS, "IconReplace"],
   pin: [ICONS, "IconPin"],
   power: [ICONS, "IconPower"],
   "square-plus": [ICONS, "IconSquarePlus"],
@@ -188,8 +192,13 @@ function oklchToHex(l, c, h) {
   ];
   const encoded = linear.map((value) => {
     const clamped = Math.min(1, Math.max(0, value));
-    const srgb = clamped <= 0.0031308 ? 12.92 * clamped : 1.055 * clamped ** (1 / 2.4) - 0.055;
-    return Math.round(srgb * 255).toString(16).padStart(2, "0");
+    const srgb =
+      clamped <= 0.0031308
+        ? 12.92 * clamped
+        : 1.055 * clamped ** (1 / 2.4) - 0.055;
+    return Math.round(srgb * 255)
+      .toString(16)
+      .padStart(2, "0");
   });
   return `#${encoded.join("")}`;
 }
@@ -208,23 +217,39 @@ try {
   await mkdir(out, { recursive: true });
   for (const [file, [module, name, props = {}]] of Object.entries(DRAWN)) {
     const component = (await server.ssrLoadModule(module))[name];
-    const markup = renderToStaticMarkup(createElement(component, { size: 16, ...props }))
-      .replace(/^<svg[^>]*>/, (root) => root.replace(/ (width|height|class|aria-hidden)="[^"]*"/g, ""))
+    const markup = renderToStaticMarkup(
+      createElement(component, { size: 16, ...props }),
+    )
+      .replace(/^<svg[^>]*>/, (root) =>
+        root.replace(/ (width|height|class|aria-hidden)="[^"]*"/g, ""),
+      )
       .replace("<svg", '<svg xmlns="http://www.w3.org/2000/svg"')
       .replaceAll("currentColor", MIXED[file] ?? "currentColor");
     await writeFile(resolve(out, `${file}.svg`), `${markup}\n`);
   }
   for (const [file, path] of Object.entries(PICTURES))
-    await writeFile(resolve(out, `${file}.svg`), (await readFile(resolve(root, path), "utf8")).replace(OKLCH, (_, l, c, h) => oklchToHex(+l, +c, +h)));
+    await writeFile(
+      resolve(out, `${file}.svg`),
+      (await readFile(resolve(root, path), "utf8")).replace(
+        OKLCH,
+        (_, l, c, h) => oklchToHex(+l, +c, +h),
+      ),
+    );
   const bolt = (extra) =>
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="7 -3 12 19" fill="currentColor"><path d="${BATTERY_BOLT}"${extra}></path></svg>\n`;
   const chevron = await readFile(resolve(out, "chevron.svg"), "utf8");
   await writeFile(
     resolve(out, "chevron-down.svg"),
-    chevron.replace(/^(<svg[^>]*>)(.*)(<\/svg>)/s, '$1<g transform="rotate(90 12 12)">$2</g>$3'),
+    chevron.replace(
+      /^(<svg[^>]*>)(.*)(<\/svg>)/s,
+      '$1<g transform="rotate(90 12 12)">$2</g>$3',
+    ),
   );
   await writeFile(resolve(out, "battery-bolt.svg"), bolt(""));
-  await writeFile(resolve(out, "battery-bolt-gap.svg"), bolt(' stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"'));
+  await writeFile(
+    resolve(out, "battery-bolt-gap.svg"),
+    bolt(' stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"'),
+  );
 } finally {
   await server.close();
 }

@@ -168,10 +168,11 @@ export const IconEditor = makeSvgIcon(
         <path d="m14.5 4-5 16" />
     </>,
 );
-export const IconRun = makeSvgIcon(<path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z" />, {
-    fill: "currentColor",
-});
-export const IconStop = makeSvgIcon(<rect x="3" y="3" width="18" height="18" rx="2" />, { fill: "currentColor" });
+export const IconRun = makeSvgIcon(
+    <path d="M6.5 6.4a1.6 1.6 0 0 1 2.406-1.382l9.598 5.598a1.6 1.6 0 0 1 .002 2.766l-9.6 5.6A1.6 1.6 0 0 1 6.5 17.6z" stroke="none" />,
+    { fill: "currentColor" },
+);
+export const IconStop = makeSvgIcon(<rect x="6" y="6" width="12" height="12" rx="2" stroke="none" />, { fill: "currentColor" });
 export const IconGit = makeSvgIcon(
     <>
         <path d="M15 6a9 9 0 0 0-9 9V3" />
@@ -286,6 +287,44 @@ export const IconRotate = makeSvgIcon(
         <path d="M12 5H6a2 2 0 0 0-2 2v3" />
         <path d="m9 8 3-3-3-3" />
         <path d="M4 14v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2" />
+    </>,
+);
+export const IconResume = makeSvgIcon(
+    <>
+        <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+        <path d="M3 3v5h5" />
+    </>,
+);
+export const IconRestore = makeSvgIcon(
+    <>
+        <rect x="2" y="3" width="20" height="5" rx="1" />
+        <path d="M4 8v11a2 2 0 0 0 2 2h2" />
+        <path d="M20 8v11a2 2 0 0 1-2 2h-2" />
+        <path d="m9 15 3-3 3 3" />
+        <path d="M12 12v9" />
+    </>,
+);
+export const IconWand = makeSvgIcon(
+    <>
+        <path d="m21.64 3.64-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.2 1.2 0 0 0 1.72 0L21.64 5.36a1.2 1.2 0 0 0 0-1.72" />
+        <path d="m14 7 3 3" />
+        <path d="M5 6v4" />
+        <path d="M19 14v4" />
+        <path d="M10 2v2" />
+        <path d="M7 8H3" />
+        <path d="M21 16h-4" />
+        <path d="M11 3H9" />
+    </>,
+);
+export const IconReplace = makeSvgIcon(
+    <>
+        <path d="M14 4a1 1 0 0 1 1-1" />
+        <path d="M15 10a1 1 0 0 1-1-1" />
+        <path d="M21 4a1 1 0 0 0-1-1" />
+        <path d="M21 9a1 1 0 0 1-1 1" />
+        <path d="m3 7 3 3 3-3" />
+        <path d="M6 10V5a2 2 0 0 1 2-2h2" />
+        <rect x="3" y="14" width="7" height="7" rx="1" />
     </>,
 );
 export const IconCamera = makeSvgIcon(

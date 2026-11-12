@@ -588,7 +588,7 @@ impl TabMenu {
             let (strip, tab) = (strip.clone(), tab.clone());
             popup = popup.item(
                 PopupMenuItem::new(t!("Use Automatic Name"))
-                    .icon(Icon::Rotate)
+                    .icon(Icon::Wand)
                     .on_click(on_bench(&self.bench, move |bench, _| {
                         bench.rename_tab(&strip, &tab, "")
                     })),

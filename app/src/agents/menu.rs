@@ -318,7 +318,7 @@ impl AgentMenu {
             let (row, place, local) = (id.clone(), asked.clone(), record.is_some());
             popup = popup.item(
                 PopupMenuItem::new(t!("Resume"))
-                    .icon(Icon::Rotate)
+                    .icon(Icon::Resume)
                     .on_click(self.on_bench(move |bench, cx| match local {
                         true => bench.open_agent(&row, cx),
                         false => {

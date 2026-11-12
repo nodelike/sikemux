@@ -252,7 +252,7 @@ pub fn menu_items(
         )
     };
     let (label, icon) = match settled {
-        true => (t!("Restore"), Icon::Rotate),
+        true => (t!("Restore"), Icon::Restore),
         false => (t!("Settle"), Icon::Check),
     };
     popup.item(

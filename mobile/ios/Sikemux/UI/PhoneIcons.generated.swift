@@ -266,8 +266,7 @@ extension Icons {
         IconShape(d: "M4 14v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 2),
     ])
     static let run = IconDef(viewBox: ViewBox(x: 0, y: 0, width: 24, height: 24), shapes: [
-        IconShape(d: "M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z", style: .fill(.current), opacity: 1, evenOdd: false, translate: (0, 0)),
-        IconShape(d: "M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 2),
+        IconShape(d: "M6.5 6.4a1.6 1.6 0 0 1 2.406-1.382l9.598 5.598a1.6 1.6 0 0 1 .002 2.766l-9.6 5.6A1.6 1.6 0 0 1 6.5 17.6z", style: .fill(.current), opacity: 1, evenOdd: false, translate: (0, 0)),
     ])
     static let rundeck = IconDef(viewBox: ViewBox(x: 45.359, y: 114.637, width: 60.122, height: 58.576), shapes: [
         IconShape(d: "M46.83 113.864l7.608 12.01H92.5l-7.543-12.01zm15.26 23.98l3.684 5.754-3.968 6.32h38.4l3.815-6.017-3.815-5.907h-38.04zm-7.826 24.13l-7.455 11.77v.24h38.148l7.564-12.012z", style: .fill(.hex("#f91629")), opacity: 1, evenOdd: false, translate: (0, 0)),
@@ -300,8 +299,7 @@ extension Icons {
         IconShape(d: "M6.5 20H3.4c0-1 2.6-1.925 2.6-3.5a1.5 1.5 0 0 0-2.6-1.02", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 2),
     ])
     static let stop = IconDef(viewBox: ViewBox(x: 0, y: 0, width: 24, height: 24), shapes: [
-        IconShape(d: "M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2v-14a2 2 0 0 1 2 -2z", style: .fill(.current), opacity: 1, evenOdd: false, translate: (0, 0)),
-        IconShape(d: "M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2v-14a2 2 0 0 1 2 -2z", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 2),
+        IconShape(d: "M8 6h8a2 2 0 0 1 2 2v8a2 2 0 0 1 -2 2h-8a2 2 0 0 1 -2 -2v-8a2 2 0 0 1 2 -2z", style: .fill(.current), opacity: 1, evenOdd: false, translate: (0, 0)),
     ])
     static let swipe = IconDef(viewBox: ViewBox(x: 0, y: 0, width: 24, height: 24), shapes: [
         IconShape(d: "M18 8L22 12L18 16", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 2),

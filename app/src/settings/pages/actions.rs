@@ -57,7 +57,11 @@ const PLACEMENTS: [(CustomCommandPlacement, Icon, &str); 5] = [
         Icon::Bolt,
         n!("Background"),
     ),
-    (CustomCommandPlacement::Replace, Icon::Rotate, n!("Replace")),
+    (
+        CustomCommandPlacement::Replace,
+        Icon::Replace,
+        n!("Replace"),
+    ),
 ];
 
 /// The action being written: a saved one being changed, or a new one.
