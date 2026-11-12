@@ -149,6 +149,7 @@ calls! { core, client, method, params;
     },
     "resumeSession" ResumeSession (super::workspace::SessionChoice) -> super::launching::SessionTaken: Full, counted => super::launching::resume_session(&core, params).await?,
     "reopenAgent" ReopenAgent (AgentParams) -> super::launching::SessionTaken: Full, counted => super::launching::reopen_agent(&core, params.agent_id).await?,
+    "openChief" OpenChief (super::chief::OpenChiefParams) -> super::chief::OpenedChief: Full, counted => super::chief::open(&core, params).await?,
     "activitySummary" ActivitySummary (super::activity_log::ActivitySummaryParams) -> super::activity_log::ActivitySummary: Watch, any_program => super::activity_log::summary_for(&core, params).await?,
     "setActivityPrice" SetActivityPrice (super::activity_log::ActivityPriceParams) -> (): Owner => super::activity_log::set_price_for(&core, params)?,
     "steerQueued" SteerQueued (chat_calls::QueuedParams) -> (): Full, counted => {

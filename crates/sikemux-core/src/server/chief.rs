@@ -1,11 +1,11 @@
 //! Each project's chief, @Chief: one persistent chat per project that every other agent there
 //! works under. It is a chat like any other, on the agent and model a new chat in the project
-//! would use, with a seat: a brief from the core and a session kept small. Its row is there
-//! from the start; its agent starts only once the person opens it or writes to it.
+//! would use, with a seat: a brief from the core and a session kept small. Clients draw its row
+//! for every project from the project itself; its chat is made the first time the person opens
+//! that row, and its agent starts only once they write to it.
 
 use std::collections::HashSet;
 use std::sync::Arc;
-use std::time::Duration;
 
 use sikemux_view::workspace::ProjectInfo;
 
@@ -14,9 +14,6 @@ use super::{Core, CoreResult};
 
 /// What every project's chief is called, which no other agent may be.
 pub(crate) const NAME: &str = "Chief";
-/// How often the core makes sure every project has its chief, so a new project gets one and
-/// a closed one comes back.
-const LOOK_EVERY: Duration = Duration::from_secs(10);
 
 /// How the chief works, ahead of the project's rules in its instructions.
 pub(crate) const SEAT: &str = "You are @Chief, this project's chief in Sikemux. The person talks to you; every other agent in the project works under you. Your job is to decide and route, not to do the work yourself.
@@ -48,30 +45,40 @@ pub(crate) fn is_chief(core: &Core, agent_id: &str) -> bool {
     (core.workspaces.projects().iter()).any(|project| project.chief.as_deref() == Some(agent_id))
 }
 
-/// Gives every project its chief, again and again, for as long as the core runs.
-pub(crate) async fn serve(core: Arc<Core>) {
-    let mut ticker = tokio::time::interval(LOOK_EVERY);
-    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-    loop {
-        ticker.tick().await;
-        for project in core.workspace_view().projects {
-            if let Err(error) = seat(&core, &project).await {
-                eprintln!(
-                    "sikemux core: {} has no chief for now: {error}",
-                    project.name
-                );
-            }
-        }
-    }
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenChiefParams {
+    /// The project, by id.
+    pub project: String,
 }
 
-/// Makes sure `project` has its chief open: itself while it is, taken up again as itself
-/// after a close, else made, waiting for the person.
-async fn seat(core: &Arc<Core>, project: &ProjectInfo) -> CoreResult<()> {
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenedChief {
+    pub agent_id: String,
+}
+
+/// Opens a project's chief, as the person opening its row or writing to it does: made the
+/// first time, waiting for the person, and brought back as itself after a close.
+pub(crate) async fn open(core: &Arc<Core>, params: OpenChiefParams) -> CoreResult<OpenedChief> {
+    static OPENING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    let _one_at_a_time = OPENING.lock().await;
+    let project = (core.workspace_view().projects.into_iter())
+        .find(|project| project.id == params.project)
+        .ok_or("that project is not on this host")?;
+    let agent_id = seat(core, &project).await?;
+    Ok(OpenedChief { agent_id })
+}
+
+/// The project's chief, open: itself while it is, taken up again as itself after a close,
+/// else made, waiting for the person.
+async fn seat(core: &Arc<Core>, project: &ProjectInfo) -> CoreResult<String> {
     match &project.chief {
-        Some(chief) if core.workspaces.agent(chief).is_some() => Ok(()),
+        Some(chief) if core.workspaces.agent(chief).is_some() => Ok(chief.clone()),
         Some(chief) if core.names.ran_session(chief).is_some() => {
-            launching::reopen_agent(core, chief.clone()).await.map(drop)
+            launching::reopen_agent(core, chief.clone())
+                .await
+                .map(|taken| taken.agent_id)
         }
         Some(chief) => make(core, project, chief.clone()).await,
         None => {
@@ -84,7 +91,7 @@ async fn seat(core: &Arc<Core>, project: &ProjectInfo) -> CoreResult<()> {
 
 /// Starts the chief's chat on the launcher a new chat in the project would use, waiting for
 /// the person.
-async fn make(core: &Arc<Core>, project: &ProjectInfo, chief: String) -> CoreResult<()> {
+async fn make(core: &Arc<Core>, project: &ProjectInfo, chief: String) -> CoreResult<String> {
     let launcher = (project.launcher.clone()).ok_or("no agent here can run it")?;
     let kind = super::workspace::LauncherId::parse(&launcher)
         .kind
@@ -106,5 +113,7 @@ async fn make(core: &Arc<Core>, project: &ProjectInfo, chief: String) -> CoreRes
         program: None,
         waits_for_person: true,
     };
-    launching::start(core, None, chosen).await.map(drop)
+    let agent_id = chosen.agent_id.clone();
+    launching::start(core, None, chosen).await?;
+    Ok(agent_id)
 }
