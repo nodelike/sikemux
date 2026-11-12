@@ -32,6 +32,8 @@ pub enum Topic {
     /// The hosts linked with this one, the SSH hosts a terminal is open to,
     /// and how each is reached.
     Hosts,
+    /// The programs outside Sikemux the person lets drive its chats, and those waiting.
+    Outside,
     /// A language server's diagnostics for the files in `paths` moved.
     Lsp,
     /// How the person wants Sikemux to behave.

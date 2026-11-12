@@ -72,6 +72,7 @@ pub mod new_project;
 mod notch;
 mod notify;
 pub mod open_files;
+pub mod outside;
 mod overlap;
 mod part;
 pub(crate) mod person_calls;
@@ -432,6 +433,8 @@ pub(crate) struct Core {
     pub(crate) model_proxy: model_proxy::ModelProxy,
     pub(crate) chats: chat::Chats,
     pub(crate) remote: remote::Remote,
+    /// Programs Sikemux did not start that the person lets drive its chats.
+    pub(crate) outside: outside::Outside,
     pub(crate) shares: share::Shares,
     pub(crate) hooks: hooks::Hooks,
     pub(crate) workspaces: workspace::Workspaces,
@@ -603,6 +606,7 @@ impl Core {
             model_proxy: model_proxy::ModelProxy::default(),
             chats: chat::Chats::new(data_dir),
             remote: remote::Remote::default(),
+            outside: outside::Outside::new(data_dir),
             shares: share::Shares::default(),
             hooks: hooks::Hooks::default(),
             workspaces: workspace::Workspaces::new(data_dir),

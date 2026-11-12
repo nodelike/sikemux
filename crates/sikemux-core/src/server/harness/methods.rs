@@ -2,9 +2,9 @@
 //! Running it is `dispatch`.
 
 use crate::cli::protocol::{
-    COMMIT_FOOTER_METHOD, COMMIT_MADE_METHOD, GIT_GUARD_METHOD, PLUGINS_CHANGED_METHOD,
-    SHIP_CHECK_METHOD, SHIP_RAN_METHOD, SIM_CANCEL_METHOD, SIM_OFFERED_METHOD,
-    TOOLS_MANIFEST_METHOD,
+    COMMIT_FOOTER_METHOD, COMMIT_MADE_METHOD, GIT_GUARD_METHOD, OUTSIDE_CALL_METHOD,
+    OUTSIDE_SIGN_IN_METHOD, OUTSIDE_SIGN_IN_WAIT_METHOD, PLUGINS_CHANGED_METHOD, SHIP_CHECK_METHOD,
+    SHIP_RAN_METHOD, SIM_CANCEL_METHOD, SIM_OFFERED_METHOD, TOOLS_MANIFEST_METHOD,
 };
 
 pub(super) struct Method {
@@ -90,6 +90,9 @@ const METHODS: &[Method] = &[
     plumbing_for_anyone(TOOLS_MANIFEST_METHOD),
     plumbing_for_anyone(SHIP_CHECK_METHOD),
     plumbing_for_anyone(SHIP_RAN_METHOD),
+    plumbing_for_anyone(OUTSIDE_SIGN_IN_METHOD),
+    plumbing_for_anyone(OUTSIDE_SIGN_IN_WAIT_METHOD),
+    plumbing_for_anyone(OUTSIDE_CALL_METHOD),
     Method {
         purpose: "read its console",
         ..acting("app.console")

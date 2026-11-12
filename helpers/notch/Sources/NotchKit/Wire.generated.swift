@@ -275,6 +275,8 @@ enum Topic: String, Codable, Hashable {
     /// The hosts linked with this one, the SSH hosts a terminal is open to,
     /// and how each is reached.
     case hosts
+    /// The programs outside Sikemux the person lets drive its chats, and those waiting.
+    case outside
     /// A language server's diagnostics for the files in `paths` moved.
     case lsp
     /// How the person wants Sikemux to behave.

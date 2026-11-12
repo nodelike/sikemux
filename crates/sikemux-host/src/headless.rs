@@ -420,10 +420,41 @@ struct Status {
 }
 
 fn status(json: bool) -> i32 {
-    let Ok(launch) = launch() else {
+    let Some(status) = gather_status() else {
         eprintln!("sikemux status: HOME is not set");
         return 1;
     };
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&status).unwrap_or_default()
+        );
+    } else {
+        print_status(&status);
+    }
+    if status.running {
+        0
+    } else {
+        NOT_RUNNING
+    }
+}
+
+/// What `status --json` says, without the account, the host's name or its key.
+pub(crate) fn status_without_identity() -> Value {
+    let Some(status) = gather_status() else {
+        return json!({ "error": "HOME is not set" });
+    };
+    serde_json::to_value(Status {
+        account: None,
+        core_id: None,
+        name: None,
+        ..status
+    })
+    .unwrap_or_default()
+}
+
+fn gather_status() -> Option<Status> {
+    let launch = launch().ok()?;
     let probed = probe(&launch.socket, PROBE_TIMEOUT);
     let older = match probed {
         Err(ProbeError::Rejected { pid, .. }) => Some(pid),
@@ -484,19 +515,7 @@ fn status(json: bool) -> i32 {
         }),
         ..status
     };
-    if json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&status).unwrap_or_default()
-        );
-    } else {
-        print_status(&status);
-    }
-    if status.running {
-        0
-    } else {
-        NOT_RUNNING
-    }
+    Some(status)
 }
 
 fn print_status(status: &Status) {

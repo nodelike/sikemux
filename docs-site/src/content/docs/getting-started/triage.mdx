@@ -1,0 +1,19 @@
+---
+title: Triage
+description: "Hand Sikemux's logs to your own coding agent to find what went wrong."
+---
+
+When Sikemux misbehaves, your own coding agent can find out why. In any terminal, run:
+
+```sh
+sikemux triage
+```
+
+It gathers the end of Sikemux's logs and its latest crash and hang reports into a private temporary folder, with tokens, keys, email addresses and your home folder taken out. Then it starts Claude Code in that terminal, or Codex when Claude Code is not installed, with a playbook for the job.
+
+The agent asks what went wrong, reads the logs, and checks Sikemux's source for the version you run and its open issues. It tells you what it found and whether a newer release fixes it. It asks before it runs a fix, and shows you the whole issue before it posts one on GitHub. It never restarts Sikemux, as that would stop the agents and terminals it runs.
+
+- `--agent codex` or `--agent claude` picks the agent.
+- `--print` only gathers the logs, then prints the folder and a prompt to hand to any other agent.
+
+The agent never opens the folders that hold your sign-ins, keys and chats.

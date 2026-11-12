@@ -16,9 +16,11 @@ use sikemux_process::vars;
 
 use crate::cli_paths::endpoint_to_read;
 
+mod chat;
 mod doctor;
 mod endpoint;
 mod open;
+mod triage;
 
 use doctor::*;
 pub use endpoint::window_open;
@@ -63,7 +65,9 @@ fn run_inner() -> Result<i32, String> {
             return Ok(0);
         }
         "tool" => return execute_tool(&args[1..]),
+        "chat" => return chat::chat(&args[1..]),
         "doctor" => return doctor(),
+        "triage" => return triage::triage(&args[1..]),
         #[cfg(unix)]
         _ if crate::headless::COMMANDS.contains(&command) => {
             return Ok(crate::headless::run(command, &args[1..]));
@@ -100,8 +104,13 @@ Files and projects
   open         Open files, or folders as projects, in the app
                (the same as `sikemux <path>`)
 
+Chats
+  chat         List, start, message, read and stop chats
+               [list|start|send|read|stop]
+
 Troubleshooting
   doctor       Show the latest hang report
+  triage       Hand Sikemux's logs to your own agent to find what is wrong
   tool         Call one of Sikemux's agent tools
   core         Run the core in the foreground, as the service does
 
@@ -129,6 +138,8 @@ fn command_help(command: &str) -> Option<&'static str> {
         "update" => "Usage: sikemux update [--on | --off]\n\nOn a Linux host, installs the newest signed release on its channel, stable or\nnightly, and restarts the core into it, keeping its terminals and chats. The\nhost also does this by itself once no chat is in a turn. Only you can turn that\noff or back on, so agents cannot: from the host's ⋯ in Sikemux, or with\n`sudo sikemux update --off` or `--on`. While updates are off, nothing installs,\nnot even with `sikemux update`.\n",
         "open" => "Usage: sikemux open [--wait] [--project DIR] <path[:line[:column]]>...\n       sikemux <path[:line[:column]]>...\n\nOpens files, or folders as projects, in the app, starting it when needed.\nLINE and COLUMN are one-based.\n\n  -w, --wait         Wait until every opened file tab is closed\n  -p, --project DIR  Open files that belong to no project in this one\n",
         "doctor" => "Usage: sikemux doctor\n\nShows the latest reports Sikemux wrote when its window stopped answering or a\nprocess panicked, and where the rest of them are. It reads them from disk, so it\nworks while the app is stuck or gone.\n",
+        "chat" => "Usage: sikemux chat list [--all]\n       sikemux chat start PROJECT MESSAGE [--agent NAME] [--model NAME] [--wait]\n       sikemux chat send CHAT MESSAGE [--wait]\n       sikemux chat read CHAT\n       sikemux chat stop CHAT\n\nDrives Sikemux's chats from a terminal or a script. PROJECT is a project's name\nor folder, or . for the one that holds this folder. CHAT is a chat's name or id.\nA MESSAGE of - is read from stdin. A busy chat gets a message as its next turn.\n\nThe first time, outside an agent's terminal, it asks you to allow this terminal in\nSikemux, with read-only or full access, and keeps the sign-in for 30 days. In an\nagent's terminal it acts as that agent instead.\n\n  --all         List chats in every project, not only this folder's\n  --agent NAME  Start this agent, such as claude or codex\n  --model NAME  Start it on this model\n  -w, --wait    Wait for the chat's turn to end, then print what it said\n  --json        Print the answer as JSON\n\nExits with 1 when the chat stopped.\n",
+        "triage" => "Usage: sikemux triage [--agent claude|codex] [--print]\n\nGathers the end of Sikemux's logs and its latest crash and hang reports, with\ntokens, keys, email addresses and your home folder taken out, into a private\ntemporary folder. Then it starts Claude Code, or Codex, in this terminal with a\nplaybook for finding what went wrong. It asks you what happened, reads the logs\nand Sikemux's source for your version, and asks before it fixes or posts anything.\n\n  --agent NAME  Start claude or codex, rather than the first one on PATH\n  --print       Only gather, then print the folder and the prompt to give an agent\n",
         "tool" => "Usage: sikemux tool METHOD [JSON_PARAMS]\n\nCalls one of the tools Sikemux gives agents by its method, such as\nbrowser.navigate, as the agent in this terminal.\n",
         "core" => "Usage: sikemux core [--socket PATH] [--cli-endpoint PATH] [--data-dir PATH]\n\nRuns the core in the foreground. The service and the app start it this way; to\nmanage it, use `sikemux start`, `stop` and `status` instead.\n",
         _ => return None,

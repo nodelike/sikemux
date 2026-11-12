@@ -9,6 +9,7 @@
     "permissions",
     "accounts",
     "connectors",
+    "outside-apps",
     "databases",
     "providers",
     "secrets",

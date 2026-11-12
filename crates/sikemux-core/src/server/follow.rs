@@ -640,7 +640,11 @@ pub(crate) async fn read_here(
     .map_err(|error| error.to_string())
 }
 
-fn read_target(core: &Core, target: &Listed, cursor: Option<&str>) -> Result<Value, String> {
+pub(crate) fn read_target(
+    core: &Core,
+    target: &Listed,
+    cursor: Option<&str>,
+) -> Result<Value, String> {
     let name = target
         .name
         .clone()

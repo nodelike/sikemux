@@ -18,8 +18,8 @@ use tokio::time::Instant;
 
 use crate::cli::protocol::{
     validate_harness, HarnessRequest, COMMIT_FOOTER_METHOD, COMMIT_MADE_METHOD, CORE_REPLY_TIMEOUT,
-    GIT_GUARD_METHOD, PLUGINS_CHANGED_METHOD, SHIP_CHECK_METHOD, SHIP_RAN_METHOD,
-    TOOLS_MANIFEST_METHOD,
+    GIT_GUARD_METHOD, OUTSIDE_CALL_METHOD, OUTSIDE_SIGN_IN_METHOD, OUTSIDE_SIGN_IN_WAIT_METHOD,
+    PLUGINS_CHANGED_METHOD, SHIP_CHECK_METHOD, SHIP_RAN_METHOD, TOOLS_MANIFEST_METHOD,
 };
 use crate::harness::command::{command_cwd, command_label, command_task_id, COMMAND_TASK_PREFIX};
 use crate::harness::journal::{EventsPage, JournalRecord, Journals};
@@ -607,6 +607,9 @@ async fn dispatch(
         GIT_GUARD_METHOD => super::edits::guard::call(core, &request).await,
         SHIP_CHECK_METHOD => super::ship::call(core, &request).await,
         SHIP_RAN_METHOD => super::ship::ran_call(core, &request),
+        OUTSIDE_SIGN_IN_METHOD => super::outside::cli::sign_in(core, &request).await,
+        OUTSIDE_SIGN_IN_WAIT_METHOD => super::outside::cli::sign_in_wait(core, &request).await,
+        OUTSIDE_CALL_METHOD => super::outside::cli::call(core, &request).await,
         "browser.screenshot" => {
             let answer = forward(core, request.clone()).await?;
             if let Some(agent_id) = request.agent_id.clone() {

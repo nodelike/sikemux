@@ -427,6 +427,9 @@ calls! { core, client, method, params;
     "codeHostTracked" CodeHostTracked (super::codehost::CodeHostProjectParams) -> plugins::PluginOutcome: Watch => {
         super::codehost::tracked(&core, client.id, params).await
     },
+    "outsideAccess" OutsideAccess (NoParams) -> super::outside::OutsideView: NoDevice => core.outside.view(),
+    "answerOutside" AnswerOutside (super::outside::OutsideAnswer) -> super::outside::OutsideView: NoDevice, counted => super::outside::answer(&core, params)?,
+    "changeOutside" ChangeOutside (super::outside::OutsideChange) -> super::outside::OutsideView: NoDevice, counted => super::outside::change(&core, params)?,
     "hosts" Hosts (NoParams) -> Vec<super::hosts::HostRow>: Watch => super::hosts::rows(&core),
     "hostStats" HostStats (sikemux_view::host_stats::HostStatsParams) -> sikemux_view::host_stats::HostStats: Watch => super::host_stats::read(&core, params),
     "hostDiagnosis" HostDiagnosis (super::diagnosis::DiagnosisParams) -> sikemux_view::host_stats::HostDiagnosis: Watch => super::diagnosis::diagnose(&core, params),

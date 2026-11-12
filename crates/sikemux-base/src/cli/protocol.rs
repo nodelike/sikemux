@@ -239,6 +239,11 @@ pub const GIT_GUARD_METHOD: &str = "git.guard";
 pub const SHIP_CHECK_METHOD: &str = "ship.check";
 /// How a deploy the core let go ended, from the shim that ran it.
 pub const SHIP_RAN_METHOD: &str = "ship.ran";
+/// `sikemux chat` outside every agent asks the person to let it in, and waits for the answer.
+pub const OUTSIDE_SIGN_IN_METHOD: &str = "outside.signIn";
+pub const OUTSIDE_SIGN_IN_WAIT_METHOD: &str = "outside.signInWait";
+/// `sikemux chat` outside every agent calls a chat tool with the token it was let in with.
+pub const OUTSIDE_CALL_METHOD: &str = "outside.call";
 
 /// What the core asks the window for: a page taken at a width off screen, not a tool.
 pub const BROWSER_PICTURE_METHOD: &str = "browser.picture";
@@ -302,6 +307,9 @@ pub fn validate_harness(request: &HarnessRequest) -> Result<(), String> {
         && request.method != GIT_GUARD_METHOD
         && request.method != SHIP_CHECK_METHOD
         && request.method != SHIP_RAN_METHOD
+        && request.method != OUTSIDE_SIGN_IN_METHOD
+        && request.method != OUTSIDE_SIGN_IN_WAIT_METHOD
+        && request.method != OUTSIDE_CALL_METHOD
     {
         return Err("unknown harness method".into());
     }
