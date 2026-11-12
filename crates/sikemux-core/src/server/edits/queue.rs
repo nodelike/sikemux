@@ -22,7 +22,7 @@ use crate::server::checks;
 use crate::server::connection::blocking;
 use crate::server::merge_queue::{self, Blame, Lane, Next, Waiter};
 use crate::server::repo_events::RepoEvent;
-use crate::server::worktree::AgentWorktree;
+use crate::server::worktree::{self, AgentWorktree};
 use crate::server::Core;
 
 const ATTEMPTS: usize = 4;
@@ -291,8 +291,17 @@ async fn check_and_land(core: &Arc<Core>, key: &Key, batch: Vec<Waiting>) {
     })
     .flatten();
     let repairing = red.as_deref() == Some(tip.as_str());
-    let (repo, from, to) = (key.0.clone(), tip.clone(), stacked.top().to_owned());
-    let command = blocking(move || rust_check(&repo, &from, &to).map_err(Into::into)).await;
+    let _turn = merge_queue::checkout_turn().await;
+    let (from, to) = (tip.clone(), stacked.top().to_owned());
+    let command = match worktree::agent::merge_queue(core, &key.0, &to).await {
+        Ok(checkout) => {
+            let repo = key.0.clone();
+            blocking(move || rust_check(&repo, &checkout, &from, &to).map_err(Into::into))
+                .await
+                .map_err(|error| error.to_string())
+        }
+        Err(why) => Err(why),
+    };
     let command = match command {
         Ok(command) => command,
         Err(error) => {
@@ -523,55 +532,59 @@ fn landed(core: &Core, repo: &Path, stacked: &Stack) -> Landed {
     landed
 }
 
-/// The check for what changed from `from` to `to`, with what to call it:
-/// Clippy and the tests of the crates it changes, of every crate when it
-/// changes how they all build, and none when it changes no Rust.
-fn rust_check(repo: &Path, from: &str, to: &str) -> Result<Option<(String, String)>, String> {
-    let listed = git(repo, &["ls-tree", "-r", "-z", "--name-only", to])?;
-    let crates: Vec<&str> = (listed.split('\0'))
-        .filter_map(|path| match path {
-            "Cargo.toml" => Some(""),
-            _ => path.strip_suffix("/Cargo.toml"),
-        })
-        .collect();
-    if crates.is_empty() {
+/// The check for what changed from `from` to `to`, read in `checkout` at `to`,
+/// with what to call it: Clippy and the tests of the crates it changes or whose
+/// files they read, and of every crate that depends on those; of every crate
+/// when it changes how they all build; none when it changes no Rust.
+fn rust_check(
+    repo: &Path,
+    checkout: &Path,
+    from: &str,
+    to: &str,
+) -> Result<Option<(String, String)>, String> {
+    if !checkout.join("Cargo.toml").is_file() {
         return Ok(None);
     }
     let changed = git(
         repo,
         &["diff", "-z", "--name-only", "--no-renames", from, to],
     )?;
+    let changed: Vec<&str> = changed
+        .split('\0')
+        .filter(|path| !path.is_empty())
+        .collect();
+    let every =
+        (changed.iter()).any(|path| WORKSPACE_FILES.contains(path) || path.starts_with(".cargo/"));
+    let members = members(checkout)?;
+    let reads = reads(repo, to, &members);
     let mut names = BTreeSet::new();
-    let mut read: HashMap<&str, Option<String>> = HashMap::new();
-    let mut every = false;
-    for path in changed.split('\0').filter(|path| !path.is_empty()) {
-        if WORKSPACE_FILES.contains(&path) || path.starts_with(".cargo/") {
-            every = true;
-            continue;
+    for path in changed {
+        let readers: Vec<&str> = (reads.iter())
+            .filter(|(read, _)| path == read || path.starts_with(&format!("{read}/")))
+            .map(|(_, name)| name.as_str())
+            .collect();
+        if !readers.is_empty() {
+            names.extend(readers.into_iter().map(str::to_owned));
+        } else if !path.ends_with(".md") && !path.ends_with(".mdx") {
+            names.extend(owner(&members, path).map(|member| member.name.clone()));
         }
-        if path.ends_with(".md") || path.ends_with(".mdx") {
-            continue;
-        }
-        let Some(dir) = (crates.iter())
-            .filter(|dir| dir.is_empty() || path.starts_with(&format!("{dir}/")))
-            .max_by_key(|dir| dir.len())
-        else {
-            continue;
-        };
-        let name = match read.get(dir) {
-            Some(name) => name.clone(),
-            None => {
-                let name = package_name(repo, to, dir)?;
-                read.insert(dir, name.clone());
-                name
-            }
-        };
-        names.extend(name);
     }
-    let (scope, of) = match (every, names.is_empty()) {
-        (true, _) => ("--workspace".to_owned(), "every crate".to_owned()),
-        (false, true) => return Ok(None),
-        (false, false) => (
+    if !every && names.is_empty() {
+        return Ok(None);
+    }
+    let mut grew = true;
+    while grew {
+        grew = false;
+        for member in &members {
+            if !names.contains(&member.name) && member.deps.iter().any(|dep| names.contains(dep)) {
+                names.insert(member.name.clone());
+                grew = true;
+            }
+        }
+    }
+    let (scope, of) = match every {
+        true => ("--workspace".to_owned(), "every crate".to_owned()),
+        false => (
             (names.iter())
                 .map(|name| format!("-p {name}"))
                 .collect::<Vec<_>>()
@@ -588,21 +601,148 @@ fn rust_check(repo: &Path, from: &str, to: &str) -> Result<Option<(String, Strin
 /// A repository that keeps its own cargo in `scripts/bin`, to pin the
 /// toolchain or limit how many builds run at once, has the check use it.
 const OWN_CARGO: &str = "if [ -x scripts/bin/cargo ]; then PATH=\"$PWD/scripts/bin:$PATH\"; fi\n";
+const METADATA_LIMIT: std::time::Duration = std::time::Duration::from_secs(120);
+const METADATA_OUTPUT_LIMIT: usize = 64 * 1024 * 1024;
 
-/// The package name of the crate in folder `dir` at commit `at`; none for a
-/// manifest that only lists a workspace.
-fn package_name(repo: &Path, at: &str, dir: &str) -> Result<Option<String>, String> {
-    let manifest = match dir {
-        "" => "Cargo.toml".to_owned(),
-        dir => format!("{dir}/Cargo.toml"),
-    };
-    let text = git(repo, &["show", &format!("{at}:{manifest}")])?;
-    let parsed: toml::Table = text
-        .parse()
-        .map_err(|error| format!("{manifest} does not read: {error}"))?;
-    Ok(parsed
-        .get("package")
-        .and_then(|package| package.get("name"))
-        .and_then(toml::Value::as_str)
-        .map(str::to_owned))
+/// A crate of the workspace.
+struct Member {
+    name: String,
+    /// Its folder from the workspace's root, empty for the root itself.
+    dir: String,
+    /// The workspace's crates it depends on.
+    deps: Vec<String>,
+}
+
+/// The workspace's crates, as cargo reads them in `checkout`.
+fn members(checkout: &Path) -> Result<Vec<Member>, String> {
+    let mut shell = sikemux_process::user_environment::background_shell();
+    shell
+        .args([
+            "-c",
+            &format!("{OWN_CARGO}cargo metadata --no-deps --format-version 1"),
+        ])
+        .current_dir(checkout);
+    let output = sikemux_process::run(
+        &mut shell,
+        None,
+        METADATA_LIMIT,
+        METADATA_OUTPUT_LIMIT,
+        None,
+    )
+    .map_err(|error| format!("cargo metadata did not run: {error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "cargo metadata failed: {}",
+            crate::git::tail(&String::from_utf8_lossy(&output.stderr))
+        ));
+    }
+    let metadata: serde_json::Value = serde_json::from_slice(&output.stdout)
+        .map_err(|error| format!("cargo metadata did not read: {error}"))?;
+    let root = PathBuf::from(metadata["workspace_root"].as_str().unwrap_or_default());
+    let in_workspace: BTreeSet<&str> = (metadata["workspace_members"].as_array())
+        .into_iter()
+        .flatten()
+        .filter_map(serde_json::Value::as_str)
+        .collect();
+    let packages = metadata["packages"].as_array().cloned().unwrap_or_default();
+    let names: BTreeSet<&str> = (packages.iter())
+        .filter(|package| (package["id"].as_str()).is_some_and(|id| in_workspace.contains(id)))
+        .filter_map(|package| package["name"].as_str())
+        .collect();
+    Ok(packages
+        .iter()
+        .filter(|package| (package["id"].as_str()).is_some_and(|id| in_workspace.contains(id)))
+        .map(|package| {
+            let manifest = PathBuf::from(package["manifest_path"].as_str().unwrap_or_default());
+            let dir = (manifest.parent())
+                .and_then(|dir| dir.strip_prefix(&root).ok())
+                .map(|dir| dir.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            let deps = (package["dependencies"].as_array())
+                .into_iter()
+                .flatten()
+                .filter_map(|dep| dep["name"].as_str())
+                .filter(|dep| names.contains(dep))
+                .map(str::to_owned)
+                .collect();
+            Member {
+                name: package["name"].as_str().unwrap_or_default().to_owned(),
+                dir,
+                deps,
+            }
+        })
+        .collect())
+}
+
+/// The crate whose folder holds `path`, the innermost when they nest.
+fn owner<'a>(members: &'a [Member], path: &str) -> Option<&'a Member> {
+    (members.iter())
+        .filter(|member| member.dir.is_empty() || path.starts_with(&format!("{}/", member.dir)))
+        .max_by_key(|member| member.dir.len())
+}
+
+/// The files and folders each crate reads at `at` as it builds, by the paths
+/// its sources name in `include_str!` and `include_bytes!` and its build script
+/// in `rerun-if-changed`.
+fn reads(repo: &Path, at: &str, members: &[Member]) -> Vec<(String, String)> {
+    let named = git(
+        repo,
+        &[
+            "grep",
+            "-I",
+            "-E",
+            r#"include_(str|bytes)!\("|rerun-if-changed=[^{"]"#,
+            at,
+            "--",
+            "*.rs",
+        ],
+    )
+    .unwrap_or_default();
+    let mut reads = Vec::new();
+    for found in named.lines() {
+        let Some((file, text)) = found
+            .strip_prefix(&format!("{at}:"))
+            .and_then(|rest| rest.split_once(':'))
+        else {
+            continue;
+        };
+        let Some(member) = owner(members, file) else {
+            continue;
+        };
+        let source_dir = Path::new(file).parent().unwrap_or(Path::new(""));
+        for (marker, from) in [
+            ("include_str!(\"", source_dir),
+            ("include_bytes!(\"", source_dir),
+            ("rerun-if-changed=", Path::new(&member.dir)),
+        ] {
+            for named in text.split(marker).skip(1) {
+                let Some(literal) = named
+                    .split('"')
+                    .next()
+                    .filter(|literal| !literal.is_empty())
+                else {
+                    continue;
+                };
+                if let Some(path) = within_repo(&from.join(literal)) {
+                    reads.push((path, member.name.clone()));
+                }
+            }
+        }
+    }
+    reads
+}
+
+/// `path` with its `..` steps taken, when it stays inside the repository.
+fn within_repo(path: &Path) -> Option<String> {
+    let mut parts: Vec<&str> = Vec::new();
+    for part in path.components() {
+        match part {
+            std::path::Component::ParentDir => {
+                parts.pop()?;
+            }
+            std::path::Component::Normal(name) => parts.push(name.to_str()?),
+            _ => {}
+        }
+    }
+    (!parts.is_empty()).then(|| parts.join("/"))
 }

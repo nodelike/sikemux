@@ -633,6 +633,7 @@ async fn command_of(core: &Arc<Core>, step: &Step) -> Option<(String, String)> {
 }
 
 async fn check_together(core: &Arc<Core>, key: &LaneKey, steps: Vec<Step>, repairing: bool) {
+    let _turn = merge_queue::checkout_turn().await;
     let front = steps[0].clone();
     let base = front.run.base.clone();
     let tip = match latest(&front).await {

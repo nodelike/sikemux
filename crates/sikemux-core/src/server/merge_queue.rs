@@ -16,6 +16,12 @@ pub(crate) const MAX_TOGETHER: usize = 8;
 /// How long a base that fails its own check goes before the queue looks whether it moved.
 const RED_BASE_LOOK_MS: u64 = 5 * 60_000;
 
+/// Waits for the queues' checkout, which one check uses at a time.
+pub(crate) async fn checkout_turn() -> tokio::sync::MutexGuard<'static, ()> {
+    static CHECKOUT: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    CHECKOUT.lock().await
+}
+
 /// What a queue keeps about one base while the core runs.
 #[derive(Default)]
 pub(crate) struct Lane {

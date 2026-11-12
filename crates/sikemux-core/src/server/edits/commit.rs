@@ -29,6 +29,9 @@ const MAX_LEFT: usize = 12;
 /// Files a commit's answer lists as taken; the rest are counted.
 const MAX_LISTED: usize = 20;
 const INDEX_LOCKED_TRIES: usize = 5;
+/// How long a call waits on its push before letting it finish on its own, well
+/// inside how long a tool call may take.
+const PUSH_ANSWER_WAIT: Duration = Duration::from_secs(40);
 
 #[derive(Serialize)]
 pub(crate) struct Committed {
@@ -62,6 +65,8 @@ struct Done {
     /// Why its commits were not pushed: a push waits on the person.
     #[serde(skip_serializing_if = "Option::is_none")]
     not_pushed: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    still_pushing: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     synced: Option<super::land::Synced>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -212,21 +217,20 @@ pub(crate) async fn call(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
                 not_pushed = unlanded
                     .or_else(|| super::super::ship::check(&core, &agent_id, ship(), &from).err());
                 match not_pushed {
-                    None => Some(super::push::push(
-                        &core,
-                        &from,
-                        &[agent_id.clone()],
-                        "origin",
-                    )?),
+                    None => push_or_tell(&core, from, &agent_id)?,
                     Some(_) => None,
                 }
             }
             false => None,
         };
+        let still_pushing = (push && !land && not_pushed.is_none() && pushed.is_none()).then(|| {
+            "The push is taking a while, so it goes on without you; a message says how it went once it ends".to_owned()
+        });
         Ok(Done {
             committed,
             nothing_committed,
             not_pushed,
+            still_pushing,
             synced,
             queued,
             pushed,
@@ -236,6 +240,40 @@ pub(crate) async fn call(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
     .await
     .map_err(|error| error.to_string())
     .and_then(|done| serde_json::to_value(done).map_err(|error| error.to_string()))
+}
+
+/// Pushes from `from` as `agent`, answering within [`PUSH_ANSWER_WAIT`]: none
+/// when the push is still going, and the agent then hears how it went.
+fn push_or_tell(
+    core: &Arc<Core>,
+    from: PathBuf,
+    agent: &str,
+) -> Result<Option<super::push::Pushed>, String> {
+    let (answer, answered) = std::sync::mpsc::channel();
+    let runtime = tokio::runtime::Handle::try_current().ok();
+    let (owner, agent) = (core.clone(), agent.to_owned());
+    std::thread::spawn(move || {
+        let pushed = super::push::push(&owner, &from, std::slice::from_ref(&agent), "origin");
+        let Err(std::sync::mpsc::SendError(pushed)) = answer.send(pushed) else {
+            return;
+        };
+        let text = match pushed {
+            Ok(pushed) => format!(
+                "Your push ended: {}",
+                serde_json::to_string(&pushed).unwrap_or_default()
+            ),
+            Err(why) => format!("Your push failed: {why}"),
+        };
+        if let Some(runtime) = runtime {
+            runtime.spawn(async move {
+                let _ = crate::server::messages::from_sikemux(&owner, agent, text).await;
+            });
+        }
+    });
+    match answered.recv_timeout(PUSH_ANSWER_WAIT) {
+        Ok(pushed) => pushed.map(Some),
+        Err(_) => Ok(None),
+    }
 }
 
 /// The checkout to commit in, the one holding the `named` paths, which may lie

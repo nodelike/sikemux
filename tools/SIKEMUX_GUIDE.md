@@ -1116,7 +1116,8 @@ and what you have not committed merged in; use it rather than `git rebase`.
 `land: true` queues your commits for that branch and returns at once; do not
 run the final Clippy and tests yourself first. Sikemux stacks the queued lands
 on the branch's tip in order, runs Clippy and the tests once for the batch,
-only for the crates it changes (a batch that changes no Rust is not built),
+only for the crates it changes or whose files it changes and the crates that
+depend on them (a batch that changes no Rust is not built),
 and puts the whole batch on the branch when that passes, the branch staying a
 straight line. When the check fails, Sikemux finds the land that broke it and
 sends it back to its agent as a message with the error; the others stay in
@@ -1129,7 +1130,9 @@ then sync. With nothing of yours left uncommitted, `land: true` lands the
 commits you made already. With `push: true` beside `land: true`, the batch is
 pushed once it lands. `push: true` alone pushes your own commits only, and
 those of agents you lead, even when other agents' unpushed commits sit before
-them, and lists theirs as kept; with no `message` it only pushes. From a
+them, and lists theirs as kept; with no `message` it only pushes. A push
+that takes long goes on after the call answers, and a message says how it
+went. From a
 checkout of your own it pushes the branch you landed on, never your
 checkout's own, so land first. When the remote has moved on, your commits go
 on its tip and the branch takes its new commits as landing does. Push when the person or the project's rules say to. In a checkout other agents work in, Sikemux refuses

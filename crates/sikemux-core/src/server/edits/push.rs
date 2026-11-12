@@ -426,8 +426,9 @@ fn unpushed(
 
 /// `commits` made again one after another on `onto`, with the same changes,
 /// authors and messages, their footers and notes signed again for where they
-/// now stand. The last one made, or `onto` when there are none. `clash` says
-/// what a commit that does not apply there lacks.
+/// now stand. A commit whose change `onto` already holds is left out rather
+/// than made again empty. The last one made, or `onto` when there are none.
+/// `clash` says what a commit that does not apply there lacks.
 pub(super) fn replay(
     signing: &Signing,
     top: &Path,
@@ -457,6 +458,13 @@ pub(super) fn replay(
             .map_err(|_| format!("{} {} does not apply {clash}", short(id), commit.subject))?;
             merged.lines().next().unwrap_or_default().to_owned()
         };
+        let was_tree = line(git(top, &["rev-parse", &format!("{id}^{{tree}}")])?);
+        let changed_something =
+            was_tree != line(git(top, &["rev-parse", &format!("{parent}^{{tree}}")])?);
+        if changed_something && tree == line(git(top, &["rev-parse", &format!("{onto}^{{tree}}")])?)
+        {
+            continue;
+        }
         let object = git(top, &["cat-file", "commit", id])?;
         let (header, message) = object.split_once("\n\n").unwrap_or((&object, ""));
         let parents = vec![onto.clone()];
@@ -466,7 +474,7 @@ pub(super) fn replay(
         };
         let old_parents = vec![parent.clone()];
         let was = Commit {
-            tree: &line(git(top, &["rev-parse", &format!("{id}^{{tree}}")])?),
+            tree: &was_tree,
             parents: &old_parents,
         };
         let agents = signing
