@@ -13,7 +13,7 @@ pub fn context_text(uri: &str, text: &str) -> String {
 
 /// Sikemux's own block for the agent alone, named `name`. A line in `text` that would close the
 /// block early is kept as text.
-pub(crate) fn sikemux_context(name: &str, title: &str, text: &str) -> ChatContext {
+pub fn sikemux_context(name: &str, title: &str, text: &str) -> ChatContext {
     ChatContext {
         uri: format!("{FOR_AGENT_URI}{name}"),
         title: title.to_owned(),
