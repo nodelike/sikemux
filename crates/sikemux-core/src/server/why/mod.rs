@@ -173,7 +173,7 @@ impl Facts {
 
     fn calls(&mut self, core: &Core, project: &str) -> &[PersonCall] {
         self.calls
-            .get_or_insert_with(|| person_calls::history(core, project))
+            .get_or_insert_with(|| person_calls::history(core, project).unwrap_or_default())
     }
 }
 
@@ -472,10 +472,14 @@ fn rule_facts(core: &Core, asked: &Asked, id: u64, facts: &mut Facts) {
     if !of_project(core, &with.agent, &asked.project) {
         return;
     }
+    let feed = rule.learned.feed.clone();
+    let index = (feed.as_deref())
+        .zip(rule.learned.turn)
+        .and_then(|(feed, turn)| turn_prompt(core, feed, turn));
     let pointer = Pointer::Said {
         agent: with.agent.clone(),
-        feed: rule.learned.feed.clone(),
-        index: rule.learned.turn,
+        feed: index.and(feed),
+        index,
     };
     facts.add(Fact {
         said: format!(
@@ -486,6 +490,21 @@ fn rule_facts(core: &Core, asked: &Asked, id: u64, facts: &mut Facts) {
         who: None,
         pointer,
     });
+}
+
+/// The person's prompt that started the turn beginning at event `turn` of the chat run `feed`,
+/// when the person's words started it.
+fn turn_prompt(core: &Core, feed: &str, turn: u64) -> Option<u64> {
+    let dir = core.chats.history_dir()?;
+    let events = history::tail(dir, feed, MAX_CHAT_BYTES as u64);
+    let at = events.iter().position(|(index, _)| *index == turn)?;
+    (events.get(..=at)?.iter().rev())
+        .take_while(|(index, event)| *index == turn || event.kind != ChatEventKind::TurnCompleted)
+        .find(|(_, event)| {
+            event.kind == ChatEventKind::Prompt
+                && event.payload.get("person") == Some(&Value::Bool(true))
+        })
+        .map(|(index, _)| *index)
 }
 
 /// The person's own words in the project's open chats that hold every one of `words`, newest
@@ -720,7 +739,9 @@ struct Checking<'a> {
     project: String,
     checkout: PathBuf,
     deadline: Instant,
-    calls: Option<Vec<PersonCall>>,
+    /// The project's calls, read once when first wanted; `None` within when its file could not
+    /// be read.
+    calls: Option<Option<Vec<PersonCall>>>,
     /// Each history file read, by its name: the first index its read stretch holds, and the
     /// indexes of the person's prompts in it.
     prompts: HashMap<String, Option<(u64, Vec<u64>)>>,
@@ -755,17 +776,17 @@ impl Checking<'_> {
         };
         match pointer {
             Pointer::Commit(hash) => {
-                if git_line(&self.checkout, &["rev-parse", "--git-dir"]).is_none() {
-                    return Checked::Unknown;
-                }
                 let spec = format!("{hash}^{{commit}}");
-                if git_line(
+                let missing = git_line(
                     &self.checkout,
                     &["cat-file", "-e", "--end-of-options", &spec],
                 )
-                .is_none()
-                {
-                    return Checked::Absent;
+                .is_none();
+                if missing {
+                    return match one_repository(&self.checkout, Path::new(project)) {
+                        true => Checked::Absent,
+                        false => Checked::Unknown,
+                    };
                 }
                 let made = git_line(
                     &self.checkout,
@@ -838,6 +859,9 @@ impl Checking<'_> {
             Pointer::Call(id) => {
                 let calls =
                     (self.calls).get_or_insert_with(|| person_calls::history(core, project));
+                let Some(calls) = calls else {
+                    return Checked::Unknown;
+                };
                 let found = (calls.iter())
                     .find(|call| call.id == id && !call.secret && call.kind != CallKind::Access);
                 let Some(call) = found else {
@@ -874,6 +898,18 @@ impl Checking<'_> {
         let (first, prompts) = read.as_ref()?;
         (index >= *first).then(|| prompts.contains(&index))
     }
+}
+
+/// Whether `checkout` and `project` are the same git repository, worktrees included, so a commit
+/// the one lacks the other lacks too. A project that is a folder of repositories is not.
+fn one_repository(checkout: &Path, project: &Path) -> bool {
+    let common = |dir: &Path| {
+        git_line(
+            dir,
+            &["rev-parse", "--path-format=absolute", "--git-common-dir"],
+        )
+    };
+    common(checkout).is_some_and(|checkout| common(project) == Some(checkout))
 }
 
 /// What git prints in `dir` when it succeeds, on one line.

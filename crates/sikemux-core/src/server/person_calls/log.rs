@@ -140,20 +140,23 @@ impl CallLog {
         written.map_err(|error: std::io::Error| error.to_string())
     }
 
-    /// Every entry kept for `project`, oldest first.
-    pub(super) fn read_project(&self, project: &str) -> Vec<Entry> {
-        let Some((current, old)) = self.files(project) else {
-            return Vec::new();
-        };
-        [old, current]
-            .iter()
-            .filter_map(|path| std::fs::read(path).ok())
-            .flat_map(|bytes| {
+    /// Every entry kept for `project`, oldest first, or `None` when nothing is kept here or a
+    /// file of it could not be read.
+    pub(super) fn read_project(&self, project: &str) -> Option<Vec<Entry>> {
+        let (current, old) = self.files(project)?;
+        let mut entries = Vec::new();
+        for path in [old, current] {
+            let bytes = match std::fs::read(&path) {
+                Ok(bytes) => bytes,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(_) => return None,
+            };
+            entries.extend(
                 (bytes.split(|byte| *byte == b'\n'))
-                    .filter_map(|line| serde_json::from_slice::<Entry>(line).ok())
-                    .collect::<Vec<_>>()
-            })
-            .collect()
+                    .filter_map(|line| serde_json::from_slice::<Entry>(line).ok()),
+            );
+        }
+        Some(entries)
     }
 
     /// Every entry kept, oldest first.

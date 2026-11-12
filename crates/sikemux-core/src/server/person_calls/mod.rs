@@ -1606,16 +1606,16 @@ async fn redeliver(core: &Arc<Core>, id: &str) {
     }
 }
 
-/// Every call `project` has had, as its file keeps them, newest first. Reads the disk, so it
-/// blocks.
-pub(crate) fn history(core: &Core, project: &str) -> Vec<PersonCall> {
+/// Every call `project` has had, as its file keeps them, newest first, or `None` when its file
+/// could not be read. Reads the disk, so it blocks.
+pub(crate) fn history(core: &Core, project: &str) -> Option<Vec<PersonCall>> {
     let mut book = Book::new();
-    for entry in core.person_calls.log.read_project(project) {
+    for entry in core.person_calls.log.read_project(project)? {
         apply_with(&mut book, entry, false);
     }
     let mut calls: Vec<PersonCall> = book.into_iter().map(|kept| kept.call).collect();
     calls.sort_by_key(|call| std::cmp::Reverse(call.raised_at));
-    calls
+    Some(calls)
 }
 
 /// Every call the device view shows, each asker marked when it is a project's chief.
