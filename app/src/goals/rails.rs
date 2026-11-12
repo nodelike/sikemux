@@ -230,7 +230,7 @@ impl Workbench {
         self.rails.tab_open = true;
         self.show_workbench(cx);
         if let Some(agent) = first {
-            self.bring_agent(&agent);
+            self.bring_agent(&agent, cx).detach();
         }
         cx.notify();
     }

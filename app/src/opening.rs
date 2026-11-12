@@ -17,13 +17,14 @@ use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use gpui_kit::{App, AppContext, Context};
+use gpui_kit::{App, AppContext, Context, Task};
 use serde_json::{json, Value};
 use sikemux_core::cli::protocol::{
     is_browser_method, is_sim_method, CliOpenFailure, CliOpenOutcome, CliOpenRequest,
     CliOpenTarget, CliTargetKind, HarnessRequest, MAX_CLI_TARGETS,
 };
 use sikemux_core::server::call;
+use sikemux_core::server::calls::AgentParams;
 use sikemux_core::server::ship::WebWriteParams;
 use sikemux_view::layout::{At, OpenTab, PaneKind};
 use sikemux_wire::protocol::{CallId, WindowAnswer, WindowCall};
@@ -560,12 +561,44 @@ impl Workbench {
     /// shows it, with the workbench in place of the goals.
     pub fn open_agent(&mut self, id: &str, cx: &mut Context<Self>) {
         self.show_workbench(cx);
-        self.bring_agent(id);
+        self.bring_agent(id, cx).detach();
     }
 
     /// Brings the tab of the agent `id` to the front, in its project, opening one when none
-    /// shows it.
-    pub fn bring_agent(&mut self, id: &str) {
+    /// shows it. A closed agent's chat opens again. Answers with the agent the tab shows.
+    pub fn bring_agent(&mut self, id: &str, cx: &mut Context<Self>) -> Task<Option<String>> {
+        match self.bring_open_agent(id) {
+            true => Task::ready(Some(id.to_owned())),
+            false => self.reopen_agent(id, cx),
+        }
+    }
+
+    /// Opens the chat of the closed agent `id` again and brings its tab forward, answering with
+    /// the agent it opened as.
+    pub fn reopen_agent(&self, id: &str, cx: &mut Context<Self>) -> Task<Option<String>> {
+        let target = self.target();
+        let taken = target.request_typed::<call::ReopenAgent>(AgentParams {
+            agent_id: id.to_owned(),
+        });
+        cx.spawn(async move |bench, cx| match taken.await {
+            Ok(taken) => {
+                target.call_typed::<call::OpenTab>(OpenTab::new(
+                    At::project(&taken.project),
+                    PaneKind::Agent,
+                    taken.agent_id.clone(),
+                ));
+                Some(taken.agent_id)
+            }
+            Err(error) => {
+                let note = toast::error(format!("The chat did not open: {error}"));
+                let _ = bench.update(cx, |bench, cx| bench.notify(note, cx));
+                None
+            }
+        })
+    }
+
+    /// Brings the tab of the open agent `id` forward, and says whether any view lists it.
+    fn bring_open_agent(&mut self, id: &str) -> bool {
         let project_on = |view: &DeviceView| {
             view.workspace
                 .agents
@@ -577,7 +610,8 @@ impl Workbench {
         let Some(project) = self.shown().and_then(project_on) else {
             // Opening a tab on a host's layout brings that host forward there.
             if let Some(project) = self.this_view().and_then(project_on) {
-                return self.open_here(tab(project));
+                self.open_here(tab(project));
+                return true;
             }
             if let Some((host, project)) = self
                 .feeds
@@ -589,8 +623,9 @@ impl Workbench {
                 });
                 Target::new(&self.asks, Place::Account(host))
                     .call_typed::<call::OpenTab>(tab(project));
+                return true;
             }
-            return;
+            return false;
         };
         let strip = Strip::Project(project.clone());
         let shown = (self.tabs(&strip).iter())
@@ -603,5 +638,6 @@ impl Workbench {
             }
             None => self.open_in_front(tab(project)),
         }
+        true
     }
 }

@@ -822,8 +822,13 @@ impl GoalsPane {
         if bench.read(cx).in_terminal(agent) {
             return bench.update(cx, |bench, cx| bench.open_agent(agent, cx));
         }
-        bench.update(cx, |bench, _| bench.bring_agent(agent));
-        self.expect_chat(agent.to_owned(), cx);
+        let brought = bench.update(cx, |bench, cx| bench.bring_agent(agent, cx));
+        cx.spawn(async move |pane, cx| {
+            if let Some(agent) = brought.await {
+                let _ = pane.update(cx, |pane, cx| pane.expect_chat(agent, cx));
+            }
+        })
+        .detach();
     }
 
     /// Shows agent `agent`'s chat as soon as its tab is in front.
@@ -966,11 +971,8 @@ impl GoalsPane {
                     .any(|row| row.id == agent)
             })
         });
-        if !open {
-            if let Some(saved) = saved {
-                self.reopen(saved, cx);
-            }
-            return;
+        if let Some(saved) = saved.filter(|_| !open) {
+            return self.reopen(saved, cx);
         }
         self.open_agent(agent, cx);
         if let (Some(feed), Some(around)) = (feed, index) {
