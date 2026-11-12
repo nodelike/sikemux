@@ -2,6 +2,7 @@ import { useEffect, useEffectEvent, useMemo, useRef, useState, type ReactNode } 
 import { Animated, Dimensions, Easing, Keyboard, Modal, PanResponder, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { useT } from '@/i18n';
 import { LockCover } from '@/lock/LockScreen';
 import { pauseBackdrop, useStill } from './motion';
 import { fonts, type Palette, useStyles } from './theme';
@@ -45,6 +46,7 @@ export function Sheet({
   children: ReactNode;
 }) {
   const styles = useStyles(makeStyles);
+  const t = useT();
   const still = useStill();
   // A modal measures no safe area of its own, so the screen behind it lends its inset.
   const insets = useSafeAreaInsets();
@@ -137,7 +139,7 @@ export function Sheet({
   return (
     <Modal visible={mounted} transparent animationType="none" onRequestClose={onClose} onDismiss={onDismiss} statusBarTranslucent>
       <Animated.View style={[StyleSheet.absoluteFill, styles.scrim, { opacity: progress }]}>
-        <Pressable style={{ flex: 1 }} onPress={onClose} accessibilityRole="button" accessibilityLabel="Close" />
+        <Pressable style={{ flex: 1 }} onPress={onClose} accessibilityRole="button" accessibilityLabel={t('Close')} />
       </Animated.View>
       <View style={[styles.dock, { paddingTop: expand ? 0 : insets.top + 24 }]} pointerEvents="box-none">
         <Animated.View

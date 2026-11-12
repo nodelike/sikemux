@@ -40,7 +40,7 @@ struct Prompt<Content: View>: View {
     var body: some View {
         VStack(spacing: 0) {
             PromptGlyph(icon: icon, tone: tone)
-            Text(title)
+            Text(LocalizedStringKey(title))
                 .font(Theme.ui(22, .semibold))
                 .tracking(-0.7)
                 .lineSpacing(5)
@@ -49,7 +49,7 @@ struct Prompt<Content: View>: View {
                 .padding(.top, 20)
                 .accessibilityAddTraits(.isHeader)
             if let detail {
-                Text(detail)
+                Text(LocalizedStringKey(detail))
                     .font(Theme.body)
                     .lineSpacing(7)
                     .foregroundStyle(palette.secondary)

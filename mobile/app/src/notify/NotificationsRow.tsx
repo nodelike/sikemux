@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Linking, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 import { useAuth } from '@clerk/expo';
 
+import { useT } from '@/i18n';
 import { Icon } from '@/ui/Icon';
 import { fonts, type Palette, typeFor, useColors, useStyles, useType } from '@/ui/theme';
 import { useNotificationsChoice } from './setting';
@@ -12,6 +13,7 @@ export function NotificationsRow() {
   const colors = useColors();
   const styles = useStyles(makeStyles);
   const type = useType();
+  const t = useT();
   const { getToken } = useAuth();
   const choice = useNotificationsChoice();
   const allowed = useNotificationsAllowed();
@@ -34,10 +36,10 @@ export function NotificationsRow() {
     <View style={styles.row}>
       <Icon name="IconInbox" size={18} color={colors.secondary} />
       <View style={{ flex: 1 }}>
-        <Text style={styles.title}>Notifications</Text>
+        <Text style={styles.title}>{t('Notifications')}</Text>
         {blocked ? (
           <Pressable onPress={() => void Linking.openSettings()} accessibilityRole="link" hitSlop={8}>
-            <Text style={[type.meta, styles.link]}>Allow them in Android settings</Text>
+            <Text style={[type.meta, styles.link]}>{t('Allow them in Android settings')}</Text>
           </Pressable>
         ) : null}
       </View>
@@ -47,7 +49,7 @@ export function NotificationsRow() {
         onValueChange={(next) => void flip(next)}
         trackColor={{ false: colors.active, true: colors.live }}
         thumbColor={colors.ink}
-        accessibilityLabel="Notifications"
+        accessibilityLabel={t('Notifications')}
       />
     </View>
   );

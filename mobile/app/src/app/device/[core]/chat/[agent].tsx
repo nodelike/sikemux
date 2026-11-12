@@ -29,7 +29,7 @@ import { useAssumptions } from '@/chat/assumptions';
 import { CallDock } from '@/calls/CallDock';
 import { TurnLine } from '@/calls/TurnLine';
 import { answerWritten, composingCall, queueOf, stopComposing, useKept, waitingCall } from '@/calls/hostCalls';
-import { NO_CHIPS, TELL_CHIEF, answering as answeringWords, sendTo, typeYourAnswer } from '@shared/calls/words';
+import { NO_CHIPS, TELL_CHIEF, answering as answeringWords, sendTo } from '@shared/calls/words';
 import { hasLiveWork, liveKey, liveWork } from '@/chat/liveWork';
 import { stripOf, stripOwner } from '@/chat/messageMeta';
 import { ToolDetailContext } from '@/chat/Tools';
@@ -41,6 +41,7 @@ import { Earlier, EarlierLost, Queued } from '@/chat/TranscriptEdges';
 import { AgentContext, liveRunKey, ProviderContext, SubagentsContext } from '@/chat/transcriptContext';
 import { useChat } from '@/chat/useChat';
 import { useHostCall } from '@/core/hostCalls';
+import { type Translate, useT } from '@/i18n';
 import { retry as reconnect, useDevices, useLive } from '@/devices/hub';
 import { projectOf } from '@/devices/words';
 import { dismissCardsFor } from '@/notify/cards';
@@ -65,11 +66,12 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
   const type = useType();
+  const t = useT();
   const live = useLive(core);
   const { devices } = useDevices();
   const device = devices.find((paired) => paired.core === core);
   const access = device?.access ?? 'full';
-  const hostName = device ? deviceName(device) : 'the host';
+  const hostName = device ? deviceName(device) : t('the host');
   const info = live.snapshot?.chats.find((chat) => chat.agentId === agentId);
   const provider = info?.provider ?? 'agent';
   const { session, chat, connection } = useChat(core, agentId);
@@ -141,8 +143,8 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
   useEffect(() => dismissCardsFor(core, agentId), [core, agentId]);
   const name = info?.name ?? agentLabel(provider);
   useArrivals(state.running, request?.requestId, {
-    done: `${name} finished`,
-    asks: request ? `${name} asks: ${askTitle(request)}` : '',
+    done: t('{name} finished', { name }),
+    asks: request ? t('{name} asks: {question}', { name, question: askTitle(request) }) : '',
   });
   const list = useRef<FlashListRef<ChatMessage>>(null);
   const bottom = useBottomGap();
@@ -212,9 +214,9 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
   const projectId = live.snapshot ? projectOf(live.snapshot, agentId) : undefined;
   const hasChief = !!live.snapshot?.workspace.projects.find((project) => project.id === projectId)?.chief;
   const composerTo = state.chief
-    ? { words: TELL_CHIEF, commands: true }
+    ? { words: TELL_CHIEF, commands: true, said: t(TELL_CHIEF) }
     : hasChief && info?.name
-      ? { words: sendTo(info.name), commands: false }
+      ? { words: sendTo(info.name), commands: false, said: t('Send to @{name}', { name: info.name }) }
       : undefined;
   // React's compiler keeps this element while its inputs stay the same, so a view from the host leaves the card be.
   const dock = docked ? (
@@ -233,19 +235,23 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
   const unreachable = chat.attached !== 'live' && live.status === 'closed';
   const status = unreachable ? (
     <View style={styles.missing}>
-      <Text style={styles.gone}>{`Can't reach ${hostName}. ${capitalised(live.problem)}`}</Text>
-      <Button title="Try again" onPress={() => reconnect(core)} />
+      <Text style={styles.gone}>{`${t("Can't reach {host}.", { host: hostName })} ${capitalised(live.problem)}`}</Text>
+      <Button title={t('Try again')} onPress={() => reconnect(core)} />
     </View>
   ) : chat.attached === 'missing' ? (
     <View style={styles.missing}>
-      <Text style={styles.gone}>{chat.problem ? capitalised(chat.problem) : 'This chat is no longer running on the host.'}</Text>
-      <Button title="Try again" onPress={session.retry} />
+      <Text style={styles.gone}>{chat.problem ? capitalised(chat.problem) : t('This chat is no longer running on the host.')}</Text>
+      <Button title={t('Try again')} onPress={session.retry} />
     </View>
   ) : chat.attached === 'attaching' ? (
     <View style={styles.attaching} accessibilityLiveRegion="polite">
       <Working />
       <Text style={type.meta}>
-        {live.status === 'connecting' ? `Reaching ${hostName}…` : info?.state === 'asleep' ? 'Waking the chat…' : 'Opening the chat…'}
+        {live.status === 'connecting'
+          ? t('Reaching {host}…', { host: hostName })
+          : info?.state === 'asleep'
+            ? t('Waking the chat…')
+            : t('Opening the chat…')}
       </Text>
     </View>
   ) : null;
@@ -260,7 +266,7 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
             hitSlop={6}
             style={({ pressed }) => [styles.more, pressed && { backgroundColor: colors.active }]}
             accessibilityRole="button"
-            accessibilityLabel="Chat actions">
+            accessibilityLabel={t('Chat actions')}>
             <Icon name="IconMoreVertical" size={16} color={colors.tertiary} />
           </Pressable>
         }
@@ -407,7 +413,7 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
                               style={styles.jump}
                               hitSlop={8}
                               accessibilityRole="button"
-                              accessibilityLabel="Jump to latest message">
+                              accessibilityLabel={t('Jump to latest message')}>
                               <Icon name="IconArrowDown" size={16} color={colors.inkDim} />
                             </Pressable>
                           </KeyboardStickyView>
@@ -442,16 +448,20 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
                   answering={chat.answering}
                   placeholder={
                     changing
-                      ? typeYourAnswer(changing.name)
+                      ? t('Or type your answer to @{name}', { name: changing.name })
                       : composing
-                        ? composing.placeholder
-                        : composerPlaceholder(state, {
-                            resuming: false,
-                            disconnected: live.status !== 'open',
-                            commands: state.commands.length > 0,
-                            steers,
-                            to: composerTo,
-                          })
+                        ? t('Or type your answer to @{name}', { name: composing.asker })
+                        : placeholderIn(
+                            composerPlaceholder(state, {
+                              resuming: false,
+                              disconnected: live.status !== 'open',
+                              commands: state.commands.length > 0,
+                              steers,
+                              to: composerTo,
+                            }),
+                            composerTo,
+                            t,
+                          )
                   }
                   permissionMode={chat.permissionMode ?? ''}
                   modeLocked={state.running || chat.permissions.length > 0 || state.connection !== 'ready' || live.status !== 'open'}
@@ -478,7 +488,7 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
                         ? {
                             chip: composing.chip,
                             cli: composing.cli,
-                            chipsRefused: NO_CHIPS,
+                            chipsRefused: t(NO_CHIPS),
                             onRemove: () => stopComposing(core, composing.id),
                             onAnswer: (written) =>
                               answerWritten(
@@ -587,7 +597,13 @@ function answeringIn(call: PersonCall | undefined) {
       id: call.id,
       cli: call.asker.cli,
       chip: answeringWords(call.asker.name, call.question),
-      placeholder: typeYourAnswer(call.asker.name),
+      asker: call.asker.name,
     }
   );
+}
+
+/** The composer's hint in the person's language; a hint naming who the words go to is said with that name in it. */
+function placeholderIn(english: string, to: { words: string; said: string } | undefined, t: Translate): string {
+  if (!to || !english.startsWith(to.words)) return t(english);
+  return english === to.words ? to.said : t('{to}, or type / for commands', { to: to.said });
 }

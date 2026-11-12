@@ -23,7 +23,7 @@ struct ActionButton<Lead: View>: View {
                 } else {
                     lead.foregroundStyle(ink)
                 }
-                Text(title)
+                Text(LocalizedStringKey(title))
                     .font(Theme.ui(16, kind == .text ? .medium : .semibold))
                     .foregroundStyle(ink)
             }
@@ -191,7 +191,7 @@ struct Chip: View {
             Haptics.select()
             action()
         } label: {
-            Text(title)
+            Text(LocalizedStringKey(title))
                 .font(Theme.ui(13.5, .medium))
                 .foregroundStyle(disabled ? palette.inkFaint : primary ? palette.ground : palette.ink)
                 .lineLimit(1)

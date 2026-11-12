@@ -8,6 +8,7 @@ import type { ConnectionLike } from '@sikemux/native';
 import { callHost } from '@/core/hostCalls';
 import { problem } from '@/core/problem';
 import { Dot, Working } from '@/devices/AgentMarks';
+import { useT } from '@/i18n';
 import { Chip } from '@/ui/controls';
 import { Icon } from '@/ui/Icon';
 import { useAnimating, useMinute, useSecond } from '@/ui/motion';
@@ -39,6 +40,7 @@ export function TurnLine({
 }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
+  const t = useT();
   const animating = useAnimating();
   // Only a working turn counts seconds; the other states show minutes, on the same minute as the call card's age.
   const ticks = turn.state === 'working';
@@ -67,12 +69,12 @@ export function TurnLine({
   };
   const chip = (step: TurnStep, primary: boolean) => {
     const label = stepLabel(step);
-    return label ? <Chip key={step} title={label} primary={primary} busy={taking === step} onPress={() => void take(step)} /> : null;
+    return label ? <Chip key={step} title={t(label)} primary={primary} busy={taking === step} onPress={() => void take(step)} /> : null;
   };
   const buttons = !canAct ? null : turn.state === 'done' ? (
     (turn.done?.next ?? []).map((next) => chip(next.step, next.primary))
   ) : turn.state === 'needsYou' && !callDocked ? (
-    <Chip title={LOOK} primary onPress={onLook} />
+    <Chip title={t(LOOK)} primary onPress={onLook} />
   ) : turn.state === 'stopped' ? (
     chip('carryOn', false)
   ) : null;
@@ -83,11 +85,11 @@ export function TurnLine({
         <View style={styles.mark}>
           <Mark phase={turn.state} />
         </View>
-        <View style={styles.words} accessible accessibilityLabel={[shown.word, ...shown.parts].join(', ')}>
+        <View style={styles.words} accessible accessibilityLabel={[t(shown.word), ...shown.parts].join(', ')}>
           {shown.phase === 'working' ? (
-            <Shimmer style={[styles.word, { color: colors.ink }]}>{shown.word}</Shimmer>
+            <Shimmer style={[styles.word, { color: colors.ink }]}>{t(shown.word)}</Shimmer>
           ) : (
-            <Text style={[styles.word, { color: tint(shown.phase, colors) }]}>{shown.word}</Text>
+            <Text style={[styles.word, { color: tint(shown.phase, colors) }]}>{t(shown.word)}</Text>
           )}
           {shown.parts.map((part, index) => (
             <View key={index} style={styles.part}>

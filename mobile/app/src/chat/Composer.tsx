@@ -8,6 +8,7 @@ import { currentLabel } from '@/chat/sessionConfig';
 import type { ChatRows } from '@shared/chat/rows';
 import type { ChatCommandInfo, PermissionAsk } from '@shared/wire.generated';
 import { problem } from '@/core/problem';
+import { useT } from '@/i18n';
 import { haptics } from '@/ui/haptics';
 import { AgentIcon, Icon } from '@/ui/Icon';
 import { fonts, type Palette, useColors, useStyles } from '@/ui/theme';
@@ -71,6 +72,7 @@ export type ComposerQuestion = {
 function AnsweringChip({ question }: { question: ComposerQuestion }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
+  const t = useT();
   return (
     <View style={styles.answering}>
       <AgentIcon provider={question.cli} size={13} />
@@ -82,7 +84,7 @@ function AnsweringChip({ question }: { question: ComposerQuestion }) {
         hitSlop={8}
         style={styles.answeringX}
         accessibilityRole="button"
-        accessibilityLabel={`Stop: ${question.chip}`}>
+        accessibilityLabel={t('Stop: {question}', { question: question.chip })}>
         <Icon name="IconClose" size={10} color={colors.ground} />
       </Pressable>
     </View>
@@ -164,6 +166,7 @@ export const Composer = memo(function Composer({
 }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
+  const t = useT();
   const draft = useDraft(session);
   const tokens = useDraftTokens(session);
   const [adding, setAdding] = useState<'files' | 'stash' | false>(false);
@@ -213,7 +216,7 @@ export const Composer = memo(function Composer({
         {dock ?? strip}
         <View style={[styles.composer, styles.watch]}>
           <Icon name="IconEye" size={17} color={colors.inkDim} />
-          <Text style={styles.watchText}>Watching</Text>
+          <Text style={styles.watchText}>{t('Watching')}</Text>
         </View>
         {place ? <ChatPlace place={place} /> : null}
       </SafeAreaView>
@@ -229,7 +232,7 @@ export const Composer = memo(function Composer({
     const aside = sideQuestion(text);
     const unknown = aside === undefined ? unknownCommand(text, commands) : null;
     if (unknown) {
-      session.report(`/${unknown} is not available in this session`);
+      session.report(t('/{command} is not available in this session', { command: unknown }));
       return;
     }
     haptics.tap();
@@ -255,12 +258,12 @@ export const Composer = memo(function Composer({
   const attach = (picking: Promise<Attachment[]>) => {
     picking
       .then((picked) => session.attach(picked, caret.current))
-      .catch((error: unknown) => session.report(`could not pick: ${problem(error)}`));
+      .catch((error: unknown) => session.report(t('could not pick: {problem}', { problem: problem(error) })));
   };
 
   const fromStash = (items: StashItem[], base = draft) => {
     if (base !== draft) session.setDraft(base);
-    session.attachStash(items).catch((error: unknown) => session.report(`could not attach it: ${problem(error)}`));
+    session.attachStash(items).catch((error: unknown) => session.report(t('could not attach it: {problem}', { problem: problem(error) })));
   };
 
   return (
@@ -301,7 +304,7 @@ export const Composer = memo(function Composer({
           editable={!uploading}
           onChangeText={session.setDraft}
           placeholder={placeholder}
-          accessibilityLabel="Message"
+          accessibilityLabel={t('Message')}
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
           onSelectionChange={(event) => {
@@ -318,7 +321,7 @@ export const Composer = memo(function Composer({
               (uploading || room <= 0) && { opacity: 0.4 },
             ]}
             accessibilityRole="button"
-            accessibilityLabel="Add photos or files"
+            accessibilityLabel={t('Add photos or files')}
             accessibilityState={{ disabled: uploading || room <= 0 }}>
             <Icon name="IconPlus" size={17} color={colors.inkDim} />
           </Pressable>
@@ -329,7 +332,7 @@ export const Composer = memo(function Composer({
               style={[styles.picker, styles.model]}
               onPress={() => setSheet(true)}
               accessibilityRole="button"
-              accessibilityLabel={`Model, ${modelLabel}`}>
+              accessibilityLabel={t('Model, {model}', { model: modelLabel })}>
               <AgentIcon provider={provider} size={16} />
               <Text style={[styles.pickerText, styles.modelText, { color: colors.accent }]} numberOfLines={1}>
                 {modelLabel}
@@ -344,7 +347,7 @@ export const Composer = memo(function Composer({
               style={[styles.picker, styles.effort]}
               onPress={() => setSheet(true)}
               accessibilityRole="button"
-              accessibilityLabel={`Effort, ${effortLabel}`}>
+              accessibilityLabel={t('Effort, {effort}', { effort: effortLabel })}>
               <Text style={[styles.pickerText, { flexShrink: 1 }]} numberOfLines={1}>
                 {effortLabel}
               </Text>
@@ -364,16 +367,16 @@ export const Composer = memo(function Composer({
               accessibilityRole="button"
               accessibilityLabel={
                 uploading
-                  ? 'Sending files'
+                  ? t('Sending files')
                   : offline
-                    ? `Send, waiting for ${hostName}`
+                    ? t('Send, waiting for {host}', { host: hostName })
                     : running
                       ? steers
-                        ? 'Send to steer this turn'
-                        : 'Send after this turn'
-                      : 'Send'
+                        ? t('Send to steer this turn')
+                        : t('Send after this turn')
+                      : t('Send')
               }
-              accessibilityHint={sendable ? 'Hold to stash this prompt' : undefined}
+              accessibilityHint={sendable ? t('Hold to stash this prompt') : undefined}
               accessibilityState={{ disabled: offline || !sendable, busy: uploading }}>
               {uploading ? (
                 <ActivityIndicator size="small" color={colors.ground} />
@@ -382,7 +385,7 @@ export const Composer = memo(function Composer({
               )}
             </Pressable>
           ) : (
-            <Pressable onPress={session.cancel} style={styles.send} accessibilityRole="button" accessibilityLabel="Stop">
+            <Pressable onPress={session.cancel} style={styles.send} accessibilityRole="button" accessibilityLabel={t('Stop')}>
               <View style={styles.stop} />
             </Pressable>
           )}

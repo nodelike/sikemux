@@ -5,6 +5,7 @@ import * as Linking from 'expo-linking';
 
 import { Button } from '@/ui/controls';
 import { haptics } from '@/ui/haptics';
+import { useT } from '@/i18n';
 import { Icon } from '@/ui/Icon';
 import type { IconName } from '@/ui/icons.generated';
 import { Sheet } from '@/ui/Sheet';
@@ -53,6 +54,7 @@ export function ChatMenu({
   onStop?: () => Promise<boolean>;
 }) {
   const styles = useStyles(makeStyles);
+  const t = useT();
   const [confirming, setConfirming] = useState(false);
   const [stopping, setStopping] = useState(false);
   const close = () => {
@@ -63,13 +65,13 @@ export function ChatMenu({
     <Sheet visible={visible} onClose={close}>
       {confirming && onStop ? (
         <View style={styles.confirm}>
-          <Text style={styles.title}>Stop this chat?</Text>
+          <Text style={styles.title}>{t('Stop this chat?')}</Text>
           <Text style={styles.body}>
-            {agentName} stops and closes on {hostName}, along with anything it still has running.
+            {t('{name} stops and closes on {host}, along with anything it still has running.', { name: agentName, host: hostName })}
           </Text>
           <Button
             kind="danger"
-            title={stopping ? 'Stopping…' : 'Stop chat'}
+            title={stopping ? t('Stopping…') : t('Stop chat')}
             disabled={stopping}
             onPress={() => {
               setStopping(true);
@@ -79,14 +81,14 @@ export function ChatMenu({
               });
             }}
           />
-          <Button title="Cancel" onPress={() => setConfirming(false)} />
+          <Button title={t('Cancel')} onPress={() => setConfirming(false)} />
         </View>
       ) : (
         <View style={styles.items}>
           {onFind ? (
             <MenuItem
               icon="IconSearch"
-              label="Find in chat"
+              label={t('Find in chat')}
               onPress={() => {
                 close();
                 onFind();
@@ -96,7 +98,7 @@ export function ChatMenu({
           {onRecent ? (
             <MenuItem
               icon="IconClock"
-              label="Recent prompts"
+              label={t('Recent prompts')}
               onPress={() => {
                 close();
                 onRecent();
@@ -106,7 +108,7 @@ export function ChatMenu({
           {onAway ? (
             <MenuItem
               icon="IconClock"
-              label="Snooze"
+              label={t('Snooze')}
               onPress={() => {
                 close();
                 onAway();
@@ -115,14 +117,14 @@ export function ChatMenu({
           ) : null}
           <MenuItem
             icon="IconCopy"
-            label="Copy link"
+            label={t('Copy link')}
             onPress={() => {
               const link = Linking.createURL(`device/${encodeURIComponent(core)}/chat/${encodeURIComponent(agentId)}`);
               void Clipboard.setStringAsync(link).then(() => haptics.select());
               close();
             }}
           />
-          {onStop ? <MenuItem icon="IconStop" label="Stop chat" danger onPress={() => setConfirming(true)} /> : null}
+          {onStop ? <MenuItem icon="IconStop" label={t('Stop chat')} danger onPress={() => setConfirming(true)} /> : null}
         </View>
       )}
     </Sheet>

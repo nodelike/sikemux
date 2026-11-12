@@ -116,6 +116,7 @@ targets:
         SikemuxCommit: $(SIKEMUX_COMMIT)
         SikemuxSentryDSN: $(SIKEMUX_SENTRY_DSN)
         LSRequiresIPhoneOS: true
+        CFBundleLocalizations: [en, es, zh-Hans, de, fr, ja, ko, ru, pt-BR]
         SikemuxKeychainGroup: $(DEVELOPMENT_TEAM).$(SIKEMUX_BUNDLE_ID).notify
         SikemuxAppGroup: group.$(SIKEMUX_BUNDLE_ID)
         SikemuxStashKeychainGroup: $(DEVELOPMENT_TEAM).$(SIKEMUX_BUNDLE_ID).stash

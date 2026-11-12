@@ -8,6 +8,7 @@ import { Track } from '@/ui/controls';
 import { Sheet } from '@/ui/Sheet';
 import { fonts, type Palette, useColors, useStyles } from '@/ui/theme';
 import { usageColor } from '@/chat/ContextRing';
+import { useT } from '@/i18n';
 
 export function ConfigSheet({
   visible,
@@ -28,6 +29,7 @@ export function ConfigSheet({
 }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
+  const t = useT();
   const brand = useAgentBrand(provider);
   return (
     <Sheet visible={visible} onClose={onClose}>
@@ -37,7 +39,7 @@ export function ConfigSheet({
       </View>
       {model ? (
         <>
-          <Text style={styles.sheetLabel}>Model</Text>
+          <Text style={styles.sheetLabel}>{t('Model')}</Text>
           <View style={styles.group}>
             {model.choices.map((option, index) => {
               const on = option.value === model.current;
@@ -59,7 +61,7 @@ export function ConfigSheet({
       ) : null}
       {effort ? (
         <>
-          <Text style={styles.sheetLabel}>Effort</Text>
+          <Text style={styles.sheetLabel}>{t('Effort')}</Text>
           <Track
             value={effort.current}
             onChange={(value) => onPick(effort, value)}
@@ -70,9 +72,10 @@ export function ConfigSheet({
       {usage ? (
         <View style={styles.context}>
           <View style={styles.contextTop}>
-            <Text style={styles.contextLabel}>Context</Text>
+            <Text style={styles.contextLabel}>{t('Context')}</Text>
             <Text style={styles.contextValue}>
-              {Math.round(contextShare(usage) * 100)}% · {tokenCount(usage.used)} of {tokenCount(usage.size)}
+              {Math.round(contextShare(usage) * 100)}% ·{' '}
+              {t('{used} of {size}', { used: tokenCount(usage.used), size: tokenCount(usage.size) })}
             </Text>
           </View>
           <View style={styles.contextBar}>
@@ -83,7 +86,7 @@ export function ConfigSheet({
               ]}
             />
           </View>
-          {usage.cost ? <Text style={styles.cost}>Session cost {money(usage.cost)}</Text> : null}
+          {usage.cost ? <Text style={styles.cost}>{t('Session cost {cost}', { cost: money(usage.cost) })}</Text> : null}
         </View>
       ) : null}
     </Sheet>

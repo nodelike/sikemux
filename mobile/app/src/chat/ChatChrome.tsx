@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 
 import { type Live } from '@/devices/hub';
+import { useT } from '@/i18n';
 import { haptics } from '@/ui/haptics';
 import { Icon } from '@/ui/Icon';
 import { pauseBackdrop } from '@/ui/motion';
@@ -19,15 +20,22 @@ export function capitalised(text: string): string {
 /** Above the composer while the host is out of reach: the chat stays, and what is sent waits. */
 export function Reconnecting({ live, hostName, onTry }: { live: Live; hostName: string; onTry: () => void }) {
   const styles = useStyles(makeStyles);
+  const t = useT();
   const closed = live.status === 'closed';
   return (
     <View style={styles.reconnect} accessibilityLiveRegion="polite">
       {closed ? null : <Working />}
       <Text style={styles.reconnectText} numberOfLines={2}>
-        {closed ? `Can't reach ${hostName}. ${capitalised(live.problem)}` : `Reconnecting to ${hostName}…`}
+        {closed
+          ? `${t("Can't reach {host}.", { host: hostName })} ${capitalised(live.problem)}`
+          : t('Reconnecting to {host}…', { host: hostName })}
       </Text>
-      <Pressable onPress={onTry} hitSlop={10} accessibilityRole="button" accessibilityLabel={`Try reaching ${hostName} now`}>
-        <Text style={styles.reconnectTry}>Try now</Text>
+      <Pressable
+        onPress={onTry}
+        hitSlop={10}
+        accessibilityRole="button"
+        accessibilityLabel={t('Try reaching {host} now', { host: hostName })}>
+        <Text style={styles.reconnectTry}>{t('Try now')}</Text>
       </Pressable>
     </View>
   );
@@ -37,11 +45,12 @@ export function Reconnecting({ live, hostName, onTry }: { live: Live; hostName: 
 export function Notice({ text, onDismiss }: { text: string; onDismiss: () => void }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
+  const t = useT();
   return (
     <View style={styles.notice} accessibilityLiveRegion="polite">
       <Icon name="IconWarning" size={13} color={colors.danger} />
       <Text style={styles.noticeText}>{capitalised(text)}</Text>
-      <Pressable onPress={onDismiss} hitSlop={10} accessibilityRole="button" accessibilityLabel="Dismiss">
+      <Pressable onPress={onDismiss} hitSlop={10} accessibilityRole="button" accessibilityLabel={t('Dismiss')}>
         <Icon name="IconClose" size={13} color={colors.inkDim} />
       </Pressable>
     </View>

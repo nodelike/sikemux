@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Platform, StyleSheet, Switch, Text, View } from 'react-native';
 
+import { useT } from '@/i18n';
 import { Icon } from '@/ui/Icon';
 import { type Palette, typeFor, useColors, useStyles, useType } from '@/ui/theme';
 import { turnLockOff, turnLockOn, useLock } from './lock';
@@ -10,6 +11,7 @@ export function LockRow() {
   const colors = useColors();
   const styles = useStyles(makeStyles);
   const type = useType();
+  const t = useT();
   const { on, asking } = useLock();
   const [problem, setProblem] = useState<string>();
   if (Platform.OS === 'web') return null;
@@ -24,8 +26,8 @@ export function LockRow() {
     <View style={styles.row}>
       <Icon name="IconLock" size={18} color={colors.secondary} />
       <View style={{ flex: 1 }}>
-        <Text style={styles.title}>Lock Sikemux</Text>
-        {problem ? <Text style={type.meta}>{problem}</Text> : null}
+        <Text style={styles.title}>{t('Lock Sikemux')}</Text>
+        {problem ? <Text style={type.meta}>{t(problem)}</Text> : null}
       </View>
       <Switch
         value={on}
@@ -33,7 +35,7 @@ export function LockRow() {
         onValueChange={(next) => void flip(next)}
         trackColor={{ false: colors.active, true: colors.live }}
         thumbColor={colors.ink}
-        accessibilityLabel="Lock Sikemux"
+        accessibilityLabel={t('Lock Sikemux')}
       />
     </View>
   );
