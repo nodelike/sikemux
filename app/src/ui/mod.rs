@@ -334,6 +334,22 @@ pub fn kbd(keys: impl Into<SharedString>, cx: &App) -> Div {
         .text_color(Tokens::get(cx).text_tertiary)
 }
 
+/// A shortcut in a key's box, sunken under the text around it.
+pub fn keycap(keys: impl Into<SharedString>, cx: &App) -> Div {
+    let t = Tokens::get(cx);
+    kbd(keys, cx)
+        .flex_none()
+        .px(theme::SPACE_1H)
+        .py(px(1.))
+        .line_height(theme::ui_text(theme::TEXT_SM))
+        .flex()
+        .justify_center()
+        .border_1()
+        .border_color(t.border)
+        .bg(t.surface_sunken)
+        .rounded(theme::RADIUS_1)
+}
+
 /// A rounded frame over the shell, as the rails and panes are.
 pub fn panel(cx: &App) -> Div {
     let t = Tokens::get(cx);

@@ -539,6 +539,10 @@ impl RenderOnce for Composer {
     }
 }
 
+/// How far, as a share of their size, a line's letters sit below the middle of its line box,
+/// so a key centred on the line is moved down onto them.
+const GLYPHS_BELOW_MIDDLE: f32 = 0.17;
+
 /// Tab's key after the suggestion the empty draft shows as its placeholder. The words are drawn
 /// again unseen where the draft draws them, inside its padding, so the key follows them.
 fn tab_hint(suggestion: SharedString, text_size: gpui_kit::Pixels, cx: &App) -> gpui_kit::Div {
@@ -560,7 +564,11 @@ fn tab_hint(suggestion: SharedString, text_size: gpui_kit::Pixels, cx: &App) -> 
                 .text_color(gpui_kit::transparent_black())
                 .child(suggestion),
         )
-        .child(ui::kbd("Tab", cx).flex_none())
+        .child(
+            ui::keycap("Tab", cx)
+                .relative()
+                .top(text_size * GLYPHS_BELOW_MIDDLE),
+        )
 }
 
 /// A one-line notice just above the box: a send refused, something waited on, or something

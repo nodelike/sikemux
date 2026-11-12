@@ -937,29 +937,13 @@ fn line_of(bench: &Workbench, line: usize, cx: &mut Context<Workbench>) -> AnyEl
         )
         .when_some(row.keys.clone(), |element, keys| {
             element.child(match palette.spec.deck {
-                true => keycap(keys, selected, cx),
+                true => ui::keycap(keys, cx)
+                    .min_w(px(40.))
+                    .when(selected, |keycap| keycap.text_color(t.text_primary)),
                 false => ui::kbd(keys, cx).flex_none().pl(SPACE_1H),
             })
         })
         .into_any_element()
-}
-
-/// A shortcut in a key's box, inked as the row is.
-fn keycap(keys: SharedString, selected: bool, cx: &App) -> gpui_kit::Div {
-    let t = Tokens::get(cx);
-    ui::kbd(keys, cx)
-        .flex_none()
-        .min_w(px(40.))
-        .px(SPACE_1H)
-        .py(px(1.))
-        .line_height(theme::ui_text(TEXT_SM))
-        .flex()
-        .justify_center()
-        .border_1()
-        .border_color(t.border)
-        .bg(t.surface_sunken)
-        .rounded(theme::RADIUS_1)
-        .when(selected, |keycap| keycap.text_color(t.text_primary))
 }
 
 /// The choice beside the field as main's safety switch draws it: a sunken box of tracked mono
