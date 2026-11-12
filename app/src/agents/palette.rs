@@ -131,7 +131,14 @@ impl Workbench {
     /// The palette's rows, those found by what was said in them with where they said `query`.
     fn agent_palette_rows(&self, project: &str, query: &str) -> Vec<Row> {
         let said = |id: Option<&str>, row: Row| match id.and_then(|id| self.said_for(query, id)) {
-            Some(said) => row.meta(said.text.clone()).also(query),
+            Some(said) => row
+                .meta(
+                    said.runs
+                        .iter()
+                        .map(|run| run.text.as_str())
+                        .collect::<String>(),
+                )
+                .also(query),
             None => row,
         };
         let kind_of = |provider: &str| self.reads.catalog.kind(provider);

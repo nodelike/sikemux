@@ -11,7 +11,7 @@ use gpui_kit::{
     div, App, Context, Div, Entity, FontWeight, HighlightStyle, ParentElement, Styled, StyledText,
     Subscription,
 };
-use sikemux_core::sessions::said::Excerpt;
+use sikemux_core::sessions::said::FoundLine;
 use sikemux_view::device::RecentInfo;
 use std::collections::HashMap;
 
@@ -42,7 +42,7 @@ pub struct OlderChats {
     pub chats: Vec<RecentInfo>,
     pub next: Option<RecentCursor>,
     /// Where each chat found by its words said them, by the chat's id.
-    pub said: HashMap<String, Excerpt>,
+    pub said: HashMap<String, FoundLine>,
     loading: bool,
 }
 
@@ -176,14 +176,14 @@ impl Workbench {
     }
 
     /// Where the chat `id` said the words `query` holds, when it was found by them.
-    pub fn said_for(&self, query: &str, id: &str) -> Option<&Excerpt> {
+    pub fn said_for(&self, query: &str, id: &str) -> Option<&FoundLine> {
         (self.older.as_ref())
             .filter(|older| !query.is_empty() && older.query == query)
             .and_then(|older| older.said.get(id))
     }
 
     /// Where the chat `id` said the words the rail's filter holds, when it was found by them.
-    pub fn said_in(&self, id: &str) -> Option<&Excerpt> {
+    pub fn said_in(&self, id: &str) -> Option<&FoundLine> {
         self.said_for(self.filter_text(), id)
     }
 
@@ -196,7 +196,7 @@ impl Workbench {
     /// The words to find in the chat `id`, when the last search found it by them.
     pub fn found_words(&self, id: &str) -> Option<String> {
         let said = self.older.as_ref()?.said.get(id)?;
-        said.first_mark().map(str::to_owned)
+        said.first_found().map(str::to_owned)
     }
 
     /// Takes up a saved chat, and when a search found it by its words, opens its find on them.
@@ -255,21 +255,27 @@ impl Workbench {
 }
 
 /// Where a chat said the words looked for: one line in the tertiary ink, the words in full ink.
-pub fn said_line(said: &Excerpt, cx: &App) -> Div {
+pub fn said_line(said: &FoundLine, cx: &App) -> Div {
     let t = crate::theme::Tokens::get(cx);
     let words = HighlightStyle {
         color: Some(t.text_primary),
         font_weight: Some(FontWeight::MEDIUM),
         ..Default::default()
     };
-    let marks = (said.marks.iter())
-        .filter(|[start, end]| start < end && *end <= said.text.len())
-        .map(|[start, end]| (*start..*end, words));
+    let mut text = String::new();
+    let mut marks = Vec::new();
+    for run in &said.runs {
+        let start = text.len();
+        text.push_str(&run.text);
+        if run.found {
+            marks.push((start..text.len(), words));
+        }
+    }
     div()
         .text_size(crate::theme::ui_text(crate::theme::TEXT_2XS))
         .text_color(t.text_tertiary)
         .whitespace_nowrap()
         .overflow_hidden()
         .text_ellipsis()
-        .child(StyledText::new(said.text.clone()).with_highlights(marks))
+        .child(StyledText::new(text).with_highlights(marks))
 }

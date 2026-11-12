@@ -33,23 +33,33 @@ const HOLD: Duration = Duration::from_millis(40);
 /// The most sessions a search lists as holding the words.
 const MAX_MATCHED: usize = 5_000;
 const SNIPPET_WORDS: i64 = 14;
+/// How many words before the first ones found a line keeps.
+const LEAD_WORDS: usize = 4;
 const MARK_START: char = '\u{2}';
 const MARK_END: char = '\u{3}';
 
-/// A line of a session that holds the words looked for, and where in it they are.
+/// A line of a session that holds the words looked for, in runs that alternate between
+/// the words found and what is around them.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Excerpt {
-    pub text: String,
-    /// Byte ranges of `text` that matched.
-    pub marks: Vec<[usize; 2]>,
+pub struct FoundLine {
+    pub runs: Vec<FoundRun>,
 }
 
-impl Excerpt {
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FoundRun {
+    pub text: String,
+    /// Whether these are words looked for.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub found: bool,
+}
+
+impl FoundLine {
     /// The first words that matched, for a find in the chat to look for.
-    pub fn first_mark(&self) -> Option<&str> {
-        let [start, end] = *self.marks.first()?;
-        self.text.get(start..end)
+    pub fn first_found(&self) -> Option<&str> {
+        let run = self.runs.iter().find(|run| run.found)?;
+        Some(&run.text)
     }
 }
 
@@ -450,7 +460,7 @@ pub fn matching(words: &Words) -> HashSet<Key> {
 }
 
 /// The newest message of the session holding every word, cut to the stretch around them.
-pub fn excerpt(words: &Words, agent: &str, session: &str) -> Option<Excerpt> {
+pub fn excerpt(words: &Words, agent: &str, session: &str) -> Option<FoundLine> {
     let index = index()?.locked();
     let number = index
         .heard
@@ -480,33 +490,61 @@ fn agent_name(agent: &str) -> Option<&'static str> {
     AgentKind::from_name(agent).map(AgentKind::as_str)
 }
 
-/// The snippet's text on one line, with where its marks were.
-fn marked(snippet: &str) -> Excerpt {
-    let mut text = String::with_capacity(snippet.len());
-    let mut marks = Vec::new();
-    let mut open = None;
+/// The snippet on one line, in runs split where its marks were.
+fn marked(snippet: &str) -> FoundLine {
+    let mut runs: Vec<FoundRun> = Vec::new();
+    let mut run = FoundRun {
+        text: String::new(),
+        found: false,
+    };
     let mut space = false;
+    let mut started = false;
     for char in snippet.chars() {
-        match char {
-            MARK_START => {
-                if std::mem::take(&mut space) {
-                    text.push(' ');
-                }
-                open = Some(text.len());
+        let found = match char {
+            MARK_START => true,
+            MARK_END => false,
+            char if char.is_whitespace() => {
+                space = started;
+                continue;
             }
-            MARK_END => {
-                if let Some(start) = open.take() {
-                    marks.push([start, text.len()]);
-                }
-            }
-            char if char.is_whitespace() => space = !text.is_empty(),
             char => {
                 if std::mem::take(&mut space) {
-                    text.push(' ');
+                    run.text.push(' ');
                 }
-                text.push(char);
+                run.text.push(char);
+                started = true;
+                continue;
             }
+        };
+        if std::mem::take(&mut space) {
+            run.text.push(' ');
+        }
+        let ended = std::mem::replace(
+            &mut run,
+            FoundRun {
+                text: String::new(),
+                found,
+            },
+        );
+        if !ended.text.is_empty() {
+            runs.push(ended);
         }
     }
-    Excerpt { text, marks }
+    if !run.text.is_empty() {
+        runs.push(run);
+    }
+    lead_in(&mut runs);
+    FoundLine { runs }
+}
+
+/// Keeps only the last few words before the first words found, so a narrow row still shows them.
+fn lead_in(runs: &mut [FoundRun]) {
+    let Some(first) = runs.first_mut().filter(|run| !run.found) else {
+        return;
+    };
+    let words: Vec<&str> = first.text.split(' ').collect();
+    if words.len() <= LEAD_WORDS + 1 {
+        return;
+    }
+    first.text = format!("…{}", words[words.len() - LEAD_WORDS - 1..].join(" "));
 }

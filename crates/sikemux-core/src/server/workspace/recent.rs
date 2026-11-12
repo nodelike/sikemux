@@ -4,7 +4,7 @@
 use super::*;
 use crate::server::changed::What;
 use crate::server::names::RanSession;
-use crate::sessions::said::Excerpt;
+use crate::sessions::said::FoundLine;
 use serde::{Deserialize, Serialize};
 use sikemux_view::chat::ChatTrigger;
 
@@ -276,7 +276,7 @@ pub struct RecentChats {
     pub next: Option<saved_chats::RecentCursor>,
     /// Where each chat found by its words said them, by the chat's id.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub said: HashMap<String, Excerpt>,
+    pub said: HashMap<String, FoundLine>,
 }
 
 /// A page of a project's saved chats, or every project's, newest first, those matching

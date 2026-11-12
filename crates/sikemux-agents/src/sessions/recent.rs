@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use super::said::{self, Excerpt, Words};
+use super::said::{self, FoundLine, Words};
 use super::AgentSession;
 use crate::agent_catalog::AgentKind;
 
@@ -70,7 +70,7 @@ pub struct RecentSession {
     pub cwd: Option<String>,
     /// Where it said the words searched for, when it did.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub said: Option<Excerpt>,
+    pub said: Option<FoundLine>,
 }
 
 #[derive(Serialize, Debug)]
