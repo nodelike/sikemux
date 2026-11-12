@@ -327,13 +327,10 @@ fn other_row(place: &Place, cx: &mut Context<Workbench>) -> AnyElement {
         Some(mark(place, cx)),
         place.name.clone(),
         Some(about(words, cx)),
-        ui::select_field(
-            SharedString::from(format!("playbook-place-level-{}", place.id)),
-            None,
-            "Yours",
-            true,
-            cx,
-        ),
+        div()
+            .text_size(crate::theme::ui_text(crate::theme::TEXT_XS))
+            .text_color(Tokens::get(cx).text_primary)
+            .child("Yours"),
         cx,
     )
     .into_any_element()
