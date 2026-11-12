@@ -1455,7 +1455,11 @@ pub(crate) fn chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<imp
                     let (text, ink) = match &week {
                         Some(week) => {
                             let used = week.used();
-                            let text = format!("{}%", used.round());
+                            let text = format!(
+                                "{}% / {}%",
+                                (used * week.accounts as f64).round(),
+                                week.accounts * 100
+                            );
                             let ink = if used < 70. {
                                 t.text_secondary
                             } else {
