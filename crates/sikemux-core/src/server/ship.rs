@@ -570,6 +570,7 @@ fn call_asking(
             agent_id: agent_id.to_owned(),
             cli: questions::cli_of(core, agent_id),
             name: name.clone(),
+            chief: false,
         },
         asked_for: None,
         question: format!("Change {} with @{name}'s work?", place.name()),
