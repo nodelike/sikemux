@@ -27,6 +27,7 @@ export function Row({
   name,
   host,
   title,
+  aside,
   detail,
   place,
   end,
@@ -43,6 +44,8 @@ export function Row({
   /** The linked host the agent runs on, set after its name. */
   host?: string;
   title?: string;
+  /** Quiet words after the title on its line, such as what a chief's chat is on. */
+  aside?: string;
   detail?: ReactNode;
   /** The project the row belongs to, marked with the folder the Mac's rail puts beside it. */
   place?: string | null;
@@ -79,6 +82,12 @@ export function Row({
           <Text style={[styles.rowTitle, { color: dim ? colors.tertiary : colors.ink }]} numberOfLines={1}>
             {label}
           </Text>
+          {aside ? (
+            <Text style={styles.rowAside} numberOfLines={1}>
+              {'  '}
+              {aside}
+            </Text>
+          ) : null}
           {where && !named ? (
             <Text style={styles.rowWhere} numberOfLines={1}>
               {' '}
@@ -156,6 +165,7 @@ const makeStyles = (colors: Palette) => {
     rowLabel: { flexDirection: 'row', alignItems: 'baseline' },
     rowTitle: { ...type.row, fontSize: 14.5, flexShrink: 1 },
     rowWhere: { flexShrink: 0, fontFamily: fonts.ui, color: colors.tertiary },
+    rowAside: { flexShrink: 1, fontFamily: fonts.ui, fontSize: 14.5, color: colors.tertiary },
     rowName: { maxWidth: 110, fontFamily: fonts.ui, fontSize: 11.5, color: colors.tertiary },
     rowDetail: { ...type.meta, fontSize: 12, marginTop: 1 },
     rowPlace: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 1 },

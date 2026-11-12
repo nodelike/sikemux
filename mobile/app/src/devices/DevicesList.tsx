@@ -35,7 +35,7 @@ function DeviceCard({ device, onAccount, offAccount }: { device: PairedDevice; o
   const working = snapshot?.inbox.working ?? 0;
   const rollup = snapshot?.inbox.rollup;
   const background = (rollup?.subagents ?? 0) + (rollup?.tasks ?? 0);
-  const busy = (snapshot?.inbox.agents ?? []).filter((agent) => agent.group === 'working' || agent.background);
+  const busy = (snapshot?.inbox.agents ?? []).filter((agent) => agent.turn?.state === 'working' || agent.background);
   const work = [working ? `${working} working` : null, background ? `${background} in the background` : null].filter(Boolean).join(' · ');
   const channel = channelLabel(device.channel);
   const state = offAccount ? 'Not on your account' : snapshot ? summary(snapshot) : status.online ? 'Connecting…' : status.line;
@@ -73,7 +73,7 @@ function DeviceCard({ device, onAccount, offAccount }: { device: PairedDevice; o
             <View style={styles.faces}>
               {busy.slice(0, 4).map((agent, index) => (
                 <View key={agent.agentId} style={[styles.face, index > 0 && styles.faceAfter]}>
-                  <AgentFace agentId={agent.agentId} provider={agent.cli} group={agent.group} size={18} />
+                  <AgentFace agentId={agent.agentId} provider={agent.cli} turn={agent.turn?.state} size={18} />
                 </View>
               ))}
             </View>

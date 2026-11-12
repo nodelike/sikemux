@@ -15,6 +15,7 @@ import android.text.Spanned
 import android.text.style.TypefaceSpan
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.app.RemoteInput
 import androidx.core.content.ContextCompat
 import java.net.URLEncoder
 
@@ -46,7 +47,13 @@ class Notifier(private val context: Context) {
       .setContentIntent(open(card.collapseId, card.url))
       .setExtras(extras(card))
       .setTimeoutAfter(left)
-    if (card.answerable) {
+    val options = card.options.orEmpty()
+    if (card.callId != null && options.isNotEmpty()) {
+      // A call of taste: its options as buttons, the asker's pick first, then a field for the person's own words.
+      // Android shows three buttons at most.
+      options.take(2).forEach { builder.addAction(answerCall(card, it.id, it.label)) }
+      builder.addAction(replyCall(card))
+    } else if (card.answerable) {
       builder.addAction(answer(card, card.rejectOptionId!!, "Reject", authenticated = false))
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         builder.addAction(answer(card, card.allowOptionId!!, "Allow", authenticated = true))
@@ -202,6 +209,47 @@ class Notifier(private val context: Context) {
       .build()
   }
 
+  private fun callIntent(card: NotificationCard, option: String?): Intent =
+    Intent(context, AnswerReceiver::class.java).apply {
+      action = AnswerReceiver.ACTION
+      data = Uri.parse(answerData(card.collapseId, option ?: "words"))
+      putExtra(AnswerReceiver.TAG, card.collapseId)
+      putExtra(AnswerReceiver.HOST, card.hostKey)
+      putExtra(AnswerReceiver.HOST_NAME, card.hostName)
+      putExtra(AnswerReceiver.AGENT, card.agentId)
+      putExtra(AnswerReceiver.CALL, card.callId)
+      option?.let { putExtra(AnswerReceiver.OPTION, it) }
+      putExtra(AnswerReceiver.URL, card.url)
+    }
+
+  /** One of a call's options, answered from the card without opening the app. */
+  private fun answerCall(card: NotificationCard, option: String, title: String): NotificationCompat.Action {
+    val pending = PendingIntent.getBroadcast(
+      context,
+      0,
+      callIntent(card, option),
+      PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+    )
+    return NotificationCompat.Action.Builder(0, title, pending).setShowsUserInterface(false).build()
+  }
+
+  /** Something else…: a field on the card for the person's own answer to the call. */
+  private fun replyCall(card: NotificationCard): NotificationCompat.Action {
+    val input = RemoteInput.Builder(AnswerReceiver.WORDS).setLabel(REPLY).build()
+    // A reply's words are added to the intent by the system, so it must stay mutable.
+    val pending = PendingIntent.getBroadcast(
+      context,
+      0,
+      callIntent(card, null),
+      PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE,
+    )
+    return NotificationCompat.Action.Builder(0, SOMETHING_ELSE, pending)
+      .addRemoteInput(input)
+      .setAllowGeneratedReplies(false)
+      .setShowsUserInterface(false)
+      .build()
+  }
+
   private fun smallIcon(): Int {
     val icon = context.resources.getIdentifier("notification_icon", "drawable", context.packageName)
     return if (icon != 0) icon else context.applicationInfo.icon
@@ -223,6 +271,9 @@ class Notifier(private val context: Context) {
     const val SENDING_MS = AnswerService.TIMEOUT_MS + 5_000L
     const val SCHEME_META = "com.nodelike.sikemux.scheme"
     private const val HOST_SCHEME = "sikemux://"
+    /** The words on a call's reply button and field, as `shared/calls/words.ts` holds them. */
+    private const val SOMETHING_ELSE = "Something else…"
+    private const val REPLY = "Reply"
     private const val EXTRA_HOST = "sikemux.host"
     private const val EXTRA_AGENT = "sikemux.agent"
     private const val EXTRA_KIND = "sikemux.kind"

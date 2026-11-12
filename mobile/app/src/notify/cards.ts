@@ -5,6 +5,9 @@ import { notifier, type AnswerOutcome, type ShownCard } from '../../modules/noti
 import type { Snapshot } from '@/core/protocol';
 import { goOffline, whileJoining } from '@/phone/identity';
 import { openConnections } from '@/devices/hub';
+import { answerFailed } from '@/calls/hostCalls';
+import { callHost } from '@/core/hostCalls';
+import { problem } from '@/core/problem';
 
 /** Permission cards whose request the host no longer has: it was answered or withdrawn elsewhere. */
 export function settledCards(shown: ShownCard[], host: string, snapshot: Snapshot): string[] {
@@ -49,7 +52,18 @@ export function dismissHostCards(host: string) {
   dismissShown((shown) => shown.filter((card) => card.host === host).map((card) => card.tag));
 }
 
-export type CardAnswer = { tag: string; host: string; agent: string; request: string; option: string; allow: boolean };
+export type CardAnswer = {
+  tag: string;
+  host: string;
+  agent: string;
+  request?: string;
+  option?: string;
+  allow?: boolean;
+  /** The call a card's option or reply answers. */
+  call?: string;
+  /** The person's own words, typed on the card. */
+  words?: string;
+};
 
 const quiet: CoreListener = {
   events() {},
@@ -65,7 +79,14 @@ function isGone(error: unknown): boolean {
  * one of its own that keeps the phone online until the answer is in.
  */
 export async function answerFromCard(answer: CardAnswer): Promise<AnswerOutcome> {
-  const send = (connection: ConnectionLike) => connection.answerPermission(answer.agent, answer.request, answer.option);
+  const call = answer.call;
+  const send = async (connection: ConnectionLike) => {
+    if (call) {
+      await callHost(connection, 'answerCall', answer.words ? { id: call, words: answer.words } : { id: call, option: answer.option });
+    } else if (answer.request && answer.option) {
+      await connection.answerPermission(answer.agent, answer.request, answer.option);
+    }
+  };
   try {
     const held = openConnections().find(([host]) => host === answer.host)?.[1];
     if (held) await send(held);
@@ -79,10 +100,12 @@ export async function answerFromCard(answer: CardAnswer): Promise<AnswerOutcome>
         }
       });
     }
-    return answer.allow ? 'answered' : 'rejected';
+    return call ? 'sent' : answer.allow ? 'answered' : 'rejected';
   } catch (error) {
     if (isGone(error)) return 'gone';
     console.warn('sikemux: could not answer from the notification', error);
+    // The call still waits; its card in the chat says why the answer did not go.
+    if (call) answerFailed(answer.host, call, problem(error));
     return 'failed';
   }
 }

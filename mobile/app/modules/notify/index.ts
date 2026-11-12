@@ -2,7 +2,7 @@ import { requireOptionalNativeModule } from 'expo';
 
 export type ShownCard = { tag: string; host: string; agent?: string; kind?: string; request?: string };
 
-export type AnswerOutcome = 'answered' | 'rejected' | 'gone' | 'failed';
+export type AnswerOutcome = 'answered' | 'sent' | 'rejected' | 'gone' | 'failed';
 
 type NotifyModule = {
   setPhone(phone: string): void;

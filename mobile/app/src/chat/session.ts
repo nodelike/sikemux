@@ -11,7 +11,7 @@ import { Draft } from './draft';
 import { Feed } from './feed';
 import { Folds } from './folds';
 import type { ChatStore, DraftStore } from './kept';
-import type { WrittenAnswer } from './questions';
+import type { WrittenAnswer } from './assumptions';
 import type { DraftToken } from './mentions';
 import { Outbox, type Unsent } from './outbox';
 import { pathsOf, type Attachment } from './uploads';
@@ -284,12 +284,20 @@ export class ChatSession {
    * Answers a question with `text` and the files picked for it, named in the answer once they are all on the
    * host. The files stay in the composer when the answer did not go out.
    */
-  answerWith = async (text: string, answer: (written: WrittenAnswer) => Promise<boolean>): Promise<boolean> => {
+  answerWith = async (
+    text: string,
+    question: { chipsRefused?: string; onAnswer: (written: WrittenAnswer) => Promise<boolean> },
+  ): Promise<boolean> => {
     this.notice = null;
     const draft = this.draft;
+    if (question.chipsRefused && draft.chips.length) {
+      this.notice = question.chipsRefused;
+      this.emit();
+      return false;
+    }
     const attachments = draft.attachments.length ? await this.upload() : [];
     if (!attachments) return false;
-    if (await answer({ answer: text, paths: pathsOf(attachments), context: draft.chips })) {
+    if (await question.onAnswer({ answer: text, paths: pathsOf(attachments), context: draft.chips })) {
       draft.chips = [];
       return true;
     }

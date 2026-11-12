@@ -3,7 +3,8 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from
 import { haptics } from '@/ui/haptics';
 import { AgentFace } from '@/devices/Buddy';
 import { Icon } from '@/ui/Icon';
-import { AgentState } from '@/devices/AgentMarks';
+import { TurnMark } from '@/devices/AgentMarks';
+import { useMinute } from '@/ui/motion';
 import { fonts, type Palette, useColors, useStyles } from '@/ui/theme';
 import type { Trigger } from './mentions';
 import type { MentionMark, MentionMenuView } from './useMentions';
@@ -27,6 +28,7 @@ function Mark({ mark }: { mark: MentionMark }) {
  */
 export function MentionMenu({ menu, onScope }: { menu: MentionMenuView; onScope: (trigger: Trigger) => void }) {
   const colors = useColors();
+  const minute = useMinute();
   const styles = useStyles(makeStyles);
   const { typed, rows, empty } = menu;
   return (
@@ -84,7 +86,7 @@ export function MentionMenu({ menu, onScope }: { menu: MentionMenuView; onScope:
                   <View style={{ flex: 1 }} />
                 )}
                 {row.aside ? <Text style={styles.rowAside}>{row.aside}</Text> : null}
-                {row.state ? <AgentState group={row.state} /> : null}
+                {row.turn ? <TurnMark turn={row.turn} now={minute * 60_000} /> : null}
               </Pressable>
             </View>
           ))}

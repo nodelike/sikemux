@@ -1,6 +1,6 @@
 import { StyleSheet, Text } from 'react-native';
 
-import type { AgentGroup } from '@shared/wire.generated';
+import type { AgentGroup, TurnPhase } from '@shared/wire.generated';
 import { AgentFace } from '@/devices/Buddy';
 import { fonts, type Palette, useStyles } from '@/ui/theme';
 
@@ -11,12 +11,15 @@ import { fonts, type Palette, useStyles } from '@/ui/theme';
 export function ChatTitle({
   agentId,
   group,
+  turn,
   provider,
   name,
   title,
 }: {
   agentId?: string;
   group?: AgentGroup;
+  /** How its turn stands, which the face wears in place of `group` where the core says it. */
+  turn?: TurnPhase;
   provider: string;
   name?: string | null;
   title: string;
@@ -24,7 +27,7 @@ export function ChatTitle({
   const styles = useStyles(makeStyles);
   return (
     <>
-      <AgentFace agentId={agentId} provider={provider} group={group} size={17} />
+      <AgentFace agentId={agentId} provider={provider} group={group} turn={turn} size={17} />
       <Text style={styles.title} numberOfLines={1} accessibilityRole="header">
         {title}
       </Text>

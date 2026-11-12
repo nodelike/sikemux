@@ -6,13 +6,15 @@ import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 
 import type { ProjectInfo } from '@shared/wire.generated';
 import type { Snapshot } from '@/core/protocol';
-import { connectionOf, reloadDevices, retry, useDevices, useHostStatus, useLive } from '@/devices/hub';
+import { reloadDevices, retry, useDevices, useHostStatus, useLive } from '@/devices/hub';
 import { deviceKind, deviceName, type PairedDevice, updateDevice } from '@/devices/paired';
-import { Board } from '@/devices/Board';
+import { CallsTab } from '@/calls/CallsTab';
+import { openCalls } from '@/calls/hostCalls';
+import { CALLS } from '@shared/calls/words';
 import { ForgetSheet, useForget } from '@/devices/ForgetSheet';
 import { ProjectSheet } from '@/devices/ProjectSheet';
 import { summary } from '@/devices/status';
-import { needsIn, projectOf } from '@/devices/words';
+import { projectOf } from '@/devices/words';
 import { haptics } from '@/ui/haptics';
 import { useScrollPause } from '@/ui/motion';
 import { AgentFace } from '@/devices/Buddy';
@@ -20,7 +22,7 @@ import { AgentIcon, Icon } from '@/ui/Icon';
 import { Button, IconButton } from '@/ui/controls';
 import { Prompt } from '@/ui/prompt';
 import { Nav, Screen, useBottomGap } from '@/ui/screen';
-import { NeedsYou, Working } from '@/devices/AgentMarks';
+import { Dot, Working } from '@/devices/AgentMarks';
 import { fonts, isLight, type Palette, typeFor, useColors, useStyles, useType, translucent } from '@/ui/theme';
 import { Agents, type Tab } from '@/devices/DeviceAgents';
 import { Terminals } from '@/devices/DeviceTerminals';
@@ -32,16 +34,17 @@ function ProjectTail({ snapshot, project }: { snapshot: Snapshot; project: Proje
   const type = useType();
   const chats = snapshot.chats.filter((chat) => projectOf(snapshot, chat.agentId) === project.id);
   const terminals = snapshot.sessions.filter((session) => session.project === project.id && session.running).length;
-  const waiting = needsIn(snapshot, project) > 0;
+  const turnOf = (agentId: string) => snapshot.inbox.agents.find((agent) => agent.agentId === agentId)?.turn;
+  const waiting = openCalls(snapshot, project).length > 0 || chats.some((chat) => turnOf(chat.agentId)?.state === 'needsYou');
   if (!chats.length && !terminals) return null;
   return (
     <View style={styles.tail}>
-      {waiting ? <NeedsYou /> : null}
+      {waiting ? <Dot color={colors.warn} size={7} /> : null}
       {chats.length ? (
         <View style={styles.faces}>
           {chats.slice(0, 3).map((chat, index) => (
             <View key={chat.agentId} style={[styles.face, index > 0 && { marginLeft: -4 }]}>
-              <AgentFace agentId={chat.agentId} provider={chat.provider} group={chat.group} size={16} />
+              <AgentFace agentId={chat.agentId} provider={chat.provider} turn={turnOf(chat.agentId)?.state} size={16} />
             </View>
           ))}
         </View>
@@ -186,14 +189,14 @@ function UnderBar({ height, open, bottom }: { height: number; open: Animated.Ani
   );
 }
 
-const TABS: { tab: Tab; label: string; icon: 'IconAgent' | 'IconTerminal' | 'IconBoard'; tint: keyof Palette }[] = [
+const TABS: { tab: Tab; label: string; icon: 'IconAgent' | 'IconTerminal' | 'IconMessage'; tint: keyof Palette }[] = [
   { tab: 'agents', label: 'Agents', icon: 'IconAgent', tint: 'accent' },
   { tab: 'terminals', label: 'Terminals', icon: 'IconTerminal', tint: 'warn' },
-  { tab: 'board', label: 'Board', icon: 'IconBoard', tint: 'live' },
+  { tab: 'calls', label: CALLS, icon: 'IconMessage', tint: 'warn' },
 ];
 
-/** Agents, Terminals and Board as one segmented control, each with its icon in its own colour. */
-function HostTabs({ tab, asking, onSwitch }: { tab: Tab; asking: number; onSwitch: (tab: Tab) => void }) {
+/** Agents, Terminals and Calls as one segmented control, each with its icon in its own colour. */
+function HostTabs({ tab, calling, onSwitch }: { tab: Tab; calling: number; onSwitch: (tab: Tab) => void }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
   return (
@@ -212,10 +215,10 @@ function HostTabs({ tab, asking, onSwitch }: { tab: Tab; asking: number; onSwitc
             <Text style={[styles.tabText, on && { color: colors.ink }]} numberOfLines={1}>
               {item.label}
             </Text>
-            {item.tab === 'agents' && asking ? (
+            {item.tab === 'calls' && calling ? (
               <View style={styles.count}>
                 <Text style={styles.countText} maxFontSizeMultiplier={1.3}>
-                  {asking}
+                  {calling}
                 </Text>
               </View>
             ) : null}
@@ -257,11 +260,11 @@ export default function Device() {
   const live = useLive(core);
   const status = useHostStatus(core);
   const scrollPause = useScrollPause();
-  const [tab, setTab] = useState<Tab>(linkedTab === 'terminals' || linkedTab === 'board' ? linkedTab : 'agents');
+  const [tab, setTab] = useState<Tab>(linkedTab === 'terminals' || linkedTab === 'calls' ? linkedTab : 'agents');
   const [followedLink, setFollowedLink] = useState(linkedTab);
   if (linkedTab !== followedLink) {
     setFollowedLink(linkedTab);
-    if (linkedTab === 'agents' || linkedTab === 'terminals' || linkedTab === 'board') setTab(linkedTab);
+    if (linkedTab === 'agents' || linkedTab === 'terminals' || linkedTab === 'calls') setTab(linkedTab);
   }
   const behind = status.outdated;
   const away = live.status === 'closed' || !!status.problem;
@@ -277,7 +280,7 @@ export default function Device() {
   const starts = device?.access === 'full' && status.online;
   const bottom = useBottomGap();
   const scope = snapshot?.workspace.projects.find((project) => project.id === device?.project);
-  const asking = !snapshot ? 0 : scope ? needsIn(snapshot, scope) : snapshot.inbox.items.filter((item) => item.tier === 'needs').length;
+  const calling = openCalls(snapshot, scope).length;
   const [filter, setFilter] = useState('all');
   const providers = [
     ...new Set([
@@ -416,7 +419,7 @@ export default function Device() {
                     ) : tab === 'terminals' ? (
                       <Terminals snapshot={snapshot} scope={scope} />
                     ) : (
-                      <Board core={core} connection={connectionOf(live)} snapshot={snapshot} scope={scope} onScope={scopeTo} />
+                      <CallsTab core={core} snapshot={snapshot} scope={scope} />
                     )
                   ) : null}
                 </View>
@@ -426,7 +429,7 @@ export default function Device() {
               onLayout={(event) => setBarHeight(event.nativeEvent.layout.height)}
               style={[styles.barFloat, { transform: [{ translateY: barTop }] }]}>
               <View style={styles.bar}>
-                <HostTabs tab={tab} asking={asking} onSwitch={switchTo} />
+                <HostTabs tab={tab} calling={calling} onSwitch={switchTo} />
               </View>
             </Animated.View>
           </View>

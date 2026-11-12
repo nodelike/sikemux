@@ -34,8 +34,7 @@ const SCENES = [
   // The demo host's list fits a whole phone, so a shorter screen gives it room to scroll under the tabs.
   { name: 'device-scrolled', route: `/device/${CORE}`, scroll: 400, height: 460 },
   { name: 'terminals', route: `/device/${CORE}`, tap: 'Terminals' },
-  { name: 'boards', route: `/device/${CORE}?tab=board` },
-  { name: 'board', route: `/device/${CORE}?tab=board`, tap: 'acme-shop' },
+  { name: 'calls', route: `/device/${CORE}?tab=calls` },
   { name: 'chat', route: `/device/${CORE}/chat/chat-login` },
   { name: 'notes', route: `/device/${CORE}/chat/chat-notes` },
   { name: 'notes-top', route: `/device/${CORE}/chat/chat-notes`, scroll: -500 },

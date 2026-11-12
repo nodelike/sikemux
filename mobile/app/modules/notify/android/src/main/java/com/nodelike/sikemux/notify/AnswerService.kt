@@ -26,6 +26,7 @@ class AnswerService : HeadlessJsTaskService() {
   companion object {
     const val TASK = "SikemuxAnswer"
     const val ANSWERED = "answered"
+    const val SENT = "sent"
     const val REJECTED = "rejected"
     const val GONE = "gone"
     const val FAILED = "failed"
@@ -41,6 +42,7 @@ class AnswerService : HeadlessJsTaskService() {
       val notifier = Notifier(context)
       when (outcome) {
         ANSWERED -> notifier.showAnswer(tag, "Allowed on ${waiting.hostName}", null, waiting.url, Notifier.Answer.DONE)
+        SENT -> notifier.showAnswer(tag, "Answered on ${waiting.hostName}", null, waiting.url, Notifier.Answer.DONE)
         REJECTED -> notifier.showAnswer(tag, "Rejected on ${waiting.hostName}", null, waiting.url, Notifier.Answer.DONE)
         GONE -> notifier.cancel(tag)
         else -> notifier.showAnswer(

@@ -18,6 +18,8 @@ import {
   PROJECTS,
   PROJECT_FILES,
   QUESTIONS,
+  CALLS,
+  TURNS,
   RECENT,
   RECORDED,
   SESSIONS,
@@ -79,6 +81,8 @@ function shown() {
         busy: group !== 'idle',
         background: false,
         activeAt: Date.now(),
+        turn: TURNS[chat.agentId],
+        chief: PROJECTS.some((project) => 'chief' in project && project.chief === chat.agentId) || undefined,
       };
     })
     .sort((a, b) => Object.keys(GROUP_LABELS).indexOf(a.group) - Object.keys(GROUP_LABELS).indexOf(b.group));
@@ -155,8 +159,12 @@ function inbox() {
 
 function view() {
   return {
+    calls: CALLS,
     workspace: {
-      projects: PROJECTS,
+      projects: PROJECTS.map((project) => ({
+        ...project,
+        agents: CHATS.filter((chat) => !chat.unlisted && chat.project === project.id).length || undefined,
+      })),
       agents: CHATS.map((chat) => ({
         id: chat.agentId,
         provider: chat.provider,
@@ -254,6 +262,11 @@ const HOST_CALLS: { [M in keyof CoreCalls]?: (params: CoreCalls[M]['params']) =>
   },
   promptChat: () => ({}),
   editMessage: () => null,
+  callSeen: () => null,
+  answerCall: () => null,
+  callNotMine: () => null,
+  takeStep: () => null,
+  openChief: ({ project }) => ({ agentId: PROJECTS.find((known) => known.id === project && 'chief' in known)?.chief ?? CHATS[0].agentId }),
 };
 
 class Connection {

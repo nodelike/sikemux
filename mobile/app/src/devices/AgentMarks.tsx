@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
 
-import type { AgentGroup } from '@shared/wire.generated';
+import Svg, { Circle } from 'react-native-svg';
+
+import type { AgentGroup, TurnState } from '@shared/wire.generated';
+import { ringShare, rowLabel, rowMinutes } from '@shared/calls/words';
 import { counted } from './words';
 
 import { Icon } from '@/ui/Icon';
@@ -114,27 +117,6 @@ export function ShellCount({ count }: { count: number }) {
   );
 }
 
-/** How long until a trigger the agent set wakes it, in the Mac rail's tight column, rounded up: `now`, `1m`, `3h`, `4d`. */
-export function TriggerTime({ at, now }: { at: number; now: number }) {
-  const colors = useColors();
-  const styles = useStyles(makeStyles);
-  const seconds = Math.max(0, Math.floor((at - now) / 1000));
-  const left =
-    seconds === 0
-      ? 'now'
-      : seconds < 3600
-        ? `${Math.ceil(seconds / 60)}m`
-        : seconds < 86_400
-          ? `${Math.floor(seconds / 3600)}h`
-          : `${Math.floor(seconds / 86_400)}d`;
-  return (
-    <View style={styles.count} accessible accessibilityLabel={`A trigger wakes it in ${left}`}>
-      <Icon name="IconTimer" size={11} color={colors.cmd} />
-      <Text style={styles.countText}>{left}</Text>
-    </View>
-  );
-}
-
 /** How soon a snoozed agent wakes, as the Mac rail says it: minutes, hours, then the weekday. */
 export function WakeTime({ at, now }: { at: number; now: number }) {
   const colors = useColors();
@@ -155,7 +137,69 @@ export function WakeTime({ at, now }: { at: number; now: number }) {
   );
 }
 
-/** Where an agent's turn is, as the Mac rail marks it: squares while it works, a dot once something waits, nothing idle. */
+/**
+ * How an agent's turn stands, as the Mac's rail and the notch mark a row, one state per row: its working squares; a
+ * ring filling in the neutral ink as a CI or check wait with an estimate runs, with the minutes left; the pink timer for
+ * any other wait, with the time left when it waits for a set time; the amber dot with how long a call has waited; the
+ * purple dot once done, red once failed, a hollow ring once stopped. The core says which.
+ */
+export function TurnMark({ turn, now }: { turn?: TurnState; now: number }) {
+  const colors = useColors();
+  const styles = useStyles(makeStyles);
+  if (!turn) return null;
+  const share = turn.state === 'waiting' ? ringShare(turn.wait, now) : undefined;
+  const time = rowMinutes(turn, now);
+  const tint = turn.state === 'needsYou' ? colors.warn : turn.state === 'waiting' && share == null ? colors.cmd : colors.tertiary;
+  return (
+    <View style={styles.count} accessible accessibilityLabel={rowLabel(turn, now)}>
+      {time ? <Text style={[styles.time, { color: tint }]}>{time}</Text> : null}
+      <View style={styles.markBox}>
+        {turn.state === 'working' ? (
+          <Working />
+        ) : turn.state === 'waiting' ? (
+          share != null ? (
+            <WaitRing share={share} />
+          ) : (
+            <Icon name="IconTimer" size={11} color={colors.cmd} />
+          )
+        ) : turn.state === 'needsYou' ? (
+          <Dot color={colors.warn} size={7} />
+        ) : turn.state === 'done' ? (
+          <Dot color={colors.accent} size={7} />
+        ) : turn.state === 'failed' ? (
+          <Dot color={colors.danger} size={7} />
+        ) : turn.state === 'stopped' ? (
+          <Dot color={colors.secondary} size={7} hollow />
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
+/** A ring that fills clockwise from the top in the neutral ink as a wait runs, over the border's track. */
+export function WaitRing({ share }: { share: number }) {
+  const colors = useColors();
+  const radius = (11 - 1.6) / 2;
+  const around = 2 * Math.PI * radius;
+  return (
+    <Svg width={11} height={11}>
+      <Circle cx={5.5} cy={5.5} r={radius} stroke={colors.border} strokeWidth={1.6} fill="none" />
+      <Circle
+        cx={5.5}
+        cy={5.5}
+        r={radius}
+        stroke={colors.secondary}
+        strokeWidth={1.6}
+        strokeLinecap="round"
+        fill="none"
+        strokeDasharray={`${around * share} ${around}`}
+        transform="rotate(-90 5.5 5.5)"
+      />
+    </Svg>
+  );
+}
+
+/** A linked host's worker, whose row carries no turn yet: squares while it works, a dot once something waits. */
 export function AgentState({ group }: { group: AgentGroup }) {
   const colors = useColors();
   if (group === 'working') return <Working />;
@@ -184,5 +228,7 @@ const makeStyles = (colors: Palette) => {
     dot: { width: 7, height: 7, borderRadius: 4 },
     count: { flexDirection: 'row', alignItems: 'center', gap: 3 },
     countText: { fontFamily: fonts.uiMedium, fontSize: 12, color: colors.secondary, fontVariant: ['tabular-nums'] },
+    time: { fontFamily: fonts.ui, fontSize: 11, fontVariant: ['tabular-nums'] },
+    markBox: { width: 16, height: 16, alignItems: 'center', justifyContent: 'center' },
   });
 };

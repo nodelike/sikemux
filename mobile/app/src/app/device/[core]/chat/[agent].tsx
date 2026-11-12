@@ -1,6 +1,6 @@
 import { useChatFind, useRevealFound } from '@/chat/useChatFind';
 import { useEditingRow } from '@/chat/useEditingRow';
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { type TextInput, Pressable, StyleSheet, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { FlashList, type FlashListRef } from '@shopify/flash-list';
@@ -10,7 +10,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { activityDoing, composerPlaceholder } from '@shared/chat/chatStatus';
 import { sentPrompts } from '@/chat/promptHistory';
-import type { ChatMessage, InboxItem, ShipHold } from '@shared/wire.generated';
+import type { ChatMessage } from '@shared/wire.generated';
 import { ChatMenu } from '@/chat/ChatMenu';
 import { AwaySheet } from '@/devices/AwaySheet';
 import { FindBar } from '@/chat/FindBar';
@@ -18,15 +18,18 @@ import { FindingContext } from '@/chat/found';
 import { ChatTitle } from '@/chat/ChatTitle';
 import { Composer } from '@/chat/Composer';
 import { askTitle } from '@/chat/PermissionDock';
-import { HoldDock, type HoldAnswer } from '@/chat/HoldDock';
 import { RecentSheet } from '@/chat/RecentSheet';
 import { FoldsContext, rowFold, runsOf, shownRows } from '@/chat/folds';
 import { useTranscriptScroll } from '@/chat/transcriptScroll';
 import { HostContext } from '@/chat/hostFiles';
 import { WorktreeNote, worktreeOf } from '@/chat/Worktree';
 import { LiveSheet, LiveStrip } from '@/chat/Live';
-import { AnsweredQuestions, AssumedQuestion, QuestionDock } from '@/chat/Question';
-import { useQuestions } from '@/chat/questions';
+import { AssumedQuestion } from '@/chat/Question';
+import { useAssumptions } from '@/chat/assumptions';
+import { CallDock } from '@/calls/CallDock';
+import { TurnLine } from '@/calls/TurnLine';
+import { answerWritten, composingCall, queueOf, stopComposing, useKept, waitingCall } from '@/calls/hostCalls';
+import { NO_CHIPS, answering as answeringWords, typeYourAnswer } from '@shared/calls/words';
 import { hasLiveWork, liveKey, liveWork } from '@/chat/liveWork';
 import { stripOf, stripOwner } from '@/chat/messageMeta';
 import { ToolDetailContext } from '@/chat/Tools';
@@ -37,8 +40,7 @@ import { SmartPick } from '@/chat/Notices';
 import { Earlier, EarlierLost, Queued } from '@/chat/TranscriptEdges';
 import { AgentContext, liveRunKey, ProviderContext, SubagentsContext } from '@/chat/transcriptContext';
 import { useChat } from '@/chat/useChat';
-import { callHost, useHostCall } from '@/core/hostCalls';
-import { problem } from '@/core/problem';
+import { useHostCall } from '@/core/hostCalls';
 import { retry as reconnect, useDevices, useLive } from '@/devices/hub';
 import { dismissCardsFor } from '@/notify/cards';
 import { deviceName } from '@/devices/paired';
@@ -194,27 +196,14 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
   const liveShown = hasLiveWork(fresh) && chat.attached === 'live';
   const recalls = !watchOnly && (queued.length > 0 || state.messages.some((message) => message.role === 'user'));
   const strip = liveShown ? <LiveStrip work={work} provider={provider} onOpen={openLive} /> : null;
-  const holds = useMemo(
-    () =>
-      (live.snapshot?.inbox.items ?? []).filter(
-        (item): item is InboxItem & { hold: ShipHold } => item.agentId === agentId && item.hold != null,
-      ),
-    [live.snapshot?.inbox.items, agentId],
-  );
-  const [holding, setHolding] = useState<ReadonlySet<string>>(new Set());
-  const answerHold = useCallback(
-    (hold: ShipHold, how: HoldAnswer) => {
-      if (!connection) return;
-      setHolding((current) => new Set([...current, hold.id]));
-      callHost(connection, how, { hold: hold.id })
-        .catch((error: unknown) => session.report(problem(error)))
-        .finally(() => setHolding((current) => new Set([...current].filter((id) => id !== hold.id))));
-    },
-    [connection, session],
-  );
-  const questions = useQuestions(connection, agentId, `${info?.activeAt}|${info?.unread}|${state.running}`, session.report);
+  const assumptions = useAssumptions(connection, agentId, `${info?.activeAt}|${info?.unread}|${state.running}`, session.report);
   const input = useRef<TextInput>(null);
-  const composing = watchOnly ? null : questions.composing;
+  const keptCalls = useKept(core);
+  const queue = queueOf(live.snapshot, agentId);
+  const docked = waitingCall(queue, keptCalls, agentId);
+  // Change on an assumption wins over a call docked in the same chat, until it is sent or taken off.
+  const changing = watchOnly ? null : assumptions.changing;
+  const composing = watchOnly || changing ? undefined : composingCall(docked, keptCalls);
   const unreachable = chat.attached !== 'live' && live.status === 'closed';
   const status = unreachable ? (
     <View style={styles.missing}>
@@ -238,7 +227,7 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
   const screen = (
     <Screen>
       <Nav
-        title={<ChatTitle agentId={agentId} group={info?.group} provider={provider} name={info?.name} title={title} />}
+        title={<ChatTitle agentId={agentId} turn={state.turn?.state} provider={provider} name={info?.name} title={title} />}
         end={
           <Pressable
             onPress={() => setMenu(true)}
@@ -342,7 +331,19 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
                             ListFooterComponent={
                               <>
                                 {queued.length ? <Queued held={queued} sentFiles={chat.sentFiles} /> : null}
-                                {activity ? <Activity provider={provider} doing={activity} since={chat.turnSince} /> : null}
+                                {activity ? (
+                                  <Activity provider={provider} doing={activity} since={chat.turnSince} />
+                                ) : state.turn ? (
+                                  <TurnLine
+                                    agentId={agentId}
+                                    provider={provider}
+                                    turn={state.turn}
+                                    connection={connection}
+                                    canAct={!watchOnly && chat.attached === 'live' && live.status === 'open'}
+                                    docked={!!docked}
+                                    onLook={() => input.current?.focus()}
+                                  />
+                                ) : null}
                                 <Trouble
                                   state={state}
                                   provider={provider}
@@ -352,31 +353,14 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
                                   canAct={!watchOnly && chat.attached === 'live' && live.status === 'open'}
                                   onStartOver={startOver}
                                 />
-                                {questions.answered.map((question) => (
-                                  <AnsweredQuestions
-                                    key={question.id}
-                                    agentId={question.agentId}
-                                    cli={question.cli}
-                                    asker={question.agentId === agentId ? null : question.name}
-                                    answers={[{ question: question.asked, answer: question.answer ?? '', secret: question.secret }]}
-                                  />
-                                ))}
-                                <QuestionDock
-                                  questions={questions}
-                                  canAnswer={!watchOnly}
-                                  onWrite={(question) => {
-                                    questions.write(question);
-                                    input.current?.focus();
-                                  }}
-                                />
-                                {questions.assumed.map((question) => (
+                                {assumptions.assumed.map((question) => (
                                   <AssumedQuestion
                                     key={question.id}
                                     question={question}
                                     canAnswer={!watchOnly}
-                                    onFine={() => void questions.answer(question, { fine: true })}
+                                    onFine={() => assumptions.fine(question)}
                                     onChange={() => {
-                                      questions.write(question);
+                                      assumptions.change(question);
                                       input.current?.focus();
                                     }}
                                   />
@@ -431,14 +415,16 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
                   requests={chat.permissions}
                   answering={chat.answering}
                   placeholder={
-                    composing
-                      ? `Answer ${composing.name}`
-                      : composerPlaceholder(state, {
-                          resuming: false,
-                          disconnected: live.status !== 'open',
-                          commands: state.commands.length > 0,
-                          steers,
-                        })
+                    changing
+                      ? typeYourAnswer(changing.name)
+                      : composing
+                        ? typeYourAnswer(composing.asker.name)
+                        : composerPlaceholder(state, {
+                            resuming: false,
+                            disconnected: live.status !== 'open',
+                            commands: state.commands.length > 0,
+                            steers,
+                          })
                   }
                   permissionMode={chat.permissionMode ?? ''}
                   modeLocked={state.running || chat.permissions.length > 0 || state.connection !== 'ready' || live.status !== 'open'}
@@ -448,19 +434,43 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
                   onSent={scroll.toEnd}
                   attachments={chat.attachments}
                   chips={chat.chips}
-                  held={holds.length && !watchOnly ? <HoldDock items={holds} answering={holding} onAnswer={answerHold} /> : null}
+                  held={
+                    docked ? (
+                      <CallDock
+                        key={docked.id}
+                        core={core}
+                        snapshot={live.snapshot}
+                        call={docked}
+                        chat={agentId}
+                        queue={queue}
+                        connection={connection}
+                        canAnswer={!watchOnly && live.status === 'open'}
+                        report={session.report}
+                      />
+                    ) : null
+                  }
                   strip={strip}
                   onRecent={recalls ? openRecent : undefined}
                   inputRef={input}
                   place={place}
                   question={
-                    composing && {
-                      name: composing.name,
-                      cli: composing.cli,
-                      text: composing.text,
-                      onRemove: questions.stopComposing,
-                      onAnswer: (written) => questions.hold(composing, written, () => session.setDraft(written.answer)),
-                    }
+                    changing
+                      ? {
+                          chip: answeringWords(changing.name, changing.text),
+                          cli: changing.cli,
+                          onRemove: assumptions.stopChanging,
+                          onAnswer: (written) => assumptions.answer(changing, written),
+                        }
+                      : composing
+                        ? {
+                            chip: answeringWords(composing.asker.name, composing.question),
+                            cli: composing.asker.cli,
+                            chipsRefused: NO_CHIPS,
+                            onRemove: () => stopComposing(core, composing),
+                            onAnswer: (written) =>
+                              answerWritten(connection, composing, { answer: written.answer, paths: written.paths ?? [] }, session.report),
+                          }
+                        : null
                   }
                 />
               )}

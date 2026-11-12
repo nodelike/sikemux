@@ -12,9 +12,11 @@ import type {
   GoalMarker,
   PermissionAsk,
   PermissionMode,
+  PersonCall,
   ToolAction,
   ToolCall,
   ToolDetail,
+  TurnState,
 } from '@shared/wire.generated';
 import ADAPTER_HUNT from './recorded/adapter-hunt.json';
 import LOGIN_FIX from './recorded/login-fix.json';
@@ -39,7 +41,7 @@ export const PROJECTS = [
     path: `${HOME}/marketing-site`,
     git: { branch: 'release-notes', ahead: 2, behind: 0, dirty: false },
   },
-  { id: 'p-api', name: 'payments-api', path: `${HOME}/payments-api` },
+  { id: 'p-api', name: 'payments-api', path: `${HOME}/payments-api`, chief: 'chat-team' },
 ];
 
 export const LAUNCHERS = [
@@ -369,6 +371,94 @@ export const QUESTIONS = [
   },
 ];
 
+const AGO = (ms: number) => Date.now() - ms;
+
+/** How each demo chat's turn stands, as the core says it on its row and its chat's last line. */
+export const TURNS: Record<string, TurnState> = {
+  'chat-dark-mode': { state: 'working', since: AGO(80_000), on: 'Adding the dark mode switch' },
+  'chat-login': {
+    state: 'waiting',
+    since: AGO(240_000),
+    wait: { kind: 'ci', what: 'CI', startedAt: AGO(240_000), expectedMs: 420_000 },
+  },
+  'chat-login-check': { state: 'working', since: AGO(40_000) },
+  'chat-release': {
+    state: 'needsYou',
+    since: AGO(120_000),
+    call: { id: 'call-release', question: 'Should the notes call out the new prices?', waitingSince: AGO(120_000), count: 1 },
+  },
+  'chat-refunds': { state: 'stopped', since: AGO(3_600_000), stopped: { left: 'Two refund tests still fail' } },
+  'chat-notes': {
+    state: 'done',
+    since: AGO(600_000),
+    done: { changes: 'committed', checks: 'pass', tests: 41, next: [{ step: 'push', primary: true }] },
+  },
+  'chat-team': {
+    state: 'needsYou',
+    since: AGO(300_000),
+    call: { id: 'call-ledger', question: 'Ship the ledger import to production?', waitingSince: AGO(300_000), count: 1 },
+  },
+};
+
+/** The calls the demo agents put to the person, open and answered. */
+export const CALLS: PersonCall[] = [
+  {
+    id: 'call-release',
+    project: `${HOME}/marketing-site`,
+    kind: 'taste',
+    asker: { agentId: 'chat-release', name: 'Birch', cli: 'hermes' },
+    question: 'Should the notes call out the new prices?',
+    context: 'The blog post on Thursday covers them in full.',
+    options: [
+      { id: 'out', label: 'Call them out', detail: 'one line under Faster checkout' },
+      { id: 'leave', label: 'Leave them', detail: 'the blog post covers them' },
+    ],
+    pick: 'out',
+    against: 'the notes go out two days before the post.',
+    canHandBack: true,
+    raisedAt: AGO(120_000),
+    state: 'open',
+  },
+  {
+    id: 'call-ledger',
+    project: `${HOME}/payments-api`,
+    kind: 'production',
+    asker: { agentId: 'chat-team', name: 'Kuro', cli: 'claude' },
+    question: 'Ship the ledger import to production?',
+    options: [
+      { id: 'all', label: 'Ship it to everyone' },
+      { id: 'half', label: 'Ship to half first' },
+      { id: 'wait', label: 'Not yet' },
+    ],
+    pick: 'all',
+    brief: {
+      tried: 'It ran on staging against last month’s ledger.',
+      shows: 'Every total matched to the cent.',
+      cannotUndo: 'Imported rows stay once written.',
+    },
+    action: 'vercel deploy --prod',
+    canHandBack: false,
+    raisedAt: AGO(300_000),
+    state: 'open',
+  },
+  {
+    id: 'call-font',
+    project: `${HOME}/acme-shop`,
+    kind: 'money',
+    asker: { agentId: 'chat-dark-mode', name: 'Otter', cli: 'claude' },
+    question: 'Buy the display font, $40?',
+    options: [
+      { id: 'buy', label: 'Buy it' },
+      { id: 'free', label: 'Use a free font' },
+    ],
+    pick: 'buy',
+    canHandBack: true,
+    raisedAt: AGO(7_200_000),
+    state: 'answered',
+    answer: { option: 'buy', by: { kind: 'device', id: 'phone' }, at: AGO(7_000_000), waitedMs: 200_000 },
+  },
+];
+
 const card = (fields: Record<string, unknown>) => ({
   details: '',
   owner: null,
@@ -588,6 +678,8 @@ export function chatHead(chat: DemoChat): ChatView['head'] {
     queued: [],
     earlierLost: false,
     goal: chat.goal,
+    turn: TURNS[chat.agentId],
+    chief: chat.agentId === 'chat-team' || undefined,
   };
 }
 

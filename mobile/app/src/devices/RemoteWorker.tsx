@@ -4,13 +4,17 @@ import { StyleSheet, View } from 'react-native';
 import type { RemoteAgent } from '@shared/wire.generated';
 import { AgentIcon } from '@/ui/Icon';
 import { Row } from '@/ui/list';
-import { AgentState, Dot } from '@/devices/AgentMarks';
-import { useColors } from '@/ui/theme';
+import { AgentState, TurnMark } from '@/devices/AgentMarks';
+import { useMinute } from '@/ui/motion';
 
+/**
+ * A worker's mark from its turn, or before its first turn from its group. One out of reach carries no mark, as on the
+ * Mac's rail: the hollow ring is Stopped's alone.
+ */
 function WorkerEnd({ worker }: { worker: RemoteAgent }) {
-  const colors = useColors();
-  if (!worker.reachable) return <Dot color={colors.rest} hollow />;
-  return <AgentState group={worker.group} />;
+  const minute = useMinute();
+  if (!worker.reachable) return null;
+  return worker.turn ? <TurnMark turn={worker.turn} now={minute * 60_000} /> : <AgentState group={worker.group} />;
 }
 
 /** A worker an agent here started on a linked host, set in when it sits under the agent that started it. */

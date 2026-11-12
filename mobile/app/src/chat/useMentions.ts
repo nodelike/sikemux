@@ -2,7 +2,7 @@ import { EARLIER_URI } from '@shared/wire.generated';
 import { useContext, useEffect, useMemo, useState } from 'react';
 
 import { formatAge } from '@shared/lib/format';
-import type { AgentGroup, ClosedAgent, PluginOutcome, ProjectEntry, ProjectInfo, SessionMatch } from '@shared/wire.generated';
+import type { ClosedAgent, PluginOutcome, ProjectEntry, ProjectInfo, SessionMatch, TurnState } from '@shared/wire.generated';
 import { callHost } from '@/core/hostCalls';
 import { problem as problemOf } from '@/core/problem';
 import { connectionOf, useLive } from '@/devices/hub';
@@ -31,7 +31,7 @@ type MentionRow = {
   /** The heading it starts, where the rows above it belong to another. */
   group?: string;
   mark: MentionMark;
-  state?: AgentGroup;
+  turn?: TurnState;
   take: () => void;
 };
 
@@ -149,7 +149,7 @@ export function useMentions(session: ChatSession, typed: Typed | undefined): Men
     const wanted = typed.needle.toLowerCase();
 
     if (typed.trigger === '@') {
-      const groups = new Map(snapshot.chats.map((chat) => [chat.agentId, chat.group]));
+      const turns = new Map(snapshot.inbox.agents.map((agent) => [agent.agentId, agent.turn]));
       const projects = [project, ...snapshot.workspace.projects.filter((known) => known.id !== project?.id)];
       const mates: MentionRow[] = projects
         .flatMap((place) =>
@@ -167,7 +167,7 @@ export function useMentions(session: ChatSession, typed: Typed | undefined): Men
             group:
               agent.project === project?.id ? undefined : snapshot.workspace.projects.find((known) => known.id === agent.project)?.name,
             mark: { agent: agent.id, provider: agent.provider },
-            state: groups.get(agent.id),
+            turn: turns.get(agent.id),
             take: () => write(`@${name}`, `${AGENT}${agent.id}`),
           };
         });

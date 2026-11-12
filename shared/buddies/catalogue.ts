@@ -3,7 +3,7 @@ import { buddies, personas } from "./packs/blobs";
 import { cyclops, glow, googly, matrix, peekers, soot } from "./packs/eyes";
 import { screens } from "./packs/screens";
 import type { AgentBuddy, BuddyPack, BuddyShape, BuddyState } from "./shared";
-import type { AgentGroup } from "../wire.generated";
+import type { AgentGroup, TurnPhase } from "../wire.generated";
 import { EVERY_PACK, EVERY_SHAPE, type BuddyStyle } from "./style";
 
 export { DEFAULT_BUDDY_STYLE, EVERY_PACK, EVERY_SHAPE, type BuddyStyle } from "./style";
@@ -48,6 +48,22 @@ export function resolveBuddy(agent: { id: string; buddy?: AgentBuddy }, style: B
     }
     const colorIndex = (own?.color ?? h) % pack.colors.length;
     return { pack, shape, color: pack.colors[colorIndex], colorIndex };
+}
+
+/** The face a turn's state wears, as the core says how the turn stands. */
+export function buddyStateOfTurn(turn: TurnPhase): BuddyState {
+    switch (turn) {
+        case "working":
+            return "working";
+        case "needsYou":
+            return "waiting";
+        case "done":
+            return "done";
+        case "failed":
+            return "error";
+        default:
+            return "idle";
+    }
 }
 
 export function buddyStateOfGroup(group: AgentGroup | undefined): BuddyState {

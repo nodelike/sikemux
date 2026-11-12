@@ -20,7 +20,7 @@ import { StashButton } from '@/stash/StashButton';
 import { StashChip } from '@/stash/StashChip';
 import { usePromptStash } from '@/stash/usePromptStash';
 import { stashQuery, withoutQuery, type ContextChip } from '@/stash/words';
-import type { WrittenAnswer } from './questions';
+import type { WrittenAnswer } from './assumptions';
 import type { ChatSession } from './session';
 import type { Attachment } from './uploads';
 import { useDraft, useDraftTokens } from './useChat';
@@ -56,10 +56,13 @@ function Commands({ matches, onPick }: { matches: ChatCommandInfo[]; onPick: (na
   );
 }
 
-type ComposerQuestion = {
-  name: string;
+/** What whatever is sent answers: a call, or an assumption being changed. */
+export type ComposerQuestion = {
+  /** The chip's words: who and what is being answered. */
+  chip: string;
   cli: string;
-  text: string;
+  /** Said, before anything uploads, when the answer cannot carry the context chips on the draft. */
+  chipsRefused?: string;
   onRemove: () => void;
   onAnswer: (written: WrittenAnswer) => Promise<boolean>;
 };
@@ -71,14 +74,14 @@ function AnsweringChip({ question }: { question: ComposerQuestion }) {
     <View style={styles.answering}>
       <AgentIcon provider={question.cli} size={13} />
       <Text style={styles.answeringText} numberOfLines={1}>
-        Answering {question.name} · {question.text}
+        {question.chip}
       </Text>
       <Pressable
         onPress={question.onRemove}
         hitSlop={8}
         style={styles.answeringX}
         accessibilityRole="button"
-        accessibilityLabel={`Stop answering ${question.name}`}>
+        accessibilityLabel={`Stop: ${question.chip}`}>
         <Icon name="IconClose" size={10} color={colors.ground} />
       </Pressable>
     </View>
@@ -228,7 +231,7 @@ export const Composer = memo(function Composer({
       return;
     }
     haptics.tap();
-    const sending = question ? session.answerWith(text, question.onAnswer) : session.send(text, steers);
+    const sending = question ? session.answerWith(text, question) : session.send(text, steers);
     void sending.then((sent) => {
       if (!sent) return;
       // Clearing the state alone leaves text the keyboard is still composing.
