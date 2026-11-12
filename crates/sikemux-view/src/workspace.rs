@@ -65,6 +65,33 @@ pub struct ProjectInfo {
     /// How many agents are open in it, the chief's whole team. The core fills it in.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub agents: u32,
+    /// How it stands for the person, which clients order projects by. The core fills it in.
+    #[serde(default, skip_serializing_if = "ProjectStanding::at_rest")]
+    pub standing: ProjectStanding,
+    /// How many calls of its wait on the person. The core fills it in.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub calls: u32,
+}
+
+/// How a project stands for the person: needs them first, then at work, then the rest.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ProjectStanding {
+    /// An open call, or an agent of it the person has not snoozed that needs them.
+    NeedsYou,
+    /// An agent of it working or waiting on something.
+    AtWork,
+    #[default]
+    AtRest,
+    /// A value a newer core sends.
+    #[serde(other)]
+    Unknown,
+}
+
+impl ProjectStanding {
+    fn at_rest(&self) -> bool {
+        *self == Self::AtRest
+    }
 }
 
 fn is_zero(count: &u32) -> bool {

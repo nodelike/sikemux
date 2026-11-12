@@ -356,6 +356,25 @@ struct ProjectInfo: Codable, Hashable {
     let chief: String?
     /// How many agents are open in it, the chief's whole team. The core fills it in.
     let agents: Int?
+    /// How it stands for the person, which clients order projects by. The core fills it in.
+    let standing: ProjectStanding?
+    /// How many calls of its wait on the person. The core fills it in.
+    let calls: Int?
+}
+
+/// How a project stands for the person: needs them first, then at work, then the rest.
+enum ProjectStanding: String, Codable, Hashable {
+    /// An open call, or an agent of it the person has not snoozed that needs them.
+    case needsYou
+    /// An agent of it working or waiting on something.
+    case atWork
+    case atRest
+    /// One added after this build.
+    case unknown
+
+    init(from decoder: Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
 }
 
 /// What a device learns about a launcher: never its program or environment.

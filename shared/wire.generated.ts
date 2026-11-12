@@ -182,6 +182,10 @@ export interface ProjectInfo {
     chief?: string;
     /** How many agents are open in it, the chief's whole team. The core fills it in. */
     agents?: number;
+    /** How it stands for the person, which clients order projects by. The core fills it in. */
+    standing?: ProjectStanding;
+    /** How many calls of its wait on the person. The core fills it in. */
+    calls?: number;
 }
 
 /** A repository or account picked for a project on one code host. */
@@ -299,6 +303,9 @@ export interface CiAbilities {
     /** A run's logs can go while the run stays. */
     deleteLogs: boolean;
 }
+
+/** How a project stands for the person: needs them first, then at work, then the rest. */
+export type ProjectStanding = "needsYou" | "atWork" | "atRest";
 
 /** A project only the account's other hosts hold, each with its copy there. */
 export interface ProjectElsewhere {

@@ -11,7 +11,10 @@ use tokio::sync::Notify;
 
 use super::connection::ClientConn;
 use super::{access, display, goals, host_stats, inbox, layout, updates, workspace, Core};
+use sikemux_view::calls::{CallState, PersonCall};
 use sikemux_view::device::DeviceView;
+use sikemux_view::turn::{TurnPhase, TurnState};
+use sikemux_view::workspace::{ProjectInfo, ProjectStanding};
 use sikemux_wire::protocol::{encode_device_view, AgentGroup};
 
 /// How often what a paired device shows of this host is looked at again
@@ -153,8 +156,17 @@ impl Core {
         agents
     }
 
+    /// The workspace as a client asks for it, with how each project stands.
+    pub(crate) fn workspace_view_standing(&self) -> sikemux_view::workspace::Workspace {
+        let mut workspace = self.workspace_view();
+        let turns = super::turn_state::all(self);
+        let calls = super::person_calls::shown(self);
+        stand_projects(self, &mut workspace.projects, &turns, &calls);
+        workspace
+    }
+
     /// The workspace as clients are sent it, each agent under its name and
-    /// in its face.
+    /// in its face. How each project stands is left out: it costs the turns of every agent.
     pub(crate) fn workspace_view(&self) -> sikemux_view::workspace::Workspace {
         let preferences = self.preferences.get();
         let mut workspace = self.workspaces.view();
@@ -217,7 +229,7 @@ impl Core {
         for (worker, lead) in &leads {
             workers.entry(lead).or_default().push(worker);
         }
-        let turns: HashMap<String, sikemux_view::turn::TurnState> = (inbox.agents.iter())
+        let turns: HashMap<String, TurnState> = (inbox.agents.iter())
             .filter_map(|agent| Some((agent.agent_id.clone(), agent.turn.clone()?)))
             .collect();
         for agent in &inbox.agents {
@@ -232,7 +244,9 @@ impl Core {
             }
         }
         goals::view_moved(self, &inbox);
-        let workspace = self.workspace_view();
+        let calls = super::person_calls::shown(self);
+        let mut workspace = self.workspace_view();
+        stand_projects(self, &mut workspace.projects, &turns, &calls);
         let layout = Box::new(layout::view(self, &workspace, &sessions, device));
         let view = DeviceView {
             workspace,
@@ -241,7 +255,7 @@ impl Core {
             attentions,
             recent,
             inbox,
-            calls: super::person_calls::shown(self),
+            calls,
             pins: super::pins::shown(self),
             layout,
             account: self.account.shown().map(Box::new),
@@ -371,5 +385,53 @@ pub(super) async fn serve(core: Arc<Core>) {
 impl super::part::Part for DeviceViews {
     fn start(&self, core: &Arc<Core>) -> Vec<tokio::task::JoinHandle<()>> {
         vec![tokio::spawn(serve(core.clone()))]
+    }
+}
+
+/// How each project stands for the person, from its open calls and its agents' turns. An agent
+/// the person snoozed does not make its project need them; a settled one that needs them does.
+fn stand_projects(
+    core: &Core,
+    projects: &mut [ProjectInfo],
+    turns: &HashMap<String, TurnState>,
+    calls: &[PersonCall],
+) {
+    let now = sikemux_process::clock::epoch_ms();
+    let places = core.workspaces.places();
+    let chiefs = core.workspaces.chiefs();
+    let snoozed = |agent_id: &str| {
+        !chiefs.contains(agent_id)
+            && (places.get(agent_id))
+                .and_then(|(place, _)| super::settling::snoozed_until(place, now))
+                .is_some()
+    };
+    let mut phases: HashMap<String, Vec<TurnPhase>> = HashMap::new();
+    for (agent_id, project) in core.workspaces.agent_projects() {
+        if let Some(turn) = turns.get(&agent_id) {
+            let phase = match turn.state {
+                TurnPhase::NeedsYou if snoozed(&agent_id) => continue,
+                phase => phase,
+            };
+            phases.entry(project).or_default().push(phase);
+        }
+    }
+    for project in projects {
+        let path = project.path.to_string_lossy();
+        project.calls = (calls.iter())
+            .filter(|call| call.project == path && call.state == CallState::Open)
+            .count() as u32;
+        let phases = phases
+            .get(&project.id)
+            .map(Vec::as_slice)
+            .unwrap_or_default();
+        project.standing = if project.calls > 0 || phases.contains(&TurnPhase::NeedsYou) {
+            ProjectStanding::NeedsYou
+        } else if (phases.iter())
+            .any(|phase| matches!(phase, TurnPhase::Working | TurnPhase::Waiting))
+        {
+            ProjectStanding::AtWork
+        } else {
+            ProjectStanding::AtRest
+        };
     }
 }

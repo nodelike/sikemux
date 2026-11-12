@@ -1355,7 +1355,7 @@ pub(crate) fn view(core: &Core, chats: &[ChatInfo], sessions: &[SessionInfo]) ->
         agent.chief = chiefs.contains(&agent.agent_id);
         agent.turn = turn_state::of(core, &gathered, &agent.agent_id, agent.status);
     }
-    for agent in &mut shown {
+    for agent in shown.iter_mut().filter(|agent| !agent.chief) {
         if let Some((place, _)) = places.get(&agent.agent_id) {
             super::settling::show(agent, place, now);
         }
@@ -1382,7 +1382,10 @@ pub(crate) fn view(core: &Core, chats: &[ChatInfo], sessions: &[SessionInfo]) ->
         agent.face = faces.get(agent.agent_id.as_str()).map(|&face| face.clone());
     }
     let mut kept = kept_agents(core, &workspace_agents, &listed, called);
-    for agent in &mut kept {
+    for agent in kept
+        .iter_mut()
+        .filter(|agent| !chiefs.contains(&agent.agent_id))
+    {
         if let Some((place, _)) = places.get(&agent.agent_id) {
             super::settling::show(agent, place, now);
         }

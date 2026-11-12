@@ -664,6 +664,10 @@ struct ProjectInfo: Codable, Hashable, Sendable {
     var chief: String?
     /// How many agents are open in it, the chief's whole team. The core fills it in.
     var agents: Int?
+    /// How it stands for the person, which clients order projects by. The core fills it in.
+    var standing: ProjectStanding?
+    /// How many calls of its wait on the person. The core fills it in.
+    var calls: Int?
 }
 
 /// A repository or account picked for a project on one code host.
@@ -782,6 +786,21 @@ struct CiAbilities: Codable, Hashable, Sendable {
     var deleteRuns: Bool
     /// A run's logs can go while the run stays.
     var deleteLogs: Bool
+}
+
+/// How a project stands for the person: needs them first, then at work, then the rest.
+enum ProjectStanding: String, Codable, Hashable, Sendable {
+    /// An open call, or an agent of it the person has not snoozed that needs them.
+    case needsYou
+    /// An agent of it working or waiting on something.
+    case atWork
+    case atRest
+    /// One added after this build.
+    case unknown
+
+    init(from decoder: any Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
 }
 
 /// A project only the account's other hosts hold, each with its copy there.

@@ -35,14 +35,12 @@ pub(crate) fn brief(core: &Core, cwd: &std::path::Path) -> String {
 
 /// Every project's chief, by agent id.
 pub(crate) fn all(core: &Core) -> HashSet<String> {
-    (core.workspaces.projects().into_iter())
-        .filter_map(|project| project.chief)
-        .collect()
+    core.workspaces.chiefs()
 }
 
 /// Whether `agent_id` is a project's chief.
 pub(crate) fn is_chief(core: &Core, agent_id: &str) -> bool {
-    (core.workspaces.projects().iter()).any(|project| project.chief.as_deref() == Some(agent_id))
+    core.workspaces.is_chief(agent_id)
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]

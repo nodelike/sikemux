@@ -157,6 +157,8 @@ fn from_app(saved: &mut Saved, app: &Value, earlier: &Earlier) {
                 saved_chats: BTreeMap::new(),
                 chief: None,
                 agents: 0,
+                standing: Default::default(),
+                calls: 0,
             })
         })
         .filter(|project| project.path.is_absolute())

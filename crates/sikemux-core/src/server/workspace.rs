@@ -578,6 +578,8 @@ impl Workspaces {
                 saved_chats: BTreeMap::new(),
                 chief: None,
                 agents: 0,
+                standing: Default::default(),
+                calls: 0,
             };
             check_project(&project, saved)?;
             saved.projects.push(project.clone());
@@ -632,7 +634,9 @@ impl Workspaces {
             let project = patched(
                 &saved.projects[index],
                 patch,
-                &["id", "path", "identity", "copies", "chief", "agents"],
+                &[
+                    "id", "path", "identity", "copies", "chief", "agents", "standing", "calls",
+                ],
             )?;
             check_project(&project, saved)?;
             saved.projects[index] = project.clone();
@@ -1168,6 +1172,18 @@ impl Workspaces {
             .image
             .as_ref()
             .map(|image| image.data_url.clone())
+    }
+
+    /// Every project's chief, by agent id.
+    pub(crate) fn chiefs(&self) -> HashSet<String> {
+        (self.published.locked().saved.projects.iter())
+            .filter_map(|project| project.chief.clone())
+            .collect()
+    }
+
+    pub(crate) fn is_chief(&self, agent_id: &str) -> bool {
+        (self.published.locked().saved.projects.iter())
+            .any(|project| project.chief.as_deref() == Some(agent_id))
     }
 
     /// This host's projects, as kept.
@@ -1813,6 +1829,8 @@ mod tests {
             saved_chats: BTreeMap::new(),
             chief: None,
             agents: 0,
+            standing: Default::default(),
+            calls: 0,
         }
     }
 

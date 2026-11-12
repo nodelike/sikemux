@@ -4,7 +4,7 @@
     "HostLoad": "overloaded loadAverage cores builds",
     "AgentBuild": "agentId command",
     "Workspace": "projects launchers",
-    "ProjectInfo": "id name path chief agents",
+    "ProjectInfo": "id name path chief agents standing calls",
     "LauncherInfo": "id provider label permissionMode model effort",
     "ConfigPicker": "id current choices",
     "ConfigChoice": "value label",

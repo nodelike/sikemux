@@ -66,13 +66,14 @@ async fn sweep(core: &Arc<Core>) -> u64 {
         .collect();
     core.workspaces
         .move_places(&due, |place| place.snooze = None);
+    let chiefs = core.workspaces.chiefs();
     let ready = ready_to_settle(core, &places, now);
     let checking = core.clone();
     let settle = blocking(move || {
         Ok(ready
             .into_iter()
             .filter(|(agent_id, project, cwd)| {
-                !inbox::uncommitted(&checking, project, agent_id, cwd)
+                !chiefs.contains(agent_id) && !inbox::uncommitted(&checking, project, agent_id, cwd)
             })
             .map(|(agent_id, _, _)| agent_id)
             .collect::<Vec<_>>())
@@ -165,11 +166,16 @@ fn unsettle(place: &mut ListPlace, now: u64) {
     }
 }
 
+/// When the agent at `place` wakes from a snooze still to run out.
+pub(crate) fn snoozed_until(place: &ListPlace, now: u64) -> Option<u64> {
+    (place.snooze)
+        .map(|snooze| snooze.until)
+        .filter(|&until| until > now)
+}
+
 /// Its place in the lists as clients are sent it.
 pub(crate) fn show(shown: &mut AgentShown, place: &ListPlace, now: u64) {
-    shown.snoozed_until = (place.snooze)
-        .map(|snooze| snooze.until)
-        .filter(|&until| until > now);
+    shown.snoozed_until = snoozed_until(place, now);
     shown.settled_at = place.settled.map(|settled| settled.at);
     shown.auto_settled = place.settled.is_some_and(|settled| settled.by_core);
 }
@@ -211,8 +217,12 @@ pub(crate) fn snooze(core: &Core, params: SnoozeParams) -> CoreResult<()> {
     if until.is_some_and(|until| until <= now) {
         return Err("that time has already passed".into());
     }
+    let agent_ids = match until {
+        Some(_) => not_chiefs(core, params.agent_ids)?,
+        None => params.agent_ids,
+    };
     core.workspaces
-        .move_places(&params.agent_ids, |place| match until {
+        .move_places(&agent_ids, |place| match until {
             Some(until) => {
                 unsettle(place, now);
                 place.snooze = Some(Snooze { until, at: now });
@@ -232,7 +242,11 @@ pub struct SettleParams {
 
 pub(crate) fn settle(core: &Core, params: SettleParams) -> CoreResult<()> {
     let now = epoch_ms();
-    core.workspaces.move_places(&params.agent_ids, |place| {
+    let agent_ids = match params.settled {
+        true => not_chiefs(core, params.agent_ids)?,
+        false => params.agent_ids,
+    };
+    core.workspaces.move_places(&agent_ids, |place| {
         if !params.settled {
             unsettle(place, now);
         } else if place.settled.is_none() {
@@ -244,6 +258,19 @@ pub(crate) fn settle(core: &Core, params: SettleParams) -> CoreResult<()> {
         }
     });
     Ok(())
+}
+
+/// The chats of `agent_ids` that may be put out of the way: a project's chief keeps its row.
+fn not_chiefs(core: &Core, agent_ids: Vec<String>) -> CoreResult<Vec<String>> {
+    let chiefs = core.workspaces.chiefs();
+    let others: Vec<String> = (agent_ids.iter())
+        .filter(|agent_id| !chiefs.contains(*agent_id))
+        .cloned()
+        .collect();
+    if others.is_empty() && !agent_ids.is_empty() {
+        return Err("@Chief keeps its row; it is never snoozed or settled".into());
+    }
+    Ok(others)
 }
 
 /// A time the snooze menu offers, on this computer's clock.

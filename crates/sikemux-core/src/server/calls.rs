@@ -174,7 +174,7 @@ calls! { core, client, method, params;
     "agentSessions" AgentSessions (saved::SessionSearchParams) -> Vec<crate::sessions::search::SessionMatch>: Full, any_program => {
         saved::call(&core, params).await?
     },
-    "workspace": Watch, any_program => answer(core.workspace_view()),
+    "workspace": Watch, any_program => answer(core.workspace_view_standing()),
     "agentManifests": NoDevice, any_program => answer(core.manifest_report()),
     "reloadAgentManifests": NoDevice => {
         answer(blocking(move || core.reload_manifests()).await?)
