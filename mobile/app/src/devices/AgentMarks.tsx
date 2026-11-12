@@ -208,15 +208,6 @@ export function WaitRing({ share }: { share: number }) {
   );
 }
 
-/** A linked host's worker, whose row carries no turn yet: squares while it works, a dot once something waits. */
-export function AgentState({ group }: { group: AgentGroup }) {
-  const colors = useColors();
-  if (group === 'working') return <Working />;
-  if (group === 'blocked') return <NeedsYou />;
-  if (group === 'done') return <Dot color={colors.accent} size={7} />;
-  return null;
-}
-
 export function Dot({ color, size = 8, hollow }: { color: string; size?: number; hollow?: boolean }) {
   return (
     <View
