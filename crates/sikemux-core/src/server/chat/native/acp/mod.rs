@@ -22,8 +22,9 @@ use sikemux_process::sync::Locked;
 use crate::acp::failure::Failure;
 use crate::acp::pickers;
 use crate::acp::{air, native, permission_mode_id};
+use crate::agent_catalog::ChatDriver;
 use crate::launch::PermissionMode;
-use crate::server::chat::prompt::prompt_blocks;
+use crate::server::chat::prompt::{command_parts, prompt_blocks};
 use sikemux_wire::protocol::ChatLaunch;
 
 use super::super::Respond;
@@ -37,6 +38,8 @@ use super::session::{Backend, Opened, Prompt, Sink, Steered, Telling, TurnEnd};
 pub(crate) struct Asked {
     id: Value,
 }
+
+const COMPACT: &str = "compact";
 
 /// The error code an agent turns a prompt down with when it needs a sign-in.
 const AUTH_REQUIRED: i64 = -32000;
@@ -56,6 +59,42 @@ pub(super) fn replay_saved(
         sink.update(session, update);
     }
     Ok(())
+}
+
+fn compact_word(launch: &ChatLaunch) -> &'static str {
+    match crate::agent_catalog::agent(&launch.provider).and_then(|entry| entry.chat.as_ref()) {
+        Some(ChatDriver::Acp { compact, .. }) => compact,
+        _ => COMPACT,
+    }
+}
+
+/// Offers `/compact` in the agent's command list whatever the agent calls it, and offers it
+/// even where the agent takes it without listing it.
+fn offer_compact(update: &mut Value, word: &str) {
+    if update["sessionUpdate"] != "available_commands_update" {
+        return;
+    }
+    let Some(commands) = update["availableCommands"].as_array_mut() else {
+        return;
+    };
+    if let Some(own) = commands.iter_mut().find(|command| command["name"] == word) {
+        own["name"] = json!(COMPACT);
+    } else if !commands.iter().any(|command| command["name"] == COMPACT) {
+        commands.insert(
+            0,
+            json!({ "name": COMPACT, "description": "Summarize the conversation to free up context." }),
+        );
+    }
+}
+
+/// The person's `/compact`, in the agent's own word for it.
+fn in_own_words(text: String, word: &str) -> String {
+    match command_parts(&text) {
+        Some((name, rest)) if word != COMPACT && name.eq_ignore_ascii_case(COMPACT) => {
+            format!("/{word} {rest}").trim_end().to_owned()
+        }
+        _ => text,
+    }
 }
 
 fn server_names(launch: &ChatLaunch) -> Arc<[String]> {
@@ -93,6 +132,8 @@ struct Driver {
     turns: Arc<Mutex<Turns>>,
     /// The names of the tool servers the chat handed its agent.
     servers: Arc<[String]>,
+    /// The agent's own name for its compaction command.
+    compact: &'static str,
 }
 
 impl Driver {
@@ -195,6 +236,7 @@ impl Reads for Driver {
                     .map(Value::take)
                     .unwrap_or_default();
                 mcp_calls::as_mcp_call(&mut update, &self.servers);
+                offer_compact(&mut update, self.compact);
                 let session_id = params["sessionId"].as_str().unwrap_or_default();
                 self.sink.update(session_id, update);
             }
@@ -447,6 +489,7 @@ impl Backend for Acp {
             sink,
             turns: Arc::default(),
             servers: server_names(launch),
+            compact: compact_word(launch),
         };
         let (reading, _) = Reading::start(driver.clone(), lines);
         let failed = |error: String| process.start_error(error);
@@ -522,7 +565,7 @@ impl Backend for Acp {
 
     async fn prompt(&mut self, turn: u64, prompt: Prompt) -> Result<(), String> {
         let blocks = prompt_blocks(
-            prompt.text,
+            in_own_words(prompt.text, self.driver.compact),
             prompt.paths,
             prompt.context,
             self.kept.embedded_context,
@@ -648,6 +691,7 @@ impl Backend for Acp {
             sink,
             turns: Arc::new(Mutex::new(state.turns)),
             servers: server_names(launch),
+            compact: compact_word(launch),
         };
         let (reading, _) = Reading::start(driver.clone(), lines);
         Ok(Self {

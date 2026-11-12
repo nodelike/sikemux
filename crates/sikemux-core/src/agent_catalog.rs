@@ -51,6 +51,8 @@ pub enum ChatDriver {
     Acp {
         args: &'static [&'static str],
         modes: Option<AcpModes>,
+        /// The agent's own name for the command that compacts its session.
+        compact: &'static str,
     },
 }
 
@@ -309,6 +311,7 @@ pub const AGENTS: &[AgentEntry] = &[
                 normal: "accept_edits",
                 bypass: "dont_ask",
             }),
+            compact: "compress",
         }),
         providers: None,
         routed: None,
@@ -387,6 +390,7 @@ pub const AGENTS: &[AgentEntry] = &[
         chat: Some(ChatDriver::Acp {
             args: &["acp"],
             modes: None,
+            compact: "compact",
         }),
         providers: Some(ProviderUse::Reads),
         routed: Some(Routed {
@@ -427,6 +431,7 @@ pub const AGENTS: &[AgentEntry] = &[
         chat: Some(ChatDriver::Acp {
             args: &["acp"],
             modes: None,
+            compact: "compact",
         }),
         providers: Some(ProviderUse::Reads),
         routed: Some(Routed {
@@ -479,6 +484,7 @@ pub const AGENTS: &[AgentEntry] = &[
         chat: Some(ChatDriver::Acp {
             args: &["agent", "--no-leader", "stdio"],
             modes: None,
+            compact: "compact",
         }),
         providers: None,
         routed: None,

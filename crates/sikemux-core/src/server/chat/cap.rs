@@ -1,7 +1,8 @@
 //! Keeps a capped chat's vendor session small. Claude compacts it near 150K tokens, told by
-//! the core what to keep and handed the core's facts after, and the core compacts it itself
-//! when it sits idle long enough that the prompt cache is about to die. The chat the person
-//! sees is the core's record, so none of this changes it.
+//! the core what to keep and handed the core's facts after. The core compacts any big session
+//! itself when it sits idle long enough that the prompt cache is about to die, so coming back
+//! to it later does not read it all again uncached. The chat the person sees is the core's
+//! record, so none of this changes it.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -39,6 +40,9 @@ const IDLE_COMPACT_MS: u64 = 50 * 60_000;
 const CACHE_MS: u64 = 60 * 60_000;
 /// Below this a cold start costs less than a compaction would save.
 const IDLE_COMPACT_TOKENS: u64 = 40_000;
+/// A chat that is not capped keeps its whole session unless it is this big, as the person may
+/// come back for its detail.
+const IDLE_COMPACT_UNCAPPED_TOKENS: u64 = 150_000;
 /// What the core asks for when it compacts an idle chat itself.
 pub(crate) const IDLE_FOCUS: &str =
     "Keep what the person asked for and decided, and the work still open.";
@@ -101,11 +105,11 @@ impl Meter {
 
     /// The session has sat idle since a call whose cache is still warm, big enough that a
     /// compaction pays, and none has run since.
-    fn worth_compacting(&self, now: u64) -> Option<u64> {
+    fn worth_compacting(&self, now: u64, big_from: u64) -> Option<u64> {
         let last = self.last_call_ms.load(Ordering::Acquire);
         let idle = now.saturating_sub(last);
         let warm = last > 0 && idle < CACHE_MS;
-        let big = self.context.load(Ordering::Acquire) >= IDLE_COMPACT_TOKENS;
+        let big = self.context.load(Ordering::Acquire) >= big_from;
         (warm && big && !self.compacted.load(Ordering::Acquire)).then_some(idle)
     }
 }
@@ -266,37 +270,65 @@ fn ago(now: u64, at: u64) -> String {
     }
 }
 
-/// Asks each capped chat that has sat idle long enough to compact before its cache dies.
+fn big_from(chat: &Chat) -> u64 {
+    if chat.capped() {
+        IDLE_COMPACT_TOKENS
+    } else {
+        IDLE_COMPACT_UNCAPPED_TOKENS
+    }
+}
+
+/// Asks each big chat that has sat idle long enough to compact before its cache dies.
 pub(crate) fn compact_idle(core: &Core, now: u64) {
     for agent_id in core.chats.ids() {
         let Some(chat) = core.chats.get(&agent_id) else {
             continue;
         };
-        let due = chat.capped()
-            && chat.is_ready()
+        let due = chat.is_ready()
             && !chat.prompted()
             && chat.state_now() == AgentState::Idle
             && chat
                 .meter
-                .worth_compacting(now)
+                .worth_compacting(now, big_from(&chat))
                 .is_some_and(|idle| idle >= IDLE_COMPACT_MS);
         if due {
-            chat.meter.compacted.store(true, Ordering::Release);
-            chat.meter.compacting_since.store(now, Ordering::Release);
-            let command = if super::rotation::on(core) {
-                ChatCommand::TakeHandoff
-            } else {
-                ChatCommand::Compact
-            };
-            let _ = chat.send(command);
+            compact(core, &chat, now);
         }
     }
 }
 
-/// A capped chat stays awake until its idle stretch has been compacted, since a sleeping
-/// agent cannot compact.
+/// Compacts a big chat about to sleep while its cache is still warm, as it may sleep past the
+/// cache's life. Answers whether it is compacting, to sleep once it is done.
+pub(crate) fn compact_before_sleep(core: &Core, agent_id: &str, now: u64) -> bool {
+    let Some(chat) = core.chats.get(agent_id) else {
+        return false;
+    };
+    let due = !chat.capped()
+        && (chat.meter)
+            .worth_compacting(now, IDLE_COMPACT_UNCAPPED_TOKENS)
+            .is_some();
+    if due {
+        compact(core, &chat, now);
+    }
+    due
+}
+
+fn compact(core: &Core, chat: &Chat, now: u64) {
+    chat.meter.compacted.store(true, Ordering::Release);
+    chat.meter.compacting_since.store(now, Ordering::Release);
+    let command = if chat.capped() && super::rotation::on(core) {
+        ChatCommand::TakeHandoff
+    } else {
+        ChatCommand::Compact
+    };
+    let _ = chat.send(command);
+}
+
+/// A chat stays awake while it compacts, and a capped one until its idle stretch has been
+/// compacted, since a sleeping agent cannot compact.
 pub(crate) fn holds_awake(core: &Core, agent_id: &str, now: u64) -> bool {
     core.chats.get(agent_id).is_some_and(|chat| {
-        chat.capped() && (chat.meter.compacting() || chat.meter.worth_compacting(now).is_some())
+        chat.meter.compacting()
+            || (chat.capped() && (chat.meter.worth_compacting(now, IDLE_COMPACT_TOKENS)).is_some())
     })
 }

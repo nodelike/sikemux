@@ -301,7 +301,9 @@ pub(crate) async fn serve(core: Arc<Core>) {
         let now = epoch_ms();
         super::chat::cap::compact_idle(&core, now);
         for agent_id in due(&core, began, now) {
-            sleep(&core, &agent_id);
+            if !super::chat::cap::compact_before_sleep(&core, &agent_id, now) {
+                sleep(&core, &agent_id);
+            }
         }
     }
 }
