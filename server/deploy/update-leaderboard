@@ -10,13 +10,18 @@ const project = process.env.POSTHOG_PROJECT ?? "286203";
 const insight = process.env.POSTHOG_LEADERBOARD_INSIGHT ?? "7331966";
 const posthog = `https://eu.posthog.com/api/projects/${project}/insights/${insight}/`;
 
-const ids = execFileSync("psql", ["-At", "-d", "sikemux", "-c", "select id from users order by created_at"], {
-  encoding: "utf8",
-})
+const ids = execFileSync(
+  "psql",
+  ["-At", "-d", "sikemux", "-c", "select id from users order by created_at"],
+  {
+    encoding: "utf8",
+  },
+)
   .split("\n")
   .filter(Boolean);
 
-const quoted = (text) => `'${text.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'`;
+const quoted = (text) =>
+  `'${text.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'`;
 const hashes = [];
 const names = [];
 for (const id of ids) {
@@ -30,18 +35,35 @@ for (const id of ids) {
     user.username ||
     user.email_addresses?.[0]?.email_address?.split("@")[0] ||
     id;
-  hashes.push(quoted(createHash("sha256").update(`sikemux-usage|${id}`).digest("hex")));
+  hashes.push(
+    quoted(createHash("sha256").update(`sikemux-usage|${id}`).digest("hex")),
+  );
   names.push(quoted(name));
 }
 
-const headers = { Authorization: `Bearer ${POSTHOG_API_KEY}`, "Content-Type": "application/json" };
+const headers = {
+  Authorization: `Bearer ${POSTHOG_API_KEY}`,
+  "Content-Type": "application/json",
+};
 const tile = await (await fetch(posthog, { headers })).json();
 const source = tile.query?.source;
 const lookup = /transform\(properties\.user, \[[^\]]*\], \[[^\]]*\],/;
 if (!source?.query || !lookup.test(source.query)) {
-  throw new Error(`insight ${insight} has no transform(properties.user, [...], [...], ...) lookup to rewrite`);
+  throw new Error(
+    `insight ${insight} has no transform(properties.user, [...], [...], ...) lookup to rewrite`,
+  );
 }
-source.query = source.query.replace(lookup, () => `transform(properties.user, [${hashes}], [${names}],`);
-const saved = await fetch(posthog, { method: "PATCH", headers, body: JSON.stringify({ query: tile.query }) });
-if (!saved.ok) throw new Error(`PostHog refused the update: ${saved.status} ${await saved.text()}`);
+source.query = source.query.replace(
+  lookup,
+  () => `transform(properties.user, [${hashes}], [${names}],`,
+);
+const saved = await fetch(posthog, {
+  method: "PATCH",
+  headers,
+  body: JSON.stringify({ query: tile.query }),
+});
+if (!saved.ok)
+  throw new Error(
+    `PostHog refused the update: ${saved.status} ${await saved.text()}`,
+  );
 console.log(`named ${names.length} of ${ids.length} accounts`);
