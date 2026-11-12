@@ -35,6 +35,18 @@ pub fn bounded_text(name: &str, value: &str, max: usize) -> Result<(), String> {
     Ok(())
 }
 
+/// Whether `paths` may go with the person's words to an agent, as a prompt's attachments may.
+pub(crate) fn check_attachments(paths: &[String]) -> Result<(), String> {
+    if paths.len() > MAX_ATTACHMENTS {
+        return Err(format!(
+            "at most {MAX_ATTACHMENTS} files go with one answer"
+        ));
+    }
+    paths
+        .iter()
+        .try_for_each(|path| resource_link(path).map(drop))
+}
+
 fn resource_link(path: &str) -> Result<ContentBlock, String> {
     bounded_text("attachment path", path, 4_096)?;
     let path = PathBuf::from(path);

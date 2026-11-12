@@ -341,6 +341,7 @@ impl Workbench {
                 false => Box::pin(target.request_typed::<call::AnswerCall>(AnswerCallParams {
                     id: call.id.clone(),
                     words: Some(text.to_owned()),
+                    paths,
                     ..AnswerCallParams::default()
                 })),
             };

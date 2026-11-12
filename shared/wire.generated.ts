@@ -4516,7 +4516,7 @@ export interface HoldParams {
     hold: string;
 }
 
-/** What answers a call: an option, with a note, or the person's own words. */
+/** What answers a call: an option, with a note, or the person's own words, with any files. */
 export interface AnswerCallParams {
     id: string;
     option?: string;
@@ -4524,6 +4524,8 @@ export interface AnswerCallParams {
     options?: string[];
     note?: string;
     words?: string;
+    /** Files attached to the note or the words, by where the host keeps them. */
+    paths?: string[];
 }
 
 export interface PairingAnswer {

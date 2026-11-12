@@ -7040,7 +7040,7 @@ struct HoldParams: Codable, Hashable, Sendable {
     var hold: String
 }
 
-/// What answers a call: an option, with a note, or the person's own words.
+/// What answers a call: an option, with a note, or the person's own words, with any files.
 struct AnswerCallParams: Codable, Hashable, Sendable {
     var id: String
     var option: String?
@@ -7048,6 +7048,8 @@ struct AnswerCallParams: Codable, Hashable, Sendable {
     var options: [String]?
     var note: String?
     var words: String?
+    /// Files attached to the note or the words, by where the host keeps them.
+    var paths: [String]?
 }
 
 struct PairingAnswer: Codable, Hashable, Sendable {

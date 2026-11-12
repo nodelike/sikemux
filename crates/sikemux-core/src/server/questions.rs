@@ -2198,7 +2198,7 @@ impl AnswerParams {
 }
 
 /// The files given with an answer as its text lists them.
-fn attached(paths: &[String]) -> String {
+pub(crate) fn attached(paths: &[String]) -> String {
     let listed: Vec<String> = paths.iter().map(|path| format!("- {path}")).collect();
     format!("Attached:\n{}", listed.join("\n"))
 }

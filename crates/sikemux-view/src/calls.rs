@@ -226,7 +226,7 @@ pub struct PersonCall {
     pub outcome: Option<CallOutcome>,
 }
 
-/// What answers a call: an option, with a note, or the person's own words.
+/// What answers a call: an option, with a note, or the person's own words, with any files.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AnswerCallParams {
@@ -240,6 +240,9 @@ pub struct AnswerCallParams {
     pub note: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub words: Option<String>,
+    /// Files attached to the note or the words, by where the host keeps them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub paths: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

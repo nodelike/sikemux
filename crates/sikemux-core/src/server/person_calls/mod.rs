@@ -1120,6 +1120,10 @@ pub(crate) async fn answer(
     let client = client_of(peer).ok_or(NOT_A_CLIENT)?;
     let call = call_of(core, &params.id)?;
     let (answer, typed) = answer_of(&call, client.clone(), &params)?;
+    if call.secret && !params.paths.is_empty() {
+        return Err("a secret is typed into the call, never attached".into());
+    }
+    crate::server::chat::prompt::check_attachments(&params.paths)?;
     if call.kind == CallKind::Production {
         if !core.person_calls.seen_by(&call.id, &client) {
             return Err(
@@ -1134,7 +1138,7 @@ pub(crate) async fn answer(
         return Err(core.person_calls.unanswer(core, &call.id, error));
     }
     core.person_calls.changed(core);
-    let reached = deliver(core, &call, &source, typed).await;
+    let reached = deliver(core, &call, &source, typed, params.paths).await;
     if let Err(error) = reached {
         core.person_calls.reopen(&call.id);
         core.person_calls.changed(core);
@@ -1149,8 +1153,14 @@ async fn deliver(
     call: &PersonCall,
     source: &Source,
     typed: Option<String>,
+    paths: Vec<String>,
 ) -> CoreResult<()> {
     let answer = call.answer.as_ref().ok_or(GONE)?;
+    let listed = || match (&typed, paths.is_empty()) {
+        (_, true) => typed.clone(),
+        (Some(typed), false) => Some(format!("{typed}\n\n{}", questions::attached(&paths))),
+        (None, false) => Some(questions::attached(&paths)),
+    };
     match source {
         Source::Question(_) => {
             let index = |option: &String| call.options.iter().position(|known| known.id == *option);
@@ -1160,6 +1170,7 @@ async fn deliver(
                 let params = AnswerParams {
                     id,
                     answer: typed.clone(),
+                    paths: paths.clone(),
                     choice: answer.option.as_ref().and_then(index),
                     choices: (!answer.options.is_empty())
                         .then(|| answer.options.iter().filter_map(index).collect()),
@@ -1185,14 +1196,14 @@ async fn deliver(
                     core.person_calls.settle(&call.id, CallResult::NotShipped);
                 }
             }
-            if let Some(typed) = typed {
+            if let Some(typed) = listed() {
                 let text = format!("The person added: {typed}");
                 let _ = messages::for_person(core, call.asker.agent_id.clone(), text).await;
             }
         }
-        Source::Raised if call.place.is_some() => call_answered(core, call, typed).await,
+        Source::Raised if call.place.is_some() => call_answered(core, call, listed()).await,
         Source::Raised => {
-            tell_askers(core, call, typed).await;
+            tell_askers(core, call, listed()).await;
             core.person_calls.settle(&call.id, CallResult::Heard);
         }
     }
@@ -1373,7 +1384,7 @@ async fn answer_gate(core: &Arc<Core>, peer: &Peer, id: &str, option: &str) -> C
     };
     let (call, source) = core.person_calls.take_answer(id, given)?;
     core.person_calls.changed(core);
-    deliver(core, &call, &source, None).await
+    deliver(core, &call, &source, None, Vec::new()).await
 }
 
 /// `allowShip`, `refuseShip` and `letShipGo`, from clients released before calls.
@@ -1579,7 +1590,10 @@ async fn redeliver(core: &Arc<Core>, id: &str) {
             return;
         }
     }
-    if deliver(core, &call, &source, typed).await.is_err() {
+    if deliver(core, &call, &source, typed, Vec::new())
+        .await
+        .is_err()
+    {
         core.person_calls.reopen(id);
     }
 }
