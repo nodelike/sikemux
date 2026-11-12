@@ -18,8 +18,8 @@ impl Workbench {
     /// Closes these agents, asking first.
     pub fn close_agents(&mut self, agents: Vec<String>, cx: &mut Context<Self>) {
         let title = match agents.as_slice() {
-            [one] => format!("Close {}?", self.label_of(one, false)),
-            _ => format!("Close {} agents?", agents.len()),
+            [one] => t!("Close {name}?", name = self.label_of(one, false)),
+            _ => t!("Close {count} agents?", count = agents.len()),
         };
         self.ask_to_stop(agents.clone(), title, cx, move |bench, workers| {
             let agent_ids = agents.iter().chain(&workers).cloned().collect();
@@ -46,9 +46,9 @@ impl Workbench {
             files.extend(crate::editor::files_of(&place, &tab.pane));
         }
         let title = match (tabs.len(), agents.as_slice()) {
-            (1, [one]) => format!("Close {}?", self.label_of(one, false)),
-            (1, _) => "Close this tab?".to_owned(),
-            (count, _) => format!("Close {count} tabs?"),
+            (1, [one]) => t!("Close {name}?", name = self.label_of(one, false)),
+            (1, _) => t!("Close this tab?").to_owned(),
+            (count, _) => t!("Close {count} tabs?", count = count),
         };
         let close = move |bench: &mut Workbench, cx: &mut Context<Workbench>| {
             let (strip, tabs) = (strip.clone(), tabs.clone());
@@ -90,16 +90,14 @@ impl Workbench {
                 return close(self, Vec::new(), cx);
             }
             let shown: Vec<String> = busy.iter().map(|id| self.label_of(id, false)).collect();
-            let one = busy.len() == 1;
-            let body = format!(
-                "{} {} with it.",
-                listed(&shown),
-                if one { "stops" } else { "stop" }
-            );
+            let body = match busy.len() {
+                1 => t!("{names} stops with it.", names = listed(&shown)),
+                _ => t!("{names} stop with it.", names = listed(&shown)),
+            };
             return self.confirm(
                 title,
                 body,
-                "Close",
+                t!("Close"),
                 true,
                 move |bench, yes, _, cx| {
                     if yes {
@@ -123,28 +121,38 @@ impl Workbench {
         let named: Vec<String> = workers.iter().map(|id| self.label_of(id, true)).collect();
         let one = workers.len() == 1;
         let working = match busy.len() {
-            0 => String::new(),
-            1 => format!("{} is working and stops with it. ", busy[0]),
-            _ => format!("{} are working and stop with it. ", listed(&busy)),
+            0 => None,
+            1 => Some(t!("{name} is working and stops with it.", name = busy[0])),
+            _ => Some(t!(
+                "{names} are working and stop with it.",
+                names = listed(&busy)
+            )),
         };
         let title = match leads.as_slice() {
-            [lead] => format!("Stop {lead}'s agents too?"),
-            _ => "Stop their agents too?".to_owned(),
+            [lead] => t!("Stop {lead}'s agents too?", lead = lead),
+            _ => t!("Stop their agents too?").to_owned(),
         };
-        let body = format!(
-            "{working}{} {} started by {}. Stop {}, or keep {} running on {} own.",
-            listed(&named),
-            if one { "was" } else { "were" },
-            leads.join(" and "),
-            if one { "it" } else { "them" },
-            if one { "it" } else { "them" },
-            if one { "its" } else { "their" },
-        );
+        let started = match one {
+            true => t!(
+                "{workers} was started by {leads}. Stop it, or keep it running on its own.",
+                workers = listed(&named),
+                leads = listed(&leads)
+            ),
+            false => t!(
+                "{workers} were started by {leads}. Stop them, or keep them running on their own.",
+                workers = listed(&named),
+                leads = listed(&leads)
+            ),
+        };
+        let body = match working {
+            Some(working) => format!("{working} {started}"),
+            None => started,
+        };
         self.confirm_or(
             title,
             body,
-            if one { "Stop it" } else { "Stop them" },
-            Some((if one { "Keep it" } else { "Keep them" }).into()),
+            if one { t!("Stop it") } else { t!("Stop them") },
+            Some((if one { t!("Keep it") } else { t!("Keep them") }).into()),
             true,
             move |bench, choice, _, cx| match choice {
                 Choice::Yes => close(bench, workers.clone(), cx),
@@ -175,18 +183,22 @@ impl Workbench {
         let closed = match paused.as_slice() {
             [] => return,
             [(agent, _)] => self.agent_by_id(&agent.id).map_or_else(
-                || "the chat".to_owned(),
+                || t!("the chat").to_owned(),
                 |row| {
                     row.handle()
                         .map_or(row.title.clone(), |name| format!("@{name}"))
                 },
             ),
-            more => format!("{} chats", more.len()),
+            more => t!("{count} chats", count = more.len()),
         };
-        let text = format!(
-            "Closed {closed} · paused {triggers} {}",
-            if triggers == 1 { "trigger" } else { "triggers" }
-        );
+        let text = match triggers {
+            1 => t!("Closed {closed} · paused 1 trigger", closed = closed),
+            _ => t!(
+                "Closed {closed} · paused {count} triggers",
+                closed = closed,
+                count = triggers
+            ),
+        };
         let (bench, paused) = (cx.weak_entity(), Rc::new(paused));
         let note = toast::undoable(text, move |_, cx| {
             let paused = paused.clone();
@@ -241,7 +253,7 @@ impl Workbench {
                 Some(name) if named => name.to_owned(),
                 _ => row.title,
             })
-            .unwrap_or_else(|| "the agent".to_owned())
+            .unwrap_or_else(|| t!("the agent").to_owned())
     }
 }
 
@@ -249,10 +261,12 @@ impl Workbench {
 fn listed(names: &[String]) -> String {
     let mut shown: Vec<String> = names.iter().take(3).cloned().collect();
     if names.len() > 3 {
-        shown.push(format!("{} more", names.len() - 3));
+        shown.push(t!("{count} more", count = names.len() - 3));
     }
     match shown.split_last() {
-        Some((last, rest)) if !rest.is_empty() => format!("{} and {last}", rest.join(", ")),
+        Some((last, rest)) if !rest.is_empty() => {
+            t!("{names} and {last}", names = rest.join(", "), last = last)
+        }
         Some((last, _)) => last.clone(),
         None => String::new(),
     }

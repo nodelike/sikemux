@@ -99,7 +99,7 @@ impl Workbench {
             let here = HostCopy {
                 place: Place::This,
                 project: project.id.clone(),
-                host: "This host".into(),
+                host: t!("This host").into(),
                 path: project.path.clone(),
                 git: project.git.clone(),
                 away: false,
@@ -180,7 +180,7 @@ impl Workbench {
         }
         if self.project_sort() != ProjectSort::Manual {
             crate::settings::set(self, PreferenceChange::ProjectSort(ProjectSort::Manual));
-            let note = crate::toast::info("Projects now keep the order you drag them in");
+            let note = crate::toast::info(t!("Projects now keep the order you drag them in"));
             self.notify(note, cx);
         }
         crate::settings::set(self, PreferenceChange::ProjectOrder(order));
@@ -257,7 +257,7 @@ impl Workbench {
             let _ = bench.update(cx, |bench, cx| match moved {
                 Ok(_) => bench.go_to_copy(&copy, identity.as_deref(), cx),
                 Err(error) => bench.notify(
-                    crate::toast::error(format!("The chat stayed where it was: {error}")),
+                    crate::toast::error(t!("The chat stayed where it was: {error}", error = error)),
                     cx,
                 ),
             });
@@ -300,7 +300,7 @@ impl Workbench {
             .map(|remote| {
                 (
                     remote.core_id.clone(),
-                    SharedString::from("This host"),
+                    SharedString::from(t!("This host")),
                     true,
                 )
             });
@@ -396,7 +396,7 @@ pub fn copy_menu(
             let (this, chosen, identity) = (this.clone(), copy.clone(), folded.identity.clone());
             let git = copy.git.as_ref();
             let hint = match (git, copy.away) {
-                (_, true) => "out of reach".to_owned(),
+                (_, true) => t!("out of reach").to_owned(),
                 (Some(git), _) if git.ahead > 0 => format!("{} ↑{}", git.branch, git.ahead),
                 (Some(git), _) => git.branch.clone(),
                 (None, _) => String::new(),
@@ -431,9 +431,9 @@ pub fn copy_menu(
             let (this, from, identity) = (this.clone(), front.clone(), folded.identity.clone());
             let (key, label) = (key.clone(), label.clone());
             popup = popup.item(
-                ui::MenuRow::new(format!("Copy to {label}"))
+                ui::MenuRow::new(t!("Copy to {label}", label = label))
                     .icon(Icon::Copy)
-                    .when(!reached, |row| row.hint("out of reach"))
+                    .when(!reached, |row| row.hint(t!("out of reach")))
                     .item(cx)
                     .disabled(!reached)
                     .on_click(move |_, _, cx| {
@@ -455,7 +455,7 @@ pub fn copy_menu(
         }
         let this = this.clone();
         popup.item(
-            ui::MenuRow::new("Bring uncommitted changes")
+            ui::MenuRow::new(t!("Bring uncommitted changes"))
                 .item(cx)
                 .checked(!leaves)
                 .on_click(move |_, _, cx| {
@@ -478,7 +478,7 @@ pub fn copy_chip(
     let front = bench.front_copy(folded)?;
     let t = Tokens::get(cx).clone();
     let chip = gpui_kit::base::Button::new(SharedString::from(format!("{id}-button")))
-        .accessibility_label("Copy in front")
+        .accessibility_label(t!("Copy in front"))
         .flex_none()
         .flex()
         .items_center()
@@ -491,7 +491,7 @@ pub fn copy_chip(
         .hover(move |style| style.bg(t.surface_active))
         .child(ui::icon(front.icon(), 11.).text_color(t.host))
         .child(ui::text(
-            format!("on {}", front.host),
+            t!("on {host}", host = front.host),
             TEXT_2XS,
             gpui_kit::FontWeight::MEDIUM,
         ))
@@ -512,7 +512,7 @@ pub fn copy_row(bench: &Workbench, folded: &Folded, cx: &Context<Workbench>) -> 
     let t = Tokens::get(cx).clone();
     let git = front.git.as_ref();
     let row = gpui_kit::base::Button::new("copy-row-button")
-        .accessibility_label("Copy in front")
+        .accessibility_label(t!("Copy in front"))
         .w_full()
         .h(px(25.))
         .flex()
@@ -632,13 +632,13 @@ pub fn copy_note(
     let identity = folded.identity.clone()?;
     let note = bench.rails.copy_notes.get(&identity)?.clone();
     let word = match note.state {
-        CopyState::Going => format!("to {}", note.host),
-        CopyState::Done => format!("on {}", note.host),
-        CopyState::Failed => "copy failed".to_owned(),
+        CopyState::Going => t!("to {host}", host = note.host),
+        CopyState::Done => t!("on {host}", host = note.host),
+        CopyState::Failed => t!("copy failed").to_owned(),
     };
     let said = match note.state {
         CopyState::Going => note.said.to_string(),
-        _ => format!("{} Click to dismiss.", note.said),
+        _ => format!("{} {}", note.said, t!("Click to dismiss.")),
     };
     let dismiss = (note.state != CopyState::Going).then(|| {
         Box::new(move |bench: &mut Workbench, cx: &mut Context<Workbench>| {
@@ -662,7 +662,11 @@ pub fn clone_note(
     let cloning = project.cloning.clone()?;
     let id = format!("clone-note-{}", folded.key());
     let Some(failed) = cloning.failed else {
-        let said = format!("Cloning {}: {}", cloning.url, cloning.phase);
+        let said = t!(
+            "Cloning {url}: {phase}",
+            url = cloning.url,
+            phase = cloning.phase
+        );
         let word = format!("{}%", cloning.percent);
         return Some(row_note(id, CopyState::Going, word, said, None, cx));
     };
@@ -670,8 +674,11 @@ pub fn clone_note(
     let dismiss = Box::new(move |bench: &mut Workbench, cx: &mut Context<Workbench>| {
         bench.close_project(place.clone(), project.clone(), cx)
     }) as Dismiss;
-    let said = format!("{failed}. Click to close the project and remove its folder.");
-    let word = "clone failed".to_owned();
+    let said = format!(
+        "{failed}. {}",
+        t!("Click to close the project and remove its folder.")
+    );
+    let word = t!("clone failed").to_owned();
     Some(row_note(
         id,
         CopyState::Failed,

@@ -53,8 +53,9 @@ pub struct Page {
 
 impl Page {
     pub fn new(window: &mut Window, cx: &mut Context<Workbench>) -> Self {
-        let search = cx
-            .new(|cx| InputState::new(window, cx).placeholder("Search hosts, agents and devices"));
+        let search = cx.new(|cx| {
+            InputState::new(window, cx).placeholder(t!("Search hosts, agents and devices"))
+        });
         let typing = cx.subscribe(&search, |bench, _, event: &InputEvent, cx| {
             if let InputEvent::Change = event {
                 bench.parts.redraw_stage(cx);

@@ -38,46 +38,50 @@ impl Words for SetUp {
     /// What the button that does it says.
     fn offer(self, alias: &str) -> String {
         match self {
-            Self::Install => format!("Install Sikemux on {alias}"),
-            Self::SignIn => format!("Sign in {alias}"),
-            Self::Start => format!("Start Sikemux on {alias}"),
-            Self::Update => format!("Update Sikemux on {alias}"),
+            Self::Install => t!("Install Sikemux on {alias}", alias = alias),
+            Self::SignIn => t!("Sign in {alias}", alias = alias),
+            Self::Start => t!("Start Sikemux on {alias}", alias = alias),
+            Self::Update => t!("Update Sikemux on {alias}", alias = alias),
         }
     }
 
     /// What a host's menu calls it.
     fn menu_label(self) -> &'static str {
         match self {
-            Self::Install => "Install Sikemux",
-            Self::SignIn => "Sign in",
-            Self::Start => "Start Sikemux",
-            Self::Update => "Update Sikemux",
+            Self::Install => t!("Install Sikemux"),
+            Self::SignIn => t!("Sign in"),
+            Self::Start => t!("Start Sikemux"),
+            Self::Update => t!("Update Sikemux"),
         }
     }
 
     /// What it says while it runs.
     fn running(self, alias: &str) -> String {
         match self {
-            Self::Install => format!("Installing {alias}…"),
-            Self::SignIn => format!("Signing in {alias}…"),
-            Self::Start => format!("Starting {alias}…"),
-            Self::Update => format!("Updating {alias}…"),
+            Self::Install => t!("Installing {alias}…", alias = alias),
+            Self::SignIn => t!("Signing in {alias}…", alias = alias),
+            Self::Start => t!("Starting {alias}…", alias = alias),
+            Self::Update => t!("Updating {alias}…", alias = alias),
         }
     }
 
     fn says(self, alias: &str) -> String {
         match self {
-            Self::Install => format!(
-                "With Sikemux, {alias} runs agents that keep working while you are away, your phone reaches it, and its projects, chats and files open here without SSH. The installer runs over your SSH in a new tab, where you type sudo's password if it asks."
+            Self::Install => t!(
+                "With Sikemux, {alias} runs agents that keep working while you are away, your phone reaches it, and its projects, chats and files open here without SSH. The installer runs over your SSH in a new tab, where you type sudo's password if it asks.",
+                alias = alias
             ),
-            Self::SignIn => format!(
-                "Sikemux is on {alias} but not signed in. Signing in runs sikemux login there over your SSH and adds it to your account."
+            Self::SignIn => t!(
+                "Sikemux is on {alias} but not signed in. Signing in runs sikemux login there over your SSH and adds it to your account.",
+                alias = alias
             ),
-            Self::Start => {
-                format!("Sikemux is on {alias} but its core is stopped. Starting runs sikemux start there.")
-            }
-            Self::Update => format!(
-                "{alias} runs a release of Sikemux too old for this app. Updating runs its own update over your SSH, on the channel it follows, and restarts its core."
+            Self::Start => t!(
+                "Sikemux is on {alias} but its core is stopped. Starting runs sikemux start there.",
+                alias = alias
+            ),
+            Self::Update => t!(
+                "{alias} runs a release of Sikemux too old for this app. Updating runs its own update over your SSH, on the channel it follows, and restarts its core.",
+                alias = alias
             ),
         }
     }
@@ -86,15 +90,25 @@ impl Words for SetUp {
 /// What the window says of an SSH host the core has no answer from yet.
 pub fn unanswered_says(unanswered: &Unanswered, alias: &str) -> String {
     match unanswered {
-        Unanswered::Checking => format!("Checking what runs on {alias}…"),
+        Unanswered::Checking => t!("Checking what runs on {alias}…", alias = alias),
         Unanswered::Unreachable { detail } => {
-            format!("{alias} can't be reached over SSH: {detail}")
+            t!(
+                "{alias} can't be reached over SSH: {detail}",
+                alias = alias,
+                detail = detail
+            )
         }
-        Unanswered::SshSignIn { detail } => format!(
-            "SSH needs a password or key to reach {alias}, so Sikemux can't check it: {detail}"
+        Unanswered::SshSignIn { detail } => t!(
+            "SSH needs a password or key to reach {alias}, so Sikemux can't check it: {detail}",
+            alias = alias,
+            detail = detail
         ),
         Unanswered::Failed { detail } => {
-            format!("Sikemux couldn't tell what runs on {alias}: {detail}")
+            t!(
+                "Sikemux couldn't tell what runs on {alias}: {detail}",
+                alias = alias,
+                detail = detail
+            )
         }
     }
 }
@@ -103,9 +117,9 @@ pub fn unanswered_says(unanswered: &Unanswered, alias: &str) -> String {
 /// well be connected.
 pub fn unanswered_detail(unanswered: &Unanswered) -> &'static str {
     match unanswered {
-        Unanswered::Checking => "checking",
-        Unanswered::Unreachable { .. } | Unanswered::Failed { .. } => "can't check",
-        Unanswered::SshSignIn { .. } => "needs ssh key",
+        Unanswered::Checking => t!("checking"),
+        Unanswered::Unreachable { .. } | Unanswered::Failed { .. } => t!("can't check"),
+        Unanswered::SshSignIn { .. } => t!("needs ssh key"),
     }
 }
 
@@ -151,7 +165,7 @@ impl Workbench {
     pub fn set_up_label(&self, alias: &str) -> (Icon, &'static str) {
         match self.setting_up(alias).or_else(|| self.set_up_of(alias)) {
             Some(set_up) => (set_up.icon(), set_up.menu_label()),
-            None => (Icon::Server, "Sikemux here"),
+            None => (Icon::Server, t!("Sikemux here")),
         }
     }
 
@@ -194,13 +208,18 @@ pub fn pane(bench: &Workbench, alias: &str, cx: &mut Context<Workbench>) -> AnyE
     let Some(set_up) = (bench.setting_up(alias)).or(bench.set_up_offered(alias)) else {
         let says = match row.and_then(|row| row.unanswered.as_ref()) {
             Some(unanswered) => unanswered_says(unanswered, alias),
-            None => format!("{alias} runs Sikemux, on your account or another one."),
+            None => t!(
+                "{alias} runs Sikemux, on your account or another one.",
+                alias = alias
+            ),
         };
         let says = match &problem {
             Some((work, problem)) => {
-                format!(
-                    "{says} The last {} stopped short: {problem}",
-                    work.menu_label()
+                t!(
+                    "{says} The last {work} stopped short: {problem}",
+                    says = says,
+                    work = work.menu_label(),
+                    problem = problem
                 )
             }
             None => says,
@@ -213,13 +232,18 @@ pub fn pane(bench: &Workbench, alias: &str, cx: &mut Context<Workbench>) -> AnyE
         set_up.icon(),
         Some(set_up.offer(alias)),
         match (bench.setting_up(alias), &problem) {
-            (Some(SetUp::Install), _) => format!(
-                "{} A password, if {alias} asks for one, goes in the tab beside this one.",
-                SetUp::Install.running(alias)
+            (Some(SetUp::Install), _) => t!(
+                "{running} A password, if {alias} asks for one, goes in the tab beside this one.",
+                running = SetUp::Install.running(alias),
+                alias = alias
             ),
             (Some(running), _) => running.running(alias),
             (None, Some((work, problem))) => {
-                format!("{} stopped short: {problem}", work.menu_label())
+                t!(
+                    "{work} stopped short: {problem}",
+                    work = work.menu_label(),
+                    problem = problem
+                )
             }
             (None, None) => set_up.says(alias),
         },
@@ -248,7 +272,7 @@ pub fn pane(bench: &Workbench, alias: &str, cx: &mut Context<Workbench>) -> AnyE
                         buttons.child(
                             ui::Button::new(
                                 SharedString::from(format!("dismiss-set-up-{alias}")),
-                                "Dismiss",
+                                t!("Dismiss"),
                                 ui::Variant::Ghost,
                             )
                             .on_click(

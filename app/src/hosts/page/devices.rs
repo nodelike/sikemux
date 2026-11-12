@@ -34,11 +34,11 @@ fn signed_in(bench: &Workbench) -> bool {
 
 /// "Pair device" in the page's header, showing how to pair a phone.
 pub fn pair_button(bench: &Workbench) -> AnyElement {
-    let button = Button::new("devices-pair", "Pair device", Variant::Outline).icon(Icon::Plus);
+    let button = Button::new("devices-pair", t!("Pair device"), Variant::Outline).icon(Icon::Plus);
     if !signed_in(bench) {
         return button
             .disabled(true)
-            .tooltip("Sign in to pair a device")
+            .tooltip(t!("Sign in to pair a device"))
             .into_any_element();
     }
     let asks_first = bench.feeds.this.approval == Some(true);
@@ -46,7 +46,7 @@ pub fn pair_button(bench: &Workbench) -> AnyElement {
         .anchor(Anchor::TopRight)
         .offset(SPACE_1H)
         .trigger_with(move |_, _, _| {
-            Button::new("devices-pair", "Pair device", Variant::Outline)
+            Button::new("devices-pair", t!("Pair device"), Variant::Outline)
                 .icon(Icon::Plus)
                 .into_any_element()
         })
@@ -96,7 +96,7 @@ pub fn devices(bench: &Workbench, query: &str, t: &Tokens, cx: &mut Context<Work
                 .flex()
                 .items_center()
                 .gap(SPACE_2)
-                .child(ui::caps("Devices", cx))
+                .child(ui::caps(t!("Devices"), cx))
                 .child(ui::mono(all.len().to_string(), TEXT_2XS_H, cx).text_color(t.text_tertiary))
                 .child(div().ml_auto().child(remote_access(bench, status, t, cx))),
         )
@@ -127,7 +127,8 @@ fn remote_access(
         .items_center()
         .gap(SPACE_2)
         .child(
-            ui::text("Remote access", TEXT_XS_H, FontWeight::NORMAL).text_color(t.text_secondary),
+            ui::text(t!("Remote access"), TEXT_XS_H, FontWeight::NORMAL)
+                .text_color(t.text_secondary),
         )
         .child(switch)
 }
@@ -140,11 +141,12 @@ fn held_card(held: &HeldTrust, t: &Tokens, cx: &mut Context<Workbench>) -> Div {
         .filter(|name| !name.is_empty())
         .collect();
     let said = match names.as_slice() {
-        [] => "Something other than Sikemux changed this host's list of devices, so it stopped trusting it.".to_owned(),
-        [one] => format!("Something other than Sikemux changed this host's list of devices, so it stopped trusting it. It named {one}."),
-        [rest @ .., last] => format!(
-            "Something other than Sikemux changed this host's list of devices, so it stopped trusting it. It named {} and {last}.",
-            rest.join(", ")
+        [] => t!("Something other than Sikemux changed this host's list of devices, so it stopped trusting it.").to_owned(),
+        [one] => t!("Something other than Sikemux changed this host's list of devices, so it stopped trusting it. It named {one}.", one = one),
+        [rest @ .., last] => t!(
+            "Something other than Sikemux changed this host's list of devices, so it stopped trusting it. It named {names} and {last}.",
+            names = rest.join(", "),
+            last = last
         ),
     };
     div()
@@ -157,7 +159,7 @@ fn held_card(held: &HeldTrust, t: &Tokens, cx: &mut Context<Workbench>) -> Div {
         .rounded(RADIUS_4)
         .bg(lifted(t, 0.))
         .child(
-            ui::text("Remote access is paused", TEXT_XS_H, FontWeight::MEDIUM)
+            ui::text(t!("Remote access is paused"), TEXT_XS_H, FontWeight::MEDIUM)
                 .text_color(t.text_primary),
         )
         .child(
@@ -172,13 +174,13 @@ fn held_card(held: &HeldTrust, t: &Tokens, cx: &mut Context<Workbench>) -> Div {
                 .child(
                     Button::new(
                         "held-trust",
-                        "Bring back those on your account",
+                        t!("Bring back those on your account"),
                         Variant::Primary,
                     )
                     .on_click(cx.listener(|bench, _, _, cx| bench.settle_held(true, cx))),
                 )
                 .child(
-                    Button::new("held-forget", "Start over", Variant::Outline)
+                    Button::new("held-forget", t!("Start over"), Variant::Outline)
                         .on_click(cx.listener(|bench, _, _, cx| bench.settle_held(false, cx))),
                 ),
         )
@@ -200,12 +202,15 @@ impl Workbench {
             let _ = bench.update(cx, |bench, cx| match settled {
                 Ok(status) if trust => {
                     let said = match status.devices.len() {
-                        1 => "Brought back 1 device; remote access is on".to_owned(),
-                        count => format!("Brought back {count} devices; remote access is on"),
+                        1 => t!("Brought back 1 device; remote access is on").to_owned(),
+                        count => t!(
+                            "Brought back {count} devices; remote access is on",
+                            count = count
+                        ),
                     };
                     bench.notify(toast::success(said), cx);
                 }
-                Ok(_) => bench.notify(toast::success("Started over with no devices"), cx),
+                Ok(_) => bench.notify(toast::success(t!("Started over with no devices")), cx),
                 Err(error) => bench.notify(toast::error(error), cx),
             });
         })
@@ -216,9 +221,9 @@ impl Workbench {
     /// off every host at once.
     fn remove_from_account(&mut self, key: String, name: String, cx: &mut Context<Self>) {
         self.confirm(
-            format!("Remove {name} from your account?"),
-            "It is signed out of your account and taken off every host at once. To use it again, sign it in again.",
-            "Remove from account",
+            t!("Remove {name} from your account?", name = name),
+            t!("It is signed out of your account and taken off every host at once. To use it again, sign it in again."),
+            t!("Remove from account"),
             true,
             move |bench, yes, _, _| {
                 if yes {
@@ -237,9 +242,9 @@ impl Workbench {
     /// Takes the device `id` off this host only, once the person agrees.
     fn remove_here(&mut self, id: String, name: String, cx: &mut Context<Self>) {
         self.confirm(
-            format!("Remove {name} from this host?"),
-            "It stays on your account and keeps reaching your other hosts. It reaches this one again only when you allow it, with no more access than it has now.",
-            "Remove from this host",
+            t!("Remove {name} from this host?", name = name),
+            t!("It stays on your account and keeps reaching your other hosts. It reaches this one again only when you allow it, with no more access than it has now."),
+            t!("Remove from this host"),
             true,
             move |bench, yes, _, _| {
                 if yes {
@@ -253,9 +258,11 @@ impl Workbench {
 
 fn empty(bench: &Workbench, none_at_all: bool, t: &Tokens, cx: &mut Context<Workbench>) -> Div {
     let words = match (signed_in(bench), none_at_all) {
-        (false, _) => "Sign in to pair a phone or browser with this host",
-        (true, true) => "No devices yet. Pair one to watch and answer your agents from anywhere",
-        (true, false) => "No device matches",
+        (false, _) => t!("Sign in to pair a phone or browser with this host"),
+        (true, true) => {
+            t!("No devices yet. Pair one to watch and answer your agents from anywhere")
+        }
+        (true, false) => t!("No device matches"),
     };
     div()
         .h(px(96.))
@@ -272,7 +279,7 @@ fn empty(bench: &Workbench, none_at_all: bool, t: &Tokens, cx: &mut Context<Work
         .child(ui::text(words, TEXT_XS_H, FontWeight::NORMAL))
         .when(!signed_in(bench) && bench.this_view().is_some(), |empty| {
             empty.child(
-                Button::new("devices-sign-in", "Sign in", Variant::Primary)
+                Button::new("devices-sign-in", t!("Sign in"), Variant::Primary)
                     .on_click(cx.listener(|bench, _, _, _| bench.sign_in())),
             )
         })
@@ -292,7 +299,7 @@ fn device_row(
             .map(|phone| phone.state),
     );
     let seen = match connected {
-        true => "connected now".to_owned(),
+        true => t!("connected now").to_owned(),
         false => seen(device.last_seen),
     };
     let line = div()
@@ -306,7 +313,7 @@ fn device_row(
                 .child(format!(" · {note}"))
         }));
     let name = match device.name.is_empty() {
-        true => "Unnamed device".to_owned(),
+        true => t!("Unnamed device").to_owned(),
         false => device.name.clone(),
     };
     let glyph = match device.platform.as_str() {
@@ -359,8 +366,8 @@ fn device_row(
 
 fn access_pill(access: DeviceAccess, t: &Tokens) -> Div {
     let said = match access {
-        DeviceAccess::Full => "Full access",
-        DeviceAccess::Watch => "Watch",
+        DeviceAccess::Full => t!("Full access"),
+        DeviceAccess::Watch => t!("Watch"),
     };
     div()
         .flex_none()
@@ -386,7 +393,10 @@ pub(super) fn app_line(
             .ml_auto()
             .text_size(crate::theme::ui_text(TEXT_XS))
             .text_color(t.text_tertiary)
-            .child(format!("{} · always allowed", this_computer()))
+            .child(match cfg!(target_os = "macos") {
+                true => t!("this Mac · always allowed"),
+                false => t!("this computer · always allowed"),
+            })
             .into_any_element(),
         crate::hosts::Place::Account(key) => {
             let remote = remote?;
@@ -403,7 +413,7 @@ pub(super) fn app_line(
                 .child(
                     ui::text(
                         match connected {
-                            true => "connected now".to_owned(),
+                            true => t!("connected now").to_owned(),
                             false => seen(app.last_seen),
                         },
                         TEXT_XS,
@@ -432,18 +442,10 @@ pub(super) fn app_line(
                     .gap(SPACE_1H)
                     .text_color(t.text_tertiary)
                     .child(ui::icon(Icon::Logo, 12.).text_color(t.text_tertiary))
-                    .child(ui::text("App", TEXT_XS, FontWeight::NORMAL)),
+                    .child(ui::text(t!("App"), TEXT_XS, FontWeight::NORMAL)),
             )
             .child(right),
     )
-}
-
-fn this_computer() -> &'static str {
-    if cfg!(target_os = "macos") {
-        "this Mac"
-    } else {
-        "this computer"
-    }
 }
 
 /// A device's ⋯: rename it on the account, choose what it may do here, or take it off this host
@@ -458,7 +460,7 @@ fn device_menu(device: &DeviceInfo, name: String, cx: &mut Context<Workbench>) -
         ui::IconButton::new(
             SharedString::from(format!("device-more-{id}")),
             Icon::More,
-            format!("More for {name}"),
+            t!("More for {name}", name = name),
         ),
         move |popup, _, cx| {
             let renaming = (bench.clone(), id.clone(), name.clone());
@@ -476,32 +478,35 @@ fn device_menu(device: &DeviceInfo, name: String, cx: &mut Context<Workbench>) -
             let leaving = removing.clone();
             let popup = match on_account {
                 true => popup
-                    .item(PopupMenuItem::new("Rename…").icon(Icon::Pencil).on_click(
-                        move |_, _, cx| {
-                            let (bench, key, named) = &renaming;
-                            let _ = bench
-                                .update(cx, |bench, cx| bench.rename_on_account(key, named, cx));
-                        },
-                    ))
+                    .item(
+                        PopupMenuItem::new(t!("Rename…"))
+                            .icon(Icon::Pencil)
+                            .on_click(move |_, _, cx| {
+                                let (bench, key, named) = &renaming;
+                                let _ = bench.update(cx, |bench, cx| {
+                                    bench.rename_on_account(key, named, cx)
+                                });
+                            }),
+                    )
                     .separator(),
                 false => popup,
             };
             let popup = popup
                 .item(
-                    PopupMenuItem::new("Full access")
+                    PopupMenuItem::new(t!("Full access"))
                         .icon(Icon::Pointer)
                         .checked(access == DeviceAccess::Full)
                         .on_click(set(DeviceAccess::Full)),
                 )
                 .item(
-                    PopupMenuItem::new("Watch only")
+                    PopupMenuItem::new(t!("Watch only"))
                         .icon(Icon::Eye)
                         .checked(access == DeviceAccess::Watch)
                         .on_click(set(DeviceAccess::Watch)),
                 )
                 .separator()
                 .item(
-                    ui::MenuRow::new("Remove from this host")
+                    ui::MenuRow::new(t!("Remove from this host"))
                         .icon(Icon::Trash)
                         .danger(true)
                         .item(cx)
@@ -516,7 +521,7 @@ fn device_menu(device: &DeviceInfo, name: String, cx: &mut Context<Workbench>) -
                 return popup;
             }
             popup.item(
-                ui::MenuRow::new("Remove from account")
+                ui::MenuRow::new(t!("Remove from account"))
                     .icon(Icon::Trash)
                     .danger(true)
                     .item(cx)
@@ -544,33 +549,33 @@ fn platform_name(platform: &str) -> &str {
 
 fn seen(at: Option<u64>) -> String {
     match at.map(crate::ui::time::age).as_deref() {
-        None => "never connected".into(),
-        Some("now") => "seen now".into(),
-        Some(age) => format!("seen {age} ago"),
+        None => t!("never connected").into(),
+        Some("now") => t!("seen now").into(),
+        Some(age) => t!("seen {age} ago", age = age),
     }
 }
 
 fn notification_note(state: Option<NotificationState>) -> Option<(&'static str, bool)> {
     Some(match state? {
-        NotificationState::On => ("notifications on", false),
-        NotificationState::Off => ("notifications off", false),
-        NotificationState::PhoneOff => ("notifications turned off on the phone", false),
-        NotificationState::NotReaching => ("notifications aren't reaching it", true),
+        NotificationState::On => (t!("notifications on"), false),
+        NotificationState::Off => (t!("notifications off"), false),
+        NotificationState::PhoneOff => (t!("notifications turned off on the phone"), false),
+        NotificationState::NotReaching => (t!("notifications aren't reaching it"), true),
         NotificationState::OtherAccount => {
-            ("notifications need it signed in to your account", true)
+            (t!("notifications need it signed in to your account"), true)
         }
-        NotificationState::SignedOut => ("sign in to send it notifications", false),
+        NotificationState::SignedOut => (t!("sign in to send it notifications"), false),
     })
 }
 
 fn phone_panel(asks_first: bool, cx: &App) -> AnyElement {
     let t = Tokens::get(cx);
     let mut steps = vec![
-        "Scan the code with your phone's camera",
-        "Sign in with the same account",
+        t!("Scan the code with your phone's camera"),
+        t!("Sign in with the same account"),
     ];
     if asks_first {
-        steps.push("Click Allow here when it asks");
+        steps.push(t!("Click Allow here when it asks"));
     }
     div()
         .flex()
@@ -587,10 +592,10 @@ fn phone_panel(asks_first: bool, cx: &App) -> AnyElement {
                     div()
                         .text_size(crate::theme::ui_text(TEXT_MD))
                         .text_color(t.text_primary)
-                        .child("Your agents, on your phone"),
+                        .child(t!("Your agents, on your phone")),
                 )
                 .child(div().text_size(crate::theme::ui_text(TEXT_XS)).text_color(t.text_secondary).child(
-                    "Watch them work, answer what they ask and start new chats from anywhere.",
+                    t!("Watch them work, answer what they ask and start new chats from anywhere."),
                 ))
                 .children(steps.iter().enumerate().map(|(at, step)| {
                     div()

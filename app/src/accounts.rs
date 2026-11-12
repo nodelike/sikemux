@@ -323,7 +323,11 @@ pub fn move_chat(bench: &Workbench, agent: &str, profile: &Profile, cx: &mut Con
         let _ = bench.update(cx, |bench, cx| {
             bench.accounts.takers.clear();
             if let Err(why) = answer {
-                let note = crate::toast::error(format!("The chat stayed off {name}: {why}"));
+                let note = crate::toast::error(t!(
+                    "The chat stayed off {name}: {why}",
+                    name = name,
+                    why = why
+                ));
                 bench.notify(note, cx);
             }
             redraw(bench, cx);
@@ -422,11 +426,14 @@ pub fn pick(
             adopt(bench, picked.book, cx);
             then(bench, picked.undo, cx);
             if let Some(first) = picked.stayed.first() {
-                let chats = match picked.stayed.len() {
-                    1 => "A chat".to_owned(),
-                    many => format!("{many} chats"),
-                };
-                let note = crate::toast::info(format!("{chats} stayed put: {}", first.why));
+                let note = crate::toast::info(match picked.stayed.len() {
+                    1 => t!("A chat stayed put: {why}", why = first.why),
+                    many => t!(
+                        "{count} chats stayed put: {why}",
+                        count = many,
+                        why = first.why
+                    ),
+                });
                 bench.notify(note, cx);
             }
         });
@@ -629,8 +636,12 @@ fn forget(bench: &mut Workbench, profile: &Profile, cx: &mut Context<Workbench>)
 
 /// The account as its sign-in calls name it; none for an agent the core has no sign-in for.
 fn signing_in(profile: &Profile) -> Result<SignInAccount, String> {
-    let agent = AgentKind::from_name(&profile.provider)
-        .ok_or_else(|| format!("{} is not an agent Sikemux knows", profile.provider))?;
+    let agent = AgentKind::from_name(&profile.provider).ok_or_else(|| {
+        t!(
+            "{agent} is not an agent Sikemux knows",
+            agent = profile.provider
+        )
+    })?;
     Ok(SignInAccount {
         agent,
         executable_path: profile.executable_path.clone(),
@@ -742,7 +753,7 @@ pub fn dismiss_failure(bench: &mut Workbench, id: &str) {
 
 /// Opens the field for the code the sign-in page showed.
 pub fn ask_code(bench: &mut Workbench, id: &str, window: &mut Window, cx: &mut Context<Workbench>) {
-    let field = cx.new(|cx| InputState::new(window, cx).placeholder("Code from the page"));
+    let field = cx.new(|cx| InputState::new(window, cx).placeholder(t!("Code from the page")));
     field.update(cx, |field, cx| field.focus(window, cx));
     if let Some(SignIn::Waiting { code, .. }) = bench.accounts.signing.get_mut(id) {
         *code = Some(field);
@@ -807,7 +818,7 @@ pub fn open_dialog(
     window: &mut Window,
     cx: &mut Context<Workbench>,
 ) {
-    let name = cx.new(|cx| InputState::new(window, cx).placeholder("Work"));
+    let name = cx.new(|cx| InputState::new(window, cx).placeholder(t!("Work")));
     name.update(cx, |name, cx| name.focus(window, cx));
     bench.accounts.dialog = Some(Dialog {
         provider: provider.to_owned(),

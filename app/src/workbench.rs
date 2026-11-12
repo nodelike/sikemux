@@ -500,9 +500,10 @@ impl Workbench {
             let answer = asked.await;
             let _ = bench.update(cx, |bench, cx| match answer {
                 Ok(answer) => then(bench, answer, cx),
-                Err(error) => {
-                    bench.notify(toast::error(format!("{what}: {error}")).autohide(false), cx)
-                }
+                Err(error) => bench.notify(
+                    toast::error(t!("{what}: {error}", what = what, error = error)).autohide(false),
+                    cx,
+                ),
             });
         })
         .detach();

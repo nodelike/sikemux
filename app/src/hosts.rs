@@ -258,7 +258,7 @@ impl Workbench {
         });
         std::iter::once(HostOption {
             choice: HostChoice::This,
-            label: "This host".into(),
+            label: t!("This host").into(),
         })
         .chain(listed)
         .collect()
@@ -269,7 +269,7 @@ impl Workbench {
         self.host_choices()
             .into_iter()
             .find(|option| option.choice == HostChoice::Account(host.to_owned()))
-            .map_or_else(|| "another host".into(), |option| option.label)
+            .map_or_else(|| t!("another host").into(), |option| option.label)
     }
 
     /// The host in front, as the core's layout says.
@@ -308,13 +308,17 @@ impl Workbench {
     pub fn copy_to(&mut self, copying: Copying, cx: &mut Context<Self>) {
         let (from, label) = (&copying.from.host, &copying.label);
         let said = match copying.uncommitted {
-            true => format!("{label} makes a new checkout of it from its remote, or from {from} when it cannot reach the remote, with the uncommitted changes there as a commit on top."),
-            false => format!("{label} makes a new checkout of it from its remote, or from {from} when it cannot reach the remote. Only what is committed goes over; uncommitted changes stay there."),
+            true => t!("{label} makes a new checkout of it from its remote, or from {from} when it cannot reach the remote, with the uncommitted changes there as a commit on top.", label = label, from = from),
+            false => t!("{label} makes a new checkout of it from its remote, or from {from} when it cannot reach the remote. Only what is committed goes over; uncommitted changes stay there.", label = label, from = from),
         };
         self.confirm(
-            format!("Copy {} to {label}?", copying.name()),
+            t!(
+                "Copy {name} to {label}?",
+                name = copying.name(),
+                label = label
+            ),
             said,
-            "Copy",
+            t!("Copy"),
             false,
             move |bench, yes, _, cx| {
                 if yes {
@@ -340,7 +344,7 @@ impl Workbench {
             identity.as_deref(),
             label.clone(),
             CopyState::Going,
-            format!("Copying {name} to {label}…"),
+            t!("Copying {name} to {label}…", name = name, label = label),
             cx,
         );
         let (place, chat) = (self.place_of(&copying.host), copying.chat.clone());
@@ -349,12 +353,12 @@ impl Workbench {
             let _ = bench.update(cx, |bench, cx| {
                 let opened = opened.and_then(|opened| match opened["project"].as_str() {
                     Some(_) => Ok(opened),
-                    None => Err(format!("{label} did not add the project")),
+                    None => Err(t!("{label} did not add the project", label = label)),
                 });
                 let opened = match opened {
                     Ok(opened) => opened,
                     Err(error) => {
-                        let said = format!("{name} did not copy to {label}: {error}");
+                        let said = t!("{name} did not copy to {label}: {error}", name = name, label = label, error = error);
                         bench.note_copy(
                             identity.as_deref(),
                             label,
@@ -367,13 +371,18 @@ impl Workbench {
                     }
                 };
                 let said = match opened["uncommitted"].as_str() {
-                    Some("applied") => format!(
-                        "Copied {name} to {label}, with the uncommitted changes as a commit on top."
+                    Some("applied") => t!(
+                        "Copied {name} to {label}, with the uncommitted changes as a commit on top.",
+                        name = name,
+                        label = label
                     ),
-                    Some(error) => format!(
-                        "Copied {name} to {label}. Its uncommitted changes did not go: {error}."
+                    Some(error) => t!(
+                        "Copied {name} to {label}. Its uncommitted changes did not go: {error}.",
+                        name = name,
+                        label = label,
+                        error = error
                     ),
-                    None => format!("Copied {name} to {label}."),
+                    None => t!("Copied {name} to {label}.", name = name, label = label),
                 };
                 bench.note_copy(
                     identity.as_deref(),
@@ -403,12 +412,16 @@ impl Workbench {
     /// Moves the project `sending` names after the person agrees, as a move removes its chats
     /// where it was.
     pub fn move_session_asking(&mut self, sending: Sending, cx: &mut Context<Self>) {
-        let title = format!("Move {} to {}?", sending.name, sending.label);
+        let title = t!(
+            "Move {name} to {label}?",
+            name = sending.name,
+            label = sending.label
+        );
         let held = std::cell::RefCell::new(Some(sending));
         self.confirm(
             title,
-            "Each chat the other host takes is closed here and its saved conversation removed. If one goes on here while the move runs, none closes here and the other host drops the ones it took.",
-            "Move",
+            t!("Each chat the other host takes is closed here and its saved conversation removed. If one goes on here while the move runs, none closes here and the other host drops the ones it took."),
+            t!("Move"),
             true,
             move |bench, yes, _, cx| {
                 if let Some(sending) = held.borrow_mut().take().filter(|_| yes) {
@@ -440,12 +453,20 @@ impl Workbench {
         // The project's own host sends it.
         let asked = core::Target::new(&self.asks, sending.from.clone())
             .request_typed::<call::SendSession>(params);
-        let verb = if sending.moving { "Moving" } else { "Copying" };
+        let going = match sending.moving {
+            true => t!(
+                "Moving {name} to {label}…",
+                name = sending.name,
+                label = sending.label
+            ),
+            false => t!(
+                "Copying {name} to {label}…",
+                name = sending.name,
+                label = sending.label
+            ),
+        };
         crate::settings::session_sent(self, None, cx);
-        self.notify(
-            toast::info(format!("{verb} {} to {}…", sending.name, sending.label)),
-            cx,
-        );
+        self.notify(toast::info(going), cx);
         cx.spawn(async move |bench, cx| {
             let answer = asked.await;
             let _ = bench.update(cx, |bench, cx| {
@@ -458,7 +479,11 @@ impl Workbench {
                 }
                 let said = match &answer {
                     Ok(sent) => sent_summary(sent, &sending),
-                    Err(error) => format!("It did not go to {}: {error}", sending.label),
+                    Err(error) => t!(
+                        "It did not go to {label}: {error}",
+                        label = sending.label,
+                        error = error
+                    ),
                 };
                 match &answer {
                     Ok(sent) if sent.left.is_empty() => {
@@ -489,16 +514,18 @@ impl Workbench {
     /// Says the session did not go because the other host's checkout stands elsewhere, with
     /// a way to send it into a worktree there at its commit instead.
     fn offer_worktree(&mut self, sending: Sending, why: &str, cx: &mut Context<Self>) {
-        let said = format!(
-            "{} did not go to {}: {why}, and laying it there would mix the two.",
-            sending.name, sending.label
+        let said = t!(
+            "{name} did not go to {label}: {why}, and laying it there would mix the two.",
+            name = sending.name,
+            label = sending.label,
+            why = why
         );
         crate::settings::session_sent(self, Some(said.clone().into()), cx);
         let bench = cx.weak_entity();
         let note = toast::error(said).action(move |_, _, cx| {
             let (note, bench, sending) = (cx.entity(), bench.clone(), sending.clone());
             gpui_kit::component::button::Button::new("send-into-worktree")
-                .label("Into a worktree")
+                .label(t!("Into a worktree"))
                 .on_click(move |_, window, cx| {
                     let sending = sending.clone();
                     let _ =
@@ -540,13 +567,21 @@ impl Workbench {
             };
             let _ = bench.update(cx, |bench, cx| match ended {
                 Err(problem) => bench.notify(
-                    toast::error(format!("{}: {problem}", set_up.offer(&alias))),
+                    toast::error(t!(
+                        "{work}: {problem}",
+                        work = set_up.offer(&alias),
+                        problem = problem
+                    )),
                     cx,
                 ),
                 Ok(added) => {
                     if let Some(name) = added {
                         bench.notify(
-                            toast::success(format!("{alias} was added to your account as {name}")),
+                            toast::success(t!(
+                                "{alias} was added to your account as {name}",
+                                alias = alias,
+                                name = name
+                            )),
                             cx,
                         );
                     }
@@ -653,7 +688,7 @@ impl Workbench {
         );
         self.report(
             set,
-            "Require approval for new devices",
+            t!("Require approval for new devices"),
             move |bench, _, cx| bench.read_approval(host, cx),
             cx,
         );
@@ -663,7 +698,7 @@ impl Workbench {
     pub fn set_host_updates(&self, host: String, on: bool, cx: &mut Context<Self>) {
         let set = core::Target::new(&self.asks, Place::Account(host))
             .request_typed::<call::SetHostUpdates>(HostUpdatesParams { on });
-        self.report(set, "Update automatically", |_, _, _| {}, cx);
+        self.report(set, t!("Update automatically"), |_, _, _| {}, cx);
     }
 
     /// A new chat on the account host `host`, in the project in front there, with the agent the
@@ -709,7 +744,7 @@ impl Workbench {
     pub fn rename_on_account(&mut self, key: &str, name: &str, cx: &mut Context<Self>) {
         let key = key.to_owned();
         self.prompt(
-            format!("Rename {name}"),
+            t!("Rename {name}", name = name),
             name.to_owned(),
             move |bench, typed, _, _| {
                 if !typed.trim().is_empty() {
@@ -729,9 +764,9 @@ impl Workbench {
     pub fn remove_host(&mut self, host: &str, name: &str, cx: &mut Context<Self>) {
         let key = host.to_owned();
         self.confirm(
-            format!("Remove {name} from your account?"),
-            "Every device and host on your account stops reaching it at once. To add it again, sign it in again.",
-            "Remove",
+            t!("Remove {name} from your account?", name = name),
+            t!("Every device and host on your account stops reaching it at once. To add it again, sign it in again."),
+            t!("Remove"),
             true,
             move |bench, yes, _, _| {
                 if yes {
@@ -776,7 +811,7 @@ impl Workbench {
                     crate::editor::go_in(bench, at, &Strip::Terminals, "SSH config", cx);
                 }
                 Err(error) => bench.notify(
-                    toast::error(format!("~/.ssh/config did not open: {error}")),
+                    toast::error(t!("~/.ssh/config did not open: {error}", error = error)),
                     cx,
                 ),
             });
@@ -787,17 +822,17 @@ impl Workbench {
     /// Says a device or host joined the account, with a way to take it off again (ADR 0018).
     pub fn new_account_device(&mut self, key: String, name: String, cx: &mut Context<Self>) {
         let name = if name.is_empty() {
-            "a device".to_owned()
+            t!("a device").to_owned()
         } else {
             name
         };
         let asks = self.asks.clone();
-        let note =
-            toast::info(format!("New device on your account: {name}")).action(move |_, _, cx| {
+        let note = toast::info(t!("New device on your account: {name}", name = name)).action(
+            move |_, _, cx| {
                 let (note, asks, key, name) =
                     (cx.entity(), asks.clone(), key.clone(), name.clone());
                 gpui_kit::component::button::Button::new("remove-account-device")
-                    .label("Remove")
+                    .label(t!("Remove"))
                     .on_click(move |_, window, cx| {
                         let removed = core::Target::here(&asks)
                             .request_typed::<call::RemoveAccountDevice>(DeviceParams {
@@ -810,7 +845,11 @@ impl Workbench {
                                 if let Err(error) = removed.await {
                                     let _ = cx.update(|window, cx| {
                                         window.push_notification(
-                                            toast::error(format!("Remove {name}: {error}")),
+                                            toast::error(t!(
+                                                "Remove {name}: {error}",
+                                                name = name,
+                                                error = error
+                                            )),
                                             cx,
                                         )
                                     });
@@ -819,7 +858,8 @@ impl Workbench {
                             .detach();
                         note.update(cx, |note, cx| note.dismiss(window, cx));
                     })
-            });
+            },
+        );
         self.notify(note, cx);
     }
 
@@ -892,19 +932,23 @@ impl Copying {
 /// "Memory 98%", "Disk 94%", "CPU 97%" or "Out of reach 14 min".
 pub fn alert_words(alert: &HostAlert) -> String {
     match alert.kind {
-        HostAlertKind::Offline => format!("Out of reach {}", lasted(alert.since)),
-        HostAlertKind::Memory if alert.pressure => "Memory short".to_owned(),
-        kind => format!("{} {}%", alert_kind_word(kind), alert.percent),
+        HostAlertKind::Offline => t!("Out of reach {lasted}", lasted = lasted(alert.since)),
+        HostAlertKind::Memory if alert.pressure => t!("Memory short").to_owned(),
+        kind => t!(
+            "{kind} {percent}%",
+            kind = alert_kind_word(kind),
+            percent = alert.percent
+        ),
     }
 }
 
 pub fn alert_kind_word(kind: HostAlertKind) -> &'static str {
     match kind {
-        HostAlertKind::Memory => "Memory",
-        HostAlertKind::Disk => "Disk",
-        HostAlertKind::Cpu => "CPU",
-        HostAlertKind::Offline => "Out of reach",
-        HostAlertKind::Unknown => "Load",
+        HostAlertKind::Memory => t!("Memory"),
+        HostAlertKind::Disk => t!("Disk"),
+        HostAlertKind::Cpu => t!("CPU"),
+        HostAlertKind::Offline => t!("Out of reach"),
+        HostAlertKind::Unknown => t!("Load"),
     }
 }
 
@@ -912,10 +956,10 @@ pub fn alert_kind_word(kind: HostAlertKind) -> &'static str {
 pub fn lasted(since: u64) -> String {
     let minutes = crate::ui::time::now_ms().saturating_sub(since) / 60_000;
     match minutes {
-        0 => "just now".to_owned(),
-        1..60 => format!("{minutes} min"),
-        60..1440 => format!("{} h", minutes / 60),
-        _ => format!("{} d", minutes / 1440),
+        0 => t!("just now").to_owned(),
+        1..60 => t!("{minutes} min", minutes = minutes),
+        60..1440 => t!("{hours} h", hours = minutes / 60),
+        _ => t!("{days} d", days = minutes / 1440),
     }
 }
 
@@ -971,30 +1015,48 @@ pub struct Sending {
 /// One line on what went, what stayed here and how the uncommitted changes went.
 fn sent_summary(sent: &SessionSent, sending: &Sending) -> String {
     let chats = |count: usize| match count {
-        1 => "1 chat".to_owned(),
-        count => format!("{count} chats"),
+        1 => t!("1 chat").to_owned(),
+        count => t!("{count} chats", count = count),
     };
     let (name, label) = (&sending.name, &sending.label);
     let mut said = match sending.moving {
-        true if sent.closed.is_empty() => format!("{name} did not move to {label}."),
-        true => format!(
-            "Moved {name} to {label} with {} and its tabs.",
-            chats(sent.closed.len())
+        true if sent.closed.is_empty() => t!(
+            "{name} did not move to {label}.",
+            name = name,
+            label = label
         ),
-        false => format!(
-            "Copied {name} to {label} with {} and its tabs.",
-            chats(sent.carried.len())
+        true => t!(
+            "Moved {name} to {label} with {chats} and its tabs.",
+            name = name,
+            label = label,
+            chats = chats(sent.closed.len())
+        ),
+        false => t!(
+            "Copied {name} to {label} with {chats} and its tabs.",
+            name = name,
+            label = label,
+            chats = chats(sent.carried.len())
         ),
     };
     let left: Vec<String> = (sent.left.iter())
         .map(|left| format!("{} ({})", left.title, left.why))
         .collect();
     if !left.is_empty() {
-        said.push_str(&format!(" Stayed here: {}.", left.join(", ")));
+        said.push(' ');
+        said.push_str(&t!("Stayed here: {chats}.", chats = left.join(", ")));
     }
     match sent.uncommitted.as_deref() {
-        Some("applied") => said.push_str(" Uncommitted changes went too."),
-        Some(error) => said.push_str(&format!(" Uncommitted changes stayed here: {error}.")),
+        Some("applied") => {
+            said.push(' ');
+            said.push_str(t!("Uncommitted changes went too."));
+        }
+        Some(error) => {
+            said.push(' ');
+            said.push_str(&t!(
+                "Uncommitted changes stayed here: {error}.",
+                error = error
+            ));
+        }
         None => {}
     }
     said
@@ -1024,15 +1086,17 @@ pub(crate) fn failed_update(updates: &UpdateStatus) -> Option<(UpdateOutcomeStat
 /// What a host's row says of its updates while one is under way or has failed.
 pub fn updates_label(updates: &UpdateStatus) -> Option<String> {
     match failed_update(updates) {
-        Some((UpdateOutcomeState::RolledBack, _)) => return Some("update rolled back".to_owned()),
-        Some(_) => return Some("update failed".to_owned()),
+        Some((UpdateOutcomeState::RolledBack, _)) => {
+            return Some(t!("update rolled back").to_owned())
+        }
+        Some(_) => return Some(t!("update failed").to_owned()),
         None => {}
     }
     match updates.state {
         UpdateState::Downloading
         | UpdateState::Installing
         | UpdateState::Waiting
-        | UpdateState::Ready => Some("updating".to_owned()),
+        | UpdateState::Ready => Some(t!("updating").to_owned()),
         UpdateState::Idle | UpdateState::Failed => None,
     }
 }
@@ -1046,7 +1110,7 @@ pub fn updates_items(
 ) -> PopupMenu {
     let on = updates.automatic == Some(true);
     let popup = popup.item(
-        PopupMenuItem::new("Update automatically")
+        PopupMenuItem::new(t!("Update automatically"))
             .icon(Icon::Refresh)
             .checked(on)
             .on_click(move |_, _, cx| set(!on, cx)),
@@ -1056,20 +1120,24 @@ pub fn updates_items(
         && matches!(updates.state, UpdateState::Ready | UpdateState::Installing);
     if restarting {
         let count = updates.blockers.len();
-        let chats = if count == 1 { "chat" } else { "chats" };
-        return popup.item(PopupMenuItem::label(format!(
-            "Restarting into the update now: {count} {chats} stop and pick up again after"
-        )));
+        let said = match count {
+            1 => t!("Restarting into the update now: 1 chat stops and picks up again after")
+                .to_owned(),
+            count => t!(
+                "Restarting into the update now: {count} chats stop and pick up again after",
+                count = count
+            ),
+        };
+        return popup.item(PopupMenuItem::label(said));
     }
     match failed_update(updates) {
-        Some((UpdateOutcomeState::RolledBack, reason)) => {
-            popup.item(PopupMenuItem::label(format!(
-                "The last update was undone: {}",
-                reason.unwrap_or("the new core did not start well")
-            )))
-        }
-        Some((_, Some(reason))) => popup.item(PopupMenuItem::label(format!(
-            "The last update failed: {reason}"
+        Some((UpdateOutcomeState::RolledBack, reason)) => popup.item(PopupMenuItem::label(t!(
+            "The last update was undone: {reason}",
+            reason = reason.unwrap_or(t!("the new core did not start well"))
+        ))),
+        Some((_, Some(reason))) => popup.item(PopupMenuItem::label(t!(
+            "The last update failed: {reason}",
+            reason = reason
         ))),
         _ => popup,
     }

@@ -117,7 +117,7 @@ fn head(bench: &Workbench, host: &Listed, t: &Tokens, cx: &mut Context<Workbench
                 )
                 .children(menu_button(bench, host, cx))
                 .child(
-                    IconButton::new("hosts-detail-close", Icon::Close, "Close")
+                    IconButton::new("hosts-detail-close", Icon::Close, t!("Close"))
                         .on_click(cx.listener(|bench, _, _, cx| bench.close_on_page(cx))),
                 ),
         )
@@ -142,7 +142,7 @@ fn pill(words: &str, tint: Hsla) -> Div {
 
 fn terminal_button(host: &Listed, cx: &mut Context<Workbench>) -> AnyElement {
     let place = host.place.clone();
-    Button::new("hosts-terminal", "Terminal", Variant::Outline)
+    Button::new("hosts-terminal", t!("Terminal"), Variant::Outline)
         .icon(Icon::Terminal)
         .on_click(cx.listener(move |bench, _, _, cx| match &place {
             Place::This => {
@@ -169,7 +169,7 @@ fn new_chat_button(
     let place = host.place.clone();
     let in_front = bench.place() == place;
     Some(
-        IconButton::new("hosts-new-chat", Icon::Plus, "New chat here")
+        IconButton::new("hosts-new-chat", Icon::Plus, t!("New chat here"))
             .on_click(cx.listener(move |bench, _, window, cx| match &place {
                 Place::Account(key) => bench.new_chat_on(key, cx),
                 Place::This if in_front => bench.new_chat(window, cx),
@@ -248,7 +248,7 @@ fn section(
 /// "as of 14:02" at a section's end, once the numbers under it are no longer current.
 fn as_of(host: &Listed, cx: &mut Context<Workbench>) -> Option<AnyElement> {
     let at = host.stats_as_of()?;
-    let words = format!("as of {}", crate::ui::time::clock(at));
+    let words = t!("as of {time}", time = crate::ui::time::clock(at));
     Some(ui::mono(words, TEXT_3XS, cx).into_any_element())
 }
 
@@ -283,23 +283,26 @@ fn update_failed(host: &Listed, t: &Tokens, cx: &mut Context<Workbench>) -> Opti
             .map(|release| release.version.clone())
     });
     let title = match (state, to) {
-        (UpdateOutcomeState::RolledBack, Some(to)) => format!("Update to {to} was undone"),
-        (UpdateOutcomeState::RolledBack, None) => "The last update was undone".to_owned(),
-        (_, Some(to)) => format!("Update to {to} failed"),
-        (_, None) => "The last update failed".to_owned(),
+        (UpdateOutcomeState::RolledBack, Some(to)) => t!("Update to {to} was undone", to = to),
+        (UpdateOutcomeState::RolledBack, None) => t!("The last update was undone").to_owned(),
+        (_, Some(to)) => t!("Update to {to} failed", to = to),
+        (_, None) => t!("The last update failed").to_owned(),
     };
     let said = format!(
-        "{} stays on {}. {}",
-        host.name,
-        updates.current,
-        reason.unwrap_or("Its update did not finish.")
+        "{} {}",
+        t!(
+            "{name} stays on {version}.",
+            name = host.name,
+            version = updates.current
+        ),
+        reason.unwrap_or(t!("Its update did not finish."))
     );
     let evidence = outcome.and_then(|outcome| outcome.evidence.clone());
     let mut fixes = Vec::new();
     let alias = host.row.and_then(|row| row.ssh.clone());
     if let Some(alias) = alias {
         fixes.push(
-            Button::new("update-try-again", "Try again", Variant::Primary)
+            Button::new("update-try-again", t!("Try again"), Variant::Primary)
                 .on_click(cx.listener(move |bench, _, _, cx| {
                     bench.set_up_host(&alias, crate::hosts::install_pane::SetUp::Update, cx)
                 }))
@@ -309,7 +312,7 @@ fn update_failed(host: &Listed, t: &Tokens, cx: &mut Context<Workbench>) -> Opti
     let copied = [said.clone(), evidence.clone().unwrap_or_default()].join("\n");
     fixes.push(diagnosis::copy_button(
         "update-copy",
-        "Copy output",
+        t!("Copy output"),
         copied,
         cx,
     ));
@@ -340,21 +343,21 @@ fn set_up_stopped(
     if let Some(set_up) = bench.set_up_offered(&alias) {
         let retry = alias.clone();
         fixes.push(
-            Button::new("set-up-try-again", "Try again", Variant::Primary)
+            Button::new("set-up-try-again", t!("Try again"), Variant::Primary)
                 .on_click(cx.listener(move |bench, _, _, cx| bench.set_up_host(&retry, set_up, cx)))
                 .into_any_element(),
         );
     }
     fixes.push(diagnosis::copy_button(
         "set-up-copy",
-        "Copy output",
+        t!("Copy output"),
         problem.clone(),
         cx,
     ));
     Some(alert_card(
         t.warn,
         Icon::Warning,
-        format!("Set-up on {} stopped", host.name),
+        t!("Set-up on {name} stopped", name = host.name),
         None,
         String::new(),
         Some(diagnosis::evidence(&problem, t, cx)),
@@ -389,14 +392,14 @@ fn needs_you(
         let agents = host.agents().count();
         let went = match agents {
             0 => String::new(),
-            1 => "1 agent was on it when it went. ".to_owned(),
-            count => format!("{count} agents were on it when it went. "),
+            1 => t!("1 agent was on it when it went.").to_owned(),
+            count => t!("{count} agents were on it when it went.", count = count),
         };
         let said = match diagnosis {
-            Some(diagnosis) => format!("{went}{}", diagnosis::summary(diagnosis, &host.name)),
-            None => format!("{went}Sikemux keeps trying to reach it."),
+            Some(diagnosis) => format!("{went} {}", diagnosis::summary(diagnosis, &host.name)),
+            None => format!("{went} {}", t!("Sikemux keeps trying to reach it.")),
         };
-        let title = format!("{} is out of reach", host.name);
+        let title = t!("{name} is out of reach", name = host.name);
         shown.push(alert_card(
             t.danger,
             Icon::Power,
@@ -418,7 +421,7 @@ fn needs_you(
         shown.push(alert_card(
             t.danger,
             Icon::Power,
-            "Out of reach from your devices".to_owned(),
+            t!("Out of reach from your devices").to_owned(),
             None,
             diagnosis::summary(diagnosis, &host.name),
             Some(diagnosis::steps(diagnosis, &host.name, t)),
@@ -476,7 +479,7 @@ fn needs_you(
             .flex_col()
             .child(section(
                 Icon::Warning,
-                "Needs you",
+                t!("Needs you"),
                 Some(count),
                 None,
                 t,
@@ -493,23 +496,27 @@ fn title_of(alert: &HostAlert, stats: Option<&HostStats>) -> String {
             let swap = stats.map_or(0, |stats| stats.now.swap_used);
             if alert.pressure {
                 return match swap > 0 {
-                    true => format!("Memory short, {} GB in swap", model::gb(swap)),
-                    false => format!("Memory short, {}% used", alert.percent),
+                    true => t!("Memory short, {swap} GB in swap", swap = model::gb(swap)),
+                    false => t!("Memory short, {percent}% used", percent = alert.percent),
                 };
             }
             match swap > 0 {
-                true => format!(
-                    "Memory at {}%, {} GB in swap",
-                    alert.percent,
-                    model::gb(swap)
+                true => t!(
+                    "Memory at {percent}%, {swap} GB in swap",
+                    percent = alert.percent,
+                    swap = model::gb(swap)
                 ),
-                false => format!("Memory at {}%", alert.percent),
+                false => t!("Memory at {percent}%", percent = alert.percent),
             }
         }
-        HostAlertKind::Cpu => format!("CPU at {}% for {lasted}", alert.percent),
-        HostAlertKind::Disk => format!("Disk at {}%", alert.percent),
-        HostAlertKind::Offline => format!("Out of reach for {lasted}"),
-        HostAlertKind::Unknown => format!("Load at {}%", alert.percent),
+        HostAlertKind::Cpu => t!(
+            "CPU at {percent}% for {lasted}",
+            percent = alert.percent,
+            lasted = lasted
+        ),
+        HostAlertKind::Disk => t!("Disk at {percent}%", percent = alert.percent),
+        HostAlertKind::Offline => t!("Out of reach for {lasted}", lasted = lasted),
+        HostAlertKind::Unknown => t!("Load at {percent}%", percent = alert.percent),
     }
 }
 
@@ -534,24 +541,40 @@ fn explain(
         _ => None,
     };
     let roomiest = roomiest_other(host, listed);
-    let mut said = String::new();
+    let mut said: Vec<String> = Vec::new();
     if let Some(agent) = top {
         let name = host.agent_name(&agent.agent_id);
-        said.push_str(&match alert.kind {
-            HostAlertKind::Cpu => format!("{name} uses the most, {}", model::percent(agent.cpu)),
-            _ => format!("{name} holds the most, {} GB", model::gb(agent.memory)),
+        said.push(match (alert.kind, &agent.command) {
+            (HostAlertKind::Cpu, None) => t!(
+                "{name} uses the most, {cpu}.",
+                name = name,
+                cpu = model::percent(agent.cpu)
+            ),
+            (HostAlertKind::Cpu, Some(command)) => t!(
+                "{name} uses the most, {cpu}, running {command}.",
+                name = name,
+                cpu = model::percent(agent.cpu),
+                command = command
+            ),
+            (_, None) => t!(
+                "{name} holds the most, {memory} GB.",
+                name = name,
+                memory = model::gb(agent.memory)
+            ),
+            (_, Some(command)) => t!(
+                "{name} holds the most, {memory} GB, running {command}.",
+                name = name,
+                memory = model::gb(agent.memory),
+                command = command
+            ),
         });
-        if let Some(command) = &agent.command {
-            said.push_str(&format!(", running {command}"));
-        }
-        said.push('.');
     }
     if alert.kind == HostAlertKind::Disk {
         if let Some(part) = stats.disk_parts.first() {
-            said.push_str(&format!(
-                "{} takes the most, {}.",
-                part_words(part.kind),
-                model::size(part.bytes)
+            said.push(t!(
+                "{part} takes the most, {size}.",
+                part = part_words(part.kind),
+                size = model::size(part.bytes)
             ));
         }
     }
@@ -559,10 +582,10 @@ fn explain(
         move_fix(bench, host, other, &agent.agent_id).map(|fix| (other, fix))
     });
     if let Some((other, _)) = &moving {
-        said.push_str(&format!(" {} has room.", other.name));
+        said.push(t!("{host} has room.", host = other.name));
     }
     let fixes: Vec<Fix> = moving.map(|(_, fix)| fix).into_iter().collect();
-    (said.trim().to_owned(), fixes)
+    (said.join(" "), fixes)
 }
 
 /// The host other than `host` with the most memory free, among those that can take a project.
@@ -597,8 +620,12 @@ fn move_fix(bench: &Workbench, host: &Listed, to: &Listed, agent: &str) -> Optio
         Place::This => bench.remote.as_ref()?.core_id.clone(),
     };
     let words = match alone {
-        true => format!("Move {} to {}", host.agent_name(agent), to.name),
-        false => format!("Move {name} to {}", to.name),
+        true => t!(
+            "Move {name} to {host}",
+            name = host.agent_name(agent),
+            host = to.name
+        ),
+        false => t!("Move {name} to {host}", name = name, host = to.name),
     };
     let (from, label) = (host.place.clone(), to.name.clone());
     Some(Fix {
@@ -626,7 +653,7 @@ fn close_fix(host: &Listed, agent: &str) -> Option<Fix> {
     host.agent(agent)?;
     let (place, id, name) = (host.place.clone(), agent.to_owned(), host.agent_name(agent));
     Some(Fix {
-        words: format!("Close {name}"),
+        words: t!("Close {name}", name = name),
         run: Box::new(move |bench, cx| bench.close_agent_on(&place, &id, &name, cx)),
     })
 }
@@ -754,22 +781,24 @@ fn resources(
             .filter_map(|event| match (&event.what, kind) {
                 (HostEventKind::Killed { agent_id, .. }, HostAlertKind::Memory) => Some((
                     event.at,
-                    format!(
-                        "{} killed",
-                        agent_id
-                            .as_deref()
-                            .map_or_else(|| "a process".to_owned(), |id| host.agent_name(id))
-                    ),
+                    match agent_id.as_deref() {
+                        Some(id) => t!("{name} killed", name = host.agent_name(id)),
+                        None => t!("a process killed").to_owned(),
+                    },
                 )),
                 (HostEventKind::CommandStarted { agent_id, command }, HostAlertKind::Cpu) => {
                     Some((
                         event.at,
-                        format!("{} started {command}", host.agent_name(agent_id)),
+                        t!(
+                            "{name} started {command}",
+                            name = host.agent_name(agent_id),
+                            command = command
+                        ),
                     ))
                 }
                 (HostEventKind::BuildOutputCleared { bytes, .. }, HostAlertKind::Disk) => Some((
                     event.at,
-                    format!("{} freed from build output", model::size(*bytes)),
+                    t!("{size} freed from build output", size = model::size(*bytes)),
                 )),
                 _ => None,
             })
@@ -806,20 +835,20 @@ fn resources(
     let rows = [
         (
             HostAlertKind::Cpu,
-            "CPU",
+            t!("CPU"),
             Icon::Activity,
-            format!("{cores_used} / {} cores", about.cores),
-            format!("{cores_idle} cores idle"),
+            t!("{used} / {all} cores", used = cores_used, all = about.cores),
+            t!("{idle} cores idle", idle = cores_idle),
             series(HostAlertKind::Cpu, &|sample| sample.cpu as f32 / 1000.),
         ),
         (
             HostAlertKind::Memory,
-            "Memory",
+            t!("Memory"),
             Icon::Stack,
             format!("{memory_used} / {memory_of}"),
             match now.swap_used {
-                0 => "No swap".to_owned(),
-                swap => format!("{} GB swap", model::gb(swap)),
+                0 => t!("No swap").to_owned(),
+                swap => t!("{swap} GB swap", swap = model::gb(swap)),
             },
             series(HostAlertKind::Memory, &|sample| {
                 share_of(sample.memory_used, memory_total)
@@ -827,12 +856,12 @@ fn resources(
         ),
         (
             HostAlertKind::Disk,
-            "Disk",
+            t!("Disk"),
             Icon::Database,
             format!("{disk_used} / {disk_of}"),
-            format!(
-                "{} free",
-                model::size(disk_total.saturating_sub(now.disk_used))
+            t!(
+                "{size} free",
+                size = model::size(disk_total.saturating_sub(now.disk_used))
             ),
             series(HostAlertKind::Disk, &|sample| {
                 share_of(sample.disk_used, disk_total)
@@ -925,8 +954,12 @@ fn resources(
                                 .items_center()
                                 .justify_center()
                                 .child(
-                                    ui::text("Gathering history", TEXT_2XS_H, FontWeight::NORMAL)
-                                        .text_color(t.text_disabled),
+                                    ui::text(
+                                        t!("Gathering history"),
+                                        TEXT_2XS_H,
+                                        FontWeight::NORMAL,
+                                    )
+                                    .text_color(t.text_disabled),
                                 )
                                 .into_any_element(),
                             _ => history(series, CHART_HEIGHT, t),
@@ -961,14 +994,14 @@ fn resources(
                     ))
                 }),
         )
-        .child(ui::text("History", TEXT_XS, FontWeight::NORMAL))
+        .child(ui::text(t!("History"), TEXT_XS, FontWeight::NORMAL))
         .children(open.then(|| div().ml_auto().child(switch)));
     div()
         .flex()
         .flex_col()
         .child(section(
             Icon::Gauge,
-            "Resources",
+            t!("Resources"),
             None,
             as_of(host, cx),
             t,
@@ -1008,7 +1041,7 @@ fn axis(start: u64, end: u64, t: &Tokens, cx: &mut Context<Workbench>) -> Div {
         .justify_between()
         .children((0..5).map(|at| {
             let words = match at {
-                4 => "now".to_owned(),
+                4 => t!("now").to_owned(),
                 at => crate::ui::time::clock(start + step * at),
             };
             ui::mono(words, TEXT_3XS, cx).text_color(t.text_disabled)
@@ -1018,11 +1051,11 @@ fn axis(start: u64, end: u64, t: &Tokens, cx: &mut Context<Workbench>) -> Div {
 fn part_words(kind: sikemux_view::host_stats::DiskPartKind) -> &'static str {
     use sikemux_view::host_stats::DiskPartKind;
     match kind {
-        DiskPartKind::BuildOutput => "Build output",
-        DiskPartKind::Worktrees => "Worktrees",
-        DiskPartKind::Caches => "Caches",
-        DiskPartKind::Containers => "Containers",
-        DiskPartKind::Other | DiskPartKind::Unknown => "Everything else",
+        DiskPartKind::BuildOutput => t!("Build output"),
+        DiskPartKind::Worktrees => t!("Worktrees"),
+        DiskPartKind::Caches => t!("Caches"),
+        DiskPartKind::Containers => t!("Containers"),
+        DiskPartKind::Other | DiskPartKind::Unknown => t!("Everything else"),
     }
 }
 
@@ -1034,7 +1067,7 @@ fn disk_parts(stats: &HostStats, t: &Tokens, cx: &mut Context<Workbench>) -> Opt
         div()
             .flex()
             .flex_col()
-            .child(section(Icon::Database, "Disk use", None, None, t, cx))
+            .child(section(Icon::Database, t!("Disk use"), None, None, t, cx))
             .child(
                 div()
                     .px(SPACE_4)
@@ -1158,8 +1191,8 @@ fn agents(
         }
     }
     let (label, count) = match people.is_empty() {
-        true => ("Agents", total.to_string()),
-        false => ("People & agents", format!("{} · {total}", people.len())),
+        true => (t!("Agents"), total.to_string()),
+        false => (t!("People & agents"), format!("{} · {total}", people.len())),
     };
     Some(
         div()
@@ -1179,7 +1212,7 @@ fn agents(
             ))
             .child(match rows.is_empty() {
                 true => ui::text(
-                    "None of them is using CPU or memory right now",
+                    t!("None of them is using CPU or memory right now"),
                     TEXT_XS,
                     FontWeight::NORMAL,
                 )
@@ -1263,7 +1296,7 @@ fn agent_row(
             .gap(SPACE_2)
             .min_w_0()
             .child(
-                ui::text("Killed for memory", TEXT_2XS_H, FontWeight::NORMAL)
+                ui::text(t!("Killed for memory"), TEXT_2XS_H, FontWeight::NORMAL)
                     .flex_none()
                     .text_color(t.danger),
             )
@@ -1282,10 +1315,10 @@ fn agent_row(
         }
         _ => ui::text(
             match status {
-                AgentStatus::Asleep => "Asleep",
-                AgentStatus::Stopped => "Stopped",
-                AgentStatus::Starting => "Starting",
-                _ => "Idle",
+                AgentStatus::Asleep => t!("Asleep"),
+                AgentStatus::Stopped => t!("Stopped"),
+                AgentStatus::Starting => t!("Starting"),
+                _ => t!("Idle"),
             },
             TEXT_2XS_H,
             FontWeight::NORMAL,
@@ -1450,9 +1483,13 @@ fn person_row(
         .map(|using| using.memory)
         .sum();
     let summary = match (running, idle) {
-        (0, idle) => format!("{idle} idle"),
-        (running, 0) => format!("{running} running"),
-        (running, idle) => format!("{running} running · {idle} idle"),
+        (0, idle) => t!("{idle} idle", idle = idle),
+        (running, 0) => t!("{running} running", running = running),
+        (running, idle) => t!(
+            "{running} running · {idle} idle",
+            running = running,
+            idle = idle
+        ),
     };
     let key = person.to_owned();
     div()
@@ -1487,7 +1524,7 @@ fn person_row(
                 .child(
                     ui::text(
                         match folded {
-                            true => format!("{summary} · hidden"),
+                            true => t!("{summary} · hidden", summary = summary),
                             false => summary,
                         },
                         TEXT_2XS_H,
@@ -1529,7 +1566,7 @@ fn top(
                     ))
                 }),
         )
-        .child(ui::caps("Top processes", cx))
+        .child(ui::caps(t!("Top processes"), cx))
         .child(
             div()
                 .px(SPACE_1H)
@@ -1553,7 +1590,7 @@ fn top(
             div().ml_auto().child(
                 Segmented::words(
                     "hosts-top-by",
-                    vec![("CPU".into(), None), ("Memory".into(), None)],
+                    vec![(t!("CPU").into(), None), (t!("Memory").into(), None)],
                     usize::from(by_memory),
                 )
                 .on_select(cx.listener(|bench, at: &usize, _, cx| {
@@ -1645,30 +1682,37 @@ fn activity(host: &Listed, stats: &HostStats, t: &Tokens, cx: &mut Context<Workb
                 HostEventKind::AlertStarted { alert, percent } => (
                     Icon::Warning,
                     t.warn,
-                    format!(
-                        "{} passed {percent}%",
-                        crate::hosts::alert_kind_word(*alert)
+                    t!(
+                        "{kind} passed {percent}%",
+                        kind = crate::hosts::alert_kind_word(*alert),
+                        percent = percent
                     ),
                 ),
                 HostEventKind::AlertEnded { alert } => (
                     Icon::Check,
                     t.text_tertiary,
-                    format!("{} back to normal", crate::hosts::alert_kind_word(*alert)),
+                    t!("{kind} back to normal", kind = crate::hosts::alert_kind_word(*alert)),
                 ),
                 HostEventKind::Killed { agent_id, name } => (
                     Icon::Warning,
                     t.danger,
                     match agent_id {
-                        Some(agent) => {
-                            format!("Killed {}’s {name} to free memory", host.agent_name(agent))
-                        }
-                        None => format!("Killed {name} to free memory"),
+                        Some(agent) => t!(
+                            "Killed {agent}’s {name} to free memory",
+                            agent = host.agent_name(agent),
+                            name = name
+                        ),
+                        None => t!("Killed {name} to free memory", name = name),
                     },
                 ),
                 HostEventKind::CommandStarted { agent_id, command } => (
                     Icon::Run,
                     t.text_tertiary,
-                    format!("{} started {command}", host.agent_name(agent_id)),
+                    t!(
+                        "{name} started {command}",
+                        name = host.agent_name(agent_id),
+                        command = command
+                    ),
                 ),
                 HostEventKind::BuildOutputCleared {
                     worktree,
@@ -1677,15 +1721,23 @@ fn activity(host: &Listed, stats: &HostStats, t: &Tokens, cx: &mut Context<Workb
                 } => (
                     Icon::Trash,
                     t.text_tertiary,
-                    format!(
-                        "Removed build output from {worktree}, freeing {}, {}",
-                        model::size(*bytes),
-                        match reason {
-                            ClearedFor::Closed => "its agent closed",
-                            ClearedFor::Landed => "its agent landed everything",
-                            ClearedFor::DiskFull => "as the disk was nearly full",
-                        }
-                    ),
+                    match reason {
+                        ClearedFor::Closed => t!(
+                            "Removed build output from {worktree}, freeing {size}, its agent closed",
+                            worktree = worktree,
+                            size = model::size(*bytes)
+                        ),
+                        ClearedFor::Landed => t!(
+                            "Removed build output from {worktree}, freeing {size}, its agent landed everything",
+                            worktree = worktree,
+                            size = model::size(*bytes)
+                        ),
+                        ClearedFor::DiskFull => t!(
+                            "Removed build output from {worktree}, freeing {size}, as the disk was nearly full",
+                            worktree = worktree,
+                            size = model::size(*bytes)
+                        ),
+                    },
                 ),
                 HostEventKind::SettleFailed {
                     worktree,
@@ -1695,8 +1747,17 @@ fn activity(host: &Listed, stats: &HostStats, t: &Tokens, cx: &mut Context<Workb
                     Icon::Warning,
                     t.danger,
                     match output.lines().last() {
-                        Some(said) => format!("{command} failed in {worktree}: {said}"),
-                        None => format!("{command} failed in {worktree}"),
+                        Some(said) => t!(
+                            "{command} failed in {worktree}: {said}",
+                            command = command,
+                            worktree = worktree,
+                            said = said
+                        ),
+                        None => t!(
+                            "{command} failed in {worktree}",
+                            command = command,
+                            worktree = worktree
+                        ),
                     },
                 ),
                 HostEventKind::Unknown => return None,
@@ -1731,7 +1792,7 @@ fn activity(host: &Listed, stats: &HostStats, t: &Tokens, cx: &mut Context<Workb
     div()
         .flex()
         .flex_col()
-        .child(section(Icon::Activity, "Activity", None, None, t, cx))
+        .child(section(Icon::Activity, t!("Activity"), None, None, t, cx))
         .child(
             div()
                 .relative()
@@ -1768,19 +1829,19 @@ fn about(host: &Listed, stats: &HostStats, t: &Tokens, cx: &mut Context<Workbenc
         about
             .model
             .clone()
-            .map(|model| (glyph(Icon::Laptop, t), "Model", model, false)),
+            .map(|model| (glyph(Icon::Laptop, t), t!("Model"), model, false)),
         Some((
             ui::icon(logo, 13.)
                 .text_color(system_tint)
                 .into_any_element(),
-            "System",
+            t!("System"),
             about.system.clone(),
             false,
         )),
         about
             .gpu
             .clone()
-            .map(|gpu| (glyph(Icon::Cube, t), "Graphics", gpu, false)),
+            .map(|gpu| (glyph(Icon::Cube, t), t!("Graphics"), gpu, false)),
         Some((
             glyph(Icon::Logo, t),
             "Sikemux",
@@ -1794,7 +1855,7 @@ fn about(host: &Listed, stats: &HostStats, t: &Tokens, cx: &mut Context<Workbenc
     div()
         .flex()
         .flex_col()
-        .child(section(Icon::InfoCircle, "About", None, None, t, cx))
+        .child(section(Icon::InfoCircle, t!("About"), None, None, t, cx))
         .child(
             div()
                 .px(SPACE_4)
@@ -1837,9 +1898,9 @@ impl Workbench {
     pub fn close_agent_on(&mut self, place: &Place, id: &str, name: &str, cx: &mut Context<Self>) {
         let (place, id) = (place.clone(), id.to_owned());
         self.confirm(
-            format!("Close {name}?"),
-            "It stops what it is running now.",
-            "Close",
+            t!("Close {name}?", name = name),
+            t!("It stops what it is running now."),
+            t!("Close"),
             true,
             move |bench, yes, _, _| {
                 if yes {

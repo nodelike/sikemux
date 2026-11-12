@@ -77,7 +77,7 @@ impl Workbench {
         #[cfg(feature = "drive")]
         crate::drive::trace(format_args!("trust question set"));
         let title = match on {
-            Some(name) => format!("{} on {name}", ask.title),
+            Some(name) => t!("{title} on {host}", title = ask.title, host = name),
             None => ask.title.clone(),
         };
         self.confirm(

@@ -182,7 +182,7 @@ impl Dictation {
             VoiceEvent::Exited => {
                 self.settle(Phase::Off);
                 self.reason =
-                    Some("The voice helper stopped. Hold the key again to restart it.".into());
+                    Some(t!("The voice helper stopped. Hold the key again to restart it.").into());
             }
             VoiceEvent::Error { reason, message } => {
                 let message: SharedString = message.clone().into();
@@ -236,19 +236,20 @@ impl Dictation {
             Phase::Off => {
                 self.target = None;
                 cx.emit(Heard::Say(
-                    "Loading the speech model. Try again in a moment.".into(),
+                    t!("Loading the speech model. Try again in a moment.").into(),
                 ));
                 self.prepare(cx);
             }
             Phase::Preparing => {
                 self.target = None;
-                let what = match self.downloading {
-                    Some(fraction) => format!("downloading ({}%)", (fraction * 100.).round()),
-                    None => "loading".to_owned(),
+                let said = match self.downloading {
+                    Some(fraction) => t!(
+                        "The speech model is still downloading ({percent}%).",
+                        percent = (fraction * 100.).round()
+                    ),
+                    None => t!("The speech model is still loading.").to_owned(),
                 };
-                cx.emit(Heard::Say(
-                    format!("The speech model is still {what}.").into(),
-                ));
+                cx.emit(Heard::Say(said.into()));
             }
             _ => self.target = None,
         }
@@ -470,7 +471,7 @@ impl crate::workbench::Workbench {
     fn copy_dictation(&self, text: &str, window: &mut gpui_kit::Window, cx: &mut Context<Self>) {
         cx.write_to_clipboard(gpui_kit::ClipboardItem::new_string(text.to_owned()));
         window.push_notification(
-            "No agent or terminal had focus, so the dictation was copied to the clipboard.",
+            t!("No agent or terminal had focus, so the dictation was copied to the clipboard."),
             cx,
         );
     }
@@ -507,9 +508,9 @@ impl Render for MicButton {
         let mic = self.voice.read(cx).mic(&self.agent);
         let label = match mic {
             Mic::Hidden => return div().into_any_element(),
-            Mic::Listening => "Stop and type what you said",
-            Mic::Writing => "Writing what you said",
-            Mic::Idle => "Dictate — or hold right ⌥ anywhere",
+            Mic::Listening => t!("Stop and type what you said"),
+            Mic::Writing => t!("Writing what you said"),
+            Mic::Idle => t!("Dictate — or hold right ⌥ anywhere"),
         };
         let toggle = self.toggle.clone();
         let danger = crate::theme::Tokens::get(cx).danger;

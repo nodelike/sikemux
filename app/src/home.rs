@@ -28,11 +28,11 @@ use sikemux_view::chat::AccountMove;
 
 /// The calendar's metrics, in the order its buttons show.
 pub const METRICS: [(Metric, &str); 5] = [
-    (Metric::Tokens, "Tokens"),
-    (Metric::Cost, "Cost"),
-    (Metric::Commits, "Commits"),
-    (Metric::AgentTime, "Agent time"),
-    (Metric::Sessions, "Sessions"),
+    (Metric::Tokens, n!("Tokens")),
+    (Metric::Cost, n!("Cost")),
+    (Metric::Commits, n!("Commits")),
+    (Metric::AgentTime, n!("Agent time")),
+    (Metric::Sessions, n!("Sessions")),
 ];
 
 /// The stage: the tab in front, its views side by side, or what a project with nothing
@@ -152,7 +152,7 @@ fn empty_stage(cx: &mut Context<Workbench>) -> impl IntoElement {
         .text_color(t.text_tertiary)
         .child(
             ui::text(
-                "Nothing open in this project",
+                t!("Nothing open in this project"),
                 TEXT_XS_H,
                 FontWeight::NORMAL,
             )
@@ -163,7 +163,7 @@ fn empty_stage(cx: &mut Context<Workbench>) -> impl IntoElement {
                 .flex()
                 .gap(SPACE_2)
                 .child(
-                    Button::new("empty-new-agent", "New agent", Variant::Outline)
+                    Button::new("empty-new-agent", t!("New agent"), Variant::Outline)
                         .keys(hint(actions::NewChat::ID))
                         .on_click(cx.listener(|bench, _, window, cx| bench.new_chat(window, cx))),
                 )
@@ -175,7 +175,7 @@ fn empty_stage(cx: &mut Context<Workbench>) -> impl IntoElement {
                         }),
                 )
                 .child(
-                    Button::new("empty-open-file", "Open file", Variant::Outline)
+                    Button::new("empty-open-file", t!("Open file"), Variant::Outline)
                         .keys(hint(actions::OpenFile::ID))
                         .on_click(|_, window, cx| {
                             crate::keymap::dispatch(actions::OpenFile::ID, window, cx)
@@ -197,11 +197,15 @@ fn asleep_in_terminal(bench: &Workbench, agent: &AgentRow, cx: &mut Context<Work
         .justify_center()
         .gap(SPACE_3)
         .child(
-            ui::text(format!("{label} is asleep"), TEXT_XS_H, FontWeight::NORMAL)
-                .text_color(t.text_secondary),
+            ui::text(
+                t!("{label} is asleep", label = label),
+                TEXT_XS_H,
+                FontWeight::NORMAL,
+            )
+            .text_color(t.text_secondary),
         )
         .child(
-            Button::new("wake-terminal-agent", "Wake", Variant::Outline)
+            Button::new("wake-terminal-agent", t!("Wake"), Variant::Outline)
                 .on_click(cx.listener(move |bench, _, _, _| bench.switch_view(&id, true))),
         )
 }
@@ -264,7 +268,7 @@ fn smart_pick(
                 .child(placed.label.clone()),
         )
         .child(dot())
-        .child(ui::caps("Smart pick", cx).flex_none())
+        .child(ui::caps(t!("Smart pick"), cx).flex_none())
         .children(placed.placed.clone().map(|why| {
             div()
                 .min_w_0()
@@ -295,6 +299,10 @@ pub fn welcome_over(
 /// An agent's face asking what is being made in the project.
 fn greeting(mark: AnyElement, project: SharedString, cx: &App) -> impl IntoElement {
     let t = Tokens::get(cx).clone();
+    let asked = crate::i18n::tr(n!("What are we making in {project}?"));
+    let (before, after) = asked
+        .split_once("{project}")
+        .unwrap_or(("What are we making in", "?"));
     div()
         .flex()
         .items_center()
@@ -309,7 +317,7 @@ fn greeting(mark: AnyElement, project: SharedString, cx: &App) -> impl IntoEleme
                 .text_size(theme::ui_text(TEXT_XL))
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(t.text_primary)
-                .child("What are we making in")
+                .child(before.trim_end())
                 .child(
                     ui::icon(Icon::Folder, 17.)
                         .ml(SPACE_2)
@@ -325,7 +333,7 @@ fn greeting(mark: AnyElement, project: SharedString, cx: &App) -> impl IntoEleme
                         .text_size(theme::ui_text(18.))
                         .child(project),
                 )
-                .child("?"),
+                .child(after),
         )
 }
 
@@ -378,7 +386,7 @@ fn welcome_calendar(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElemen
         .text_size(theme::ui_text(TEXT_2XS))
         .text_color(t.ink_faint)
         .hover(|more| more.text_color(t.text_primary))
-        .child("View activity")
+        .child(t!("View activity"))
         .child(
             ui::icon(Icon::Chevron, 10.)
                 .text_color(t.ink_faint)
@@ -421,11 +429,12 @@ fn pane_header(
             Segmented::new("agent-view", views, usize::from(in_terminal))
                 .slide()
                 .disabled_because(match (has_chat, working) {
-                    (false, _) => Some("This agent has no built-in chat".to_owned()),
+                    (false, _) => Some(t!("This agent has no built-in chat").to_owned()),
                     (true, true) => {
                         let other = if in_terminal { "GUI" } else { "TUI" };
-                        Some(format!(
-                            "Wait for the agent to finish before opening {other}"
+                        Some(t!(
+                            "Wait for the agent to finish before opening {other}",
+                            other = other
                         ))
                     }
                     (true, false) => None,
@@ -442,9 +451,9 @@ fn pane_header(
                 "agent-desk",
                 Icon::PanelRight,
                 if desk_open {
-                    "Close the desk"
+                    t!("Close the desk")
                 } else {
-                    "Open the desk"
+                    t!("Open the desk")
                 },
             )
             .compact()
@@ -466,7 +475,7 @@ fn agent_header(bench: &Workbench, agent: &AgentRow, cx: &mut Context<Workbench>
         .compact()
         .w(px(24.))
         .h(px(24.))
-        .tooltip("More")
+        .tooltip(t!("More"))
         .child(ui::icon(Icon::More, 14.).text_color(t.text_secondary))
         .dropdown_menu_with_anchor(
             Anchor::TopRight,
@@ -500,7 +509,7 @@ fn agent_header(bench: &Workbench, agent: &AgentRow, cx: &mut Context<Workbench>
                 .when(viewers > 0, |button| button.child(viewers.to_string()))
                 .into_any_element()
         }
-        None => IconButton::new("agent-share", Icon::Share, "Share this chat read-only")
+        None => IconButton::new("agent-share", Icon::Share, t!("Share this chat read-only"))
             .compact()
             .on_click(open_share)
             .into_any_element(),
@@ -531,7 +540,7 @@ fn agent_header(bench: &Workbench, agent: &AgentRow, cx: &mut Context<Workbench>
             div()
                 .id("agent-buddy")
                 .cursor_pointer()
-                .tooltip(ui::tooltip("Change buddy"))
+                .tooltip(ui::tooltip(t!("Change buddy")))
                 .child(agent.mark(16., cx))
                 .on_click(cx.listener(move |bench, _, _, cx| bench.open_buddy_picker(&picked, cx)))
                 .into_any_element()
@@ -579,9 +588,9 @@ fn side_of(bench: &Workbench, agent: &AgentRow, cx: &mut Context<Workbench>) -> 
             .text_size(crate::theme::ui_text(TEXT_XS))
             .text_color(t.text_tertiary)
             .hover(|tag| tag.text_color(t.text_primary))
-            .tooltip(ui::tooltip("Go to the main chat"))
+            .tooltip(ui::tooltip(t!("Go to the main chat")))
             .on_click(cx.listener(move |bench, _, _, cx| bench.open_agent(&main, cx)))
-            .child(format!("side of @{name}"))
+            .child(t!("side of @{name}", name = name))
             .into_any_element(),
     )
 }
@@ -595,7 +604,7 @@ fn chief_fact(bench: &Workbench, agent: &AgentRow, cx: &App) -> AnyElement {
     let model = (bench.chats.open.get(&agent.id))
         .and_then(|chat| chat.state.as_ref()?.model.clone())
         .filter(|model| !model.current.is_empty())
-        .map(|model| crate::chat::composer::chosen(&model, "Model"))
+        .map(|model| crate::chat::composer::chosen(&model, t!("Model")))
         .unwrap_or_else(|| crate::turn_line::maker(&agent.provider).to_owned());
     let dot = || div().text_color(t.text_disabled).child("·");
     div()
@@ -607,8 +616,8 @@ fn chief_fact(bench: &Workbench, agent: &AgentRow, cx: &App) -> AnyElement {
         .children(project.map(|project| div().child(project.name.clone())))
         .child(dot())
         .child(match count {
-            1 => "1 agent".to_owned(),
-            count => format!("{count} agents"),
+            1 => t!("1 agent").to_owned(),
+            count => t!("{count} agents", count = count),
         })
         .child(dot())
         .child(ui::mark(&agent.provider, 14.))

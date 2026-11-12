@@ -124,9 +124,9 @@ pub fn opening(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElem
         .connection
         .slow_start
         .then_some(if bench.connection.version.is_empty() {
-            "Waiting for Sikemux to start"
+            t!("Waiting for Sikemux to start")
         } else {
-            "Opening your workspace"
+            t!("Opening your workspace")
         });
     let why = bench
         .connection
@@ -203,7 +203,7 @@ pub fn reconnecting(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<An
             })
             .occlude()
             .child(mark_with(
-                Some("Lost Sikemux, reconnecting".to_owned()),
+                Some(t!("Lost Sikemux, reconnecting").to_owned()),
                 Some(reason),
                 cx,
             ))
@@ -233,12 +233,12 @@ pub fn stopped(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElem
             })
             .occlude()
             .child(mark_with(
-                Some("Sikemux is stopped".to_owned()),
-                Some("Its terminals and agents stopped with it.".to_owned()),
+                Some(t!("Sikemux is stopped").to_owned()),
+                Some(t!("Its terminals and agents stopped with it.").to_owned()),
                 cx,
             ))
             .child(
-                ui::Button::new("start-core", "Start Sikemux", ui::Variant::Primary).on_click(
+                ui::Button::new("start-core", t!("Start Sikemux"), ui::Variant::Primary).on_click(
                     cx.listener(|bench, _, _, _| {
                         let _ = bench.asks.send(crate::core::Ask::StartCore);
                     }),
@@ -266,16 +266,17 @@ pub fn stuck(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElemen
             .bg(t.surface_sunken)
             .occlude()
             .child(mark_with(
-                Some("Sikemux is not answering".to_owned()),
-                Some(format!(
-                    "Its core (pid {pid}) is still running but stopped responding. Restarting it ends its terminals; chats pick up where they were."
+                Some(t!("Sikemux is not answering").to_owned()),
+                Some(t!(
+                    "Its core (pid {pid}) is still running but stopped responding. Restarting it ends its terminals; chats pick up where they were.",
+                    pid = pid
                 )),
                 cx,
             ))
             .child(
                 ui::Button::new(
                     "restart-core",
-                    if restarting { "Restarting…" } else { "Restart Sikemux" },
+                    if restarting { t!("Restarting…") } else { t!("Restart Sikemux") },
                     ui::Variant::Primary,
                 )
                 .disabled(restarting)

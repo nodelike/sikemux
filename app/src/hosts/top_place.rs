@@ -60,7 +60,7 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
                 key: chosen.key(),
                 label: match &chosen {
                     HostChoice::Ssh(alias) => alias.clone().into(),
-                    _ => "This host".into(),
+                    _ => t!("This host").into(),
                 },
                 mark: host_mark(&chosen),
             },
@@ -173,7 +173,11 @@ fn set_up_offer(bench: &Workbench, alias: &str, cx: &mut Context<Workbench>) -> 
         (None, Some((work, problem)), offered) => (
             work,
             offered,
-            format!("{} stopped short: {problem}", work.menu_label()),
+            t!(
+                "{work} stopped short: {problem}",
+                work = work.menu_label(),
+                problem = problem
+            ),
         ),
         (None, None, Some(set_up)) => (set_up, Some(set_up), set_up.offer(alias)),
         (None, None, None) if checking => {
@@ -185,7 +189,7 @@ fn set_up_offer(bench: &Workbench, alias: &str, cx: &mut Context<Workbench>) -> 
                     .items_center()
                     .text_size(crate::theme::ui_text(TEXT_XS))
                     .text_color(t.text_tertiary)
-                    .child(format!("Checking {alias}…"))
+                    .child(t!("Checking {alias}…", alias = alias))
                     .into_any_element(),
             )
         }
@@ -274,7 +278,7 @@ fn picker(
             );
         }
         popup.separator().item(
-            ui::MenuRow::new("Open Devices")
+            ui::MenuRow::new(t!("Open Devices"))
                 .mark(move || mark((Icon::Gauge, t.text_secondary)))
                 .when_some(keymap::hint(actions::FocusHosts::ID, cx), |row, hint| {
                     row.hint(hint)

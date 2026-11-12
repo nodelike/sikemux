@@ -134,7 +134,7 @@ impl<'a> Listed<'a> {
                 name: Some(name), ..
             }) => format!("@{name}"),
             Some(agent) => agent.title.clone(),
-            None => "an agent".to_owned(),
+            None => t!("an agent").to_owned(),
         }
     }
 
@@ -217,11 +217,14 @@ impl State {
         match self {
             State::Alert(alert) => crate::hosts::alert_words(alert),
             State::Offline { since: Some(since) } => {
-                format!("Out of reach {}", crate::hosts::lasted(*since))
+                t!(
+                    "Out of reach {lasted}",
+                    lasted = crate::hosts::lasted(*since)
+                )
             }
-            State::Offline { since: None } => "Out of reach".to_owned(),
-            State::Updating => "Updating".to_owned(),
-            State::Healthy => "Healthy".to_owned(),
+            State::Offline { since: None } => t!("Out of reach").to_owned(),
+            State::Updating => t!("Updating").to_owned(),
+            State::Healthy => t!("Healthy").to_owned(),
         }
     }
 
@@ -308,7 +311,7 @@ pub fn page_key(bench: &Workbench, key: &str) -> String {
 fn this_name(feed: &Feed) -> SharedString {
     (feed.stats.as_ref())
         .and_then(|stats| stats.about.name.clone())
-        .unwrap_or_else(|| "This host".to_owned())
+        .unwrap_or_else(|| t!("This host").to_owned())
         .into()
 }
 

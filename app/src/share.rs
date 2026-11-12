@@ -22,18 +22,18 @@ use sikemux_core::server::share::ShareChatParams;
 
 const HOUR_MS: u64 = 60 * 60 * 1000;
 const LIFETIMES: [(&str, u64); 3] = [
-    ("1 hour", HOUR_MS),
-    ("24 hours", 24 * HOUR_MS),
-    ("7 days", 7 * 24 * HOUR_MS),
+    (n!("1 hour"), HOUR_MS),
+    (n!("24 hours"), 24 * HOUR_MS),
+    (n!("7 days"), 7 * 24 * HOUR_MS),
 ];
 
 /// Who reads `share` now, in the words beside the chat's name and in the dialog.
 pub fn watching(share: &ShareView) -> String {
     match (share.state, share.viewers) {
-        (ShareState::Connecting, _) => "Connecting…".to_owned(),
-        (_, 0) => "No one watching yet".to_owned(),
-        (_, 1) => "1 person watching".to_owned(),
-        (_, viewers) => format!("{viewers} people watching"),
+        (ShareState::Connecting, _) => t!("Connecting…").to_owned(),
+        (_, 0) => t!("No one watching yet").to_owned(),
+        (_, 1) => t!("1 person watching").to_owned(),
+        (_, viewers) => t!("{count} people watching", count = viewers),
     }
 }
 
@@ -100,7 +100,7 @@ impl Workbench {
                     let url = answer.map(|share| share.url);
                     if let Ok(url) = &url {
                         cx.write_to_clipboard(ClipboardItem::new_string(url.clone()));
-                        window.push_notification("Copied the share link", cx);
+                        window.push_notification(t!("Copied the share link"), cx);
                     }
                     if let Some(sharing) = bench.overlays.sharing.as_mut() {
                         sharing.working = false;
@@ -169,7 +169,7 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
                 .flex()
                 .flex_col()
                 .gap(SPACE_2)
-                .child(label("Link"))
+                .child(label(t!("Link")))
                 .child(
                     div()
                         .flex()
@@ -192,20 +192,20 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
                                 .child(ui::mono(share.url.clone(), TEXT_XS, cx)),
                         )
                         .child(
-                            Button::new("share-copy", "Copy", Variant::Outline)
+                            Button::new("share-copy", t!("Copy"), Variant::Outline)
                                 .icon(Icon::Copy)
                                 .on_click(move |_, window, cx| {
                                     cx.write_to_clipboard(ClipboardItem::new_string(url.clone()));
-                                    window.push_notification("Copied the share link", cx);
+                                    window.push_notification(t!("Copied the share link"), cx);
                                 }),
                         ),
                 )
                 .child(
                     ui::text(
-                        format!(
-                            "{} · ends in {}",
-                            watching(share),
-                            crate::ui::time::left(share.expires_at)
+                        t!(
+                            "{watching} · ends in {left}",
+                            watching = watching(share),
+                            left = crate::ui::time::left(share.expires_at)
                         ),
                         TEXT_XS,
                         FontWeight::NORMAL,
@@ -217,7 +217,7 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
             .flex()
             .flex_col()
             .gap(SPACE_2)
-            .child(label("Link works for"))
+            .child(label(t!("Link works for")))
             .child(
                 div()
                     .flex()
@@ -251,7 +251,7 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
                                 }
                                 cx.notify();
                             }))
-                            .child(*words)
+                            .child(crate::i18n::tr(*words))
                     })),
             ),
     };
@@ -261,8 +261,8 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
                 .flex()
                 .flex_col()
                 .gap(SPACE_2)
-                .child(dialog::prose("Anyone signed in to Sikemux who has the link can read this chat as it happens, from its start. They cannot type in it or answer its requests.", &t))
-                .child(dialog::prose("It shows everything the agent read and ran, including the contents of files and any secrets in them.", &t)),
+                .child(dialog::prose(t!("Anyone signed in to Sikemux who has the link can read this chat as it happens, from its start. They cannot type in it or answer its requests."), &t))
+                .child(dialog::prose(t!("It shows everything the agent read and ran, including the contents of files and any secrets in them."), &t)),
         )
         .child(div().pt(SPACE_3).child(field))
         .children(problem.map(|problem| {
@@ -288,36 +288,36 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
                     this.update(cx, |bench, cx| bench.stop_share(id, window, cx))
                 })
             };
-            let foot = dialog::hinted_foot(dialog::escape("close", cx), cx)
+            let foot = dialog::hinted_foot(dialog::escape(t!("close"), cx), cx)
                 .child(dialog::button(
                     "share-stop",
-                    "Stop sharing".into(),
+                    t!("Stop sharing").into(),
                     None,
                     stop,
                     cx,
                 ))
                 .child(dialog::button(
                     "share-done",
-                    "Done".into(),
+                    t!("Done").into(),
                     Some(t.accent),
                     close.clone(),
                     cx,
                 ));
-            ("Shared read-only", foot, close.clone())
+            (t!("Shared read-only"), foot, close.clone())
         }
         None => {
             let create: dialog::Answer = Rc::new(move |window, cx| {
                 this.update(cx, |bench, cx| bench.start_share(window, cx))
             });
             let label = if sharing.working {
-                "Creating link…"
+                t!("Creating link…")
             } else {
-                "Create link"
+                t!("Create link")
             };
-            let foot = dialog::hinted_foot(dialog::escape("close", cx), cx)
+            let foot = dialog::hinted_foot(dialog::escape(t!("close"), cx), cx)
                 .child(dialog::button(
                     "share-cancel",
-                    "Cancel".into(),
+                    t!("Cancel").into(),
                     None,
                     close.clone(),
                     cx,
@@ -329,7 +329,7 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
                     create.clone(),
                     cx,
                 ));
-            ("Share this chat read-only", foot, create)
+            (t!("Share this chat read-only"), foot, create)
         }
     };
     Some(

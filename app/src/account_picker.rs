@@ -81,7 +81,7 @@ pub fn picker(
             let alone = !movable.iter().any(|(profile, _)| profile.id != current.id);
             (
                 movable,
-                alone.then(|| "No other account is signed in".to_owned()),
+                alone.then(|| t!("No other account is signed in").to_owned()),
             )
         }
     };
@@ -89,7 +89,9 @@ pub fn picker(
     let label = name(&current, signed_in(&current).as_ref());
     let about = match (&none_because, running) {
         (Some(why), _) => why.clone(),
-        (None, true) => "Moving stops this turn and carries it on in the other account".to_owned(),
+        (None, true) => {
+            t!("Moving stops this turn and carries it on in the other account").to_owned()
+        }
         (None, false) => label.clone(),
     };
     let trigger = KitButton::new(SharedString::from(format!("account-picker-{key}")))

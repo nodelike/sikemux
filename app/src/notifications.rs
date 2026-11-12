@@ -28,8 +28,8 @@ const STOP_EVERYTHING_KEYS: &str = if cfg!(target_os = "macos") {
 
 /// What the test row and the first launch post, to show what a notice looks like.
 const TEST: (&str, &str) = (
-    "Sikemux notifications are on",
-    "This is how an agent will tell you it needs you or has finished.",
+    n!("Sikemux notifications are on"),
+    n!("This is how an agent will tell you it needs you or has finished."),
 );
 
 /// What clicking a notification brings forward, kept with it as text.
@@ -257,7 +257,10 @@ pub fn notice(
     }
     if cx.active_window().is_some() {
         if goal.is_some() {
-            bench.notify(crate::toast::info(format!("{title}: {body}")), cx);
+            bench.notify(
+                crate::toast::info(t!("{title}: {body}", title = title, body = body)),
+                cx,
+            );
         }
         return;
     }
@@ -268,7 +271,12 @@ pub fn notice(
 }
 
 pub fn test(cx: &mut Context<Workbench>) {
-    post(TEST.0.into(), TEST.1.into(), None, cx);
+    post(
+        crate::i18n::tr(TEST.0).into(),
+        crate::i18n::tr(TEST.1).into(),
+        None,
+        cx,
+    );
 }
 
 /// macOS asks whether an app may notify only the first time it posts, so the first launch
@@ -323,8 +331,9 @@ pub fn kept_running(bench: &mut Workbench, cx: &mut Context<Workbench>) {
     }
     crate::settings::set(bench, PreferenceChange::KeptRunningNoticeShown(true));
     bench.notify_for::<KeptRunning>(
-        toast::info(format!(
-            "Your terminals and agents kept running while Sikemux was closed. Use Quit and Stop Everything ({STOP_EVERYTHING_KEYS}) to stop them."
+        toast::info(t!(
+            "Your terminals and agents kept running while Sikemux was closed. Use Quit and Stop Everything ({keys}) to stop them.",
+            keys = STOP_EVERYTHING_KEYS
         )),
         KEPT_RUNNING_SHOWN,
         cx,

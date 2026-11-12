@@ -64,7 +64,7 @@ pub fn board(
                 .flex()
                 .items_center()
                 .gap(SPACE_2)
-                .child(ui::caps("Hosts", cx))
+                .child(ui::caps(t!("Hosts"), cx))
                 .child(
                     ui::mono(listed.len().to_string(), TEXT_2XS_H, cx).text_color(t.text_tertiary),
                 ),
@@ -108,17 +108,13 @@ fn head(
     let counts: Vec<Counts> = listed.iter().map(Listed::counts).collect();
     let running: usize = counts.iter().map(|counts| counts.running).sum();
     let agents: usize = counts.iter().map(Counts::total).sum();
-    let figure = |of: usize, all: usize, words: &str| {
+    let figure = |of: usize, words: String| {
         div()
             .flex()
             .items_baseline()
             .gap(px(4.))
             .child(ui::mono(of.to_string(), TEXT_XS, cx).text_color(t.text_primary))
-            .child(ui::text(
-                format!("of {all} {words}"),
-                TEXT_XS_H,
-                FontWeight::NORMAL,
-            ))
+            .child(ui::text(words, TEXT_XS_H, FontWeight::NORMAL))
     };
     div()
         .flex()
@@ -132,7 +128,7 @@ fn head(
                 .flex_col()
                 .gap(px(5.))
                 .child(
-                    ui::text("Devices", TEXT_XL, FontWeight::SEMIBOLD)
+                    ui::text(t!("Devices"), TEXT_XL, FontWeight::SEMIBOLD)
                         .text_color(t.text_primary)
                         .letter_spacing(-0.02),
                 )
@@ -142,9 +138,9 @@ fn head(
                         .items_center()
                         .gap(px(9.))
                         .text_color(t.text_tertiary)
-                        .child(figure(online, listed.len(), "online"))
+                        .child(figure(online, t!("of {all} online", all = listed.len())))
                         .child(div().size(px(3.)).rounded_full().bg(t.text_disabled))
-                        .child(figure(running, agents, "agents running")),
+                        .child(figure(running, t!("of {all} agents running", all = agents))),
                 ),
         )
         .child(
@@ -161,7 +157,7 @@ fn head(
                         .child(Field::new(&page.search).icon(Icon::Search).small()),
                 )
                 .child(
-                    Button::new("hosts-add", "Add host", Variant::Outline)
+                    Button::new("hosts-add", t!("Add host"), Variant::Outline)
                         .icon(Icon::Plus)
                         .keys(keymap::hint(actions::OpenHost::ID, cx))
                         .on_click(|_, window, cx| {
@@ -187,7 +183,7 @@ fn filters(
         .mt(SPACE_2H)
         .mb(SPACE_3H)
         .child(
-            Toggle::new("hosts-all", "All", !needs_you)
+            Toggle::new("hosts-all", t!("All"), !needs_you)
                 .count(all, t.text_tertiary)
                 .on_click(cx.listener(|bench, _, _, cx| {
                     bench.hosts_page.needs_you = false;
@@ -195,7 +191,7 @@ fn filters(
                 })),
         )
         .child(
-            Toggle::new("hosts-needs-you", "Needs you", needs_you)
+            Toggle::new("hosts-needs-you", t!("Needs you"), needs_you)
                 .count(
                     needing,
                     if needing > 0 {
@@ -214,8 +210,8 @@ fn filters(
                 Segmented::new(
                     "hosts-layout",
                     vec![
-                        (Icon::Dashboard, "Cards".into()),
-                        (Icon::Table, "Table".into()),
+                        (Icon::Dashboard, t!("Cards").into()),
+                        (Icon::Table, t!("Table").into()),
                     ],
                     usize::from(page.table),
                 )
@@ -240,8 +236,8 @@ fn empty(t: &Tokens, none_at_all: bool) -> Div {
         .text_color(t.text_tertiary)
         .child(ui::text(
             match none_at_all {
-                true => "No hosts yet",
-                false => "No host matches",
+                true => t!("No hosts yet"),
+                false => t!("No host matches"),
             },
             TEXT_XS_H,
             FontWeight::NORMAL,
@@ -368,7 +364,7 @@ fn host_card(
                         .gap(SPACE_1H)
                         .text_color(t.text_tertiary)
                         .child(ui::icon(Icon::Agents, 12.).text_color(t.text_tertiary))
-                        .child(ui::text("Agents", TEXT_XS, FontWeight::NORMAL)),
+                        .child(ui::text(t!("Agents"), TEXT_XS, FontWeight::NORMAL)),
                 )
                 .child(div().ml_auto().child(counts(host.counts(), t))),
         )
@@ -482,7 +478,7 @@ fn reading(host: &Listed, kind: HostAlertKind, short: bool, t: &Tokens) -> Readi
             model::cores_used(now.cpu, about.cores),
             match short {
                 true => about.cores.to_string(),
-                false => format!("{} cores", about.cores),
+                false => t!("{cores} cores", cores = about.cores),
             },
         ),
         HostAlertKind::Memory => {
@@ -513,9 +509,9 @@ pub(super) fn meter(
 ) -> Div {
     let reading = reading(host, kind, short, t);
     let (key, glyph) = match kind {
-        HostAlertKind::Cpu => ("CPU", Icon::Activity),
-        HostAlertKind::Memory => ("Mem", Icon::Stack),
-        _ => ("Disk", Icon::Database),
+        HostAlertKind::Cpu => (t!("CPU"), Icon::Activity),
+        HostAlertKind::Memory => (t!("Mem"), Icon::Stack),
+        _ => (t!("Disk"), Icon::Database),
     };
     let lit = reading.tint.unwrap_or(ink(t, 0.62));
     let percent = reading
@@ -591,8 +587,9 @@ pub(super) fn meter(
 /// How many of a host's agents run, idle, were killed or stopped, each after its dot.
 pub fn counts(counts: Counts, t: &Tokens) -> Div {
     if counts.is_empty() {
-        return div()
-            .child(ui::text("No agents", TEXT_XS, FontWeight::NORMAL).text_color(t.text_tertiary));
+        return div().child(
+            ui::text(t!("No agents"), TEXT_XS, FontWeight::NORMAL).text_color(t.text_tertiary),
+        );
     }
     let count = |count: usize, words: &'static str, dot: Div| {
         (count > 0).then(|| {
@@ -622,11 +619,11 @@ pub fn counts(counts: Counts, t: &Tokens) -> Div {
         .items_center()
         .gap_x(SPACE_3H)
         .gap_y(SPACE_1)
-        .children(count(counts.running, "running", dot(t.live)))
-        .children(count(counts.idle, "idle", dot(t.text_tertiary)))
-        .children(count(counts.killed, "killed", dot(t.danger)))
-        .children(count(counts.stopped, "stopped", ring()))
-        .children(count(counts.away, "out of reach", ring()))
+        .children(count(counts.running, t!("running"), dot(t.live)))
+        .children(count(counts.idle, t!("idle"), dot(t.text_tertiary)))
+        .children(count(counts.killed, t!("killed"), dot(t.danger)))
+        .children(count(counts.stopped, t!("stopped"), ring()))
+        .children(count(counts.away, t!("out of reach"), ring()))
 }
 
 /// The columns of the table, as shares of its width: host, status, CPU, memory, disk, agents.
@@ -640,12 +637,12 @@ fn table(
 ) -> AnyElement {
     let column = |at: usize| div().w(relative(COLUMNS[at])).min_w_0().pr(SPACE_6);
     let heads = [
-        ("Host", None),
-        ("Status", None),
-        ("CPU", Some(Icon::Activity)),
-        ("Memory", Some(Icon::Stack)),
-        ("Disk", Some(Icon::Database)),
-        ("Agents", Some(Icon::Agents)),
+        (t!("Host"), None),
+        (t!("Status"), None),
+        (t!("CPU"), Some(Icon::Activity)),
+        (t!("Memory"), Some(Icon::Stack)),
+        (t!("Disk"), Some(Icon::Database)),
+        (t!("Agents"), Some(Icon::Agents)),
     ];
     div()
         .rounded(RADIUS_4)

@@ -61,7 +61,7 @@ pub fn undoable(
         .action(move |_, _, cx| {
             let undo = undo.clone();
             Button::new("undo")
-                .label("Undo")
+                .label(t!("Undo"))
                 .ghost()
                 .on_click(cx.listener(move |note, _, window, cx| {
                     undo(window, cx);

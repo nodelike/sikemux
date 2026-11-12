@@ -119,8 +119,8 @@ pub fn place(item: &StashItem) -> String {
         StashKind::Text => None,
         StashKind::Prompt => match item.attachments.as_ref().map_or(0, Vec::len) {
             0 => None,
-            1 => Some("1 file".to_owned()),
-            files => Some(format!("{files} files")),
+            1 => Some(t!("1 file").to_owned()),
+            files => Some(t!("{count} files", count = files)),
         },
         _ => size(item).map(bytes),
     };
@@ -363,7 +363,7 @@ impl Workbench {
             StashKind::Text | StashKind::Prompt => {
                 let text = item.text.clone().unwrap_or_default();
                 cx.write_to_clipboard(gpui_kit::ClipboardItem::new_string(text));
-                self.notify(crate::toast::success("Copied"), cx);
+                self.notify(crate::toast::success(t!("Copied")), cx);
             }
             _ => {
                 let asked = crate::core::Target::here(&self.asks).request_typed::<call::StashFile>(
@@ -446,16 +446,18 @@ pub fn tray(
     };
     let add_new = (!fresh.is_empty() && tray.needle.is_empty()).then(|| {
         let (agent, ids) = (agent.to_owned(), fresh.clone());
-        link("stash-tray-add-new", format!("Add {} new", ids.len())).on_click(cx.listener(
-            move |bench, _, _, cx| {
-                bench.add_from_stash(&agent, ids.clone(), cx);
-                bench.dismiss_menu(&agent, cx);
-            },
-        ))
+        link(
+            "stash-tray-add-new",
+            t!("Add {count} new", count = ids.len()),
+        )
+        .on_click(cx.listener(move |bench, _, _, cx| {
+            bench.add_from_stash(&agent, ids.clone(), cx);
+            bench.dismiss_menu(&agent, cx);
+        }))
     });
     let open = {
         let agent = agent.to_owned();
-        link("stash-tray-open", "Open Stash ↗".to_owned()).on_click(cx.listener(
+        link("stash-tray-open", t!("Open Stash ↗").to_owned()).on_click(cx.listener(
             move |bench, _, _, cx| {
                 bench.dismiss_menu(&agent, cx);
                 bench.open_stash();
@@ -470,7 +472,7 @@ pub fn tray(
         .gap(SPACE_2)
         .child(ui::icon(Icon::Stack, 13.).text_color(t.text_tertiary))
         .child(
-            ui::text("STASH", TEXT_3XS_H, FontWeight::SEMIBOLD)
+            ui::text(t!("STASH"), TEXT_3XS_H, FontWeight::SEMIBOLD)
                 .letter_spacing(0.1)
                 .text_color(t.text_tertiary),
         )
@@ -483,7 +485,7 @@ pub fn tray(
         .when(!tray.needle.is_empty(), |head| {
             head.child(
                 ui::text(
-                    format!("matching “{}”", tray.needle),
+                    t!("matching “{needle}”", needle = tray.needle),
                     TEXT_2XS_H,
                     FontWeight::NORMAL,
                 )
@@ -495,9 +497,9 @@ pub fn tray(
         .child(open);
     let body = if tray.items.is_empty() {
         let words = match (stash.signed_in, tray.needle.is_empty()) {
-            (false, _) => "Sign in to Sikemux to keep what you share from your phone here.",
-            (true, true) => "Nothing in your Stash yet. Share a link, a picture or a file to Sikemux from any app on your phone.",
-            (true, false) => "Nothing in your Stash matches.",
+            (false, _) => t!("Sign in to Sikemux to keep what you share from your phone here."),
+            (true, true) => t!("Nothing in your Stash yet. Share a link, a picture or a file to Sikemux from any app on your phone."),
+            (true, false) => t!("Nothing in your Stash matches."),
         };
         div()
             .py(SPACE_3H)
@@ -545,7 +547,7 @@ pub fn tray(
                 bench.stash_prompt(&agent, cx);
             }))
             .child(ui::icon(Icon::Download, 13.).text_color(t.text_tertiary))
-            .child("Stash this prompt")
+            .child(t!("Stash this prompt"))
             .child(div().flex_1())
             .child(ui::kbd("⌘S", cx))
     };
@@ -838,7 +840,7 @@ fn tray_row(
                             .font_weight(FontWeight::BOLD)
                             .letter_spacing(0.08)
                             .text_color(t.on_accent)
-                            .child("NEW"),
+                            .child(t!("NEW")),
                     )
                 })
                 .children(ago.map(|ago| {
@@ -853,8 +855,8 @@ fn name_of(item: &StashItem, said: &Said) -> String {
     match (said.photos.len(), said.files.first()) {
         (0, Some(file)) => file.name.clone().unwrap_or_default(),
         (0, None) => title(item),
-        (1, _) => "1 photo".to_owned(),
-        (photos, _) => format!("{photos} photos"),
+        (1, _) => t!("1 photo").to_owned(),
+        (photos, _) => t!("{count} photos", count = photos),
     }
 }
 
@@ -1086,7 +1088,7 @@ fn chip(t: &Tokens) -> Div {
 
 /// A file the words do not name: its type, then its name.
 fn file_chip(file: &StashItem, t: &Tokens) -> Div {
-    let name = file.name.as_deref().unwrap_or("file");
+    let name = file.name.as_deref().unwrap_or(t!("file"));
     let (stem, kind) = name
         .rsplit_once('.')
         .filter(|(stem, kind)| !stem.is_empty() && (1..=4).contains(&kind.len()))
@@ -1118,10 +1120,10 @@ fn file_chip(file: &StashItem, t: &Tokens) -> Div {
 fn pages_chip(bench: &Workbench, said: &Said, t: &Tokens) -> Div {
     let count = said.pages.len();
     let words = match (said.lead.is_some(), count) {
-        (true, 1) => "+1 link".to_owned(),
-        (true, count) => format!("+{count} links"),
-        (false, 1) => "1 link".to_owned(),
-        (false, count) => format!("{count} links"),
+        (true, 1) => t!("+1 link").to_owned(),
+        (true, count) => t!("+{count} links", count = count),
+        (false, 1) => t!("1 link").to_owned(),
+        (false, count) => t!("{count} links", count = count),
     };
     let icons = said.pages.iter().take(3).enumerate().map(|(at, page)| {
         div()
@@ -1220,7 +1222,7 @@ pub fn pane(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
                 .items_center()
                 .gap(SPACE_2)
                 .child(ui::icon(Icon::Stack, 15.).text_color(t.text_secondary))
-                .child(ui::text("Stash", 15., FontWeight::SEMIBOLD).text_color(t.text_primary))
+                .child(ui::text(t!("Stash"), 15., FontWeight::SEMIBOLD).text_color(t.text_primary))
                 .when(stash.signed_in && count > 0, |head| {
                     head.child(
                         ui::text(count.to_string(), TEXT_XS, FontWeight::MEDIUM)
@@ -1230,7 +1232,7 @@ pub fn pane(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
         )
         .child(
             ui::text(
-                "What you share to Sikemux from your phone. Add it to a chat, or drag it onto one.",
+                t!("What you share to Sikemux from your phone. Add it to a chat, or drag it onto one."),
                 TEXT_XS,
                 FontWeight::NORMAL,
             )
@@ -1336,12 +1338,12 @@ fn grid(cards: Vec<(AnyElement, f32)>, columns: u16) -> impl IntoElement {
 fn empty(signed_in: bool, t: &Tokens) -> Div {
     let (head, words) = match signed_in {
         true => (
-            "Nothing in your Stash",
-            "Share a link, a picture or a file to Sikemux from any app on your phone. It waits here until you add it to a chat.",
+            t!("Nothing in your Stash"),
+            t!("Share a link, a picture or a file to Sikemux from any app on your phone. It waits here until you add it to a chat."),
         ),
         false => (
-            "Your Stash is on your account",
-            "Sign in to Sikemux to keep what you share from your phone here.",
+            t!("Your Stash is on your account"),
+            t!("Sign in to Sikemux to keep what you share from your phone here."),
         ),
     };
     div()
@@ -1619,61 +1621,61 @@ fn actions(
             menu
         }
     };
-    let button =
-        || ui::Button::new(("stash-add", at), "Add to chat", ui::Variant::Outline).icon(Icon::Plus);
-    let add = match focused {
-        Some((agent, name)) => {
-            let others: Vec<(String, String)> = agents
-                .iter()
-                .filter(|(other, _)| *other != agent)
-                .cloned()
-                .collect();
-            let picker = (!others.is_empty()).then(|| {
-                ui::menu_button(
-                    ("stash-pick", at),
-                    gpui_kit::Anchor::TopLeft,
-                    IconButton::new(
-                        ("stash-pick-face", at),
-                        Icon::Chevron,
-                        "Add to another chat",
-                    )
-                    .small()
-                    .turned(std::f32::consts::FRAC_PI_2),
-                    chooser(others, id.to_owned()),
-                )
-            });
-            let id = id.to_owned();
-            div()
-                .flex()
-                .items_center()
-                .gap(SPACE_0)
-                .child(
-                    button()
-                        .tooltip(format!("Add to {name}"))
-                        .on_click(cx.listener(move |bench, _, _, cx| {
-                            bench.add_from_stash(&agent, vec![id.clone()], cx)
-                        })),
-                )
-                .children(picker)
-                .into_any_element()
-        }
-        None if !agents.is_empty() => ui::menu_button(
-            ("stash-choose", at),
-            gpui_kit::Anchor::TopLeft,
-            button(),
-            chooser(agents, id.to_owned()),
-        )
-        .into_any_element(),
-        None => button()
-            .disabled(true)
-            .tooltip("Open a chat to add this to it")
-            .into_any_element(),
+    let button = || {
+        ui::Button::new(("stash-add", at), t!("Add to chat"), ui::Variant::Outline).icon(Icon::Plus)
     };
+    let add =
+        match focused {
+            Some((agent, name)) => {
+                let others: Vec<(String, String)> = agents
+                    .iter()
+                    .filter(|(other, _)| *other != agent)
+                    .cloned()
+                    .collect();
+                let picker = (!others.is_empty()).then(|| {
+                    ui::menu_button(
+                        ("stash-pick", at),
+                        gpui_kit::Anchor::TopLeft,
+                        IconButton::new(
+                            ("stash-pick-face", at),
+                            Icon::Chevron,
+                            t!("Add to another chat"),
+                        )
+                        .small()
+                        .turned(std::f32::consts::FRAC_PI_2),
+                        chooser(others, id.to_owned()),
+                    )
+                });
+                let id = id.to_owned();
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(SPACE_0)
+                    .child(button().tooltip(t!("Add to {name}", name = name)).on_click(
+                        cx.listener(move |bench, _, _, cx| {
+                            bench.add_from_stash(&agent, vec![id.clone()], cx)
+                        }),
+                    ))
+                    .children(picker)
+                    .into_any_element()
+            }
+            None if !agents.is_empty() => ui::menu_button(
+                ("stash-choose", at),
+                gpui_kit::Anchor::TopLeft,
+                button(),
+                chooser(agents, id.to_owned()),
+            )
+            .into_any_element(),
+            None => button()
+                .disabled(true)
+                .tooltip(t!("Open a chat to add this to it"))
+                .into_any_element(),
+        };
     let (opened, removed) = (item.clone(), id.to_owned());
     let open_label = match item.kind {
-        StashKind::Link => "Open in browser",
-        StashKind::Text | StashKind::Prompt => "Copy",
-        _ => "Open",
+        StashKind::Link => t!("Open in browser"),
+        StashKind::Text | StashKind::Prompt => t!("Copy"),
+        _ => t!("Open"),
     };
     let open_icon = match item.kind {
         StashKind::Text | StashKind::Prompt => Icon::Copy,
@@ -1695,7 +1697,7 @@ fn actions(
                 .on_click(cx.listener(move |bench, _, _, cx| bench.open_stash_item(&opened, cx))),
         )
         .child(
-            IconButton::new(("stash-remove", at), Icon::Trash, "Remove from Stash")
+            IconButton::new(("stash-remove", at), Icon::Trash, t!("Remove from Stash"))
                 .small()
                 .on_click(
                     cx.listener(move |bench, _, _, cx| bench.remove_from_stash(&removed, cx)),

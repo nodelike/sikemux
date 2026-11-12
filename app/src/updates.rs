@@ -37,7 +37,7 @@ pub fn by_installer(update: &UpdateStatus) -> Option<(String, String)> {
 pub fn copy_install_command(bench: &mut Workbench, command: &str, cx: &mut Context<Workbench>) {
     cx.write_to_clipboard(ClipboardItem::new_string(command.to_owned()));
     bench.notify(
-        crate::toast::success("Copied. Run it in a terminal to install the update."),
+        crate::toast::success(t!("Copied. Run it in a terminal to install the update.")),
         cx,
     );
 }
@@ -65,19 +65,22 @@ pub fn rail_chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyEl
     let version = available_version(update);
     let (label, icon, variant, tip) = match update.state {
         UpdateState::Failed => (
-            "Update failed — retry".to_owned(),
+            t!("Update failed — retry").to_owned(),
             Icon::Warning,
             ui::Variant::Outline,
-            Some(format!(
-                "v{version} did not install: {}",
-                update.error.as_deref().unwrap_or("unknown error")
+            Some(t!(
+                "v{version} did not install: {error}",
+                version = version,
+                error = update.error.as_deref().unwrap_or(t!("unknown error"))
             )),
         ),
         UpdateState::Waiting => (
             install_button(update).0,
             Icon::Download,
             ui::Variant::Outline,
-            Some("Some agents can't be carried over yet. Open to see them or update now.".into()),
+            Some(
+                t!("Some agents can't be carried over yet. Open to see them or update now.").into(),
+            ),
         ),
         state @ (UpdateState::Downloading | UpdateState::Installing | UpdateState::Ready) => (
             install_button(update).0,
@@ -90,10 +93,14 @@ pub fn rail_chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyEl
             None,
         ),
         UpdateState::Idle => (
-            format!("Update · v{version}"),
+            t!("Update · v{version}", version = version),
             Icon::Download,
             ui::Variant::Primary,
-            Some(format!("v{version} is out; you have v{}.", update.current)),
+            Some(t!(
+                "v{version} is out; you have v{current}.",
+                version = version,
+                current = update.current
+            )),
         ),
     };
     let chip = ui::Button::new("rail-update", label, variant)
@@ -141,23 +148,27 @@ pub fn required(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyEle
     let go_on = match found {
         _ if !in_app => releases(
             "required-download",
-            "Download the new version",
+            t!("Download the new version"),
             ui::Variant::Primary,
         ),
         Some(found) => {
             let (label, pressable) = install_button(found);
             let label = match found.state {
-                UpdateState::Idle => format!("Update to v{}", available_version(found)),
+                UpdateState::Idle => t!("Update to v{version}", version = available_version(found)),
                 _ => label,
             };
             ui::Button::new("required-update", label, ui::Variant::Primary)
                 .disabled(!pressable)
                 .on_click(cx.listener(|bench, _, _, _| install(bench, false)))
         }
-        None => ui::Button::new("required-check", "Check for updates", ui::Variant::Primary)
-            .on_click(cx.listener(|bench, _, _, _| {
-                Target::here(&bench.asks).call_typed::<call::UpdateCheck>(NoParams {});
-            })),
+        None => ui::Button::new(
+            "required-check",
+            t!("Check for updates"),
+            ui::Variant::Primary,
+        )
+        .on_click(cx.listener(|bench, _, _, _| {
+            Target::here(&bench.asks).call_typed::<call::UpdateCheck>(NoParams {});
+        })),
     };
     Some(
         div()
@@ -183,11 +194,12 @@ pub fn required(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyEle
                             .text_size(theme::ui_text(18.))
                             .font_weight(FontWeight::SEMIBOLD)
                             .text_color(t.text_primary)
-                            .child("Update Sikemux"),
+                            .child(t!("Update Sikemux")),
                     )
-                    .child(note(format!(
-                        "This version, {}, is older than Sikemux's servers work with now. Remote access and your account stay off until you update to {} or later.",
-                        required.current, required.minimum
+                    .child(note(t!(
+                        "This version, {current}, is older than Sikemux's servers work with now. Remote access and your account stay off until you update to {minimum} or later.",
+                        current = required.current,
+                        minimum = required.minimum
                     )))
                     .when_some(problem, |column, problem| {
                         column.child(ui::meta(problem.to_owned(), cx).whitespace_normal())
@@ -198,8 +210,8 @@ pub fn required(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyEle
                                 .flex()
                                 .items_center()
                                 .gap(SPACE_2)
-                                .child(note(format!("No newer version on the {channel} channel yet.")))
-                                .child(releases("required-releases", "See every release", ui::Variant::Outline)),
+                                .child(note(t!("No newer version on the {channel} channel yet.", channel = channel)))
+                                .child(releases("required-releases", t!("See every release"), ui::Variant::Outline)),
                         )
                     })
                     .child(
@@ -208,7 +220,7 @@ pub fn required(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyEle
                             .justify_end()
                             .gap(SPACE_2)
                             .child(
-                                ui::Button::new("required-quit", "Quit Sikemux", ui::Variant::Outline)
+                                ui::Button::new("required-quit", t!("Quit Sikemux"), ui::Variant::Outline)
                                     .on_click(|_, _, cx| cx.quit()),
                             )
                             .child(go_on),
@@ -244,23 +256,26 @@ pub(crate) fn install_button(update: &UpdateStatus) -> (String, bool) {
         UpdateState::Downloading => {
             let done = update.downloaded_bytes;
             let label = match update.total_bytes.filter(|total| *total > 0) {
-                Some(total) => format!("Downloading · {}%", (done * 100 / total).min(100)),
-                None if done > 0 => format!("Downloading · {}", bytes(done)),
-                None => "Downloading…".to_owned(),
+                Some(total) => t!(
+                    "Downloading · {percent}%",
+                    percent = (done * 100 / total).min(100)
+                ),
+                None if done > 0 => t!("Downloading · {size}", size = bytes(done)),
+                None => t!("Downloading…").to_owned(),
             };
             (label, false)
         }
-        UpdateState::Installing => ("Verifying & installing…".to_owned(), false),
-        UpdateState::Ready => ("Restarting…".to_owned(), false),
+        UpdateState::Installing => (t!("Verifying & installing…").to_owned(), false),
+        UpdateState::Ready => (t!("Restarting…").to_owned(), false),
         UpdateState::Waiting => (waiting_label(update.blockers.len()), false),
-        UpdateState::Failed => (format!("Retry v{version}"), true),
-        UpdateState::Idle => (format!("Install v{version}"), true),
+        UpdateState::Failed => (t!("Retry v{version}", version = version), true),
+        UpdateState::Idle => (t!("Install v{version}", version = version), true),
     }
 }
 
 pub(crate) fn waiting_label(count: usize) -> String {
-    format!(
-        "Update waiting on {count} agent{}",
-        if count == 1 { "" } else { "s" }
-    )
+    match count {
+        1 => t!("Update waiting on 1 agent").to_owned(),
+        count => t!("Update waiting on {count} agents", count = count),
+    }
 }

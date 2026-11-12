@@ -236,7 +236,7 @@ pub fn side_rail(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoEle
                         .children(projects),
                 )
                 .child(
-                    Group::new(t!("Hosts"), "no hosts")
+                    Group::new(t!("Hosts"), t!("no hosts"))
                         .actions(actions(
                             keymap::hint(actions::OpenHost::ID, cx),
                             [
@@ -294,8 +294,8 @@ pub fn side_rail(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoEle
 /// The Hosts header's gauge, naming its shortcut.
 fn hosts_overview(cx: &App) -> String {
     match keymap::hint(actions::FocusHosts::ID, cx) {
-        Some(keys) => format!("Hosts overview — {keys}"),
-        None => "Hosts overview".to_owned(),
+        Some(keys) => t!("Hosts overview — {keys}", keys = keys),
+        None => t!("Hosts overview").to_owned(),
     }
 }
 
@@ -335,10 +335,10 @@ fn this_host(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement
             cx.listener(|bench, _, _, cx| bench.choose_host(crate::hosts::HostChoice::This, cx)),
         )
         .when(agents > 0, |row| {
-            row.detail(format!(
-                "{agents} {}",
-                if agents == 1 { "agent" } else { "agents" }
-            ))
+            row.detail(match agents {
+                1 => t!("1 agent").to_owned(),
+                agents => t!("{count} agents", count = agents),
+            })
         })
         .status(Some(ui::dot(
             match alert.map(|alert| alert.level) {
@@ -460,21 +460,21 @@ fn hosts(bench: &Workbench, cx: &mut Context<Workbench>) -> Vec<AnyElement> {
                 .filter(|_| connected);
             let detail = match reach {
                 _ if linked && bench.feeds.unavailable.is_some() => {
-                    Some("needs the signed app".to_owned())
+                    Some(t!("needs the signed app").to_owned())
                 }
-                HostReach::Away if linked => Some("out of reach".to_owned()),
-                HostReach::Connecting if linked => Some("connecting".to_owned()),
+                HostReach::Away if linked => Some(t!("out of reach").to_owned()),
+                HostReach::Connecting if linked => Some(t!("connecting").to_owned()),
                 _ if agents > 0 => Some(match agents {
-                    1 => "1 agent".to_owned(),
-                    count => format!("{count} agents"),
+                    1 => t!("1 agent").to_owned(),
+                    count => t!("{count} agents", count = count),
                 }),
                 _ => None,
             };
             let found = match host.found {
-                Some(HostFound::SignedOut) => Some("not signed in".to_owned()),
-                Some(HostFound::Other) => Some("on another account".to_owned()),
-                Some(HostFound::Stopped) => Some("stopped".to_owned()),
-                Some(HostFound::Outdated) => Some("older release".to_owned()),
+                Some(HostFound::SignedOut) => Some(t!("not signed in").to_owned()),
+                Some(HostFound::Other) => Some(t!("on another account").to_owned()),
+                Some(HostFound::Stopped) => Some(t!("stopped").to_owned()),
+                Some(HostFound::Outdated) => Some(t!("older release").to_owned()),
                 _ => (host.unanswered.as_ref()).map(|unanswered| {
                     crate::hosts::install_pane::unanswered_detail(unanswered).to_owned()
                 }),
@@ -484,7 +484,7 @@ fn hosts(bench: &Workbench, cx: &mut Context<Workbench>) -> Vec<AnyElement> {
                 &host.unanswered,
                 &host.ssh,
             ) {
-                (Some(problem), _, _) => Some(format!("Not set up: {problem}")),
+                (Some(problem), _, _) => Some(t!("Not set up: {problem}", problem = problem)),
                 (None, Some(unanswered), Some(alias)) => Some(
                     crate::hosts::install_pane::unanswered_says(unanswered, alias),
                 ),
@@ -492,11 +492,11 @@ fn hosts(bench: &Workbench, cx: &mut Context<Workbench>) -> Vec<AnyElement> {
             };
             let setup = host.setup.as_ref();
             let detail = match setup.map(|setup| (setup.work, setup.problem.as_deref())) {
-                Some((_, Some(problem))) => Some(format!("not set up: {problem}")),
-                Some((SetUp::Install, None)) => Some("installing".to_owned()),
-                Some((SetUp::Update, None)) => Some("updating".to_owned()),
-                Some((SetUp::Start, None)) => Some("starting".to_owned()),
-                Some((SetUp::SignIn, None)) => Some("signing in".to_owned()),
+                Some((_, Some(problem))) => Some(t!("not set up: {problem}", problem = problem)),
+                Some((SetUp::Install, None)) => Some(t!("installing").to_owned()),
+                Some((SetUp::Update, None)) => Some(t!("updating").to_owned()),
+                Some((SetUp::Start, None)) => Some(t!("starting").to_owned()),
+                Some((SetUp::SignIn, None)) => Some(t!("signing in").to_owned()),
                 None => found.or(detail),
             };
             let alias = host.ssh.clone().filter(|_| !linked);
@@ -611,7 +611,7 @@ fn set_up_offer(
     move |bench: WeakEntity<Workbench>, here: bool| {
         set_up.clone().map(|(set_up, alias)| {
             let label = match set_up {
-                SetUp::Install if here => "Install Sikemux here",
+                SetUp::Install if here => t!("Install Sikemux here"),
                 _ => set_up.menu_label(),
             };
             PopupMenuItem::new(label)
@@ -792,9 +792,9 @@ fn mods(bench: &Workbench, cx: &mut Context<Workbench>) -> Vec<AnyElement> {
                 move |popup, _, _| {
                     let pinned = shown.project.is_some();
                     let pin = match (pinned, &project) {
-                        (true, _) => "Show in every project".to_owned(),
-                        (false, Some(project)) => format!("Show only in {project}"),
-                        (false, None) => "Show only in this project".to_owned(),
+                        (true, _) => t!("Show in every project").to_owned(),
+                        (false, Some(project)) => t!("Show only in {project}", project = project),
+                        (false, None) => t!("Show only in this project").to_owned(),
                     };
                     let (pinning, editing, removing) =
                         (bench.clone(), bench.clone(), bench.clone());
@@ -878,7 +878,7 @@ fn masthead(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement 
         .border_color(t.border)
         .child(ui::icon(Icon::Logo, 14.).text_color(t.accent))
         .child(
-            ui::text(t!("Sikemux"), TEXT_SM, FontWeight::SEMIBOLD)
+            ui::text("Sikemux", TEXT_SM, FontWeight::SEMIBOLD)
                 .text_color(t.text_primary)
                 .ml(px(1.)),
         )
@@ -908,9 +908,9 @@ fn masthead(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement 
                     "hide-side-rail",
                     Icon::PanelLeft,
                     if bench.rails.side_open {
-                        "Hide the side rail"
+                        t!("Hide the side rail")
                     } else {
-                        "Keep the side rail open"
+                        t!("Keep the side rail open")
                     },
                 )
                 .on_click(cx.listener(|bench, _, _, cx| bench.toggle_rail(Edge::Start, cx))),
@@ -938,15 +938,15 @@ fn project_sort(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
         gpui_kit::Anchor::TopRight,
         IconButton::new("project-sort-button", Icon::Sort, t!("Sort projects")).small(),
         move |mut popup, _, cx| {
-            popup = popup.label("Sort projects");
+            popup = popup.label(t!("Sort projects"));
             for (sort, label) in [
-                (ProjectSort::Recent, "Recent"),
-                (ProjectSort::Created, "Created"),
-                (ProjectSort::Manual, "Manual"),
+                (ProjectSort::Recent, t!("Recent")),
+                (ProjectSort::Created, t!("Created")),
+                (ProjectSort::Manual, t!("Manual")),
             ] {
                 let choose = choose.clone();
                 let row = ui::MenuRow::new(label)
-                    .when(sort == ProjectSort::Manual, |row| row.hint("drag"));
+                    .when(sort == ProjectSort::Manual, |row| row.hint(t!("drag")));
                 popup = popup.item(
                     row.item(cx)
                         .checked(sort == chosen)
@@ -1003,7 +1003,7 @@ fn project_tree(
             .bottom_0()
             .child(ui::close_button(
                 SharedString::from(format!("close-project-{key}")),
-                format!("Close {}", project.name),
+                t!("Close {name}", name = project.name),
                 cx.listener(move |bench, _, _, cx| {
                     bench.close_project(place.clone(), project.clone(), cx)
                 }),
@@ -1292,14 +1292,14 @@ fn surfaces(
     let playbook = tree_row(
         "surface-playbook".into(),
         Icon::Book,
-        "Playbook",
+        n!("Playbook"),
         front == Some(PaneKind::ProjectSettings),
         true,
         keymap::hint(playbook, cx),
         cx,
     )
     .on_click(move |_, window, cx| keymap::dispatch(playbook, window, cx));
-    let playbook = keyed.row("surface-playbook", "Playbook", playbook, cx);
+    let playbook = keyed.row("surface-playbook", t!("Playbook"), playbook, cx);
     div()
         .flex()
         .flex_col()
@@ -1477,7 +1477,7 @@ fn space_switch(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
                     )
             }
         }))
-        .child(chip(None, Some(Icon::Stack), "All".into()))
+        .child(chip(None, Some(Icon::Stack), t!("All").into()))
         .children(spaces.iter().map(|space| {
             chip(
                 Some(space.id.clone()),
@@ -1519,27 +1519,27 @@ fn space_menu(
         }
     };
     let mut popup = popup
-        .item(item("Rename…", Icon::Pencil, |bench, space, cx| {
+        .item(item(t!("Rename…"), Icon::Pencil, |bench, space, cx| {
             bench.rename_space(space, cx)
         }))
         .submenu_with_icon(
             Some(Icon::Pencil.into()),
-            "Change Icon…",
+            t!("Change Icon…"),
             window,
             cx,
             ui::menu(icons),
         );
     if !icon.is_empty() {
-        popup = popup.item(item("Remove Icon", Icon::Trash, |bench, space, _| {
+        popup = popup.item(item(t!("Remove Icon"), Icon::Trash, |bench, space, _| {
             bench.set_space_icon(&space, "")
         }));
     }
     popup
         .separator()
-        .item(item("New Space…", Icon::Plus, |bench, _, cx| {
+        .item(item(t!("New Space…"), Icon::Plus, |bench, _, cx| {
             bench.new_space(None, cx)
         }))
-        .item(item("Edit Spaces…", Icon::Wrench, |bench, _, cx| {
+        .item(item(t!("Edit Spaces…"), Icon::Wrench, |bench, _, cx| {
             bench.open_space_editor(cx)
         }))
         .separator()
@@ -1575,7 +1575,10 @@ fn account(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
     let Some(account) = view.account.as_deref() else {
         return sign_in(bench, cx).into_any_element();
     };
-    let who = account.name.clone().unwrap_or_else(|| "Signed in".into());
+    let who = account
+        .name
+        .clone()
+        .unwrap_or_else(|| t!("Signed in").into());
     let row = Row::new("account", who)
         .mark(24., avatar(bench, account, 24., &t))
         .centered();
@@ -1586,13 +1589,13 @@ fn account(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
     };
     let items = [
         (
-            "Your account",
+            n!("Your account"),
             Icon::User,
             None,
             act(|bench, window, cx| bench.open_settings(Page::Account, window, cx)),
         ),
         (
-            "Devices",
+            n!("Devices"),
             Icon::Laptop,
             None,
             act(|bench, window, cx| {
@@ -1604,13 +1607,13 @@ fn account(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
             }),
         ),
         (
-            "Connectors",
+            n!("Connectors"),
             Icon::Plug,
             None,
             act(|bench, window, cx| bench.open_settings(Page::Connectors, window, cx)),
         ),
         (
-            "Settings",
+            n!("Settings"),
             Icon::Settings,
             settings_keys,
             act(|bench, window, cx| {
@@ -1635,7 +1638,7 @@ fn account(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
             }
             let sign_out = sign_out.clone();
             popup.separator().item(
-                account_item("Sign out", Icon::LogOut, None)
+                account_item(n!("Sign out"), Icon::LogOut, None)
                     .on_click(move |event, window, cx| sign_out(event, window, cx)),
             )
         },
@@ -1659,7 +1662,7 @@ fn account_item(label: &'static str, icon: Icon, hint: Option<SharedString>) -> 
         let t = Tokens::get(cx);
         div()
             .id(label)
-            .aria_label(label)
+            .aria_label(crate::i18n::tr(label))
             .flex_1()
             .min_w_0()
             .flex()
@@ -1668,7 +1671,13 @@ fn account_item(label: &'static str, icon: Icon, hint: Option<SharedString>) -> 
             .py(SPACE_1H)
             .text_size(crate::theme::ui_text(TEXT_SM))
             .child(ui::icon(icon, 16.).text_color(t.text_secondary))
-            .child(div().flex_1().min_w_0().truncate().child(label))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
+                    .child(crate::i18n::tr(label)),
+            )
             .children(hint.clone().map(|hint| {
                 div()
                     .text_size(crate::theme::ui_text(TEXT_XS))
@@ -1729,7 +1738,7 @@ fn sign_in(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
     let t = Tokens::get(cx);
     let (copy, button) = if bench.signing_in {
         (
-            "Finish signing in in your browser.",
+            t!("Finish signing in in your browser."),
             Button::new("sign-in", t!("Cancel"), Variant::Outline).on_click(cx.listener(
                 |bench, _, _, cx| {
                     bench.cancel_sign_in();

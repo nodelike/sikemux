@@ -19,17 +19,10 @@ use crate::ui::{self, Button, Variant};
 use crate::workbench::Workbench;
 
 const POPOVER_WIDTH: f32 = 340.;
-const OVERLOADED: &str = if cfg!(target_os = "macos") {
-    "Mac overloaded"
-} else {
-    "Computer overloaded"
-};
-
-fn this_computer() -> &'static str {
-    if cfg!(target_os = "macos") {
-        "this Mac"
-    } else {
-        "this computer"
+fn overloaded() -> &'static str {
+    match cfg!(target_os = "macos") {
+        true => t!("Mac overloaded"),
+        false => t!("Computer overloaded"),
     }
 }
 const MARK: f32 = 18.;
@@ -79,7 +72,7 @@ pub(crate) fn chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<Any
                     })
                     .when(!open, |chip| chip.tooltip(ui::tooltip(tip.clone())))
                     .child(div().size(px(6.)).rounded_full().bg(t.warn))
-                    .child(ui::text(OVERLOADED, TEXT_XS, FontWeight::MEDIUM).text_color(t.warn))
+                    .child(ui::text(overloaded(), TEXT_XS, FontWeight::MEDIUM).text_color(t.warn))
                     .into_any_element()
             })
             .content(move |_, _, cx| {
@@ -106,7 +99,13 @@ fn popover(
     let heavy = heavy(bench, load, cx);
     let average = load
         .load_average
-        .map(|average| format!("load {average} · {} cores", load.cores))
+        .map(|average| {
+            t!(
+                "load {average} · {cores} cores",
+                average = average,
+                cores = load.cores
+            )
+        })
         .unwrap_or_default();
     div()
         .w(px(POPOVER_WIDTH))
@@ -122,7 +121,7 @@ fn popover(
                 .pt(SPACE_1H)
                 .flex()
                 .items_baseline()
-                .child(ui::text(OVERLOADED, TEXT_XS, FontWeight::MEDIUM))
+                .child(ui::text(overloaded(), TEXT_XS, FontWeight::MEDIUM))
                 .child(div().flex_1())
                 .child(
                     ui::text(average, TEXT_2XS, FontWeight::NORMAL)
@@ -145,7 +144,10 @@ fn popover(
             list.child(
                 div().px(SPACE_2).py(SPACE_2).child(
                     ui::text(
-                        format!("No agent's simulator or build is running; other programs keep {} busy.", this_computer()),
+                        match cfg!(target_os = "macos") {
+                            true => t!("No agent's simulator or build is running; other programs keep this Mac busy."),
+                            false => t!("No agent's simulator or build is running; other programs keep this computer busy."),
+                        },
                         TEXT_2XS,
                         FontWeight::NORMAL,
                     )
@@ -228,7 +230,11 @@ fn row(
             div().flex_none().ml(SPACE_3).child(
                 Button::new(
                     ("overload-stop", index),
-                    if heavy.waiting { "Cancel" } else { "Stop" },
+                    if heavy.waiting {
+                        t!("Cancel")
+                    } else {
+                        t!("Stop")
+                    },
                     Variant::Outline,
                 )
                 .sized(22., 8., TEXT_2XS)
@@ -240,10 +246,11 @@ fn row(
                         let told = told.clone();
                         cx.spawn(async move |cx| {
                             let note = match stopped.await {
-                                Ok(()) => crate::toast::success("Build stopped"),
-                                Err(why) => {
-                                    crate::toast::error(format!("The build kept running: {why}"))
-                                }
+                                Ok(()) => crate::toast::success(t!("Build stopped")),
+                                Err(why) => crate::toast::error(t!(
+                                    "The build kept running: {why}",
+                                    why = why
+                                )),
                             };
                             cx.update(|cx| crate::toast::show(&told, note, cx));
                         })
@@ -263,17 +270,17 @@ fn heavy(bench: &Workbench, load: &HostLoad, cx: &App) -> Vec<Heavy> {
     let (held, waiting) = bench.sims.read(cx).engine().heavy();
     let held = held.into_iter().map(|held| Heavy {
         what: match held.booting {
-            true => format!("booting {}", held.name),
+            true => t!("booting {name}", name = held.name),
             false => held.name,
         },
-        detail: format!("simulator · {}", took(held.since)),
+        detail: t!("simulator · {took}", took = took(held.since)),
         waiting: false,
         stop: Stop::Simulator(held.agent_id.clone()),
         agent_id: Some(held.agent_id),
     });
     let waiting = waiting.into_iter().map(|waiting| Heavy {
-        what: "a simulator".to_owned(),
-        detail: format!("waiting · {}", in_line(waiting.ahead as u32)),
+        what: t!("a simulator").to_owned(),
+        detail: t!("waiting · {place}", place = in_line(waiting.ahead as u32)),
         waiting: true,
         stop: Stop::Simulator(waiting.agent_id.clone()),
         agent_id: Some(waiting.agent_id),
@@ -282,7 +289,7 @@ fn heavy(bench: &Workbench, load: &HostLoad, cx: &App) -> Vec<Heavy> {
         agent_id: build.agent_id.clone(),
         what: build.command.clone(),
         detail: match build.ahead {
-            Some(ahead) => format!("waiting · {}", in_line(ahead)),
+            Some(ahead) => t!("waiting · {place}", place = in_line(ahead)),
             None => took(build.since),
         },
         waiting: build.ahead.is_some(),
@@ -293,8 +300,8 @@ fn heavy(bench: &Workbench, load: &HostLoad, cx: &App) -> Vec<Heavy> {
 
 fn in_line(ahead: u32) -> String {
     match ahead {
-        0 => "next in line".to_owned(),
-        ahead => format!("{} ahead", ahead),
+        0 => t!("next in line").to_owned(),
+        ahead => t!("{count} ahead", count = ahead),
     }
 }
 
@@ -310,21 +317,33 @@ fn summary(load: &HostLoad, heavy: &[Heavy]) -> SharedString {
         .filter(|build| build.ahead.is_none())
         .count();
     let waiting = heavy.iter().filter(|heavy| heavy.waiting).count();
-    let counted = |count: usize, one: &str, many: &str| match count {
+    let counted = |count: usize, one: &str, many: String| match count {
         0 => None,
-        1 => Some(format!("1 {one}")),
-        count => Some(format!("{count} {many}")),
+        1 => Some(one.to_owned()),
+        _ => Some(many),
     };
     let parts: Vec<String> = [
-        counted(simulators, "simulator", "simulators"),
-        counted(running, "build", "builds"),
-        counted(waiting, "waiting", "waiting"),
+        counted(
+            simulators,
+            t!("1 simulator"),
+            t!("{count} simulators", count = simulators),
+        ),
+        counted(
+            running,
+            t!("1 build"),
+            t!("{count} builds", count = running),
+        ),
+        counted(
+            waiting,
+            t!("1 waiting"),
+            t!("{count} waiting", count = waiting),
+        ),
     ]
     .into_iter()
     .flatten()
     .collect();
     match parts.is_empty() {
-        true => "More runs than the cores take".into(),
+        true => t!("More runs than the cores take").into(),
         false => parts.join(", ").into(),
     }
 }

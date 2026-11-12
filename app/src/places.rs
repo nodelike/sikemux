@@ -97,24 +97,20 @@ impl Workbench {
             return close(self);
         }
         let mut lost = Vec::new();
-        if working > 0 {
-            lost.push(format!(
-                "{working} agent{} at work stop{}",
-                if working == 1 { "" } else { "s" },
-                if working == 1 { "s" } else { "" }
-            ));
+        match working {
+            0 => {}
+            1 => lost.push(t!("1 agent at work stops.").to_owned()),
+            count => lost.push(t!("{count} agents at work stop.", count = count)),
         }
-        if unsaved > 0 {
-            lost.push(format!(
-                "{unsaved} unsaved file{} {} lost",
-                if unsaved == 1 { "" } else { "s" },
-                if unsaved == 1 { "is" } else { "are" }
-            ));
+        match unsaved {
+            0 => {}
+            1 => lost.push(t!("1 unsaved file is lost.").to_owned()),
+            count => lost.push(t!("{count} unsaved files are lost.", count = count)),
         }
         self.confirm(
-            format!("Close {}?", project.name),
-            format!("{}.", lost.join(", and ")),
-            "Close",
+            t!("Close {name}?", name = project.name),
+            lost.join(" "),
+            t!("Close"),
             true,
             move |bench, yes, _, _| {
                 if yes {
@@ -206,10 +202,11 @@ impl Workbench {
             false => bench.close_tabs(&strip, std::slice::from_ref(&tab_id)),
         };
         if kind == PaneKind::Agent {
-            let title = format!(
-                "Close {}?",
-                self.saved_title(&target)
-                    .unwrap_or_else(|| "the agent".to_owned())
+            let title = t!(
+                "Close {name}?",
+                name = self
+                    .saved_title(&target)
+                    .unwrap_or_else(|| t!("the agent").to_owned())
             );
             return self.ask_to_stop(vec![target], title, cx, move |bench, workers| {
                 close(bench);

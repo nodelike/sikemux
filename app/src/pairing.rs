@@ -81,8 +81,8 @@ impl Asker {
     fn name(self, request: &PendingDevice) -> String {
         match (request.name.is_empty(), self) {
             (false, _) => request.name.clone(),
-            (true, Asker::Phone) => "A phone".into(),
-            (true, Asker::Host) => "Another host".into(),
+            (true, Asker::Phone) => t!("A phone").into(),
+            (true, Asker::Host) => t!("Another host").into(),
             (true, Asker::App) => t!("An app").into(),
         }
     }
@@ -90,8 +90,14 @@ impl Asker {
     /// What the question says, on two lines.
     fn lines(self, name: &str) -> (String, &'static str) {
         match self {
-            Asker::Phone => (format!("{name} wants to connect"), "to this host"),
-            Asker::Host => (format!("{name} wants to link"), "with this host"),
+            Asker::Phone => (
+                t!("{name} wants to connect", name = name),
+                t!("to this host"),
+            ),
+            Asker::Host => (
+                t!("{name} wants to link", name = name),
+                t!("with this host"),
+            ),
             Asker::App => (
                 t!("{name} wants to use", name = name),
                 t!("your chats on this host"),
@@ -103,12 +109,12 @@ impl Asker {
     fn notice(self, name: &str) -> (String, &'static str) {
         match self {
             Asker::Phone => (
-                format!("{name} wants to connect to this host"),
-                "It is signed in to your Sikemux account. Allow or decline it in Sikemux.",
+                t!("{name} wants to connect to this host", name = name),
+                t!("It is signed in to your Sikemux account. Allow or decline it in Sikemux."),
             ),
             Asker::Host => (
-                format!("{name} wants to link with this host"),
-                "Its agents could start agents here. Allow or decline it in Sikemux.",
+                t!("{name} wants to link with this host", name = name),
+                t!("Its agents could start agents here. Allow or decline it in Sikemux."),
             ),
             Asker::App => (
                 t!("{name} wants to use your chats", name = name),
@@ -122,14 +128,14 @@ const APP_ACCESS: [(DeviceAccess, Icon, &str, &str); 2] = [
     (
         DeviceAccess::Full,
         Icon::Pointer,
-        "Full control",
-        "Start chats, send them messages, stop their turns",
+        n!("Full control"),
+        n!("Start chats, send them messages, stop their turns"),
     ),
     (
         DeviceAccess::Watch,
         Icon::Eye,
-        "Watch only",
-        "List and read chats",
+        n!("Watch only"),
+        n!("List and read chats"),
     ),
 ];
 
@@ -137,14 +143,14 @@ const ACCESS: [(DeviceAccess, Icon, &str, &str); 2] = [
     (
         DeviceAccess::Full,
         Icon::Pointer,
-        "Full control",
-        "Start chats, answer agents, type in terminals",
+        n!("Full control"),
+        n!("Start chats, answer agents, type in terminals"),
     ),
     (
         DeviceAccess::Watch,
         Icon::Eye,
-        "Watch only",
-        "See chats and terminals, answer what agents ask",
+        n!("Watch only"),
+        n!("See chats and terminals, answer what agents ask"),
     ),
 ];
 
@@ -390,10 +396,10 @@ pub fn overlay(
         (phones, _) => {
             let who = match phones {
                 [one] if !one.name.is_empty() => one.name.clone(),
-                [_] => "your phone".to_owned(),
-                many => format!("your {} phones", many.len()),
+                [_] => t!("your phone").to_owned(),
+                many => t!("your {count} phones", count = many.len()),
             };
-            (format!("Let {who} connect"), "to this host?")
+            (t!("Let {who} connect", who = who), t!("to this host?"))
         }
     };
     let names = (phones.len() > 1).then(|| {
@@ -408,9 +414,9 @@ pub fn overlay(
         .filter(|_| phones.is_empty())
         .map(|(_, request)| waits(request.expires_at));
     let decline = if phones.is_empty() {
-        "Decline"
+        t!("Decline")
     } else {
-        "Not now"
+        t!("Not now")
     };
     let account = bench
         .this_view()
@@ -450,9 +456,12 @@ pub fn overlay(
                     .flex()
                     .flex_col()
                     .gap(SPACE_0)
-                    .child(ui::text(label, TEXT_SM, FontWeight::MEDIUM).text_color(t.text_primary))
                     .child(
-                        ui::text(detail, TEXT_2XS_H, FontWeight::NORMAL)
+                        ui::text(crate::i18n::tr(label), TEXT_SM, FontWeight::MEDIUM)
+                            .text_color(t.text_primary),
+                    )
+                    .child(
+                        ui::text(crate::i18n::tr(detail), TEXT_2XS_H, FontWeight::NORMAL)
                             .text_color(t.text_tertiary),
                     ),
             )
@@ -506,7 +515,9 @@ pub fn overlay(
                 div()
                     .text_size(crate::theme::ui_text(TEXT_XS))
                     .text_color(t.text_secondary)
-                    .child("Its agents could start agents here, on this host's sign-ins."),
+                    .child(t!(
+                        "Its agents could start agents here, on this host's sign-ins."
+                    )),
             )
         })
         .children(app.map(|app| {
@@ -543,7 +554,7 @@ pub fn overlay(
             div()
                 .text_size(crate::theme::ui_text(TEXT_XS))
                 .text_color(t.text_tertiary)
-                .child(format!("Signed in as {account}"))
+                .child(t!("Signed in as {account}", account = account))
         }))
         .when(!host, |column| {
             column.child(div().flex().flex_col().gap(SPACE_2).children(choices))
@@ -553,13 +564,15 @@ pub fn overlay(
                 .flex()
                 .items_center()
                 .gap(SPACE_2H)
-                .children(waits_for.map(|left| ui::mono(format!("waits {left}"), TEXT_2XS, cx)))
+                .children(
+                    waits_for.map(|left| ui::mono(t!("waits {left}", left = left), TEXT_2XS, cx)),
+                )
                 .child(
                     Button::new("pairing-decline", decline, Variant::Outline)
                         .on_click(cx.listener(|bench, _, _, cx| bench.answer_pairing(false, cx))),
                 )
                 .child(
-                    Button::new("pairing-allow", "Allow", Variant::Primary)
+                    Button::new("pairing-allow", t!("Allow"), Variant::Primary)
                         .on_click(cx.listener(|bench, _, _, cx| bench.answer_pairing(true, cx))),
                 ),
         )
@@ -568,8 +581,8 @@ pub fn overlay(
                 .flex()
                 .gap(SPACE_4)
                 .child(hint("esc", decline))
-                .when(!host, |hints| hints.child(hint("↑↓", "Choose access")))
-                .child(hint("↵", "Allow")),
+                .when(!host, |hints| hints.child(hint("↑↓", t!("Choose access"))))
+                .child(hint("↵", t!("Allow"))),
         );
     Some(
         div()
@@ -605,7 +618,7 @@ pub fn overlay(
                     .text_color(t.text_tertiary)
                     .child(match asker {
                         Some(Asker::App) => t!("Only allow a sign-in you just started. Remove an app any time in Settings → Other apps."),
-                        _ => "Only allow phones you own. Remove one any time on the Devices page.",
+                        _ => t!("Only allow phones you own. Remove one any time on the Devices page."),
                     }),
             )
             .into_any_element(),

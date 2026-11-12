@@ -22,15 +22,16 @@ pub(super) fn failed(diagnosis: &HostDiagnosis) -> Option<&DiagnosisStep> {
 /// One line on the card under its title.
 pub(super) fn summary(diagnosis: &HostDiagnosis, name: &str) -> String {
     let tried = match diagnosis.tries {
-        0 => String::new(),
-        1 => "Sikemux tried once. ".to_owned(),
-        tries => format!("Sikemux tried {tries} times. "),
+        0 => None,
+        1 => Some(t!("Sikemux tried once.").to_owned()),
+        tries => Some(t!("Sikemux tried {tries} times.", tries = tries)),
     };
-    let failed = failed(diagnosis).map(|step| words(step, name).0);
-    format!(
-        "{tried}{}",
-        failed.map_or(String::new(), |failed| format!("{failed}."))
-    )
+    let failed = failed(diagnosis).map(|step| format!("{}.", words(step, name).0));
+    [tried, failed]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// The steps, each with a tick, a cross or a dash, the failed one saying what may be behind it.
@@ -96,62 +97,67 @@ fn row(step: &DiagnosisStep, name: &str, t: &Tokens) -> AnyElement {
 /// What a step says, and for a failed one what may be behind it.
 fn words(step: &DiagnosisStep, name: &str) -> (String, Option<String>) {
     let label = match step.step {
-        ReachStep::RemoteAccess => "Remote access here".to_owned(),
-        ReachStep::Online => "This computer online".to_owned(),
-        ReachStep::Account => "Your account".to_owned(),
-        ReachStep::Path => format!("A path to {name}"),
-        ReachStep::Core => format!("{name}'s core"),
-        ReachStep::Accepted => format!("{name} lets this computer in"),
-        ReachStep::Unknown => "A step this version does not know".to_owned(),
+        ReachStep::RemoteAccess => t!("Remote access here").to_owned(),
+        ReachStep::Online => t!("This computer online").to_owned(),
+        ReachStep::Account => t!("Your account").to_owned(),
+        ReachStep::Path => t!("A path to {name}", name = name),
+        ReachStep::Core => t!("{name}'s core", name = name),
+        ReachStep::Accepted => t!("{name} lets this computer in", name = name),
+        ReachStep::Unknown => t!("A step this version does not know").to_owned(),
     };
     match step.state {
         StepState::Passed => (
             match step.step {
-                ReachStep::RemoteAccess => "Remote access is on here".to_owned(),
-                ReachStep::Online => "This computer is online".to_owned(),
-                ReachStep::Account => "Your account is connected".to_owned(),
+                ReachStep::RemoteAccess => t!("Remote access is on here").to_owned(),
+                ReachStep::Online => t!("This computer is online").to_owned(),
+                ReachStep::Account => t!("Your account is connected").to_owned(),
                 ReachStep::Path if step.relay == Some(true) => {
-                    format!("A path to {name}, through a relay")
+                    t!("A path to {name}, through a relay", name = name)
                 }
                 ReachStep::Path if step.relay == Some(false) => {
-                    format!("A path to {name}, straight there")
+                    t!("A path to {name}, straight there", name = name)
                 }
-                ReachStep::Core => format!("{name}'s core answers"),
+                ReachStep::Core => t!("{name}'s core answers", name = name),
                 _ => label,
             },
             None,
         ),
         StepState::Failed => failure(step.why, name, label),
-        _ => (format!("{label}: not checked"), None),
+        _ => (t!("{label}: not checked", label = label), None),
     }
 }
 
 fn failure(why: Option<StepWhy>, name: &str, label: String) -> (String, Option<String>) {
     let (said, hint): (String, Option<&str>) = match why {
-        Some(StepWhy::Off) => ("Remote access is off here".into(), None),
+        Some(StepWhy::Off) => (t!("Remote access is off here").into(), None),
         Some(StepWhy::NoRelay) => (
-            "This computer reaches no relay".into(),
-            Some("It may be offline, or a firewall blocks it."),
+            t!("This computer reaches no relay").into(),
+            Some(t!("It may be offline, or a firewall blocks it.")),
         ),
-        Some(StepWhy::SignedOut) => ("This computer is not signed in".into(), None),
+        Some(StepWhy::SignedOut) => (t!("This computer is not signed in").into(), None),
         Some(StepWhy::RemovedFromAccount) => {
-            ("This computer was taken off the account".into(), None)
+            (t!("This computer was taken off the account").into(), None)
         }
         Some(StepWhy::AccountOffline) => (
-            "The account server is out of reach".into(),
-            Some("Sikemux keeps trying."),
+            t!("The account server is out of reach").into(),
+            Some(t!("Sikemux keeps trying.")),
         ),
         Some(StepWhy::NoAddress) => (
-            format!("No way to {name} is known"),
-            Some("It has not been online since this computer last heard of it."),
+            t!("No way to {name} is known", name = name),
+            Some(t!(
+                "It has not been online since this computer last heard of it."
+            )),
         ),
         Some(StepWhy::NoAnswer) => (
-            format!("Nothing answers on the way to {name}"),
-            Some("It may be off, asleep or offline, or its core stopped."),
+            t!("Nothing answers on the way to {name}", name = name),
+            Some(t!("It may be off, asleep or offline, or its core stopped.")),
         ),
-        Some(StepWhy::NotLinked) => (format!("{name} no longer lists this computer"), None),
-        Some(StepWhy::Closed) => (format!("{name} closed the connection"), None),
-        Some(StepWhy::Unknown) | None => (format!("{label} failed"), None),
+        Some(StepWhy::NotLinked) => (
+            t!("{name} no longer lists this computer", name = name),
+            None,
+        ),
+        Some(StepWhy::Closed) => (t!("{name} closed the connection", name = name), None),
+        Some(StepWhy::Unknown) | None => (t!("{label} failed", label = label), None),
     };
     (said, hint.map(str::to_owned))
 }
@@ -175,7 +181,7 @@ pub(super) fn fixes(
     match failed {
         Some((ReachStep::RemoteAccess, _)) => {
             fixes.push(
-                primary("diagnosis-remote", "Turn on remote access")
+                primary("diagnosis-remote", t!("Turn on remote access"))
                     .on_click(cx.listener(|bench, _, _, _| {
                         let _ = bench.asks.send(crate::core::Ask::Remote(
                             crate::core::RemoteAsk::Enable(true),
@@ -186,7 +192,7 @@ pub(super) fn fixes(
         }
         Some((ReachStep::Account, Some(StepWhy::SignedOut | StepWhy::RemovedFromAccount))) => fixes
             .push(
-                primary("diagnosis-sign-in", "Sign in")
+                primary("diagnosis-sign-in", t!("Sign in"))
                     .on_click(cx.listener(|bench, _, _, _| bench.sign_in()))
                     .into_any_element(),
             ),
@@ -208,7 +214,12 @@ pub(super) fn fixes(
         _ => {}
     }
     let copied = copy_text(diagnosis, &host.name);
-    fixes.push(copy_button("diagnosis-copy", "Copy diagnosis", copied, cx));
+    fixes.push(copy_button(
+        "diagnosis-copy",
+        t!("Copy diagnosis"),
+        copied,
+        cx,
+    ));
     fixes
 }
 
@@ -245,7 +256,7 @@ pub(super) fn copy_button(
     )
     .on_click(cx.listener(move |bench, _, _, cx| {
         cx.write_to_clipboard(ClipboardItem::new_string(text.clone()));
-        bench.notify(crate::toast::success("Copied"), cx);
+        bench.notify(crate::toast::success(t!("Copied")), cx);
     }))
     .into_any_element()
 }

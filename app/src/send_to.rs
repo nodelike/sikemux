@@ -60,7 +60,7 @@ pub fn choices(bench: &Workbench) -> Vec<Choice> {
         .iter()
         .filter(installed)
         .map(|launcher| Choice {
-            label: format!("New {} chat", launcher.label).into(),
+            label: t!("New {agent} chat", agent = launcher.label).into(),
             provider: launcher.provider.clone(),
             to: Recipient::NewChat {
                 launcher: launcher.id.clone(),
@@ -121,7 +121,7 @@ pub fn submenu(
         cx,
         crate::ui::menu(move |mut menu, _, _| {
             if choices.is_empty() {
-                return menu.item(PopupMenuItem::new("No agents available").disabled(true));
+                return menu.item(PopupMenuItem::new(t!("No agents available")).disabled(true));
             }
             for choice in &choices {
                 let (bench, chosen, to) = (bench.clone(), chosen.clone(), choice.to.clone());

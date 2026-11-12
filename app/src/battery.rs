@@ -228,9 +228,17 @@ pub(crate) fn battery_chip(bench: &Workbench, cx: &App) -> Option<AnyElement> {
         .minutes
         .map(|minutes| format!("{}:{:02}", minutes / 60, minutes % 60));
     let about = match (battery.charging, time) {
-        (true, Some(time)) => format!("{percent}% · charging · {time} until full"),
-        (true, None) => format!("{percent}% · charging"),
-        (false, Some(time)) => format!("{percent}% · {time} remaining"),
+        (true, Some(time)) => t!(
+            "{percent}% · charging · {time} until full",
+            percent = percent,
+            time = time
+        ),
+        (true, None) => t!("{percent}% · charging", percent = percent),
+        (false, Some(time)) => t!(
+            "{percent}% · {time} remaining",
+            percent = percent,
+            time = time
+        ),
         (false, None) => format!("{percent}%"),
     };
     let unit = 12. / 13.;
@@ -299,9 +307,13 @@ pub(crate) fn battery_chip(bench: &Workbench, cx: &App) -> Option<AnyElement> {
             .tooltip(ui::tooltip(about))
             .child(icon)
             .child(
-                ui::text(format!("{percent}%"), TEXT_2XS, FontWeight::SEMIBOLD)
-                    .font_features(crate::theme::tabular())
-                    .text_color(tint),
+                ui::text(
+                    t!("{percent}%", percent = percent),
+                    TEXT_2XS,
+                    FontWeight::SEMIBOLD,
+                )
+                .font_features(crate::theme::tabular())
+                .text_color(tint),
             )
             .into_any_element(),
     )

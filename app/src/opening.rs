@@ -573,7 +573,7 @@ impl Workbench {
                 Some(taken.agent_id)
             }
             Err(error) => {
-                let note = toast::error(format!("The chat did not open: {error}"));
+                let note = toast::error(t!("The chat did not open: {error}", error = error));
                 let _ = bench.update(cx, |bench, cx| bench.notify(note, cx));
                 None
             }
@@ -628,7 +628,7 @@ impl Workbench {
                 Some(taken.agent_id)
             }
             Err(error) => {
-                let note = toast::error(format!("The chat did not open: {error}"));
+                let note = toast::error(t!("The chat did not open: {error}", error = error));
                 let _ = bench.update(cx, |bench, cx| bench.notify(note, cx));
                 None
             }
@@ -653,7 +653,7 @@ impl Workbench {
                 ));
             }
             Err(error) => {
-                let note = toast::error(format!("@Chief did not open: {error}"));
+                let note = toast::error(t!("@Chief did not open: {error}", error = error));
                 let _ = bench.update(cx, |bench, cx| bench.notify(note, cx));
             }
         })
