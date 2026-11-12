@@ -390,6 +390,8 @@ impl Question {
 #[serde(rename_all = "camelCase")]
 struct QuestionsRecord {
     open: Vec<Question>,
+    #[serde(default)]
+    replies: Vec<ReplyQuestion>,
 }
 
 /// A question the person answered, kept until its asker reads the answer.
@@ -404,7 +406,8 @@ struct Answered {
 /// tool; a reply that asks several things makes one of these for each. An offer a yes or a no
 /// answers is not one: it shows as how the agent's turn left things. Nothing holds the agent on
 /// them, and its next turn takes them back.
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct ReplyQuestion {
     id: String,
     agent_id: String,
@@ -609,6 +612,7 @@ impl Questions {
                 None => known,
             }
         });
+        record.replies.retain(|question| known(&question.agent_id));
         let secrets = data_dir.map(|dir| dir.join(SECRETS));
         if let Some(entries) = secrets
             .as_deref()
@@ -643,8 +647,9 @@ impl Questions {
             secrets,
             pictures,
             state: Mutex::new(State {
-                dirty: !record.open.is_empty(),
+                dirty: !record.open.is_empty() || !record.replies.is_empty(),
                 open: record.open,
+                reply_questions: record.replies,
                 keeper,
                 ..State::default()
             }),
@@ -730,28 +735,25 @@ impl Questions {
         Ok(())
     }
 
-    /// The open questions changed: the window is told, and they are kept.
+    /// The open questions changed, or those asked in replies: the window is told, and they are
+    /// kept.
     fn changed(&self, state: &mut State) {
         self.kept.save(&QuestionsRecord {
             open: state.open.clone(),
+            replies: state.reply_questions.clone(),
         });
         let waiting = state
             .open
             .iter()
             .filter_map(|question| Some((question.id.as_str(), question.approval.as_ref()?)));
         state.keeper.keep(waiting);
-        self.shown_changed(state);
-    }
-
-    /// What the window and devices show changed, though nothing kept did.
-    fn shown_changed(&self, state: &mut State) {
         state.dirty = true;
         self.wake.now();
     }
 
     /// The questions of `agent_id` the person answers by writing to it, which its next turn takes
-    /// back: those it stopped for, and those its last reply asked.
-    pub(crate) fn answered_by_writing(&self, agent_id: &str) -> Vec<String> {
+    /// back: those it stopped for, then those its last reply asked.
+    pub(crate) fn answered_by_writing(&self, agent_id: &str) -> (Vec<String>, Vec<String>) {
         let state = self.state.locked();
         let stopped = (state.open.iter()).filter(|question| {
             question.agent_id == agent_id
@@ -761,13 +763,17 @@ impl Questions {
         });
         let replied =
             (state.reply_questions.iter()).filter(|question| question.agent_id == agent_id);
-        (stopped.map(|question| question.id.clone()))
-            .chain(replied.map(|question| question.id.clone()))
-            .collect()
+        (
+            stopped.map(|question| question.id.clone()).collect(),
+            replied.map(|question| question.id.clone()).collect(),
+        )
     }
 
     pub(crate) fn is_open(&self, id: &str) -> bool {
-        (self.state.locked().open.iter()).any(|question| question.id == id)
+        let state = self.state.locked();
+        (state.open.iter().map(|question| &question.id))
+            .chain(state.reply_questions.iter().map(|question| &question.id))
+            .any(|open| open == id)
     }
 
     pub(crate) fn blocks_on_person(&self, agent_id: &str) -> bool {
@@ -913,10 +919,8 @@ impl Questions {
                 || question.approval.is_some()
                 || open.contains(&question.id)
         });
-        if state.open.len() != before {
+        if state.open.len() != before || state.reply_questions.len() != replies {
             self.changed(&mut state);
-        } else if state.reply_questions.len() != replies {
-            self.shown_changed(&mut state);
         }
     }
 
@@ -2062,7 +2066,7 @@ pub(crate) fn asked_in_reply(core: &Arc<Core>, agent_id: &str) {
         .reply_questions
         .retain(|asked| asked.agent_id != agent_id);
     state.reply_questions.extend(asked);
-    questions.shown_changed(&mut state);
+    questions.changed(&mut state);
 }
 
 /// A choice the reply leaves to the person, as the options they pick from.
@@ -2456,7 +2460,7 @@ async fn answer_replies(core: &Arc<Core>, given: Vec<AnswerParams>) -> Result<()
                 (asker, theirs)
             })
             .collect();
-        questions.shown_changed(&mut state);
+        questions.changed(&mut state);
         ready
     };
     let note = "The person answered what you asked as your last turn ended; go on with it.";
@@ -2481,7 +2485,7 @@ async fn answer_replies(core: &Arc<Core>, given: Vec<AnswerParams>) -> Result<()
                     ..question
                 });
                 state.reply_questions.extend(reopened);
-                questions.shown_changed(&mut state);
+                questions.changed(&mut state);
             }
             return Err(error);
         }
@@ -2501,7 +2505,7 @@ pub(crate) fn held_answers(core: &Core, agent_id: &str) -> Vec<ChatContext> {
             .partition(|question| question.agent_id == agent_id);
         state.reply_questions = rest;
         if !theirs.is_empty() {
-            questions.shown_changed(&mut state);
+            questions.changed(&mut state);
         }
         theirs
     };
@@ -2765,9 +2769,7 @@ pub(crate) fn settle(core: &Arc<Core>) {
         state
             .reply_questions
             .retain(|question| !gone.contains(&question.agent_id));
-        if state.reply_questions.len() != reply_questions {
-            core.harness().questions.shown_changed(&mut state);
-        }
+        let replies_gone = state.reply_questions.len() != reply_questions;
         let mut changed = state.open.len() != before || state.answered.len() != answered;
         for question in &mut state.open {
             let Stage::Lead {
@@ -2817,8 +2819,10 @@ pub(crate) fn settle(core: &Arc<Core>) {
         state.open = open;
         changed |= !stands.is_empty() || !left.is_empty();
         standing = stands;
-        if changed {
+        if changed || replies_gone {
             core.harness().questions.changed(&mut state);
+        }
+        if changed {
             core.boards().wake.now();
         }
     }
