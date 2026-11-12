@@ -534,7 +534,7 @@ fn context(item: &StashItem) -> Option<ChatContext> {
 
 async fn download(core: &Core, item: &StashItem) -> CoreResult<PathBuf> {
     let dir = core
-        .config
+        .config()
         .attachment_dir
         .clone()
         .ok_or_else(|| CoreError::from("this host has nowhere to keep files"))?;

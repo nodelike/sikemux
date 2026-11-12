@@ -66,7 +66,7 @@ fn descriptor(core: &Core, port: u16, token: &str) -> CliEndpointDescriptor {
         pid: std::process::id(),
         port,
         token: token.to_owned(),
-        version: core.config.build.version.clone(),
+        version: core.config().build.version.clone(),
     }
 }
 
@@ -283,7 +283,7 @@ async fn serve(core: Arc<Core>, stream: TcpStream, secret: &str, port: u16) {
         CliClientCommand::Ping { protocol, token } => {
             authenticate(protocol, &token, secret).map(|()| CliServerResponse::Pong {
                 protocol: CLI_PROTOCOL_VERSION,
-                version: core.config.build.version.clone(),
+                version: core.config().build.version.clone(),
                 window: core.window().is_open(),
             })
         }

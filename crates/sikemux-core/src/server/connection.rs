@@ -263,7 +263,7 @@ async fn handshake(
                     protocol: PROTOCOL.into(),
                     version: agreed,
                     pid,
-                    build: core.config.build.clone(),
+                    build: core.config().build.clone(),
                 },
                 None => ServerMessage::HelloRejected {
                     protocol: PROTOCOL.into(),

@@ -148,23 +148,23 @@ use std::os::fd::AsRawFd;
 use std::os::unix::fs::{DirBuilderExt, FileExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, OnceLock, RwLock, Weak};
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use std::time::{Duration, Instant};
 
 use sikemux_process::sync::{Locked, Shared};
 use sikemux_pty::agent_detection::ManifestRegistry;
 pub use sikemux_pty::agent_detection::{ManifestReloadReport, ManifestSourceKind};
 
-use sikemux_pty::error::PtyError;
 use sikemux_pty::process::DRAIN_GRACE;
 use sikemux_pty::task::{
     task_reclamation_plan, TaskRetentionCandidate, MAX_RETAINED_EXITED_TASK_PTYS,
 };
-use tokio::sync::{watch, Notify};
+use tokio::sync::Notify;
 
 use crate::client::{probe, ProbeError};
-use serde_json::Value;
-use sikemux_wire::protocol::{BuildIdentity, ErrorKind, Event, SessionId};
+use sikemux_wire::protocol::{BuildIdentity, Event, SessionId};
+
+pub(crate) use sikemux_kernel::{Core, CoreError, CoreResult, Listening};
 
 use changed::What;
 use connection::{ClientConn, ClientId};
@@ -275,118 +275,6 @@ pub enum ServerError {
     Io(#[from] std::io::Error),
 }
 
-#[derive(Debug)]
-pub(crate) struct CoreError {
-    message: String,
-    kind: Option<ErrorKind>,
-    detail: Option<Value>,
-    /// The network failed, not the other side, so asking again later may well work.
-    unreachable: bool,
-}
-
-impl std::fmt::Display for CoreError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.message)
-    }
-}
-
-impl CoreError {
-    fn pty(error: impl std::fmt::Display) -> Self {
-        format!("pty: {error}").into()
-    }
-
-    /// A failure a client branches on.
-    pub(crate) fn of(kind: ErrorKind, message: impl Into<String>) -> Self {
-        Self {
-            message: message.into(),
-            kind: Some(kind),
-            detail: None,
-            unreachable: false,
-        }
-    }
-
-    fn with_detail(self, detail: Value) -> Self {
-        Self {
-            detail: Some(detail),
-            ..self
-        }
-    }
-
-    /// The network failed on the way to `what`, with every cause it gave.
-    pub(crate) fn unreachable(what: &str, error: &dyn std::error::Error) -> Self {
-        let mut message = format!("{what}: {error}");
-        let mut cause = error.source();
-        while let Some(inner) = cause {
-            message.push_str(": ");
-            message.push_str(&inner.to_string());
-            cause = inner.source();
-        }
-        Self {
-            unreachable: true,
-            ..Self::from(message)
-        }
-    }
-
-    pub(crate) fn is_unreachable(&self) -> bool {
-        self.unreachable
-    }
-
-    pub(crate) fn unknown_method(method: &str) -> Self {
-        Self::of(
-            ErrorKind::UnknownMethod,
-            format!("this host does not know {method}"),
-        )
-    }
-}
-
-impl From<&str> for CoreError {
-    fn from(message: &str) -> Self {
-        message.to_owned().into()
-    }
-}
-
-impl From<String> for CoreError {
-    fn from(message: String) -> Self {
-        Self {
-            message,
-            kind: None,
-            detail: None,
-            unreachable: false,
-        }
-    }
-}
-
-impl From<crate::files::Error> for CoreError {
-    fn from(error: crate::files::Error) -> Self {
-        Self {
-            message: error.message,
-            kind: error.kind,
-            detail: None,
-            unreachable: false,
-        }
-    }
-}
-
-impl From<PtyError> for CoreError {
-    fn from(error: PtyError) -> Self {
-        error.to_string().into()
-    }
-}
-
-impl From<std::io::Error> for CoreError {
-    fn from(error: std::io::Error) -> Self {
-        format!("io: {error}").into()
-    }
-}
-
-impl From<serde_json::Error> for CoreError {
-    fn from(error: serde_json::Error) -> Self {
-        format!("json: {error}").into()
-    }
-}
-
-pub(crate) type CoreResult<T> = Result<T, CoreError>;
-
 /// Counts launching, live and retained sessions, so the PTY budget holds even
 /// while a session is between being spawned and being published.
 pub(crate) struct Capacity {
@@ -413,53 +301,18 @@ impl Drop for CapacityPermit {
     }
 }
 
-/// What this core listens on, which a hand-over passes to its replacement.
-pub(crate) struct Listening {
-    pub listener_fd: std::os::fd::RawFd,
-    pub lock_fd: std::os::fd::RawFd,
-}
-
-pub(crate) struct Core {
-    me: Weak<Core>,
-    /// When this core's clock reads zero, which session times count from.
-    started: Instant,
-    shutdown: watch::Sender<bool>,
-    pub(crate) config: ServerConfig,
-    pub(crate) listening: Listening,
-    /// What each feature keeps, read through [`parts::Parts`].
-    parts: parts::Fields,
-}
-
 /// Session and window call ids start from the clock, so an id a client still
 /// holds from a core that has since restarted never names a new one.
 fn first_session_id() -> SessionId {
     sikemux_process::clock::epoch_ms().max(1)
 }
 
-impl Core {
-    /// The core's own identity for a session it spawns itself, or for a
-    /// device on another machine, whose paths mean nothing here.
-    pub(crate) fn launch_identity(&self) -> sikemux_wire::protocol::LaunchIdentity {
-        sikemux_wire::protocol::LaunchIdentity {
-            version: self.config.build.version.clone(),
-            cli_executable: std::env::current_exe().ok(),
-            cli_endpoint: self.config.cli_endpoint.clone(),
-        }
-    }
-
-    /// This core, for work that outlives the call it starts in.
-    pub(crate) fn arc(&self) -> Option<Arc<Core>> {
-        self.me.upgrade()
-    }
-
-    /// Milliseconds on this core's clock, which session times are stamped in.
-    pub(crate) fn uptime_ms(&self) -> u64 {
-        self.started.elapsed().as_millis() as u64
-    }
-}
-
 /// What a running core does with its sessions, its clients and its own stopping.
 pub(crate) trait ServerCore {
+    /// The core's own identity for a session it spawns itself, or for a
+    /// device on another machine, whose paths mean nothing here.
+    fn launch_identity(&self) -> sikemux_wire::protocol::LaunchIdentity;
+
     #[cfg(test)]
     fn new(build: BuildIdentity, data_dir: Option<&Path>) -> Result<Arc<Self>, ServerError>;
 
@@ -567,6 +420,14 @@ pub(crate) trait ServerCore {
 }
 
 impl ServerCore for Core {
+    fn launch_identity(&self) -> sikemux_wire::protocol::LaunchIdentity {
+        sikemux_wire::protocol::LaunchIdentity {
+            version: self.config().build.version.clone(),
+            cli_executable: std::env::current_exe().ok(),
+            cli_endpoint: self.config().cli_endpoint.clone(),
+        }
+    }
+
     #[cfg(test)]
     fn new(build: BuildIdentity, data_dir: Option<&Path>) -> Result<Arc<Self>, ServerError> {
         sikemux_process::user_environment::search_path_only_from_now();
@@ -618,13 +479,9 @@ impl ServerCore for Core {
         let person_calls = person_calls::PersonCalls::new(data_dir, activity_log.clone(), |id| {
             harness.questions.is_open(id)
         });
-        let core = Arc::new_cyclic(|me| Self {
-            me: me.clone(),
-            started,
-            shutdown: watch::channel(false).0,
-            config,
-            listening,
-            parts: parts::Fields {
+        let core = Core::build(started, listening, |me| {
+            Box::new(parts::Fields {
+                config,
                 sessions: Mutex::new(HashMap::new()),
                 next_session_id: AtomicU64::new(first_session_id()),
                 capacity: Arc::new(Capacity {
@@ -704,7 +561,7 @@ impl ServerCore for Core {
                 mcp_apps: mcp_apps::McpApps::new(data_dir),
                 clones: new_project::Clones::default(),
                 chiefs: chief::Chiefs::new(data_dir),
-            },
+            })
         });
         from_app::carry(&core, data_dir);
         pictures::tidy(&core, false);
@@ -1020,7 +877,7 @@ impl ServerCore for Core {
     }
 
     fn begin_shutdown(&self) {
-        self.shutdown.send_replace(true);
+        self.shutdown().send_replace(true);
     }
 
     async fn stop_everything(self: &Arc<Self>) {
@@ -1194,7 +1051,7 @@ pub async fn serve(config: ServerConfig) -> Result<(), ServerError> {
 }
 
 pub(crate) async fn start_tools(core: &Arc<Core>) -> Option<tools::ToolEndpoint> {
-    let path = core.config.cli_endpoint.clone()?;
+    let path = core.config().cli_endpoint.clone()?;
     tools::ToolEndpoint::start(core.clone(), path)
         .await
         .inspect_err(|error| eprintln!("sikemux core: agents' tools are unavailable: {error}"))
@@ -1208,7 +1065,7 @@ pub(crate) async fn run_core(
     listener: std::os::unix::net::UnixListener,
     lock: File,
 ) -> Result<(), ServerError> {
-    let config = core.config.clone();
+    let config = core.config().clone();
     core.chats().clear_history();
     local_peer::settle();
     listener.set_nonblocking(true)?;
@@ -1240,7 +1097,7 @@ pub(crate) async fn run_core(
         tokio::spawn(sweep(core.clone())),
         tokio::spawn(network_watch::run(core.clone())),
     ]);
-    let mut shutdown = core.shutdown.subscribe();
+    let mut shutdown = core.shutdown().subscribe();
     let mut frozen = core.updating().watch();
     crate::waiting::wake(&config.socket);
     let mut ticker = tokio::time::interval(

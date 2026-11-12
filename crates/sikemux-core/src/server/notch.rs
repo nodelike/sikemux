@@ -10,7 +10,7 @@ use crate::server::parts::Parts;
 pub(crate) fn follow(core: &Core) {
     #[cfg(target_os = "macos")]
     {
-        let socket = core.config.socket.clone();
+        let socket = core.config().socket.clone();
         let enabled = core.preferences().get().notch.enabled;
         tokio::task::spawn_blocking(move || {
             if let Err(error) = mac::configure(&socket, enabled) {

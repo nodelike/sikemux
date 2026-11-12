@@ -9888,6 +9888,7 @@ dependencies = [
  "sikemux-fold",
  "sikemux-git",
  "sikemux-grid",
+ "sikemux-kernel",
  "sikemux-keychain",
  "sikemux-loopback",
  "sikemux-markdown",
@@ -10102,6 +10103,18 @@ dependencies = [
  "tempfile",
  "tokio",
  "uuid",
+ "workspace-hack",
+]
+
+[[package]]
+name = "sikemux-kernel"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "sikemux-git",
+ "sikemux-pty",
+ "sikemux-wire",
+ "tokio",
  "workspace-hack",
 ]
 

@@ -487,10 +487,10 @@ fn refresh_host_now(core: &Arc<Core>, project: String) {
 /// Watches the workspace's projects as they are now, telling every client
 /// when one moves.
 pub(crate) fn follow_projects(core: &Core) {
-    let Some(core) = core.me.upgrade() else {
+    let Some(core) = core.arc() else {
         return;
     };
-    let weak: Weak<Core> = core.me.clone();
+    let weak: Weak<Core> = core.weak();
     let changed: watch::Changed = Arc::new(move |projects, paths| {
         let Some(core) = weak.upgrade() else { return };
         let state_moved = paths

@@ -4,6 +4,7 @@
 
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
+use crate::server::parts::Parts;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -160,7 +161,7 @@ async fn on_library<T: Send + 'static>(
     work: impl FnOnce(&Path) -> CoreResult<T> + Send + 'static,
 ) -> CoreResult<T> {
     let data_dir = core
-        .config
+        .config()
         .data_dir
         .clone()
         .ok_or_else(|| CoreError::from("this host keeps no skills"))?;

@@ -148,7 +148,7 @@ impl std::fmt::Debug for Provided {
 }
 
 fn plugins(core: &Core, plugin: &str) -> Result<&'static dyn Plugins, PluginFailure> {
-    present(core.config.plugins, plugin)
+    present(core.config().plugins, plugin)
 }
 
 fn present(plugins: Option<Provided>, plugin: &str) -> Result<&'static dyn Plugins, PluginFailure> {
@@ -164,7 +164,7 @@ fn present(plugins: Option<Provided>, plugin: &str) -> Result<&'static dyn Plugi
 /// What the plugins set for an agent, terminal or task started in `cwd`,
 /// asked of the project that holds it.
 pub(crate) fn agent_environment(core: &Core, cwd: &Path) -> BTreeMap<String, String> {
-    let Some(Provided(plugins)) = core.config.plugins else {
+    let Some(Provided(plugins)) = core.config().plugins else {
         return BTreeMap::new();
     };
     let project = super::workspace::project_of(cwd, &core.workspaces().project_paths());
@@ -177,7 +177,7 @@ pub(crate) async fn call(
     method: &str,
     params: Value,
 ) -> Result<Value, PluginFailure> {
-    call_on(core.config.plugins, plugin, method, params).await
+    call_on(core.config().plugins, plugin, method, params).await
 }
 
 /// Calls `method` of `plugin` among `plugins`, for what holds them without the core.
@@ -223,7 +223,7 @@ pub(crate) async fn window_call(core: &Core, call: PluginCall) -> PluginOutcome 
 
 pub(crate) fn tell_agents_if_theirs(core: &Core, plugin: &str) {
     if core
-        .config
+        .config()
         .plugins
         .is_some_and(|Provided(plugins)| plugins.offers_agent_tools(plugin))
     {
@@ -232,7 +232,7 @@ pub(crate) fn tell_agents_if_theirs(core: &Core, plugin: &str) {
 }
 
 pub(crate) fn manifests(core: &Core) -> Vec<&'static Manifest> {
-    core.config
+    core.config()
         .plugins
         .map(|Provided(plugins)| plugins.manifests())
         .unwrap_or_default()
@@ -264,7 +264,7 @@ pub struct Disabled {
 }
 
 pub(crate) fn set_disabled(core: &Core, disabled: Disabled) {
-    if let Some(Provided(plugins)) = core.config.plugins {
+    if let Some(Provided(plugins)) = core.config().plugins {
         plugins.set_disabled(disabled.ids);
         core.harness().plugins_changed();
         core.changed(What::Read(Topic::Plugins));
@@ -381,7 +381,7 @@ pub(crate) fn sign_in_moved(core: &Core, plugin: &str, method: &str) {
 
 /// The plugins the person switched off, which every client shows.
 pub(crate) fn disabled(core: &Core) -> Vec<String> {
-    disabled_in(core.config.plugins)
+    disabled_in(core.config().plugins)
 }
 
 pub(crate) fn disabled_in(plugins: Option<Provided>) -> Vec<String> {
@@ -434,7 +434,7 @@ pub(crate) fn stream(
 }
 
 pub(crate) async fn agent_tools(core: &Core, project: &str) -> Result<Value, String> {
-    let Some(Provided(plugins)) = core.config.plugins else {
+    let Some(Provided(plugins)) = core.config().plugins else {
         return Ok(Value::Array(Vec::new()));
     };
     let project = PathBuf::from(project);
@@ -459,7 +459,7 @@ pub(crate) async fn call_agent_tool(
         .get("arguments")
         .cloned()
         .unwrap_or_else(|| json!({}));
-    let Some(Provided(plugins)) = core.config.plugins else {
+    let Some(Provided(plugins)) = core.config().plugins else {
         return Err("plugins are not loaded".into());
     };
     let arguments = with_project_repo(core, &request.project, name, arguments).await?;
@@ -560,7 +560,7 @@ pub(crate) async fn run_agent_tool(
     arguments: Value,
     deploy: Option<super::ship::Deploy>,
 ) -> Result<Value, String> {
-    let Some(Provided(plugins)) = core.config.plugins else {
+    let Some(Provided(plugins)) = core.config().plugins else {
         return Err("plugins are not loaded".into());
     };
     let answer = plugins

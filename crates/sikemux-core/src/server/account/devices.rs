@@ -176,7 +176,7 @@ pub(crate) async fn app_device_key(params: AppKeyParams) -> CoreResult<String> {
 const NAME_SENT_FILE: &str = "account-host-name";
 
 fn name_sent_path(core: &Core) -> Option<std::path::PathBuf> {
-    Some(core.config.data_dir.as_ref()?.join(NAME_SENT_FILE))
+    Some(core.config().data_dir.as_ref()?.join(NAME_SENT_FILE))
 }
 
 pub(crate) async fn remember_name_sent(core: &Core, name: &str) {

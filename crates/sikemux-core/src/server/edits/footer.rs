@@ -276,7 +276,7 @@ pub(super) fn agent(core: &Core, author: &Author) -> Agent {
         model: chat
             .and_then(|chat| chat.current_launch().model)
             .or_else(|| author.model.clone()),
-        sikemux: Some(core.config.build.version.clone()),
+        sikemux: Some(core.config().build.version.clone()),
         session: core.names().last_session(&author.agent_id),
         chat: author.agent_id.clone(),
     }
@@ -304,7 +304,7 @@ pub(super) fn known(core: &Core, dir: &Path, agent_id: &str) -> Option<Agent> {
         cli,
         cli_version: chat.as_ref().and_then(|chat| chat.cli_version()),
         model: chat.and_then(|chat| chat.current_launch().model),
-        sikemux: Some(core.config.build.version.clone()),
+        sikemux: Some(core.config().build.version.clone()),
         session: core.names().last_session(agent_id),
         chat: agent_id.to_owned(),
     })

@@ -220,7 +220,7 @@ pub(crate) async fn chat_file(
     peer: &Peer,
     params: ChatFileParams,
 ) -> CoreResult<ChatFile> {
-    let pasted = core.config.attachment_dir.clone();
+    let pasted = core.config().attachment_dir.clone();
     let path = params.path;
     let kept = match pasted {
         Some(dir) => {
@@ -266,7 +266,7 @@ pub struct Kept {
 /// program in the terminal can be given its path.
 pub(crate) async fn keep_pasted(core: &Core, params: KeepPastedParams) -> CoreResult<Kept> {
     let dir = core
-        .config
+        .config()
         .attachment_dir
         .clone()
         .ok_or_else(|| CoreError::from("this host has nowhere to keep files"))?;

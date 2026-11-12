@@ -150,7 +150,7 @@ pub(super) async fn run(
                 core.hosts().wake.now();
                 super::notch::follow(&core);
                 core.usage_wake().notify_one();
-                crate::waiting::wake(&core.config.socket);
+                crate::waiting::wake(&core.config().socket);
                 core.changed(What::Agents);
                 client.answer::<ask::RegisterWindow>(request_id, Ok(()));
             }
@@ -383,7 +383,7 @@ pub(super) async fn run(
                 data,
             }) => {
                 let dir = core
-                    .config
+                    .config()
                     .attachment_dir
                     .clone()
                     .ok_or_else(|| CoreError::from("this host has nowhere to keep files"));

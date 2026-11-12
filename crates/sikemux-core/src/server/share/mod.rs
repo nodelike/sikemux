@@ -644,7 +644,7 @@ pub(crate) fn dismiss_guest(core: &Core, params: GuestMessageParams) {
 async fn pasted_picture(core: &Core, path: PathBuf) -> CoreResult<String> {
     use base64::Engine;
     let dir = core
-        .config
+        .config()
         .attachment_dir
         .clone()
         .ok_or("this host keeps no pasted pictures")?;

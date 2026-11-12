@@ -7,7 +7,7 @@ pub(super) const SKILL_LOADS: &str =
 
 pub(super) async fn skills_call(core: &Core, request: &HarnessRequest) -> Result<Value, String> {
     let data_dir = core
-        .config
+        .config()
         .data_dir
         .clone()
         .ok_or("Skills need Sikemux's data folder, and this core was started without one")?;

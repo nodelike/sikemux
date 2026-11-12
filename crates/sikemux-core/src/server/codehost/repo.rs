@@ -102,7 +102,7 @@ impl Repo {
 impl AutoPull {
     fn repo(&self, core: &Core) -> Result<Repo, String> {
         Ok(Repo {
-            plugins: core.config.plugins,
+            plugins: core.config().plugins,
             host: host(core, &self.host)?,
             owner: self.owner.clone(),
             name: self.name.clone(),
@@ -211,7 +211,7 @@ pub(crate) async fn find(
         ));
     }
     Ok(Repo {
-        plugins: core.config.plugins,
+        plugins: core.config().plugins,
         host,
         owner,
         name,

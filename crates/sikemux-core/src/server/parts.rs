@@ -12,7 +12,10 @@ use tokio::sync::Notify;
 
 use super::connection::{ClientConn, ClientId};
 use super::session::Session;
-use super::{changed, model_proxy, ports, preferences, streams, themes, waits, window, Capacity};
+use super::{
+    changed, model_proxy, ports, preferences, streams, themes, waits, window, Capacity,
+    ServerConfig,
+};
 
 use super::{
     account, activity_log, board, builds, chat, checks, chief, codehost, collisions, device_view,
@@ -24,6 +27,7 @@ use super::{
 };
 
 pub(crate) struct Fields {
+    pub(super) config: ServerConfig,
     pub(super) sessions: Mutex<HashMap<SessionId, Arc<Session>>>,
     pub(super) next_session_id: AtomicU64,
     pub(super) capacity: Arc<Capacity>,
@@ -120,6 +124,7 @@ pub(crate) struct Fields {
 }
 
 pub(crate) trait Parts {
+    fn config(&self) -> &ServerConfig;
     fn sessions(&self) -> &Mutex<HashMap<SessionId, Arc<Session>>>;
     fn next_session_id(&self) -> &AtomicU64;
     fn capacity(&self) -> &Arc<Capacity>;
@@ -199,307 +204,311 @@ pub(crate) trait Parts {
 }
 
 impl Parts for Core {
+    fn config(&self) -> &ServerConfig {
+        &self.kept::<Fields>().config
+    }
+
     fn sessions(&self) -> &Mutex<HashMap<SessionId, Arc<Session>>> {
-        &self.parts.sessions
+        &self.kept::<Fields>().sessions
     }
 
     fn next_session_id(&self) -> &AtomicU64 {
-        &self.parts.next_session_id
+        &self.kept::<Fields>().next_session_id
     }
 
     fn capacity(&self) -> &Arc<Capacity> {
-        &self.parts.capacity
+        &self.kept::<Fields>().capacity
     }
 
     fn connections(&self) -> &Mutex<HashMap<ClientId, Arc<ClientConn>>> {
-        &self.parts.connections
+        &self.kept::<Fields>().connections
     }
 
     fn next_client_id(&self) -> &AtomicU64 {
-        &self.parts.next_client_id
+        &self.kept::<Fields>().next_client_id
     }
 
     fn detection(&self) -> &RwLock<ManifestRegistry> {
-        &self.parts.detection
+        &self.kept::<Fields>().detection
     }
 
     fn manifest_folder(&self) -> &Mutex<Option<PathBuf>> {
-        &self.parts.manifest_folder
+        &self.kept::<Fields>().manifest_folder
     }
 
     fn window(&self) -> &window::Window {
-        &self.parts.window
+        &self.kept::<Fields>().window
     }
 
     fn model_proxy(&self) -> &model_proxy::ModelProxy {
-        &self.parts.model_proxy
+        &self.kept::<Fields>().model_proxy
     }
 
     fn waits(&self) -> &waits::Waits {
-        &self.parts.waits
+        &self.kept::<Fields>().waits
     }
 
     fn changes(&self) -> &changed::Changes {
-        &self.parts.changes
+        &self.kept::<Fields>().changes
     }
 
     fn ports(&self) -> &ports::Ports {
-        &self.parts.ports
+        &self.kept::<Fields>().ports
     }
 
     fn usage_wake(&self) -> &Notify {
-        &self.parts.usage_wake
+        &self.kept::<Fields>().usage_wake
     }
 
     fn rail_numbers(&self) -> &Mutex<BTreeSet<u32>> {
-        &self.parts.rail_numbers
+        &self.kept::<Fields>().rail_numbers
     }
 
     fn ssh_watch(&self) -> &OnceLock<Option<::notify::RecommendedWatcher>> {
-        &self.parts.ssh_watch
+        &self.kept::<Fields>().ssh_watch
     }
 
     fn preferences(&self) -> &preferences::Prefs {
-        &self.parts.preferences
+        &self.kept::<Fields>().preferences
     }
 
     fn streams(&self) -> &streams::Streams {
-        &self.parts.streams
+        &self.kept::<Fields>().streams
     }
 
     fn look(&self) -> &themes::Look {
-        &self.parts.look
+        &self.kept::<Fields>().look
     }
 
     fn harness(&self) -> &harness::Harness {
-        &self.parts.harness
+        &self.kept::<Fields>().harness
     }
 
     fn updating(&self) -> &upgrade::Updating {
-        &self.parts.updating
+        &self.kept::<Fields>().updating
     }
 
     fn tools(&self) -> &Mutex<Option<tools::ToolEndpoint>> {
-        &self.parts.tools
+        &self.kept::<Fields>().tools
     }
 
     fn chats(&self) -> &chat::Chats {
-        &self.parts.chats
+        &self.kept::<Fields>().chats
     }
 
     fn remote(&self) -> &remote::Remote {
-        &self.parts.remote
+        &self.kept::<Fields>().remote
     }
 
     fn outside(&self) -> &outside::Outside {
-        &self.parts.outside
+        &self.kept::<Fields>().outside
     }
 
     fn shares(&self) -> &share::Shares {
-        &self.parts.shares
+        &self.kept::<Fields>().shares
     }
 
     fn hooks(&self) -> &hooks::Hooks {
-        &self.parts.hooks
+        &self.kept::<Fields>().hooks
     }
 
     fn workspaces(&self) -> &workspace::Workspaces {
-        &self.parts.workspaces
+        &self.kept::<Fields>().workspaces
     }
 
     fn seen(&self) -> &seen::Seen {
-        &self.parts.seen
+        &self.kept::<Fields>().seen
     }
 
     fn settling(&self) -> &settling::Settling {
-        &self.parts.settling
+        &self.kept::<Fields>().settling
     }
 
     fn stalls(&self) -> &stalls::Stalls {
-        &self.parts.stalls
+        &self.kept::<Fields>().stalls
     }
 
     fn lifecycle(&self) -> &lifecycle::Lifecycle {
-        &self.parts.lifecycle
+        &self.kept::<Fields>().lifecycle
     }
 
     fn ship(&self) -> &ship::Ships {
-        &self.parts.ship
+        &self.kept::<Fields>().ship
     }
 
     fn person_calls(&self) -> &person_calls::PersonCalls {
-        &self.parts.person_calls
+        &self.kept::<Fields>().person_calls
     }
 
     fn places(&self) -> &places::store::Store {
-        &self.parts.places
+        &self.kept::<Fields>().places
     }
 
     fn pins(&self) -> &pins::Pins {
-        &self.parts.pins
+        &self.kept::<Fields>().pins
     }
 
     fn build_outputs(&self) -> &worktree::build_output::BuildOutputs {
-        &self.parts.build_outputs
+        &self.kept::<Fields>().build_outputs
     }
 
     fn builds(&self) -> &builds::Builds {
-        &self.parts.builds
+        &self.kept::<Fields>().builds
     }
 
     fn session_watch(&self) -> &session_watch::SessionWatch {
-        &self.parts.session_watch
+        &self.kept::<Fields>().session_watch
     }
 
     fn activity_log(&self) -> &Arc<activity_log::ActivityLog> {
-        &self.parts.activity_log
+        &self.kept::<Fields>().activity_log
     }
 
     fn device_view(&self) -> &device_view::DeviceViews {
-        &self.parts.device_view
+        &self.kept::<Fields>().device_view
     }
 
     fn host_watch(&self) -> &host_stats::HostWatch {
-        &self.parts.host_watch
+        &self.kept::<Fields>().host_watch
     }
 
     fn names(&self) -> &names::Names {
-        &self.parts.names
+        &self.kept::<Fields>().names
     }
 
     fn boards(&self) -> &board::Boards {
-        &self.parts.boards
+        &self.kept::<Fields>().boards
     }
 
     fn goal_summaries(&self) -> &goal_summary::Summaries {
-        &self.parts.goal_summaries
+        &self.kept::<Fields>().goal_summaries
     }
 
     fn goals(&self) -> &goals::Goals {
-        &self.parts.goals
+        &self.kept::<Fields>().goals
     }
 
     fn repo_events(&self) -> &repo_events::RepoEvents {
-        &self.parts.repo_events
+        &self.kept::<Fields>().repo_events
     }
 
     fn memory(&self) -> &memory::Memory {
-        &self.parts.memory
+        &self.kept::<Fields>().memory
     }
 
     fn triggers(&self) -> &triggers::Triggers {
-        &self.parts.triggers
+        &self.kept::<Fields>().triggers
     }
 
     fn landing(&self) -> &landing::Histories {
-        &self.parts.landing
+        &self.kept::<Fields>().landing
     }
 
     fn land_queue(&self) -> &edits::queue::LandQueue {
-        &self.parts.land_queue
+        &self.kept::<Fields>().land_queue
     }
 
     fn pictures(&self) -> &pictures::Pictures {
-        &self.parts.pictures
+        &self.kept::<Fields>().pictures
     }
 
     fn spares(&self) -> &spare::Spares {
-        &self.parts.spares
+        &self.kept::<Fields>().spares
     }
 
     fn updates(&self) -> &updates::Updates {
-        &self.parts.updates
+        &self.kept::<Fields>().updates
     }
 
     fn remote_images(&self) -> &remote_image::RemoteImages {
-        &self.parts.remote_images
+        &self.kept::<Fields>().remote_images
     }
 
     fn tasks(&self) -> &tasks::Tasks {
-        &self.parts.tasks
+        &self.kept::<Fields>().tasks
     }
 
     fn git(&self) -> &git::Projects {
-        &self.parts.git
+        &self.kept::<Fields>().git
     }
 
     fn code_host_lists(&self) -> &codehost::Lists {
-        &self.parts.code_host_lists
+        &self.kept::<Fields>().code_host_lists
     }
 
     fn open_files(&self) -> &open_files::OpenFiles {
-        &self.parts.open_files
+        &self.kept::<Fields>().open_files
     }
 
     fn layouts(&self) -> &layout::Layouts {
-        &self.parts.layouts
+        &self.kept::<Fields>().layouts
     }
 
     fn account(&self) -> &account::Account {
-        &self.parts.account
+        &self.kept::<Fields>().account
     }
 
     fn vault(&self) -> &vault::Vault {
-        &self.parts.vault
+        &self.kept::<Fields>().vault
     }
 
     fn ci(&self) -> &codehost::ci::Ci {
-        &self.parts.ci
+        &self.kept::<Fields>().ci
     }
 
     fn edits(&self) -> &edits::Edits {
-        &self.parts.edits
+        &self.kept::<Fields>().edits
     }
 
     fn collisions(&self) -> &collisions::Collisions {
-        &self.parts.collisions
+        &self.kept::<Fields>().collisions
     }
 
     fn checks(&self) -> &checks::ProjectChecks {
-        &self.parts.checks
+        &self.kept::<Fields>().checks
     }
 
     fn notify(&self) -> &notify::Notifier {
-        &self.parts.notify
+        &self.kept::<Fields>().notify
     }
 
     fn inbox(&self) -> &inbox::Turns {
-        &self.parts.inbox
+        &self.kept::<Fields>().inbox
     }
 
     fn joins(&self) -> &join::Joins {
-        &self.parts.joins
+        &self.kept::<Fields>().joins
     }
 
     fn hosts(&self) -> &hosts::Hosts {
-        &self.parts.hosts
+        &self.kept::<Fields>().hosts
     }
 
     fn faces(&self) -> &faces::Faces {
-        &self.parts.faces
+        &self.kept::<Fields>().faces
     }
 
     fn drafts(&self) -> &drafts::Drafts {
-        &self.parts.drafts
+        &self.kept::<Fields>().drafts
     }
 
     fn diagrams(&self) -> &diagrams::Diagrams {
-        &self.parts.diagrams
+        &self.kept::<Fields>().diagrams
     }
 
     fn mods(&self) -> &mods::Mods {
-        &self.parts.mods
+        &self.kept::<Fields>().mods
     }
 
     fn mcp_apps(&self) -> &mcp_apps::McpApps {
-        &self.parts.mcp_apps
+        &self.kept::<Fields>().mcp_apps
     }
 
     fn clones(&self) -> &new_project::Clones {
-        &self.parts.clones
+        &self.kept::<Fields>().clones
     }
 
     fn chiefs(&self) -> &chief::Chiefs {
-        &self.parts.chiefs
+        &self.kept::<Fields>().chiefs
     }
 }

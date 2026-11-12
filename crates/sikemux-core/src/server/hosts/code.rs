@@ -380,7 +380,7 @@ fn clone_dir(core: &Core, host: &str, code: &Code) -> PathBuf {
     };
     let digest = hex::encode(sha2::Sha256::digest(key.as_bytes()));
     let base = core
-        .config
+        .config()
         .data_dir
         .clone()
         .unwrap_or_else(std::env::temp_dir)
@@ -440,7 +440,7 @@ struct Claim {
 }
 
 fn claims_file(core: &Core) -> Option<PathBuf> {
-    core.config
+    core.config()
         .data_dir
         .as_ref()
         .map(|dir| dir.join(CLAIMS_FILE))
@@ -501,7 +501,7 @@ pub(crate) fn abandon(core: &Core, dir: &Path) {
 /// in this host's data folder, under a new name when its own is taken.
 fn opened_dir(core: &Core, code: &Code) -> Result<PathBuf, String> {
     let parent = new_project::projects_folder(core)
-        .or_else(|| core.config.data_dir.as_ref().map(|dir| dir.join(CLONES)))
+        .or_else(|| core.config().data_dir.as_ref().map(|dir| dir.join(CLONES)))
         .ok_or("this host has no folder outside a git repository to clone into")?;
     new_project::claim_folder(&parent, &folder_name(code))
 }

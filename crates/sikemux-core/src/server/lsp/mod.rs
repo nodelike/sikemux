@@ -231,8 +231,7 @@ pub(crate) fn adopt(core: &Arc<Core>, carried: Vec<held::Carried>) {
         for document in &carried {
             let server = (document.key.project.clone(), document.key.language.clone());
             if started.insert(server.clone()) {
-                if let Err(error) = lsp_start(publisher(core.me.clone()), server.0, server.1).await
-                {
+                if let Err(error) = lsp_start(publisher(core.weak()), server.0, server.1).await {
                     eprintln!("sikemux core: a language server did not start again after the update: {error}");
                 }
             }
@@ -272,7 +271,7 @@ pub(crate) async fn install(params: LspLanguage) -> CoreResult<String> {
 }
 
 pub(crate) async fn start(core: &Arc<Core>, params: LspServer) -> CoreResult<()> {
-    Ok(lsp_start(publisher(core.me.clone()), params.project, params.language).await?)
+    Ok(lsp_start(publisher(core.weak()), params.project, params.language).await?)
 }
 
 pub(crate) async fn stop(params: LspProject) -> CoreResult<()> {

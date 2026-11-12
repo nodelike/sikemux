@@ -349,7 +349,7 @@ pub(crate) fn shown(whole: &RotationBrief) -> RotationBrief {
 fn briefs_folder(core: &Core, agent_id: &str) -> Option<PathBuf> {
     let file = crate::server::kept::file_for(agent_id);
     Some(
-        core.config
+        core.config()
             .data_dir
             .as_ref()?
             .join("rotations")

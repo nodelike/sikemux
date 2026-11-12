@@ -146,7 +146,7 @@ fn released(owner: Option<&str>, has_key: bool, user_id: &str) -> bool {
 }
 
 fn folder(core: &Core) -> Option<PathBuf> {
-    Some(core.config.data_dir.as_ref()?.join(FOLDER))
+    Some(core.config().data_dir.as_ref()?.join(FOLDER))
 }
 
 async fn forget(core: &Core) -> CoreResult<()> {

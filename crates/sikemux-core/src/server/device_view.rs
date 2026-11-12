@@ -230,7 +230,7 @@ impl DeviceViewCore for Core {
             &preferences,
             &self.look().palette().tokens,
         ));
-        workspace.disabled_plugins = super::plugins::disabled_in(self.config.plugins);
+        workspace.disabled_plugins = super::plugins::disabled_in(self.config().plugins);
         self.names().fill(&mut workspace.agents);
         self.faces().fill(&mut workspace.agents);
         let accounts = self.workspaces().accounts();

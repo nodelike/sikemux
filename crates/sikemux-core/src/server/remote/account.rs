@@ -89,7 +89,7 @@ pub(crate) fn ensure_live(core: &Arc<Core>) {
     let (changed, watching) = watch::channel(());
     let app = LiveApp {
         platform: crate::server::host::PLATFORM,
-        version: core.config.build.version.clone(),
+        version: core.config().build.version.clone(),
     };
     let account = Arc::new(HostAccount(Arc::downgrade(core)));
     let outbox = inner.outbox.clone();
@@ -106,7 +106,7 @@ pub(super) fn leave_with_retired_key(core: &Arc<Core>) {
     };
     let app = LiveApp {
         platform: crate::server::host::PLATFORM,
-        version: core.config.build.version.clone(),
+        version: core.config().build.version.clone(),
     };
     let account = Arc::new(RetiredHost {
         core: Arc::downgrade(core),
@@ -313,7 +313,7 @@ pub(super) fn apply_events(core: &Core, events: &[AccountEvent]) {
                 // device that joined lately is news.
                 let lately = live::parse_rfc3339(&event.at)
                     .is_some_and(|at| epoch_ms().saturating_sub(at) < NEW_DEVICE_NEWS_MS);
-                if let (true, Some(key), Some(core)) = (lately, &event.key, core.me.upgrade()) {
+                if let (true, Some(key), Some(core)) = (lately, &event.key, core.arc()) {
                     if Some(key) != own.as_ref() {
                         crate::server::account::devices::tell_joined(&core, key.clone());
                     }

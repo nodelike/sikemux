@@ -270,10 +270,10 @@ pub(crate) fn replace_process(core: &Core, binary: &Path, handed: &mut [HandOver
         chats.push(unwritable.clone());
         *chat = HandOver::Resume(Box::new(unwritable));
     }
-    let (config, listening) = (&core.config, &core.listening);
+    let (config, listening) = (&core.config(), &core.listening);
     let state = HandoverState {
         format: RESUME_FORMAT,
-        from_build: core.config.build.clone(),
+        from_build: core.config().build.clone(),
         uptime_ms: core.uptime_ms(),
         socket: config.socket.clone(),
         listener_fd: listening.listener_fd,

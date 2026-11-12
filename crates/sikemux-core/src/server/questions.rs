@@ -2596,7 +2596,7 @@ fn with_picked(label: String, params: &AnswerParams) -> String {
 /// Lists the pictures of the choices picked among the answer's files, copied to where the
 /// chat's files are kept, so the answer shows what was picked once the question is gone.
 fn attach_picked_pictures(core: &Arc<Core>, answers: &mut [AnswerParams]) {
-    let Some(dir) = core.config.attachment_dir.as_deref() else {
+    let Some(dir) = core.config().attachment_dir.as_deref() else {
         return;
     };
     let shown: Vec<(usize, String)> = {

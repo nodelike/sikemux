@@ -87,7 +87,7 @@ fn failed(core: &Core, error: &CoreError) {
 }
 
 fn books(core: &Core) -> Vec<(String, PathBuf, &'static dyn Book)> {
-    core.config
+    core.config()
         .plugins
         .map(|Provided(plugins)| plugins.vault_books())
         .unwrap_or_default()
@@ -124,7 +124,7 @@ async fn round(core: &Arc<Core>) -> CoreResult<()> {
     let moved = core.vault().state.locked().account.as_deref() != Some(account.as_str());
     if moved {
         let reading = account.clone();
-        let data_dir = core.config.data_dir.clone();
+        let data_dir = core.config().data_dir.clone();
         let (recovery_text, kept, rules) = blocking(move || {
             let kept = local::kept_uses::<KeptUse>(data_dir.as_deref())
                 .filter(|kept| kept.account == reading)
@@ -234,7 +234,7 @@ async fn open(
 /// vault key for that key whenever it replaces it. Also drops a kept recovery key that is not
 /// this vault's, as a host that lost the race to make the vault keeps.
 async fn check_recovery_key(core: &Core, account: &str, recovery_key: &str) -> CoreResult<()> {
-    let data_dir = core.config.data_dir.clone();
+    let data_dir = core.config().data_dir.clone();
     let pinned = blocking(move || Ok(local::read(data_dir.as_deref())))
         .await?
         .filter(|local| local.account == account && !local.vault.is_empty())
@@ -725,7 +725,7 @@ async fn reconcile(
         compare
     };
     let books = books(core);
-    let data_dir = core.config.data_dir.clone();
+    let data_dir = core.config().data_dir.clone();
     let planning = (
         books.clone(),
         entries.clone(),
@@ -813,7 +813,7 @@ async fn reconcile(
         state.entries = entries.clone();
         state.reindex();
     }
-    let data_dir = core.config.data_dir.clone();
+    let data_dir = core.config().data_dir.clone();
     let me = me.to_owned();
     let mut local = plan.local;
     blocking(move || {
@@ -832,7 +832,7 @@ async fn reconcile(
 
 /// Until this host reaches the account, its keeper holds to the rules it kept when it last did.
 async fn keep_to_rules(core: &Core) {
-    let data_dir = core.config.data_dir.clone();
+    let data_dir = core.config().data_dir.clone();
     let Ok(Some(local)) = blocking(move || Ok(local::read(data_dir.as_deref()))).await else {
         return;
     };
@@ -909,7 +909,7 @@ async fn save_uses(core: &Core) {
                 .collect(),
         }
     };
-    let data_dir = core.config.data_dir.clone();
+    let data_dir = core.config().data_dir.clone();
     let saved =
         blocking(move || local::keep_uses(data_dir.as_deref(), &unsent).map_err(CoreError::from))
             .await;

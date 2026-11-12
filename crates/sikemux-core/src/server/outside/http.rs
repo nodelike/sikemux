@@ -359,7 +359,7 @@ async fn mcp(core: &Arc<Core>, base: &str, request: Request<Incoming>) -> Respon
         .unwrap_or_default();
     let params = message.get("params").cloned().unwrap_or(Value::Null);
     let result = match method {
-        "initialize" => Ok(initialize(&params, &core.config.build.version)),
+        "initialize" => Ok(initialize(&params, &core.config().build.version)),
         "ping" => Ok(json!({})),
         "tools/list" => Ok(json!({
             "tools": chats::tools(caller.access).map(|tool| json!({

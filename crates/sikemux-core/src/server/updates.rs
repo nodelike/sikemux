@@ -185,7 +185,7 @@ fn is_host() -> bool {
 fn channel(core: &Core) -> UpdateChannel {
     match (
         core.preferences().get().update_channel,
-        BuildChannel::of_release(&core.config.build.version),
+        BuildChannel::of_release(&core.config().build.version),
     ) {
         (UpdateChannel::Stable, BuildChannel::Nightly)
             if is_host() || pacman_package().is_some() =>
@@ -276,7 +276,7 @@ pub(crate) async fn serve(core: Arc<Core>) {
     };
     core.updates().edit(&core, |held| {
         held.status.updates = own_app().is_some();
-        held.status.current = core.config.build.version.clone();
+        held.status.current = core.config().build.version.clone();
         held.status.install_command = by_installer.clone();
         held.status.automatic = automatic;
         held.status.outcome = outcome;
@@ -489,7 +489,7 @@ async fn ask_root(core: &Core) -> (Vec<UpdateStep>, Option<String>) {
     refresh_outcome(core).await;
     let in_place = match &last {
         UpdateStep::Installed { version, .. } | UpdateStep::Current { version } => {
-            Some(version.clone()).filter(|version| *version != core.config.build.version)
+            Some(version.clone()).filter(|version| *version != core.config().build.version)
         }
         _ => None,
     };
@@ -542,7 +542,7 @@ fn begin_update(held: &mut Held) {
 async fn settle_own_update(core: Arc<Core>) {
     let Some(outcome) = core.updates().status().outcome.filter(|outcome| {
         outcome.state == UpdateOutcomeState::Pending
-            && outcome.to.as_deref() == Some(core.config.build.version.as_str())
+            && outcome.to.as_deref() == Some(core.config().build.version.as_str())
     }) else {
         return;
     };

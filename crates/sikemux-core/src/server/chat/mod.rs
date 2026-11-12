@@ -768,7 +768,7 @@ impl Chat {
         let first = self
             .core
             .upgrade()
-            .map_or(RESTART_WAIT, |core| core.config.restart_wait);
+            .map_or(RESTART_WAIT, |core| core.config().restart_wait);
         let wait = first * (1 << restarts.len());
         restarts.push_back(now);
         Some(wait)

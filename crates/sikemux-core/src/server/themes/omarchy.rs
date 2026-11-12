@@ -176,7 +176,7 @@ fn wear_background(core: &Arc<Core>) {
     if !core.preferences().get().pane_image_follows_omarchy {
         return;
     }
-    let (Some(current), Some(data_dir)) = (current(), core.config.data_dir.as_deref()) else {
+    let (Some(current), Some(data_dir)) = (current(), core.config().data_dir.as_deref()) else {
         return;
     };
     let _copying = core.look().copying_omarchy_background.locked();

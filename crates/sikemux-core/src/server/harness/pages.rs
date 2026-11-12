@@ -29,7 +29,7 @@ pub(super) async fn show_page(
         Some(_) => Some(integer(&request.params, "height", 0, 4000, 1)? as u32),
     };
     let dir = core
-        .config
+        .config()
         .data_dir
         .clone()
         .ok_or("Pages need Sikemux's data folder, and this core was started without one")?
@@ -101,7 +101,7 @@ pub(crate) async fn read_page(core: &Core, params: PageParams) -> CoreResult<Pag
         return Err("that is not a page's id".into());
     }
     let dir = core
-        .config
+        .config()
         .data_dir
         .clone()
         .ok_or("this core keeps no pages")?

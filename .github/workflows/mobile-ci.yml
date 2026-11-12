@@ -13,6 +13,7 @@ on:
       - "crates/sikemux-corekit/**"
       - "crates/sikemux-git/**"
       - "crates/sikemux-agents/**"
+      - "crates/sikemux-kernel/**"
       - "crates/sikemux-client/**"
       - "crates/sikemux-wire/**"
       - "helpers/notch/Sources/NotchKit/**"

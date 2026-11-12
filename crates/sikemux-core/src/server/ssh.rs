@@ -185,7 +185,7 @@ fn watch(core: &Core) {
     let Some(folder) = config_path().and_then(|path| path.parent().map(PathBuf::from)) else {
         return;
     };
-    let weak: Weak<Core> = core.me.clone();
+    let weak: Weak<Core> = core.weak();
     core.ssh_watch().get_or_init(|| {
         let mut watcher =
             notify::recommended_watcher(move |event: notify::Result<notify::Event>| {

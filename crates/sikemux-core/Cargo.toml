@@ -44,6 +44,7 @@ uuid = { version = "1", features = ["v4", "v7"] }
 base64 = "0.22"
 sikemux-client = { path = "../sikemux-client" }
 sikemux-git = { path = "../sikemux-git" }
+sikemux-kernel = { path = "../sikemux-kernel" }
 sikemux-keychain = { path = "../sikemux-keychain" }
 sikemux-loopback = { path = "../sikemux-loopback" }
 futures-util = { version = "0.3", default-features = false, features = ["sink"] }

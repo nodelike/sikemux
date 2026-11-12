@@ -46,7 +46,7 @@ pub struct WhatsNew {
 
 pub(crate) fn whats_new(core: &Core) -> WhatsNew {
     let preferences = core.preferences().get();
-    let version = core.config.build.version.clone();
+    let version = core.config().build.version.clone();
     WhatsNew {
         unseen: preferences.onboarding_complete && preferences.last_seen_version != version,
         version,
@@ -59,7 +59,7 @@ pub(crate) fn introduced(core: &Core) -> CoreResult<()> {
     let preferences = core.preferences().get();
     if preferences.onboarding_complete && preferences.last_seen_version.is_empty() {
         core.preferences().change(PreferenceChange::LastSeenVersion(
-            core.config.build.version.clone(),
+            core.config().build.version.clone(),
         ));
     }
     Ok(())
