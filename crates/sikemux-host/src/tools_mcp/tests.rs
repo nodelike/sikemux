@@ -513,7 +513,7 @@ fn bad_arguments_are_named_the_way_the_agent_learned_them() {
     );
     let mixed = family(json!({ "action": "click", "url": "x" }));
     assert!(
-        mixed.contains("('url' was unexpected); 'url' goes with navigate"),
+        mixed.starts_with("Input validation error: browser click: 'url' goes with navigate"),
         "{mixed}"
     );
     assert!(family(json!({ "query": "x" })).contains("'action' is a required property"));

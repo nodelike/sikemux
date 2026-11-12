@@ -87,7 +87,10 @@ fn declaration(family: &Family, members: &[(&str, &Tool)]) -> Value {
             .iter()
             .filter_map(|(action, tool)| Some((*action, schema(tool, "properties").get(name)?)))
             .collect();
-        properties.insert(name.to_owned(), combined(&given));
+        properties.insert(
+            name.to_owned(),
+            combined(&given, given.len() == declared.len()),
+        );
     }
     let mut required = vec![ACTION.to_owned()];
     if let Some(((_, first), rest)) = declared.split_first() {
@@ -121,14 +124,14 @@ fn schema<'a>(declared: &'a Value, key: &str) -> &'a Value {
     &declared["inputSchema"][key]
 }
 
-/// One property several actions take, as one schema: the same one when they agree,
-/// else the first's, with every listed value any of them takes and each description
-/// beside the actions it is true of.
-fn combined(given: &[(&str, &Value)]) -> Value {
+/// One property as the actions that take it describe it: the same schema when they agree,
+/// else the first's with every listed value any of them takes. Unless `everyone` takes it,
+/// its description starts with the actions that do, so an agent does not hand it to others.
+fn combined(given: &[(&str, &Value)], everyone: bool) -> Value {
     let Some(((_, first), _)) = given.split_first() else {
         return json!({});
     };
-    if given.iter().all(|(_, schema)| schema == first) {
+    if everyone && given.iter().all(|(_, schema)| schema == first) {
         return (*first).clone();
     }
     let mut merged = (*first).clone();
@@ -148,28 +151,29 @@ fn combined(given: &[(&str, &Value)]) -> Value {
     if !choices.is_empty() {
         fields.insert("enum".into(), Value::Array(choices));
     }
-    let mut said: Vec<(&str, Vec<&str>)> = Vec::new();
+    let mut said: Vec<(Option<&str>, Vec<&str>)> = Vec::new();
     for (action, schema) in given {
-        let Some(description) = schema["description"].as_str() else {
+        let description = schema["description"].as_str();
+        if everyone && description.is_none() {
             continue;
-        };
+        }
         match said.iter_mut().find(|(text, _)| *text == description) {
             Some((_, actions)) => actions.push(action),
             None => said.push((description, vec![action])),
         }
     }
-    match said.as_slice() {
-        [] => {}
-        [(description, _)] => {
-            fields.insert("description".into(), json!(description));
-        }
-        many => {
-            let parts: Vec<String> = many
-                .iter()
-                .map(|(description, actions)| format!("{}: {description}", actions.join(", ")))
-                .collect();
-            fields.insert("description".into(), json!(parts.join("; ")));
-        }
+    let parts: Vec<String> = match said.as_slice() {
+        [(Some(description), _)] if everyone => vec![(*description).to_owned()],
+        many => many
+            .iter()
+            .map(|(description, actions)| match description {
+                Some(description) => format!("{}: {description}", actions.join(", ")),
+                None => actions.join(", "),
+            })
+            .collect(),
+    };
+    if !parts.is_empty() {
+        fields.insert("description".into(), json!(parts.join("; ")));
     }
     merged
 }
@@ -257,19 +261,21 @@ fn chosen<'a>(
         return Err(format!("'{asked}' is not one of [{}]", actions.join(", ")));
     };
     let arguments = tool.settle(Value::Object(object));
-    tool.validate(&arguments).map_err(|message| {
-        format!(
-            "{} {action}: {message}{}",
-            family.name,
-            elsewhere(members, tool, &arguments)
-        )
-    })?;
+    let failed = |message: String| format!("{} {action}: {message}", family.name);
+    if let Some(misplaced) = elsewhere(members, action, tool, &arguments) {
+        return Err(failed(misplaced));
+    }
+    tool.validate(&arguments).map_err(failed)?;
     Ok(Chosen { tool, arguments })
 }
 
-/// Which other actions take the fields this one does not, as a call that mixed up
-/// two actions most likely meant one of those.
-fn elsewhere(members: &[(&str, &Tool)], tool: &Tool, arguments: &Value) -> String {
+/// The fields of other actions a call gave this one, with the actions that take them.
+fn elsewhere(
+    members: &[(&str, &Tool)],
+    action: &str,
+    tool: &Tool,
+    arguments: &Value,
+) -> Option<String> {
     let notes: Vec<String> = arguments
         .as_object()
         .into_iter()
@@ -282,12 +288,9 @@ fn elsewhere(members: &[(&str, &Tool)], tool: &Tool, arguments: &Value) -> Strin
                 .filter(|(_, other)| other.takes(name))
                 .map(|(action, _)| *action)
                 .collect();
-            (!takers.is_empty()).then(|| format!("'{name}' goes with {}", takers.join(", ")))
+            (!takers.is_empty())
+                .then(|| format!("'{name}' goes with {}, not {action}", takers.join(", ")))
         })
         .collect();
-    if notes.is_empty() {
-        String::new()
-    } else {
-        format!("; {}", notes.join("; "))
-    }
+    (!notes.is_empty()).then(|| notes.join("; "))
 }
