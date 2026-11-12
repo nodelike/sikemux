@@ -164,18 +164,18 @@ extension DeviceView {
     }
 
     /// The entries project by project, each project's @Chief first and its agents after it in
-    /// the order given, the project that most needs the person first: one with an open call or
-    /// an agent that needs the person, then one with work under way, then the rest, each rank in
-    /// the order the core lists projects. Entries of no listed project follow, as they were.
+    /// the order given, projects in the order of how the core says they stand: needs you, then at
+    /// work, then the rest, each in the order the core lists them. Entries of no listed project
+    /// follow, as they were.
     func byProject(_ entries: [Entry]) -> [Entry] {
         let projects = workspace.projects
-        let open = (calls ?? []).filter { $0.state == .open }
         func belongs(_ entry: Entry, _ project: ProjectInfo) -> Bool { entry.project == project.name }
         func rank(_ project: ProjectInfo) -> Int {
-            let states = entries.filter { belongs($0, project) }.compactMap { $0.agent?.turn?.state }
-            if open.contains(where: { $0.project == project.path }) || states.contains(.needsYou) { return 0 }
-            if states.contains(where: { $0 == .working || $0 == .waiting }) { return 1 }
-            return 2
+            switch project.standing {
+            case .needsYou: 0
+            case .atWork: 1
+            default: 2
+            }
         }
         let ranked = projects.enumerated()
             .filter { _, project in entries.contains { belongs($0, project) } }

@@ -272,8 +272,24 @@ let demoCalls = [
                place: nil, canHandBack: true, multi: nil, secret: nil, raisedAt: now - 3_600_000, state: .open, answer: nil, outcome: nil),
 ]
 
+/// The workspace with each project standing as the core would put it, for the agents and calls shown.
+func standing(_ workspace: Workspace, agents: [AgentShown], calls: [PersonCall]) -> Workspace {
+    let projects = workspace.projects.map { project in
+        let open = calls.filter { $0.project == project.path && $0.state == .open }.count
+        let states = agents.filter { $0.projectName == project.name }.compactMap { $0.turn?.state }
+        let standing: ProjectStanding =
+            open > 0 || states.contains(.needsYou) ? .needsYou
+            : states.contains(where: { $0 == .working || $0 == .waiting }) ? .atWork
+            : .atRest
+        return ProjectInfo(id: project.id, name: project.name, path: project.path, chief: project.chief,
+                           agents: project.agents, standing: standing, calls: open > 0 ? open : nil)
+    }
+    return Workspace(projects: projects, launchers: workspace.launchers)
+}
+
 let full = DeviceView(
-    workspace: decoded.workspace, attentions: decoded.attentions,
+    workspace: standing(decoded.workspace, agents: agents, calls: (decoded.calls ?? []) + demoCalls),
+    attentions: decoded.attentions,
     inbox: Inbox(items: decoded.inbox.items.filter { $0.kind != .hostAlert }, working: decoded.inbox.working, agents: agents, rollup: decoded.inbox.rollup),
     calls: (decoded.calls ?? []) + demoCalls, faceStyle: decoded.faceStyle, load: nil
 )
@@ -287,15 +303,16 @@ func view(keeping ids: Set<String>?, load: HostLoad? = nil) -> DeviceView {
     guard let ids else { return full }
     let items = decoded.inbox.items.filter { $0.agentId.map(ids.contains) ?? ids.contains($0.id) }
     let agents = full.inbox.agents.filter { ids.contains($0.agentId) }
+    let calls = full.calls?.filter { ids.contains($0.asker.agentId) }
     return DeviceView(
-        workspace: full.workspace,
+        workspace: standing(full.workspace, agents: agents, calls: calls ?? []),
         attentions: full.attentions.filter { ids.contains($0.agentId) },
         inbox: Inbox(
             items: items, working: items.filter { $0.kind == .working }.count,
             agents: agents,
             rollup: AgentRollup(subagents: agents.reduce(0) { $0 + $1.subagents }, tasks: agents.reduce(0) { $0 + $1.tasks })
         ),
-        calls: full.calls?.filter { ids.contains($0.asker.agentId) }, faceStyle: full.faceStyle, load: load
+        calls: calls, faceStyle: full.faceStyle, load: load
     )
 }
 

@@ -1475,8 +1475,3 @@ fn call_keys<E: InteractiveElement>(keyed: E, id: &str, bench: &WeakEntity<Workb
         .on_action(on(id, bench, |_: &Tick| Press::Tick))
         .on_action(on(id, bench, |_: &Confirm| Press::Pick))
 }
-
-/// The amber dot on another project's row in the tree while calls of it wait on the person.
-pub(crate) fn waits_on_person(bench: &Workbench, place: &Place, project: &str) -> bool {
-    !bench.open_calls(place, project).is_empty()
-}

@@ -22,8 +22,7 @@ use gpui_kit::{
     StatefulInteractiveElement, Styled, Transformation, Window,
 };
 use sikemux_view::device::RecentInfo;
-use sikemux_view::turn::TurnPhase;
-use sikemux_view::workspace::{LauncherInfo, ProjectInfo};
+use sikemux_view::workspace::{LauncherInfo, ProjectInfo, ProjectStanding};
 
 use crate::agents::menu::AgentMenu;
 use crate::agents::rows::AgentRow;
@@ -135,7 +134,7 @@ fn page_panel(bench: &Workbench, page: TabRailPage, cx: &mut Context<Workbench>)
     let mut heads: Vec<(String, AnyElement)> = Vec::new();
     let chiefs = match bench.rails.all_projects {
         true => {
-            heads = (ranked_projects(bench, &agents).iter())
+            heads = (ranked_projects(bench).iter())
                 .map(|project| {
                     let chief = chief_of(project, &agents);
                     (
@@ -1238,23 +1237,11 @@ fn agent_row(
 /// or agents, the one that most needs the person first. A project with an open call or an agent
 /// that needs the person comes first, then one with work under way, then the rest, each rank in
 /// the order the core lists projects.
-fn ranked_projects(bench: &Workbench, agents: &[AgentRow]) -> Vec<ProjectInfo> {
-    let rank = |project: &ProjectInfo| {
-        let phases = || {
-            (agents.iter())
-                .filter(|agent| agent.project == project.id)
-                .filter_map(|agent| agent.turn.as_ref().map(|turn| turn.state))
-        };
-        let path = project.path.to_string_lossy();
-        if crate::calls::waits_on_person(bench, &bench.place(), &path)
-            || phases().any(|phase| phase == TurnPhase::NeedsYou)
-        {
-            0
-        } else if phases().any(|phase| matches!(phase, TurnPhase::Working | TurnPhase::Waiting)) {
-            1
-        } else {
-            2
-        }
+fn ranked_projects(bench: &Workbench) -> Vec<ProjectInfo> {
+    let rank = |project: &ProjectInfo| match project.standing {
+        ProjectStanding::NeedsYou => 0,
+        ProjectStanding::AtWork => 1,
+        ProjectStanding::AtRest | ProjectStanding::Unknown => 2,
     };
     let mut projects: Vec<ProjectInfo> = (bench.projects().iter())
         .filter(|project| project.chief.is_some() || project.agents > 0)

@@ -21,6 +21,7 @@ use sikemux_view::device::AccountInfo;
 use sikemux_view::host_stats::AlertLevel;
 use sikemux_view::layout::PaneKind;
 use sikemux_view::prefs::{Preferences, ProjectSort, TabRailPage, TabRailScope};
+use sikemux_view::workspace::ProjectStanding;
 use sikemux_wire::protocol::{AgentGroup, AgentStatus};
 
 use crate::agents::rows::AgentRow;
@@ -1192,16 +1193,14 @@ fn faces(agents: &[AgentRow], cx: &App) -> impl IntoElement {
         })
 }
 
-/// How a project's open agents stand together on every host that holds it, as each core rolls
-/// them up; none while all are idle.
+/// How a project's open agents stand together on every host that holds it: amber while the core
+/// says it needs the person, else as each core rolls its agents up; none while all are idle.
 fn rollup(bench: &Workbench, folded: &Folded, cx: &App) -> Option<gpui_kit::AnyElement> {
-    let calls_wait = folded.copies.iter().any(|copy| {
-        (bench.project_on(&copy.place, &copy.project)).is_some_and(|project| {
-            crate::calls::waits_on_person(bench, &copy.place, &project.path.to_string_lossy())
-        })
-    });
     let key = format!("project:{}", folded.key());
-    if calls_wait {
+    let needs_you = (folded.copies.iter())
+        .filter_map(|copy| bench.project_on(&copy.place, &copy.project))
+        .any(|project| project.standing == ProjectStanding::NeedsYou);
+    if needs_you {
         return ui::status_mark(&key, AgentStatus::Blocked, cx);
     }
     let group = (folded.copies.iter())
@@ -1209,12 +1208,12 @@ fn rollup(bench: &Workbench, folded: &Folded, cx: &App) -> Option<gpui_kit::AnyE
             let view = bench.view_at(&copy.place)?;
             Some(view.inbox.projects.get(&copy.project)?.group)
         })
-        .min()?;
+        .filter(|group| *group != AgentGroup::Blocked)
+        .min();
     let status = match group {
-        AgentGroup::Blocked => AgentStatus::Blocked,
-        AgentGroup::Working => AgentStatus::Working,
-        AgentGroup::Done => AgentStatus::Done,
-        AgentGroup::Idle => return None,
+        Some(AgentGroup::Working) => AgentStatus::Working,
+        Some(AgentGroup::Done) => AgentStatus::Done,
+        _ => return None,
     };
     ui::status_mark(&key, status, cx)
 }
