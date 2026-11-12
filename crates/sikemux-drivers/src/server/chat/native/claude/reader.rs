@@ -5,7 +5,7 @@ use crate::launch::claude_model;
 use sikemux_fold::update::{agent_text, compaction, notice, text_content, thought, turn_answer};
 use sikemux_fold::UpdateKind;
 use sikemux_view::chat::StopReason;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
@@ -118,6 +118,9 @@ pub struct Reader {
     asking: Asking,
     data: ReaderState,
     apps: Apps,
+    /// MCP apps whose pages are being read, and what Claude said since, which waits for them.
+    reading_apps: usize,
+    held_back: VecDeque<Message>,
     /// The last turn to end was the person's and it finished, so what Claude predicts they
     /// send next is shown.
     suggests: bool,
@@ -476,6 +479,8 @@ impl Reader {
             shared,
             data,
             apps,
+            reading_apps: 0,
+            held_back: VecDeque::new(),
             suggests: false,
         }
     }
@@ -1053,7 +1058,7 @@ impl Reader {
     /// page in its place; a page that cannot be read leaves the call as any other.
     #[allow(clippy::too_many_arguments)]
     fn show_app(
-        &self,
+        &mut self,
         id: String,
         session: String,
         update: Value,
@@ -1063,6 +1068,7 @@ impl Reader {
         result: Value,
     ) {
         let (apps, control, sink) = (self.apps.clone(), self.control.clone(), self.sink.clone());
+        self.reading_apps += 1;
         tokio::spawn(async move {
             let read = tokio::time::timeout(
                 apps::READ_WAIT,
@@ -1084,6 +1090,7 @@ impl Reader {
                 }
             }
             sink.update(&session, update);
+            apps.read_done();
         });
     }
 
@@ -1856,17 +1863,41 @@ impl Reader {
     }
 }
 
-impl Reads for Reader {
+/// What the chat's side hands the reader between Claude's messages.
+pub(crate) enum Nudge {
     /// A task the person stopped from the app.
-    type Nudge = String;
+    TaskStopped(String),
+    /// The page of an MCP app a call named has been read, or given up on.
+    AppRead,
+}
+
+impl Reads for Reader {
+    type Nudge = Nudge;
     type Message = Message;
 
+    /// While a call's app is read, what Claude says after it waits, so the call ends before
+    /// anything that follows it, the turn's end included; the answers the read needs go on.
     fn message(&mut self, message: Message) {
+        if self.reading_apps > 0 && !matches!(message, Message::ControlResponse { .. }) {
+            self.held_back.push_back(message);
+            return;
+        }
         self.handle(message);
     }
 
-    fn nudged(&mut self, task_id: String) {
-        self.task_stopped(&task_id);
+    fn nudged(&mut self, nudge: Nudge) {
+        match nudge {
+            Nudge::TaskStopped(task_id) => self.task_stopped(&task_id),
+            Nudge::AppRead => {
+                self.reading_apps = self.reading_apps.saturating_sub(1);
+                while self.reading_apps == 0 {
+                    let Some(message) = self.held_back.pop_front() else {
+                        break;
+                    };
+                    self.handle(message);
+                }
+            }
+        }
     }
 
     /// Claude Code is gone: nothing it asked can be answered any more.

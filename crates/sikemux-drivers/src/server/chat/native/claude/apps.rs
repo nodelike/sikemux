@@ -9,7 +9,10 @@ use std::time::Duration;
 use serde_json::{json, Value};
 use sikemux_process::sync::Locked;
 
+use tokio::sync::mpsc::UnboundedSender;
+
 use super::control::Control;
+use super::reader::Nudge;
 use crate::server::mcp_apps::{Record, ServerRequest};
 
 /// What Claude Code must say it can do at the start of a turn: give tools their `_meta.ui`, read
@@ -32,6 +35,8 @@ struct Known {
     supported: bool,
     servers: Option<Vec<Value>>,
     calls: HashMap<String, (String, String)>,
+    /// Tells the reader a page has been read, so what Claude said since goes on.
+    nudges: Option<UnboundedSender<Nudge>>,
 }
 
 /// What a finished MCP call shows.
@@ -45,6 +50,16 @@ pub enum Shows {
 }
 
 impl Apps {
+    pub fn nudges(&self, nudges: UnboundedSender<Nudge>) {
+        self.0.locked().nudges = Some(nudges);
+    }
+
+    pub fn read_done(&self) {
+        if let Some(nudges) = &self.0.locked().nudges {
+            let _ = nudges.send(Nudge::AppRead);
+        }
+    }
+
     pub fn started_turn(&self, capabilities: &[String]) {
         self.0.locked().supported = NEEDS
             .iter()

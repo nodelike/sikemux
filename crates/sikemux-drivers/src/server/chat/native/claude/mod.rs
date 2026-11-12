@@ -62,7 +62,7 @@ struct Running {
     apps: apps::Apps,
     asking: Asking,
     reading: Reading<Reader>,
-    task_stops: mpsc::UnboundedSender<String>,
+    task_stops: mpsc::UnboundedSender<reader::Nudge>,
 }
 
 /// What a Claude chat hands a core that takes it over.
@@ -420,6 +420,7 @@ impl Claude {
         reader.compacts(AutoCompact::of(launch, capped));
         let asking = reader.asking();
         let (reading, task_stops) = Reading::start(reader, lines);
+        apps.nudges(task_stops.clone());
         let running = Running {
             process,
             control: control.clone(),
@@ -893,7 +894,10 @@ impl Backend for Claude {
             .control
             .request(json!({ "subtype": "stop_task", "task_id": task_id }))
             .await?;
-        let _ = self.running.task_stops.send(task_id.to_owned());
+        let _ = self
+            .running
+            .task_stops
+            .send(reader::Nudge::TaskStopped(task_id.to_owned()));
         Ok(())
     }
 
@@ -1004,6 +1008,7 @@ impl Backend for Claude {
         );
         let asking = reader.asking();
         let (reading, task_stops) = Reading::start(reader, lines);
+        apps.nudges(task_stops.clone());
         Ok(Self {
             launch: launch.clone(),
             running: Running {
