@@ -56,7 +56,7 @@ struct Done {
     /// Why the commit made was not synced, landed or pushed.
     #[serde(skip_serializing_if = "Option::is_none")]
     not_synced: Option<String>,
-    /// Why the commit made was neither landed nor pushed.
+    /// Why the commit made was neither queued to land nor pushed.
     #[serde(skip_serializing_if = "Option::is_none")]
     not_landed: Option<String>,
     /// Why its commits were not pushed: a push waits on the person.
@@ -65,7 +65,7 @@ struct Done {
     #[serde(skip_serializing_if = "Option::is_none")]
     synced: Option<super::land::Synced>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    landed: Option<super::land::Landed>,
+    queued: Option<super::queue::Queued>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pushed: Option<super::push::Pushed>,
 }
@@ -168,42 +168,59 @@ pub(crate) async fn call(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
             },
             false => None,
         };
-        let landed = match land {
-            true => match super::land::land(&core, &agent_id) {
-                Ok(landed) => Some(landed),
-                Err(why) if committed.is_some() || synced.is_some() => {
-                    return Ok(Done {
-                        committed,
-                        nothing_committed,
-                        synced,
-                        not_landed: Some(why),
-                        ..Done::default()
-                    })
-                }
-                Err(why) => return Err(why.into()),
-            },
-            false => None,
-        };
         let own =
             super::land::own_checkout(&core, &agent_id).filter(|tree| dir.starts_with(&tree.path));
-        let (from, unlanded) = match (&landed, own) {
-            (Some(landed), _) => (landed.repo.clone(), None),
-            (None, Some(tree)) if push => (tree.repo.clone(), super::land::unlanded(&tree)?),
-            _ => (dir.clone(), None),
-        };
-        let ship = crate::ship::Ship {
+        let ship = || crate::ship::Ship {
             kind: sikemux_view::inbox::ShipKind::Push,
             what: "git_commit push".to_owned(),
             target: None,
         };
-        let not_pushed = match push {
+        let mut not_pushed = None;
+        let queued = match land {
             true => {
-                unlanded.or_else(|| super::super::ship::check(&core, &agent_id, ship, &from).err())
+                let from = own.as_ref().map_or(&dir, |tree| &tree.repo);
+                let push_after = push
+                    && match super::super::ship::check(&core, &agent_id, ship(), from) {
+                        Ok(_) => true,
+                        Err(why) => {
+                            not_pushed = Some(why);
+                            false
+                        }
+                    };
+                match super::queue::enqueue(&core, &agent_id, push_after) {
+                    Ok(queued) => Some(queued),
+                    Err(why) if committed.is_some() || synced.is_some() => {
+                        return Ok(Done {
+                            committed,
+                            nothing_committed,
+                            synced,
+                            not_landed: Some(why),
+                            ..Done::default()
+                        })
+                    }
+                    Err(why) => return Err(why.into()),
+                }
             }
             false => None,
         };
-        let pushed = match push && not_pushed.is_none() {
-            true => Some(super::push::push(&core, &from, &agent_id, "origin")?),
+        let pushed = match push && !land {
+            true => {
+                let (from, unlanded) = match own {
+                    Some(tree) => (tree.repo.clone(), super::land::unlanded(&tree)?),
+                    None => (dir.clone(), None),
+                };
+                not_pushed = unlanded
+                    .or_else(|| super::super::ship::check(&core, &agent_id, ship(), &from).err());
+                match not_pushed {
+                    None => Some(super::push::push(
+                        &core,
+                        &from,
+                        &[agent_id.clone()],
+                        "origin",
+                    )?),
+                    Some(_) => None,
+                }
+            }
             false => None,
         };
         Ok(Done {
@@ -211,7 +228,7 @@ pub(crate) async fn call(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
             nothing_committed,
             not_pushed,
             synced,
-            landed,
+            queued,
             pushed,
             ..Done::default()
         })

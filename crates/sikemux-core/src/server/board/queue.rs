@@ -22,13 +22,10 @@ use super::{git, Card, Checker, State};
 use crate::server::checks::{self, QueueRun};
 use crate::server::codehost::repo::{self as codehost, Checks};
 use crate::server::connection::blocking;
+use crate::server::merge_queue::{self, Blame, Lane, Next, Waiter};
 use crate::server::worktree;
 use crate::server::Core;
 
-/// How many changes one check takes in.
-const MAX_TOGETHER: usize = 8;
-/// How long a base that fails its own check goes before the queue looks whether it moved.
-const RED_BASE_LOOK_MS: u64 = 5 * 60_000;
 /// A code host can refuse a merge for a moment after a push, while it catches
 /// up with the new commit.
 const MERGE_TRIES_AFTER_PUSH: u32 = 4;
@@ -46,20 +43,6 @@ pub(super) struct Place {
     /// check, and did not mend it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub failed_over: Option<String>,
-}
-
-/// What the queue keeps about one base of one project while the core runs.
-#[derive(Default)]
-pub(super) struct Lane {
-    running: bool,
-    /// A check of several failed and could not say whose fault it was.
-    one_at_a_time: bool,
-    red: Option<RedBase>,
-}
-
-struct RedBase {
-    tip: String,
-    look_at: u64,
 }
 
 type LaneKey = (String, String);
@@ -125,7 +108,6 @@ fn go_again(core: &Core, step: &Step) {
 
 /// Starts each base's next piece of work, for the bases not at one already.
 pub(super) fn due(core: &Arc<Core>) -> Option<u64> {
-    let now = epoch_ms();
     let mut next = None;
     let mut started = Vec::new();
     {
@@ -142,25 +124,19 @@ pub(super) fn due(core: &Arc<Core>) -> Option<u64> {
             if lane.running {
                 continue;
             }
-            let taken: &[Waiting] = match &lane.red {
-                Some(red) => match waiting.iter().position(|w| !w.failed_on(&red.tip)) {
-                    Some(at) => &waiting[at..=at],
-                    None if now < red.look_at => {
-                        next = super::sooner(next, Some(red.look_at));
-                        continue;
-                    }
-                    None => &waiting[..1],
-                },
-                None => {
-                    let front = &waiting[0];
-                    let together = match front.on_code_host || lane.one_at_a_time {
-                        true => 1,
-                        false => (waiting.iter().take(MAX_TOGETHER))
-                            .take_while(|w| !w.on_code_host)
-                            .count(),
-                    };
-                    &waiting[..together]
+            let waiters: Vec<Waiter> = (waiting.iter())
+                .map(|w| Waiter {
+                    failed_over: w.failed_over.as_deref(),
+                    alone: w.on_code_host,
+                })
+                .collect();
+            let taken: &[Waiting] = match lane.next(&waiters) {
+                None => continue,
+                Some((_, Next::LookAt(at))) => {
+                    next = super::sooner(next, Some(at));
+                    continue;
                 }
+                Some((at, Next::Take(count))) => &waiting[at..at + count],
             };
             if taken.iter().any(|w| state.busy(&key.0, w.id)) {
                 continue;
@@ -237,12 +213,6 @@ fn step_of(state: &State, project: &str, id: u64) -> Option<Step> {
     })
 }
 
-impl Waiting {
-    fn failed_on(&self, tip: &str) -> bool {
-        self.failed_over.as_deref() == Some(tip)
-    }
-}
-
 async fn run_lane(core: &Arc<Core>, key: &LaneKey, steps: &[Step]) {
     let open = still_open(core, steps).await;
     let Some(front) = open.first() else {
@@ -269,23 +239,18 @@ fn failed_on(step: &Step, tip: &str) -> bool {
 
 fn red_tip(core: &Core, key: &LaneKey) -> Option<String> {
     let state = core.boards.state.locked();
-    Some(state.lanes.get(key)?.red.as_ref()?.tip.clone())
+    state.lanes.get(key)?.red_tip().map(str::to_owned)
 }
 
 fn clear_red(core: &Core, key: &LaneKey) {
     if let Some(lane) = core.boards.state.locked().lanes.get_mut(key) {
-        lane.red = None;
+        lane.clear_red();
     }
 }
 
-/// The base at `tip` fails its own check, so nothing can be shown good on top
-/// of it: each change is tried alone, for one that mends it.
 fn mark_red(core: &Core, key: &LaneKey, tip: &str) {
     if let Some(lane) = core.boards.state.locked().lanes.get_mut(key) {
-        lane.red = Some(RedBase {
-            tip: tip.to_owned(),
-            look_at: epoch_ms() + RED_BASE_LOOK_MS,
-        });
+        lane.mark_red(tip);
     }
 }
 
@@ -821,40 +786,26 @@ async fn land_in_turn(core: &Arc<Core>, batch: &Batch<'_>, output: &str) -> usiz
 async fn failed_together(core: &Arc<Core>, batch: &Batch<'_>, failed: QueueRun) {
     let front = &batch.steps[0];
     let dir = PathBuf::from(&front.project);
-    match checks::run_in_queue(core, &dir, batch.tip, batch.command, front.agent()).await {
-        Ok(ran) if !ran.passed => return base_red(core, batch),
-        Ok(_) => {}
-        Err(why) => {
-            return front.hold(
-                core,
-                RunHold::Fix,
-                format!("The merge queue's check did not run: {why}"),
-            )
-        }
-    }
-    let commits = batch
-        .laid
-        .iter()
-        .flat_map(|laid| laid.commits.clone())
-        .collect();
-    let found = checks::first_failing_in_queue(
+    let stacked: Vec<Vec<String>> = batch.laid.iter().map(|laid| laid.commits.clone()).collect();
+    let blamed = merge_queue::blame(
         core,
         &dir,
-        commits,
         batch.tip,
+        &stacked,
         batch.command,
         front.agent(),
         failed.took_ms,
     )
     .await;
-    let culprit = found
-        .as_ref()
-        .ok()
-        .and_then(|sha| batch.laid.iter().find(|laid| laid.commits.contains(sha)));
-    match (culprit, batch.laid) {
-        (Some(culprit), _) => send_back(core, batch, culprit, &failed).await,
-        (None, [only]) => send_back(core, batch, only, &failed).await,
-        (None, _) => {
+    match blamed {
+        Err(why) => front.hold(
+            core,
+            RunHold::Fix,
+            format!("The merge queue's check did not run: {why}"),
+        ),
+        Ok(Blame::BaseRed) => base_red(core, batch),
+        Ok(Blame::Broke(at)) => send_back(core, batch, &batch.laid[at], &failed).await,
+        Ok(Blame::Unknown) => {
             batch.trust_one_at_a_time(core, true);
             for laid in batch.laid {
                 batch.step(laid).note(

@@ -1113,20 +1113,26 @@ stays as written, `echo ===` prints, and `$FILES` splits into words as in
 bash; `timeout` works as GNU's does. In a checkout of your own, `sync: true`
 brings it up to the branch it was cut from, your commits made again on its tip
 and what you have not committed merged in; use it rather than `git rebase`.
-`land: true` puts your commits on that branch and moves your checkout up to
-it: a file someone changed in the project's checkout and has not committed
-takes your lines merged in, and a clash refuses the landing before anything
-moves. Commits already on that branch are skipped; one that clashes with what
-landed since asks you to rebase onto the branch first. When your uncommitted
-changes clash with what landed, your checkout stays where it was and the
-answer says so; commit, then sync. With nothing of yours left uncommitted,
-`land: true` lands the commits you made already. With `push: true` it then
-pushes your own commits only, and those of agents you lead, even when other
-agents' unpushed commits sit before them, and lists theirs as kept; with no
-`message` it only pushes. From a checkout of your own it pushes the branch you
-landed on, never your checkout's own, so land first. When the remote has moved
-on, your commits go on its tip and the branch takes its new commits as landing
-does. Push when the person or the project's rules say to. In a checkout other agents work in, Sikemux refuses
+`land: true` queues your commits for that branch and returns at once; do not
+run the final Clippy and tests yourself first. Sikemux stacks the queued lands
+on the branch's tip in order, runs Clippy and the tests once for the batch,
+only for the crates it changes (a batch that changes no Rust is not built),
+and puts the whole batch on the branch when that passes, the branch staying a
+straight line. When the check fails, Sikemux finds the land that broke it and
+sends it back to its agent as a message with the error; the others stay in
+line. A clash with the branch is refused at once. A file someone changed in the
+project's checkout and has not committed takes the landed lines merged in, and
+a clash there sends the land back. Commits already on that branch are skipped.
+Once landed, your checkout moves up to your landed commits; when your
+uncommitted changes clash with them, it stays and a message says so: commit,
+then sync. With nothing of yours left uncommitted, `land: true` lands the
+commits you made already. With `push: true` beside `land: true`, the batch is
+pushed once it lands. `push: true` alone pushes your own commits only, and
+those of agents you lead, even when other agents' unpushed commits sit before
+them, and lists theirs as kept; with no `message` it only pushes. From a
+checkout of your own it pushes the branch you landed on, never your
+checkout's own, so land first. When the remote has moved on, your commits go
+on its tip and the branch takes its new commits as landing does. Push when the person or the project's rules say to. In a checkout other agents work in, Sikemux refuses
 `git add -A`, `commit -a`, `stash`, `reset --hard` and the like while it has
 uncommitted changes (`reset --keep` is always allowed), and
 `git checkout -- <path>` or `git restore` over another agent's uncommitted
@@ -1232,7 +1238,7 @@ from the prompt's first sentence about the work, which reads worse. A name
 already taken gets `-2`. Give each teammate of a team its own checkout; a quick
 helper can share yours, the default. From a folder of repositories, name the
 one to cut the checkout from with `repo`. A teammate with its own checkout lands its commits on your branch
-with `git_commit`'s `land: true` once its piece builds.
+with `git_commit`'s `land: true` once its piece builds; Sikemux checks and lands queued pieces together.
 
 It runs in Sikemux's chat unless you pass `mode: "terminal"`, which starts the
 CLI in a terminal tab of its own instead, the CLI's own screen, as when the

@@ -62,6 +62,7 @@ mod log_times;
 pub mod lsp;
 pub mod mcp_apps;
 pub mod memory;
+mod merge_queue;
 pub mod messages;
 pub mod model_providers;
 mod model_proxy;
@@ -464,6 +465,7 @@ pub(crate) struct Core {
     pub(crate) memory: memory::Memory,
     pub(crate) triggers: triggers::Triggers,
     pub(crate) landing: landing::Histories,
+    pub(crate) land_queue: edits::queue::LandQueue,
     pub(crate) waits: waits::Waits,
     pub(crate) pictures: pictures::Pictures,
     pub(crate) changes: changed::Changes,
@@ -633,6 +635,7 @@ impl Core {
             goals: goals::Goals::default(),
             repo_events: repo_events::RepoEvents::default(),
             landing: landing::Histories::default(),
+            land_queue: Default::default(),
             waits: waits::Waits::new(data_dir),
             pictures: pictures::Pictures::new(data_dir),
             memory: memory::Memory::new(data_dir),

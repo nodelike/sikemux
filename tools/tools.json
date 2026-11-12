@@ -2595,7 +2595,7 @@
           "type": "boolean"
         },
         "land": {
-          "description": "From a checkout of your own: put your commits on the branch it was cut from",
+          "description": "From a checkout of your own: queue your commits for the branch it was cut from; Sikemux checks and lands them, and messages you if they break the check",
           "type": "boolean"
         },
         "push": {

@@ -79,20 +79,23 @@ impl Signing {
     }
 }
 
+/// Pushes the unpushed commits on `dir`'s branch made by any of `agents`, or
+/// by agents they lead.
 pub(super) fn push(
     core: &Core,
     dir: &Path,
-    agent_id: &str,
+    agents: &[String],
     remote: &str,
 ) -> Result<Pushed, String> {
-    let session = core.names.last_session(agent_id);
+    let sessions: Vec<String> = (agents.iter())
+        .filter_map(|agent| core.names.last_session(agent))
+        .collect();
     let whose = |commit: &str| {
         let is_me = |chat: &str, of: Option<&str>| {
-            chat == agent_id
-                || core.names.leads(agent_id, chat)
-                || session
-                    .as_deref()
-                    .is_some_and(|session| of == Some(session))
+            agents
+                .iter()
+                .any(|agent| chat == agent || core.names.leads(agent, chat))
+                || of.is_some_and(|of| sessions.iter().any(|session| session == of))
         };
         let agents = verified(core, dir, commit)?;
         if agents.is_empty() {

@@ -1,11 +1,11 @@
-//! Lands the commits of an agent that works in a checkout of its own onto the
-//! branch it was cut from. Its commits are made again on that branch's tip,
-//! and the branch moves only when the project's own checkout can take them:
-//! a file someone has changed there and not committed takes the landed lines
-//! merged in, and a clash refuses the landing before anything moves. The
-//! agent's checkout then moves to the new tip the same way, keeping what it
-//! has not committed. Syncing moves the agent's checkout to the branch's tip
-//! in that way too, its commits made again on it.
+//! Moves commits of agents that work in checkouts of their own onto the branch
+//! those were cut from, for the land queue. Their commits are made again on
+//! that branch's tip, and the branch moves only when the project's own checkout
+//! can take them: a file someone has changed there and not committed takes the
+//! landed lines merged in, and a clash refuses the landing before anything
+//! moves. Each agent's checkout then moves to its landed commits the same way,
+//! keeping what it has not committed. Syncing moves the agent's checkout to the
+//! branch's tip in that way too, its commits made again on it.
 
 use std::ffi::OsStr;
 use std::os::unix::ffi::OsStrExt;
@@ -16,7 +16,6 @@ use serde::Serialize;
 
 use super::owners::{git, run};
 use super::push::{line, replay, Signing, Unpushed};
-use crate::server::repo_events::RepoEvent;
 use crate::server::worktree::AgentWorktree;
 use crate::server::Core;
 
@@ -24,25 +23,21 @@ const ATTEMPTS: usize = 4;
 const EXECUTABLE: &str = "100755";
 const LINK: &str = "120000";
 
-#[derive(Serialize)]
-pub(crate) struct Landed {
-    branch: String,
-    landed: Vec<String>,
-    /// Files someone had changed in the project's checkout, which took the
-    /// landed lines merged into their change.
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    merged: Vec<String>,
-    /// Why the agent's own checkout stayed on its old commits, when it did.
-    #[serde(rename = "checkoutStays", skip_serializing_if = "Option::is_none")]
-    checkout_stays: Option<String>,
-    /// The project's checkout, which a push after landing goes from.
-    #[serde(skip)]
-    pub(super) repo: PathBuf,
-    /// The branch's commit the landed ones were made again on, and the last of them.
-    #[serde(skip)]
-    onto: String,
-    #[serde(skip)]
-    tip: String,
+/// One agent's commits made again on top of what lands before them.
+pub(super) struct Laid {
+    pub listed: Vec<String>,
+    /// The last of them.
+    pub tip: String,
+}
+
+/// Why the branch did not move.
+pub(super) enum NotPut {
+    /// It moved meanwhile.
+    Moved,
+    /// The project's checkout has uncommitted changes in these files that
+    /// clash with what lands.
+    Clash(Vec<PathBuf>),
+    Failed(String),
 }
 
 #[derive(Serialize)]
@@ -92,19 +87,6 @@ pub(super) fn apply(repo: &Path, steps: Steps, before: &str, after: &str) -> Vec
     }
     share_index(repo, before, after);
     merged
-}
-
-pub(super) fn land(core: &Core, agent_id: &str) -> Result<Landed, String> {
-    let worktree = own_checkout(core, agent_id).ok_or("You work in the project's own checkout, so your commits are on its branch already; there is nothing to land")?;
-    let landed = land_from(&worktree, &Signing::of(core))?;
-    core.build_outputs.landed(agent_id);
-    core.repo_events.tell(RepoEvent::Landed {
-        project: core.workspaces.project_of(&worktree.repo),
-        agent: agent_id.to_owned(),
-        onto: landed.onto.clone(),
-        tip: landed.tip.clone(),
-    });
-    Ok(landed)
 }
 
 pub(super) fn own_checkout(core: &Core, agent_id: &str) -> Option<AgentWorktree> {
@@ -170,7 +152,7 @@ fn own_commits(tree: &Path, tip: &str, head: &str) -> Result<Vec<Unpushed>, Stri
         .collect())
 }
 
-fn listed(commits: &[Unpushed]) -> Vec<String> {
+pub(super) fn listed(commits: &[Unpushed]) -> Vec<String> {
     commits
         .iter()
         .map(|commit| format!("{} {}", short(&commit.id), commit.subject))
@@ -237,7 +219,7 @@ fn sync_from(worktree: &AgentWorktree, signing: &Signing) -> Result<Synced, Stri
 /// Moves the agent's checkout at `tree` from `before` to `after`, as landing
 /// moves the project's, keeping what it has not committed. Why it stayed
 /// where it was, when it did.
-fn follow(tree: &Path, before: &str, after: &str) -> Option<String> {
+pub(super) fn follow(tree: &Path, before: &str, after: &str) -> Option<String> {
     let stays = |why: String| {
         Some(format!(
             "Your checkout stays on your old commits: {why}. Then call git_commit with sync: true to bring it up to the landed ones"
@@ -268,67 +250,70 @@ fn follow(tree: &Path, before: &str, after: &str) -> Option<String> {
     None
 }
 
-/// Lands the commits of the checkout `worktree` onto its base branch, signing
-/// their footers again with `signing`.
-fn land_from(worktree: &AgentWorktree, signing: &Signing) -> Result<Landed, String> {
-    let base = worktree
-        .base
-        .clone()
-        .ok_or("Your checkout was cut from no branch, so there is nowhere to land it")?;
-    let target = format!("refs/heads/{base}");
-    for _ in 0..ATTEMPTS {
-        let tip = line(git(&worktree.repo, &["rev-parse", &target])?);
-        let head = line(git(&worktree.path, &["rev-parse", "HEAD"])?);
-        let commits = own_commits(&worktree.path, &tip, &head)?;
-        if commits.is_empty() {
-            return Err(format!("Nothing to land: {base} has every commit of yours"));
-        }
-        let landed = replay(
-            signing,
-            &worktree.path,
-            &tip,
-            &commits.iter().collect::<Vec<_>>(),
-            &format!("onto {base}, which changed the same lines since your checkout was cut. Run git rebase {base} in your checkout, settle the clash, then land again"),
-        )?;
-        let checked_out = git(&worktree.repo, &["symbolic-ref", "-q", "HEAD"])
-            .is_ok_and(|head| head.trim() == target);
-        let steps = if checked_out {
-            steps(&worktree.repo, &tip, &landed)?
-        } else {
-            Steps::default()
-        };
-        let moved = run(
-            &worktree.repo,
-            &[
-                "update-ref",
-                "-m",
-                &format!("land: {} commits", commits.len()),
-                &target,
-                &landed,
-                &tip,
-            ],
-            None,
-            None,
-        );
-        if moved.is_err() {
-            continue;
-        }
-        let merged = match checked_out {
-            true => apply(&worktree.repo, steps, &tip, &landed),
-            false => Vec::new(),
-        };
-        let checkout_stays = follow(&worktree.path, &head, &landed);
-        return Ok(Landed {
-            branch: base,
-            landed: listed(&commits),
-            merged,
-            checkout_stays,
-            repo: worktree.repo.clone(),
-            onto: tip,
-            tip: landed,
-        });
+/// The commits of `head` that `onto` lacks, made again on it in the repository
+/// at `repo`, their footers signed again with `signing`. None when `onto` has
+/// every one of them.
+pub(super) fn lay(
+    signing: &Signing,
+    repo: &Path,
+    head: &str,
+    onto: &str,
+    base: &str,
+) -> Result<Option<Laid>, String> {
+    let commits = own_commits(repo, onto, head)?;
+    if commits.is_empty() {
+        return Ok(None);
     }
-    Err("the branch kept moving while landing; call this again".into())
+    let tip = replay(
+        signing,
+        repo,
+        onto,
+        &commits.iter().collect::<Vec<_>>(),
+        &format!("onto {base}, which changed the same lines since your checkout was cut. Run git_commit with sync: true, settle the clash, then land again"),
+    )?;
+    Ok(Some(Laid {
+        listed: listed(&commits),
+        tip,
+    }))
+}
+
+/// Moves `base` in the repository at `repo` from `from` to `to`, bringing the
+/// project's checkout along when it has `base` out. The files someone had
+/// changed there, which took the new lines merged in.
+pub(super) fn put(repo: &Path, base: &str, from: &str, to: &str) -> Result<Vec<String>, NotPut> {
+    let target = format!("refs/heads/{base}");
+    let checked_out =
+        git(repo, &["symbolic-ref", "-q", "HEAD"]).is_ok_and(|head| head.trim() == target);
+    let steps = match checked_out {
+        true => {
+            let (steps, clashes) = plan(repo, from, to).map_err(NotPut::Failed)?;
+            if !clashes.is_empty() {
+                return Err(NotPut::Clash(
+                    clashes.iter().map(|path| repo.join(path)).collect(),
+                ));
+            }
+            steps
+        }
+        false => Steps::default(),
+    };
+    run(
+        repo,
+        &[
+            "update-ref",
+            "-m",
+            "land: the land queue",
+            &target,
+            to,
+            from,
+        ],
+        None,
+        None,
+    )
+    .map_err(|_| NotPut::Moved)?;
+    Ok(match checked_out {
+        true => apply(repo, steps, from, to),
+        false => Vec::new(),
+    })
 }
 
 /// What each file the landing changes needs in the project's checkout at
@@ -532,6 +517,22 @@ mod tests {
     use super::*;
     use crate::server::edits::tests_git::git_in;
 
+    /// Lands `worktree` by itself, as the land queue lands a batch of one: the
+    /// files that took the landed lines merged in.
+    fn land_from(worktree: &AgentWorktree, signing: &Signing) -> Result<Vec<String>, String> {
+        let base = worktree.base.as_deref().unwrap_or_default();
+        let tip = line(git(&worktree.repo, &["rev-parse", base])?);
+        let head = line(git(&worktree.path, &["rev-parse", "HEAD"])?);
+        let laid = lay(signing, &worktree.repo, &head, &tip, base)?.ok_or("nothing to land")?;
+        let merged = put(&worktree.repo, base, &tip, &laid.tip).map_err(|not| match not {
+            NotPut::Clash(paths) => format!("{paths:?}"),
+            NotPut::Moved => "moved".to_owned(),
+            NotPut::Failed(why) => why,
+        })?;
+        follow(&worktree.path, &head, &laid.tip);
+        Ok(merged)
+    }
+
     #[test]
     fn landing_merges_into_files_others_changed_and_refuses_a_clash() {
         let root = tempfile::tempdir().unwrap();
@@ -572,7 +573,7 @@ mod tests {
             hosts: Vec::new(),
         };
         let landed = land_from(&worktree, &signing).unwrap();
-        assert_eq!(landed.merged, ["a.txt"]);
+        assert_eq!(landed, ["a.txt"]);
         assert_eq!(
             git_in(&main, &["log", "-1", "--format=%s", "main"]),
             "worker: first line"

@@ -18,6 +18,7 @@ mod outside;
 mod owners;
 mod prior;
 mod push;
+pub(crate) mod queue;
 
 use sikemux_fold::UpdateKind;
 use std::collections::{HashMap, HashSet, VecDeque};
