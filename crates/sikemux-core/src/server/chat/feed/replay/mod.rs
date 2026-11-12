@@ -699,9 +699,14 @@ impl Replay {
         let Some(start) = self.entries.iter().rposition(|entry| entry.starts_turn) else {
             return Vec::new();
         };
+        // Something said between the prompt and its turn starting leaves the prompt before the
+        // turn's start, so the prompts since the turn before ended count too.
+        let since = (self.entries.iter().take(start))
+            .rposition(|entry| entry.event.kind == ChatEventKind::TurnCompleted)
+            .map_or(0, |ended| ended + 1);
         self.entries
             .iter()
-            .skip(start)
+            .skip(since)
             .filter(|entry| entry.event.kind == ChatEventKind::Prompt)
             .map(|entry| &entry.event.payload)
             .filter(|payload| payload.get("person") == Some(&Value::Bool(true)))
