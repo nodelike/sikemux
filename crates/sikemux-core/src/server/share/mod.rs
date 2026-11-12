@@ -17,6 +17,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 use sikemux_view::share::{ShareAsk, ShareFrame, ShareReply, SharedChat, SharedFile};
@@ -343,13 +344,63 @@ pub(crate) fn restore(core: &Arc<Core>) {
     save(core, &inner);
 }
 
-/// A snapshot: the chat as it stands, from its last turns.
+/// What a chat's head says that a share does not carry: the pages its turns changed, which nobody
+/// viewing it can open, and the names and work of a lead's workers.
+const NOT_SHARED: [&str; 2] = ["shown", "results"];
+
+/// `payload` without what a share does not carry of a chat's head, read and written again only
+/// when it holds any of it.
+fn unshown(payload: &[u8]) -> Cow<'_, [u8]> {
+    let holds = |name: &str| {
+        let quoted = format!("\"{name}\"");
+        payload
+            .windows(quoted.len())
+            .any(|window| window == quoted.as_bytes())
+    };
+    if !NOT_SHARED.iter().any(|name| holds(name)) {
+        return Cow::Borrowed(payload);
+    }
+    let Ok(mut value) = serde_json::from_slice::<Value>(payload) else {
+        return Cow::Borrowed(payload);
+    };
+    strip_heads(&mut value);
+    serde_json::to_vec(&value).map_or(Cow::Borrowed(payload), Cow::Owned)
+}
+
+/// Takes what a share does not carry out of every chat head in `value`: a view's head, and the
+/// fields a head change sets.
+fn strip_heads(value: &mut Value) {
+    match value {
+        Value::Object(fields) => {
+            let head_change = fields.get("op").and_then(Value::as_str) == Some("head");
+            let head = match head_change {
+                true => fields.get_mut("set"),
+                false => fields.get_mut("head"),
+            };
+            if let Some(Value::Object(head)) = head {
+                for name in NOT_SHARED {
+                    head.remove(name);
+                }
+            }
+            fields.values_mut().for_each(strip_heads);
+        }
+        Value::Array(items) => items.iter_mut().for_each(strip_heads),
+        _ => {}
+    }
+}
+
+/// A snapshot: the chat as it stands, from its last turns, without what a share does not carry.
 fn snapshot(
     core: &Core,
     agent_id: &str,
     title: Option<String>,
-    attachment: ChatAttachment,
+    mut attachment: ChatAttachment,
 ) -> ShareFrame {
+    match &mut attachment {
+        ChatAttachment::Live { view, .. } => strip_heads(view),
+        ChatAttachment::Resumed { changes, .. } => strip_heads(changes),
+        ChatAttachment::Missing => {}
+    }
     let info = core.chats.get(agent_id).map(|chat| chat.info());
     ShareFrame::Snapshot {
         chat: SharedChat {
@@ -379,7 +430,7 @@ fn published<'a>(core: &Core, id: &str, frame: &'a [u8]) -> Option<(Cow<'a, [u8]
         return None;
     }
     if payload.starts_with(CHAT_EVENT) {
-        return Some((Cow::Borrowed(payload), false));
+        return Some((unshown(payload), false));
     }
     match serde_json::from_slice::<ServerMessage>(payload).ok()? {
         ServerMessage::Response {
@@ -402,7 +453,7 @@ fn published<'a>(core: &Core, id: &str, frame: &'a [u8]) -> Option<(Cow<'a, [u8]
         }
         ServerMessage::Event {
             event: Event::Chat { .. },
-        } => Some((Cow::Borrowed(payload), false)),
+        } => Some((unshown(payload), false)),
         _ => None,
     }
 }
