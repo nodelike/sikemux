@@ -10,7 +10,7 @@ use gpui_kit::component::IndexPath;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     div, px, AnyElement, App, AppContext, Context, Div, Entity, FontWeight, Global, Hsla,
-    IntoElement, ParentElement, SharedString, Styled, Subscription, Window,
+    IntoElement, ParentElement, Pixels, SharedString, Styled, Subscription, Window,
 };
 
 use crate::theme::{
@@ -96,11 +96,14 @@ pub fn section_with(
                             .when(named, |line| {
                                 line.child(
                                     ui::text(title, TEXT_SM, FontWeight::SEMIBOLD)
+                                        .whitespace_nowrap()
                                         .text_color(t.text_primary),
                                 )
                             })
                             .children(meta.map(|meta| {
                                 div()
+                                    .min_w_0()
+                                    .truncate()
                                     .text_size(crate::theme::ui_text(TEXT_2XS_H))
                                     .text_color(t.text_tertiary)
                                     .child(meta)
@@ -185,8 +188,12 @@ pub fn row_with(
     row_parts(mark, label.into(), about, control, cx)
 }
 
+/// How narrow a row's name and its line may get before the control moves under them, so a line such
+/// as an agent's release never breaks inside a number.
+const NAME_ROOM: Pixels = px(210.);
+
 /// A row whose name and line under it are drawn by the page. The name keeps its width;
-/// where the row is too narrow, the control gives way.
+/// where the row is too narrow, the control moves under it.
 pub fn row_parts(
     mark: Option<AnyElement>,
     label: impl IntoElement,
@@ -229,38 +236,43 @@ fn laid_out(
     cx: &App,
 ) -> Div {
     let t = Tokens::get(cx);
-    let control = div().child(control);
-    let control = match name_gives_way {
-        true => control.flex_none(),
-        false => control.min_w_0().overflow_hidden(),
-    };
-    div()
+    let named = div()
         .flex()
         .items_center()
         .gap(SPACE_4)
-        .px(SPACE_4)
-        .py(px(11.))
-        .border_b_1()
-        .border_color(t.line_soft)
+        .flex_grow(1.)
+        .map(|named| match name_gives_way {
+            true => named.min_w_0(),
+            false => named.flex_basis(NAME_ROOM).min_w(NAME_ROOM),
+        })
         .children(mark)
         .child(
             div()
                 .flex_1()
-                .when(name_gives_way, |column| column.min_w_0())
+                .min_w_0()
                 .flex()
                 .flex_col()
                 .gap(SPACE_0)
                 .child(
                     div()
                         .whitespace_nowrap()
-                        .when(name_gives_way, |name| name.min_w_0())
                         .text_size(crate::theme::ui_text(TEXT_SM))
                         .text_color(t.text_primary)
                         .child(label),
                 )
-                .children(about.map(|about| div().min_w_0().child(about))),
-        )
-        .child(control)
+                .children(about),
+        );
+    div()
+        .flex()
+        .when(!name_gives_way, |row| row.flex_wrap())
+        .items_center()
+        .gap(SPACE_4)
+        .px(SPACE_4)
+        .py(px(11.))
+        .border_b_1()
+        .border_color(t.line_soft)
+        .child(named)
+        .child(div().flex_none().ml_auto().child(control))
 }
 
 /// A switch that sets a boolean preference, as `change` says.

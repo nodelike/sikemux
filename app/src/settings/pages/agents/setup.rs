@@ -225,6 +225,7 @@ fn list(
                 });
             let running = matches!(agent.updating, Some(Updating::Running { .. }));
             let actions = div()
+                .min_w_0()
                 .flex()
                 .items_center()
                 .gap(SPACE_2)
