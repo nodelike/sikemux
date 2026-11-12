@@ -659,20 +659,31 @@ impl Workspaces {
         choice_of(&published, &chat, choice, open)
     }
 
+    /// The id and folder of this host's project whose folder is `path` once both are resolved,
+    /// which a symlink can tell apart.
+    pub(crate) fn project_holding(&self, path: &str) -> CoreResult<(String, PathBuf)> {
+        let canonical = |path: &Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.into());
+        let wanted = canonical(Path::new(path));
+        let projects: Vec<(String, PathBuf)> = (self.published.locked().saved.projects.iter())
+            .map(|project| (project.id.clone(), project.path.clone()))
+            .collect();
+        projects
+            .into_iter()
+            .find(|(_, path)| canonical(path) == wanted)
+            .ok_or_else(|| CoreError::from("that chat's project is not on this host"))
+    }
+
     /// How to take a closed agent's session up again: as Recent would while it lists the chat,
-    /// else on the account it ran on, in the project whose folder it ran in.
+    /// else on the account it ran on, in the project whose folder it ran in, with what `saved`
+    /// found of it when the session was found.
     pub(crate) fn ran_choice(
         &self,
         ran: &RanSession,
-        saved: &crate::server::saved::Saved,
+        saved: Option<&crate::server::saved::Saved>,
         open: &[ChatInfo],
         held: &Held,
     ) -> CoreResult<ChatChoice> {
-        let canonical = |path: &Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.into());
-        let ran_in = canonical(Path::new(&ran.project));
-        let project = (self.project_paths().into_iter())
-            .find(|path| canonical(path) == ran_in)
-            .ok_or_else(|| CoreError::from("that chat's project is not on this host"))?;
+        let (_, project) = self.project_holding(&ran.project)?;
         let published = self.published.locked();
         let recent = format!("{}:{}", ran.provider, ran.session_id);
         let chat = recent_or_pinned(&published, &recent, held).unwrap_or_else(|| {
@@ -688,8 +699,8 @@ impl Workspaces {
                 launcher: if kept { ran_on } else { String::new() },
                 provider: ran.provider.clone(),
                 session_id: ran.session_id.clone(),
-                title: saved.title.clone(),
-                cwd: saved.project.clone(),
+                title: saved.map(|saved| saved.title.clone()).unwrap_or_default(),
+                cwd: saved.map_or_else(|| project.clone(), |saved| saved.project.clone()),
                 project,
                 active_at: 0,
             }
