@@ -54,11 +54,11 @@ struct DeviceAgents: View {
                             ForEach(team.agents, id: \.agentId) { agent in
                                 row(agent, now: now)
                                 ForEach(workers.filter { $0.lead == agent.agentId }, id: \.agentId) {
-                                    WorkerRow(worker: $0, nested: true)
+                                    WorkerRow(worker: $0, now: now, nested: true)
                                 }
                             }
                         }
-                        ForEach(strays, id: \.agentId) { WorkerRow(worker: $0) }
+                        ForEach(strays, id: \.agentId) { WorkerRow(worker: $0, now: now) }
                     }
                     .animation(still ? nil : .snappy(duration: 0.28), value: teams.map(\.id))
                     .simultaneousGesture(
@@ -326,6 +326,7 @@ private struct AwayGroup<Content: View>: View {
 struct WorkerRow: View {
     @Environment(\.palette) private var palette
     let worker: RemoteAgent
+    let now: Date
     var nested = false
 
     var body: some View {
@@ -337,7 +338,7 @@ struct WorkerRow: View {
             end: {
                 if worker.reachable {
                     if let turn = worker.turn {
-                        TurnMark(turn: turn, now: Date())
+                        TurnMark(turn: turn, now: now)
                     } else {
                         AgentStateMark(group: worker.group)
                     }

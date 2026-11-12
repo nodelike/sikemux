@@ -207,6 +207,12 @@ final class HostCalls {
 
     /// An answer from a notification did not go: its card says so, and why, until it is answered.
     func answerFailed(_ callId: String, _ why: String) {
+        let live = Hub.shared.live(core)
+        if live.connection != nil, let view = live.view {
+            let open = Set((view.calls ?? []).filter { $0.state == .open }.map(\.id))
+            guard open.contains(callId) else { return }
+            failed = failed.filter { open.contains($0.key) }
+        }
         failed[callId] = why
     }
 }

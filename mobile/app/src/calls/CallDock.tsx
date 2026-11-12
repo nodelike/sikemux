@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { memo, useEffect, useState } from 'react';
 import { Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { ConnectionLike } from '@sikemux/native';
 
@@ -11,7 +11,7 @@ import {
   context as contextOf,
   GO_WITH_THIS,
   hidden,
-  KEPT,
+  kept,
   NOT_MINE,
   OWN_WORDS,
   PICK,
@@ -24,7 +24,6 @@ import {
 import type { CallOption, PersonCall } from '@shared/wire.generated';
 import { AskerMark } from '@/calls/AskerMark';
 import { answer, answerOf, choose, chosenIn, draftOf, edit, focus, notMine, see, useKept } from '@/calls/hostCalls';
-import type { Snapshot } from '@/core/protocol';
 import { useHostFile } from '@/chat/hostFiles';
 import { haptics } from '@/ui/haptics';
 import { Icon } from '@/ui/Icon';
@@ -38,9 +37,9 @@ const ROW = 44;
  * with 44-point rows and Go with this across the card. Typing in the composer answers it too, so it has no Open chat.
  * When the chat waits on several calls, the card says which it is and the others wait folded under it.
  */
-export function CallDock({
+export const CallDock = memo(function CallDock({
   core,
-  snapshot,
+  calls,
   call,
   chat,
   queue,
@@ -49,7 +48,8 @@ export function CallDock({
   report,
 }: {
   core: string;
-  snapshot: Snapshot | undefined;
+  /** The host's calls, which the hub keeps as the same array while none changes. */
+  calls: readonly PersonCall[] | undefined;
   call: PersonCall;
   /** The agent whose chat the card docks on. */
   chat: string;
@@ -62,8 +62,8 @@ export function CallDock({
   const colors = useColors();
   const styles = useStyles(makeStyles);
   const minute = useMinute();
-  const kept = useKept(core);
-  const store = draftOf(snapshot, call);
+  const held = useKept(core);
+  const store = draftOf(calls, call);
   const draft = useExternalValue(store);
   const chosen = chosenIn(draft, call);
   const typed = draft.typed.trim().length > 0;
@@ -74,9 +74,9 @@ export function CallDock({
   const runs = call.kind === 'production' ? call.action : undefined;
   const at = queue.findIndex((each) => each.id === call.id);
   const context = contextOf(call);
-  const failed = kept.failed[call.id];
+  const failed = held.failed[call.id];
   // The core asks only a production call to have been drawn before its answer counts.
-  const seen = call.kind !== 'production' || kept.seen.has(call.id);
+  const seen = call.kind !== 'production' || held.seen.has(call.id);
   const ready = (chosen.length > 0 || typed) && !draft.sending && canAnswer && seen;
 
   // Tells the host this phone drew the call, again whenever the connection changes.
@@ -139,7 +139,8 @@ export function CallDock({
                 onChangeText={(text) => edit(store, { typed: text })}
                 placeholder={SECRET_FIELD}
                 placeholderTextColor={colors.tertiary}
-                // Its words never show, and the keyboard neither suggests nor remembers them.
+                // Its words never show, and the keyboard neither suggests nor remembers them. A hidden secure field
+                // cannot hold the line breaks of a pasted key, so the text is drawn clear; paste still works.
                 style={[styles.input, draft.typed ? styles.hiddenText : null]}
                 multiline
                 autoCorrect={false}
@@ -147,7 +148,6 @@ export function CallDock({
                 autoComplete="off"
                 importantForAutofill="no"
                 keyboardType="visible-password"
-                contextMenuHidden
                 caretHidden={!!draft.typed}
                 editable={canAnswer}
                 onFocus={() => setFocused(true)}
@@ -160,8 +160,9 @@ export function CallDock({
                 placeholder={chosen.length ? ADD_NOTE : OWN_WORDS}
                 placeholderTextColor={colors.tertiary}
                 style={styles.input}
-                returnKeyType="send"
-                onSubmitEditing={go}
+                // Only the button passes a step to production; Enter there is a new line of the note's.
+                returnKeyType={call.kind === 'production' ? 'default' : 'send'}
+                onSubmitEditing={call.kind === 'production' ? undefined : go}
                 editable={canAnswer}
                 onFocus={() => setFocused(true)}
                 onBlur={() => setFocused(false)}
@@ -212,7 +213,7 @@ export function CallDock({
         {secret ? (
           <>
             {typed ? <Text style={styles.hiddenSize}>{hidden(draft.typed)}</Text> : null}
-            <Text style={styles.kept}>{KEPT}</Text>
+            <Text style={styles.kept}>{kept(call.asker.name)}</Text>
           </>
         ) : null}
         {failed ? <Text style={styles.failed}>{pushFailed(failed)}</Text> : null}
@@ -245,7 +246,7 @@ export function CallDock({
       </ScrollView>
     </View>
   );
-}
+});
 
 function OptionRow({
   option,

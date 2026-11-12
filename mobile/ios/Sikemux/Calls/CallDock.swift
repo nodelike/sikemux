@@ -217,8 +217,9 @@ struct CallDock: View {
             .font(Theme.ui(15.5))
             .foregroundStyle(palette.ink)
             .focused($fieldFocused)
-            .submitLabel(.send)
-            .onSubmit(goWithThis)
+            // Only the button passes a step to production; Return there sends nothing.
+            .submitLabel(call.kind == .production ? .done : .send)
+            .onSubmit { if call.kind != .production { goWithThis() } }
             .disabled(!canAnswer)
         }
         .padding(.horizontal, 14)
@@ -267,7 +268,7 @@ struct CallDock: View {
                     if typed {
                         Text(CallWords.hidden(draft.typed)).font(Theme.ui(12.5)).foregroundStyle(palette.inkDim)
                     }
-                    Text(CallWords.kept).font(Theme.ui(12.5)).foregroundStyle(palette.tertiary)
+                    Text(CallWords.kept(call.asker.name)).font(Theme.ui(12.5)).foregroundStyle(palette.tertiary)
                 }
             }
             .padding(.top, 6)

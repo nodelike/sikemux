@@ -138,27 +138,6 @@ enum CoreCall {
         let params: AnswerParams
     }
 
-    struct AllowShip: CoreAsk {
-        static let op = "call"
-        typealias Answer = CoreResponse.Called<Nothing?>
-        let method = "allowShip"
-        let params: HoldParams
-    }
-
-    struct RefuseShip: CoreAsk {
-        static let op = "call"
-        typealias Answer = CoreResponse.Called<Nothing?>
-        let method = "refuseShip"
-        let params: HoldParams
-    }
-
-    struct LetShipGo: CoreAsk {
-        static let op = "call"
-        typealias Answer = CoreResponse.Called<Nothing?>
-        let method = "letShipGo"
-        let params: HoldParams
-    }
-
     struct AnswerCall: CoreAsk {
         static let op = "call"
         typealias Answer = CoreResponse.Called<Nothing?>
@@ -1074,10 +1053,6 @@ struct AnswerParams: Codable, Hashable {
     var choices: [Int]?
     /// The assumption the agent went on is right.
     var fine: Bool = false
-}
-
-struct HoldParams: Codable, Hashable {
-    let hold: String
 }
 
 /// What answers a call: an option, with a note, or the person's own words, with any files.

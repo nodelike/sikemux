@@ -10,7 +10,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { activityDoing, composerPlaceholder } from '@shared/chat/chatStatus';
 import { sentPrompts } from '@/chat/promptHistory';
-import type { ChatMessage } from '@shared/wire.generated';
+import type { ChatMessage, PersonCall } from '@shared/wire.generated';
 import { ChatMenu } from '@/chat/ChatMenu';
 import { AwaySheet } from '@/devices/AwaySheet';
 import { FindBar } from '@/chat/FindBar';
@@ -29,7 +29,7 @@ import { useAssumptions } from '@/chat/assumptions';
 import { CallDock } from '@/calls/CallDock';
 import { TurnLine } from '@/calls/TurnLine';
 import { answerWritten, composingCall, queueOf, stopComposing, useKept, waitingCall } from '@/calls/hostCalls';
-import { NO_CHIPS, answering as answeringWords, typeYourAnswer } from '@shared/calls/words';
+import { NO_CHIPS, TELL_CHIEF, answering as answeringWords, sendTo, typeYourAnswer } from '@shared/calls/words';
 import { hasLiveWork, liveKey, liveWork } from '@/chat/liveWork';
 import { stripOf, stripOwner } from '@/chat/messageMeta';
 import { ToolDetailContext } from '@/chat/Tools';
@@ -42,6 +42,7 @@ import { AgentContext, liveRunKey, ProviderContext, SubagentsContext } from '@/c
 import { useChat } from '@/chat/useChat';
 import { useHostCall } from '@/core/hostCalls';
 import { retry as reconnect, useDevices, useLive } from '@/devices/hub';
+import { projectOf } from '@/devices/words';
 import { dismissCardsFor } from '@/notify/cards';
 import { deviceName } from '@/devices/paired';
 import { agentLabel } from '@shared/agents/catalog';
@@ -180,7 +181,6 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
     host: devices.length > 1 ? hostName : undefined,
     project: project?.name,
     branch: worktree?.branch || project?.git?.branch,
-    goal: state.goal,
     account:
       accounts.length > 1 && saved?.profileId ? accounts.find((known) => known.id.endsWith(`:${saved.profileId}`))?.label : undefined,
   };
@@ -199,11 +199,37 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
   const assumptions = useAssumptions(connection, agentId, `${info?.activeAt}|${info?.unread}|${state.running}`, session.report);
   const input = useRef<TextInput>(null);
   const keptCalls = useKept(core);
-  const queue = queueOf(live.snapshot, agentId);
+  // The hub keeps the host's calls as the same array while none changes, so typing beside a docked call does not
+  // redraw it on every view the host sends.
+  const calls = live.snapshot?.calls;
+  const queue = useMemo(() => queueOf(calls, agentId), [calls, agentId]);
   const docked = waitingCall(queue, keptCalls, agentId);
   // Change on an assumption wins over a call docked in the same chat, until it is sent or taken off.
   const changing = watchOnly ? null : assumptions.changing;
-  const composing = watchOnly || changing ? undefined : composingCall(docked, keptCalls);
+  const composing = watchOnly || changing ? undefined : answeringIn(composingCall(docked, keptCalls));
+  const canAnswerCall = !watchOnly && live.status === 'open';
+  // In a project with a chief the composer says who an idle chat's words go to, as the Mac does.
+  const projectId = live.snapshot ? projectOf(live.snapshot, agentId) : undefined;
+  const hasChief = !!live.snapshot?.workspace.projects.find((project) => project.id === projectId)?.chief;
+  const composerTo = state.chief
+    ? { words: TELL_CHIEF, commands: true }
+    : hasChief && info?.name
+      ? { words: sendTo(info.name), commands: false }
+      : undefined;
+  // React's compiler keeps this element while its inputs stay the same, so a view from the host leaves the card be.
+  const dock = docked ? (
+    <CallDock
+      key={docked.id}
+      core={core}
+      calls={calls}
+      call={docked}
+      chat={agentId}
+      queue={queue}
+      connection={connection}
+      canAnswer={canAnswerCall}
+      report={session.report}
+    />
+  ) : null;
   const unreachable = chat.attached !== 'live' && live.status === 'closed';
   const status = unreachable ? (
     <View style={styles.missing}>
@@ -418,12 +444,13 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
                     changing
                       ? typeYourAnswer(changing.name)
                       : composing
-                        ? typeYourAnswer(composing.asker.name)
+                        ? composing.placeholder
                         : composerPlaceholder(state, {
                             resuming: false,
                             disconnected: live.status !== 'open',
                             commands: state.commands.length > 0,
                             steers,
+                            to: composerTo,
                           })
                   }
                   permissionMode={chat.permissionMode ?? ''}
@@ -434,21 +461,7 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
                   onSent={scroll.toEnd}
                   attachments={chat.attachments}
                   chips={chat.chips}
-                  held={
-                    docked ? (
-                      <CallDock
-                        key={docked.id}
-                        core={core}
-                        snapshot={live.snapshot}
-                        call={docked}
-                        chat={agentId}
-                        queue={queue}
-                        connection={connection}
-                        canAnswer={!watchOnly && live.status === 'open'}
-                        report={session.report}
-                      />
-                    ) : null
-                  }
+                  held={dock}
                   strip={strip}
                   onRecent={recalls ? openRecent : undefined}
                   inputRef={input}
@@ -463,12 +476,17 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
                         }
                       : composing
                         ? {
-                            chip: answeringWords(composing.asker.name, composing.question),
-                            cli: composing.asker.cli,
+                            chip: composing.chip,
+                            cli: composing.cli,
                             chipsRefused: NO_CHIPS,
-                            onRemove: () => stopComposing(core, composing),
+                            onRemove: () => stopComposing(core, composing.id),
                             onAnswer: (written) =>
-                              answerWritten(connection, composing, { answer: written.answer, paths: written.paths ?? [] }, session.report),
+                              answerWritten(
+                                connection,
+                                composing.id,
+                                { answer: written.answer, paths: written.paths ?? [] },
+                                session.report,
+                              ),
                           }
                         : null
                   }
@@ -559,3 +577,15 @@ const makeStyles = (colors: Palette) => {
     gone: { ...type.meta, textAlign: 'center' },
   });
 };
+
+/** What the composer says while it answers `call`, worked out apart from the call so the docked card keeps its element. */
+function answeringIn(call: PersonCall | undefined) {
+  return (
+    call && {
+      id: call.id,
+      cli: call.asker.cli,
+      chip: answeringWords(call.asker.name, call.question),
+      placeholder: typeYourAnswer(call.asker.name),
+    }
+  );
+}

@@ -109,8 +109,8 @@ export function Agents({
   const { main: open, snoozed, settled } = openAgents(snapshot, scope, provider);
   const animating = useAnimating();
   // The projects' order while a finger is on the list, so a tap never lands on a row that moved under it.
-  const [held, setHeld] = useState<string[]>();
-  const teams = keptStill(teamsOf(snapshot, open, scope, provider), held);
+  const [touchOrder, setTouchOrder] = useState<string[]>();
+  const teams = keptStill(teamsOf(snapshot, open, scope, provider), touchOrder);
   const order = teams.map((team) => team.id).join('|');
   const [shownOrder, setShownOrder] = useState(order);
   if (shownOrder !== order) {
@@ -121,7 +121,7 @@ export function Agents({
   const [snoozing, setSnoozing] = useState<string>();
   const hold = (shown: AgentShown) => setSnoozing(shown.agentId);
   const onHold = full ? hold : undefined;
-  const heldShown = snoozing ? snapshot.inbox.agents.find((agent) => agent.agentId === snoozing) : undefined;
+  const snoozingShown = snoozing ? snapshot.inbox.agents.find((agent) => agent.agentId === snoozing) : undefined;
   const awayRow = (agent: AgentShown) =>
     agent.session == null ? (
       <ChatRow key={agent.agentId} core={core} shown={agent} minute={minute} onHold={onHold} />
@@ -141,9 +141,9 @@ export function Agents({
       <AwayNote />
       {teams.some((team) => team.project || team.agents.length) || strays.length ? (
         <View
-          onTouchStart={() => setHeld((now) => now ?? teams.map((team) => team.id))}
-          onTouchEnd={() => setHeld(undefined)}
-          onTouchCancel={() => setHeld(undefined)}>
+          onTouchStart={() => setTouchOrder((now) => now ?? teams.map((team) => team.id))}
+          onTouchEnd={() => setTouchOrder(undefined)}
+          onTouchCancel={() => setTouchOrder(undefined)}>
           <Rows style={styles.open}>
             {teams.map((team) => (
               <Fragment key={team.id}>
@@ -181,7 +181,7 @@ export function Agents({
       <AwayGroup label="Snoozed" fold="snoozed" agents={snoozed} row={awayRow} />
       <AwayGroup label="Settled" fold="settled" agents={settled} row={awayRow} />
       <Recent core={core} snapshot={snapshot} scope={scope} provider={provider} full={full} hostName={hostName} />
-      <AwaySheet core={core} shown={heldShown} onClose={() => setHeld(undefined)} />
+      <AwaySheet core={core} shown={snoozingShown} onClose={() => setSnoozing(undefined)} />
       {!open.length &&
       !strays.length &&
       !snoozed.length &&

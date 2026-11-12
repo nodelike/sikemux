@@ -40,7 +40,8 @@ export function TurnLine({
   const colors = useColors();
   const styles = useStyles(makeStyles);
   const animating = useAnimating();
-  const ticks = turn.state === 'working' || turn.state === 'waiting' || turn.state === 'needsYou';
+  // Only a working turn counts seconds; the other states show minutes, on the same minute as the call card's age.
+  const ticks = turn.state === 'working';
   const second = useSecond(ticks && animating);
   const minute = useMinute();
   const now = ticks && second ? second * 1000 : minute * 60_000;

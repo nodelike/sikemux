@@ -6,18 +6,16 @@ struct ChatPlaceInfo {
     var host: String?
     var project: String?
     var branch: String?
-    var goal: ChatGoal?
     /// The account the chat runs on, when its agent has more than one here.
     var account: String?
 }
 
 /// Where the chat runs, quietly under the composer as the Mac's line under the box: the host when there are several,
-/// its project and branch with a slash between, then its goal as its mark and steps, named on a tap, and its account
-/// as its mark at the right, so the branch keeps its whole name.
+/// its project and branch with a slash between, and its account as its mark at the right, so the branch keeps its
+/// whole name.
 struct ChatPlace: View {
     @Environment(\.palette) private var palette
     let place: ChatPlaceInfo
-    @State private var named = false
 
     var body: some View {
         HStack(spacing: 4) {
@@ -42,24 +40,6 @@ struct ChatPlace: View {
                 )
             }
             Spacer(minLength: 4)
-            if let goal = place.goal {
-                Button {
-                    named.toggle()
-                } label: {
-                    HStack(spacing: 6) {
-                        GoalStateMark(state: goal.state)
-                        if named {
-                            Text(goal.name).font(Theme.ui(12, .medium)).foregroundStyle(palette.ink).lineLimit(1)
-                        }
-                        GoalSteps(steps: goal.steps ?? [])
-                    }
-                    .padding(.horizontal, 4)
-                    .frame(height: 24)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Goal, \(goal.name)")
-            }
             if let account = place.account {
                 IconView(icon: Icons.user, size: 13)
                     .foregroundStyle(palette.tertiary)

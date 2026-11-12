@@ -347,7 +347,6 @@ private struct ChatPane: View {
             host: Hub.shared.devices.count > 1 ? hostName : nil,
             project: project?.name,
             branch: branch,
-            goal: rows.head.goal,
             account: accounts.count > 1
                 ? saved?.profileId.flatMap { profile in accounts.first { $0.id.hasSuffix(":\(profile)") }?.label } : nil
         )

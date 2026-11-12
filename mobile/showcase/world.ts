@@ -281,12 +281,11 @@ export const CHATS: DemoChat[] = [
   },
   {
     agentId: 'chat-team',
-    name: 'Kuro',
+    name: 'Chief',
     provider: 'claude',
     title: 'Ledger import',
     project: 'p-api',
     running: false,
-    unlisted: true,
     permissionMode: 'bypass',
     history: [
       letters({
@@ -300,7 +299,7 @@ export const CHATS: DemoChat[] = [
       letters(
         {
           kind: 'answer',
-          name: 'Kuro',
+          name: 'Chief',
           agentId: 'chat-team',
           cli: 'claude',
           question: 'Which timezone should the ledger dates use?',
@@ -308,7 +307,7 @@ export const CHATS: DemoChat[] = [
         },
         {
           kind: 'answer',
-          name: 'Kuro',
+          name: 'Chief',
           agentId: 'chat-team',
           cli: 'claude',
           question: 'Store amounts in cents or as decimals?',
@@ -391,7 +390,7 @@ export const TURNS: Record<string, TurnState> = {
   'chat-notes': {
     state: 'done',
     since: AGO(600_000),
-    done: { changes: 'committed', checks: 'pass', tests: 41, next: [{ step: 'push', primary: true }] },
+    done: { changes: 'committed', checks: 'pass', next: [{ step: 'push', primary: true }] },
   },
   'chat-team': {
     state: 'needsYou',
@@ -423,7 +422,7 @@ export const CALLS: PersonCall[] = [
     id: 'call-ledger',
     project: `${HOME}/payments-api`,
     kind: 'production',
-    asker: { agentId: 'chat-team', name: 'Kuro', cli: 'claude' },
+    asker: { agentId: 'chat-team', name: 'Chief', cli: 'claude', chief: true },
     question: 'Ship the ledger import to production?',
     options: [
       { id: 'all', label: 'Ship it to everyone' },
@@ -456,134 +455,6 @@ export const CALLS: PersonCall[] = [
     raisedAt: AGO(7_200_000),
     state: 'answered',
     answer: { option: 'buy', by: { kind: 'device', id: 'phone' }, at: AGO(7_000_000), waitedMs: 200_000 },
-  },
-];
-
-const card = (fields: Record<string, unknown>) => ({
-  details: '',
-  owner: null,
-  ownerName: null,
-  ownerCli: null,
-  team: null,
-  teamName: null,
-  parent: null,
-  dependsOn: [],
-  waitsOn: [],
-  createdBy: null,
-  createdByName: 'You',
-  result: null,
-  ticket: null,
-  auto: null,
-  at: Date.now() - 86_400_000,
-  updatedAt: Date.now() - 3_600_000,
-  ...fields,
-});
-
-const jira = (key: string, source: string) => ({ key, source, provider: 'jira' });
-
-/** Each project's board, as the host's boards call lists them. */
-export const BOARDS = [
-  {
-    project: `${HOME}/acme-shop`,
-    settings: {
-      auto: false,
-      slots: 3,
-      launcher: null,
-      model: null,
-      finish: 'merge',
-      check: null,
-      statuses: { progress: 'In Progress', done: 'Done' },
-    },
-    running: 0,
-    autoNote: null,
-    cards: [
-      card({
-        id: 1,
-        title: 'Dark mode in settings',
-        status: 'progress',
-        owner: 'chat-dark-mode',
-        ownerName: 'Otter',
-        ownerCli: 'claude',
-        team: 'chat-dark-mode',
-        teamName: 'Otter',
-        ticket: jira('SHOP-12', 'Story'),
-        updatedAt: Date.now() - 600_000,
-      }),
-      card({
-        id: 2,
-        title: 'Fix the login form on small phones',
-        status: 'progress',
-        owner: 'chat-login',
-        ownerName: 'Maple',
-        ownerCli: 'codex',
-        team: 'chat-login',
-        teamName: 'Maple',
-        ticket: jira('SHOP-14', 'Bug'),
-        updatedAt: Date.now() - 300_000,
-      }),
-      card({
-        id: 3,
-        title: 'Check the login form at every phone size',
-        status: 'progress',
-        owner: 'chat-login-check',
-        ownerName: 'Wren',
-        ownerCli: 'claude',
-        team: 'chat-login',
-        teamName: 'Maple',
-        parent: 2,
-        createdBy: 'chat-login',
-        createdByName: 'Maple',
-        updatedAt: Date.now() - 200_000,
-      }),
-      card({
-        id: 4,
-        title: 'Remember the theme on every device',
-        status: 'open',
-        dependsOn: [1],
-        waitsOn: [1],
-        ticket: jira('SHOP-15', 'Story'),
-      }),
-      card({
-        id: 5,
-        title: 'Move checkout totals into the order service',
-        status: 'done',
-        owner: 'chat-gone',
-        ownerName: 'Comet',
-        ownerCli: 'claude',
-        team: 'chat-gone',
-        teamName: 'Comet',
-        ticket: jira('SHOP-9', 'Story'),
-        updatedAt: Date.now() - 10_800_000,
-      }),
-    ],
-  },
-  {
-    project: `${HOME}/marketing-site`,
-    settings: {
-      auto: false,
-      slots: 3,
-      launcher: null,
-      model: null,
-      finish: 'merge',
-      check: null,
-      statuses: { progress: 'In Progress', done: 'Done' },
-    },
-    running: 0,
-    autoNote: null,
-    cards: [
-      card({
-        id: 1,
-        title: 'Release notes for this week',
-        status: 'progress',
-        owner: 'chat-release',
-        ownerName: 'Birch',
-        ownerCli: 'hermes',
-        team: 'chat-release',
-        teamName: 'Birch',
-        ticket: jira('SITE-41', 'Story'),
-      }),
-      card({ id: 2, title: 'Blog post on the new prices', status: 'open' }),
-    ],
   },
 ];
 
@@ -701,27 +572,6 @@ export function permissionPayload(chat: DemoChat): PermissionAsk | undefined {
     ],
   };
 }
-
-const MINUTE = 60_000;
-const logged = (ago: number, from: string, to: string, kind: string, outcome: string) => ({
-  at: Date.now() - ago * MINUTE,
-  from,
-  kind,
-  to,
-  outcome,
-});
-
-/** acme-shop's log of messages between its agents, newest first. */
-export const MESSAGES = [
-  logged(1, 'chat-dark-mode', 'chat-refunds', 'message', 'steered'),
-  logged(3, 'chat-login-check', 'chat-dark-mode', 'question', 'waiting'),
-  logged(6, 'chat-login', 'chat-refunds', 'answer', 'delivered'),
-  logged(9, 'chat-refunds', 'chat-dark-mode', 'report', 'newTurn'),
-  logged(14, 'chat-login', 'chat-refunds', 'answer', 'waiting'),
-  logged(22, 'chat-dark-mode', 'chat-login-check', 'message', 'dropped'),
-  logged(31, 'chat-dark-mode', 'chat-login-check', 'message', 'waiting'),
-  logged(52, 'chat-dark-mode', 'chat-login', 'message', 'refused'),
-];
 
 /** The files `+` ranks in acme-shop, as its host's file list holds them. */
 export const PROJECT_FILES = [

@@ -179,9 +179,12 @@ impl Cards {
         }
         let field = cx.new(|cx| InputState::new(window, cx).masked(call.secret));
         let id = call.id.clone();
+        // Only the button, or the card's own key, passes a step to production; Enter in its
+        // note sends nothing.
+        let production = call.kind == CallKind::Production;
         let typed = cx.subscribe(&field, move |_, _, event: &InputEvent, cx| match event {
             InputEvent::Change => cx.notify(),
-            InputEvent::PressEnter { .. } => cx.emit(GoWith(id.clone())),
+            InputEvent::PressEnter { .. } if !production => cx.emit(GoWith(id.clone())),
             _ => {}
         });
         self.held.insert(
@@ -388,14 +391,24 @@ impl Workbench {
         };
         let call = call.clone();
         let cards = self.calls.clone();
+        // A production call is never sent by a key, wherever the focus is: only its button sends
+        // it. Its numbers and arrows still move the choice.
         if press == Press::Pick {
-            self.go_with(id, cx);
+            if call.kind != CallKind::Production {
+                self.go_with(id, cx);
+            }
             return true;
         }
         if cards.read(cx).field_focused(id, window, cx) {
             return false;
         }
         cards.update(cx, |cards, cx| cards.press(&call, press, cx))
+    }
+
+    /// Whether call `id` ships to production, which no key ever sends.
+    pub(crate) fn ships_to_production(&self, id: &str) -> bool {
+        self.call_at(id)
+            .is_some_and(|(_, call)| call.kind == CallKind::Production)
     }
 
     /// Hands call `id` back to its asker's lead, or its asker, to decide.

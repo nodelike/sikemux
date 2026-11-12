@@ -141,16 +141,11 @@ protocol PhoneCallable {
 /// The core's calls the phone makes, as mobile/app/wire.json names them.
 enum PhoneCall {
     enum AgentCatalog {}
-    enum AgentMessageRows {}
     enum AgentSessions {}
-    enum AllowShip {}
     enum AnswerCall {}
     enum AnswerPairing {}
     enum AnswerQuestion {}
-    enum AnswerQuestions {}
     enum AttachStash {}
-    enum Board {}
-    enum Boards {}
     enum CallNotMine {}
     enum CallSeen {}
     enum CancelResume {}
@@ -167,7 +162,6 @@ enum PhoneCall {
     enum DiscardFailed {}
     enum DropQueued {}
     enum EditMessage {}
-    enum LetShipGo {}
     enum MoveChatAccount {}
     enum OpenChief {}
     enum Pairing {}
@@ -175,7 +169,6 @@ enum PhoneCall {
     enum ProjectEntries {}
     enum PromptChat {}
     enum Questions {}
-    enum RefuseShip {}
     enum RemoveStash {}
     enum RequireApproval {}
     enum RetryFailed {}
@@ -197,22 +190,10 @@ extension PhoneCall.AgentCatalog: PhoneCallable {
     typealias Answer = [CatalogAgent]
 }
 
-extension PhoneCall.AgentMessageRows: PhoneCallable {
-    static let method = "agentMessageRows"
-    typealias Params = AgentMessagesParams
-    typealias Answer = AgentMessageRows
-}
-
 extension PhoneCall.AgentSessions: PhoneCallable {
     static let method = "agentSessions"
     typealias Params = SessionSearchParams
     typealias Answer = [SessionMatch]
-}
-
-extension PhoneCall.AllowShip: PhoneCallable {
-    static let method = "allowShip"
-    typealias Params = HoldParams
-    typealias Answer = WireNull
 }
 
 extension PhoneCall.AnswerCall: PhoneCallable {
@@ -233,28 +214,10 @@ extension PhoneCall.AnswerQuestion: PhoneCallable {
     typealias Answer = WireNull
 }
 
-extension PhoneCall.AnswerQuestions: PhoneCallable {
-    static let method = "answerQuestions"
-    typealias Params = AnswersParams
-    typealias Answer = WireNull
-}
-
 extension PhoneCall.AttachStash: PhoneCallable {
     static let method = "attachStash"
     typealias Params = AttachStashParams
     typealias Answer = AttachedStash
-}
-
-extension PhoneCall.Board: PhoneCallable {
-    static let method = "board"
-    typealias Params = BoardParams
-    typealias Answer = ProjectBoard
-}
-
-extension PhoneCall.Boards: PhoneCallable {
-    static let method = "boards"
-    typealias Params = NoParams
-    typealias Answer = [ProjectBoard]
 }
 
 extension PhoneCall.CallNotMine: PhoneCallable {
@@ -353,12 +316,6 @@ extension PhoneCall.EditMessage: PhoneCallable {
     typealias Answer = WireNull
 }
 
-extension PhoneCall.LetShipGo: PhoneCallable {
-    static let method = "letShipGo"
-    typealias Params = HoldParams
-    typealias Answer = WireNull
-}
-
 extension PhoneCall.MoveChatAccount: PhoneCallable {
     static let method = "moveChatAccount"
     typealias Params = MoveChatParams
@@ -399,12 +356,6 @@ extension PhoneCall.Questions: PhoneCallable {
     static let method = "questions"
     typealias Params = NoParams
     typealias Answer = [AgentQuestion]
-}
-
-extension PhoneCall.RefuseShip: PhoneCallable {
-    static let method = "refuseShip"
-    typealias Params = HoldParams
-    typealias Answer = WireNull
 }
 
 extension PhoneCall.RemoveStash: PhoneCallable {
@@ -7171,90 +7122,6 @@ enum ErrorKind: String, Codable, Hashable, Sendable {
 /// What a call that takes nothing is sent; whatever a client sends reads as nothing.
 struct NoParams: Codable, Hashable, Sendable {}
 
-struct AgentMessagesParams: Codable, Hashable, Sendable {
-    var project: String
-    var limit: Int?
-}
-
-/// A project's messages between agents, one row each, newest first, under the
-/// project's own path.
-struct AgentMessageRows: Codable, Hashable, Sendable {
-    var project: String
-    var rows: [MessageRow]
-}
-
-/// One message between agents, from being sent to what last became of it.
-struct MessageRow: Codable, Hashable, Sendable {
-    var sentAt: Int
-    var at: Int
-    /// The sending agent's id, or a [`super::Sender`]'s.
-    var from: String?
-    /// The sending agent's name now, else when it was logged; none for those that are
-    /// not agents.
-    var fromName: String?
-    var to: String
-    var toName: String?
-    var kind: MessageKind?
-    var outcome: MessageOutcome
-    /// It waited for its agent before it got where it is.
-    var waited: Bool
-    var tone: MessageTone?
-}
-
-enum MessageKind: String, Codable, Hashable, Sendable {
-    case message
-    /// How a worker's turn ended, sent to its lead.
-    case report
-    case question
-    case answer
-    /// A note from Sikemux itself, such as two agents changing the same lines.
-    case notice
-    /// One added after this build.
-    case unknown
-
-    init(from decoder: any Decoder) throws {
-        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
-    }
-}
-
-enum MessageOutcome: String, Codable, Hashable, Sendable {
-    /// Taken into the turn the agent was working on.
-    case steered
-    /// Started a turn of the agent's.
-    case newTurn
-    /// Typed into a terminal agent's prompt, not yet seen taken.
-    case typed
-    /// Waits for the agent to be free.
-    case waiting
-    /// Reached the agent after waiting, or a terminal agent took it.
-    case delivered
-    /// The agent did not take it, so it waits again.
-    case returned
-    /// The same text went to the same agent a moment before.
-    case `repeat`
-    case refused
-    /// Dropped unread: its agent closed, or it was withdrawn.
-    case dropped
-    /// One added after this build.
-    case unknown
-
-    init(from decoder: any Decoder) throws {
-        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
-    }
-}
-
-/// Whether a message still waits for its agent, or never reached it.
-enum MessageTone: String, Codable, Hashable, Sendable {
-    case held
-    case failed
-    /// One added after this build.
-    case unknown
-
-    init(from decoder: any Decoder) throws {
-        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
-    }
-}
-
 struct SessionSearchParams: Codable, Hashable, Sendable {
     var query: String
     var projects: [String]?
@@ -7271,10 +7138,6 @@ struct SessionMatch: Codable, Hashable, Sendable {
     var activeAt: Int
     /// Lines of the conversation the words were found in.
     var snippets: [String]
-}
-
-struct HoldParams: Codable, Hashable, Sendable {
-    var hold: String
 }
 
 /// What answers a call: an option, with a note, or the person's own words, with any files.
@@ -7309,10 +7172,6 @@ struct AnswerParams: Codable, Hashable, Sendable {
     var fine: Bool?
 }
 
-struct AnswersParams: Codable, Hashable, Sendable {
-    var answers: [AnswerParams]
-}
-
 struct AttachStashParams: Codable, Hashable, Sendable {
     var id: String
     var agentId: String
@@ -7327,11 +7186,6 @@ struct AttachedStash: Codable, Hashable, Sendable {
     var path: String?
     /// Where each of the item's files was kept: its own, or a prompt's.
     var paths: [String]
-}
-
-/// The project a board call is about, by its absolute path.
-struct BoardParams: Codable, Hashable, Sendable {
-    var project: String
 }
 
 struct CallParams: Codable, Hashable, Sendable {

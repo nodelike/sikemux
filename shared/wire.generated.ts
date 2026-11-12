@@ -4582,47 +4582,6 @@ export interface MarkdownOptions {
 /** What a call that takes nothing is sent; whatever a client sends reads as nothing. */
 export type NoParams = Record<string, never>;
 
-export interface AgentMessagesParams {
-    project: string;
-    limit?: number | null;
-}
-
-/**
- * A project's messages between agents, one row each, newest first, under the
- * project's own path.
- */
-export interface AgentMessageRows {
-    project: string;
-    rows: MessageRow[];
-}
-
-/** One message between agents, from being sent to what last became of it. */
-export interface MessageRow {
-    sentAt: number;
-    at: number;
-    /** The sending agent's id, or a [`super::Sender`]'s. */
-    from: string | null;
-    /**
-     * The sending agent's name now, else when it was logged; none for those that are
-     * not agents.
-     */
-    fromName: string | null;
-    to: string;
-    toName: string | null;
-    kind: MessageKind | null;
-    outcome: MessageOutcome;
-    /** It waited for its agent before it got where it is. */
-    waited: boolean;
-    tone: MessageTone | null;
-}
-
-export type MessageKind = "message" | "report" | "question" | "answer" | "notice";
-
-export type MessageOutcome = "steered" | "newTurn" | "typed" | "waiting" | "delivered" | "returned" | "repeat" | "refused" | "dropped";
-
-/** Whether a message still waits for its agent, or never reached it. */
-export type MessageTone = "held" | "failed";
-
 export interface SessionSearchParams {
     query: string;
     projects?: string[] | null;
@@ -4639,10 +4598,6 @@ export interface SessionMatch {
     activeAt: number;
     /** Lines of the conversation the words were found in. */
     snippets: string[];
-}
-
-export interface HoldParams {
-    hold: string;
 }
 
 /** What answers a call: an option, with a note, or the person's own words, with any files. */
@@ -4677,10 +4632,6 @@ export interface AnswerParams {
     fine?: boolean;
 }
 
-export interface AnswersParams {
-    answers: AnswerParams[];
-}
-
 export interface AttachStashParams {
     id: string;
     agentId: string;
@@ -4697,11 +4648,6 @@ export interface AttachedStash {
     path?: string;
     /** Where each of the item's files was kept: its own, or a prompt's. */
     paths: string[];
-}
-
-/** The project a board call is about, by its absolute path. */
-export interface BoardParams {
-    project: string;
 }
 
 export interface CallParams {
@@ -5001,16 +4947,11 @@ export interface TakeStepParams {
 /** The core's calls that name what they take and answer, by method. */
 export interface CoreCalls {
     agentCatalog: { params: NoParams; answer: CatalogAgent[] };
-    agentMessageRows: { params: AgentMessagesParams; answer: AgentMessageRows };
     agentSessions: { params: SessionSearchParams; answer: SessionMatch[] };
-    allowShip: { params: HoldParams; answer: null };
     answerCall: { params: AnswerCallParams; answer: null };
     answerPairing: { params: PairingAnswer; answer: RemotePairing };
     answerQuestion: { params: AnswerParams; answer: null };
-    answerQuestions: { params: AnswersParams; answer: null };
     attachStash: { params: AttachStashParams; answer: AttachedStash };
-    board: { params: BoardParams; answer: ProjectBoard };
-    boards: { params: NoParams; answer: ProjectBoard[] };
     callNotMine: { params: CallParams; answer: null };
     callSeen: { params: CallParams; answer: null };
     cancelResume: { params: ChatAccountsParams; answer: null };
@@ -5027,7 +4968,6 @@ export interface CoreCalls {
     discardFailed: { params: ChatAccountsParams; answer: null };
     dropQueued: { params: QueuedParams; answer: null };
     editMessage: { params: EditParams; answer: null };
-    letShipGo: { params: HoldParams; answer: null };
     moveChatAccount: { params: MoveChatParams; answer: null };
     openChief: { params: OpenChiefParams; answer: OpenedChief };
     pairing: { params: NoParams; answer: RemotePairing };
@@ -5035,7 +4975,6 @@ export interface CoreCalls {
     projectEntries: { params: ProjectEntriesParams; answer: ProjectEntry[] };
     promptChat: { params: PromptChatParams; answer: null };
     questions: { params: NoParams; answer: AgentQuestion[] };
-    refuseShip: { params: HoldParams; answer: null };
     removeStash: { params: StashItemParams; answer: null };
     requireApproval: { params: NoParams; answer: ApprovalSetting };
     retryFailed: { params: ChatAccountsParams; answer: null };

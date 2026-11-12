@@ -17,7 +17,7 @@ struct TurnLine: View {
     @State private var refused: String?
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: ticks ? 1 : 60)) { timeline in
+        TimelineView(.periodic(from: Self.minuteStart, by: ticks ? 1 : 60)) { timeline in
             if turn.state != .failed,
                 let said = CallWords.said(turn, maker: Catalog.label(provider, core: core), now: timeline.date)
             {
@@ -38,7 +38,10 @@ struct TurnLine: View {
         }
     }
 
-    private var ticks: Bool { [.working, .waiting, .needsYou].contains(turn.state) }
+    /// Only a working turn counts seconds; the other states show minutes, on the same minute as the call card's age.
+    private var ticks: Bool { turn.state == .working }
+
+    private static var minuteStart: Date { Calendar.current.dateInterval(of: .minute, for: .now)?.start ?? .now }
 
     /// The state's mark, one set everywhere: the agent's working squares, the pink timer of a wait, the amber dot of a
     /// call, the purple dot once done, a hollow ring once stopped.

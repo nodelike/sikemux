@@ -5,6 +5,7 @@ import type { AnswerCallParams, PersonCall, ProjectInfo } from '@shared/wire.gen
 import type { Snapshot } from '@/core/protocol';
 import { callHost } from '@/core/hostCalls';
 import { problem } from '@/core/problem';
+import { liveOf } from '@/devices/hub';
 
 /** What the person has done on a call's card while it waits: the options chosen, the note or their words, What runs. */
 export type Draft = { chosen?: string[]; typed: string; runsOpen: boolean; sending: boolean };
@@ -60,8 +61,8 @@ export function settledCalls(snapshot: Snapshot | undefined, project?: ProjectIn
 }
 
 /** Every call agent `agentId` waits on the person for, as asker or joined to it, oldest first. */
-export function queueOf(snapshot: Snapshot | undefined, agentId: string): PersonCall[] {
-  return (snapshot?.calls ?? [])
+export function queueOf(calls: readonly PersonCall[] | undefined, agentId: string): PersonCall[] {
+  return (calls ?? [])
     .filter(
       (call) =>
         call.state === 'open' && (call.asker.agentId === agentId || (call.joined ?? []).some((joined) => joined.agentId === agentId)),
@@ -88,15 +89,15 @@ export function focus(core: string, call: PersonCall, chat: string) {
   change(core, (now) => ({ ...now, focused: { ...now.focused, [chat]: call.id } }));
 }
 
-export function stopComposing(core: string, call: PersonCall) {
-  change(core, (now) => ({ ...now, composingOff: new Set([...now.composingOff, call.id]) }));
+export function stopComposing(core: string, callId: string) {
+  change(core, (now) => ({ ...now, composingOff: new Set([...now.composingOff, callId]) }));
 }
 
 /** What the person has done on `call`'s card. Drafts of calls no longer open go. */
-export function draftOf(snapshot: Snapshot | undefined, call: PersonCall): ExternalValue<Draft> {
+export function draftOf(calls: readonly PersonCall[] | undefined, call: PersonCall): ExternalValue<Draft> {
   const held = drafts.get(call.id);
   if (held) return held;
-  const open = new Set(openCalls(snapshot).map((each) => each.id));
+  const open = new Set((calls ?? []).filter((each) => each.state === 'open').map((each) => each.id));
   for (const id of [...drafts.keys()]) if (!open.has(id)) drafts.delete(id);
   const made = externalValue<Draft>({ typed: '', runsOpen: false, sending: false });
   drafts.set(call.id, made);
@@ -184,14 +185,14 @@ export async function answer(
 /** Answers the call waiting in a chat with what the person typed in its composer, with the files they sent. */
 export async function answerWritten(
   connection: ConnectionLike | undefined,
-  call: PersonCall,
+  callId: string,
   written: { answer: string; paths: string[] },
   report: (text: string) => void,
 ): Promise<boolean> {
   if (!connection) return false;
   try {
     await callHost(connection, 'answerCall', {
-      id: call.id,
+      id: callId,
       words: written.answer,
       paths: written.paths.length ? written.paths : undefined,
     });
@@ -219,9 +220,22 @@ export async function notMine(
   }
 }
 
-/** An answer from a notification did not go: its card says so, and why, until it is answered. */
+/**
+ * An answer from a notification did not go: its card says so, and why, until it is answered. Notes for calls that no
+ * longer wait go with it.
+ */
 export function answerFailed(core: string, callId: string, why: string) {
-  change(core, (now) => ({ ...now, failed: { ...now.failed, [callId]: why } }));
+  const live = liveOf(core);
+  const shown = live.status === 'open' ? live.snapshot : undefined;
+  const open = shown && new Set(openCalls(shown).map((call) => call.id));
+  if (open && !open.has(callId)) return;
+  change(core, (now) => ({
+    ...now,
+    failed: {
+      ...(open ? Object.fromEntries(Object.entries(now.failed).filter(([id]) => open.has(id))) : now.failed),
+      [callId]: why,
+    },
+  }));
 }
 
 function withoutKey(record: Readonly<Record<string, string>>, key: string): Record<string, string> {

@@ -105,7 +105,20 @@ function callDoing(row: ToolRow): Doing {
     composer reads the same then as once it is ready. */
 export function composerPlaceholder(
     state: Pick<ChatRows, "connection" | "running">,
-    { resuming, disconnected, commands = true, steers = false }: { resuming: boolean; disconnected: boolean; commands?: boolean; steers?: boolean },
+    {
+        resuming,
+        disconnected,
+        commands = true,
+        steers = false,
+        to,
+    }: {
+        resuming: boolean;
+        disconnected: boolean;
+        commands?: boolean;
+        steers?: boolean;
+        /** Who an idle chat's words go to, as the Mac says it in a project with a chief; `commands` adds the slash hint. */
+        to?: { words: string; commands: boolean };
+    },
 ): string {
     return resuming
         ? "Resuming — this message sends as soon as the session is back"
@@ -115,7 +128,11 @@ export function composerPlaceholder(
             ? steers
                 ? "Send to steer this turn"
                 : "Send to queue behind the running turn"
-            : commands
-              ? "Ask about this project, or type / for commands"
-              : "Ask about this project";
+            : to
+              ? to.commands && commands
+                  ? `${to.words}, or type / for commands`
+                  : to.words
+              : commands
+                ? "Ask about this project, or type / for commands"
+                : "Ask about this project";
 }

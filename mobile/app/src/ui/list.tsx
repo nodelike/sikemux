@@ -84,7 +84,6 @@ export function Row({
           </Text>
           {aside ? (
             <Text style={styles.rowAside} numberOfLines={1}>
-              {'  '}
               {aside}
             </Text>
           ) : null}
@@ -165,7 +164,7 @@ const makeStyles = (colors: Palette) => {
     rowLabel: { flexDirection: 'row', alignItems: 'baseline' },
     rowTitle: { ...type.row, fontSize: 14.5, flexShrink: 1 },
     rowWhere: { flexShrink: 0, fontFamily: fonts.ui, color: colors.tertiary },
-    rowAside: { flexShrink: 1, fontFamily: fonts.ui, fontSize: 14.5, color: colors.tertiary },
+    rowAside: { flexShrink: 1, marginLeft: 6, fontFamily: fonts.ui, fontSize: 14.5, color: colors.tertiary },
     rowName: { maxWidth: 110, fontFamily: fonts.ui, fontSize: 11.5, color: colors.tertiary },
     rowDetail: { ...type.meta, fontSize: 12, marginTop: 1 },
     rowPlace: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 1 },

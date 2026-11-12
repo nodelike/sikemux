@@ -70,7 +70,22 @@ struct ChatBottom: View {
     private func placeholder(_ rows: ChatRows) -> String {
         if context.offline { return "Reconnect to continue this conversation" }
         if rows.running { return context.steers ? "Send to steer this turn" : "Send to queue behind the running turn" }
+        if let to = to(rows) {
+            return to.commands && !rows.commands.isEmpty ? "\(to.words), or type / for commands" : to.words
+        }
         return rows.commands.isEmpty ? "Ask about this project" : "Ask about this project, or type / for commands"
+    }
+
+    /// Who an idle chat's words go to, as the Mac says it: the chief in its own chat, a worker by name in a project
+    /// that has a chief.
+    private func to(_ rows: ChatRows) -> (words: String, commands: Bool)? {
+        if rows.head.chief == true { return (CallWords.tellChief, true) }
+        let view = Hub.shared.live(context.core).view
+        let project = view?.projectOf(agent: context.agentId)
+        guard view?.workspace.projects.first(where: { $0.id == project })?.chief != nil,
+            let name = view?.chats.first(where: { $0.agentId == context.agentId })?.name
+        else { return nil }
+        return (CallWords.sendTo(name), false)
     }
 }
 

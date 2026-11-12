@@ -51,14 +51,20 @@ class Notifier(private val context: Context) {
     if (card.callId != null && options.isNotEmpty()) {
       // A call of taste: its options as buttons, the asker's pick first, then a field for the person's own words.
       // Android shows three buttons at most.
-      options.take(2).forEach { builder.addAction(answerCall(card, it.id, it.label)) }
-      builder.addAction(replyCall(card))
+      // Below Android 12 a button cannot ask for the phone's lock, so each one opens the app, as Allow does there.
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        options.take(2).forEach { builder.addAction(answerCall(card, it.id, it.label)) }
+        builder.addAction(replyCall(card))
+      } else {
+        options.take(2).forEach { builder.addAction(opens(card, it.label)) }
+        builder.addAction(opens(card, SOMETHING_ELSE))
+      }
     } else if (card.answerable) {
       builder.addAction(answer(card, card.rejectOptionId!!, "Reject", authenticated = false))
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         builder.addAction(answer(card, card.allowOptionId!!, "Allow", authenticated = true))
       } else {
-        builder.addAction(NotificationCompat.Action.Builder(0, "Allow", open(card.collapseId, card.url)).build())
+        builder.addAction(opens(card, "Allow"))
       }
     }
     post(card.collapseId, builder)
@@ -222,6 +228,9 @@ class Notifier(private val context: Context) {
       putExtra(AnswerReceiver.URL, card.url)
     }
 
+  private fun opens(card: NotificationCard, title: String): NotificationCompat.Action =
+    NotificationCompat.Action.Builder(0, title, open(card.collapseId, card.url)).build()
+
   /** One of a call's options, answered from the card without opening the app. */
   private fun answerCall(card: NotificationCard, option: String, title: String): NotificationCompat.Action {
     val pending = PendingIntent.getBroadcast(
@@ -230,7 +239,11 @@ class Notifier(private val context: Context) {
       callIntent(card, option),
       PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
     )
-    return NotificationCompat.Action.Builder(0, title, pending).setShowsUserInterface(false).build()
+    // Asks for the phone's lock first, as Allow does: nothing answers a call from a locked phone.
+    return NotificationCompat.Action.Builder(0, title, pending)
+      .setAuthenticationRequired(true)
+      .setShowsUserInterface(false)
+      .build()
   }
 
   /** Something else…: a field on the card for the person's own answer to the call. */
@@ -246,6 +259,7 @@ class Notifier(private val context: Context) {
     return NotificationCompat.Action.Builder(0, SOMETHING_ELSE, pending)
       .addRemoteInput(input)
       .setAllowGeneratedReplies(false)
+      .setAuthenticationRequired(true)
       .setShowsUserInterface(false)
       .build()
   }

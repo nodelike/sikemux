@@ -8,12 +8,10 @@ import AGENT_CATALOG from '../../shared/agents/catalog.generated.json';
 import type { ChatMessage, CoreCalls } from '@shared/wire.generated';
 import { ChatAttachment, CoreEvent, MobileError } from '../app/test/mocks/sikemux-native';
 import {
-  BOARDS,
   CHATS,
   CORE,
   HOST,
   LAUNCHERS,
-  MESSAGES,
   PANE_PICTURE,
   PROJECTS,
   PROJECT_FILES,
@@ -242,14 +240,9 @@ async function withTrees(rows: ChatMessage[]): Promise<ChatMessage[]> {
 }
 
 /** What the pretend host answers, by the core's own call names, so a renamed call fails the typecheck. */
-const HOST_CALLS: { [M in keyof CoreCalls]?: (params: CoreCalls[M]['params']) => unknown } & {
-  agentMessages: (params: { project: string }) => unknown;
-} = {
-  boards: () => BOARDS,
-  board: ({ project }) => BOARDS.find((known) => known.project === project) ?? { ...BOARDS[0], project, cards: [] },
+const HOST_CALLS: { [M in keyof CoreCalls]?: (params: CoreCalls[M]['params']) => unknown } = {
   questions: () => QUESTIONS,
   agentCatalog: () => AGENT_CATALOG,
-  agentMessages: ({ project }) => ({ project, entries: project === BOARDS[0].project ? MESSAGES : [] }),
   chatToolDetail: ({ agentId, toolCallId }) => RECORDED.find((chat) => chat.agentId === agentId)?.recorded?.details[toolCallId] ?? {},
   closedAgents: () => [],
   agentSessions: () => [],

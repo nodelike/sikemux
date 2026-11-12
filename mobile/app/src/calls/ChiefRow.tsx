@@ -7,7 +7,7 @@ import type { AgentShown, ProjectInfo } from '@shared/wire.generated';
 import { callHost } from '@/core/hostCalls';
 import { problem } from '@/core/problem';
 import { TurnMark, Working } from '@/devices/AgentMarks';
-import { connectionOf, useLive } from '@/devices/hub';
+import { connectionOf, liveOf } from '@/devices/hub';
 import { Icon } from '@/ui/Icon';
 import { Row } from '@/ui/list';
 import { fonts, type Palette, useColors, useStyles } from '@/ui/theme';
@@ -33,7 +33,6 @@ export function ChiefRow({
 }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
-  const live = useLive(core);
   const [opening, setOpening] = useState(false);
   const [refused, setRefused] = useState<string>();
   // The row is on screen, so the chat it asked for may open over it.
@@ -51,7 +50,7 @@ export function ChiefRow({
       return;
     }
     if (opening) return;
-    const connection = connectionOf(live);
+    const connection = connectionOf(liveOf(core));
     if (!connection) {
       setRefused(CHIEF_OFFLINE);
       return;

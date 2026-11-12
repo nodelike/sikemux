@@ -5,7 +5,7 @@ import { formatAge } from '@shared/lib/format';
 import type { ClosedAgent, PluginOutcome, ProjectEntry, ProjectInfo, SessionMatch, TurnState } from '@shared/wire.generated';
 import { callHost } from '@/core/hostCalls';
 import { problem as problemOf } from '@/core/problem';
-import { connectionOf, useLive } from '@/devices/hub';
+import { connectionOf, useLiveWhile } from '@/devices/hub';
 import type { IconName } from '@/ui/icons.generated';
 import type { ContextChip } from '@/stash/words';
 import { HostContext } from './hostFiles';
@@ -72,9 +72,9 @@ const leaf = (path: string) => path.slice(path.lastIndexOf('/') + 1);
  */
 export function useMentions(session: ChatSession, typed: Typed | undefined): MentionMenuView | undefined {
   const core = useContext(HostContext);
-  const live = useLive(core);
+  const live = useLiveWhile(core, typed !== undefined);
   const connection = connectionOf(live);
-  const snapshot = live.snapshot;
+  const snapshot = live?.snapshot;
   const agents = snapshot?.workspace.agents;
   const own = agents?.find((agent) => agent.id === session.agentId);
   const project: ProjectInfo | undefined = snapshot?.workspace.projects.find((known) => known.id === own?.project);

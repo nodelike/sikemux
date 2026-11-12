@@ -50,11 +50,11 @@ const SCENES = [
   },
   { name: 'live', route: `/device/${CORE}/chat/chat-signup-check` },
   { name: 'subagent', route: `/device/${CORE}/chat/chat-adapter-hunt`, taps: [/^Subagent/] },
-  { name: 'prompt-strip', route: `/device/${CORE}/chat/chat-release`, tapPart: 'Write release notes for this week from t' },
+  { name: 'prompt-strip', route: `/device/${CORE}/chat/chat-notes`, tapPart: 'Keep them short, and link each one.' },
   {
     name: 'prompt-edit',
-    route: `/device/${CORE}/chat/chat-release`,
-    tapPart: 'Write release notes for this week from t',
+    route: `/device/${CORE}/chat/chat-notes`,
+    tapPart: 'Keep them short, and link each one.',
     tapLabel: 'Edit message',
   },
 ].filter((scene) => only.length === 0 || only.includes(scene.name));

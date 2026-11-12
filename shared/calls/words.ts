@@ -226,6 +226,10 @@ export function rowLabel(turn: TurnState, now = Date.now()): string {
 
 /** The chief's row: what follows it is its chat's own title, and where projects share the list, the project. */
 export const CHIEF = "@Chief";
+/** The composer's words in the chief's own chat. */
+export const TELL_CHIEF = "Tell @Chief what you want";
+/** The composer's words in a worker's chat, in a project with a chief. */
+export const sendTo = (name: string) => `Send to @${name}`;
 /** Under the chief's row when a tap cannot reach the host to open its chat. */
 export const CHIEF_OFFLINE = "Not connected to this host yet, so its chief can't open.";
 
@@ -247,7 +251,7 @@ export const SECRET_FIELD = "Type or paste it…";
 export const GO_WITH_THIS = "Go with this";
 export const NOT_MINE = "Not mine";
 export const WHAT_RUNS = "What runs";
-export const KEPT = "Kept private: it never shows in the chat.";
+export const kept = (name: string) => `Kept private: @${name} reads it, and it never shows in the chat.`;
 /** Go with this while the host has not yet taken that this phone drew the call. */
 export const CONNECTING = "Connecting…";
 /** Which of an agent's waiting calls the card shows: `1 of 3`. */

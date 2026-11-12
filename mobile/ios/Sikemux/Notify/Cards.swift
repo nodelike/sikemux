@@ -99,6 +99,8 @@ enum Cards {
                     }
                 }
             }
+        } catch let refused as MobileError where refused.refusal == .notPending {
+            // The call was answered or closed elsewhere: its card goes.
         } catch {
             HostCalls.of(card.hostKey).answerFailed(params.id, problem(error))
             return

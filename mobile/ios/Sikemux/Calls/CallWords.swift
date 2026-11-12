@@ -199,7 +199,7 @@ enum CallWords {
     static let goWithThis = "Go with this"
     static let notMine = "Not mine"
     static let whatRuns = "What runs"
-    static let kept = "Kept private: it never shows in the chat."
+    static func kept(_ name: String) -> String { "Kept private: @\(name) reads it, and it never shows in the chat." }
     /// Go with this while the host has not yet taken that this phone drew the call.
     static let connecting = "Connecting…"
     /// Which of an agent's waiting calls the card shows: `1 of 3`.
@@ -236,6 +236,10 @@ enum CallWords {
 
     /// The chief's row: what follows it is its chat's own title, and where projects share the list, the project.
     static let chief = "@Chief"
+    /// The composer's words in the chief's own chat.
+    static let tellChief = "Tell @Chief what you want"
+    /// The composer's words in a worker's chat, in a project with a chief.
+    static func sendTo(_ name: String) -> String { "Send to @\(name)" }
     /// Under the chief's row when a tap cannot reach the host to open its chat.
     static let chiefOffline = "Not connected to this host yet, so its chief can't open."
 

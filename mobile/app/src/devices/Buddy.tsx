@@ -2,10 +2,10 @@ import { createContext, memo, type ReactNode, useContext, useEffect, useMemo, us
 import { Animated, Easing } from 'react-native';
 import { SvgXml } from 'react-native-svg';
 
-import { buddyStateOfGroup, buddyStateOfTurn, type BuddyState } from '@shared/buddies/catalogue';
+import { buddyStateOfTurn, type BuddyState } from '@shared/buddies/catalogue';
 import { drawnFace, type DrawnFace } from '@shared/buddies/faces';
 import { buddyMarkup, FULL_BOX } from '@shared/buddies/render';
-import type { AgentFace as Face, AgentGroup, FaceStyle, TurnPhase } from '@shared/wire.generated';
+import type { AgentFace as Face, FaceStyle, TurnPhase } from '@shared/wire.generated';
 import { AgentIcon } from '@/ui/Icon';
 import { useAnimating } from '@/ui/motion';
 
@@ -85,15 +85,13 @@ export const Buddy = memo(function Buddy({
 export function AgentFace({
   agentId,
   provider,
-  group,
   turn,
   size,
   logoSize = size,
 }: {
   agentId?: string | null;
   provider: string;
-  group?: AgentGroup;
-  /** How its turn stands, which the face wears in place of `group` where the core says it. */
+  /** How its turn stands, which the face wears. */
   turn?: TurnPhase;
   size: number;
   logoSize?: number;
@@ -106,7 +104,7 @@ export function AgentFace({
     [faces, agentId, wears, face],
   );
   return look && faces ? (
-    <Buddy look={look} moves={faces.style.motion} state={turn ? buddyStateOfTurn(turn) : buddyStateOfGroup(group)} size={size} />
+    <Buddy look={look} moves={faces.style.motion} state={turn ? buddyStateOfTurn(turn) : 'idle'} size={size} />
   ) : (
     <AgentIcon provider={provider} size={logoSize} />
   );

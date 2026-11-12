@@ -54,7 +54,7 @@
     "AnswerPairing",
     "StartChat"
   ],
-  "calls": ["preferences", "agentCatalog", "questions", "answerQuestion", "allowShip", "refuseShip", "letShipGo", "answerCall", "callSeen", "callNotMine"],
+  "calls": ["preferences", "agentCatalog", "questions", "answerQuestion", "answerCall", "callSeen", "callNotMine"],
   "events": ["Changed", "Remote", "DeviceView"],
   "declared": ["NotchSettings"]
 }

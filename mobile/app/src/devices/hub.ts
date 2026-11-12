@@ -484,6 +484,11 @@ export function useLive(core: string, watching = true): Live {
   return useHost(core, () => liveOf(core));
 }
 
+/** A host's live state only while `needed`, for a screen already watching it; until then its changes re-render nothing. */
+export function useLiveWhile(core: string, needed: boolean): Live | undefined {
+  return useHost(core, () => (needed ? liveOf(core) : undefined));
+}
+
 /** How a host is doing, worded as the screens show it; the device stays connected while this is mounted and `watching`. */
 export function useHostStatus(core: string, watching = true): HostStatus {
   const live = useLive(core, watching);

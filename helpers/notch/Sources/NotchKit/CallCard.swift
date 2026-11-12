@@ -246,7 +246,8 @@ struct CallCard: View {
                 .font(Theme.ui(13))
                 .foregroundStyle(Theme.ink)
                 .focused($fieldFocused)
-                .onSubmit(goWithThis)
+                // A production call is never sent by Return; only Go with this sends it.
+                .onSubmit { if call.kind != .production { goWithThis() } }
         }
         .padding(.horizontal, 12)
         .frame(height: Self.row)
