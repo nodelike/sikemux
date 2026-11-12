@@ -1086,21 +1086,43 @@ impl Workbench {
         view_of(&tab.pane, PaneKind::Desk, agent)
     }
 
+    /// Steps the agent's desk between shut and beside the agent; a desk filling its tab comes
+    /// back to beside it.
     pub fn toggle_desk(&mut self, tab: &str, view: &str, agent: &str, cx: &mut Context<Self>) {
         let Some(strip) = self.strip() else {
             return;
         };
-        match self.desk_of(tab, agent) {
-            Some(desk) if self.panes.shutting(&desk) => {
+        let Some(desk) = self.desk_of(tab, agent) else {
+            self.split_desk(&self.target(), &strip, tab, view, agent, false);
+            return self.open_first_page(agent, cx);
+        };
+        if self.narrow_desk(&desk, view, cx) {
+            return;
+        }
+        match self.panes.shutting(&desk) {
+            true => {
                 self.panes.slide_view(&desk, true);
                 self.parts.redraw_stage(cx);
             }
-            Some(desk) => self.shut_desk(self.target(), strip, tab.to_owned(), desk, cx),
-            None => {
-                self.split_desk(&self.target(), &strip, tab, view, agent, false);
-                self.open_first_page(agent, cx);
-            }
+            false => self.shut_desk(self.target(), strip, tab.to_owned(), desk, cx),
         }
+    }
+
+    /// Slides the agent `owner` back beside `desk` if the desk fills its tab or is on its way
+    /// to, answering whether it did.
+    fn narrow_desk(&mut self, desk: &str, owner: &str, cx: &mut Context<Self>) -> bool {
+        let alone = self.panes.zoomed.as_deref() == Some(desk);
+        let widening = self.panes.widening.as_deref() == Some(desk);
+        if !alone && !widening {
+            return false;
+        }
+        self.panes.zoomed = None;
+        self.panes.widening = None;
+        if !cx.reduce_motion() {
+            self.panes.slide_view(owner, true);
+        }
+        self.parts.redraw_stage(cx);
+        true
     }
 
     /// Slides the desk back to the window's edge, then closes it unless it was opened again.
@@ -1217,37 +1239,27 @@ impl Workbench {
         }
     }
 
-    /// Lets the nearest agent's desk fill its tab, opening it when it is closed, or puts the
-    /// agent back beside it.
+    /// Steps the nearest agent's desk between beside the agent and filling its tab; a shut desk
+    /// opens beside the agent first.
     pub fn toggle_desk_alone(&mut self, cx: &mut Context<Self>) {
         let Some((tab, view, agent)) = self.nearest_agent(cx) else {
             return;
         };
-        match self.desk_of(&tab, &agent) {
-            Some(desk) if self.panes.zoomed.as_ref() == Some(&desk) => {
-                self.panes.zoomed = None;
-                if !cx.reduce_motion() {
-                    self.panes.slide_view(&view, true);
-                }
-            }
-            Some(desk) if self.panes.widening.as_ref() == Some(&desk) => {
-                self.panes.widening = None;
-                self.panes.slide_view(&view, true);
-            }
-            Some(desk) => self.widen_desk(desk, view, cx),
-            None => {
-                let Some(strip) = self.strip() else {
-                    return;
-                };
-                self.split_desk_alone(&strip, &tab, &view, &agent, cx);
-                self.open_first_page(&agent, cx);
-            }
+        let Some(desk) = self.desk_of(&tab, &agent) else {
+            return self.toggle_desk(&tab, &view, &agent, cx);
+        };
+        if self.narrow_desk(&desk, &view, cx) {
+            return;
         }
-        self.parts.redraw_stage(cx);
+        if self.panes.shutting(&desk) {
+            self.panes.slide_view(&desk, true);
+            return self.parts.redraw_stage(cx);
+        }
+        self.widen_desk(desk, view, cx);
     }
 
     /// Slides the view `beside` shut until `desk` has its tab, then lets the desk fill it.
-    pub fn widen_desk(&mut self, desk: String, beside: String, cx: &mut Context<Self>) {
+    fn widen_desk(&mut self, desk: String, beside: String, cx: &mut Context<Self>) {
         if cx.reduce_motion() {
             self.panes.forget_slide(&desk);
             self.panes.zoomed = Some(desk);

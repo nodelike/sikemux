@@ -222,9 +222,7 @@ impl Panes {
             .borrow_mut()
             .insert(tab.id.clone(), desks.clone());
         if let Some(before) = before.filter(|_| !still) {
-            let new =
-                |desk: &&String| !before.contains(desk) && self.widening.as_ref() != Some(desk);
-            for desk in desks.iter().filter(new) {
+            for desk in desks.iter().filter(|desk| !before.contains(desk)) {
                 self.slide_view(desk, true);
             }
         }
@@ -955,27 +953,6 @@ impl Workbench {
         keep_front: bool,
     ) {
         to.call_typed::<call::SplitPane>(desk_split(strip, tab, pane, agent, keep_front));
-    }
-
-    /// Opens `agent`'s desk beside the view `pane` of `tab`, letting it fill the tab.
-    pub fn split_desk_alone(
-        &self,
-        strip: &Strip,
-        tab: &str,
-        pane: &str,
-        agent: &str,
-        cx: &mut Context<Self>,
-    ) {
-        let core = self.target();
-        let split = desk_split(strip, tab, pane, agent, false);
-        let beside = pane.to_owned();
-        cx.spawn(async move |bench, cx| {
-            let Ok(desk) = core.request_typed::<call::SplitPane>(split).await else {
-                return;
-            };
-            let _ = bench.update(cx, |bench, cx| bench.widen_desk(desk, beside, cx));
-        })
-        .detach();
     }
 
     /// Notes the side of the view `pane` of `tab` that a tab dragged over it would take: the
