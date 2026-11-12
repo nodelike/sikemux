@@ -4,7 +4,8 @@
 //! them are the fold's own and reach the window the way the core's do. Only the window's layout
 //! comes from a core, which must have a chat in its tab in front:
 //!   SIKEMUX_CORE_SOCKET=/tmp/sx/core.sock cargo run --release --example chat_bench
-//! Without a core it lays out one project with the chat in front itself.
+//! Without a core it lays out one project with the chat in front itself, and with
+//! `CHAT_BENCH_CALL=1` a call from its agent waits at the chat's end, under the stream.
 //! It draws offscreen on a simulated clock at 120 Hz and prints, for each phase,
 //! the CPU each frame's draw of the whole window took.
 
@@ -544,9 +545,44 @@ impl Bench {
     }
 }
 
+/// A call from the bench's agent, as a core's view lists one.
+fn call() -> Value {
+    json!({
+        "id": "bench-call", "project": "/tmp/chat-bench", "kind": "taste",
+        "asker": { "agentId": "bench-agent", "name": "Bench", "cli": "claude" },
+        "question": "What do we call the new way to pay?",
+        "context": "It sits beside Card on every invoice. Testers asked when the money arrives.",
+        "options": [
+            { "id": "1", "label": "Bank transfer (2–3 days)" },
+            { "id": "2", "label": "Pay by bank" },
+            { "id": "3", "label": "Bank transfer" }
+        ],
+        "pick": "1", "against": "it is the longest, and on a phone it takes two lines beside Card.",
+        "canHandBack": true, "raisedAt": 0, "state": "open"
+    })
+}
+
 /// The layout of a core with one project and one chat in front, for a run with no core.
 fn standalone() -> anyhow::Result<DeviceView> {
+    let calls = match std::env::var_os("CHAT_BENCH_CALL") {
+        Some(_) => vec![call()],
+        None => Vec::new(),
+    };
     Ok(serde_json::from_value(json!({
+        "calls": calls,
+        "recent": [],
+        "inbox": {
+            "items": [], "working": 0, "away": false, "agentMessages": {}, "remoteAgents": [],
+            "agents": [{
+                "agentId": "bench-agent", "name": "Bench", "cli": "claude", "title": "Bench",
+                "status": "idle", "group": "idle", "label": "", "unread": false,
+                "subagents": 0, "tasks": 0, "busy": false, "failed": false,
+                "background": false, "activeAt": null, "face": null, "project": "bench"
+            }],
+            "projects": {}, "needs": {}, "rollup": null
+        },
+        "account": null,
+        "faceStyle": sikemux_view::device::FaceStyle::default(),
         "workspace": {
             "projects": [{ "id": "bench", "name": "bench", "path": "/tmp/chat-bench" }],
             "launchers": [],
