@@ -1318,9 +1318,14 @@ impl Workbench {
                 .flatten()
                 .map(|name| (t!("Send to @{name} · @Chief is told", name = name), false)),
         });
-        let call_waits = (self.chats.open.get(&agent))
-            .and_then(|chat| self.waiting_call(chat.target.place(), &agent, cx))
-            .is_some();
+        let waiting = (self.chats.open.get(&agent))
+            .and_then(|chat| self.waiting_call(chat.target.place(), &agent, cx));
+        let call_waits = waiting.is_some();
+        // Typed words answer the call only when it takes them; a production call or a secret
+        // is answered on its card.
+        let words_answer = waiting.is_some_and(|call| {
+            call.kind != sikemux_view::calls::CallKind::Production && !call.secret
+        });
         let Some(chat) = self.chats.open.get_mut(&agent) else {
             return;
         };
@@ -1328,7 +1333,7 @@ impl Workbench {
             .then(|| chat.suggestion(&agent, self.feeds.questions_outside_calls()))
             .flatten()
             .map(SharedString::new);
-        let hint = SharedString::from(match call_waits {
+        let hint = SharedString::from(match words_answer {
             true => t!("Or answer in your own words").to_owned(),
             false => chat.hint(
                 &agent,

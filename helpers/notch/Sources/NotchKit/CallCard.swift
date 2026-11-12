@@ -142,7 +142,7 @@ struct CallCard: View {
     private var who: some View {
         let entry = store.entries.first { $0.agentId == call.asker.agentId }
         return HStack(spacing: 7) {
-            AgentLook(face: entry?.agent?.face, provider: call.asker.cli, mark: .needs, size: 20)
+            AskerLook(call: call, face: entry?.agent?.face)
             Text("@\(call.asker.name)").font(Theme.ui(12, .medium)).foregroundStyle(Theme.inkSoft)
             if let project = store.projectName(call.project) {
                 Text("·").foregroundStyle(Theme.inkFaint)
@@ -545,7 +545,7 @@ private struct CallRow: View {
         let entry = store.entries.first { $0.agentId == call.asker.agentId }
         Button(action: choose) {
             HStack(spacing: 10) {
-                AgentLook(face: entry?.agent?.face, provider: call.asker.cli, mark: .needs, size: 20)
+                AskerLook(call: call, face: entry?.agent?.face)
                 Text(open ? entry?.title ?? call.question : call.question)
                     .font(Theme.ui(13, .semibold)).foregroundStyle(Theme.ink).lineLimit(1)
                 Spacer(minLength: 8)
@@ -566,4 +566,18 @@ private struct CallRow: View {
 
 extension PersonCall {
     var letsStand: Bool { assumption != nil && options.isEmpty }
+}
+
+/// Who asks a call: the project's chief wears Sikemux's S, as its rows do; any other agent its own face.
+private struct AskerLook: View {
+    let call: PersonCall
+    let face: AgentFace?
+
+    var body: some View {
+        if call.asker.chief == true {
+            IconView(icon: Icons.brand, size: 15).foregroundStyle(Theme.accent).frame(width: 20, height: 20)
+        } else {
+            AgentLook(face: face, provider: call.asker.cli, mark: .needs, size: 20)
+        }
+    }
 }

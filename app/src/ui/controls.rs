@@ -247,6 +247,7 @@ pub struct Button {
     trail: Option<AnyElement>,
     tooltip: Option<SharedString>,
     wide: bool,
+    mouse_only: bool,
 }
 
 /// A button can open a popover; it looks the same open or closed.
@@ -277,12 +278,20 @@ impl Button {
             trail: None,
             tooltip: None,
             wide: false,
+            mouse_only: false,
         }
     }
 
     /// Across the whole column and taller, its words centred, as a sign-in form's buttons.
     pub fn wide(mut self) -> Self {
         self.wide = true;
+        self
+    }
+
+    /// Takes no keyboard focus, so neither Tab nor Enter or Space can reach it; a pointer and
+    /// VoiceOver's press still click it.
+    pub fn mouse_only(mut self, mouse_only: bool) -> Self {
+        self.mouse_only = mouse_only;
         self
     }
 
@@ -345,6 +354,8 @@ impl RenderOnce for Button {
             motion::fade(&self.id, channel, target, motion::CONTROL_TINT, window, cx)
         };
         let base = BaseButton::new(self.id.clone())
+            .focusable(!self.mouse_only)
+            .tab_stop(!self.mouse_only)
             .on_hover(keep_over)
             .when(self.disabled, |button| button.opacity(0.5))
             .when(!self.disabled, |button| button.cursor_pointer())

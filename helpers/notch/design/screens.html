@@ -679,6 +679,15 @@ function goingOn() {
                 assumption: "they run against the local mock until there is one", options: [] }] };
 }
 
+/** The sikemux project's chief asking a call of its own, which wears Sikemux's S as its row does. */
+function chiefAsking() {
+    return { id: "c1", chief: true, name: "Chief", type: "claude", title: "Friendlier welcome screen", project: "sikemux", tier: "needs", state: "blocked", clock: "3m",
+        what: "Needs you",
+        calls: [{ id: "c1q", age: "3m", question: "Should the welcome screen say hello by name?", context: "Sign-up already has the name; the screen greets everyone the same today.",
+                options: ["Greet them by name", "Keep one greeting"], pick: 0, handBack: true,
+                against: "a name typed in a hurry reads back wrong on the first screen." }] };
+}
+
 function freshAgents() {
     return [
         { id: "c1", chief: true, name: "Chief", type: "claude", title: "Friendlier welcome screen", project: "sikemux", tier: "progress", state: "working" },
@@ -1457,6 +1466,9 @@ const SECTIONS = [
             { id: "P12", name: "A call with no options that goes on", when: "The asker goes on with an assumption and offers nothing to pick: only a call for access, such as a key, comes without options.",
               shows: "Only the field, and Go with this ready with nothing typed: it lets the assumption stand, as Fine does on a phone. Typed words answer it instead.",
               leaves: "As P4.", opts: { agents: () => [...only(["a2"]), goingOn()], mode: "call", callId: "g2" } },
+            { id: "P13", name: "A call the chief asks", when: "The project's chief puts a call to the person itself.",
+              shows: "The same card, its asker drawn as Sikemux's S in the accent, as the chief's row is, in the card's head and in the call's row of the list; any other asker wears its own face.",
+              leaves: "As P4.", opts: { agents: () => [chiefAsking(), ...only(["a2"])], mode: "call", callId: "c1q" } },
             { id: "P2", name: "Finished", when: "An agent's turn ends: its inbox item goes from working to finished or to review.",
               shows: "One line either side of the camera: the agent's mark and Finished, then the task and a purple dot. A turn that ran into a problem says Failed, with a red dot.",
               leaves: "Shrinks to C4 after 3 s.", opts: { agents: () => only(["a2", "a4"]), mode: "peek-done", peekAgent: "a4" } },

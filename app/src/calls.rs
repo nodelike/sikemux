@@ -9,10 +9,10 @@ use gpui_kit::base::{Button as BaseButton, Popover};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    div, img, px, relative, Anchor, AnyElement, App, AppContext, Context, Entity, EventEmitter,
-    Focusable, FontWeight, Hsla, InteractiveElement, IntoElement, ObjectFit, ParentElement, Render,
-    SharedString, StatefulInteractiveElement, Styled, StyledImage, Subscription, WeakEntity,
-    Window,
+    div, img, px, relative, Anchor, AnyElement, App, AppContext, ClickEvent, Context, Entity,
+    EventEmitter, Focusable, FontWeight, Hsla, InteractiveElement, IntoElement, ObjectFit,
+    ParentElement, Render, SharedString, StatefulInteractiveElement, Styled, StyledImage,
+    Subscription, WeakEntity, Window,
 };
 use sikemux_core::server::call;
 use sikemux_core::server::questions::AnswerParams;
@@ -315,7 +315,7 @@ impl Workbench {
     }
 
     /// The call agent `agent`'s chat answers when the person types or presses a key there: the
-    /// oldest it waits on, on the host at `place`. While the chat shows a chief's away card, only
+    /// newest it waits on, drawn nearest the composer, on the host at `place`. While the chat shows a chief's away card, only
     /// the card drawn open in it, and only when that call is the agent's own.
     pub(crate) fn waiting_call(&self, place: &Place, agent: &str, cx: &App) -> Option<&PersonCall> {
         let away = (self.chats.open.get(agent))
@@ -330,7 +330,7 @@ impl Workbench {
         }
         (self.view_at(place)?.calls.iter())
             .filter(|call| call.state == CallState::Open && waits(call, agent))
-            .min_by_key(|call| call.raised_at)
+            .max_by_key(|call| call.raised_at)
     }
 
     /// Answers the call agent `agent` waits on with what the person typed in its chat, with the
@@ -391,7 +391,7 @@ impl Workbench {
         self.calls.update(cx, |cards, _| cards.keep(&open));
     }
 
-    /// The call whose card takes the keys of `agent`'s chat: the oldest it waits on, unless it
+    /// The call whose card takes the keys of `agent`'s chat: the newest it waits on, unless it
     /// asks for a secret, whose field takes them.
     pub(crate) fn keyed_call(&self, place: &Place, agent: &str, cx: &App) -> Option<String> {
         (self.waiting_call(place, agent, cx))
@@ -777,6 +777,7 @@ fn card(
         .flatten()
         .map(|action| what_runs(call, action, action_open, cards, &t));
     let ready = !chosen.is_empty() || typed || lets_stand(call);
+    let production = call.kind == CallKind::Production;
     let go = {
         let (bench, id) = (bench.clone(), call.id.clone());
         Button::new(
@@ -786,8 +787,14 @@ fn card(
         )
         .sized(26., 11., 12.)
         .disabled(!ready || sending)
-        .on_click(move |_, _, cx| {
+        // A step to production is never sent by a key: its button takes no focus, so Tab never
+        // reaches it, and a click that came from a key is refused.
+        .mouse_only(production)
+        .on_click(move |event, _, cx| {
             cx.stop_propagation();
+            if production && matches!(event, ClickEvent::Keyboard(_)) {
+                return;
+            }
             bench.update(cx, |bench, cx| bench.go_with(&id, cx)).ok();
         })
     };

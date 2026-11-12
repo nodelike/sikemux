@@ -291,6 +291,19 @@ let goingOnCalls = [
 ]
 
 /// The workspace with each project standing as the core would put it, for the agents and calls shown.
+/// A call the sikemux project's chief asks itself, which wears Sikemux's S wherever the island draws its asker.
+let chiefCalls = [
+    PersonCall(id: "c1q", project: "/Users/me/sikemux", kind: .taste,
+               asker: CallAsker(agentId: "c1", name: "Chief", cli: "claude", chief: true), joined: nil, askedFor: nil,
+               question: "Should the welcome screen say hello by name?", context: "Sign-up already has the name; the screen greets everyone the same today.",
+               assumption: nil,
+               options: [CallOption(id: "name", label: "Greet them by name", detail: nil, picture: nil),
+                         CallOption(id: "same", label: "Keep one greeting", detail: nil, picture: nil)],
+               pick: "name", against: "a name typed in a hurry reads back wrong on the first screen.", evidence: nil, action: nil,
+               brief: nil, place: nil, canHandBack: true, multi: nil, secret: nil, raisedAt: now - 180_000, state: .open,
+               answer: nil, outcome: nil),
+]
+
 func standing(_ workspace: Workspace, agents: [AgentShown], calls: [PersonCall]) -> Workspace {
     let projects = workspace.projects.map { project in
         let open = calls.filter { $0.project == project.path && $0.state == .open }.count
@@ -321,7 +334,7 @@ func view(keeping ids: Set<String>?, load: HostLoad? = nil) -> DeviceView {
     guard let ids else { return full }
     let items = decoded.inbox.items.filter { $0.agentId.map(ids.contains) ?? ids.contains($0.id) }
     let agents = full.inbox.agents.filter { ids.contains($0.agentId) }
-    let calls = ((full.calls ?? []) + goingOnCalls).filter { ids.contains($0.asker.agentId) }
+    let calls = ((full.calls ?? []) + goingOnCalls + chiefCalls).filter { ids.contains($0.asker.agentId) }
     return DeviceView(
         workspace: standing(full.workspace, agents: agents, calls: calls),
         attentions: full.attentions.filter { ids.contains($0.agentId) },
@@ -468,6 +481,7 @@ render("P8-own-words", agents: ["a2", "a9"], height: 380, card: { store in
 render("P10-money-call", agents: ["a2", "a12"], height: 420) { $0.mode = .call("m1") }
 render("P11-going-on-call", agents: ["a2", "a14"], height: 460) { $0.mode = .call("g1") }
 render("P12-going-on-no-options", agents: ["a2", "a14"], height: 320) { $0.mode = .call("g2") }
+render("P13-chief-call", agents: ["c1", "a2"], height: 420) { $0.mode = .call("c1q") }
 render("P9-what-runs", agents: ["a2", "a12"], height: 720, card: { $0.drafts["7"]?.actionOpen = true }) { $0.mode = .call("7") }
 render("P2-finished", agents: ["a2", "a4"]) { $0.mode = .peekDone("agent:a4") }
 render("P3-connect", agents: ["a2", "a3"], height: 240, devices: [PendingDevice(id: "d1", name: "Pixel 8", platform: "android", expiresAt: now + 112_000)]) {
@@ -475,6 +489,10 @@ render("P3-connect", agents: ["a2", "a3"], height: 240, devices: [PendingDevice(
 }
 render("O1-inbox", height: 720) { $0.mode = .open }
 render("O1b-list-call", agents: ["a1", "a2", "a9", "a12"], height: 900) {
+    $0.mode = .open
+    $0.listCall = "t1"
+}
+render("O1e-list-chief-call", agents: ["c1", "a1", "a2", "a9"], height: 900) {
     $0.mode = .open
     $0.listCall = "t1"
 }
