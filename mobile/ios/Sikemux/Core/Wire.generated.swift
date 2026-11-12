@@ -3786,6 +3786,8 @@ enum ChatPart: Codable, Hashable, Sendable {
         var diff: DiffSummary?
         var output: OutputSummary?
         var page: PageRef?
+        /// The page the call's MCP server gave it, shown in place of the call.
+        var app: McpAppRef?
         /// A GIF the agent sent, which shows in place of the call.
         var gif: GifRef?
         /// What a failed call left behind, short enough to sit under it.
@@ -4307,6 +4309,12 @@ struct PageRef: Codable, Hashable, Sendable {
     var height: Double?
     /// Shown in a tab on the agent's desk, so the reply draws a card for it.
     var tab: Bool?
+}
+
+/// An MCP app: the page an MCP server gave a call to its tool, kept by the core under the
+/// call's id.
+struct McpAppRef: Codable, Hashable, Sendable {
+    var id: String
 }
 
 /// A GIF an agent sent with `gif_send`, which clients load from `url`.

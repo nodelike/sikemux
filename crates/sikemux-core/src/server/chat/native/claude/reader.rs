@@ -25,6 +25,7 @@ use super::super::json::{self, text};
 use super::super::pending::{Answered, Purpose};
 use super::super::process::Reads;
 use super::super::session::{Sink, TurnEnd};
+use super::apps::{self, Apps, Shows};
 use super::compaction::AutoCompact;
 use super::control::Control;
 use super::failure;
@@ -115,6 +116,7 @@ pub(crate) struct Reader {
     shared: Arc<Mutex<Shared>>,
     asking: Asking,
     data: ReaderState,
+    apps: Apps,
     /// The last turn to end was the person's and it finished, so what Claude predicts they
     /// send next is shown.
     suggests: bool,
@@ -422,11 +424,13 @@ impl Reader {
         cwd: PathBuf,
         session_id: String,
         shared: Arc<Mutex<Shared>>,
+        apps: Apps,
     ) -> Self {
         Self::restored(
             sink,
             control,
             shared,
+            apps,
             ReaderState {
                 cwd,
                 session_id,
@@ -458,6 +462,7 @@ impl Reader {
         sink: Sink,
         control: Control,
         shared: Arc<Mutex<Shared>>,
+        apps: Apps,
         data: ReaderState,
     ) -> Self {
         Self {
@@ -469,6 +474,7 @@ impl Reader {
             control,
             shared,
             data,
+            apps,
             suggests: false,
         }
     }
@@ -849,6 +855,20 @@ impl Reader {
                 self.data.used = Some(used);
             }
         }
+        for meta in message
+            .get("tool_use_meta")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            if let (Some(id), Some(server), Some(tool)) = (
+                text(meta, "id"),
+                text(meta, "server_display_name"),
+                text(meta, "tool_name"),
+            ) {
+                self.apps.called(id, server, tool);
+            }
+        }
         let message_id = text(inner, "id").map(str::to_owned);
         let Some(blocks) = inner.get("content").and_then(Value::as_array) else {
             return;
@@ -980,13 +1000,68 @@ impl Reader {
                 continue;
             }
             let update = tools::tool_result(&id, &name, &input, result, structured, &self.data.cwd);
-            self.sink.update(&session, update);
+            let ended = self.apps.ended(&id);
+            match ended {
+                Shows::MaybeApp { server, tool }
+                    if update.get("status").and_then(Value::as_str) == Some("completed") =>
+                {
+                    let call_result = apps::call_result(structured, result);
+                    self.show_app(
+                        id.clone(),
+                        session,
+                        update,
+                        server,
+                        tool,
+                        input,
+                        call_result,
+                    );
+                }
+                _ => self.sink.update(&session, update),
+            }
             // Only the call's name and session are read once it has its result, and its input
             // can hold whole files, such as a Write's.
             if let Some(tool) = self.data.tools.get_mut(&id) {
                 tool.input = Value::Null;
             }
         }
+    }
+
+    /// Reads and keeps the page the call names before its end is told, so the chat shows the
+    /// page in its place; a page that cannot be read leaves the call as any other.
+    #[allow(clippy::too_many_arguments)]
+    fn show_app(
+        &self,
+        id: String,
+        session: String,
+        update: Value,
+        server: String,
+        tool: String,
+        input: Value,
+        result: Value,
+    ) {
+        let (apps, control, sink) = (self.apps.clone(), self.control.clone(), self.sink.clone());
+        tokio::spawn(async move {
+            let read = tokio::time::timeout(
+                apps::READ_WAIT,
+                apps.read(&control, &server, &tool, input, result),
+            )
+            .await
+            .unwrap_or_else(|_| Err("its server took too long".into()));
+            match read {
+                Ok(Some(record)) => {
+                    if let Err(error) = sink.keep_app(&id, &record) {
+                        eprintln!(
+                            "sikemux: the app of {server}'s {tool} could not be kept: {error}"
+                        );
+                    }
+                }
+                Ok(None) => {}
+                Err(error) => {
+                    eprintln!("sikemux: the app of {server}'s {tool} could not be read: {error}")
+                }
+            }
+            sink.update(&session, update);
+        });
     }
 
     /// What a slash command the person ran printed. Claude Code also says so
@@ -1206,8 +1281,12 @@ impl Reader {
             SystemEvent::SessionStateChanged { state } if state.as_deref() == Some("idle") => {
                 self.idle()
             }
-            SystemEvent::Init if self.quiet() => {}
-            SystemEvent::Init => self.sink.work_started(),
+            SystemEvent::Init { capabilities } => {
+                self.apps.started_turn(&capabilities);
+                if !self.quiet() {
+                    self.sink.work_started();
+                }
+            }
             SystemEvent::Status {
                 status,
                 uuid,

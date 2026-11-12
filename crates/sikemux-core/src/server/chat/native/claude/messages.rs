@@ -134,7 +134,10 @@ pub(crate) enum SystemEvent {
     },
     /// Claude Code opens every turn with this, including the ones background
     /// work starts.
-    Init,
+    Init {
+        #[serde(default)]
+        capabilities: Vec<String>,
+    },
     Status {
         status: Option<String>,
         uuid: Option<String>,

@@ -1,6 +1,7 @@
 //! Claude Code, driven over its stream-json control protocol: the protocol
 //! Anthropic's own Agent SDK speaks to the `claude` binary.
 
+mod apps;
 mod compaction;
 mod config;
 mod control;
@@ -58,6 +59,7 @@ enum Start<'a> {
 struct Running {
     process: Process,
     control: Control,
+    apps: apps::Apps,
     asking: Asking,
     reading: Reading<Reader>,
     task_stops: mpsc::UnboundedSender<String>,
@@ -407,12 +409,14 @@ impl Claude {
         .map(|(key, value)| (key.to_owned(), value.to_owned()));
         let (process, writer, lines) = Process::spawn(launch, args, env)?;
         let control = Control::new(writer);
+        let apps = apps::Apps::default();
         let mut reader = Reader::new(
             sink.clone(),
             control.clone(),
             launch.cwd.clone(),
             session_id.to_owned(),
             shared.clone(),
+            apps.clone(),
         );
         if let Some(model) = model {
             reader.note_model(model);
@@ -423,6 +427,7 @@ impl Claude {
         let running = Running {
             process,
             control: control.clone(),
+            apps,
             asking,
             reading,
             task_stops,
@@ -730,6 +735,14 @@ impl Backend for Claude {
         std::future::ready(self.inject(prompt))
     }
 
+    fn mcp_app(
+        &mut self,
+        request: crate::server::mcp_apps::ServerRequest,
+    ) -> impl std::future::Future<Output = Result<Value, String>> + Send + 'static {
+        let (apps, control) = (self.running.apps.clone(), self.running.control.clone());
+        async move { apps.serve(&control, request).await }
+    }
+
     async fn cancel(&mut self) -> Result<(), String> {
         {
             let mut shared = self.shared.locked();
@@ -954,6 +967,7 @@ impl Backend for Claude {
             process,
             control,
             asking: _,
+            apps: _,
             reading,
             task_stops: _,
         } = running;
@@ -980,7 +994,14 @@ impl Backend for Claude {
             serde_json::from_value(state).map_err(|error| error.to_string())?;
         let control = Control::restored(writer, state.control);
         let shared = Arc::new(Mutex::new(state.shared));
-        let reader = Reader::restored(sink, control.clone(), shared.clone(), state.reader);
+        let apps = apps::Apps::default();
+        let reader = Reader::restored(
+            sink,
+            control.clone(),
+            shared.clone(),
+            apps.clone(),
+            state.reader,
+        );
         let asking = reader.asking();
         let (reading, task_stops) = Reading::start(reader, lines);
         Ok(Self {
@@ -988,6 +1009,7 @@ impl Backend for Claude {
             running: Running {
                 process,
                 control,
+                apps,
                 asking,
                 reading,
                 task_stops,

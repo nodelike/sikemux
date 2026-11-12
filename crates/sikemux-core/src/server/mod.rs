@@ -60,6 +60,7 @@ mod lifecycle;
 mod local_peer;
 mod log_times;
 pub mod lsp;
+pub mod mcp_apps;
 pub mod memory;
 pub mod messages;
 pub mod model_providers;
@@ -504,6 +505,7 @@ pub(crate) struct Core {
     /// Where the person moved each diagram's tables, by what it is a diagram of.
     pub(crate) diagrams: diagrams::Diagrams,
     pub(crate) mods: mods::Mods,
+    pub(crate) mcp_apps: mcp_apps::McpApps,
     /// Answers in parts on the connections that asked for them.
     pub(crate) streams: streams::Streams,
     /// The repositories coming down into new projects.
@@ -662,6 +664,7 @@ impl Core {
             drafts: drafts::Drafts::new(data_dir),
             diagrams: diagrams::Diagrams::new(data_dir),
             mods: mods::Mods::new(data_dir),
+            mcp_apps: mcp_apps::McpApps::new(data_dir),
             streams: streams::Streams::default(),
             clones: new_project::Clones::default(),
             look: themes::Look::default(),

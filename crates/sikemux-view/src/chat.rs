@@ -1277,6 +1277,9 @@ pub enum ChatPart {
         output: Option<OutputSummary>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         page: Option<PageRef>,
+        /// The page the call's MCP server gave it, shown in place of the call.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        app: Option<McpAppRef>,
         /// A GIF the agent sent, which shows in place of the call.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         gif: Option<GifRef>,
@@ -1576,6 +1579,14 @@ pub struct GifRef {
     pub width: u32,
     pub height: u32,
     pub title: String,
+}
+
+/// An MCP app: the page an MCP server gave a call to its tool, kept by the core under the
+/// call's id.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpAppRef {
+    pub id: String,
 }
 
 /// A page an agent showed with `page_show`.

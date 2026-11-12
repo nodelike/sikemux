@@ -2481,6 +2481,8 @@ export type ChatPart =
           diff?: DiffSummary;
           output?: OutputSummary;
           page?: PageRef;
+          /** The page the call's MCP server gave it, shown in place of the call. */
+          app?: McpAppRef;
           /** A GIF the agent sent, which shows in place of the call. */
           gif?: GifRef;
           /** What a failed call left behind, short enough to sit under it. */
@@ -2699,6 +2701,14 @@ export interface PageRef {
     height?: number;
     /** Shown in a tab on the agent's desk, so the reply draws a card for it. */
     tab?: boolean;
+}
+
+/**
+ * An MCP app: the page an MCP server gave a call to its tool, kept by the core under the
+ * call's id.
+ */
+export interface McpAppRef {
+    id: string;
 }
 
 /** A GIF an agent sent with `gif_send`, which clients load from `url`. */

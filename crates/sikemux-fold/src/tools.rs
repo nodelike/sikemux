@@ -7,8 +7,8 @@ use std::borrow::Cow;
 use serde_json::{Map, Value};
 
 use sikemux_view::chat::{
-    DiffLine, DiffSummary, GifRef, OutputImage, OutputSummary, PageRef, ToolCall, ToolDetail,
-    ToolDiff, ToolOutput,
+    DiffLine, DiffSummary, GifRef, McpAppRef, OutputImage, OutputSummary, PageRef, ToolCall,
+    ToolDetail, ToolDiff, ToolOutput,
 };
 
 use super::tool_rows::{FAMILIES, GESTURES};
@@ -655,6 +655,7 @@ pub(super) struct Settled {
     pub diff: Option<ToolDiff>,
     pub output: Option<ToolOutput>,
     pub page: Option<PageRef>,
+    pub app: Option<McpAppRef>,
     pub failure: Option<String>,
 }
 
@@ -677,7 +678,14 @@ pub(super) fn settle(raw: &Map<String, Value>) -> Settled {
             .flatten(),
         output: page.is_none().then_some(output).flatten(),
         page,
+        app: tool_app(raw),
     }
+}
+
+/// The MCP app the core kept for a finished call, which it names on the call's last update.
+fn tool_app(raw: &Map<String, Value>) -> Option<McpAppRef> {
+    let id = text(raw.get("_meta")?.get("sikemuxMcpApp")?.get("id"))?;
+    Some(McpAppRef { id: id.to_owned() })
 }
 
 pub(super) fn summary(diff: &ToolDiff) -> DiffSummary {

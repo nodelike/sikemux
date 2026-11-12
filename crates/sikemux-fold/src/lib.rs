@@ -1728,6 +1728,7 @@ impl Fold {
                     diff: None,
                     output: None,
                     page: None,
+                    app: None,
                     gif: None,
                     failure: None,
                     started_at: (!ended).then_some(at),
@@ -1789,6 +1790,7 @@ impl Fold {
                     diff: None,
                     output: None,
                     page: None,
+                    app: None,
                     gif: Some(gif),
                     failure: None,
                     started_at: None,
@@ -1948,6 +1950,7 @@ impl Fold {
                 diff,
                 output,
                 page,
+                app,
                 failure,
                 ended_at,
                 ..
@@ -1957,6 +1960,7 @@ impl Fold {
                 *diff = settled.diff.as_ref().map(tools::summary);
                 *output = settled.output.as_ref().map(tools::output_summary);
                 *page = settled.page;
+                *app = settled.app;
                 *failure = settled.failure;
                 ended_at.get_or_insert(at);
             }
@@ -2021,6 +2025,7 @@ impl Fold {
             tool: before,
             failure: None,
             gif: None,
+            app: None,
             ended_at: Some(_),
             ..
         } = &last.msg.parts[part]

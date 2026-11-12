@@ -201,10 +201,21 @@ impl Telling {
         }
         self.chat.note_edits(&update);
         slim(&mut update);
+        self.chat.mark_app(&mut update);
         self.chat.emit(
             ChatEventKind::SessionUpdate,
             json!({ "sessionId": session_id, "update": update }),
         );
+    }
+
+    /// Keeps the MCP app the call `id` showed, for the update that ends the call to name.
+    pub fn keep_app(
+        &self,
+        id: &str,
+        record: &crate::server::mcp_apps::Record,
+    ) -> Result<(), String> {
+        let core = self.chat.core.upgrade().ok_or("the core is stopping")?;
+        core.mcp_apps.keep(id, record)
     }
 
     /// Whether this start loads the session again under a running chat.
@@ -231,8 +242,15 @@ impl Telling {
         self.chat.feed.leave_room();
     }
 
-    pub fn tell_earlier(&self, earlier: Earlier) {
-        self.chat.feed.tell_earlier(earlier);
+    pub fn tell_earlier(&self, mut earlier: Earlier) {
+        let chat = self.chat.clone();
+        self.chat.feed.tell_earlier(Box::new(move || {
+            let mut read = earlier()?;
+            for (_, update) in read.iter_mut().flatten() {
+                chat.mark_app(update);
+            }
+            Ok(read)
+        }));
     }
 
     pub fn reached(&self, session: &str, reach: Reach) {
@@ -602,6 +620,14 @@ pub(crate) trait Backend: Sized + Send {
     /// the chat to show for it, and answers with what it wrote.
     fn handoff(&mut self) -> impl std::future::Future<Output = Result<String, String>> + Send {
         async { Err("This agent writes no handoff note".to_owned()) }
+    }
+
+    /// Passes a request an MCP app made on to its server, answering with what the server said.
+    fn mcp_app(
+        &mut self,
+        _request: crate::server::mcp_apps::ServerRequest,
+    ) -> impl std::future::Future<Output = Result<Value, String>> + Send + 'static {
+        std::future::ready(Err("This agent cannot pass on an app's requests".to_owned()))
     }
 
     /// The person answered a dialog the agent is blocked on.
@@ -1277,6 +1303,12 @@ impl<B: Backend> Running<'_, B> {
                 self.backend.answer_dialog(&id, answer, choice)
             }
             ChatCommand::Cancel => self.cancel().await,
+            ChatCommand::McpApp { request, reply } => {
+                let asking = self.backend.mcp_app(request);
+                tokio::spawn(async move {
+                    let _ = reply.send(asking.await);
+                });
+            }
             ChatCommand::TakeHandoff => {
                 if !self.chat.prompted() {
                     match self.backend.handoff().await {

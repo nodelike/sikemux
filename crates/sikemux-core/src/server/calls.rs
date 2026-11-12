@@ -126,6 +126,8 @@ calls! { core, client, method, params;
     "chatFile" ChatFile (attachments::ChatFileParams) -> attachments::ChatFile: Watch, any_program => attachments::chat_file(&core, &client.peer, params).await?,
     "keepPasted" KeepPasted (attachments::KeepPastedParams) -> attachments::Kept: Full => attachments::keep_pasted(&core, params).await?,
     "page" ReadPage (super::harness::pages::PageParams) -> super::harness::pages::PageHtml: Watch, any_program => super::harness::read_page(&core, params).await?,
+    "mcpApp" ReadMcpApp (super::mcp_apps::McpAppParams) -> super::mcp_apps::McpApp: Watch, any_program => super::mcp_apps::read(&core, params).await?,
+    "mcpAppRequest" McpAppRequest (super::mcp_apps::McpAppRequestParams) -> Value: Full => super::mcp_apps::request(&core, params).await?,
     "nameAgent": NoDevice => answer(names::name_agent(&core, parse(params)?).await?),
     "appDeviceKey": NoDevice => answer(super::account::devices::app_device_key(parse(params)?).await?),
     "renameAgent" RenameAgent (names::RenameAgentParams) -> names::AgentName: Full, counted => names::rename_agent(&core, params).await?,

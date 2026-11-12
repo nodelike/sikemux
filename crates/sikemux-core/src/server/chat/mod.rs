@@ -175,6 +175,11 @@ pub(crate) enum ChatCommand {
     /// Asks the agent's session for a handoff note between turns, while its cache is warm, for
     /// the fresh session that may replace it.
     TakeHandoff,
+    /// A request an MCP app in the chat made of its server.
+    McpApp {
+        request: crate::server::mcp_apps::ServerRequest,
+        reply: oneshot::Sender<Result<Value, String>>,
+    },
     /// Lets go of the agent, still running, for a core that replaces this one.
     HandOver {
         reply: oneshot::Sender<Result<native::Handed, String>>,
@@ -1138,6 +1143,13 @@ impl Chat {
         self.feed.forget_permission(request_id);
         self.cleared(request_id);
         Ok(())
+    }
+
+    /// Names the MCP app a call showed on the update that ends it.
+    pub(crate) fn mark_app(&self, update: &mut Value) {
+        if let Some(core) = self.core.upgrade() {
+            core.mcp_apps.mark(update);
+        }
     }
 
     pub(crate) fn send(&self, command: ChatCommand) -> CoreResult<()> {

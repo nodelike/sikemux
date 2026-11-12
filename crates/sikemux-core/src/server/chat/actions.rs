@@ -418,6 +418,25 @@ pub(crate) fn stop_task(core: &Core, agent_id: &str, task_id: String) -> CoreRes
         .send(ChatCommand::StopTask { task_id })
 }
 
+/// Passes a request an MCP app made on to its server, through the chat's agent. A chat whose
+/// agent is not running is never started for it.
+pub(crate) async fn mcp_app_request(
+    core: &Core,
+    agent_id: &str,
+    request: crate::server::mcp_apps::ServerRequest,
+) -> CoreResult<Value> {
+    let chat = core.chats.running(agent_id)?;
+    if chat.unstarted.load(Ordering::Acquire) {
+        return Err("Send a message in this chat first, so its agent is running".into());
+    }
+    let (reply, answer) = oneshot::channel();
+    chat.send(ChatCommand::McpApp { request, reply })?;
+    answer
+        .await
+        .map_err(|_| CoreError::from(STOPPED))?
+        .map_err(CoreError::from)
+}
+
 pub(crate) fn reply_permission(
     core: &Core,
     agent_id: &str,
