@@ -454,6 +454,9 @@ struct CallsInList: View {
     /// The list's width, which the open card takes less the box it sits in.
     let width: CGFloat
 
+    /// Just under the open card, which the list keeps in view when the card is taller than the room.
+    static let footer = "open-call-footer"
+
     var body: some View {
         let open = island.listCall ?? store.calls.first?.id
         ForEach(store.calls, id: \.id) { call in
@@ -462,6 +465,7 @@ struct CallsInList: View {
                 if call.id == open, let draft = store.drafts[call.id] {
                     CallCard(store: store, island: island, call: call, draft: draft, width: width - 24, showsWho: false)
                         .padding(.top, 10)
+                    Color.clear.frame(height: 0).id(Self.footer)
                 }
             }
             .padding(.horizontal, 12)

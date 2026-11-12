@@ -246,6 +246,12 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: def
 .invoice .amt { font-size: 24px; font-weight: 700; letter-spacing: -0.02em; }
 .invoice .due { font-size: 11px; color: #71717a; margin-bottom: 10px; }
 .invoice .tabs { display: flex; gap: 4px; padding: 3px; border-radius: 7px; background: #ebeae6; font-size: 11px; font-weight: 600; color: #52525b; }
+.welcome { padding: 14px 18px; height: 100%; color: #18181b; font-family: var(--sys); background: #fffaf5; }
+.welcome .brand { font-size: 10px; font-weight: 700; letter-spacing: 0.2em; color: #c2410c; }
+.welcome .dots { display: flex; justify-content: center; align-items: center; gap: 12px; margin: 10px 0 12px; padding: 10px; border-radius: 9px; background: #fde7d4; }
+.welcome .dots i { border-radius: 50%; }
+.welcome .hi { font-size: 16px; font-weight: 700; letter-spacing: -0.01em; }
+.welcome .sub { font-size: 11px; color: #71717a; margin-top: 2px; }
 .invoice .tabs span { flex: 1; text-align: center; padding: 5px 4px; border-radius: 5px; }
 .invoice .tabs span.on { background: #fff; color: #18181b; }
 .strip .rest .invoice { padding: 8px 10px; transform: scale(0.5); transform-origin: 0 0; width: 200%; }
@@ -518,7 +524,7 @@ code { font-family: var(--mono); font-size: 11px; color: var(--ink); }
         <tr><td>Closed wings</td><td>Each wing is as wide as what it holds. The left holds the marks of the first three items in the inbox, then +N.
             The right fits a mark for each state some item is in: needs you, then working (the core's count of agents at work), then the subagents and the shells or monitors
             running across every agent, then done (to review or finished), each state with its count above one and the two totals always with theirs, 10 pt apart. The island moves aside by half the difference so the camera stays between them. Bare agent marks at 20 pt, as the project tree draws them, 3 pt apart from overlapping.</td></tr>
-        <tr><td>Open</td><td>680 wide, 560 on a display without a notch, where the header is 38 tall so its controls clear the screen edge; height follows content up to 400, then the list scrolls. Padding: top-radius horizontally, then 12. Rows are one line, 36 tall, radius 12: mark at 20 pt as the rail draws it, task, project, time, state. A label wherever the tier changes.</td></tr>
+        <tr><td>Open</td><td>680 wide, 560 on a display without a notch, where the header is 38 tall so its controls clear the screen edge; height follows content up to 400, then the list scrolls. With a call's card open in the list it grows to hold the card whole, up to the screen's height; past that the list scrolls with the card's footer kept in view. Padding: top-radius horizontally, then 12. Rows are one line, 36 tall, radius 12: mark at 20 pt as the rail draws it, task, project, time, state. A label wherever the tier changes.</td></tr>
         <tr><td>Springs</td><td>Open <code>spring(response: 0.42, dampingFraction: 0.8)</code>. Close <code>spring(response: 0.45, dampingFraction: 1.0)</code>.
             Hover (shadow) <code>interactiveSpring(response: 0.38, dampingFraction: 0.8)</code>.</td></tr>
         <tr><td>Content</td><td>One shape: the band beside the camera swaps the wings for a header in place, out of and into a 20 pt blur; the body
@@ -640,8 +646,8 @@ function face(a, state = a.state) {
 }
 
 const DISPLAYS = {
-    notch: { width: 1800, menu: 38, notchW: 221, notchH: 38, center: 901.5 },
-    plain: { width: 1920, menu: 24, notchW: 0, notchH: 24, center: 960 },
+    notch: { width: 1800, height: 1169, menu: 38, notchW: 221, notchH: 38, center: 901.5 },
+    plain: { width: 1920, height: 1080, menu: 24, notchW: 0, notchH: 24, center: 960 },
 };
 const RADII = { closed: [6, 14], peek: [14, 22], open: [19, 24] };
 const SPRING = { open: [0.42, 0.8], close: [0.45, 1.0], hover: [0.38, 0.8] };
@@ -658,13 +664,20 @@ function freshAgents() {
                   { id: "t1", age: "1h", question: "What do we call the new way to pay?", context: "It sits beside Card on every invoice. Testers asked when the money arrives.",
                   options: ["Bank transfer (2–3 days)", "Pay by bank", "Bank transfer"], pick: 0, pictures: true, handBack: true,
                   against: "it is the longest, and on a phone it takes two lines beside Card." }] },
-        { id: "a12", name: "Kite", type: "claude", title: "Ship the web fix to dev", project: "marketingiq", tier: "needs", state: "blocked", time: "0:12",
-          what: "Leaves this Mac",
-          calls: [{ id: "7", age: "12m", question: "Let @Kite deploy the web fix to dev?", context: "The fix for the broken sign-up link, merged to main.",
-                  options: ["Allow it once", "Not now", "Always allow it here"], pick: null, production: true,
-                  action: 'rundeck_run {"job":"dev/backend/marketingiq-web","options":{"BRANCH":"main"}}' },
-                  { id: "w1", age: "2m", question: "Ship bank transfer on invoices to everyone?", production: true, page: "Bank transfer",
-                  context: "@Wren built it and @Yuki checked the totals. On staging since Tuesday, 41 test invoices paid and none failed. If it is rolled back, invoices already paid by transfer stay paid.",
+        { id: "a12", name: "Kite", type: "claude", title: "Ship the new welcome screen", project: "storefront", tier: "needs", state: "blocked", time: "0:12",
+          what: "Needs you",
+          calls: [{ id: "7", age: "12m", question: "Ship the new welcome screen to everyone?",
+                  context: "You asked for a friendlier welcome screen. It's on staging, and sign-ups there held at 4.1% over two days.",
+                  options: ["Ship it to everyone", "Ship to half first", "Not yet"], pick: 0, production: true, page: "welcome",
+                  against: "step 2 still has the old copy.", action: "vercel deploy --prod" },
+                  { id: "m1", age: "3m", question: "Buy the display font, $40?", handBack: true,
+                  context: "The welcome screen's heading uses it. The licence covers the web and the app for good.",
+                  options: ["Buy it", "Use a free font instead"], pick: 0,
+                  against: "a free font is close enough that most people won't see the difference." }] },
+        { id: "a13", name: "Yuki", type: "claude", title: "Add bank transfer to invoices", project: "server", tier: "needs", state: "blocked", time: "0:02",
+          what: "Needs you",
+          calls: [{ id: "w1", age: "2m", question: "Ship bank transfer on invoices to everyone?", production: true, page: "Bank transfer",
+                  context: "@Wren built it and @Pine checked the totals. On staging since Tuesday, 41 test invoices paid and none failed. If it is rolled back, invoices already paid by transfer stay paid.",
                   options: ["Ship it to everyone", "Ship to a tenth of customers first", "Not yet"], pick: 0,
                   against: "the bank's notice of payment has only been seen in its sandbox.", action: "vercel deploy --prod" }] },
         { id: "a4", name: "Birch", type: "grok", title: "Bump Astro to 6", project: "sikemux-front", tier: "review", state: "done", time: "1m ago", trigger: "18m", called: true },
@@ -766,6 +779,13 @@ function callsOf(agents) {
     return agents.flatMap((a) => (a.calls || []).map((call) => ({ ...call, agent: a }))).sort((x, y) => minutes(x.age) - minutes(y.age));
 }
 
+/** The new welcome screen as staging shows it, a production call's evidence. */
+function welcome() {
+    return `<div class="welcome"><div class="brand">ACME</div>
+        <div class="dots"><i style="width:22px;height:22px;background:#fdba74"></i><i style="width:17px;height:17px;background:#f9a8d4"></i><i style="width:13px;height:13px;background:#a7f3d0"></i></div>
+        <div class="hi">Hi! Let's find something you'll love.</div><div class="sub">Look around first. No account needed.</div></div>`;
+}
+
 /** An invoice page with its new way to pay named `label`, as a call's picture shows a page. */
 function invoice(label) {
     return `<div class="invoice"><div class="amt">$2,480.00</div><div class="due">Northwind Studio · due 18 Nov</div>
@@ -783,6 +803,7 @@ function callCard(call, card, listed = false) {
     const lead = chosen[0] ?? call.pick ?? 0;
     const pictures = call.pictures
         ? `<div class="strip"><div class="pic lead">${invoice(call.options[lead])}</div><div class="rest">${call.options.map((o, i) => i === lead ? "" : `<div class="pic" data-option="${i}">${invoice(o)}</div>`).join("")}</div></div>`
+        : call.page === "welcome" ? `<div class="pic page">${welcome()}</div>`
         : call.page ? `<div class="pic page">${invoice(call.page)}</div>` : `<div class="gap12"></div>`;
     const rows = call.options.map((o, i) => `<div class="opt${chosen.includes(i) ? " on" : ""}" data-option="${i}"><span class="rd"></span>${o}${
         i === call.pick ? `<span class="pick"><img src="../../../brand/mark/mark-purple.svg" alt="">pick</span>` : ""}</div>`).join("");
@@ -918,7 +939,8 @@ class Island {
         const d = this.d;
         const plain = d.notchW === 0;
         if (this.mode === "open" || this.mode === "drop") {
-            const h = Math.min(400, this.layers.open.offsetHeight);
+            const callOpen = this.mode === "open" && this.tab !== "new" && listed(this.agents).some((a) => a.calls?.length);
+            const h = Math.min(callOpen ? d.height - d.notchH : 400, this.layers.open.offsetHeight);
             return { w: plain ? 560 : 680, h, r: RADII.open };
         }
         if (this.mode === "peek-ask") return { w: 460, h: this.layers.peek.offsetHeight, r: RADII.peek };
@@ -1362,11 +1384,14 @@ const SECTIONS = [
               leaves: "Go with this, or an answer in the chat, on the Mac or on a phone, closes it: the first answer wins. Unanswered, it shrinks to C3 after 6 s; resting the pointer keeps it, and typing in its field keeps it open when the pointer leaves.",
               opts: { agents: () => only(["a2", "a9"]), mode: "call", callId: "q1" } },
             { id: "P5", name: "A production call", when: "An agent's push, merge, deploy or write that leaves this Mac waits on the person, or a gate raises a ship to production.",
-              shows: "The same card. A held action's options are Allow it once, Not now and, where Sikemux offers it, Always allow it here. What runs, folded under the against line, opens on the exact command in mono. Only a picked option passes it: words typed in its field reach the agent as direction. It has no Not mine.",
+              shows: "The same card, worded at the goal's level, with the asker's pick marked: Ship it to everyone, Ship to half first, Not yet. What runs, folded under the against line, opens on the exact command in mono. Only a picked option passes it: words typed in its field reach the agent as direction. It has no Not mine.",
               leaves: "As P4.", opts: { agents: () => only(["a2", "a12"]), mode: "call", callId: "7", cards: { 7: { runs: true } } } },
             { id: "P6", name: "A weighty call", when: "A call comes as a brief, such as a cutover or a public release.",
               shows: "The brief is the context: what was tried, what the evidence shows, what can't be undone. The evidence's picture sits under it, the page from its top.",
-              leaves: "As P4.", opts: { agents: () => only(["a2", "a12"]), mode: "call", callId: "w1" } },
+              leaves: "As P4.", opts: { agents: () => only(["a2", "a13"]), mode: "call", callId: "w1" } },
+            { id: "P10", name: "A money call", when: "An agent wants to spend money.",
+              shows: "The same card: what it costs on the option, the pick marked, and Not mine, since a lead may decide it.",
+              leaves: "As P4.", opts: { agents: () => only(["a2", "a12"]), mode: "call", callId: "m1" } },
             { id: "P7", name: "A call with pictures", when: "A call about taste gives each option a picture.",
               shows: "The pictures sit in a strip above the options: the chosen option's leads, large, the others smaller and dimmed beside it. Clicking a small one chooses its option.",
               leaves: "As P4.", opts: { agents: () => only(["a2", "a9"]), mode: "call", callId: "t1" } },
@@ -1389,6 +1414,12 @@ const SECTIONS = [
             { id: "O1", name: "Agents", when: "Opened on the Agents tab: by a click or a swipe, or by resting the pointer while no call waits.",
               shows: "First, each call waiting on the person as a row: the asker's face, what it works on, the project, who and how long the call has waited. The newest is open under its row as its card, at the list's width, in a raised box; clicking another row opens that one instead. Then every open agent once, in the order the app's rail lists them, what wants you first, with no labels between them. Each row reads as the rail does: what the agent works on with how long ago, its project, then the name Sikemux gave it with its counts and state together at the end. Idle agents are listed too, with no mark at the end. A permission can be answered in place. Clicking a row opens that agent in Sikemux.",
               leaves: "The pointer leaves, and 0.1 s later it closes.", opts: { agents: () => freshAgents(), mode: "open" } },
+            { id: "O1b", name: "A tall call in the list", when: "Opened on the agents while a call with pictures is the one open.",
+              shows: "The list grows to hold the open card whole, its pictures, its options and its footer, up to the screen's height. A card taller than that scrolls the list so its footer, with Go with this, stays in view.",
+              leaves: "As O1.", opts: { agents: () => only(["a1", "a2", "a9", "a12"]), mode: "open", listCall: "t1" } },
+            { id: "O1c", name: "A weighty call in the list", when: "Opened on the agents with a step to production open and its What runs unfolded.",
+              shows: "The same: the brief, the evidence's page, the options, the point against, the command, and the footer, all within reach.",
+              leaves: "As O1.", opts: { agents: () => only(["a1", "a2", "a13"]), mode: "open", listCall: "w1", cards: { w1: { runs: true } } } },
             { id: "O8", name: "Calls waiting", when: "The pointer rests on the island while calls wait on the person.",
               shows: "The newest call alone, as its card (P4), rather than the agents. Answering it moves on to the next call, and the last one answered opens the agents (O1). A click on the island, away from the card's controls, opens the agents with the calls at the top.",
               leaves: "The pointer leaves, and 0.1 s later it closes, unless something is typed in the card's field.", opts: { agents: () => freshAgents(), mode: "call", callId: "q1" } },

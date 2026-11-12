@@ -14,7 +14,8 @@ let fixture = #"""
     "projects": [
       {"id": "p-sikemux", "name": "sikemux", "path": "/Users/me/sikemux"},
       {"id": "p-server", "name": "server", "path": "/Users/me/server"},
-      {"id": "p-front", "name": "sikemux-front", "path": "/Users/me/sikemux-front"}
+      {"id": "p-front", "name": "sikemux-front", "path": "/Users/me/sikemux-front"},
+      {"id": "p-storefront", "name": "storefront", "path": "/Users/me/storefront"}
     ],
     "launchers": [
       {"id": "claude", "provider": "claude", "label": "Claude", "permissionMode": "bypass", "configOptions": [
@@ -54,7 +55,8 @@ let fixture = #"""
     {"agentId": "a2", "name": "Flint", "cli": "codex", "projectName": "server", "title": "Refactor the auth middleware", "group": "working", "failed": false, "subagents": 3, "tasks": 0},
     {"agentId": "a3", "name": "Wren", "cli": "opencode", "projectName": "sikemux", "reconnecting": 3, "title": "Draft the notch spec", "group": "working", "failed": false, "subagents": 0, "tasks": 0},
     {"agentId": "a5", "name": "Heron", "cli": "claude", "projectName": "sikemux", "title": "Profile the terminal flood", "group": "idle", "failed": false, "subagents": 0, "tasks": 2},
-    {"agentId": "a12", "name": "Kite", "cli": "claude", "projectName": "marketingiq", "title": "Ship the web fix to dev", "group": "blocked", "failed": false, "subagents": 0, "tasks": 0},
+    {"agentId": "a12", "name": "Kite", "cli": "claude", "projectName": "storefront", "title": "Ship the new welcome screen", "group": "blocked", "failed": false, "subagents": 0, "tasks": 0},
+    {"agentId": "a13", "name": "Yuki", "cli": "claude", "projectName": "server", "title": "Add bank transfer to invoices", "group": "blocked", "failed": false, "subagents": 0, "tasks": 0},
     {"agentId": "t1", "name": "Cedar", "cli": "claude", "projectName": "sikemux-front", "session": 7, "title": "Tighten the rail spacing", "group": "idle", "failed": false, "subagents": 0, "tasks": 0, "nextTrigger": IN(10800)}
   ], "items": [
     {"id": "permission:a1:p1", "tier": "needs", "kind": "permission", "heading": "Fix the login flake", "about": "Fix the login flake", "agentId": "a1", "name": "Otter", "cli": "claude", "projectName": "sikemux",
@@ -62,9 +64,8 @@ let fixture = #"""
     {"id": "question:q1", "tier": "needs", "kind": "question", "heading": "Move the ledger import", "about": "Move the ledger import", "agentId": "a9", "name": "Maple", "cli": "codex", "projectName": "server",
      "title": "Move the ledger import", "what": "Asks you", "detail": "Should amounts be stored in cents or as decimals? The API sends decimals but the ledger table uses integers.",
      "at": AGO(1), "questionId": "q1"},
-    {"id": "ship:7", "tier": "needs", "kind": "ship", "heading": "Ship the web fix to dev", "about": "Ship the web fix to dev", "agentId": "a12", "name": "Kite", "cli": "claude", "projectName": "marketingiq",
-     "title": "Ship the web fix to dev", "what": "Leaves this Mac", "detail": "Deploys", "at": AGO(12),
-     "hold": {"id": "7", "kind": "deploy", "what": "rundeck_run {\"job\":\"dev/backend/marketingiq-web\",\"options\":{\"BRANCH\":\"main\"}}", "letGo": "dev/*"}},
+    {"id": "ship:7", "tier": "needs", "kind": "ship", "heading": "Ship the new welcome screen", "about": "Ship the new welcome screen", "agentId": "a12", "name": "Kite", "cli": "claude", "projectName": "storefront",
+     "title": "Ship the new welcome screen", "what": "Needs you", "detail": "Ship the new welcome screen to everyone?", "at": AGO(12)},
     {"id": "agent:a4", "tier": "review", "kind": "changes", "heading": "Bump Astro to 6", "about": "Bump Astro to 6", "agentId": "a4", "name": "Birch", "cli": "grok", "projectName": "sikemux-front",
      "title": "Bump Astro to 6", "what": "Finished, changed 3 files", "at": AGO(70)},
     {"id": "agent:a10", "tier": "finished", "kind": "failed", "heading": "Rotate the signing keys", "about": "Rotate the signing keys", "agentId": "a10", "name": "Pine", "cli": "claude", "projectName": "server",
@@ -135,6 +136,40 @@ let agents = faces.isEmpty ? decoded.inbox.agents : decoded.inbox.agents.enumera
                face: faces[index % faces.count], projectName: agent.projectName, reconnecting: agent.reconnecting,
                snoozedUntil: nil, settledAt: nil)
 }
+/// The new welcome screen as staging shows it, drawn to a file for a call's evidence.
+func welcomePicture(file: String) -> String {
+    let ink = Color(hex: "#18181b"), dim = Color(hex: "#71717a")
+    let page = VStack(alignment: .leading, spacing: 0) {
+        Text("ACME").font(.system(size: 13, weight: .bold)).tracking(2).foregroundStyle(Color(hex: "#c2410c")).padding(.bottom, 16)
+        HStack(spacing: 18) {
+            Circle().fill(Color(hex: "#fdba74")).frame(width: 34, height: 34)
+            Circle().fill(Color(hex: "#f9a8d4")).frame(width: 26, height: 26)
+            Circle().fill(Color(hex: "#a7f3d0")).frame(width: 20, height: 20)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 18)
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color(hex: "#fde7d4")))
+        .padding(.bottom, 18)
+        Text("Hi! Let's find something you'll love.").font(.system(size: 22, weight: .bold)).foregroundStyle(ink)
+        Text("Look around first. No account needed.").font(.system(size: 14)).foregroundStyle(dim).padding(.top, 4).padding(.bottom, 16)
+        Text("Get started").font(.system(size: 15, weight: .semibold)).foregroundStyle(.white).frame(maxWidth: .infinity)
+            .padding(.vertical, 11).background(Capsule().fill(Color(hex: "#292524")))
+        Text("I have an account").font(.system(size: 13)).foregroundStyle(Color(hex: "#c2410c")).frame(maxWidth: .infinity).padding(.top, 10)
+    }
+    .padding(.horizontal, 26)
+    .padding(.vertical, 22)
+    .frame(width: 580, height: 330, alignment: .topLeading)
+    .background(Color(hex: "#fffaf5"))
+    let path = NSTemporaryDirectory() + "notch-snapshot-\(file).png"
+    let image = MainActor.assumeIsolated { () -> CGImage? in
+        let renderer = ImageRenderer(content: page)
+        renderer.scale = 2
+        return renderer.cgImage
+    }
+    if let image { try? NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path)) }
+    return path
+}
+
 /// An invoice page with its new way to pay named `label`, as a call's picture shows a page, drawn to a file.
 func invoicePicture(_ label: String, file: String, tall: Bool = false) -> String {
     let ink = Color(hex: "#18181b"), dim = Color(hex: "#71717a")
@@ -174,7 +209,7 @@ func invoicePicture(_ label: String, file: String, tall: Bool = false) -> String
 
 func asker(_ id: String, _ name: String, _ cli: String) -> CallAsker { CallAsker(agentId: id, name: name, cli: cli) }
 
-/// The calls the demo agents put to the person: Maple's question and naming, Kite's held deploy and weighty ship,
+/// The calls the demo agents put to the person: Maple's question, naming and font, Kite's two ships to production,
 /// each with a picture where it has one.
 let demoCalls = [
     PersonCall(id: "q1", project: "/Users/me/server", kind: .taste, asker: asker("a9", "Maple", "codex"), joined: nil, askedFor: nil,
@@ -183,14 +218,23 @@ let demoCalls = [
                options: [CallOption(id: "1", label: "Cents", detail: nil, picture: nil), CallOption(id: "2", label: "Decimals", detail: nil, picture: nil)],
                pick: "1", against: "every import converts what the API sends.", evidence: nil, action: nil, brief: nil, place: nil,
                canHandBack: true, multi: nil, secret: nil, raisedAt: now - 60_000, state: .open, answer: nil, outcome: nil),
-    PersonCall(id: "7", project: "/Users/me/marketingiq", kind: .production, asker: asker("a12", "Kite", "claude"), joined: nil, askedFor: nil,
-               question: "Let @Kite deploy the web fix to dev?", context: "The fix for the broken sign-up link, merged to main.",
-               options: [CallOption(id: "allow", label: "Allow it once", detail: nil, picture: nil), CallOption(id: "refuse", label: "Not now", detail: nil, picture: nil),
-                         CallOption(id: "always", label: "Always allow it here", detail: "dev/*", picture: nil)],
-               pick: nil, against: nil, evidence: nil,
-               action: #"rundeck_run {"job":"dev/backend/marketingiq-web","options":{"BRANCH":"main"}}"#, brief: nil,
-               place: CallPlace(id: "dev", name: "dev"), canHandBack: false, multi: nil, secret: nil, raisedAt: now - 720_000, state: .open, answer: nil, outcome: nil),
-    PersonCall(id: "w1", project: "/Users/me/sikemux", kind: .production, asker: asker("a12", "Kite", "claude"), joined: nil, askedFor: nil,
+    PersonCall(id: "7", project: "/Users/me/storefront", kind: .production, asker: asker("a12", "Kite", "claude"), joined: nil, askedFor: nil,
+               question: "Ship the new welcome screen to everyone?",
+               context: "You asked for a friendlier welcome screen. It's on staging, and sign-ups there held at 4.1% over two days.",
+               options: [CallOption(id: "all", label: "Ship it to everyone", detail: nil, picture: nil),
+                         CallOption(id: "half", label: "Ship to half first", detail: nil, picture: nil),
+                         CallOption(id: "wait", label: "Not yet", detail: nil, picture: nil)],
+               pick: "all", against: "step 2 still has the old copy.",
+               evidence: [CallEvidence(what: "The welcome screen on staging", picture: welcomePicture(file: "welcome"))],
+               action: "vercel deploy --prod", brief: nil,
+               place: CallPlace(id: "production", name: "production"), canHandBack: false, multi: nil, secret: nil, raisedAt: now - 720_000, state: .open, answer: nil, outcome: nil),
+    PersonCall(id: "m1", project: "/Users/me/storefront", kind: .money, asker: asker("a12", "Kite", "claude"), joined: nil, askedFor: nil,
+               question: "Buy the display font, $40?", context: "The welcome screen's heading uses it. The licence covers the web and the app for good.",
+               options: [CallOption(id: "buy", label: "Buy it", detail: "$40 once", picture: nil),
+                         CallOption(id: "free", label: "Use a free font instead", detail: nil, picture: nil)],
+               pick: "buy", against: "a free font is close enough that most people won't see the difference.", evidence: nil, action: nil, brief: nil,
+               place: nil, canHandBack: true, multi: nil, secret: nil, raisedAt: now - 180_000, state: .open, answer: nil, outcome: nil),
+    PersonCall(id: "w1", project: "/Users/me/server", kind: .production, asker: asker("a13", "Yuki", "claude"), joined: nil, askedFor: nil,
                question: "Ship bank transfer on invoices to everyone?", context: nil,
                options: [CallOption(id: "allow", label: "Ship it to everyone", detail: nil, picture: nil),
                          CallOption(id: "tenth", label: "Ship to a tenth of customers first", detail: nil, picture: nil),
@@ -198,12 +242,12 @@ let demoCalls = [
                pick: "allow", against: "the bank's notice of payment has only been seen in its sandbox.",
                evidence: [CallEvidence(what: "The invoice page", picture: invoicePicture("Bank transfer", file: "invoice", tall: true))],
                action: "vercel deploy --prod",
-               brief: CallBrief(tried: "@Wren built it and @Yuki checked the totals.",
+               brief: CallBrief(tried: "@Wren built it and @Pine checked the totals.",
                                 shows: "On staging since Tuesday, 41 test invoices paid and none failed.",
                                 cannotUndo: "If it is rolled back, invoices already paid by transfer stay paid."),
                place: CallPlace(id: "production", name: "production"), canHandBack: false, multi: nil, secret: nil,
                raisedAt: now - 120_000, state: .open, answer: nil, outcome: nil),
-    PersonCall(id: "t1", project: "/Users/me/sikemux", kind: .taste, asker: asker("a9", "Maple", "codex"), joined: nil, askedFor: nil,
+    PersonCall(id: "t1", project: "/Users/me/server", kind: .taste, asker: asker("a9", "Maple", "codex"), joined: nil, askedFor: nil,
                question: "What do we call the new way to pay?", context: "It sits beside Card on every invoice. Testers asked when the money arrives.",
                options: [CallOption(id: "1", label: "Bank transfer (2–3 days)", detail: nil, picture: invoicePicture("Bank transfer (2–3 days)", file: "name-1")),
                          CallOption(id: "2", label: "Pay by bank", detail: nil, picture: invoicePicture("Pay by bank", file: "name-2")),
@@ -262,6 +306,7 @@ func render(_ name: String, agents: Set<String>? = nil, load: HostLoad? = nil, g
     let island = IslandModel(geometry: geometry)
     setup(island)
     let size = CGSize(width: 760, height: height)
+    island.canvas = CGRect(origin: .zero, size: CGSize(width: size.width, height: size.height - 10))
     let root = ZStack(alignment: .top) {
         if !bare {
             LinearGradient(colors: [Color(hex: "#3b2a6e"), Color(hex: "#141024"), Color(hex: "#1f3b6b")], startPoint: .bottomLeading, endPoint: .topTrailing)
@@ -362,22 +407,31 @@ render("C6-hover", agents: ["a2", "a3"]) { $0.hovering = true }
 render("C3b-no-calls", agents: ["a1", "a2", "a3"])
 render("P1-permission", height: 260) { $0.mode = .peekAsk("permission:a1:p1") }
 render("P4-call", agents: ["a2", "a9"], height: 380) { $0.mode = .call("q1") }
-render("P5-held-deploy", agents: ["a2", "a12"], height: 440) { $0.mode = .call("7") }
-render("P6-weighty-call", agents: ["a2", "a12"], height: 640) { $0.mode = .call("w1") }
+render("P5-production-call", agents: ["a2", "a12"], height: 640) { $0.mode = .call("7") }
+render("P6-weighty-call", agents: ["a2", "a13"], height: 640) { $0.mode = .call("w1") }
 render("P7-taste-call", agents: ["a2", "a9"], height: 560) { $0.mode = .call("t1") }
 render("P8-own-words", agents: ["a2", "a9"], height: 380, card: { store in
     store.drafts["q1"]?.chosen = []
     store.drafts["q1"]?.typed = "Cents, and convert on import"
 }) { $0.mode = .call("q1") }
-render("P9-what-runs", agents: ["a2", "a12"], height: 470, card: { $0.drafts["7"]?.actionOpen = true }) { $0.mode = .call("7") }
+render("P10-money-call", agents: ["a2", "a12"], height: 420) { $0.mode = .call("m1") }
+render("P9-what-runs", agents: ["a2", "a12"], height: 720, card: { $0.drafts["7"]?.actionOpen = true }) { $0.mode = .call("7") }
 render("P2-finished", agents: ["a2", "a4"]) { $0.mode = .peekDone("agent:a4") }
 render("P3-connect", agents: ["a2", "a3"], height: 240, devices: [PendingDevice(id: "d1", name: "Pixel 8", platform: "android", expiresAt: now + 112_000)]) {
     $0.mode = .connect("d1")
 }
 render("O1-inbox", height: 720) { $0.mode = .open }
-render("O1b-list-call", agents: ["a1", "a2", "a12"], height: 620) {
+render("O1b-list-call", agents: ["a1", "a2", "a9", "a12"], height: 900) {
     $0.mode = .open
-    $0.listCall = "7"
+    $0.listCall = "t1"
+}
+render("O1c-list-weighty-call", agents: ["a1", "a2", "a13"], height: 900, card: { $0.drafts["w1"]?.actionOpen = true }) {
+    $0.mode = .open
+    $0.listCall = "w1"
+}
+render("O1d-list-call-short-screen", agents: ["a1", "a2", "a13"], height: 620, card: { $0.drafts["w1"]?.actionOpen = true }) {
+    $0.mode = .open
+    $0.listCall = "w1"
 }
 render("O2-new-agent", height: 300) {
     $0.mode = .open

@@ -99,6 +99,17 @@ struct AgentList: View {
     /// The open island's width inside its inset, as IslandView lays it out.
     private var listWidth: CGFloat { (island.geometry.hasNotch ? 680 : 560) - 2 * (Radii.open.top + 12) }
 
+    /// How tall the list grows: a few rows, or with a call's card open in it, the screen below the island's own
+    /// header, so the card and its Go with this fit whole.
+    private var room: CGFloat {
+        guard !store.calls.isEmpty else { return Self.rows }
+        return max(Self.rows, island.canvas.height - island.geometry.height - Self.chrome)
+    }
+
+    private static let rows: CGFloat = 330
+    /// The island's header, its padding and its shadow, above and below the list.
+    private static let chrome: CGFloat = 110
+
     var body: some View {
         if store.entries.isEmpty && store.view.hostAlerts.isEmpty && store.view.busy == nil {
             VStack(spacing: 14) {
@@ -122,6 +133,7 @@ struct AgentList: View {
             .padding(.vertical, 18)
             .onAppear { island.listScrolls = false }
         } else {
+            ScrollViewReader { scroller in
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 0) {
                     CallsInList(store: store, island: island, width: listWidth)
@@ -140,12 +152,15 @@ struct AgentList: View {
                     }
                 }
                 .background(GeometryReader { proxy in
-                    Color.clear.onAppear { island.listScrolls = proxy.size.height > 330 }
-                        .onChange(of: proxy.size.height) { _, height in island.listScrolls = height > 330 }
+                    Color.clear.onAppear { island.listScrolls = proxy.size.height > room }
+                        .onChange(of: proxy.size.height) { _, height in island.listScrolls = height > room }
                 })
             }
-            .frame(maxHeight: 330)
+            .frame(maxHeight: room)
             .fixedSize(horizontal: false, vertical: true)
+            .onAppear { scroller.scrollTo(CallsInList.footer, anchor: .bottom) }
+            .onChange(of: island.listCall) { _, _ in scroller.scrollTo(CallsInList.footer, anchor: .bottom) }
+            }
         }
     }
 }

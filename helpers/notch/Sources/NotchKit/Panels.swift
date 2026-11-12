@@ -28,8 +28,9 @@ final class NotchPanel: NSPanel {
 
 /// One island per screen the settings show it on, rebuilt whenever the screens change.
 final class Panels {
-    /// Room for the widest island, its tallest list and its shadow. Only the island is drawn.
-    static let canvas = CGSize(width: 760, height: 560)
+    /// Room for the widest island and its shadow, as tall as the screen so a call's card in the list fits whole.
+    /// Only the island is drawn.
+    static let width: CGFloat = 760
 
     private let store: NotchStore
     private var panels: [CGDirectDisplayID: (panel: NotchPanel, island: IslandModel)] = [:]
@@ -103,10 +104,10 @@ final class Panels {
         for (id, screen) in wanted {
             let geometry = NotchGeometry.of(screen)
             let frame = CGRect(
-                x: geometry.centerX - Self.canvas.width / 2,
-                y: screen.frame.maxY - Self.canvas.height,
-                width: Self.canvas.width,
-                height: Self.canvas.height
+                x: geometry.centerX - Self.width / 2,
+                y: screen.frame.minY,
+                width: Self.width,
+                height: screen.frame.height
             )
             if let entry = panels[id] {
                 entry.panel.setFrame(frame, display: true)
