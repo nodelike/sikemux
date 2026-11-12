@@ -63,7 +63,7 @@ struct ConfigSheet: View {
                         Text("Context").font(Theme.label).foregroundStyle(palette.tertiary)
                         Spacer()
                         Text(
-                            "\(Int((share * 100).rounded()))% · \(Format.tokens(usage.used)) of \(Format.tokens(usage.size))"
+                            "\(Int((share * 100).rounded()))% · \(Format.tokens(usage.used)) of \(Format.tokens(ContextFill.limit(usage)))"
                         )
                         .font(Theme.mono(12))
                         .foregroundStyle(palette.tertiary)
@@ -77,6 +77,10 @@ struct ConfigSheet: View {
                     }
                     .frame(height: 4)
                     .padding(.top, 8)
+                    if let compactAt = usage.compactAt {
+                        Text("Compacts at \(Format.tokens(compactAt)) of \(Format.tokens(usage.size))")
+                            .font(Theme.ui(12.5)).foregroundStyle(palette.tertiary).padding(.top, 8)
+                    }
                     if let cost = usage.cost {
                         Text("Session cost \(ContextFill.money(cost))").font(Theme.ui(12.5)).foregroundStyle(
                             palette.tertiary

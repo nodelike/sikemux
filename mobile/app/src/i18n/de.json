@@ -16,6 +16,7 @@
   "1 tool call": "1 Tool-Aufruf",
   "A call's answer takes words and files, not chips. Take the chips off, or send them to the agent.": "Die Antwort auf einen Anruf nimmt Text und Dateien, keine Chips. Entferne die Chips oder sende sie an den Agenten.",
   "A host": "Ein Host",
+  "Compacts at {at} of {size}": "Komprimiert bei {at} von {size}",
   "a message takes at most {count} files": "eine Nachricht nimmt höchstens {count} Dateien",
   "A phone": "Ein Telefon",
   "Account": "Konto",

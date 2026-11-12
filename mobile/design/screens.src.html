@@ -624,6 +624,7 @@
   .ps-context { margin-top: 20px; padding: 0 4px; }
   .ps-ctx-top { display: flex; justify-content: space-between; font-size: 13px; color: var(--text-tertiary); }
   .ps-ctx-top span:first-child { font-weight: 600; }
+  .ps-ctx-note { margin-top: 8px; font-size: 12.5px; color: var(--text-tertiary); }
   .ps-bar { margin-top: 8px; height: 4px; border-radius: 999px; background: var(--border); overflow: hidden; }
   .ps-bar i { display: block; height: 100%; border-radius: 999px; background: var(--brand-claude); }
 
@@ -3142,13 +3143,14 @@ expected 1 write, got 2</div>
           <div class="ps-label">Effort</div>
           <div class="track three"><span>Low</span><span>Medium</span><span class="on">High</span></div>
           <div class="ps-context">
-            <div class="ps-ctx-top"><span>Context</span><span class="m">84k of 200k</span></div>
-            <div class="ps-bar"><i style="width:42%"></i></div>
+            <div class="ps-ctx-top"><span>Context</span><span class="m">84k of 150k</span></div>
+            <div class="ps-bar"><i style="width:56%"></i></div>
+            <div class="ps-ctx-note">Compacts at 150k of 1M</div>
           </div>
         </div>
       </div>
       <div class="home-bar"></div></div>
-      <figcaption><b>Model and effort</b><div class="note">Tapping the model or effort opens one sheet: the agent and its plan, the models with the agent's icon and a check on the chosen one, effort as a three-way switch, and how much of the context is used, in the provider’s colour, with what the session has cost when the agent says.</div></figcaption>
+      <figcaption><b>Model and effort</b><div class="note">Tapping the model or effort opens one sheet: the agent and its plan, the models with the agent's icon and a check on the chosen one, effort as a three-way switch, and how much of the context is used before the agent compacts it, in the provider’s colour, with where it compacts and the whole window under it, with what the session has cost when the agent says.</div></figcaption>
     </figure>
 
     <figure><div class="phone"><div class="island"></div>

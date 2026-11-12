@@ -504,6 +504,13 @@ pub struct ContextUsage {
     pub cost: Option<UsageCost>,
 }
 
+impl ContextUsage {
+    /// What the meter fills toward: where the agent compacts, else its whole window.
+    pub fn limit(&self) -> f64 {
+        self.compact_at.unwrap_or(self.size)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Compactions {

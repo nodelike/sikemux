@@ -1154,8 +1154,8 @@ fn context_meter(
     cx: &App,
 ) -> impl IntoElement {
     let t = Tokens::get(cx).clone();
-    let percent = if usage.size > 0. {
-        (usage.used / usage.size * 100.).clamp(0., 100.)
+    let percent = if usage.limit() > 0. {
+        (usage.used / usage.limit() * 100.).clamp(0., 100.)
     } else {
         0.
     };
@@ -1272,7 +1272,7 @@ fn context_card(
         )
         .child(
             ui::text(
-                format!("/ {}", crate::ui::numbers::compact(usage.size)),
+                format!("/ {}", crate::ui::numbers::compact(usage.limit())),
                 TEXT_2XS_H,
                 FontWeight::NORMAL,
             )
@@ -1315,6 +1315,29 @@ fn context_card(
                 .flex_col()
                 .gap(px(3.))
                 .child(row(t!("Tokens"), tokens.into_any_element()))
+                .children(usage.compact_at.map(|at| {
+                    let at = div()
+                        .flex()
+                        .gap(px(3.))
+                        .font_features(theme::tabular())
+                        .child(
+                            ui::text(
+                                crate::ui::numbers::compact(at),
+                                TEXT_2XS_H,
+                                FontWeight::NORMAL,
+                            )
+                            .text_color(t.text_primary),
+                        )
+                        .child(
+                            ui::text(
+                                t!("of {size}", size = crate::ui::numbers::compact(usage.size)),
+                                TEXT_2XS_H,
+                                FontWeight::NORMAL,
+                            )
+                            .text_color(t.text_tertiary),
+                        );
+                    row(t!("Compacts at"), at.into_any_element())
+                }))
                 .children(compactions.map(|compactions| {
                     let ink = match compactions.count {
                         10.. => t.danger,

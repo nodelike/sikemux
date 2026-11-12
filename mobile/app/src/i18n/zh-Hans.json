@@ -16,6 +16,7 @@
   "1 tool call": "1 次工具调用",
   "A call's answer takes words and files, not chips. Take the chips off, or send them to the agent.": "回答调用只能使用文字和文件，不能带标签。请移除标签，或把它们发给智能体。",
   "A host": "一台主机",
+  "Compacts at {at} of {size}": "在 {size} 中的 {at} 处压缩",
   "a message takes at most {count} files": "一条消息最多带 {count} 个文件",
   "A phone": "一部手机",
   "Account": "账户",

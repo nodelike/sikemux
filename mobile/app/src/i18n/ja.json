@@ -16,6 +16,7 @@
   "1 tool call": "ツール呼び出し 1 件",
   "A call's answer takes words and files, not chips. Take the chips off, or send them to the agent.": "呼び出しへの回答に使えるのはテキストとファイルだけで、チップは使えません。チップを外すか、エージェントに送ってください。",
   "A host": "ホスト",
+  "Compacts at {at} of {size}": "{size} のうち {at} で圧縮",
   "a message takes at most {count} files": "1 つのメッセージに添付できるのは {count} 件まで",
   "A phone": "スマートフォン",
   "Account": "アカウント",

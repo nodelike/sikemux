@@ -2,9 +2,12 @@ import type { ContextUsage } from "../wire.generated";
 
 type ContextTone = "steady" | "warm" | "hot";
 
-/** How much of the context window is used, from 0 to 1. */
+/** What the meter fills toward: where the agent compacts, else its whole window. */
+export const contextLimit = (usage: ContextUsage): number => usage.compactAt ?? usage.size;
+
+/** How much of the room before compaction is used, from 0 to 1. */
 export function contextShare(usage: ContextUsage): number {
-    return Math.min(1, Math.max(0, usage.used / usage.size));
+    return Math.min(1, Math.max(0, usage.used / contextLimit(usage)));
 }
 
 /** The agent's own colour while there is room, warm from 70% and hot from 90%. */

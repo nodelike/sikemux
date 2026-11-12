@@ -16,6 +16,7 @@
   "1 tool call": "1 вызов инструмента",
   "A call's answer takes words and files, not chips. Take the chips off, or send them to the agent.": "Ответ на вызов принимает текст и файлы, но не чипы. Уберите чипы или отправьте их агенту.",
   "A host": "Хост",
+  "Compacts at {at} of {size}": "Сжимается на {at} из {size}",
   "a message takes at most {count} files": "в сообщении не больше {count} файлов",
   "A phone": "Телефон",
   "Account": "Аккаунт",

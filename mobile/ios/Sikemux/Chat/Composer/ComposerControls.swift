@@ -65,8 +65,13 @@ struct YoloToggle: View {
 /// How much of the context window is used, from 0 to 1, and the Mac's colour for it: the agent's own, then warm
 /// from 70%, then hot from 90%.
 enum ContextFill {
+    /// Where the agent compacts, else its whole window.
+    static func limit(_ usage: ContextUsage) -> Double {
+        usage.compactAt ?? usage.size
+    }
+
     static func share(_ usage: ContextUsage) -> Double {
-        usage.size > 0 ? min(1, max(0, usage.used / usage.size)) : 0
+        limit(usage) > 0 ? min(1, max(0, usage.used / limit(usage))) : 0
     }
 
     @MainActor
