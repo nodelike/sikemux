@@ -5,16 +5,10 @@ import {
   type CodePurpose,
   type SignInStep,
 } from "@shared/account/account";
+import { IconBack, IconEye, IconEyeOff } from "@shared/ui/Icons";
 import { useEffect, useRef, useState, type SubmitEvent } from "react";
 
-import {
-  AppleMark,
-  BackIcon,
-  EyeIcon,
-  GitHubMark,
-  GoogleMark,
-  Logo,
-} from "./icons.tsx";
+import { AppleMark, GitHubMark, GoogleMark, Logo } from "./icons.tsx";
 import { HOST, isSharePath, rememberReturn } from "./navigation.ts";
 
 type Provider = "oauth_apple" | "oauth_google" | "oauth_github";
@@ -310,7 +304,7 @@ export function SignIn({ ready }: { ready: boolean }) {
 function BackLink({ onClick }: { onClick: () => void }) {
   return (
     <button type="button" className="back" onClick={onClick}>
-      <BackIcon />
+      <IconBack />
       Back
     </button>
   );
@@ -345,7 +339,7 @@ export function PasswordField({
         onClick={() => setShown((was) => !was)}
         aria-label={shown ? "Hide password" : "Show password"}
       >
-        <EyeIcon crossed={shown} />
+        {shown ? <IconEyeOff size={18} /> : <IconEye size={18} />}
       </button>
     </div>
   );

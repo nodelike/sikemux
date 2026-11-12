@@ -11,7 +11,7 @@ import { useId, useState, type SubmitEvent } from "react";
 import { formatDay } from "@shared/lib/format";
 import { api, problemText, signedInToken } from "./api.ts";
 import type { Load } from "./Devices.tsx";
-import { BackIcon } from "./icons.tsx";
+import { IconBack } from "@shared/ui/Icons";
 import { useReverified } from "./Reverify.tsx";
 const POLICY = "https://sikemux.com/delete-account";
 const CONTACT = "contact@nodelike.com";
@@ -71,7 +71,7 @@ export function DeleteAccount({
   return (
     <div className="deletion">
       <button type="button" className="back" onClick={onBack}>
-        <BackIcon />
+        <IconBack />
         Your devices
       </button>
       <h1>Delete your account</h1>

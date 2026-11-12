@@ -161,6 +161,14 @@ export const IconEye = makeSvgIcon(
         <circle cx="12" cy="12" r="3" />
     </>,
 );
+export const IconEyeOff = makeSvgIcon(
+    <>
+        <path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49" />
+        <path d="M14.084 14.158a3 3 0 0 1-4.242-4.242" />
+        <path d="M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143" />
+        <path d="m2 2 20 20" />
+    </>,
+);
 export const IconEditor = makeSvgIcon(
     <>
         <path d="m18 16 4-4-4-4" />
@@ -339,6 +347,13 @@ export const IconLaptop = makeSvgIcon(
         <path d="M20.054 15.987H3.946" />
     </>,
 );
+export const IconKey = makeSvgIcon(
+    <>
+        <path d="m2 21 9.6-9.6" />
+        <path d="m7.5 15.5 2.3 2.3a1 1 0 0 1 0 1.4l-2.1 2.1a1 1 0 0 1-1.4 0L4 19" />
+        <circle cx="15.5" cy="7.5" r="5.5" />
+    </>,
+);
 export const IconLock = makeSvgIcon(
     <>
         <rect x="3" y="11" width="18" height="11" rx="2" />
@@ -395,6 +410,7 @@ export const IconPointer = makeSvgIcon(
     <path d="M4.037 4.688a.495.495 0 0 1 .651-.651l16 6.5a.5.5 0 0 1-.063.947l-6.124 1.58a2 2 0 0 0-1.438 1.435l-1.579 6.126a.5.5 0 0 1-.947.063z" />,
 );
 export const IconChevron = makeSvgIcon(<path d="m9 18 6-6-6-6" />);
+export const IconBack = makeSvgIcon(<path d="m15 18-6-6 6-6" />);
 export const IconPanelLeft = makeSvgIcon(
     <>
         <rect x="3" y="3" width="18" height="18" rx="2" />

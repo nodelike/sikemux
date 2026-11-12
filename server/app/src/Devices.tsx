@@ -11,7 +11,7 @@ import {
 
 import { formatDay } from "@shared/lib/format";
 import { api, problemText, signedInToken } from "./api.ts";
-import { LaptopIcon, PhoneIcon } from "./icons.tsx";
+import { IconLaptop, IconPhone } from "@shared/ui/Icons";
 
 export type Load =
   | { state: "loading" }
@@ -188,9 +188,9 @@ function DeviceRow({
     <li className="row" data-confirming={confirming || undefined}>
       <span className="glyph">
         {device.role === "host" ? (
-          <LaptopIcon size={18} />
+          <IconLaptop size={18} />
         ) : (
-          <PhoneIcon size={18} />
+          <IconPhone size={18} />
         )}
       </span>
       <span className="name">{device.name}</span>

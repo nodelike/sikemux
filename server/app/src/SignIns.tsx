@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { formatAgo } from "@shared/lib/format";
 import { api, problemText, signedInToken } from "./api.ts";
-import { KeyIcon } from "./icons.tsx";
+import { IconKey } from "@shared/ui/Icons";
 
 const SERVICE_NAMES: Record<string, string> = {
   "sikemux.github": "GitHub",
@@ -103,7 +103,7 @@ function SignInUse({ use }: { use: VaultUseRow }) {
   return (
     <li className="row">
       <span className="glyph">
-        <KeyIcon size={18} />
+        <IconKey size={18} />
       </span>
       <span className="name">{SERVICE_NAMES[use.plugin] ?? use.plugin}</span>
       <span className="detail">
