@@ -101,6 +101,14 @@ impl Resets {
         }
     }
 
+    /// When the chat sends its stopped prompt again, once its usage limit resets.
+    pub(crate) fn resumes_at(&self, agent_id: &str) -> Option<u64> {
+        match self.slots.locked().get(agent_id)? {
+            Slot::Waiting { waiting, .. } => Some(waiting.at),
+            Slot::Looking { .. } => None,
+        }
+    }
+
     /// Stops the chat waiting, saying whether it was.
     pub(crate) fn cancel(&self, agent_id: &str) -> bool {
         let mut slots = self.slots.locked();

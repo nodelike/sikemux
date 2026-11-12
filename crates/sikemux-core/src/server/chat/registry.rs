@@ -315,7 +315,7 @@ impl Chats {
         core: &Arc<Core>,
         launch: ChatLaunch,
         origin: Origin,
-        kept: Option<(Arc<Feed>, TurnState)>,
+        kept: Option<(Arc<Feed>, TurnProgress)>,
     ) -> CoreResult<(Arc<Chat>, mpsc::UnboundedReceiver<ChatCommand>)> {
         let mut chats = self.chats.locked();
         if chats.contains_key(&launch.agent_id) {
@@ -337,7 +337,7 @@ impl Chats {
                     self.history.as_deref(),
                 )
             });
-            (feed, TurnState::default())
+            (feed, TurnProgress::default())
         });
         let offers_effort = crate::agent_catalog::agent(&launch.provider)
             .and_then(|agent| agent.chat.as_ref())

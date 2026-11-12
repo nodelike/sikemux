@@ -18,7 +18,7 @@ pub(super) enum Turn {
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(from = "Flags", into = "Flags")]
-pub(super) struct TurnState {
+pub(super) struct TurnProgress {
     pub turn: Turn,
     /// A turn has started in this session, so its provider keeps it.
     pub turned: bool,
@@ -32,7 +32,7 @@ pub(super) struct TurnState {
     pub holds: u64,
 }
 
-impl TurnState {
+impl TurnProgress {
     /// A chat taken up again on a session its provider has saved, or not.
     pub fn saved(saved: bool) -> Self {
         Self {
@@ -58,7 +58,7 @@ struct Flags {
     answered: bool,
 }
 
-impl From<Flags> for TurnState {
+impl From<Flags> for TurnProgress {
     fn from(flags: Flags) -> Self {
         let turn = if flags.running {
             Turn::Prompted
@@ -80,8 +80,8 @@ impl From<Flags> for TurnState {
     }
 }
 
-impl From<TurnState> for Flags {
-    fn from(state: TurnState) -> Self {
+impl From<TurnProgress> for Flags {
+    fn from(state: TurnProgress) -> Self {
         Self {
             running: state.turn == Turn::Prompted,
             unprompted: state.turn == Turn::Unprompted,

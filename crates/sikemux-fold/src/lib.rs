@@ -40,6 +40,7 @@ use sikemux_view::chat::{
     Retrying, SentContext, SessionEnded, StopReason, SubagentCard, SubagentState, TaskNotice,
     TaskState, TaskUsage, ToolDetail, ToolStatus, TurnStart, UsageCost, WorkflowAgent,
 };
+use sikemux_view::turn::TurnState;
 use tools::WithRow;
 
 pub use event::{ChatEvent, ChatEventKind};
@@ -314,6 +315,8 @@ pub struct Fold {
     needs: team::Needs,
     /// The number of the change it takes in now.
     seq: u64,
+    /// When the agent last said the steps it plans.
+    plan_at: u64,
     /// The change that last said whether a turn runs.
     running_v: u64,
     /// The agent always offers an effort picker, empty until its session
@@ -599,6 +602,7 @@ impl Fold {
             settle_from: None,
             needs: team::Needs::default(),
             seq: 1,
+            plan_at: 0,
             running_v: 0,
             offers_effort: false,
             folder: None,
@@ -682,6 +686,11 @@ impl Fold {
         self.read_pickers();
     }
 
+    /// The steps the agent plans, and when it last said them.
+    pub fn plan(&self) -> (&[PlanEntry], u64) {
+        (self.head.plan.as_deref().unwrap_or_default(), self.plan_at)
+    }
+
     /// The models and efforts the session offers, on the ones it runs.
     pub fn config_options(&self) -> Option<&Value> {
         self.head
@@ -717,6 +726,13 @@ impl Fold {
         if self.head.draft != draft {
             self.head.draft = draft;
             self.set_head("draft");
+        }
+    }
+
+    pub fn set_turn(&mut self, turn: Option<TurnState>) {
+        if self.head.turn != turn {
+            self.head.turn = turn;
+            self.set_head("turn");
         }
     }
 
@@ -1178,6 +1194,7 @@ impl Fold {
             }
             UpdateKind::Notice => self.agent_notice(index, update),
             UpdateKind::Plan => {
+                self.plan_at = at;
                 self.head.plan = update
                     .get("entries")
                     .and_then(Value::as_array)

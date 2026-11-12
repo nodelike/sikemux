@@ -395,6 +395,9 @@ pub struct AgentShown {
     pub group: AgentGroup,
     /// The word shown for its group, such as "Needs input".
     pub label: String,
+    /// How its turn stands; none before its first turn.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn: Option<crate::turn::TurnState>,
     pub unread: bool,
     pub subagents: u32,
     pub tasks: u32,

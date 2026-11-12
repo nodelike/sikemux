@@ -14,6 +14,7 @@ use sikemux_fold::trigger as fired;
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 use sikemux_view::chat::{ChatTrigger, FiredRequest, RequestHeader, TriggerFired, TriggerWhen};
+use sikemux_view::turn::{TurnWait, TurnWaitKind};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
@@ -166,15 +167,43 @@ impl Triggers {
         shown
     }
 
-    /// When the soonest trigger that prompts the agent's chat fires.
+    /// When the soonest trigger that prompts the agent's chat fires at a time. A CI trigger
+    /// fires when its CI ends, so its time is only when it looks again.
     pub(crate) fn next_at(&self, agent_id: &str) -> Option<u64> {
         let state = self.state.locked();
         state
             .triggers
             .iter()
-            .filter(|trigger| trigger.prompts(agent_id))
+            .filter(|trigger| trigger.prompts(agent_id) && trigger.ci.is_none())
             .filter_map(|trigger| trigger.next_at)
             .min()
+    }
+
+    /// What the agent's chat waits on of its triggers: CI first, else the soonest timer, which
+    /// it has waited on since `rested_at`.
+    pub(crate) fn wait_of(&self, agent_id: &str, rested_at: u64) -> Option<TurnWait> {
+        let state = self.state.locked();
+        let mine = || (state.triggers.iter()).filter(|trigger| trigger.prompts(agent_id));
+        if let Some(trigger) = mine().find(|trigger| trigger.ci.is_some()) {
+            return trigger.ci.as_ref().map(|ci| TurnWait {
+                kind: TurnWaitKind::Ci,
+                what: trigger.title.clone(),
+                started_at: ci.since(),
+                expected_ms: None,
+                until: None,
+            });
+        }
+        let soonest = mine()
+            .filter_map(|trigger| Some((trigger, trigger.next_at?)))
+            .min_by_key(|(_, at)| *at)?;
+        let (trigger, at) = soonest;
+        Some(TurnWait {
+            kind: TurnWaitKind::Timer,
+            what: trigger.title.clone(),
+            started_at: rested_at.min(at),
+            expected_ms: None,
+            until: Some(at),
+        })
     }
 
     /// How many triggers prompt the open chat `agent_id`.

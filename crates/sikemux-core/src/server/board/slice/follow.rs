@@ -206,6 +206,9 @@ fn heard(core: &Arc<Core>, event: RepoEvent) {
         super::super::chat_goal::committed(core, agent);
         core.inbox.committed(agent);
     }
+    if let RepoEvent::Committed { agent, .. } | RepoEvent::Landed { agent, .. } = &event {
+        crate::server::turn_state::read_work(core, agent);
+    }
     let known = match &event {
         RepoEvent::Committed { project, agent, .. } | RepoEvent::Landed { project, agent, .. } => {
             let state = core.boards.state.locked();

@@ -415,7 +415,7 @@ pub(super) fn take_up(core: &Arc<Core>, dir: &std::path::Path, kept: KeptChat) -
     );
     kept::moved(dir, &kept, feed.id());
     let saved = launch_spec.resume_id.is_some();
-    let flags = TurnState::saved(saved);
+    let flags = TurnProgress::saved(saved);
     let (chat, queue) = core.chats.insert(
         core,
         launch_spec.clone(),

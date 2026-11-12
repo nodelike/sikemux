@@ -32,6 +32,12 @@ pub(super) struct CiWatch {
     since: u64,
 }
 
+impl CiWatch {
+    pub(super) fn since(&self) -> u64 {
+        self.since
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 enum CiOn {

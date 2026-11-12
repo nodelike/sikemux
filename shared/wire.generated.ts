@@ -1159,6 +1159,8 @@ export interface AgentShown {
     group: AgentGroup;
     /** The word shown for its group, such as "Needs input". */
     label: string;
+    /** How its turn stands; none before its first turn. */
+    turn?: TurnState;
     unread: boolean;
     subagents: number;
     tasks: number;
@@ -1206,6 +1208,89 @@ export interface AgentShown {
     /** The core settled it by itself rather than the person, so a client offers Undo. */
     autoSettled?: boolean;
 }
+
+/** How an agent's turn stands now, and the facts each state carries. */
+export interface TurnState {
+    state: TurnPhase;
+    /** When it came to stand so, in Unix milliseconds. */
+    since: number;
+    /** While working: the step of its plan it is on, of a plan it said this turn. */
+    on?: string;
+    wait?: TurnWait;
+    call?: TurnCall;
+    done?: TurnDone;
+    stopped?: TurnStopped;
+    failed?: TurnFailed;
+}
+
+export type TurnPhase = "working" | "waiting" | "needsYou" | "done" | "stopped" | "failed";
+
+/** What a waiting agent waits on, and how long that usually takes. */
+export interface TurnWait {
+    kind: TurnWaitKind;
+    /** What it waits on, in words a line can show: an agent's name, a process, a timer's title. */
+    what: string;
+    startedAt: number;
+    /** How long the last few waits on the same thing took, once there were three. */
+    expectedMs?: number;
+    /** When a timer fires, in Unix milliseconds. */
+    until?: number;
+}
+
+export type TurnWaitKind = "ci" | "deploy" | "agent" | "timer" | "process" | "check";
+
+/** What the agent waits on the person for. */
+export interface TurnCall {
+    /** The question's or the permission request's id, which answering it names. */
+    id: string;
+    question: string;
+    waitingSince: number;
+    /** How many things it waits on the person for, this one included. */
+    count: number;
+}
+
+/** Where a finished turn left the work, how its checks stand, and what can be done next. */
+export interface TurnDone {
+    changes: WorkAt;
+    checks: ChecksStand;
+    /** How many tests passed, when the check said. */
+    tests?: number;
+    /** The next steps by the project's landing rule, soonest first. */
+    next?: NextStep[];
+}
+
+/** How far the agent's changes have gone. */
+export type WorkAt = "none" | "uncommitted" | "committed" | "landed" | "staged" | "shipped";
+
+export type ChecksStand = "pass" | "failed" | "notChecked";
+
+export interface NextStep {
+    step: TurnStep;
+    /** The one step to draw as the main button: the next that needs no call. */
+    primary: boolean;
+}
+
+/** A step the person can take on an agent's work with one click, by `takeStep`. */
+export type TurnStep = "commit" | "push" | "deployStaging" | "shipProduction" | "rollBack" | "tryIt" | "carryOn";
+
+export interface TurnStopped {
+    /** What is left open, in the agent's own words, when it said. */
+    left?: string;
+}
+
+export interface TurnFailed {
+    why: FailureKind;
+    /** What the agent or its driver said went wrong. */
+    said?: string;
+    /** When the account's usage limit resets, in Unix milliseconds. */
+    resetsAt?: number;
+    can?: Remedy[];
+}
+
+export type FailureKind = "signIn" | "limit" | "network" | "other";
+
+/** What the person can do about a failed turn. */
+export type Remedy = "otherAccount" | "retry" | "reconnect" | "signIn";
 
 /**
  * Several agents shown as one: the group of the one that wants the person
@@ -1634,6 +1719,8 @@ export interface ChatHead {
      * already says what the turn waits on, or while nothing is happening.
      */
     activity?: ChatActivity;
+    /** How its turn stands; none before its first turn. */
+    turn?: TurnState;
     /** What the person has written and not sent, as the host keeps it for every app. */
     draft?: ChatDraft;
     /** The goal the chat works on now. */
@@ -1664,8 +1751,6 @@ export interface ChatFailure {
     /** When the core sends the stopped prompt again, once a usage limit resets, in Unix milliseconds. */
     resumesAt?: number;
 }
-
-export type FailureKind = "signIn" | "limit" | "network" | "other";
 
 export type StopReason = "end_turn" | "max_tokens" | "max_turn_requests" | "refusal" | "cancelled";
 

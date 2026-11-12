@@ -304,6 +304,9 @@ pub struct ChatHead {
     /// already says what the turn waits on, or while nothing is happening.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub activity: Option<ChatActivity>,
+    /// How its turn stands; none before its first turn.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn: Option<crate::turn::TurnState>,
     /// What the person has written and not sent, as the host keeps it for every app.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub draft: Option<ChatDraft>,

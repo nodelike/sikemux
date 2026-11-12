@@ -68,6 +68,7 @@ impl Core {
                         self.seen.wants_a_look(agent_id);
                     }
                     self.inbox.ended(agent_id, None);
+                    super::turn_state::read_work(self, agent_id);
                 }
                 self.notify.send(Signal::TurnCompleted {
                     agent_id: agent_id.to_owned(),

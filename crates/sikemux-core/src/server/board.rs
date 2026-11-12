@@ -86,11 +86,11 @@ pub(crate) use hand_off::hand_off;
 pub use hand_off::{BoardHandOffParams, HandOnParams, HandedOff};
 pub(crate) use lease::{person_hand_on, person_resume};
 pub(crate) use record::{record_check, CheckRan};
-pub(crate) use slice::DeployRan;
 pub(crate) use slice::{
     check_stands, follow, gate_key, gate_words, person_note, person_pass, screenshot_taken,
     slice_screenshots,
 };
+pub(crate) use slice::{verdict_on, DeployRan};
 pub use slice::{BoardNoteParams, BoardPassParams};
 
 const FOLDER: &str = "boards";
@@ -3565,6 +3565,15 @@ pub(crate) fn judge_ship(
 ) -> environments::Judged {
     let state = core.boards.state.locked();
     environments::judged_within(&levels(&state, project), ship)
+}
+
+/// Whether `project` deploys somewhere before production, and whether it deploys at all, by
+/// its nearest environments: the last of them is production.
+pub(crate) fn deploys_to(core: &Core, project: &str) -> (bool, bool) {
+    let state = core.boards.state.locked();
+    let nearest = (levels(&state, project).into_iter()).find(|level| !level.is_empty());
+    let ladder = nearest.map_or(0, <[Environment]>::len);
+    (ladder > 1, ladder > 0)
 }
 
 /// The sites the person always allows agents in `project` to write to.

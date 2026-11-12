@@ -29,9 +29,10 @@ use super::connection::blocking;
 use super::display;
 use super::notify::provider_name;
 use super::roster;
+use super::turn_state;
 use super::{Core, CoreResult};
 use sikemux_fold::AgentNeed;
-use sikemux_view::chat::TeamNeedKind;
+use sikemux_view::chat::{FailureKind, TeamNeedKind};
 use sikemux_view::host_stats::HostAlertKind;
 use sikemux_view::slice::{Gate, Proof};
 
@@ -187,6 +188,7 @@ fn agent_shown(agent_id: String, cli: String, title: String, status: AgentStatus
         status,
         group,
         label: display::group_label(group).to_owned(),
+        turn: None,
         unread: false,
         subagents: 0,
         tasks: 0,
@@ -254,6 +256,8 @@ fn remote_agents(core: &Core) -> Vec<RemoteAgent> {
 struct Problem {
     said: String,
     fault: Option<Fault>,
+    /// What kind of failure the agent's driver saw, when it saw one.
+    kind: Option<FailureKind>,
 }
 
 #[derive(Default)]
@@ -265,6 +269,10 @@ struct Turn {
     recordings: Vec<InboxRecording>,
     /// Worked out the first time it is asked for once the turn ended.
     handoff: Option<InboxHandoff>,
+    /// The agent committed during it.
+    committed: bool,
+    /// Where git said its work was, read once the turn ended and again on each commit.
+    work: Option<turn_state::Work>,
 }
 
 #[derive(Default)]
@@ -306,6 +314,7 @@ impl Turns {
                     turn.problem = Some(Problem {
                         said: said.to_owned(),
                         fault: None,
+                        kind: None,
                     })
                 }
             }
@@ -325,10 +334,17 @@ impl Turns {
     }
 
     /// The agent's driver saw its turn fail, and how.
-    pub(crate) fn failed(&self, agent_id: &str, said: &str, fault: Fault) {
+    pub(crate) fn failed(
+        &self,
+        agent_id: &str,
+        said: &str,
+        fault: Fault,
+        kind: Option<FailureKind>,
+    ) {
         turn(&mut self.turns.locked(), agent_id).problem = Some(Problem {
             said: said.to_owned(),
             fault: Some(fault),
+            kind,
         });
     }
 
@@ -358,7 +374,41 @@ impl Turns {
     pub(crate) fn committed(&self, agent_id: &str) {
         if let Some(turn) = self.turns.locked().get_mut(agent_id) {
             turn.handoff = None;
+            turn.committed = true;
         }
+    }
+
+    /// How the agent's latest turn ended, as its turn state reads it; none while it runs and
+    /// before its first.
+    pub(crate) fn ending(&self, agent_id: &str) -> Option<turn_state::Ended> {
+        let turns = self.turns.locked();
+        let turn = turns.get(agent_id)?;
+        Some(turn_state::Ended {
+            at: turn.ended_at,
+            started_at: turn.started_at,
+            problem: (turn.problem.as_ref()).map(|problem| turn_state::Problem {
+                said: problem.said.clone(),
+                fault: problem.fault,
+                kind: problem.kind,
+            }),
+            work: turn.work.clone(),
+        })
+    }
+
+    /// Whether the agent changed anything in its latest turn, as far as the core heard.
+    pub(crate) fn changed_in_turn(&self, agent_id: &str) -> bool {
+        (self.turns.locked().get(agent_id)).is_some_and(|turn| turn.committed)
+    }
+
+    /// Keeps where git said the agent's work is, answering whether that moved.
+    pub(crate) fn keep_work(&self, agent_id: &str, work: turn_state::Work) -> bool {
+        let mut turns = self.turns.locked();
+        let Some(turn) = turns.get_mut(agent_id) else {
+            return false;
+        };
+        let moved = turn.work.as_ref() != Some(&work);
+        turn.work = Some(work);
+        moved
     }
 
     /// Whether the agent's latest turn ended by itself, with no problem.
@@ -422,7 +472,7 @@ pub(crate) fn recorded(core: &Arc<Core>, agent_id: &str, answer: &Value) {
 }
 
 /// What the agent left when its last turn ended, worked out once.
-fn handoff(core: &Core, agent_id: &str) -> InboxHandoff {
+pub(crate) fn handoff(core: &Core, agent_id: &str) -> InboxHandoff {
     if let Some(handoff) = core
         .inbox
         .turns
@@ -1222,7 +1272,9 @@ pub(crate) fn view(core: &Core, chats: &[ChatInfo], sessions: &[SessionInfo]) ->
     let places = core.workspaces.places();
     let now = epoch_ms();
     let mut shown = shown(core, chats, sessions, &own_titles);
+    let asks = turn_state::Asks::of(core);
     for agent in &mut shown {
+        agent.turn = turn_state::of(core, &asks, &agent.agent_id, agent.status);
         if let Some((place, _)) = places.get(&agent.agent_id) {
             super::settling::show(agent, place, now);
         }

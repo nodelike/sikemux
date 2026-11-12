@@ -63,7 +63,7 @@ pub(crate) use native::kill_and_reap;
 use native::Begin;
 pub(crate) use sikemux_fold::ChatEventKind;
 use sikemux_process::clock::epoch_ms;
-use turn::{Turn, TurnState};
+use turn::{Turn, TurnProgress};
 
 pub(crate) use actions::*;
 pub(crate) use offers::{models_of, AgentModelsParams};
@@ -235,7 +235,7 @@ pub(crate) struct Chat {
     pub feed: Arc<Feed>,
     permissions: Mutex<HashMap<String, PendingPermission>>,
     readiness: watch::Sender<Readiness>,
-    turn: Mutex<TurnState>,
+    turn: Mutex<TurnProgress>,
     /// Wakes whatever waits for the running turn to end.
     turn_over: tokio::sync::Notify,
     /// The chat's loop waits for its next command, so it can let go of its
@@ -449,7 +449,11 @@ impl Chat {
         });
     }
 
-    fn tell_failure(&self, failure: Value, tell: impl FnOnce(&mut TurnState, &Arc<Feed>, Value)) {
+    fn tell_failure(
+        &self,
+        failure: Value,
+        tell: impl FnOnce(&mut TurnProgress, &Arc<Feed>, Value),
+    ) {
         let message = failure
             .get("message")
             .and_then(Value::as_str)
@@ -615,8 +619,11 @@ impl Chat {
             .get("message")
             .and_then(Value::as_str)
             .unwrap_or_default();
+        let kind = (failure.get("failure"))
+            .and_then(|failure| failure.get("kind"))
+            .and_then(|kind| serde_json::from_value(kind.clone()).ok());
         if let Some(core) = self.core.upgrade() {
-            core.inbox.failed(self.agent_id(), message, fault);
+            core.inbox.failed(self.agent_id(), message, fault, kind);
         }
         self.turn.locked().failure = Some(message.to_owned());
     }
@@ -1350,7 +1357,7 @@ pub(crate) struct LiveChat {
     launch: ChatLaunch,
     current: ChatLaunch,
     origin: Origin,
-    flags: TurnState,
+    flags: TurnProgress,
     feed: FeedState,
     asked: Vec<Asked>,
     session: native::SessionState,

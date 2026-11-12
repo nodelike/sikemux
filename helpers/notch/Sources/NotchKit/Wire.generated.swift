@@ -569,6 +569,8 @@ struct AgentShown: Codable, Hashable {
     /// Its terminal; none for a chat.
     let session: Int?
     let group: AgentGroup
+    /// How its turn stands; none before its first turn.
+    let turn: TurnState?
     let subagents: Int
     let tasks: Int
     /// Its last turn ended in a failure.
@@ -601,6 +603,183 @@ enum AgentGroup: String, Codable, Hashable {
     /// It finished a turn the person has not seen.
     case done
     case idle
+    /// One added after this build.
+    case unknown
+
+    init(from decoder: Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
+}
+
+/// How an agent's turn stands now, and the facts each state carries.
+struct TurnState: Codable, Hashable {
+    let state: TurnPhase
+    /// When it came to stand so, in Unix milliseconds.
+    let since: Int
+    /// While working: the step of its plan it is on, of a plan it said this turn.
+    let on: String?
+    let wait: TurnWait?
+    let call: TurnCall?
+    let done: TurnDone?
+    let stopped: TurnStopped?
+    let failed: TurnFailed?
+}
+
+enum TurnPhase: String, Codable, Hashable {
+    case working
+    /// Its turn ended on something set to wake it.
+    case waiting
+    /// It waits on the person to answer or allow something.
+    case needsYou
+    case done
+    /// Its turn ended with work left open and nothing set to wake it.
+    case stopped
+    case failed
+    /// One added after this build.
+    case unknown
+
+    init(from decoder: Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
+}
+
+/// What a waiting agent waits on, and how long that usually takes.
+struct TurnWait: Codable, Hashable {
+    let kind: TurnWaitKind
+    /// What it waits on, in words a line can show: an agent's name, a process, a timer's title.
+    let what: String
+    let startedAt: Int
+    /// How long the last few waits on the same thing took, once there were three.
+    let expectedMs: Int?
+    /// When a timer fires, in Unix milliseconds.
+    let until: Int?
+}
+
+enum TurnWaitKind: String, Codable, Hashable {
+    case ci
+    case deploy
+    case agent
+    case timer
+    case process
+    case check
+    /// One added after this build.
+    case unknown
+
+    init(from decoder: Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
+}
+
+/// What the agent waits on the person for.
+struct TurnCall: Codable, Hashable {
+    /// The question's or the permission request's id, which answering it names.
+    let id: String
+    let question: String
+    let waitingSince: Int
+    /// How many things it waits on the person for, this one included.
+    let count: Int
+}
+
+/// Where a finished turn left the work, how its checks stand, and what can be done next.
+struct TurnDone: Codable, Hashable {
+    let changes: WorkAt
+    let checks: ChecksStand
+    /// How many tests passed, when the check said.
+    let tests: Int?
+    /// The next steps by the project's landing rule, soonest first.
+    let next: [NextStep]?
+}
+
+/// How far the agent's changes have gone.
+enum WorkAt: String, Codable, Hashable {
+    /// It changed nothing, or what it changed is gone.
+    case none
+    case uncommitted
+    case committed
+    /// On the project's branch, as the project's landing rule takes it.
+    case landed
+    case staged
+    case shipped
+    /// One added after this build.
+    case unknown
+
+    init(from decoder: Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
+}
+
+enum ChecksStand: String, Codable, Hashable {
+    case pass
+    case failed
+    /// No run of the project's check is kept for where the work is now.
+    case notChecked
+    /// One added after this build.
+    case unknown
+
+    init(from decoder: Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
+}
+
+struct NextStep: Codable, Hashable {
+    let step: TurnStep
+    /// The one step to draw as the main button: the next that needs no call.
+    let primary: Bool
+}
+
+/// A step the person can take on an agent's work with one click, by `takeStep`.
+enum TurnStep: String, Codable, Hashable {
+    case commit
+    case push
+    case deployStaging
+    /// Raises the production call rather than shipping.
+    case shipProduction
+    case rollBack
+    case tryIt
+    /// Tells a stopped agent to go on with what is left.
+    case carryOn
+    /// One added after this build.
+    case unknown
+
+    init(from decoder: Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
+}
+
+struct TurnStopped: Codable, Hashable {
+    /// What is left open, in the agent's own words, when it said.
+    let left: String?
+}
+
+struct TurnFailed: Codable, Hashable {
+    let why: FailureKind
+    /// What the agent or its driver said went wrong.
+    let said: String?
+    /// When the account's usage limit resets, in Unix milliseconds.
+    let resetsAt: Int?
+    let can: [Remedy]?
+}
+
+enum FailureKind: String, Codable, Hashable {
+    case signIn
+    case limit
+    case network
+    case other
+    /// One added after this build.
+    case unknown
+
+    init(from decoder: Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
+}
+
+/// What the person can do about a failed turn.
+enum Remedy: String, Codable, Hashable {
+    case otherAccount
+    /// Send the turn again: now, or at `resetsAt` when there is one.
+    case retry
+    case reconnect
+    case signIn
     /// One added after this build.
     case unknown
 

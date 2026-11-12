@@ -2320,6 +2320,13 @@ pub(crate) fn deployed(core: &Arc<Core>, project: &str, agent: &str, ran: Deploy
     }
 }
 
+/// The verdict of the latest kept run of `project`'s check that took in `sha`; none when no run
+/// is kept for it, or it gave none.
+pub(crate) fn verdict_on(core: &Core, project: &str, sha: &str) -> Option<Verdict> {
+    let state = core.boards.state.locked();
+    state.runs.get(project)?.of(sha)?.verdict
+}
+
 /// Whether the check stands for what `agent` deploys from `head`, the commit
 /// its checkout is at: on the card it works now, else on that commit as the
 /// board heard. Why not, when not.

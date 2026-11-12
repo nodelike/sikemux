@@ -190,6 +190,7 @@ named_fields!(head_field, ChatHead {
     "activeTool" => active_tool,
     "draft" => draft,
     "goal" => goal,
+    "turn" => turn,
 });
 
 named_fields!(row_field, ChatMessage {

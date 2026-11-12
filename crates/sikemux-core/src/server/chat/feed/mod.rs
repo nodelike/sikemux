@@ -15,8 +15,10 @@ use sikemux_process::sync::Locked;
 
 use sikemux_process::clock::epoch_ms;
 use sikemux_view::chat::{
-    ChatChange, ChatDraft, ChatGoal, ChatPage, ChatTrigger, QueuedMessage, SentContext, ToolDetail,
+    ChatChange, ChatDraft, ChatGoal, ChatPage, ChatTrigger, PlanEntry, PlanStatus, QueuedMessage,
+    SentContext, ToolDetail,
 };
+use sikemux_view::turn::TurnState;
 use sikemux_wire::protocol::{ChatContext, ChatStart, PermissionMode};
 
 use super::super::connection::{ClientConn, ClientId};
@@ -90,6 +92,7 @@ struct Inner {
     queued: Vec<Queued>,
     triggers: Vec<ChatTrigger>,
     goal: Option<ChatGoal>,
+    turn: Option<TurnState>,
     /// What other agents need of the person.
     needs: Vec<AgentNeed>,
     /// The folder the chat's agent works in, and where its edits sit in their files,
@@ -134,6 +137,19 @@ pub(crate) struct Feed {
     /// When the agent last said anything, in epoch ms.
     heard: AtomicU64,
     earlier: Mutex<Option<Earlier>>,
+    /// What the core reads of the chat each time it works out how its turn stands, apart from
+    /// the lock the chat streams under.
+    stand: Mutex<Stand>,
+}
+
+#[derive(Default)]
+struct Stand {
+    /// When the agent last said its plan, the step it was on, and the first it had not finished.
+    plan_at: u64,
+    plan_on: Option<String>,
+    plan_open: Option<String>,
+    /// How the turn stands, as clients were last told.
+    turn: Option<TurnState>,
 }
 
 fn queued_view(queued: &[Queued]) -> Vec<QueuedMessage> {
@@ -204,6 +220,7 @@ impl Feed {
             viewed: AtomicU64::new(epoch_ms()),
             heard: AtomicU64::new(epoch_ms()),
             earlier: Mutex::new(None),
+            stand: Mutex::default(),
             inner: Mutex::new(Inner {
                 subscribers: HashMap::new(),
                 replay: Replay::new(MAX_REPLAY_BYTES, MAX_REPLAY_EVENTS, history),
@@ -221,6 +238,7 @@ impl Feed {
                 queued: Vec::new(),
                 triggers: Vec::new(),
                 goal: None,
+                turn: None,
                 needs: Vec::new(),
                 work: None,
                 waits_for_person: false,
@@ -286,6 +304,7 @@ impl Feed {
             viewed: AtomicU64::new(epoch_ms()),
             heard: AtomicU64::new(epoch_ms()),
             earlier: Mutex::new(None),
+            stand: Mutex::default(),
             inner: Mutex::new(Inner {
                 subscribers: HashMap::new(),
                 replay,
@@ -303,6 +322,7 @@ impl Feed {
                 queued: Vec::new(),
                 triggers: Vec::new(),
                 goal: None,
+                turn: None,
                 needs: Vec::new(),
                 work: None,
                 waits_for_person: false,
@@ -382,6 +402,7 @@ impl Feed {
             fold.set_queued(queued_view(&inner.queued));
             fold.set_triggers(inner.triggers.clone());
             fold.set_goal(inner.goal.clone());
+            fold.set_turn(inner.turn.clone());
             fold.set_needs(inner.needs.clone());
             if inner.replay.is_trimmed() && !inner.replay.keeps_history() {
                 fold.set_earlier_lost();
@@ -418,7 +439,20 @@ impl Feed {
             .and_then(Value::as_u64)
             .unwrap_or_else(epoch_ms);
         if let Some(fold) = inner.fold.as_mut() {
+            let planned_at = fold.plan().1;
             fold.apply(index, kind, payload, at);
+            let (plan, at) = fold.plan();
+            if at != planned_at {
+                let content = |entry: &PlanEntry| entry.content.clone();
+                let mut stand = self.stand.locked();
+                stand.plan_at = at;
+                stand.plan_on = (plan.iter())
+                    .find(|entry| entry.status == PlanStatus::InProgress)
+                    .map(content);
+                stand.plan_open = (plan.iter())
+                    .find(|entry| entry.status != PlanStatus::Completed)
+                    .map(content);
+            }
         }
     }
 
@@ -561,6 +595,23 @@ impl Feed {
         inner.goal.clone_from(&goal);
         if let Some(fold) = inner.fold.as_mut() {
             fold.set_goal(goal);
+            self.flush_locked(&mut inner);
+        }
+    }
+
+    /// How the chat's turn stands changed; clients already hearing the chat are told.
+    pub(crate) fn set_turn(&self, turn: Option<TurnState>) {
+        {
+            let mut stand = self.stand.locked();
+            if stand.turn == turn {
+                return;
+            }
+            stand.turn.clone_from(&turn);
+        }
+        let mut inner = self.inner.locked();
+        inner.turn.clone_from(&turn);
+        if let Some(fold) = inner.fold.as_mut() {
+            fold.set_turn(turn);
             self.flush_locked(&mut inner);
         }
     }
@@ -901,6 +952,16 @@ impl Feed {
 
     pub(crate) fn start(&self) -> Option<ChatStart> {
         self.inner.locked().start.clone()
+    }
+
+    /// The step of its plan the agent is on, and the first it has not finished, of a plan it
+    /// said at `since` or later.
+    pub(crate) fn plan_steps(&self, since: u64) -> (Option<String>, Option<String>) {
+        let stand = self.stand.locked();
+        match stand.plan_at >= since {
+            true => (stand.plan_on.clone(), stand.plan_open.clone()),
+            false => (None, None),
+        }
     }
 
     pub(crate) fn config_options(&self) -> Option<Value> {
