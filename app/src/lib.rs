@@ -58,7 +58,7 @@ mod pasted;
 mod pickers;
 mod picture;
 mod places;
-mod project_settings;
+mod playbook;
 mod rail;
 mod reading;
 mod reads;

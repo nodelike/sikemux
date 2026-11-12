@@ -495,6 +495,23 @@ impl World {
                     | sikemux_core::cli::client::Failure::Sent(error) => anyhow!(error),
                 })?;
             }
+            "say" => {
+                let chat = self
+                    .chat
+                    .clone()
+                    .ok_or_else(|| anyhow!("open a chat first"))?;
+                self.runtime.block_on(self.client.ask(ask::AcpPrompt {
+                    agent_id: chat,
+                    message_id: None,
+                    text: step.text(0)?.to_owned(),
+                    paths: Vec::new(),
+                    context: Vec::new(),
+                }))?;
+            }
+            "pause" => {
+                let trigger: u64 = step.text(0)?.parse()?;
+                self.call("holdTrigger", json!({ "trigger": trigger, "paused": true }))?;
+            }
             "prefer" => {
                 let key = step.text(0)?;
                 let value = match step.text(1) {

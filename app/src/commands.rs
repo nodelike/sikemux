@@ -85,19 +85,7 @@ fn allow_language_servers(bench: &mut Workbench, allow: bool) {
     }
 }
 
-const STANDALONE: [Standalone; 9] = [
-    Standalone {
-        id: "project.settings",
-        title: "Project settings",
-        detail: "Processes, the default git repository, worktrees and language servers",
-        category: "Project",
-        offered: |bench| bench.project().is_some(),
-        run: |bench, _, _| {
-            if let Some(project) = bench.project().map(|project| project.id.clone()) {
-                bench.open_project_settings(&project);
-            }
-        },
-    },
+const STANDALONE: [Standalone; 8] = [
     Standalone {
         id: "project.language-servers.stop",
         title: "Stop language servers for this project",

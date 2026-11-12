@@ -1,5 +1,13 @@
-//! A project's own settings in a tab of its own: what Sikemux keeps for it, its processes and
+//! A project's Playbook in a tab of its own: what the person decided once that every later
+//! agent goes by, then the project's settings: what Sikemux keeps for it, its processes and
 //! check command, the repository its Git views use, and its sikemux.json.
+
+mod automation;
+mod landing;
+mod rules;
+mod said;
+
+pub(crate) use rules::retire as undo_rule;
 
 use sikemux_core::server::tasks::{ProjectConfigRead, ProjectParams, TrustProjectParams};
 use sikemux_core::tasks::config::{ConfigError, ConfigLoad, ProjectCheck, Stated};
@@ -16,9 +24,11 @@ use gpui_kit::{
     div, px, AnyElement, AppContext, Context, Entity, InteractiveElement, IntoElement,
     ParentElement, SharedString, StatefulInteractiveElement, Styled, Subscription, Window,
 };
+use sikemux_core::server::playbook::PlaybookParams;
 use sikemux_core::server::tasks::Source;
 use sikemux_core::server::tasks::TaskView;
 use sikemux_view::layout::PaneKind;
+use sikemux_view::playbook::Playbook;
 use sikemux_view::workspace::ProjectInfo;
 
 use crate::icons::Icon;
@@ -39,22 +49,34 @@ use sikemux_core::server::workspace::UpdateProjectParams;
 #[derive(Clone, Copy, Default, PartialEq)]
 enum Page {
     #[default]
+    Rules,
+    Landing,
+    Automation,
     General,
     Processes,
     Git,
     Config,
 }
 
-const PAGES: [(Page, &str, Icon); 4] = [
+/// What the Playbook decided, above the settings, which a hairline parts.
+const DECIDED: [(Page, &str, Icon); 3] = [
+    (Page::Rules, "Rules", Icon::Book),
+    (Page::Landing, "Landing", Icon::Merge),
+    (Page::Automation, "Automation", Icon::Bolt),
+];
+
+const SETTINGS: [(Page, &str, Icon); 4] = [
     (Page::General, "General", Icon::Settings),
     (Page::Processes, "Processes", Icon::Run),
     (Page::Git, "Git", Icon::Git),
     (Page::Config, "sikemux.json", Icon::Code),
 ];
 
-/// What a project's settings tab keeps between frames.
-pub struct ProjectSettings {
+/// What a project's Playbook tab keeps between frames.
+pub struct PlaybookTab {
     page: Page,
+    /// What the core last said the project's Playbook holds.
+    playbook: Option<Playbook>,
     /// What the core last said of the project's sikemux.json.
     config: Option<ProjectConfigRead>,
     /// The repositories directly inside the project's folder.
@@ -72,6 +94,13 @@ pub struct ProjectSettings {
 }
 
 impl Workbench {
+    /// Opens the Playbook of the project in front.
+    pub fn open_playbook(&self) {
+        if let Some(project) = self.project().map(|project| project.id.clone()) {
+            self.open_project_settings(&project);
+        }
+    }
+
     pub fn open_project_settings(&self, id: &str) {
         let Some(project) = self.projects().iter().find(|project| project.id == id) else {
             return;
@@ -83,13 +112,41 @@ impl Workbench {
         ));
     }
 
+    /// Reads every open Playbook again, as after the core says one moved.
+    pub(crate) fn playbooks_moved(&self, cx: &mut Context<Self>) {
+        for folder in self.project_settings.keys() {
+            self.reload_playbook(folder, cx);
+        }
+    }
+
+    fn reload_playbook(&self, folder: &str, cx: &mut Context<Self>) {
+        let asked = self
+            .target()
+            .request_typed::<call::Playbook>(PlaybookParams {
+                project: folder.to_owned(),
+            });
+        let folder = folder.to_owned();
+        cx.spawn(async move |bench, cx| {
+            let Ok(playbook) = asked.await else {
+                return;
+            };
+            let _ = bench.update(cx, |bench, cx| {
+                if let Some(settings) = bench.settings_of(&folder) {
+                    settings.playbook = Some(playbook);
+                }
+                bench.parts.redraw_stage(cx);
+            });
+        })
+        .detach();
+    }
+
     fn project_at(&self, folder: &str) -> Option<&ProjectInfo> {
         self.projects()
             .iter()
             .find(|project| project.path == Path::new(folder))
     }
 
-    fn settings_of(&mut self, folder: &str) -> Option<&mut ProjectSettings> {
+    fn settings_of(&mut self, folder: &str) -> Option<&mut PlaybookTab> {
         self.project_settings.get_mut(folder)
     }
 
@@ -226,8 +283,9 @@ fn make(bench: &mut Workbench, folder: String, window: &mut Window, cx: &mut Con
     let (space, spaces) = space_choice(bench, &folder, window, cx);
     bench.project_settings.insert(
         folder.clone(),
-        ProjectSettings {
+        PlaybookTab {
             page: Page::default(),
+            playbook: None,
             config: None,
             repos: None,
             check,
@@ -240,6 +298,7 @@ fn make(bench: &mut Workbench, folder: String, window: &mut Window, cx: &mut Con
         },
     );
     bench.reload_config(&folder, cx);
+    bench.reload_playbook(&folder, cx);
     let finding =
         bench
             .target()
@@ -369,10 +428,19 @@ pub fn pane(
         .config
         .as_ref()
         .is_some_and(|config| matches!(config.load, ConfigLoad::Invalid { .. }));
-    let nav = PAGES.iter().map(|&(page, label, icon)| {
+    let counts = settings
+        .playbook
+        .as_ref()
+        .map(|playbook| (playbook.rules.len(), playbook.automation.len()));
+    let page_row = |&(page, label, icon): &(Page, &'static str, Icon)| {
         let (this, folder) = (this.clone(), folder.to_owned());
         let on = settings.page == page;
         let ink = if on { t.text_primary } else { t.text_secondary };
+        let count = match (page, counts) {
+            (Page::Rules, Some((rules, _))) => rules,
+            (Page::Automation, Some((_, lines))) => lines,
+            _ => 0,
+        };
         div()
             .id(SharedString::from(format!("project-page-{label}")))
             .flex()
@@ -387,6 +455,14 @@ pub fn pane(
             .when(!on, |row| row.hover(|row| row.bg(t.surface_hover)))
             .child(ui::icon(icon, 13.).text_color(ink))
             .child(div().flex_1().child(label))
+            .when(count > 0, |row| {
+                row.child(
+                    div()
+                        .text_size(crate::theme::ui_text(TEXT_2XS_H))
+                        .text_color(t.text_tertiary)
+                        .child(count.to_string()),
+                )
+            })
             .when(page == Page::Config && invalid, |row| {
                 row.child(div().text_color(t.danger).child("!"))
             })
@@ -398,7 +474,24 @@ pub fn pane(
                     bench.parts.redraw_stage(cx);
                 })
             })
-    });
+    };
+    let nav = DECIDED
+        .iter()
+        .map(page_row)
+        .map(IntoElement::into_any_element)
+        .chain([div()
+            .h(px(1.))
+            .mx(SPACE_2)
+            .my(SPACE_1H)
+            .bg(t.line_soft)
+            .into_any_element()])
+        .chain(
+            SETTINGS
+                .iter()
+                .map(page_row)
+                .map(IntoElement::into_any_element),
+        )
+        .collect::<Vec<_>>();
     let revealed = PathBuf::from(folder);
     let side = div()
         .w(px(200.))
@@ -440,6 +533,9 @@ pub fn pane(
                 .on_click(move |_, _, cx| cx.reveal_path(&revealed)),
         );
     let body: Vec<AnyElement> = match settings.page {
+        Page::Rules => rules::page(settings.playbook.as_ref(), folder, &this, cx),
+        Page::Landing => landing::page(settings.playbook.as_ref(), folder, &this, cx),
+        Page::Automation => automation::page(settings.playbook.as_ref(), folder, &this, cx),
         Page::General => vec![general(bench, settings, folder, &this, cx)],
         Page::Processes => tasks(bench, settings, folder, &this, cx),
         Page::Git => vec![git(bench, settings, folder, &this, cx)],
@@ -470,7 +566,7 @@ pub fn pane(
 
 fn general(
     bench: &Workbench,
-    settings: &ProjectSettings,
+    settings: &PlaybookTab,
     folder: &str,
     this: &Entity<Workbench>,
     cx: &mut Context<Workbench>,
@@ -558,7 +654,7 @@ fn run_button(
 
 fn tasks(
     bench: &Workbench,
-    settings: &ProjectSettings,
+    settings: &PlaybookTab,
     folder: &str,
     this: &Entity<Workbench>,
     cx: &mut Context<Workbench>,
@@ -822,7 +918,7 @@ fn tasks(
 
 fn git(
     bench: &Workbench,
-    settings: &ProjectSettings,
+    settings: &PlaybookTab,
     folder: &str,
     this: &Entity<Workbench>,
     cx: &mut Context<Workbench>,
@@ -956,7 +1052,7 @@ fn git(
 }
 
 fn config(
-    settings: &ProjectSettings,
+    settings: &PlaybookTab,
     folder: &str,
     this: &Entity<Workbench>,
     cx: &mut Context<Workbench>,

@@ -256,6 +256,9 @@ impl Workbench {
         if topic == Topic::Boards {
             self.boards_moved(cx);
         }
+        if topic == Topic::Playbook {
+            self.playbooks_moved(cx);
+        }
         if topic == Topic::Memory {
             if let Some(goals) = &self.goals.pane {
                 goals.update(cx, |goals, cx| goals.changed(cx));

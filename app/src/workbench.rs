@@ -88,8 +88,8 @@ pub struct Workbench {
     pub kept_running_told: bool,
     /// Each waiting `sikemux open --wait`, with the tabs it opened that are still open.
     pub(crate) open_waits: Vec<(sikemux_wire::protocol::CallId, HashMap<String, bool>)>,
-    /// Each open project settings tab's state, by the project's folder.
-    pub project_settings: HashMap<String, crate::project_settings::ProjectSettings>,
+    /// Each open Playbook tab's state, by the project's folder.
+    pub project_settings: HashMap<String, crate::playbook::PlaybookTab>,
     pub shown: crate::screens::experience::Shown,
     pub(crate) picture: crate::picture::AccountPicture,
     /// From asking the core to sign in until the browser is done or gives up.

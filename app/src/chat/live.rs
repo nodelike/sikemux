@@ -964,7 +964,7 @@ fn repeats(when: &TriggerWhen) -> Option<String> {
 }
 
 /// When the trigger fires: on each request for a webhook, else how often and when next.
-fn fires(trigger: &ChatTrigger) -> String {
+pub(crate) fn fires(trigger: &ChatTrigger) -> String {
     match &trigger.when {
         TriggerWhen::Webhook { .. } => return "on each request".to_owned(),
         TriggerWhen::Ci { on } => return format!("when CI on {on} ends"),

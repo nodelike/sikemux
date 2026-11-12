@@ -1,0 +1,24 @@
+---
+title: The Playbook
+description: "What you decided once for a project, which every later agent goes by, and what runs there with nobody asking."
+---
+
+Each project has a Playbook: open it from **Playbook** at the end of the project's tree in the side rail, or with `⌘⌥6`. It holds what you decided once that every later agent goes by. Nothing on it has to be set before work starts: agents fill it in as you talk to them, and Sikemux reads the rest from the repository.
+
+Every line says who said it and where. **Open** jumps to that moment in the chat, opening the chat again if it has closed, and **Undo** takes it back.
+
+Its pages sit above the project's settings, which a hairline parts from them.
+
+## Rules
+
+**Your rules** are kept from your own words. When you tell an agent how agents should always or never work here, it keeps that as your rule without asking, and the chat shows one quiet line, **Kept as a rule · Undo**. Only you change these.
+
+**Noted by agents** lists what agents noticed while working, and the knowledge Sikemux keeps of how things are. It guides agents, and never widens what they may do. **Remove** drops a note. [What Sikemux remembers](/agents/memory/) says how agents are handed both.
+
+## Landing
+
+**Who lands** says who puts work on the project's branch: agents, once their checks pass, or you. The line under each chat ends a turn with these words, such as **Done · landed · checks pass**.
+
+## Automation
+
+What runs in the project with nobody asking, one line each: the triggers agents set up when you asked, such as "when main's checks fail, find the commit that broke them", and agents starting by themselves on cards nobody holds. Each line says when it next runs and who set it up. **Pause** stops it until you **Resume** it; a trigger that came due while paused runs once when you resume it, and a repeating one skips the times it missed. The bin removes a trigger.

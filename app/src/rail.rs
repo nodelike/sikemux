@@ -1055,7 +1055,7 @@ fn project_tree(
     div().flex().flex_col().child(row).when(active, |tree| {
         tree.pb(SPACE_1)
             .children(copies.map(|copies| div().ml(px(13.5)).pt(SPACE_0).child(copies)))
-            .child(surfaces(lit_surface(bench), bench.environments_lit(cx), cx))
+            .child(surfaces(lit_surface(bench), cx))
     })
 }
 
@@ -1122,8 +1122,8 @@ fn project_menu(
             Some(front) => {
                 let front = front.clone();
                 popup.item(
-                    PopupMenuItem::new("Project settings")
-                        .icon(Icon::Settings)
+                    PopupMenuItem::new("Playbook")
+                        .icon(Icon::Book)
                         .on_click(act(Rc::new(move |bench: &mut Workbench| {
                             bench.open_copy_settings(&front)
                         }))),
@@ -1238,13 +1238,9 @@ fn rollup(bench: &Workbench, folded: &Folded, cx: &App) -> Option<gpui_kit::AnyE
     ui::status_mark(&format!("project:{}", folded.key()), status, cx)
 }
 
-/// The project's surfaces and its environments, hung off a spine with a tick to each, the one
-/// in front lit.
-fn surfaces(
-    front: Option<PaneKind>,
-    environments_lit: bool,
-    cx: &Context<Workbench>,
-) -> impl IntoElement {
+/// The project's surfaces and its Playbook, hung off a spine with a tick to each, the one in
+/// front lit.
+fn surfaces(front: Option<PaneKind>, cx: &Context<Workbench>) -> impl IntoElement {
     let bench = cx.entity().downgrade();
     let surfaces = crate::pane_kind::SURFACES
         .into_iter()
@@ -1273,16 +1269,17 @@ fn surfaces(
             })
             .into_any_element()
         });
-    let environments = tree_row(
-        "surface-environments".into(),
-        Icon::Rocket,
-        "Environments",
-        environments_lit,
+    let playbook = crate::workbench::actions::FocusPlaybook::ID;
+    let playbook = tree_row(
+        "surface-playbook".into(),
+        Icon::Book,
+        "Playbook",
+        front == Some(PaneKind::ProjectSettings),
         true,
-        None,
+        keymap::hint(playbook, cx),
         cx,
     )
-    .on_click(cx.listener(|bench, _, _, cx| bench.open_environments(cx)));
+    .on_click(move |_, window, cx| keymap::dispatch(playbook, window, cx));
     div()
         .flex()
         .flex_col()
@@ -1290,7 +1287,7 @@ fn surfaces(
         .py(SPACE_0)
         .pr(SPACE_1H)
         .children(surfaces)
-        .child(environments)
+        .child(playbook)
 }
 
 /// One row of a project's tree; the `tail` ends the spine.

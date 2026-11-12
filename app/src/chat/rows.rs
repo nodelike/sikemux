@@ -944,6 +944,32 @@ fn task_ended(notice: &TaskNotice, looks: &Drawn, cx: &App) -> AnyElement {
 
 /// The line something said beside the reply sits on: a background task that ended, a notice
 /// from the agent, or a move to another account.
+/// The quiet line that says a rule was kept from what the person said, with Undo.
+fn kept_rule(notice: &AgentNotice, looks: &Drawn) -> AnyElement {
+    let Some(rule) = notice.rule.clone() else {
+        return div().into_any_element();
+    };
+    let bench = looks.bench.clone();
+    notice_box(looks)
+        .child(ui::icon(Icon::Book, 12.).text_color(looks.quiet))
+        .child(div().flex_none().child(notice.title.clone()))
+        .child("·")
+        .child(
+            div()
+                .id(SharedString::from(format!("kept-rule-{}", rule.id)))
+                .cursor_pointer()
+                .text_color(looks.ink)
+                .child("Undo")
+                .on_click(move |_, _, cx| {
+                    let rule = rule.clone();
+                    let _ = bench.update(cx, |bench, cx| {
+                        crate::playbook::undo_rule(bench, &rule.project, rule.id, cx)
+                    });
+                }),
+        )
+        .into_any_element()
+}
+
 pub(super) fn notice_box(looks: &Drawn) -> Div {
     div()
         .min_h(px(26.))
@@ -1245,6 +1271,7 @@ pub(super) fn part(
         ChatPart::AgentNotice { notice, .. } if notice.goal.is_some() => {
             goal_marker(notice, looks, cx)
         }
+        ChatPart::AgentNotice { notice, .. } if notice.rule.is_some() => kept_rule(notice, looks),
         ChatPart::AgentNotice { notice, .. } => {
             let t = Tokens::get(cx);
             let (icon, tint, state) = match notice.severity {

@@ -19,6 +19,8 @@
 //!   chat NAME                   opens a Claude chat named NAME in the last project, first in its strip
 //!   title "TEXT"                gives the last chat that title
 //!   trigger "TITLE" SECONDS     sets the last chat a trigger that sends it TITLE every SECONDS
+//!   say "TEXT"                  sends the last chat TEXT, as the person, with no typing shown
+//!   pause ID                    pauses trigger ID as the person does
 //!   page ID FILE                keeps FILE as the page a scripted page_show call names by ID
 //!   open FILE|terminal|git      opens FILE of the last project, a new terminal or Git in a tab
 //!   patch FILE                  applies FILE, a diff beside the scene, to the last project unstaged
