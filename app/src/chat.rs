@@ -713,7 +713,7 @@ impl Chat {
                     .ok();
             }
         });
-        let activity_line = cx.new(|_| status::Activity::new(provider));
+        let activity_line = cx.new(|_| status::Activity::new(provider, target.clone()));
         let footer = cx.new(|_| Footer {
             calls: calls.clone().into(),
             activity: activity_line.clone().into(),

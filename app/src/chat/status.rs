@@ -12,10 +12,11 @@ use gpui_kit::{
 };
 use sikemux_core::server::agent_accounts::{Authenticate, ChatAccountsParams};
 use sikemux_core::server::call::{self, Call};
+use sikemux_core::server::TakeStepParams;
 use sikemux_view::chat::{
     ChatActivity, ChatConnection, FailureKind, ToolAction, ToolFamily, ToolIntent, ToolRow,
 };
-use sikemux_view::turn::{TurnPhase, TurnState};
+use sikemux_view::turn::{TurnPhase, TurnState, TurnStep};
 use sikemux_wire::protocol::AgentStatus;
 
 use super::Chat;
@@ -35,6 +36,8 @@ use crate::workbench::Workbench;
 /// it as it was.
 pub struct Activity {
     provider: String,
+    /// The core the chat's agent runs on, which takes the line's steps.
+    target: crate::core::Target,
     /// How the chat's turn stands, as the core last said.
     turn: Option<TurnState>,
     /// The chat's agent as the pane last drew it, whose face the line wears.
@@ -87,9 +90,10 @@ impl Doing {
 }
 
 impl Activity {
-    pub fn new(provider: &str) -> Self {
+    pub fn new(provider: &str, target: crate::core::Target) -> Self {
         Self {
             provider: provider.to_owned(),
+            target,
             turn: None,
             agent: None,
             label: None,
@@ -136,20 +140,36 @@ impl Activity {
         if turn_line::ticks(turn.state) {
             ui::clock::second(window, cx);
         }
+        let take = |step: TurnStep, variant: Variant| {
+            let label = turn_line::step_label(step)?;
+            let agent = self.agent.as_ref()?.id.clone();
+            let target = self.target.clone();
+            Some(
+                step_button(label, variant)
+                    .on_click(move |_, _, _| {
+                        target.call_typed::<call::TakeStep>(TakeStepParams {
+                            agent_id: agent.clone(),
+                            step,
+                        })
+                    })
+                    .into_any_element(),
+            )
+        };
         let buttons = match turn.state {
             TurnPhase::Done => (turn.done.iter())
                 .flat_map(|done| &done.next)
                 .filter_map(|next| {
-                    let label = turn_line::step_label(next.step)?;
                     let variant = match next.primary {
                         true => Variant::Primary,
                         false => Variant::Outline,
                     };
-                    Some(step_button(label, variant))
+                    take(next.step, variant)
                 })
                 .collect(),
-            TurnPhase::NeedsYou => vec![step_button("Look", Variant::Primary)],
-            TurnPhase::Stopped => vec![step_button("Carry on", Variant::Outline)],
+            TurnPhase::NeedsYou => vec![step_button("Look", Variant::Primary).into_any_element()],
+            TurnPhase::Stopped => take(TurnStep::CarryOn, Variant::Outline)
+                .into_iter()
+                .collect(),
             _ => Vec::new(),
         };
         let key = SharedString::from(format!("turn:{}", cx.entity_id()));
@@ -268,15 +288,13 @@ impl Render for Activity {
     }
 }
 
-/// A next step on the line. Each one goes to the core's `takeStep` once that lands.
-fn step_button(label: &'static str, variant: Variant) -> AnyElement {
+fn step_button(label: &'static str, variant: Variant) -> Button {
     Button::new(
         SharedString::from(format!("turn-step-{label}")),
         label,
         variant,
     )
     .sized(26., 10., TEXT_XS)
-    .into_any_element()
 }
 
 /// The room after the chat's last row, kept here rather than on the row so a row arriving

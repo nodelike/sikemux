@@ -42,7 +42,22 @@ What you typed but did not send comes with you. A draft in the composer waits at
 
 To swap the two, set **Settings → Chats → Sending while an agent works** to **Queue**. An agent that can't be steered always queues. Sending from your phone follows the same setting.
 
-The line under the reply says what the agent is on: the command it runs, the agent it waits for, or why it retries.
+The line under the reply says what the agent is on: the step of its plan, or else the command it runs, the agent it waits for, or why it retries, and for how long.
+
+## How a chat stands
+
+The last line of every chat says how its turn stands, in one of six states:
+
+| State | Says | What you can do there |
+|---|---|---|
+| **Working** | the step of its plan it is on, and for how long | |
+| **Waiting** | what it waits on, such as CI, a deploy, another agent or a set time, and how long that has gone against how long it usually takes | |
+| **Needs you** | the question or permission it waits on, and for how long | **Look** |
+| **Done** | where the work is (no changes, uncommitted, committed, landed, on staging, shipped) and how its checks went | the next step, such as **Commit**, **Push**, **Deploy to staging**, **Ship to production…** or **Roll back** |
+| **Stopped** | what it left open, with nothing set to wake it | **Carry on** |
+| **Failed** | why, such as Claude's usage limit and when it resets | another account, sign in, retry, or reconnect |
+
+A step's button sends that step to the agent as your message. The purple one is the next step that needs no call; **Ship to production…** never ships by itself, it raises a call you answer first. An agent running in its terminal (TUI) shows the same words after its name at the top of the pane.
 
 ## Triggers
 
