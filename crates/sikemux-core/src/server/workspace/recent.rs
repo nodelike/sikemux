@@ -3,6 +3,7 @@
 
 use super::*;
 use crate::server::changed::What;
+use crate::server::names::RanSession;
 use serde::{Deserialize, Serialize};
 use sikemux_view::chat::ChatTrigger;
 
@@ -648,6 +649,50 @@ impl Workspaces {
             cwd: session.cwd.unwrap_or_else(|| session.project.clone()),
             project: session.project,
             active_at: 0,
+        });
+        let choice = ResumeChoice {
+            recent,
+            permission_mode: None,
+            model: None,
+            effort: None,
+        };
+        choice_of(&published, &chat, choice, open)
+    }
+
+    /// How to take a closed agent's session up again: as Recent would while it lists the chat,
+    /// else on the account it ran on, in the project whose folder it ran in.
+    pub(crate) fn ran_choice(
+        &self,
+        ran: &RanSession,
+        saved: &crate::server::saved::Saved,
+        open: &[ChatInfo],
+        held: &Held,
+    ) -> CoreResult<ChatChoice> {
+        let canonical = |path: &Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.into());
+        let ran_in = canonical(Path::new(&ran.project));
+        let project = (self.project_paths().into_iter())
+            .find(|path| canonical(path) == ran_in)
+            .ok_or_else(|| CoreError::from("that chat's project is not on this host"))?;
+        let published = self.published.locked();
+        let recent = format!("{}:{}", ran.provider, ran.session_id);
+        let chat = recent_or_pinned(&published, &recent, held).unwrap_or_else(|| {
+            let ran_on = LauncherId {
+                kind: &ran.provider,
+                account: ran.profile.as_deref(),
+            }
+            .to_string();
+            let kept = published
+                .every_launcher()
+                .any(|launcher| launcher.id == ran_on);
+            Recent {
+                launcher: if kept { ran_on } else { String::new() },
+                provider: ran.provider.clone(),
+                session_id: ran.session_id.clone(),
+                title: saved.title.clone(),
+                cwd: saved.project.clone(),
+                project,
+                active_at: 0,
+            }
         });
         let choice = ResumeChoice {
             recent,

@@ -583,38 +583,32 @@ pub(crate) async fn resume_session(
 }
 
 /// The agent `agent_id`, open: itself while it is, else the session it ran taken up again as
-/// from Recent, or the agent that already has that session open.
+/// from Recent, on the account it ran on, or the agent that already has that session open.
 pub(crate) async fn reopen_agent(core: &Arc<Core>, agent_id: String) -> CoreResult<SessionTaken> {
+    const GONE: &str = "its saved session can no longer be found";
     let project_of = |agent: &str| core.workspaces.agent_projects().remove(agent);
     if let Some(project) = project_of(&agent_id) {
         return Ok(SessionTaken { agent_id, project });
     }
-    let ran = (core.names.ran_session(&agent_id))
-        .ok_or_else(|| CoreError::from("its saved session can no longer be found"))?;
-    let found = {
+    let ran = (core.names.ran_session(&agent_id)).ok_or_else(|| CoreError::from(GONE))?;
+    let saved = {
         let (core, session, cli) = (core.clone(), ran.session_id.clone(), ran.provider.clone());
         blocking(move || super::saved::locate(&core, &session, Some(&cli)).map_err(Into::into))
             .await
-            .ok()
+            .map_err(|_| CoreError::from(GONE))?
     };
-    if let Some((open, _)) = found.as_ref().and_then(|saved| saved.open.clone()) {
-        let project = project_of(&open).unwrap_or(ran.project);
+    if let Some((open, _)) = saved.open.clone() {
+        let project = project_of(&open).ok_or_else(|| CoreError::from(GONE))?;
         return Ok(SessionTaken {
             agent_id: open,
             project,
         });
     }
-    resume_session(
-        core,
-        SessionChoice {
-            provider: ran.provider,
-            session_id: ran.session_id,
-            project: PathBuf::from(&ran.project),
-            cwd: found.map(|saved| saved.project),
-            title: None,
-        },
-    )
-    .await
+    let choice =
+        (core.workspaces).ran_choice(&ran, &saved, &core.chats.list(), &core.triggers.held())?;
+    let project = choice.project.clone();
+    let (agent_id, _) = start_new(core, None, choice).await?;
+    Ok(SessionTaken { agent_id, project })
 }
 
 /// Starts a new chat that waits for the person, and answers with its agent.

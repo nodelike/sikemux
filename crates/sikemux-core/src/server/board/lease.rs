@@ -7,7 +7,6 @@
 //! Open with a line naming who left it, as nobody is asked to bring a plain card's owner back.
 
 use std::collections::HashSet;
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
@@ -20,8 +19,7 @@ use super::{
 };
 use crate::server::connection::blocking;
 use crate::server::wake::sooner;
-use crate::server::workspace::SessionChoice;
-use crate::server::{launching, messages, saved, Core};
+use crate::server::{launching, messages, Core};
 
 /// How long an owner with no turn running may leave its slice untouched. Nothing announces that
 /// this has passed, so the board wakes at the earliest such moment; it is long enough that the
@@ -418,33 +416,15 @@ async fn bring_back(core: &Arc<Core>, stalled: &Stalled) -> Result<String, Strin
         }
         return Ok(agent);
     }
-    let ran = core.names.ran_session(&agent).ok_or_else(|| {
-        format!(
+    if core.names.ran_session(&agent).is_none() {
+        return Err(format!(
             "@{}'s session isn't kept any more; hand the slice to someone else",
             stalled.name
-        )
-    })?;
-    let found = {
-        let (core, session, cli) = (core.clone(), ran.session_id.clone(), ran.provider.clone());
-        blocking(move || saved::locate(&core, &session, Some(&cli)).map_err(Into::into))
-            .await
-            .ok()
-    };
-    if let Some((open, _)) = found.as_ref().and_then(|saved| saved.open.clone()) {
-        return Ok(open);
+        ));
     }
-    let started = launching::resume_session(
-        core,
-        SessionChoice {
-            provider: ran.provider,
-            session_id: ran.session_id,
-            project: PathBuf::from(&ran.project),
-            cwd: found.map(|saved| saved.project),
-            title: None,
-        },
-    )
-    .await
-    .map_err(|error| format!("@{}'s session did not start again: {error}", stalled.name))?;
+    let started = launching::reopen_agent(core, agent)
+        .await
+        .map_err(|error| format!("@{}'s session did not start again: {error}", stalled.name))?;
     Ok(started.agent_id)
 }
 
