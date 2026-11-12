@@ -37,6 +37,9 @@ const LINE_ICONS = {
   globe: "IconGlobe",
   timer: "IconTimer",
   server: "IconServer",
+  pencil: "IconPencil",
+  clock: "IconClock",
+  message: "IconMessage",
 };
 
 // Line icons the app fills from its stylesheet rather than from the icon itself.
@@ -259,11 +262,17 @@ const source = await readFile(iconsPath, "utf8");
 const lines = [];
 
 for (const [key, name] of Object.entries(LINE_ICONS)) {
-  const match = source.match(
-    new RegExp(
-      `export const ${name} = makeSvgIcon\\(\\s*([\\s\\S]*?)\\s*(?:,\\s*(\\{[^{}]*\\}))?\\s*,?\\s*\\);\\n`,
-    ),
-  );
+  const match =
+    source.match(
+      new RegExp(
+        `export const ${name} = makeSvgIcon\\(\\s*([\\s\\S]*?)\\s*(?:,\\s*(\\{[^{}]*\\}))?\\s*,?\\s*\\);\\n`,
+      ),
+    ) ??
+    // An icon drawn on a 24-unit grid, which makeSvgIcon24 gives its own viewBox.
+    source
+      .match(new RegExp(`export const ${name} = makeSvgIcon24\\(([\\s\\S]*?)\\);\\n`))
+      ?.slice(0, 2)
+      .concat('{ viewBox: "0 0 24 24" }');
   if (!match) throw new Error(`shared/ui/Icons.tsx has no ${name}`);
   const options = match[2] ?? "";
   const box = options.match(/viewBox:\s*"([^"]+)"/)?.[1];
@@ -271,9 +280,12 @@ for (const [key, name] of Object.entries(LINE_ICONS)) {
     FILLED_ICONS.has(key) || options.includes('fill: "currentColor"')
       ? "fill"
       : "stroke";
-  const body = shapes(match[1]).map(
-    (shape) => `        ${shapeLiteral(shape, style, null, {})},`,
-  );
+  // makeSvgIcon24 draws at 2.1 on its own grid, where the rest draw at 1.4 on 16 units.
+  const grid24 = box === "0 0 24 24";
+  const body = shapes(match[1]).map((shape) => {
+    const literal = shapeLiteral(shape, style, null, {});
+    return `        ${grid24 ? `${literal.slice(0, -1)}, lineWidth: 2.1)` : literal},`;
+  });
   lines.push(
     `    static let ${key} = IconDef(viewBox: ${viewBox(box)}, shapes: [\n${body.join("\n")}\n    ])`,
   );

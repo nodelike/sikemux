@@ -131,14 +131,91 @@ func catalogueFaces() -> [AgentFace] {
 }
 let faces = arguments.contains("--faces") ? catalogueFaces() : []
 let agents = faces.isEmpty ? decoded.inbox.agents : decoded.inbox.agents.enumerated().map { index, agent in
-    AgentShown(agentId: agent.agentId, name: agent.name, cli: agent.cli, title: agent.title, session: agent.session, group: agent.group, subagents: agent.subagents, tasks: agent.tasks, failed: agent.failed, nextTrigger: agent.nextTrigger, calledAt: agent.calledAt,
+    AgentShown(agentId: agent.agentId, name: agent.name, cli: agent.cli, title: agent.title, session: agent.session, group: agent.group, turn: agent.turn, subagents: agent.subagents, tasks: agent.tasks, failed: agent.failed, nextTrigger: agent.nextTrigger, calledAt: agent.calledAt,
                face: faces[index % faces.count], projectName: agent.projectName, reconnecting: agent.reconnecting,
                snoozedUntil: nil, settledAt: nil)
 }
+/// An invoice page with its new way to pay named `label`, as a call's picture shows a page, drawn to a file.
+func invoicePicture(_ label: String, file: String, tall: Bool = false) -> String {
+    let ink = Color(hex: "#18181b"), dim = Color(hex: "#71717a")
+    let page = VStack(alignment: .leading, spacing: 0) {
+        Text("$2,480.00").font(.system(size: 34, weight: .bold)).foregroundStyle(ink)
+        Text("Northwind Studio · due 18 Nov").font(.system(size: 14)).foregroundStyle(dim).padding(.bottom, 16)
+        HStack(spacing: 6) {
+            Text("Card").frame(maxWidth: .infinity).padding(.vertical, 8).foregroundStyle(dim)
+            Text(label).frame(maxWidth: .infinity).padding(.vertical, 8).background(RoundedRectangle(cornerRadius: 6).fill(.white)).foregroundStyle(ink)
+        }
+        .font(.system(size: 14, weight: .semibold))
+        .padding(4)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color(hex: "#ebeae6")))
+        .padding(.bottom, 14)
+        Text("Account name").font(.system(size: 12, weight: .semibold)).foregroundStyle(dim).padding(.bottom, 5)
+        Text("Acme Ltd").font(.system(size: 14)).foregroundStyle(ink).frame(maxWidth: .infinity, alignment: .leading)
+            .padding(10).background(RoundedRectangle(cornerRadius: 7).stroke(Color(hex: "#d4d4d0")))
+        if tall {
+            Text("IBAN").font(.system(size: 12, weight: .semibold)).foregroundStyle(dim).padding(.top, 10).padding(.bottom, 5)
+            Text("GB29 NWBK 6016 1331 9268 19").font(.system(size: 14)).foregroundStyle(ink).frame(maxWidth: .infinity, alignment: .leading)
+                .padding(10).background(RoundedRectangle(cornerRadius: 7).stroke(Color(hex: "#d4d4d0")))
+        }
+    }
+    .padding(.horizontal, 26)
+    .padding(.vertical, 22)
+    .frame(width: 580, height: tall ? 330 : 270, alignment: .topLeading)
+    .background(Color(hex: "#f6f6f4"))
+    let path = NSTemporaryDirectory() + "notch-snapshot-\(file).png"
+    let image = MainActor.assumeIsolated { () -> CGImage? in
+        let renderer = ImageRenderer(content: page)
+        renderer.scale = 2
+        return renderer.cgImage
+    }
+    if let image { try? NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path)) }
+    return path
+}
+
+func asker(_ id: String, _ name: String, _ cli: String) -> CallAsker { CallAsker(agentId: id, name: name, cli: cli) }
+
+/// The calls the demo agents put to the person: Maple's question and naming, Kite's held deploy and weighty ship,
+/// each with a picture where it has one.
+let demoCalls = [
+    PersonCall(id: "q1", project: "/Users/me/server", kind: .taste, asker: asker("a9", "Maple", "codex"), joined: nil, askedFor: nil,
+               question: "Should amounts be stored in cents or as decimals?",
+               context: "The API sends decimals but the ledger table uses integers.",
+               options: [CallOption(id: "1", label: "Cents", detail: nil, picture: nil), CallOption(id: "2", label: "Decimals", detail: nil, picture: nil)],
+               pick: "1", against: "every import converts what the API sends.", evidence: nil, action: nil, brief: nil, place: nil,
+               canHandBack: true, multi: nil, secret: nil, raisedAt: now - 60_000, state: .open, answer: nil, outcome: nil),
+    PersonCall(id: "7", project: "/Users/me/marketingiq", kind: .production, asker: asker("a12", "Kite", "claude"), joined: nil, askedFor: nil,
+               question: "Let @Kite deploy the web fix to dev?", context: "The fix for the broken sign-up link, merged to main.",
+               options: [CallOption(id: "allow", label: "Allow it once", detail: nil, picture: nil), CallOption(id: "refuse", label: "Not now", detail: nil, picture: nil),
+                         CallOption(id: "always", label: "Always allow it here", detail: "dev/*", picture: nil)],
+               pick: nil, against: nil, evidence: nil,
+               action: #"rundeck_run {"job":"dev/backend/marketingiq-web","options":{"BRANCH":"main"}}"#, brief: nil,
+               place: CallPlace(id: "dev", name: "dev"), canHandBack: false, multi: nil, secret: nil, raisedAt: now - 720_000, state: .open, answer: nil, outcome: nil),
+    PersonCall(id: "w1", project: "/Users/me/sikemux", kind: .production, asker: asker("a12", "Kite", "claude"), joined: nil, askedFor: nil,
+               question: "Ship bank transfer on invoices to everyone?", context: nil,
+               options: [CallOption(id: "allow", label: "Ship it to everyone", detail: nil, picture: nil),
+                         CallOption(id: "tenth", label: "Ship to a tenth of customers first", detail: nil, picture: nil),
+                         CallOption(id: "refuse", label: "Not yet", detail: nil, picture: nil)],
+               pick: "allow", against: "the bank's notice of payment has only been seen in its sandbox.",
+               evidence: [CallEvidence(what: "The invoice page", picture: invoicePicture("Bank transfer", file: "invoice", tall: true))],
+               action: "vercel deploy --prod",
+               brief: CallBrief(tried: "@Wren built it and @Yuki checked the totals.",
+                                shows: "On staging since Tuesday, 41 test invoices paid and none failed.",
+                                cannotUndo: "If it is rolled back, invoices already paid by transfer stay paid."),
+               place: CallPlace(id: "production", name: "production"), canHandBack: false, multi: nil, secret: nil,
+               raisedAt: now - 120_000, state: .open, answer: nil, outcome: nil),
+    PersonCall(id: "t1", project: "/Users/me/sikemux", kind: .taste, asker: asker("a9", "Maple", "codex"), joined: nil, askedFor: nil,
+               question: "What do we call the new way to pay?", context: "It sits beside Card on every invoice. Testers asked when the money arrives.",
+               options: [CallOption(id: "1", label: "Bank transfer (2–3 days)", detail: nil, picture: invoicePicture("Bank transfer (2–3 days)", file: "name-1")),
+                         CallOption(id: "2", label: "Pay by bank", detail: nil, picture: invoicePicture("Pay by bank", file: "name-2")),
+                         CallOption(id: "3", label: "Bank transfer", detail: nil, picture: invoicePicture("Bank transfer", file: "name-3"))],
+               pick: "1", against: "it is the longest, and on a phone it takes two lines beside Card.", evidence: nil, action: nil, brief: nil,
+               place: nil, canHandBack: true, multi: nil, secret: nil, raisedAt: now - 3_600_000, state: .open, answer: nil, outcome: nil),
+]
+
 let full = DeviceView(
     workspace: decoded.workspace, attentions: decoded.attentions,
     inbox: Inbox(items: decoded.inbox.items.filter { $0.kind != .hostAlert }, working: decoded.inbox.working, agents: agents, rollup: decoded.inbox.rollup),
-    calls: decoded.calls, faceStyle: decoded.faceStyle, load: nil
+    calls: (decoded.calls ?? []) + demoCalls, faceStyle: decoded.faceStyle, load: nil
 )
 
 let overloaded = HostLoad(overloaded: true, loadAverage: 180, cores: 10, builds: [
@@ -158,7 +235,7 @@ func view(keeping ids: Set<String>?, load: HostLoad? = nil) -> DeviceView {
             agents: agents,
             rollup: AgentRollup(subagents: agents.reduce(0) { $0 + $1.subagents }, tasks: agents.reduce(0) { $0 + $1.tasks })
         ),
-        calls: full.calls, faceStyle: full.faceStyle, load: load
+        calls: full.calls?.filter { ids.contains($0.asker.agentId) }, faceStyle: full.faceStyle, load: load
     )
 }
 
@@ -172,7 +249,8 @@ let notch = NotchGeometry(notchWidth: 221, height: 38, centerX: 0)
 let plain = NotchGeometry(notchWidth: 0, height: 24, centerX: 0)
 
 func render(_ name: String, agents: Set<String>? = nil, load: HostLoad? = nil, geometry: NotchGeometry = notch, height: CGFloat = 140,
-            dev: Bool = false, devices: [PendingDevice] = [], setup: (IslandModel) -> Void = { _ in })
+            dev: Bool = false, devices: [PendingDevice] = [], card: (NotchStore) -> Void = { _ in },
+            setup: (IslandModel) -> Void = { _ in })
 {
     var options = Options()
     options.dev = dev
@@ -180,6 +258,7 @@ func render(_ name: String, agents: Set<String>? = nil, load: HostLoad? = nil, g
     store.apply(view(keeping: agents, load: load))
     store.apply(questions)
     store.apply(devices, now: Date().addingTimeInterval(-8))
+    card(store)
     let island = IslandModel(geometry: geometry)
     setup(island)
     let size = CGSize(width: 760, height: height)
@@ -280,9 +359,17 @@ render("C3-needs-you")
 render("C4-done", agents: ["a4", "a10", "a11"])
 render("C4b-working-and-done", agents: ["a2", "a3", "a4"])
 render("C6-hover", agents: ["a2", "a3"]) { $0.hovering = true }
+render("C3b-no-calls", agents: ["a1", "a2", "a3"])
 render("P1-permission", height: 260) { $0.mode = .peekAsk("permission:a1:p1") }
-render("P5-held-deploy", agents: ["a2", "a12"], height: 260) { $0.mode = .peekAsk("ship:7") }
-render("P4-question", agents: ["a2", "a9"], height: 260) { $0.mode = .peekAsk("question:q1") }
+render("P4-call", agents: ["a2", "a9"], height: 380) { $0.mode = .call("q1") }
+render("P5-held-deploy", agents: ["a2", "a12"], height: 440) { $0.mode = .call("7") }
+render("P6-weighty-call", agents: ["a2", "a12"], height: 640) { $0.mode = .call("w1") }
+render("P7-taste-call", agents: ["a2", "a9"], height: 560) { $0.mode = .call("t1") }
+render("P8-own-words", agents: ["a2", "a9"], height: 380, card: { store in
+    store.drafts["q1"]?.chosen = []
+    store.drafts["q1"]?.typed = "Cents, and convert on import"
+}) { $0.mode = .call("q1") }
+render("P9-what-runs", agents: ["a2", "a12"], height: 470, card: { $0.drafts["7"]?.actionOpen = true }) { $0.mode = .call("7") }
 render("P2-finished", agents: ["a2", "a4"]) { $0.mode = .peekDone("agent:a4") }
 render("P3-connect", agents: ["a2", "a3"], height: 240, devices: [PendingDevice(id: "d1", name: "Pixel 8", platform: "android", expiresAt: now + 112_000)]) {
     $0.mode = .connect("d1")

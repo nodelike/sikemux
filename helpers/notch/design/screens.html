@@ -226,6 +226,54 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: def
 .btn.primary:hover { background: #b08fff; }
 .btn.small { height: 28px; border-radius: 14px; }
 
+/* A call's card, as the Mac's call card draws it (call-card.html option A). */
+.call { width: 418px; padding: 2px 0 0; font-size: 13px; }
+.call .who { display: flex; align-items: center; gap: 7px; height: 20px; font-size: 12px; color: var(--ink-dim); }
+.call .who b { font-weight: 500; color: rgba(231, 229, 239, 0.78); }
+.call .who .tile { width: 20px; height: 20px; }
+.call .who .sep { color: var(--ink-faint); }
+.call h4 { margin: 8px 0 3px; font-size: 15px; font-weight: 600; line-height: 1.35; color: var(--ink); }
+.call .ctx { margin: 0; font-size: 12.5px; line-height: 1.5; color: rgba(231, 229, 239, 0.78); }
+.call .pic { margin: 12px 0 14px; border-radius: 8px; overflow: hidden; box-shadow: inset 0 0 0 1px var(--hairline); background: #f6f6f4; }
+.call .pic.page { height: 148px; }
+.call .strip { display: flex; gap: 6px; height: 132px; margin: 12px 0 14px; }
+.call .strip .pic { margin: 0; }
+.call .strip .lead { flex: none; width: 286px; }
+.call .strip .rest { flex: 1; display: flex; flex-direction: column; gap: 6px; }
+.call .strip .rest .pic { flex: 1; opacity: 0.72; cursor: pointer; }
+.call .gap12 { height: 12px; }
+.invoice { padding: 16px 18px; color: #18181b; font-family: var(--sys); }
+.invoice .amt { font-size: 24px; font-weight: 700; letter-spacing: -0.02em; }
+.invoice .due { font-size: 11px; color: #71717a; margin-bottom: 10px; }
+.invoice .tabs { display: flex; gap: 4px; padding: 3px; border-radius: 7px; background: #ebeae6; font-size: 11px; font-weight: 600; color: #52525b; }
+.invoice .tabs span { flex: 1; text-align: center; padding: 5px 4px; border-radius: 5px; }
+.invoice .tabs span.on { background: #fff; color: #18181b; }
+.strip .rest .invoice { padding: 8px 10px; transform: scale(0.5); transform-origin: 0 0; width: 200%; }
+.call .rows { border-radius: 8px; overflow: hidden; box-shadow: inset 0 0 0 1px var(--hairline); }
+.call .rows.lit { box-shadow: inset 0 0 0 1px var(--acc-line); }
+.call .opt { display: flex; align-items: center; gap: 10px; min-height: 34px; padding: 0 12px; color: var(--ink); cursor: pointer; }
+.call .opt + .opt, .call .opt + .fld { box-shadow: inset 0 1px 0 var(--hairline); }
+.call .opt:hover { background: var(--hover); }
+.call .opt.on { background: rgba(255, 255, 255, 0.12); }
+.call .rd { width: 13px; height: 13px; border-radius: 50%; border: 1.5px solid var(--ink-faint); flex: none; box-sizing: border-box; }
+.call .opt.on .rd { border: 4px solid var(--acc); background: #fff; }
+.call .pick { margin-left: auto; display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--ink-dim); }
+.call .pick img { width: 12px; height: 12px; }
+.call .fld { display: flex; align-items: center; gap: 10px; height: 34px; padding: 0 12px; background: var(--raised); color: var(--ink-faint); }
+.call .fld .val { color: var(--ink); }
+.call .vs { margin: 12px 0 0; font-size: 12.5px; line-height: 1.5; color: rgba(231, 229, 239, 0.78); }
+.call .vs em { font-style: normal; color: var(--ink-dim); }
+.call .runs { margin-top: 8px; display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-dim); cursor: pointer; }
+.call .runs.open svg { transform: rotate(90deg); }
+.call .runs-cmd { margin-top: 6px; font-family: var(--mono); font-size: 12px; color: rgba(231, 229, 239, 0.78); user-select: text; }
+.call .foot { display: flex; align-items: center; gap: 2px; margin-top: 14px; }
+.call .wait { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--ink-faint); white-space: nowrap; overflow: hidden; }
+.call .lnk { height: 26px; padding: 0 7px; display: inline-flex; align-items: center; gap: 4px; border-radius: 5px; font-size: 12px; font-weight: 500; color: rgba(231, 229, 239, 0.78); }
+.call .lnk:hover { background: var(--hover); color: var(--ink); }
+.call .go { height: 26px; padding: 0 11px; display: inline-flex; align-items: center; border-radius: 5px; font-size: 12px; font-weight: 500; background: var(--acc); color: var(--on-accent); }
+.call .go[disabled] { opacity: 0.5; }
+.group .calls { font-size: 12px; font-weight: 600; color: var(--warn); }
+
 .sub svg { flex: 0 0 auto; margin-right: 4px; color: var(--ink-faint); }
 .sub { display: flex; align-items: center; }
 .dotsep { margin: 0 5px; color: var(--ink-faint); }
@@ -426,7 +474,7 @@ code { font-family: var(--mono); font-size: 11px; color: var(--ink); }
         <div class="controls" id="controls">
             <button data-act="start">An agent starts</button>
             <button data-act="block">Claude asks for permission</button>
-            <button data-act="question">Codex asks a question</button>
+            <button data-act="question">Codex puts a call</button>
             <button data-act="finish">Codex finishes</button>
             <button data-act="connect">A phone asks to connect</button>
             <button data-act="drag">A file is dragged in</button>
@@ -516,7 +564,9 @@ let GLYPH = {};
 async function loadIcons() {
     const source = await (await fetch("../../../shared/ui/Icons.tsx")).text();
     const pattern = /export const (Icon\w+) = makeSvgIcon\(\s*([\s\S]*?)\s*(?:,\s*(\{[^{}]*\}))?\s*,?\s*\);\n/g;
-    for (const [, name, jsx, opts = ""] of source.matchAll(pattern)) {
+    const grid24 = /export const (Icon\w+) = makeSvgIcon24\(([\s\S]*?)\);\n/g;
+    const drawn = [...source.matchAll(pattern), ...[...source.matchAll(grid24)].map(([all, name, jsx]) => [all, name, jsx, '{ viewBox: "0 0 24 24" }'])];
+    for (const [, name, jsx, opts = ""] of drawn) {
         const body = jsx
             .replace(/^<>|<\/>$/g, "")
             .replace(/\{\/\*[\s\S]*?\*\/\}/g, "")
@@ -554,6 +604,10 @@ async function loadIcons() {
         command: icon("IconCommand", 11),
         timer: icon("IconTimer", 11),
         server: icon("IconServer", 16),
+        pencil: icon("IconPencil", 11),
+        clock: icon("IconClock", 11),
+        message: icon("IconMessage", 11, 'stroke-width="2.1"'),
+        chevronSmall: icon("IconChevron", 10),
     };
 }
 const MARK = `<img src="../../../brand/mark/mark-white.svg" alt="">`;
@@ -589,10 +643,21 @@ function freshAgents() {
         { id: "a1", name: "Otter", type: "claude", title: "Fix the login flake", project: "sikemux", tier: "needs", state: "blocked", time: "2:14",
           what: "Needs your permission", ask: { tool: "Bash", cmd: "pnpm test --filter core -- --runInBand" } },
         { id: "a9", name: "Maple", type: "codex", title: "Move the ledger import", project: "server", tier: "needs", state: "blocked", time: "0:01",
-          what: "Asks you", question: { via: "Otter", text: "Should amounts be stored in cents or as decimals? The API sends decimals but the ledger table uses integers.",
-                      choices: ["Cents", "Decimals"] } },
+          what: "Asks you", question: { text: "Should amounts be stored in cents or as decimals?" },
+          calls: [{ id: "q1", age: "1m", question: "Should amounts be stored in cents or as decimals?", context: "The API sends decimals but the ledger table uses integers.",
+                  options: ["Cents", "Decimals"], pick: 0, against: "every import converts what the API sends.", handBack: true },
+                  { id: "t1", age: "1h", question: "What do we call the new way to pay?", context: "It sits beside Card on every invoice. Testers asked when the money arrives.",
+                  options: ["Bank transfer (2–3 days)", "Pay by bank", "Bank transfer"], pick: 0, pictures: true, handBack: true,
+                  against: "it is the longest, and on a phone it takes two lines beside Card." }] },
         { id: "a12", name: "Kite", type: "claude", title: "Ship the web fix to dev", project: "marketingiq", tier: "needs", state: "blocked", time: "0:12",
-          what: "Leaves this Mac", hold: { what: 'rundeck_run {"job":"dev/backend/marketingiq-web","options":{"BRANCH":"main"}}', letGo: "dev/*" } },
+          what: "Leaves this Mac",
+          calls: [{ id: "7", age: "12m", question: "Let @Kite deploy the web fix to dev?", context: "The fix for the broken sign-up link, merged to main.",
+                  options: ["Allow it once", "Not now", "Always allow it here"], pick: null, production: true,
+                  action: 'rundeck_run {"job":"dev/backend/marketingiq-web","options":{"BRANCH":"main"}}' },
+                  { id: "w1", age: "2m", question: "Ship bank transfer on invoices to everyone?", production: true, page: "Bank transfer",
+                  context: "@Wren built it and @Yuki checked the totals. On staging since Tuesday, 41 test invoices paid and none failed. If it is rolled back, invoices already paid by transfer stay paid.",
+                  options: ["Ship it to everyone", "Ship to a tenth of customers first", "Not yet"], pick: 0,
+                  against: "the bank's notice of payment has only been seen in its sandbox.", action: "vercel deploy --prod" }] },
         { id: "a4", name: "Birch", type: "grok", title: "Bump Astro to 6", project: "sikemux-front", tier: "review", state: "done", time: "1m ago", trigger: "18m", called: true },
         { id: "a10", name: "Pine", type: "claude", title: "Rotate the signing keys", project: "server", tier: "finished", state: "failed", time: "5m ago" },
         { id: "a11", name: "Moss", type: "claude", title: "Tidy the changelog", project: "sikemux", tier: "finished", state: "done", time: "15m ago" },
@@ -674,8 +739,9 @@ const TALLIES = new Set(["subagents", "shells"]);
 /** How many items need you, agents work, subagents and shells run across every agent, and items are done, leaving out what is none. */
 function rollups(agents) {
     const sum = (key) => agents.reduce((total, a) => total + (a[key] || 0), 0);
+    const calls = callsOf(agents).length;
     return [
-        { state: "blocked", count: agents.filter((a) => a.tier === "needs").length },
+        calls ? { state: "calls", count: calls } : { state: "blocked", count: agents.filter((a) => a.tier === "needs").length },
         { state: "working", count: agents.filter((a) => a.tier === "progress").length },
         { state: "subagents", count: sum("subagents") },
         { state: "shells", count: sum("tasks") },
@@ -684,6 +750,46 @@ function rollups(agents) {
 }
 
 const showsCount = (group) => group.count > 1 || TALLIES.has(group.state);
+
+/** The calls waiting on the person from every project, newest first, each with the agent that asks. */
+function callsOf(agents) {
+    const minutes = (age) => parseInt(age) * (age.endsWith("h") ? 60 : 1);
+    return agents.flatMap((a) => (a.calls || []).map((call) => ({ ...call, agent: a }))).sort((x, y) => minutes(x.age) - minutes(y.age));
+}
+
+/** An invoice page with its new way to pay named `label`, as a call's picture shows a page. */
+function invoice(label) {
+    return `<div class="invoice"><div class="amt">$2,480.00</div><div class="due">Northwind Studio · due 18 Nov</div>
+        <div class="tabs"><span>Card</span><span class="on">${label}</span></div></div>`;
+}
+
+/** A call's card, as call-card.html option A draws it. `card` holds what the person did on it. */
+function callCard(call, card) {
+    const chosen = card.chosen ?? (call.pick == null ? [] : [call.pick]);
+    const lit = card.focus || !!card.typed;
+    const hint = chosen.length ? "Add a note…" : "Or answer in your own words…";
+    const lead = chosen[0] ?? call.pick ?? 0;
+    const pictures = call.pictures
+        ? `<div class="strip"><div class="pic lead">${invoice(call.options[lead])}</div><div class="rest">${call.options.map((o, i) => i === lead ? "" : `<div class="pic" data-option="${i}">${invoice(o)}</div>`).join("")}</div></div>`
+        : call.page ? `<div class="pic page">${invoice(call.page)}</div>` : `<div class="gap12"></div>`;
+    const rows = call.options.map((o, i) => `<div class="opt${chosen.includes(i) ? " on" : ""}" data-option="${i}"><span class="rd"></span>${o}${
+        i === call.pick ? `<span class="pick"><img src="../../../brand/mark/mark-purple.svg" alt="">pick</span>` : ""}</div>`).join("");
+    const field = `<div class="fld">${GLYPH.pencil}${card.typed ? `<span class="val">${card.typed}</span>` : hint}</div>`;
+    const runs = call.production && call.action
+        ? `<div class="runs${card.runs ? " open" : ""}" data-runs>${GLYPH.chevronSmall}What runs</div>${card.runs ? `<div class="runs-cmd">${call.action}</div>` : ""}`
+        : "";
+    const ready = chosen.length || card.typed;
+    return `<div class="call">
+        <div class="who"><span class="tile">${face(call.agent, "blocked")}</span><b>@${call.agent.name}</b><span class="sep">·</span>${call.agent.project}<span class="sep">·</span>${call.age}</div>
+        <h4>${call.question}</h4>${call.context ? `<p class="ctx">${call.context}</p>` : ""}
+        ${pictures}
+        <div class="rows${lit ? " lit" : ""}">${rows}${field}</div>
+        ${call.against ? `<p class="vs"><em>Against it:</em> ${call.against}</p>` : ""}
+        ${runs}
+        <div class="foot"><span class="wait">${GLYPH.clock}Nothing happens until you answer</span>${
+            call.handBack ? `<button class="lnk" data-not-mine>Not mine</button>` : ""}<button class="lnk">${GLYPH.message}Open chat</button><button class="go" data-go ${ready ? "" : "disabled"}>Go with this</button></div>
+    </div>`;
+}
 
 function notchPath(w, h, t, b) {
     return `M0 0Q${t} 0 ${t} ${t}L${t} ${h - b}Q${t} ${h} ${t + b} ${h}L${w - t - b} ${h}Q${w - t} ${h} ${w - t} ${h - b}L${w - t} ${t}Q${w - t} 0 ${w} 0Z`;
@@ -701,6 +807,8 @@ class Island {
         this.mode = opts.mode || "closed";
         this.tab = opts.tab || "agents";
         this.peekAgent = opts.peekAgent || null;
+        this.callId = opts.callId || null;
+        this.cards = opts.cards || {};
         this.device = opts.device || null;
         this.hover = !!opts.hover;
         this.freshPing = !!opts.fresh;
@@ -768,6 +876,17 @@ class Island {
 
     get d() { return DISPLAYS[this.display]; }
 
+    /** What the person did on call `id`'s card: the rows chosen, the note or own words, whether what runs shows. */
+    card(id) { return (this.cards[id] ||= {}); }
+
+    /** What opening shows: the newest call while any waits, else the agents. */
+    opening() {
+        const top = callsOf(this.agents)[0];
+        if (!top) return "open";
+        this.callId = top.id;
+        return "call";
+    }
+
     /** Each wing as wide as what it holds, so a quiet right wing stays small. */
     wings() {
         const groups = rollups(this.agents);
@@ -776,7 +895,7 @@ class Island {
         let left = open ? 14 + 20 + (Math.min(open, 3) - 1) * 17 + 10 : 0;
         if (open > 3) left += 9 + 6.5 * (String(open - 3).length + 1);
         const digits = (n) => String(n).length * 7.5;
-        const held = groups.reduce((sum, g) => sum + (showsCount(g) ? digits(g.count) + 6 : 0) + 16, 0) + (groups.length - 1) * 10;
+        const held = groups.reduce((sum, g) => sum + (g.state === "calls" ? digits(g.count) + (g.count === 1 ? 25 : 31) + 6 + 16 : (showsCount(g) ? digits(g.count) + 6 : 0) + 16), 0) + (groups.length - 1) * 10;
         return { left, right: 10 + held + 14 };
     }
 
@@ -788,6 +907,7 @@ class Island {
             return { w: plain ? 560 : 680, h, r: RADII.open };
         }
         if (this.mode === "peek-ask") return { w: 460, h: this.layers.peek.offsetHeight, r: RADII.peek };
+        if (this.mode === "call") return { w: 418 + 2 * (RADII.open[0] + 17), h: this.layers.peek.offsetHeight, r: RADII.open };
         if (this.mode === "peek-connect") return { w: 560, h: this.layers.peek.offsetHeight, r: RADII.open };
         if (this.mode === "peek-done") {
             const w = plain ? 300 : d.notchW + 2 * 150;
@@ -827,7 +947,9 @@ class Island {
                         extra > 0 ? `<span class="tile count" style="font-size:10px">+${extra}</span>` : ""}</span></div>
                 ${plain ? "" : `<div class="gap" style="width:${d.notchW}px"></div>`}
                 <div class="wing r" style="width:${wings.right + (plain ? 4 : 0)}px;height:${d.notchH}px">
-                    ${groups.map((g) => `<span class="group">${showsCount(g) ? `<span class="count">${g.count}</span>` : ""}${stateMark(g.state, this.freshPing)}</span>`).join("")}</div>`;
+                    ${groups.map((g) => g.state === "calls"
+                        ? `<span class="group"><span class="calls">${g.count === 1 ? "1 call" : `${g.count} calls`}</span>${stateMark("blocked", this.freshPing)}</span>`
+                        : `<span class="group">${showsCount(g) ? `<span class="count">${g.count}</span>` : ""}${stateMark(g.state, this.freshPing)}</span>`).join("")}</div>`;
             if (plain) this.layers.wings.firstElementChild.nextElementSibling.style.paddingRight = "10px";
         }
 
@@ -849,6 +971,12 @@ class Island {
                     <div class="text"><span class="title">${a.title}</span><span class="sub">${GLYPH.folderSmall}${a.project}<span class="dotsep">·</span>${a.what}${a.question?.via ? ` · @${a.question.via} raised this` : ""}</span></div>
                     ${a.question ? `<div class="question">${a.question.text}</div>${questionActions(a, "")}` : askActions(a, "")}
                 </div>`;
+        }
+
+        if (this.mode === "call") {
+            const call = callsOf(this.agents).find((c) => c.id === this.callId);
+            this.layers.peek.style.width = "418px";
+            this.layers.peek.innerHTML = call ? `${head("", "", 418)}<div style="padding:0 0 14px">${callCard(call, this.card(call.id))}</div>` : "";
         }
 
         if (this.mode === "peek-connect") {
@@ -909,7 +1037,7 @@ class Island {
                         <span class="head"><span class="title">${h.what}</span><span class="time">${h.time}</span></span>
                         <span class="proj">${h.host}</span>
                     </div>`).join("") + items.map((a, i) => `
-                    ${a.tier === "needs" ? `
+                    ${a.tier === "needs" && a.ask ? `
                         <div class="ask">
                             <div class="ask-head">
                                 <span class="mark">${face(a, "blocked")}</span>
@@ -978,16 +1106,16 @@ class Island {
     render(snap) {
         this.renderContent();
         const isBig = this.mode === "open" || this.mode === "drop";
-        const isAsk = this.mode === "peek-ask" || this.mode === "peek-connect";
+        const isAsk = this.mode === "peek-ask" || this.mode === "peek-connect" || this.mode === "call";
         this.layers.wings.classList.toggle("off", isBig || isAsk);
         this.layers.peek.classList.toggle("off", !isAsk);
         this.layers.open.classList.toggle("off", !isBig);
         const target = this.target();
         const nudge = [0, 0];
         this.goal = [target.w + nudge[0], target.h + nudge[1], target.r[0], target.r[1], target.x ?? 0];
-        const lifted = isBig || this.mode.startsWith("peek") || this.hover;
+        const lifted = isBig || isAsk || this.mode.startsWith("peek") || this.hover;
         this.el.classList.toggle("lifted", lifted);
-        this.spring = isBig || this.mode.startsWith("peek") ? SPRING.open : this.hover ? SPRING.hover : SPRING.close;
+        this.spring = isBig || isAsk || this.mode.startsWith("peek") ? SPRING.open : this.hover ? SPRING.hover : SPRING.close;
         if (snap || !this.geom) {
             this.geom = this.goal.slice();
             this.paint();
@@ -1045,7 +1173,7 @@ class Island {
             this.hover = true;
             if (this.mode === "closed" || this.mode === "peek-done") {
                 this.render();
-                openTimer = setTimeout(() => { this.mode = "open"; this.render(); }, 300);
+                openTimer = setTimeout(() => { this.mode = this.opening(); this.render(); }, 300);
             }
         });
         this.el.addEventListener("mouseleave", () => {
@@ -1053,7 +1181,7 @@ class Island {
             closeTimer = setTimeout(() => {
                 if (this.el.contains(document.activeElement) && document.activeElement.tagName === "TEXTAREA") return;
                 this.hover = false;
-                if (this.mode === "open") this.mode = "closed";
+                if (this.mode === "open" || this.mode === "call") this.mode = "closed";
                 this.render();
             }, 100);
         });
@@ -1083,14 +1211,30 @@ class Island {
                 this.answerDevice();
                 return;
             }
+            const call = callsOf(this.agents).find((c) => c.id === this.callId);
+            const option = e.target.closest("[data-option]");
+            if (option && call && this.mode === "call") {
+                const card = this.card(call.id);
+                const at = Number(option.dataset.option);
+                const chosen = card.chosen ?? (call.pick == null ? [] : [call.pick]);
+                card.chosen = chosen.includes(at) ? [] : [at];
+                this.render();
+                return;
+            }
+            if (e.target.closest("[data-runs]") && call) { this.card(call.id).runs = !this.card(call.id).runs; this.render(); return; }
+            if ((e.target.closest("[data-go]") || e.target.closest("[data-not-mine]")) && call) {
+                call.agent.calls = call.agent.calls.filter((c) => c.id !== call.id);
+                if (!call.agent.calls.length && call.agent.tier === "needs") Object.assign(call.agent, { tier: "progress", state: "working" });
+                this.mode = this.hover ? this.opening() : "closed";
+                this.render();
+                return;
+            }
             const answer = e.target.closest("[data-answer]");
             if (answer) {
                 const a = this.agents.find((x) => x.id === answer.dataset.id);
                 Object.assign(a, { tier: "progress", state: "working" });
                 delete a.ask;
-                delete a.hold;
-                delete a.question;
-                if (this.mode === "peek-ask") this.mode = this.hover ? "open" : "closed";
+                if (this.mode === "peek-ask") this.mode = this.hover ? this.opening() : "closed";
                 this.render();
                 return;
             }
@@ -1111,7 +1255,7 @@ class Island {
     /** Answered, or no longer waiting: the next device asks, or the island folds back. */
     answerDevice() {
         this.device = this.queue?.shift() || null;
-        if (!this.device) this.mode = this.hover ? "open" : "closed";
+        if (!this.device) this.mode = this.hover ? this.opening() : "closed";
         this.render();
     }
 
@@ -1125,7 +1269,8 @@ class Island {
     peek(mode, id, ms) {
         clearTimeout(this.peekTimer);
         this.mode = mode;
-        this.peekAgent = id;
+        if (mode === "call") this.callId = id;
+        else this.peekAgent = id;
         this.freshPing = true;
         this.render();
         this.peekTimer = setTimeout(() => {
@@ -1156,9 +1301,12 @@ const SECTIONS = [
             { id: "C2", name: "Working", when: "One or more agents are working and none is waiting for you.",
               shows: "Left: the marks of the first three items in the inbox, in its order. Right: how many agents are working, and the green twinkle grid.",
               opts: { agents: () => only(["a2", "a3"]) } },
-            { id: "C3", name: "Needs you", when: "Any agent is waiting for a permission or an answer.",
-              shows: "An amber dot, first in the right wing, ahead of working and done. It sends out two rings when it arrives, then goes still.",
+            { id: "C3", name: "Calls waiting", when: "Agents wait on the person with calls, in any project.",
+              shows: "First in the right wing, ahead of working and done: an amber N calls with its dot, counting every project's open calls, the number the Mac's title bars add up to. The dot sends out two rings when a call arrives, then goes still. The rest of the wing stays as it was.",
               opts: { agents: () => freshAgents(), fresh: true } },
+            { id: "C3b", name: "Needs you, no call", when: "An agent waits for a permission and no call waits.",
+              shows: "An amber dot, first in the right wing, with how many when more than one.",
+              opts: { agents: () => only(["a1", "a2", "a3"]) } },
             { id: "C4", name: "Done", when: "The inbox lists changes to review or finished turns, failed ones included.",
               shows: "A purple dot with how many, until the core takes them off the inbox once they are seen.", opts: { agents: () => only(["a4", "a10", "a11"]) } },
             { id: "C4b", name: "Working and done", when: "Some agents work while others' turns wait to be seen.",
@@ -1175,17 +1323,25 @@ const SECTIONS = [
         id: "peeks", letter: "P", title: "Peeks",
         lede: "The island grows for a moment when something happens, without opening. Resting the pointer on a peek opens it.",
         states: [
-            { id: "P1", name: "Something needs you", when: "A new item arrives in the inbox's Needs you: a permission, a question, a terminal waiting for you to type, a card handed back.",
-              shows: "The agent by its name, its task, the inbox's words for what it needs and the exact command, with Deny, Always allow and Allow (⏎). Anything the island cannot answer offers Open in Sikemux.",
+            { id: "P1", name: "Something needs you", when: "A new item that is not a call arrives in the inbox's Needs you: a permission, a terminal waiting for you to type, a card handed back.",
+              shows: "The agent by its name, its task, the inbox's words for what it needs and the exact command, with Deny, Always allow and Allow (⏎). Anything else the island cannot answer offers Open in Sikemux.",
               leaves: "Answering closes it. Unanswered, it shrinks to C3 after 6 s.", opts: { agents: () => freshAgents(), mode: "peek-ask", peekAgent: "a1" } },
-            { id: "P4", name: "A question", when: "An agent asks the person something with ask, or its lead passes the question on.",
-              shows: "The agent's name, its task, Asks you with the lead that did not know, and the question in two lines. Up to two of its answers as buttons, then Answer in Sikemux, which opens its chat for any other answer.",
-              leaves: "Answering here, in the chat, on a phone or in the terminal closes it: the first answer wins. Unanswered, it shrinks to C3 after 6 s.",
-              opts: { agents: () => only(["a2", "a9"]), mode: "peek-ask", peekAgent: "a9" } },
-            { id: "P5", name: "An action held for you", when: "An agent's push, merge, deploy or write that leaves this Mac waits on the person.",
-              shows: "The agent's name, its task, Leaves this Mac, and the exact command or tool call in one line, with Refuse, Allow once and, where Sikemux offers it, Always allow naming what it covers, such as dev/*, which then leads. Allowing a tool call runs it and the agent gets what it answered.",
-              leaves: "Answering here, in the chat, on Goals Home or on a phone closes it. Unanswered, it shrinks to C3 after 6 s.",
-              opts: { agents: () => only(["a2", "a12"]), mode: "peek-ask", peekAgent: "a12" } },
+            { id: "P4", name: "A call", when: "An agent puts a call to the person: a question raised with ask, or one its lead passes on.",
+              shows: "The call's card alone, at its own 418-point width, as the Mac draws it: who asks with its project and how long ago, the question, its context, the options as radios in one block with the pick chosen and tagged with the S, the note field as their last row, the point against, then Nothing happens until you answer, Not mine on a call about taste, Open chat, which opens the asker's chat on the Mac, and Go with this. Clicking the chosen row again clears it, and the field then takes your own words. The card tells the core it was seen as it draws.",
+              leaves: "Go with this, or an answer in the chat, on the Mac or on a phone, closes it: the first answer wins. Unanswered, it shrinks to C3 after 6 s; resting the pointer keeps it, and typing in its field keeps it open when the pointer leaves.",
+              opts: { agents: () => only(["a2", "a9"]), mode: "call", callId: "q1" } },
+            { id: "P5", name: "A production call", when: "An agent's push, merge, deploy or write that leaves this Mac waits on the person, or a gate raises a ship to production.",
+              shows: "The same card. A held action's options are Allow it once, Not now and, where Sikemux offers it, Always allow it here. What runs, folded under the against line, opens on the exact command in mono. Only a picked option passes it: words typed in its field reach the agent as direction. It has no Not mine.",
+              leaves: "As P4.", opts: { agents: () => only(["a2", "a12"]), mode: "call", callId: "7", cards: { 7: { runs: true } } } },
+            { id: "P6", name: "A weighty call", when: "A call comes as a brief, such as a cutover or a public release.",
+              shows: "The brief is the context: what was tried, what the evidence shows, what can't be undone. The evidence's picture sits under it, the page from its top.",
+              leaves: "As P4.", opts: { agents: () => only(["a2", "a12"]), mode: "call", callId: "w1" } },
+            { id: "P7", name: "A call with pictures", when: "A call about taste gives each option a picture.",
+              shows: "The pictures sit in a strip above the options: the chosen option's leads, large, the others smaller and dimmed beside it. Clicking a small one chooses its option.",
+              leaves: "As P4.", opts: { agents: () => only(["a2", "a9"]), mode: "call", callId: "t1" } },
+            { id: "P8", name: "Your own words", when: "The person clears the pick and types.",
+              shows: "No row chosen, the field ringed in the accent with what was typed. Go with this sends it as the answer. A call asking for a password or a key opens in Sikemux instead, with Answer in Sikemux in place of Go with this.",
+              leaves: "As P4.", opts: { agents: () => only(["a2", "a9"]), mode: "call", callId: "q1", cards: { q1: { chosen: [], typed: "Cents, and convert on import" } } } },
             { id: "P2", name: "Finished", when: "An agent's turn ends: its inbox item goes from working to finished or to review.",
               shows: "One line either side of the camera: the agent's mark and Finished, then the task and a purple dot. A turn that ran into a problem says Failed, with a red dot.",
               leaves: "Shrinks to C4 after 3 s.", opts: { agents: () => only(["a2", "a4"]), mode: "peek-done", peekAgent: "a4" } },
@@ -1199,9 +1355,12 @@ const SECTIONS = [
         id: "open", letter: "O", title: "Open",
         lede: "Opened by resting the pointer for 0.3 s. The header sits in the menu-bar band, split around the camera: tabs on the left, Sikemux on the right.",
         states: [
-            { id: "O1", name: "Agents", when: "Opened, on the Agents tab.",
-              shows: "Every open agent once, in the order the app's rail lists them, what wants you first, with no labels between them. Each row reads as the rail does: what the agent works on with how long ago, its project, then the name Sikemux gave it with its counts and state together at the end. Idle agents are listed too, with no mark at the end. A permission, or a question with up to two answers, can be answered in place. Clicking a row opens that agent in Sikemux.",
+            { id: "O1", name: "Agents", when: "Opened, on the Agents tab, while no call waits.",
+              shows: "Every open agent once, in the order the app's rail lists them, what wants you first, with no labels between them. Each row reads as the rail does: what the agent works on with how long ago, its project, then the name Sikemux gave it with its counts and state together at the end. Idle agents are listed too, with no mark at the end. A permission can be answered in place. Clicking a row opens that agent in Sikemux.",
               leaves: "The pointer leaves, and 0.1 s later it closes.", opts: { agents: () => freshAgents(), mode: "open" } },
+            { id: "O8", name: "Calls waiting", when: "Opened while calls wait on the person.",
+              shows: "The newest call alone, as its card (P4): resting the pointer or clicking opens on it rather than on the agents. Answering it moves on to the next call, and the last one answered opens the agents (O1).",
+              leaves: "The pointer leaves, and 0.1 s later it closes, unless something is typed in the card's field.", opts: { agents: () => freshAgents(), mode: "call", callId: "q1" } },
             { id: "O2", name: "New agent", when: "Opened, on the New agent tab.",
               shows: "Sikemux's own composer: add files, the yolo toggle, the model picker (agent mark + model, in accent), effort, project and send.",
               leaves: "Send (⏎) starts the agent and goes to O1 with it on top. Stays open on leave while a draft is typed; clicking elsewhere closes it and keeps the draft.",
@@ -1257,7 +1416,8 @@ const OPTIONS = [
 
 const FLOW = [
     [["state", "C1–C7", "Closed", "closed"], ["arrow", "rest 0.3 s"], ["state", "O1–O6", "Open", "open"], ["arrow", "leave 0.1 s"], ["state", "C1–C7", "Closed", "closed"]],
-    [["event", "", "Something needs you"], ["arrow", ""], ["state", "P1", "Needs you", "P1"], ["arrow", "6 s"], ["state", "C3", "Needs you", "C3"]],
+    [["event", "", "A call arrives"], ["arrow", ""], ["state", "P4", "Call", "P4"], ["arrow", "6 s"], ["state", "C3", "Calls waiting", "C3"]],
+    [["event", "", "Something needs you"], ["arrow", ""], ["state", "P1", "Needs you", "P1"], ["arrow", "6 s"], ["state", "C3b", "Needs you", "C3b"]],
     [["event", "", "Device asks to connect"], ["arrow", ""], ["state", "P3", "Connect", "P3"], ["arrow", "answer"], ["state", "C1–C7", "Closed", "closed"]],
     [["event", "", "Agent finishes"], ["arrow", ""], ["state", "P2", "Finished", "P2"], ["arrow", "3 s"], ["state", "C4", "Done", "C4"]],
     [["event", "", "File dragged"], ["arrow", ""], ["state", "D1", "Drop targets", "D1"], ["arrow", "drop"], ["state", "C2", "Working", "C2"]],
@@ -1418,8 +1578,8 @@ document.getElementById("controls").addEventListener("click", (e) => {
     } else if (act === "question") {
         let a = live.agents.find((x) => x.id === "a9");
         if (!a) { a = freshAgents().find((x) => x.id === "a9"); live.agents.unshift(a); }
-        Object.assign(a, { tier: "needs", state: "blocked", what: "Asks you", question: freshAgents().find((x) => x.id === "a9").question });
-        live.peek("peek-ask", a.id, 6000);
+        Object.assign(a, { tier: "needs", state: "blocked", what: "Asks you", calls: freshAgents().find((x) => x.id === "a9").calls });
+        live.peek("call", "q1", 6000);
     } else if (act === "finish") {
         let a = live.agents.find((x) => x.type === "codex" && x.tier === "progress");
         if (!a) { a = freshAgents().find((x) => x.id === "a2"); live.agents.push(a); }

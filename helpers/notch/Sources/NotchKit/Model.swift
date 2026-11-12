@@ -13,6 +13,8 @@ enum Mark: Hashable {
 }
 
 enum Rollup: Hashable {
+    /// The calls waiting on the person, which stand in for needs you while there are any.
+    case calls
     case mark(Mark)
     case subagents
     case shells
@@ -42,10 +44,6 @@ struct Ask: Equatable {
         allowAlways = choices.allowAlways
         reject = choices.reject
     }
-}
-
-enum HoldAnswer {
-    case refuse, once, always
 }
 
 /// One row of the island: an open agent as the core shows it, with what the inbox says about it, or an item of an

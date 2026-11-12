@@ -41,6 +41,8 @@ final class IslandModel {
         case connect(String)
         case open
         case drop
+        /// A call's card, alone: opened on the newest while calls wait, or peeking as one arrives.
+        case call(String)
     }
 
     enum Tab { case inbox, compose }
@@ -69,6 +71,10 @@ final class IslandModel {
     var pull: CGFloat = 0
     /// Whether the agent list is taller than the island shows, so it scrolls instead of closing.
     var listScrolls = false
+    /// The newest call waiting on the person, which opening the island shows in place of the list.
+    var topCall: String?
+    /// Something is typed on the card on show, which keeps the island open when the pointer leaves.
+    var callHeld = false
 
     /// The island leans into a swipe: about a percent per twentieth of the way, never under 60%.
     var pullScale: CGFloat { pull == 0 ? 1 : max(0.6, 1 + pull * 0.01) }
@@ -89,7 +95,15 @@ final class IslandModel {
         self.geometry = geometry
     }
 
-    var isOpen: Bool { mode == .open || mode == .drop }
+    var isOpen: Bool { mode == .open || mode == .drop || showsCall }
+
+    var showsCall: Bool {
+        if case .call = mode { return true }
+        return false
+    }
+
+    /// What opening the island shows: the newest call while any waits, else the agents.
+    var opening: Mode { topCall.map(Mode.call) ?? .open }
 
     func set(_ mode: Mode, animation: Animation? = nil) {
         Debug.log("set \(mode)")
@@ -97,12 +111,12 @@ final class IslandModel {
             self.mode = mode
             if mode != .open { menu = nil }
         }
-        if mode == .open { keyboard?(.give) } else if mode == .closed { keyboard?(.off) }
+        if mode == .open || showsCall { keyboard?(.give) } else if mode == .closed { keyboard?(.off) }
     }
 
     /// Typing in the prompt keeps the island open when the pointer leaves; an empty prompt does not.
     var holdsOpen: Bool {
-        if choosingFiles { return true }
+        if choosingFiles || (showsCall && callHeld) { return true }
         let started = !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty
         return hasKeyboard && tab == .compose && started
     }
@@ -131,6 +145,8 @@ final class IslandModel {
         if case .connect(let id) = peek { return askToConnect(id) }
         guard !isOpen, !hidden, !asksToConnect else { return }
         switch peek {
+        case .call(let id):
+            set(.call(id))
         case .ask(let id):
             set(.peekAsk(id))
         case .done(let id):
@@ -141,8 +157,12 @@ final class IslandModel {
         }
         peekTimer?.cancel()
         let timer = DispatchWorkItem { [weak self] in
-            guard let self, !self.hovering, !self.isOpen else { return }
-            self.set(.closed)
+            guard let self, !self.hovering, !self.holdsOpen else { return }
+            switch (self.mode, peek) {
+            case (.call(let shown), .call(let peeked)) where shown == peeked: self.set(.closed)
+            case _ where !self.isOpen: self.set(.closed)
+            default: break
+            }
         }
         peekTimer = timer
         DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: timer)
@@ -166,7 +186,7 @@ final class IslandModel {
         if let next = devices.first {
             set(.connect(next.id))
         } else {
-            set(hovering ? .open : .closed)
+            set(hovering ? opening : .closed)
         }
     }
 
@@ -178,7 +198,7 @@ final class IslandModel {
             withAnimation(Motion.hover) { hovering = true }
             // A permission peek keeps its size under the pointer, so its buttons stay where they are.
             guard opensOnHover, mode == .closed || isPeekDone else { return }
-            schedule(after: 0.3) { $0.set(.open) }
+            schedule(after: 0.3) { $0.set($0.opening) }
         } else {
             schedule(after: 0.1) { island in
                 // Reordering the panel to hand back the keyboard reports a leave the pointer never made.
@@ -191,7 +211,7 @@ final class IslandModel {
     /// Catches a leave macOS never reported, as when the island shrinks or hides under a still pointer.
     func checkPointer() {
         guard !pointerInside else { return }
-        if hovering || (mode == .open && !holdsOpen) {
+        if hovering || ((mode == .open || showsCall) && !holdsOpen) {
             Debug.log("pointer left unreported, mode \(mode)")
             hoverTimer?.cancel()
             left()
@@ -201,7 +221,7 @@ final class IslandModel {
     private func left() {
         withAnimation(Motion.hover) { hovering = false }
         switch mode {
-        case .open where !holdsOpen, .peekAsk, .peekDone:
+        case .open where !holdsOpen, .call where !holdsOpen, .peekAsk, .peekDone:
             set(.closed)
         default:
             break
@@ -212,12 +232,21 @@ final class IslandModel {
     func entriesChanged(_ entries: [Entry]) {
         switch mode {
         case .peekAsk(let id) where !entries.contains { $0.id == id }:
-            set(hovering ? .open : .closed)
+            set(hovering ? opening : .closed)
         case .peekDone(let id) where !entries.contains { $0.id == id }:
             set(.closed)
         default:
             break
         }
+    }
+
+    /// The calls waiting changed: the card on show moves to the next once its call is answered,
+    /// here or anywhere else.
+    func callsChanged(_ ids: [String]) {
+        topCall = ids.first
+        guard case .call(let id) = mode, !ids.contains(id) else { return }
+        callHeld = false
+        set(hovering ? opening : .closed)
     }
 
     private var isPeekDone: Bool {
@@ -231,7 +260,7 @@ final class IslandModel {
         switch (direction, mode) {
         case (.down, .closed), (.down, .peekDone):
             pull = travelled / SwipeTracker.threshold * 20
-        case (.up, .peekAsk), (.up, .peekDone), (.up, .connect):
+        case (.up, .peekAsk), (.up, .peekDone), (.up, .connect), (.up, .call) where !holdsOpen:
             pull = -travelled / SwipeTracker.threshold * 20
         case (.up, .open) where !holdsOpen && menu == nil && (tab == .compose || !listScrolls):
             pull = -travelled / SwipeTracker.threshold * 20
@@ -244,7 +273,7 @@ final class IslandModel {
         guard pull != 0 else { return }
         pull = 0
         Haptics.tick()
-        set(direction == .down ? .open : .closed)
+        set(direction == .down ? opening : .closed)
     }
 
     func swipeEnded() {

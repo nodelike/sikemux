@@ -7,6 +7,10 @@ enum Theme {
     static let raised = Color.white.opacity(0.06)
     static let hover = Color.white.opacity(0.07)
     static let hairline = Color.white.opacity(0.09)
+    /// The row the person chose, as a selected capsule is filled.
+    static let chosen = Color.white.opacity(0.12)
+    /// Reading text a step quieter than the ink, as a card's context reads.
+    static let inkSoft = ink.opacity(0.78)
 
     static let yolo = LinearGradient(colors: [accent, command, danger, warn, live, accent], startPoint: .leading, endPoint: .trailing)
 

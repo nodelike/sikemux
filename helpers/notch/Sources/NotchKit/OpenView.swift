@@ -128,7 +128,7 @@ struct AgentList: View {
                         HostAlertRow(store: store, entry: alert)
                     }
                     ForEach(store.entries) { entry in
-                        if entry.mark == .needs {
+                        if entry.mark == .needs, entry.ask != nil {
                             AskCard(store: store, island: island, entry: entry, marks: marks)
                         } else {
                             EntryRow(store: store, entry: entry, marks: marks)

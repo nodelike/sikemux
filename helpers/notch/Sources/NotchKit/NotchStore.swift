@@ -14,6 +14,10 @@ final class NotchStore {
     private(set) var devices: [PendingDevice] = []
     /// When each waiting device's request reached the island, for the time left to answer it.
     private(set) var deviceAsked: [String: Date] = [:]
+    /// The calls waiting on the person from every project, newest first.
+    private(set) var calls: [PersonCall] = []
+    /// What the person has done on each waiting call's card.
+    private(set) var drafts: [String: CallDraft] = [:]
 
     @ObservationIgnored let options: Options
     @ObservationIgnored private var link: CoreLink?
@@ -25,11 +29,14 @@ final class NotchStore {
     @ObservationIgnored private var questions: [AgentQuestion] = []
     @ObservationIgnored private var heard = false
     @ObservationIgnored private var errorTimer: DispatchWorkItem?
+    /// The calls this island told the core it drew.
+    @ObservationIgnored private var seen: Set<String> = []
     @ObservationIgnored var onPeek: ((Peek) -> Void)?
     @ObservationIgnored var onSettings: (() -> Void)?
 
     enum Peek {
         case ask(String)
+        case call(String)
         case done(String)
         case connect(String)
     }
@@ -111,17 +118,39 @@ final class NotchStore {
 
     func apply(_ view: DeviceView) {
         let before = Dictionary(self.view.inbox.items.map { ($0.id, $0.kind) }, uniquingKeysWith: { first, _ in first })
+        let waited = Set(calls.map(\.id))
         self.view = view
-        withAnimation(Motion.open) { entries = view.entries(questions) }
+        withAnimation(Motion.open) {
+            entries = view.entries(questions)
+            keepCalls(view)
+        }
         if !Set(view.inbox.items.compactMap(\.questionId)).isSubset(of: questions.map(\.id)) { readQuestions() }
         defer { heard = true }
         guard heard else { return }
         let items = view.inbox.items
-        if let ask = items.last(where: { $0.tier == .needs && before[$0.id] == nil }) {
+        let asks = Set(calls.map(\.id))
+        if let call = calls.first(where: { !waited.contains($0.id) }) {
+            onPeek?(.call(call.id))
+        } else if let ask = items.last(where: {
+            $0.tier == .needs && before[$0.id] == nil && !asks.contains($0.questionId ?? $0.hold?.id ?? "")
+        }) {
             onPeek?(.ask(ask.id))
         } else if let done = items.last(where: { before[$0.id] == .working && $0.kind != .working }) {
             onPeek?(.done(done.id))
         }
+    }
+
+    /// The open calls, newest first, each with its card's draft; what was done on a card goes
+    /// once its call does.
+    private func keepCalls(_ view: DeviceView) {
+        calls = (view.calls ?? []).filter { $0.state == .open }.sorted { $0.raisedAt > $1.raisedAt }
+        drafts = Dictionary(uniqueKeysWithValues: calls.map { ($0.id, drafts[$0.id] ?? CallDraft()) })
+        seen.formIntersection(calls.map(\.id))
+    }
+
+    /// A project's name, from the folder a call names it by.
+    func projectName(_ path: String) -> String? {
+        view.workspace.projects.first { $0.path == path }?.name
     }
 
     private func readQuestions() {
@@ -151,7 +180,12 @@ final class NotchStore {
         heard = false
         view = .empty
         questions = []
-        withAnimation(Motion.open) { entries = [] }
+        withAnimation(Motion.open) {
+            entries = []
+            calls = []
+        }
+        drafts = [:]
+        seen = []
         devices = []
         deviceAsked = [:]
     }
@@ -174,23 +208,25 @@ final class NotchStore {
         }
     }
 
-    /// Refuses an action held for the person, allows it once, or always allows what it lands in.
-    func answer(_ hold: ShipHold, _ how: HoldAnswer) {
-        let params = HoldParams(hold: hold.id)
-        let done: (Result<CoreResponse.Called<Nothing?>, CoreLinkError>) -> Void = { [weak self] result in
+    /// Tells the core once that this island drew the call, which a production call needs before
+    /// its answer counts.
+    func saw(_ call: PersonCall) {
+        guard seen.insert(call.id).inserted else { return }
+        link?.request(CoreCall.CallSeen(params: CallParams(id: call.id)))
+    }
+
+    /// Answers a call with what its card holds. The first answer anywhere wins.
+    func answer(_ call: PersonCall, _ params: AnswerCallParams, draft: CallDraft) {
+        draft.sending = true
+        link?.request(CoreCall.AnswerCall(params: params)) { [weak self] result in
+            draft.sending = false
             if case .failure(let error) = result { self?.fail(error.message) }
-        }
-        switch how {
-        case .refuse: link?.request(CoreCall.RefuseShip(params: params), reply: done)
-        case .once: link?.request(CoreCall.AllowShip(params: params), reply: done)
-        case .always: link?.request(CoreCall.LetShipGo(params: params), reply: done)
         }
     }
 
-    /// Answers an agent's question with one of the answers it offered. The first answer anywhere wins.
-    func answer(_ question: AgentQuestion, choice: Int) {
-        link?.request(CoreCall.AnswerQuestion(params: AnswerParams(id: question.id, choice: choice))) {
-            [weak self] result in
+    /// Hands a call back to its asker's lead, or its asker, to decide.
+    func notMine(_ call: PersonCall) {
+        link?.request(CoreCall.CallNotMine(params: CallParams(id: call.id))) { [weak self] result in
             if case .failure(let error) = result { self?.fail(error.message) }
         }
     }
@@ -346,11 +382,11 @@ final class NotchStore {
         return projects.max { (counts[$0.name] ?? 0) < (counts[$1.name] ?? 0) } ?? projects.first
     }
 
-    /// How many items need you, how many agents work, how many subagents and shells run across every agent, and
+    /// How many calls wait on you, or with none how many items need you, how many agents work, how many subagents and shells run across every agent, and
     /// how many items are done, leaving out what is none.
     var rollups: [(mark: Rollup, count: Int)] {
         let counts: [(Rollup, Int)] = [
-            (.mark(.needs), entries.filter { $0.mark == .needs }.count),
+            calls.isEmpty ? (.mark(.needs), entries.filter { $0.mark == .needs }.count) : (.calls, calls.count),
             (.mark(.working), view.inbox.working),
             (.subagents, view.inbox.rollup?.subagents ?? 0),
             (.shells, view.inbox.rollup?.tasks ?? 0),

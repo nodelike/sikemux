@@ -56,6 +56,17 @@ enum Icons {
         IconShape(d: "M3.6 8.8h8.8a1.2 1.2 0 0 1 1.2 1.2v2.2a1.2 1.2 0 0 1 -1.2 1.2h-8.8a1.2 1.2 0 0 1 -1.2 -1.2v-2.2a1.2 1.2 0 0 1 1.2 -1.2z", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0)),
         IconShape(d: "M4.9 4.9h.6M4.9 11.1h.6", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0)),
     ])
+    static let pencil = IconDef(viewBox: ViewBox(x: 0, y: 0, width: 16, height: 16), shapes: [
+        IconShape(d: "M9.6 3.4 12.6 6.4", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0)),
+        IconShape(d: "M3 13h3l7-7-3-3-7 7v3Z", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0)),
+    ])
+    static let clock = IconDef(viewBox: ViewBox(x: 0, y: 0, width: 16, height: 16), shapes: [
+        IconShape(d: "M2.7 8a5.3 5.3 0 1 0 10.6 0a5.3 5.3 0 1 0 -10.6 0z", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0)),
+        IconShape(d: "M8 4.9V8l2.3 1.5", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0)),
+    ])
+    static let message = IconDef(viewBox: ViewBox(x: 0, y: 0, width: 24, height: 24), shapes: [
+        IconShape(d: "M20 14a2 2 0 0 1-2 2H8l-4 4V6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2z", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 2.1),
+    ])
     static let brand = IconDef(viewBox: ViewBox(x: 82, y: 24, width: 265, height: 265), shapes: [
         IconShape(d: "M257,72 L331,29 L331,114Z", style: .fill(.current), opacity: 1, evenOdd: false, translate: (0, 0)),
         IconShape(d: "M98,199 L172,241 L98,284Z", style: .fill(.current), opacity: 1, evenOdd: false, translate: (0, 0)),

@@ -45,10 +45,6 @@ extension Icons {
         IconShape(d: "M9 9l11 4.5-4.6 1.1-1.1 4.6z", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 2.1),
         IconShape(d: "M5.5 3.5l1 2.5M3.5 5.5l2.5 1M11 3l-.5 2.5", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 2.1),
     ])
-    static let clock = IconDef(viewBox: ViewBox(x: 0, y: 0, width: 16, height: 16), shapes: [
-        IconShape(d: "M13.3 8a5.3 5.3 0 1 1 -10.6 0a5.3 5.3 0 1 1 10.6 0z", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0)),
-        IconShape(d: "M8 4.9V8l2.3 1.5", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0)),
-    ])
     static let close = IconDef(viewBox: ViewBox(x: 0, y: 0, width: 16, height: 16), shapes: [
         IconShape(d: "M4 4l8 8M12 4l-8 8", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0)),
     ])
@@ -143,9 +139,6 @@ extension Icons {
         IconShape(d: "M6.4 2.6H3.6a1 1 0 0 0-1 1v8.8a1 1 0 0 0 1 1h2.8", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0)),
         IconShape(d: "M10.4 5.2 13.2 8l-2.8 2.8M13.2 8H6.2", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0)),
     ])
-    static let message = IconDef(viewBox: ViewBox(x: 0, y: 0, width: 24, height: 24), shapes: [
-        IconShape(d: "M20 14a2 2 0 0 1-2 2H8l-4 4V6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2z", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 2.1),
-    ])
     static let more = IconDef(viewBox: ViewBox(x: 0, y: 0, width: 16, height: 16), shapes: [
         IconShape(d: "M4.5 8a1 1 0 1 1 -2 0a1 1 0 1 1 2 0z", style: .fill(.current), opacity: 1, evenOdd: false, translate: (0, 0)),
         IconShape(d: "M9 8a1 1 0 1 1 -2 0a1 1 0 1 1 2 0z", style: .fill(.current), opacity: 1, evenOdd: false, translate: (0, 0)),
@@ -169,10 +162,6 @@ extension Icons {
     static let panel = IconDef(viewBox: ViewBox(x: 0, y: 0, width: 24, height: 24), shapes: [
         IconShape(d: "M5.5 4h13a2.5 2.5 0 0 1 2.5 2.5v11a2.5 2.5 0 0 1 -2.5 2.5h-13a2.5 2.5 0 0 1 -2.5 -2.5v-11a2.5 2.5 0 0 1 2.5 -2.5z", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 2.1),
         IconShape(d: "M3 9h18", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 2.1),
-    ])
-    static let pencil = IconDef(viewBox: ViewBox(x: 0, y: 0, width: 16, height: 16), shapes: [
-        IconShape(d: "M9.6 3.4 12.6 6.4", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0)),
-        IconShape(d: "M3 13h3l7-7-3-3-7 7v3Z", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0)),
     ])
     static let pinch = IconDef(viewBox: ViewBox(x: 0, y: 0, width: 24, height: 24), shapes: [
         IconShape(d: "M4 14h6v6M20 10h-6V4M14 10l6-6M4 20l6-6", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 2.1),

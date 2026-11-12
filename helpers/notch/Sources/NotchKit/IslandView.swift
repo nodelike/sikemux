@@ -26,6 +26,7 @@ struct IslandView: View {
         .environment(\.faceMotion, store.view.faceStyle.motion)
         .onChange(of: store.entries) { _, entries in island.entriesChanged(entries) }
         .onChange(of: store.devices) { _, devices in island.devicesChanged(devices) }
+        .onChange(of: store.calls.map(\.id), initial: true) { _, ids in island.callsChanged(ids) }
     }
 
     private var geometry: NotchGeometry { island.geometry }
@@ -38,7 +39,7 @@ struct IslandView: View {
     private var expanded: Bool {
         switch island.mode {
         case .closed, .peekDone: return false
-        case .peekAsk, .connect, .open, .drop: return true
+        case .peekAsk, .connect, .open, .drop, .call: return true
         }
     }
 
@@ -46,7 +47,7 @@ struct IslandView: View {
         switch island.mode {
         case .closed, .peekDone: return Radii.closed
         case .peekAsk: return Radii.peek
-        case .connect, .open, .drop: return Radii.open
+        case .connect, .open, .drop, .call: return Radii.open
         }
     }
 
@@ -57,6 +58,7 @@ struct IslandView: View {
         case .peekAsk: return 460
         case .connect: return 560
         case .open, .drop: return geometry.hasNotch ? 680 : 560
+        case .call: return CallCard.width + 2 * (Radii.open.top + CallCard.margin)
         }
     }
 
@@ -65,6 +67,7 @@ struct IslandView: View {
         case .closed, .peekDone: return 0
         case .peekAsk: return Radii.peek.top + 8
         case .connect, .open, .drop: return Radii.open.top + 12
+        case .call: return Radii.open.top + CallCard.margin
         }
     }
 
@@ -93,7 +96,7 @@ struct IslandView: View {
         .shadow(color: lifted ? .black.opacity(0.7) : .clear, radius: 6)
         .onHover { island.pointer(entered: $0, opensOnHover: store.settings.openWith == .hover) }
         .onTapGesture {
-            if !island.isOpen, !island.asksToConnect { island.set(.open) }
+            if !island.isOpen, !island.asksToConnect { island.set(island.opening) }
         }
         .onExitCommand { island.set(.closed) }
         .offset(x: shift)
@@ -112,7 +115,7 @@ struct IslandView: View {
             case .peekAsk(let id):
                 AskHeader(entry: store.entries.first { $0.id == id }, geometry: geometry, marks: marks)
                     .transition(.inPlace)
-            case .connect:
+            case .connect, .call:
                 Color.clear
             case .open:
                 OpenHeader(store: store, island: island)
@@ -145,6 +148,10 @@ struct IslandView: View {
             ConnectCard(store: store, device: store.devices.first { $0.id == id })
         case .drop:
             DropTargets(store: store, island: island)
+        case .call(let id):
+            if let call = store.calls.first(where: { $0.id == id }), let draft = store.drafts[id] {
+                CallCard(store: store, island: island, call: call, draft: draft).padding(.top, 2)
+            }
         default:
             OpenBody(store: store, island: island, marks: marks)
         }
@@ -189,7 +196,10 @@ struct ClosedWings: View {
         var left: CGFloat = 0
         if count > 0 { left = 14 + 20 + CGFloat(min(count, 3) - 1) * 17 + 10 }
         if count > 3 { left += 9 + 6.5 * CGFloat(String(count - 3).count + 1) }
-        let groups = rollups.map { ($0.mark.showsCount($0.count) ? CGFloat(String($0.count).count) * 7.5 + 6 : 0) + 16 }
+        let groups = rollups.map { group in
+            if group.mark == .calls { return CallCount.width(group.count) }
+            return (group.mark.showsCount(group.count) ? CGFloat(String(group.count).count) * 7.5 + 6 : 0) + 16
+        }
         let held = groups.reduce(0, +) + CGFloat(rollups.count - 1) * ClosedWings.groupGap
         return (left, 10 + held + 14)
     }
@@ -229,14 +239,19 @@ struct ClosedWings: View {
             if wings.right > 0 {
                 HStack(spacing: Self.groupGap) {
                     ForEach(store.rollups, id: \.mark) { group in
-                        HStack(spacing: 6) {
-                            if group.mark.showsCount(group.count) {
-                                Text("\(group.count)").font(Theme.ui(12, .semibold)).monospacedDigit().foregroundStyle(Theme.ink)
-                            }
-                            switch group.mark {
-                            case .mark(let mark): StateMark(mark: mark)
-                            case .subagents: RunningGlyph(icon: Icons.agent, size: 10, colour: Theme.live)
-                            case .shells: RunningGlyph(icon: Icons.command, size: 11, colour: Theme.warn)
+                        if group.mark == .calls {
+                            CallCount(count: group.count)
+                        } else {
+                            HStack(spacing: 6) {
+                                if group.mark.showsCount(group.count) {
+                                    Text("\(group.count)").font(Theme.ui(12, .semibold)).monospacedDigit().foregroundStyle(Theme.ink)
+                                }
+                                switch group.mark {
+                                case .mark(let mark): StateMark(mark: mark)
+                                case .subagents: RunningGlyph(icon: Icons.agent, size: 10, colour: Theme.live)
+                                case .shells: RunningGlyph(icon: Icons.command, size: 11, colour: Theme.warn)
+                                case .calls: EmptyView()
+                                }
                             }
                         }
                     }
@@ -360,9 +375,7 @@ struct AskDetail: View {
     var body: some View {
         if let ask = entry.ask {
             CommandText(command: ask.command, isCommand: ask.isCommand, darker: darker)
-        } else if let hold = entry.item?.hold {
-            CommandText(command: hold.what, isCommand: false, darker: darker)
-        } else if let text = entry.question?.text ?? entry.item?.detail {
+        } else if let text = entry.item?.detail {
             Text(text)
                 .font(Theme.ui(13))
                 .foregroundStyle(Theme.ink)
@@ -391,8 +404,8 @@ struct CommandText: View {
     }
 }
 
-/// Deny, Always allow and Allow for a permission; Refuse, Allow once and Always allow for an action held
-/// for the person; Open in Sikemux for anything the notch cannot answer.
+/// Deny, Always allow and Allow for a permission; Open in Sikemux for anything else the notch cannot answer.
+/// Questions and held actions are calls, which their cards answer.
 struct AnswerButtons: View {
     let store: NotchStore
     let island: IslandModel
@@ -400,16 +413,7 @@ struct AnswerButtons: View {
     var height: CGFloat
 
     var body: some View {
-        if let question = entry.question {
-            HStack(spacing: 8) {
-                if store.settings.answerInNotch, question.choices.count <= 2 {
-                    ForEach(Array(question.choices.enumerated()), id: \.offset) { index, choice in
-                        CapsuleButton(title: choice.label, height: height) { choose(question, index) }
-                    }
-                }
-                CapsuleButton(title: "Answer in Sikemux", primary: true, height: height) { store.open(entry) }
-            }
-        } else if let ask = entry.ask, store.settings.answerInNotch, ask.allowOnce != nil || ask.allowAlways != nil {
+        if let ask = entry.ask, store.settings.answerInNotch, ask.allowOnce != nil || ask.allowAlways != nil {
             HStack(spacing: 8) {
                 if let reject = ask.reject {
                     CapsuleButton(title: "Deny", height: height) { answer(ask, reject) }
@@ -421,31 +425,14 @@ struct AnswerButtons: View {
                     CapsuleButton(title: "Allow", primary: true, height: height) { answer(ask, once) }
                 }
             }
-        } else if let hold = entry.item?.hold, store.settings.answerInNotch {
-            HStack(spacing: 8) {
-                CapsuleButton(title: "Refuse", height: height) { answer(hold, .refuse) }
-                CapsuleButton(title: "Allow once", primary: hold.letGo == nil, height: height) { answer(hold, .once) }
-                if let always = hold.letGo {
-                    CapsuleButton(title: "Always allow \(always)", primary: true, height: height) { answer(hold, .always) }
-                }
-            }
         } else {
             CapsuleButton(title: "Open in Sikemux", primary: true, height: height) { store.open(entry) }
         }
     }
 
-    private func answer(_ hold: ShipHold, _ how: HoldAnswer) {
-        store.answer(hold, how)
-        if case .peekAsk = island.mode { island.set(island.hovering ? .open : .closed) }
-    }
-
     private func answer(_ ask: Ask, _ option: String) {
         store.answer(ask, agentId: entry.agentId, optionId: option)
-        if case .peekAsk = island.mode { island.set(island.hovering ? .open : .closed) }
+        if case .peekAsk = island.mode { island.set(island.hovering ? island.opening : .closed) }
     }
 
-    private func choose(_ question: AgentQuestion, _ choice: Int) {
-        store.answer(question, choice: choice)
-        if case .peekAsk = island.mode { island.set(island.hovering ? .open : .closed) }
-    }
 }
