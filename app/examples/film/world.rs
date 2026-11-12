@@ -476,9 +476,8 @@ impl World {
                     json!({ "project": project, "tab": format!("agent:{chat}"), "to": 0 }),
                 )?;
                 if let Ok(name) = step.text(0) {
-                    self.call("renameAgent", json!({ "agentId": chat, "name": name }))?;
-                    self.named.insert(name.to_owned(), chat.clone());
                     self.rename(&chat, name)?;
+                    self.named.insert(name.to_owned(), chat.clone());
                 }
                 self.chat = Some(chat);
             }
