@@ -219,7 +219,7 @@ enum Heard {
     Snipped(sikemux_browser::snip::Snip),
     SnipEnded(String),
     /// A click in snip mode on `agent`'s page, with the note written on it.
-    Pinned(String, serde_json::Value),
+    Pinned(String, String, serde_json::Value),
     PinAnswered(sikemux_browser::pins::PinAnswer),
 }
 
@@ -675,7 +675,7 @@ impl Workbench {
                 self.desks.read(cx).rearm_snips();
                 self.show_pins(cx);
             }
-            Heard::Pinned(agent, pin) => self.pinned(&agent, pin, cx),
+            Heard::Pinned(agent, tab, pin) => self.pinned(&agent, tab, pin, cx),
             Heard::PinAnswered(answer) => self.pin_answered(answer, cx),
             Heard::Snipped(snip) => self.snipped(snip, window, cx),
             Heard::SnipEnded(agent) => self.snip_ended(&agent, cx),

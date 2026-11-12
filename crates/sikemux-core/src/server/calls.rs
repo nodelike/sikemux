@@ -459,6 +459,7 @@ calls! { core, client, method, params;
     "notePin" NotePin (sikemux_view::pins::PinNoteParams) -> (): Full, counted => super::pins::note(&core, params).await?,
     "pinLooksRight" PinLooksRight (sikemux_view::pins::PinParams) -> (): Full, counted => super::pins::looks_right(&core, params)?,
     "pinAfter" PinAfter (sikemux_view::pins::PinAfterParams) -> (): Full => super::pins::after(&core, params)?,
+    "pinPicture" PinPicture (sikemux_view::pins::PinPictureParams) -> sikemux_view::pins::PinPicture: Watch => super::pins::picture(&core, params)?,
     "checkWebWrite" CheckWebWrite (ship::WebWriteParams) -> Option<String>: Owner => ship::check_web_write(&core, params).await?,
     "agentMessages": Watch, any_program => answer(messages::agent_messages(&core, parse(params)?).await?),
     "agentMessageRows" AgentMessageRows (messages::AgentMessagesParams) -> messages::AgentMessageRows: Watch, any_program => {

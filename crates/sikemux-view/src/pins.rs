@@ -18,16 +18,20 @@ pub struct Pin {
     /// The size the page was laid out at.
     pub width: u32,
     pub height: u32,
-    /// What was pinned, in words: "Export button".
+    /// What was pinned, in the page's own words: "Export button".
     pub label: String,
     /// Where the element is, for the page to find it again.
     pub selector: String,
-    /// A picture of the spot when it was placed, and once answered, after; paths on the host.
+    /// Pictures of the spot when placed and once answered, by id, fetched with `pinPicture`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub before: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub after: Option<String>,
-    /// The commit the page ran from, when its checkout said.
+    /// No after picture could be taken without the person: the next time they have the page in
+    /// front, the app takes it from their own tab.
+    #[serde(default)]
+    pub after_by_hand: bool,
+    /// The checkout's commit when the pin was placed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub commit: Option<String>,
     /// What the person and the agent said on it, oldest first.
@@ -38,6 +42,12 @@ pub struct Pin {
     pub reopened: bool,
     /// When it came to stand as it does: sent, answered or closed.
     pub since: u64,
+    /// When the turn that took its last note began; only that turn's own end answers it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn: Option<u64>,
+    /// The turn that took it was stopped or failed, so nobody is at work on it.
+    #[serde(default)]
+    pub stopped: bool,
     /// The agent is at work on it now. Worked out when the view is sent, never kept.
     #[serde(default)]
     pub working: bool,
@@ -66,9 +76,9 @@ pub enum PinBy {
 pub enum PinState {
     /// Sent to its agent and not yet answered.
     Open,
-    /// The agent's turn after the pin ended, with what it said.
+    /// The turn that took it ended by itself, with what the agent said.
     Answered,
-    /// The person said it looks right.
+    /// The person said it looks right, or its agent or project went.
     Closed,
     /// A value a newer core sends.
     #[serde(other)]
@@ -89,7 +99,7 @@ pub struct PlacePinParams {
     /// The element's own markup, cut short, for the agent alone.
     #[serde(default)]
     pub html: String,
-    /// A picture of the spot, a JPEG on the host.
+    /// A picture of the spot from the person's own tab, a base64 JPEG.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub before: Option<String>,
     pub note: String,
@@ -115,10 +125,26 @@ pub struct PinParams {
     pub id: String,
 }
 
-/// The picture of an answered pin's spot, taken once the answering turn ended.
+/// The picture of an answered pin's spot, a base64 JPEG; none when it could not be taken
+/// without the person.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PinAfterParams {
     pub id: String,
-    pub after: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub after: Option<String>,
+}
+
+/// One of a pin's pictures, by the id the pin names it by.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PinPictureParams {
+    pub id: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PinPicture {
+    pub mime_type: String,
+    pub data: String,
 }

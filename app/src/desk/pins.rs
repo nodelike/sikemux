@@ -1,9 +1,9 @@
 //! Pins on a desk's pages: a click in snip mode puts a note on one spot, which goes to the
-//! desk's agent as the person's message and stays on the page, drawn by the page itself, until
-//! the agent answers it.
+//! desk's agent and stays on the page, drawn by the page itself, until the agent answers it.
+//! Pictures of the spot come only from the person's own tab while it shows the page, or for a
+//! page this machine serves, from a private view off screen that sees nothing signed in.
 
-use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
@@ -11,11 +11,11 @@ use base64::Engine as _;
 use gpui_kit::{Context, Hsla};
 use serde_json::{json, Value};
 use sikemux_browser::pins::{self, PinAnswer};
-use sikemux_browser::viewport::Viewport;
-use sikemux_browser::BrowserManager;
+use sikemux_browser::{BrowserManager, BrowserTab};
 use sikemux_core::server::call;
 use sikemux_view::pins::{
-    Pin, PinAfterParams, PinBy, PinNoteParams, PinParams, PinState, PlacePinParams,
+    Pin, PinAfterParams, PinBy, PinNoteParams, PinParams, PinPictureParams, PinState,
+    PlacePinParams,
 };
 use tokio::sync::mpsc;
 
@@ -23,6 +23,9 @@ use super::Heard;
 use crate::theme::Tokens;
 use crate::toast;
 use crate::workbench::Workbench;
+
+/// How many pictures are kept as data the page can draw; the least recently used go first.
+const KEPT_PICTURES: usize = 16;
 
 /// What the desks keep of the pins they draw.
 #[derive(Default)]
@@ -33,47 +36,70 @@ pub(crate) struct PinsShown {
     waits: HashMap<String, Arc<AtomicBool>>,
     /// Answered pins whose after picture is being taken.
     taking: HashSet<String>,
-    /// Pictures read once as data the page can draw, the most recently read last.
     pictures: Pictures,
 }
 
-/// How many pins' pictures are kept as data at most; the least recently read go first.
-const KEPT_PICTURES: usize = 16;
-
 #[derive(Default)]
 struct Pictures {
-    by_path: HashMap<String, String>,
-    order: std::collections::VecDeque<String>,
+    data: HashMap<String, String>,
+    order: VecDeque<String>,
+    fetching: HashSet<String>,
 }
 
 impl Pictures {
-    /// The picture at `path` as data the page can draw, read from disk the first time.
-    fn data(&mut self, path: &str) -> Option<String> {
-        if !self.by_path.contains_key(path) {
-            let bytes = std::fs::read(path).ok()?;
-            let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
-            self.by_path
-                .insert(path.to_owned(), format!("data:image/jpeg;base64,{encoded}"));
-        }
-        self.order.retain(|kept| kept != path);
-        self.order.push_back(path.to_owned());
-        while self.order.len() > KEPT_PICTURES {
-            if let Some(oldest) = self.order.pop_front() {
-                self.by_path.remove(&oldest);
-            }
-        }
-        self.by_path.get(path).cloned()
+    fn get(&mut self, id: &str) -> Option<String> {
+        let data = self.data.get(id).cloned()?;
+        self.order.retain(|kept| kept != id);
+        self.order.push_back(id.to_owned());
+        Some(data)
     }
 
-    fn forget(&mut self, path: &str) {
-        self.by_path.remove(path);
-        self.order.retain(|kept| kept != path);
+    fn keep(&mut self, id: String, data: String) {
+        self.fetching.remove(&id);
+        self.order.retain(|kept| kept != &id);
+        self.order.push_back(id.clone());
+        self.data.insert(id, data);
+        while self.order.len() > KEPT_PICTURES {
+            if let Some(oldest) = self.order.pop_front() {
+                self.data.remove(&oldest);
+            }
+        }
+    }
+
+    fn forget(&mut self, id: &str) {
+        self.data.remove(id);
+        self.order.retain(|kept| kept != id);
     }
 }
 
 /// The page a pin belongs to: its address without the query or the fragment.
 fn page_of(url: &str) -> &str {
     url.split(['?', '#']).next().unwrap_or(url)
+}
+
+/// A page this machine serves, which the private view off screen may load by itself.
+fn served_here(url: &str) -> bool {
+    url::Url::parse(url).is_ok_and(|url| {
+        url.scheme() == "http"
+            && matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "[::1]"))
+    })
+}
+
+/// What decides how a pin is drawn, so a page is told again only when one of these moves.
+fn key_of(pin: &Pin, pictures: &Pictures) -> String {
+    let has = |id: &Option<String>| id.as_ref().is_some_and(|id| pictures.data.contains_key(id));
+    format!(
+        "{}:{:?}:{}:{}:{}:{}:{}:{}:{}",
+        pin.id,
+        pin.state,
+        pin.reopened,
+        pin.working,
+        pin.stopped,
+        pin.since,
+        pin.notes.len(),
+        has(&pin.before),
+        has(&pin.after),
+    )
 }
 
 /// One page's pin as the page draws it.
@@ -91,19 +117,20 @@ fn drawn(pin: &Pin, pictures: &mut Pictures) -> Value {
             json!({ "by": by, "words": note.words })
         })
         .collect();
-    let mut data = |path: &Option<String>| pictures.data(path.as_deref()?);
     let answered = pin.state == PinState::Answered;
+    let mut data = |id: &Option<String>| answered.then(|| pictures.get(id.as_deref()?)).flatten();
     json!({
         "id": pin.id,
         "selector": pin.selector,
         "state": if answered { "answered" } else { "open" },
         "reopened": pin.reopened,
         "working": pin.working,
+        "stopped": pin.stopped,
         "since": pin.since,
         "who": who,
         "notes": notes,
-        "beforeData": answered.then(|| data(&pin.before)).flatten(),
-        "afterData": answered.then(|| data(&pin.after)).flatten(),
+        "beforeData": data(&pin.before),
+        "afterData": data(&pin.after),
     })
 }
 
@@ -118,28 +145,8 @@ fn hex(color: Hsla) -> String {
     )
 }
 
-/// Where the pictures of pins' spots are kept on this host.
-fn picture_path() -> Option<PathBuf> {
-    let folder = sikemux_process::paths::config_dir()?.join("pins");
-    std::fs::create_dir_all(&folder).ok()?;
-    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    let next = NEXT.fetch_add(1, Ordering::Relaxed);
-    Some(folder.join(format!("{}-{next}.jpg", crate::ui::time::now_ms())))
-}
-
-/// A picture of the element `selector` finds on `url` at `width` × `height`, kept on this host.
-async fn picture(
-    engine: &BrowserManager,
-    agent: &str,
-    url: &str,
-    (width, height): (u32, u32),
-    selector: &str,
-) -> Option<String> {
-    let fixed = Viewport::sized(width, height).ok()?;
-    let jpeg = engine.picture_of(agent, url, fixed, selector).await.ok()?;
-    let path = picture_path()?;
-    std::fs::write(&path, jpeg).ok()?;
-    Some(path.to_string_lossy().into_owned())
+fn encoded(jpeg: &[u8]) -> String {
+    base64::engine::general_purpose::STANDARD.encode(jpeg)
 }
 
 /// Hears the person answer pins on the page in front of `agent`'s desk while `on`.
@@ -161,25 +168,29 @@ async fn waiting(
 }
 
 impl Workbench {
-    /// Draws each desk's pins over its page in front, and takes the after picture of each pin
-    /// newly answered.
+    /// Draws each desk's pins over its page in front, fetching the pictures an answered pin
+    /// shows, and takes the after picture of an answered pin its page in front shows.
     pub(crate) fn show_pins(&mut self, cx: &mut Context<Self>) {
         let Some(engine) = self.desks.read(cx).engine.clone() else {
             return;
         };
-        let pins: Vec<Pin> = self
-            .this_view()
-            .map(|view| view.pins.clone())
-            .unwrap_or_default();
+        let Some(view) = self.this_view() else {
+            return;
+        };
+        if view.pins.is_empty() && self.desks.read(cx).pins_shown.told.is_empty() {
+            return;
+        }
+        let pins: Vec<Pin> = view.pins.clone();
         let t = Tokens::get(cx).clone();
-        let desks: Vec<(String, Option<sikemux_browser::BrowserTab>)> =
-            (self.desks.read(cx).strips.iter())
-                .map(|(agent, strip)| {
-                    let front = strip.tabs.iter().find(|tab| tab.active).cloned();
-                    (agent.clone(), front)
-                })
-                .collect();
-        for (agent, front) in desks {
+        let fronts: Vec<(String, Option<BrowserTab>)> = (self.desks.read(cx).strips.iter())
+            .map(|(agent, strip)| {
+                (
+                    agent.clone(),
+                    strip.tabs.iter().find(|tab| tab.active).cloned(),
+                )
+            })
+            .collect();
+        for (agent, front) in fronts {
             let Some(front) = front.filter(|front| !front.loading) else {
                 self.desks
                     .update(cx, |desks, _| desks.pins_shown.told.remove(&agent));
@@ -191,10 +202,25 @@ impl Workbench {
             let mine: Vec<&Pin> = (pins.iter())
                 .filter(|pin| pin.agent_id == agent && page_of(&pin.url) == page_of(&front.url))
                 .collect();
+            let wanted: Vec<String> = (mine.iter())
+                .filter(|pin| pin.state == PinState::Answered)
+                .flat_map(|pin| pin.before.iter().chain(&pin.after).cloned())
+                .collect();
+            for id in wanted {
+                self.fetch_pin_picture(id, cx);
+            }
             let told = self.desks.update(cx, |desks, _| {
                 let shown = &mut desks.pins_shown;
-                let list: Vec<Value> = mine
-                    .iter()
+                let mut key = format!("{}|{}|{to:?}", front.id, page_of(&front.url));
+                for pin in &mine {
+                    key.push('|');
+                    key.push_str(&key_of(pin, &shown.pictures));
+                }
+                if shown.told.get(&agent) == Some(&key) {
+                    return None;
+                }
+                shown.told.insert(agent.clone(), key);
+                let list: Vec<Value> = (mine.iter())
                     .map(|pin| drawn(pin, &mut shown.pictures))
                     .collect();
                 let look = pins::look(
@@ -205,11 +231,7 @@ impl Workbench {
                     &hex(t.border),
                     to.as_deref(),
                 );
-                let key = format!("{}|{}|{list:?}|{look}", front.id, front.url);
-                (shown.told.get(&agent) != Some(&key)).then(|| {
-                    shown.told.insert(agent.clone(), key);
-                    (Value::Array(list), look)
-                })
+                Some((Value::Array(list), look))
             });
             if let Some((list, look)) = told {
                 let (engine, agent) = (engine.clone(), agent.clone());
@@ -218,13 +240,48 @@ impl Workbench {
                 });
             }
             self.keep_pin_wait(&agent, !mine.is_empty(), &engine, cx);
+            for pin in mine.iter().filter(|pin| {
+                pin.state == PinState::Answered
+                    && pin.after.is_none()
+                    && (pin.after_by_hand || !served_here(&pin.url))
+            }) {
+                self.take_after_by_hand(pin, &engine, cx);
+            }
         }
-        for pin in pins
-            .iter()
-            .filter(|pin| pin.state == PinState::Answered && pin.after.is_none())
-        {
-            self.take_after(pin, &engine, cx);
+    }
+
+    /// Asks the core for picture `id`, off the window's thread, unless it is kept or on its way.
+    fn fetch_pin_picture(&mut self, id: String, cx: &mut Context<Self>) {
+        let wanted = self.desks.update(cx, |desks, _| {
+            let pictures = &mut desks.pins_shown.pictures;
+            !pictures.data.contains_key(&id) && pictures.fetching.insert(id.clone())
+        });
+        if !wanted {
+            return;
         }
+        let fetched = crate::core::Target::here(&self.asks)
+            .request_typed::<call::PinPicture>(PinPictureParams { id: id.clone() });
+        cx.spawn(async move |bench, cx| {
+            let fetched = fetched.await;
+            bench
+                .update(cx, |bench, cx| {
+                    bench.desks.update(cx, |desks, _| {
+                        let pictures = &mut desks.pins_shown.pictures;
+                        match fetched {
+                            Ok(picture) => pictures.keep(
+                                id,
+                                format!("data:{};base64,{}", picture.mime_type, picture.data),
+                            ),
+                            Err(_) => {
+                                pictures.fetching.remove(&id);
+                            }
+                        }
+                    });
+                    bench.show_pins(cx);
+                })
+                .ok();
+        })
+        .detach();
     }
 
     fn keep_pin_wait(
@@ -257,28 +314,60 @@ impl Workbench {
         });
     }
 
-    fn take_after(&mut self, pin: &Pin, engine: &Arc<BrowserManager>, cx: &mut Context<Self>) {
+    /// The after picture from the person's own tab, which shows the pin's page now, when the
+    /// element is in sight there.
+    fn take_after_by_hand(
+        &mut self,
+        pin: &Pin,
+        engine: &Arc<BrowserManager>,
+        cx: &mut Context<Self>,
+    ) {
         let fresh = self.desks.update(cx, |desks, _| {
             desks.pins_shown.taking.insert(pin.id.clone())
         });
         if !fresh {
             return;
         }
-        let (engine, pin) = (engine.clone(), pin.clone());
-        let target = self.chat_target(&pin.agent_id);
-        super::spawn(async move {
-            let size = (pin.width, pin.height);
-            if let Some(after) =
-                picture(&engine, &pin.agent_id, &pin.url, size, &pin.selector).await
-            {
-                target.call_typed::<call::PinAfter>(PinAfterParams { id: pin.id, after });
+        let (engine, id, agent, selector) = (
+            engine.clone(),
+            pin.id.clone(),
+            pin.agent_id.clone(),
+            pin.selector.clone(),
+        );
+        let target = crate::core::Target::here(&self.asks);
+        cx.spawn(async move |bench, cx| {
+            let taken = super::run(async move { pins::snapshot(&engine, &agent, &selector).await })
+                .await
+                .and_then(Result::ok)
+                .flatten();
+            match taken {
+                Some(jpeg) => target.call_typed::<call::PinAfter>(PinAfterParams {
+                    id,
+                    after: Some(encoded(&jpeg)),
+                }),
+                None => {
+                    bench
+                        .update(cx, |bench, cx| {
+                            bench
+                                .desks
+                                .update(cx, |desks, _| desks.pins_shown.taking.remove(&id))
+                        })
+                        .ok();
+                }
             }
-        });
+        })
+        .detach();
     }
 
-    /// The person clicked an element in snip mode and wrote a note: the spot's picture is taken
-    /// and the pin goes to the desk's agent.
-    pub(crate) fn pinned(&mut self, agent: &str, pin: Value, cx: &mut Context<Self>) {
+    /// The person clicked an element in snip mode and wrote a note: a picture of the spot is
+    /// taken from their own tab, and the pin goes to the desk's agent.
+    pub(crate) fn pinned(
+        &mut self,
+        agent: &str,
+        tab_id: String,
+        pin: Value,
+        cx: &mut Context<Self>,
+    ) {
         let Some(engine) = self.desks.read(cx).engine.clone() else {
             return;
         };
@@ -302,20 +391,13 @@ impl Workbench {
             .unwrap_or_else(|| "the agent".to_owned());
         let target = self.chat_target(agent);
         let bench = cx.weak_entity();
+        let (agent, area) = (agent.to_owned(), pin["rect"].clone());
         cx.spawn(async move |_, cx| {
-            let taken = super::run({
-                let (engine, agent, url, selector) = (
-                    engine.clone(),
-                    params.agent_id.clone(),
-                    params.url.clone(),
-                    params.selector.clone(),
-                );
-                let size = (params.width, params.height);
-                async move { picture(&engine, &agent, &url, size, &selector).await }
-            })
-            .await
-            .flatten();
-            params.before = taken;
+            let taken =
+                super::run(async move { pins::spot(&engine, &agent, tab_id, &area).await.ok() })
+                    .await
+                    .flatten();
+            params.before = taken.map(|jpeg| encoded(&jpeg));
             let placed = target.request_typed::<call::PlacePin>(params).await;
             cx.update(|cx| {
                 let note = match placed {
@@ -330,13 +412,13 @@ impl Workbench {
 
     /// Lets go of the pictures of pin `id`, which leaves the page.
     fn forget_pin_pictures(&mut self, id: &str, cx: &mut Context<Self>) {
-        let paths: Vec<String> = (self.this_view())
+        let ids: Vec<String> = (self.this_view())
             .and_then(|view| view.pins.iter().find(|pin| pin.id == id))
             .map(|pin| pin.before.iter().chain(&pin.after).cloned().collect())
             .unwrap_or_default();
         self.desks.update(cx, |desks, _| {
-            for path in &paths {
-                desks.pins_shown.pictures.forget(path);
+            for picture in &ids {
+                desks.pins_shown.pictures.forget(picture);
             }
         });
     }

@@ -1405,6 +1405,7 @@ pub(crate) fn remove_project(core: &Core, params: RemoveProjectParams) -> CoreRe
     let before = core.workspaces.agent_ids();
     core.workspaces.remove_project(&params.path)?;
     agents_closed(core, before);
+    super::pins::project_removed(core, &params.path.to_string_lossy());
     super::git::follow_projects(core);
     Ok(())
 }
@@ -1705,6 +1706,7 @@ fn agents_closed(core: &Core, before: HashSet<String>) {
         core.chats.forget_rest(agent_id);
     }
     super::hosts::route::closed(core, &gone);
+    super::pins::agents_closed(core, &gone);
     if let (Some(core), Ok(runtime), false) = (
         core.arc(),
         tokio::runtime::Handle::try_current(),

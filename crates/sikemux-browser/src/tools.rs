@@ -1618,51 +1618,6 @@ impl BrowserManager {
         taken
     }
 
-    /// A picture of the element `selector` finds on `url` laid out at `fixed`, a little room
-    /// around it, taken in the same view off screen as [`Self::picture_at`].
-    pub async fn picture_of(
-        &self,
-        agent_id: &str,
-        url: &str,
-        fixed: crate::viewport::Viewport,
-        selector: &str,
-    ) -> Result<Vec<u8>, String> {
-        const ROOM: f64 = 24.0;
-        let user_agent = fixed.user_agent().unwrap_or(crate::USER_AGENT);
-        let size = (f64::from(fixed.width), f64::from(fixed.height));
-        let mut picturer = self.picturer.lock().await;
-        let view = match picturer.as_mut() {
-            Some(view) => {
-                view.load(url, size, user_agent);
-                view
-            }
-            None => picturer.insert(crate::preview::Preview::open(
-                self.host(),
-                agent_id,
-                url,
-                size,
-                user_agent,
-            )?),
-        };
-        let taken = async {
-            view.loaded(LOAD_TIMEOUT).await?;
-            tokio::time::sleep(SETTLE).await;
-            let rect = call(view.view(), "areaOf", &[json!({ "selector": selector })])
-                .await
-                .map_err(|_| format!("{selector} is not on the page"))?;
-            tokio::time::sleep(SETTLE).await;
-            let (left, top, width, height) = area_rect(&rect);
-            let left = (left - ROOM).max(0.0);
-            let top = (top - ROOM).max(0.0);
-            let width = (width + 2.0 * ROOM).min(size.0 - left);
-            let height = (height + 2.0 * ROOM).min(size.1 - top);
-            screenshot(view.view(), None, Some((left, top, width, height))).await
-        }
-        .await;
-        view.view().hide();
-        taken
-    }
-
     pub fn page(&self, agent_id: &str, tab_id: &str) -> Option<super::TabPage> {
         self.agents
             .locked()

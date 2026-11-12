@@ -878,7 +878,7 @@
                 row.lastChild.textContent = clip(note.words, 200);
                 thread.append(row);
             }
-            float.querySelector(".foot .grow").textContent = `${pin.reopened ? "Reopened" : "Sent"} · ${pin.who} · ${minutes(Date.now() - pin.since)}`;
+            float.querySelector(".foot .grow").textContent = pin.stopped ? `${pin.who} stopped before answering` : `${pin.reopened ? "Reopened" : "Sent"} · ${pin.who} · ${minutes(Date.now() - pin.since)}`;
             if (pin.state === "answered") {
                 float.querySelector(".foot").insertAdjacentHTML("beforeend", "<button>Looks right</button>");
             }
@@ -951,7 +951,7 @@
                 pill.className = "pill";
                 pill.innerHTML = `<span></span><span class="quiet"></span>`;
                 pill.firstChild.textContent = pin.who;
-                pill.lastChild.textContent = `· ${pin.working ? minutes(Date.now() - pin.since) : "sent"}`;
+                pill.lastChild.textContent = `· ${pin.stopped ? "stopped" : pin.working ? minutes(Date.now() - pin.since) : "sent"}`;
                 nodes.push(ring, pill);
             }
             for (const node of nodes) {
@@ -1383,6 +1383,18 @@
             pinState.look = look || null;
             drawPins();
             return {};
+        },
+        // Where the element `selector` finds sits in the viewport, when it is in sight; nothing
+        // scrolls.
+        pinRect(selector) {
+            let element = null;
+            try {
+                element = document.querySelector(selector);
+            } catch {
+                return null;
+            }
+            const rect = element && visibleRect(element);
+            return rect ? { left: rect.left, top: rect.top, width: rect.width, height: rect.height } : null;
         },
         // Waits for the person to answer a pin: another note, or that it looks right.
         pinWait() {

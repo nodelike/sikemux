@@ -36,6 +36,7 @@ impl Core {
                 super::worktree::build_output::turn_started(self, agent_id);
                 self.seen.started(agent_id);
                 self.inbox.started(agent_id);
+                super::pins::turn_started(self, agent_id);
                 self.boards.wake.now();
                 let open = self.person_calls.open_questions();
                 self.harness.questions.turn_started(agent_id, &open);
@@ -59,6 +60,7 @@ impl Core {
                 self.came_to_rest(agent_id);
                 super::board::chat_goal::turn_ended(self, agent_id, !cancelled);
                 super::questions::turn_ended(self, agent_id);
+                super::pins::turn_ended(self, agent_id, !cancelled);
                 if cancelled {
                     self.seen.active(agent_id);
                     self.inbox.stopped(agent_id);
@@ -71,7 +73,6 @@ impl Core {
                     let left = super::turn_state::left_open(self, agent_id);
                     self.inbox.ended(agent_id, None, left);
                     super::turn_state::read_work(self, agent_id);
-                    super::pins::turn_ended(self, agent_id);
                 }
                 self.notify.send(Signal::TurnCompleted {
                     agent_id: agent_id.to_owned(),
@@ -89,6 +90,7 @@ impl Core {
                 super::settling::needs_person(self, agent_id);
                 self.came_to_rest(agent_id);
                 super::board::chat_goal::turn_ended(self, agent_id, false);
+                super::pins::turn_ended(self, agent_id, false);
                 self.seen.wants_a_look(agent_id);
                 self.inbox.ended(agent_id, Some(message), None);
                 self.notify.send(Signal::Problem {

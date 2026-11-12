@@ -112,8 +112,8 @@ async fn waiting(
                     let _ = told.send(Heard::Snipped(snip));
                 }
             }
-            Some(Ok(Snipped::Pinned { pin })) => {
-                let _ = told.send(Heard::Pinned(agent.clone(), pin));
+            Some(Ok(Snipped::Pinned { tab_id, pin })) => {
+                let _ = told.send(Heard::Pinned(agent.clone(), tab_id, pin));
             }
             Some(Ok(Snipped::Ended)) => {
                 let _ = told.send(Heard::SnipEnded(agent));
