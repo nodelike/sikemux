@@ -1864,7 +1864,7 @@ impl Reader {
 }
 
 /// What the chat's side hands the reader between Claude's messages.
-pub(crate) enum Nudge {
+pub enum Nudge {
     /// A task the person stopped from the app.
     TaskStopped(String),
     /// The page of an MCP app a call named has been read, or given up on.
