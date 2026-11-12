@@ -193,7 +193,7 @@ final class Outbox {
                 self.sentFiles[path] = attachment
                 return path
             }, mark: mark)
-        guard let sent else { throw ChatProblem(failure ?? "a file did not reach the host") }
+        guard let sent else { throw ChatProblem(failure ?? String(localized: "a file did not reach the host")) }
         return sent
     }
 

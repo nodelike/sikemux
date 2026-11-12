@@ -20,44 +20,48 @@ enum CallWords {
         switch turn.state {
         case .working:
             guard let on = turn.on else { return nil }
-            return Said(word: "Working", phase: .working, parts: [lowered(on), elapsed((nowMs - turn.since) / 1000)])
+            return Said(
+                word: String(localized: "Working"), phase: .working,
+                parts: [lowered(on), elapsed((nowMs - turn.since) / 1000)])
         case .waiting:
             guard let wait = turn.wait else { return nil }
             return Said(word: waitingOn(wait), phase: .waiting, parts: waited(wait, nowMs: nowMs).map { [$0] } ?? [])
         case .needsYou:
             guard let call = turn.call else { return nil }
-            let more = call.count > 1 ? " and \(call.count - 1) more" : ""
+            let more = call.count > 1 ? String(localized: " and \(call.count - 1) more") : ""
             return Said(
-                word: "Needs you", phase: .needsYou,
-                parts: ["\(call.question)\(more)", "\(minutes(call.waitingSince)) min"])
+                word: String(localized: "Needs you"), phase: .needsYou,
+                parts: ["\(call.question)\(more)", String(localized: "\(minutes(call.waitingSince)) min")])
         case .done:
-            guard let done = turn.done else { return Said(word: "Done", phase: .done, parts: []) }
+            guard let done = turn.done else { return Said(word: String(localized: "Done"), phase: .done, parts: []) }
             var parts = [changed(done.changes)]
             if done.changes != .none {
                 switch (done.checks, done.tests) {
-                case (.pass, let tests?): parts.append("\(tests) tests pass")
-                case (.pass, nil): parts.append("checks pass")
-                case (.failed, _): parts.append("checks fail")
+                case (.pass, let tests?): parts.append(String(localized: "\(tests) tests pass"))
+                case (.pass, nil): parts.append(String(localized: "checks pass"))
+                case (.failed, _): parts.append(String(localized: "checks fail"))
                 default: break
                 }
             }
-            return Said(word: "Done", phase: .done, parts: parts)
+            return Said(word: String(localized: "Done"), phase: .done, parts: parts)
         case .stopped:
             var parts = turn.stopped?.left.map { [lowered($0)] } ?? []
-            parts.append("nothing set to wake it")
-            return Said(word: "Stopped", phase: .stopped, parts: parts)
+            parts.append(String(localized: "nothing set to wake it"))
+            return Said(word: String(localized: "Stopped"), phase: .stopped, parts: parts)
         case .failed:
             guard let failed = turn.failed else { return nil }
             let why: String =
                 switch failed.why {
-                case .limit: "\(maker)'s limit"
-                case .signIn: "signed out of \(maker)"
-                case .network: "lost the connection to \(maker)"
-                default: failed.said ?? "the turn did not finish"
+                case .limit: String(localized: "\(maker)'s limit")
+                case .signIn: String(localized: "signed out of \(maker)")
+                case .network: String(localized: "lost the connection to \(maker)")
+                default: failed.said ?? String(localized: "the turn did not finish")
                 }
             var parts = [why]
-            if let resets = failed.resetsAt, resets > nowMs { parts.append("resets \(ChatWords.clock(resets))") }
-            return Said(word: "Failed", phase: .failed, parts: parts)
+            if let resets = failed.resetsAt, resets > nowMs {
+                parts.append(String(localized: "resets \(ChatWords.clock(resets))"))
+            }
+            return Said(word: String(localized: "Failed"), phase: .failed, parts: parts)
         case .unknown:
             return nil
         }
@@ -67,18 +71,21 @@ enum CallWords {
     /// more than one does, and how long.
     static func docked(_ said: Said, waiting: Int) -> Said {
         guard said.phase == .needsYou else { return said }
-        let more = waiting > 1 ? ["\(waiting) calls"] : []
+        let more = waiting > 1 ? [String(localized: "\(waiting) calls")] : []
         return Said(word: said.word, phase: said.phase, parts: more + Array(said.parts.suffix(1)))
     }
 
     static func waitingOn(_ wait: TurnWait) -> String {
         switch wait.kind {
-        case .ci: "Waiting on CI"
-        case .deploy: "Waiting on the deploy"
-        case .check: "Waiting on the checks"
-        case .agent: wait.what.hasPrefix("@") ? "Waiting on \(wait.what)" : "Waiting on @\(wait.what)"
-        case .timer: wait.until.map { "Waiting until \(ChatWords.clock($0))" } ?? "Waiting"
-        case .process, .unknown: "Waiting on \(wait.what)"
+        case .ci: String(localized: "Waiting on CI")
+        case .deploy: String(localized: "Waiting on the deploy")
+        case .check: String(localized: "Waiting on the checks")
+        case .agent:
+            wait.what.hasPrefix("@")
+                ? String(localized: "Waiting on \(wait.what)") : String(localized: "Waiting on @\(wait.what)")
+        case .timer:
+            wait.until.map { String(localized: "Waiting until \(ChatWords.clock($0))") } ?? String(localized: "Waiting")
+        case .process, .unknown: String(localized: "Waiting on \(wait.what)")
         }
     }
 
@@ -86,46 +93,47 @@ enum CallWords {
     static func waited(_ wait: TurnWait, nowMs: Int) -> String? {
         guard wait.kind != .timer else { return nil }
         let gone = max(0, nowMs - wait.startedAt) / 60_000
-        guard let expected = wait.expectedMs else { return "\(gone) min" }
-        return "\(gone) of ~\((expected + 59_999) / 60_000) min"
+        guard let expected = wait.expectedMs else { return String(localized: "\(gone) min") }
+        let usual = (expected + 59_999) / 60_000
+        return String(localized: "\(gone) of ~\(usual) min")
     }
 
     static func changed(_ changes: WorkAt) -> String {
         switch changes {
-        case .none, .unknown: "no changes"
-        case .uncommitted: "uncommitted"
-        case .committed: "committed"
-        case .landed: "landed"
-        case .staged: "on staging"
-        case .shipped: "shipped"
+        case .none, .unknown: String(localized: "no changes")
+        case .uncommitted: String(localized: "uncommitted")
+        case .committed: String(localized: "committed")
+        case .landed: String(localized: "landed")
+        case .staged: String(localized: "on staging")
+        case .shipped: String(localized: "shipped")
         }
     }
 
     /// The words on a step's button.
     static func step(_ step: TurnStep) -> String? {
         switch step {
-        case .commit: "Commit"
-        case .push: "Push"
-        case .deployStaging: "Deploy to staging"
-        case .shipProduction: "Ship to production…"
-        case .rollBack: "Roll back"
-        case .tryIt: "Try it"
-        case .carryOn: "Carry on"
-        case .undo: "Undo"
+        case .commit: String(localized: "Commit")
+        case .push: String(localized: "Push")
+        case .deployStaging: String(localized: "Deploy to staging")
+        case .shipProduction: String(localized: "Ship to production…")
+        case .rollBack: String(localized: "Roll back")
+        case .tryIt: String(localized: "Try it")
+        case .carryOn: String(localized: "Carry on")
+        case .undo: String(localized: "Undo")
         case .unknown: nil
         }
     }
 
     /// The button that brings the call a waiting agent asks into view.
-    static let look = "Look"
+    static let look = String(localized: "Look")
 
     /// How long a turn has run, clock style as the Mac says it: `45s`, `3m 07s`, `2h 05m`.
     static func elapsed(_ seconds: Int) -> String {
         let seconds = max(0, seconds)
         let two = { (value: Int) in value < 10 ? "0\(value)" : "\(value)" }
-        if seconds < 60 { return "\(seconds)s" }
-        if seconds < 3600 { return "\(seconds / 60)m \(two(seconds % 60))s" }
-        return "\(seconds / 3600)h \(two(seconds / 60 % 60))m"
+        if seconds < 60 { return String(localized: "\(seconds)s") }
+        if seconds < 3600 { return String(localized: "\(seconds / 60)m \(two(seconds % 60))s") }
+        return String(localized: "\(seconds / 3600)h \(two(seconds / 60 % 60))m")
     }
 
     /// The agent's own words, as they read after a dot: the first letter small unless it starts a name.
@@ -155,11 +163,12 @@ enum CallWords {
         let nowMs = Int(now.timeIntervalSince1970 * 1000)
         switch turn.state {
         case .needsYou:
-            return turn.call.map { "\(max(1, (nowMs - $0.waitingSince) / 60_000))m" }
+            return turn.call.map { String(localized: "\(max(1, (nowMs - $0.waitingSince) / 60_000))m") }
         case .waiting:
             guard let wait = turn.wait else { return nil }
             if ringShare(wait, now: now) != nil, let expected = wait.expectedMs {
-                return "\(max(1, (wait.startedAt + expected - nowMs + 59_999) / 60_000))m"
+                let left = max(1, (wait.startedAt + expected - nowMs + 59_999) / 60_000)
+                return String(localized: "\(left)m")
             }
             return wait.until.map { countdown($0 - nowMs) }
         default:
@@ -169,48 +178,55 @@ enum CallWords {
 
     /// Time left until something fires: now, 12m, 3h, 4d; minutes rounded up under an hour.
     static func countdown(_ ms: Int) -> String {
-        guard ms > 0 else { return "now" }
+        guard ms > 0 else { return String(localized: "now") }
         let minutes = (ms + 59_999) / 60_000
-        if minutes < 60 { return "\(minutes)m" }
-        if minutes < 24 * 60 { return "\(minutes / 60)h" }
-        return "\(minutes / (24 * 60))d"
+        if minutes < 60 { return String(localized: "\(minutes)m") }
+        if minutes < 24 * 60 { return String(localized: "\(minutes / 60)h") }
+        return String(localized: "\(minutes / (24 * 60))d")
     }
 
     /// What a row's mark says to VoiceOver, the hover card's words on the Mac.
     static func rowLabel(_ turn: TurnState, now: Date = Date()) -> String {
         switch turn.state {
-        case .working: "Working"
-        case .waiting: turn.wait.map { "\(waitingOn($0)), \(rowMinutes(turn, now: now) ?? "")" } ?? "Waiting"
-        case .needsYou: "Needs you, \(rowMinutes(turn, now: now) ?? "")"
-        case .done: "Done"
-        case .stopped: "Stopped"
-        case .failed: "Failed"
+        case .working: String(localized: "Working")
+        case .waiting:
+            turn.wait.map { "\(waitingOn($0)), \(rowMinutes(turn, now: now) ?? "")" } ?? String(localized: "Waiting")
+        case .needsYou: String(localized: "Needs you, \(rowMinutes(turn, now: now) ?? "")")
+        case .done: String(localized: "Done")
+        case .stopped: String(localized: "Stopped")
+        case .failed: String(localized: "Failed")
         case .unknown: ""
         }
     }
 
     // MARK: The call card
 
-    static let pick = "pick"
-    static let againstIt = "Against it:"
-    static let addNote = "Add a note…"
-    static let ownWords = "Or answer in your own words…"
-    static let secretField = "Type or paste it…"
-    static let goWithThis = "Go with this"
-    static let notMine = "Not mine"
-    static let whatRuns = "What runs"
-    static func kept(_ name: String) -> String { "Kept private: @\(name) reads it, and it never shows in the chat." }
+    static let pick = String(localized: "pick")
+    static let againstIt = String(localized: "Against it:")
+    static let addNote = String(localized: "Add a note…")
+    static let ownWords = String(localized: "Or answer in your own words…")
+    static let secretField = String(localized: "Type or paste it…")
+    static let goWithThis = String(localized: "Go with this")
+    static let notMine = String(localized: "Not mine")
+    static let whatRuns = String(localized: "What runs")
+    static func kept(_ name: String) -> String {
+        String(localized: "Kept private: @\(name) reads it, and it never shows in the chat.")
+    }
     /// Go with this while the host has not yet taken that this phone drew the call.
-    static let connecting = "Connecting…"
+    static let connecting = String(localized: "Connecting…")
     /// Which of an agent's waiting calls the card shows: `1 of 3`.
-    static func place(_ index: Int, of count: Int) -> String { "\(index) of \(count)" }
+    static func place(_ index: Int, of count: Int) -> String { String(localized: "\(index) of \(count)") }
     /// On the card when the answer sent from its notification did not go.
-    static func pushFailed(_ why: String) -> String { "Your answer from the notification didn't go: \(why)" }
+    static func pushFailed(_ why: String) -> String {
+        String(localized: "Your answer from the notification didn't go: \(why)")
+    }
     /// How much a hidden answer holds, so the person can see their typing and paste landed.
     static func hidden(_ text: String) -> String {
         let lines = (text.hasSuffix("\n") ? String(text.dropLast()) : text).components(separatedBy: "\n").count
-        let characters = "\(text.count) character\(text.count == 1 ? "" : "s") hidden"
-        return lines > 1 ? "\(lines) lines, \(characters)" : characters
+        let characters =
+            text.count == 1
+            ? String(localized: "1 character hidden") : String(localized: "\(text.count) characters hidden")
+        return lines > 1 ? String(localized: "\(lines) lines, \(characters)") : characters
     }
     /// The name on a picture's corner: an evidence item's own words, when they are short enough to be a name (Now,
     /// New), else none.
@@ -221,11 +237,15 @@ enum CallWords {
     }
     /// Said when an answer to a call carries context chips, which a call's answer does not take.
     static let noChips =
-        "A call's answer takes words and files, not chips. Take the chips off, or send them to the agent."
+        String(
+            localized:
+                "A call's answer takes words and files, not chips. Take the chips off, or send them to the agent.")
     /// The composer's chip while a call waits in the chat.
-    static func answering(_ name: String, _ question: String) -> String { "Answering @\(name) · \(question)" }
+    static func answering(_ name: String, _ question: String) -> String {
+        String(localized: "Answering @\(name) · \(question)")
+    }
     /// The composer's placeholder while a call waits in the chat.
-    static func typeYourAnswer(_ name: String) -> String { "Or type your answer to @\(name)" }
+    static func typeYourAnswer(_ name: String) -> String { String(localized: "Or type your answer to @\(name)") }
 
     /// A weighty call's brief, which stands as its context.
     static func context(_ call: PersonCall) -> String? {
@@ -237,49 +257,51 @@ enum CallWords {
     /// The chief's row: what follows it is its chat's own title, and where projects share the list, the project.
     static let chief = "@Chief"
     /// The composer's words in the chief's own chat.
-    static let tellChief = "Tell @Chief what you want"
+    static let tellChief = String(localized: "Tell @Chief what you want")
     /// The composer's words in a worker's chat, in a project with a chief.
-    static func sendTo(_ name: String) -> String { "Send to @\(name)" }
+    static func sendTo(_ name: String) -> String { String(localized: "Send to @\(name)") }
     /// Under the chief's row when a tap cannot reach the host to open its chat.
-    static let chiefOffline = "Not connected to this host yet, so its chief can't open."
+    static let chiefOffline = String(localized: "Not connected to this host yet, so its chief can't open.")
 
     // MARK: An assumption
 
     /// After the agent's name: what it went on assuming.
-    static func assumed(_ assumption: String) -> String { "assumed \(assumption)" }
-    static let fine = "Fine"
-    static let change = "Change"
-    static func couldNotRead(_ problem: String) -> String { "could not read this agent's questions: \(problem)" }
+    static func assumed(_ assumption: String) -> String { String(localized: "assumed \(assumption)") }
+    static let fine = String(localized: "Fine")
+    static let change = String(localized: "Change")
+    static func couldNotRead(_ problem: String) -> String {
+        String(localized: "could not read this agent's questions: \(problem)")
+    }
 
     // MARK: The calls tab
 
-    static let calls = "Calls"
-    static let answered = "Answered"
-    static let noCalls = "Nothing waits on you."
+    static let calls = String(localized: "Calls")
+    static let answered = String(localized: "Answered")
+    static let noCalls = String(localized: "Nothing waits on you.")
 
     /// What came of an answered or closed call, as its row in the calls tab says it.
     static func cameOf(_ call: PersonCall) -> String {
         switch call.outcome?.result {
         case .shipped:
             switch call.outcome?.healthy {
-            case true?: return "shipped · healthy"
-            case false?: return "shipped · unhealthy"
-            case nil: return "shipped"
+            case true?: return String(localized: "shipped · healthy")
+            case false?: return String(localized: "shipped · unhealthy")
+            case nil: return String(localized: "shipped")
             }
-        case .notShipped: return "not shipped"
-        case .failed: return "it failed"
-        case .mayHaveRun: return "may have run, Sikemux restarted"
-        case .handedBack: return "handed back"
-        case .withdrawn: return "went on without you"
+        case .notShipped: return String(localized: "not shipped")
+        case .failed: return String(localized: "it failed")
+        case .mayHaveRun: return String(localized: "may have run, Sikemux restarted")
+        case .handedBack: return String(localized: "handed back")
+        case .withdrawn: return String(localized: "went on without you")
         case .heard, .unknown, nil: break
         }
-        guard let answer = call.answer else { return "closed" }
-        if call.secret == true { return "answered, kept private" }
-        if answer.words != nil { return "in your words" }
+        guard let answer = call.answer else { return String(localized: "closed") }
+        if call.secret == true { return String(localized: "answered, kept private") }
+        if answer.words != nil { return String(localized: "in your words") }
         let picked = answer.option.map { [$0] } ?? answer.options ?? []
-        if !picked.isEmpty, picked == call.pick.map({ [$0] }) { return "as picked" }
+        if !picked.isEmpty, picked == call.pick.map({ [$0] }) { return String(localized: "as picked") }
         let labels = picked.compactMap { id in call.options.first { $0.id == id }?.label }
-        return labels.isEmpty ? "answered" : labels.map { "“\($0)”" }.joined(separator: ", ")
+        return labels.isEmpty ? String(localized: "answered") : labels.map { "“\($0)”" }.joined(separator: ", ")
     }
 
     // The push's buttons say what `CallPush` in `Shared/Notify/Card.swift` holds, where the notification extension

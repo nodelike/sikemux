@@ -110,7 +110,7 @@ extension ToolPart {
     /// A call the turn cut off has a duration, but printing it would read as a call that ran that long and then
     /// finished, so it says why it stopped.
     var elapsed: String? {
-        if tool.status == .cancelled { return "stopped" }
+        if tool.status == .cancelled { return String(localized: "stopped") }
         guard let startedAt, let endedAt else { return nil }
         return ChatWords.duration(ms: Double(endedAt - startedAt))
     }
@@ -169,7 +169,7 @@ struct ToolGroup: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("\(said ?? calls)\(current != nil ? ", running" : "")")
+            .accessibilityLabel(current != nil ? String(localized: "\(said ?? calls), running") : said ?? calls)
             .accessibilityValue(open ? "expanded" : "collapsed")
             if open {
                 VStack(alignment: .leading, spacing: 0) {
@@ -253,7 +253,11 @@ private struct ToolRowView: View {
             .buttonStyle(.plain)
             .allowsHitTesting(opens)
             .accessibilityLabel(
-                "\(ChatWords.toolKind(tool)) \(tool.row.target)\(tool.status == .failed ? ", failed" : running ? ", running" : "")"
+                tool.status == .failed
+                    ? String(localized: "\(ChatWords.toolKind(tool)) \(tool.row.target), failed")
+                    : running
+                        ? String(localized: "\(ChatWords.toolKind(tool)) \(tool.row.target), running")
+                        : "\(ChatWords.toolKind(tool)) \(tool.row.target)"
             )
             if open {
                 ToolDetailView(part: part, command: command, group: group)
@@ -325,7 +329,9 @@ private struct ToolDetailView: View {
     @State private var problem: String?
 
     var body: some View {
-        let waiting = detail != nil ? nil : problem.map { "Could not load it: \($0)" } ?? "Loading…"
+        let waiting =
+            detail != nil
+            ? nil : problem.map { String(localized: "Could not load it: \($0)") } ?? String(localized: "Loading…")
         Group {
             if part.diff != nil {
                 DiffBody(
@@ -344,7 +350,7 @@ private struct ToolDetailView: View {
         }
         .task(id: "\(part.tool.toolCallId)|\(part.tool.running)|\(part.output?.lines ?? -1)") {
             guard let read = context.toolDetail else {
-                problem = "the host is not here to send it"
+                problem = String(localized: "the host is not here to send it")
                 return
             }
             do {
@@ -378,7 +384,8 @@ private struct Terminal: View {
         let whole = context.folds.isOpen("\(group)/\(part.id)/whole", false)
         let shown = folds && !whole ? lines.suffix(Self.tailLines).joined(separator: "\n") : text
         let exit =
-            part.tool.status == .failed ? (part.output?.exitCode.map { "exit \($0)" } ?? "failed") : nil
+            part.tool.status == .failed
+            ? (part.output?.exitCode.map { String(localized: "exit \($0)") } ?? String(localized: "failed")) : nil
         VStack(alignment: .leading, spacing: 0) {
             if let command {
                 HStack(alignment: .top, spacing: 7) {
@@ -386,7 +393,7 @@ private struct Terminal: View {
                     Text(command).font(Theme.mono(11.5)).lineSpacing(17 - 11.5 * 1.32).foregroundStyle(palette.ink)
                         .textSelection(.enabled)
                         .padding(.vertical, 4).frame(maxWidth: .infinity, alignment: .leading)
-                    CopyButton(value: command, label: "command", size: 12)
+                    CopyButton(value: command, label: String(localized: "command"), size: 12)
                 }
                 .padding(.leading, 12)
                 .padding(.trailing, 3)
@@ -402,8 +409,10 @@ private struct Terminal: View {
                             .background(palette.danger.opacity(0.12), in: Capsule())
                     }
                     if !lines.isEmpty {
-                        Text("\(lines.count) \(Format.counted("line", lines.count))").font(Theme.ui(12))
-                            .foregroundStyle(palette.inkFaint)
+                        Text(lines.count == 1 ? LocalizedStringKey("1 line") : "\(lines.count) lines").font(
+                            Theme.ui(12)
+                        )
+                        .foregroundStyle(palette.inkFaint)
                     }
                     Spacer(minLength: 0)
                     if folds {
@@ -425,7 +434,7 @@ private struct Terminal: View {
             }
             if let image = output?.image, let picture = DataPicture(base64: image.data) {
                 Button {
-                    context.showImage(picture.image, "attachment")
+                    context.showImage(picture.image, String(localized: "attachment"))
                 } label: {
                     Image(uiImage: picture.image).resizable().scaledToFit().frame(maxWidth: .infinity)
                         .background(palette.sunken)
@@ -447,7 +456,7 @@ private struct Terminal: View {
                             printed(shown)
                         }
                     }
-                    CopyButton(value: text, label: "output", size: 12).padding(4)
+                    CopyButton(value: text, label: String(localized: "output"), size: 12).padding(4)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(palette.sunken)
@@ -455,10 +464,10 @@ private struct Terminal: View {
             } else if let waiting {
                 note(waiting)
             } else if part.output != nil, output?.image == nil {
-                note("No output")
+                note(String(localized: "No output"))
             }
             if (output?.cut ?? part.output?.cut) == true, !folds || whole {
-                note("The rest of the output was not kept")
+                note(String(localized: "The rest of the output was not kept"))
             }
         }
     }

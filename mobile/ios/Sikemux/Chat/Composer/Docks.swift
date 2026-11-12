@@ -19,7 +19,6 @@ struct Dock: View {
         let index: Int
         let count: Int
         let onPage: (Int) -> Void
-        let noun: String
     }
 
     let title: String
@@ -107,18 +106,19 @@ struct Dock: View {
 
     private func pages(_ pager: Pager) -> some View {
         HStack(spacing: 2) {
-            pageButton(Icons.chevron, flipped: true, disabled: pager.index == 0, label: "Previous \(pager.noun)") {
+            pageButton(
+                Icons.chevron, flipped: true, disabled: pager.index == 0, label: String(localized: "Previous request")
+            ) {
                 pager.onPage(pager.index - 1)
             }
             Text("\(pager.index + 1) of \(pager.count)")
                 .font(Theme.ui(12))
                 .monospacedDigit()
                 .foregroundStyle(palette.tertiary)
-                .accessibilityLabel(
-                    "\(pager.noun.prefix(1).uppercased())\(pager.noun.dropFirst()) \(pager.index + 1) of \(pager.count)"
-                )
+                .accessibilityLabel(String(localized: "Request \(pager.index + 1) of \(pager.count)"))
             pageButton(
-                Icons.chevron, flipped: false, disabled: pager.index == pager.count - 1, label: "Next \(pager.noun)"
+                Icons.chevron, flipped: false, disabled: pager.index == pager.count - 1,
+                label: String(localized: "Next request")
             ) { pager.onPage(pager.index + 1) }
         }
         .padding(.top, -2)
@@ -155,14 +155,16 @@ struct PermissionDock: View {
         let rejects = request.options.filter { $0.kind == .rejectOnce || $0.kind == .rejectAlways }
         let always = request.options.filter { $0.kind == .allowAlways }
         let once = request.options.filter { $0.kind == .allowOnce }
-        let cancel = rejects.isEmpty ? [PermissionOption(optionId: "", name: "Cancel", kind: .rejectOnce)] : []
+        let cancel =
+            rejects.isEmpty
+            ? [PermissionOption(optionId: "", name: String(localized: "Cancel"), kind: .rejectOnce)] : []
         let primary = once.first ?? always.first
         let title = Self.title(request)
         let agent = Catalog.label(provider)
         Dock(
             title: title,
-            detail: "\(agent) needs permission to continue",
-            pager: Dock.Pager(index: index, count: requests.count, onPage: { page = $0 }, noun: "request"),
+            detail: String(localized: "\(agent) needs permission to continue"),
+            pager: Dock.Pager(index: index, count: requests.count, onPage: { page = $0 }),
             command: Self.asked(request.toolCall),
             run: ChatWords.toolKind(request.toolCall) == "run",
             diff: request.diff,
@@ -179,10 +181,10 @@ struct PermissionDock: View {
 
     static func title(_ request: PermissionAsk) -> String {
         switch ChatWords.toolKind(request.toolCall) {
-        case "run": "Run a command?"
-        case "edit", "move", "delete": "Change a file?"
-        case "fetch": "Open a web page?"
-        default: "Allow this?"
+        case "run": String(localized: "Run a command?")
+        case "edit", "move", "delete": String(localized: "Change a file?")
+        case "fetch": String(localized: "Open a web page?")
+        default: String(localized: "Allow this?")
         }
     }
 

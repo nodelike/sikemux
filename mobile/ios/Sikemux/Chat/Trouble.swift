@@ -22,8 +22,9 @@ struct Trouble: View {
             if dropped && !session.rows.messages.isEmpty {
                 VStack(alignment: .leading, spacing: 8) {
                     said(
-                        Icons.plug, head.ended?.message.map { "This session dropped: \($0)" } ?? "This session dropped."
-                    )
+                        Icons.plug,
+                        head.ended?.message.map { String(localized: "This session dropped: \($0)") }
+                            ?? String(localized: "This session dropped."))
                     if canAct {
                         actions {
                             action("Reconnect") { session.retry() }
@@ -43,7 +44,10 @@ struct Trouble: View {
                     said(
                         Icons.warning,
                         network
-                            ? "Lost connection to \(maker ?? "the model provider"). Sikemux sends it again when you're back online."
+                            ? String(
+                                localized:
+                                    "Lost connection to \(maker ?? String(localized: "the model provider")). Sikemux sends it again when you're back online."
+                            )
                             : error)
                     if network, let details = failure?.details {
                         Text(details).font(Theme.mono(11.5)).lineSpacing(3).foregroundStyle(palette.tertiary)
@@ -61,10 +65,12 @@ struct Trouble: View {
                             }
                             if resumes { action("Don't resume") { session.failedTurn(.cancelResume) } }
                             ForEach(moves, id: \.id) { other in
-                                action("Continue on \(other.label)") { session.moveToAccount(other.id) }
+                                action(String(localized: "Continue on \(other.label)")) {
+                                    session.moveToAccount(other.id)
+                                }
                             }
                             if let carryOn {
-                                action("Hand to \(Catalog.label(carryOn, core: session.core))") {
+                                action(String(localized: "Hand to \(Catalog.label(carryOn, core: session.core))")) {
                                     session.handOff(to: carryOn)
                                 }
                             }
@@ -111,7 +117,7 @@ struct Trouble: View {
 
     private func action(_ title: String, _ run: @escaping () -> Void) -> some View {
         Button(action: run) {
-            Text(title).font(Theme.ui(13, .semibold)).foregroundStyle(palette.ink)
+            Text(LocalizedStringKey(title)).font(Theme.ui(13, .semibold)).foregroundStyle(palette.ink)
                 .padding(.horizontal, 13).frame(height: 32)
                 .overlay(Capsule().strokeBorder(palette.border, lineWidth: 1))
                 .contentShape(Capsule())

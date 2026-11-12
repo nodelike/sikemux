@@ -54,8 +54,8 @@ final class ChatFind {
     /// `3/41…` while the host goes on counting, or why there is nothing to step to.
     var label: String {
         guard !text.isEmpty else { return "" }
-        if failed { return "Could not search" }
-        if counted == 0 { return complete && found.isEmpty ? "No results" : "…" }
+        if failed { return String(localized: "Could not search") }
+        if counted == 0 { return complete && found.isEmpty ? String(localized: "No results") : "…" }
         if counted >= Self.mostCounted { return "\((at ?? 0) + 1)/999+" }
         let place = at.map { counted - $0 } ?? counted
         return "\(place)/\(counted)\(complete ? "" : "…")"
@@ -241,8 +241,8 @@ struct FindBar: View {
                 .background(RoundedRectangle(cornerRadius: 9).fill(on ? palette.selected : .clear))
         }
         .buttonStyle(ActiveFill(radius: 9))
-        .accessibilityLabel(name)
-        .accessibilityValue(on ? "on" : "off")
+        .accessibilityLabel(LocalizedStringKey(name))
+        .accessibilityValue(on ? Text("on") : Text("off"))
         .accessibilityAddTraits(.isToggle)
     }
 
@@ -251,6 +251,6 @@ struct FindBar: View {
             IconView(icon: icon, size: 15).foregroundStyle(palette.inkDim).frame(width: 32, height: 32)
         }
         .buttonStyle(ActiveFill(radius: 9))
-        .accessibilityLabel(label)
+        .accessibilityLabel(LocalizedStringKey(label))
     }
 }

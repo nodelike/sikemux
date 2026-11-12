@@ -131,7 +131,7 @@ struct DiffRows: View {
                         } label: {
                             HStack(spacing: 6) {
                                 IconView(icon: Icons.chevron, size: 9).foregroundStyle(palette.inkDim)
-                                Text("\(count) more \(Format.counted("line", count))")
+                                Text(count == 1 ? LocalizedStringKey("1 more line") : "\(count) more lines")
                                     .font(Theme.ui(11))
                                     .foregroundStyle(palette.inkDim)
                             }

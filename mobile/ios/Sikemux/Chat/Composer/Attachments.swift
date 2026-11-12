@@ -26,8 +26,13 @@ struct ComposerAttachments<Lead: View>: View {
                 .padding(.bottom, 2)
             }
             if let first = failed.first {
+                let what =
+                    failed.count == 1
+                    ? String(localized: "\(first.name) did not reach the host")
+                    : String(localized: "\(failed.count) files did not reach the host")
                 Text(
-                    "\(failed.count == 1 ? "\(first.name) did not reach the host" : "\(failed.count) files did not reach the host")\(first.problem.map { ": \($0)" } ?? ""). Tap to try again."
+                    first.problem.map { String(localized: "\(what): \($0). Tap to try again.") }
+                        ?? String(localized: "\(what). Tap to try again.")
                 )
                 .font(Theme.ui(12))
                 .lineSpacing(16 - 12 * 1.2)
@@ -96,7 +101,7 @@ struct ComposerAttachments<Lead: View>: View {
                         .contentShape(Rectangle().inset(by: -6))
                 }
                 .buttonStyle(PressFade())
-                .accessibilityLabel("Remove \(attachment.name)")
+                .accessibilityLabel(String(localized: "Remove \(attachment.name)"))
             }
         }
         .contentShape(shape)
@@ -104,8 +109,11 @@ struct ComposerAttachments<Lead: View>: View {
         .accessibilityAddTraits(broken ? .isButton : [])
         .accessibilityLabel(
             broken
-                ? "\(attachment.name) did not reach the host\(attachment.problem.map { ": \($0)" } ?? ""). Try again"
-                : "\(attachment.name)\(sending ? ", sending" : "")")
+                ? attachment.problem.map {
+                    String(localized: "\(attachment.name) did not reach the host: \($0). Try again")
+                }
+                    ?? String(localized: "\(attachment.name) did not reach the host. Try again")
+                : sending ? String(localized: "\(attachment.name), sending") : attachment.name)
     }
 }
 

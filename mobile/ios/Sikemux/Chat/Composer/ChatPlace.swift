@@ -44,7 +44,7 @@ struct ChatPlace: View {
                 IconView(icon: Icons.user, size: 13)
                     .foregroundStyle(palette.tertiary)
                     .padding(.horizontal, 4)
-                    .accessibilityLabel("Account, \(account)")
+                    .accessibilityLabel(String(localized: "Account, \(account)"))
             }
         }
         .frame(height: 24)

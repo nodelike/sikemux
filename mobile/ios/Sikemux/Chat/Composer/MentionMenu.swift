@@ -137,7 +137,7 @@ final class MentionSearch {
         case .failed(let failure):
             return .failed(
                 failure.category == .auth
-                    ? "Sign in to \(host) in the Git pane to pick from its issues" : failure.message)
+                    ? String(localized: "Sign in to \(host) in the Git pane to pick from its issues") : failure.message)
         case .value(let value):
             do {
                 return .items(try value.decoded(as: [Item].self))
@@ -187,7 +187,8 @@ final class MentionSearch {
             let closedRows: [MentionRow] = named.enumerated().map { index, agent in
                 let id = "\(Mentions.earlier)\(agent.provider)/\(agent.sessionId)"
                 return MentionRow(
-                    id: id, title: "@\(agent.name)", detail: agent.title, group: index == 0 ? "Closed" : nil,
+                    id: id, title: "@\(agent.name)", detail: agent.title,
+                    group: index == 0 ? String(localized: "Closed") : nil,
                     mark: .agent(id: nil, provider: agent.provider), take: { write("@\(agent.name)", id, nil, nil) }
                 )
             }
@@ -201,7 +202,7 @@ final class MentionSearch {
                 MentionRow(
                     id: "\(Mentions.earlier)\(chat.cli)/\(chat.sessionId)", title: chat.title, plain: true,
                     aside: Format.age(Format.date(millis: Double(chat.activeAt))),
-                    group: index == 0 ? "Earlier chats" : nil,
+                    group: index == 0 ? String(localized: "Earlier chats") : nil,
                     mark: .agent(id: nil, provider: chat.cli),
                     take: {
                         write(
@@ -214,11 +215,16 @@ final class MentionSearch {
             }
             let rows = mates + closedRows + earlierRows
             return (
-                rows, rows.isEmpty ? (wanted.isEmpty ? "No other agent yet" : "No agent or earlier chat matches") : nil
+                rows,
+                rows.isEmpty
+                    ? (wanted.isEmpty
+                        ? String(localized: "No other agent yet")
+                        : String(localized: "No agent or earlier chat matches"))
+                    : nil
             )
 
         case .files:
-            guard let project else { return ([], "Open a project to pick its files") }
+            guard let project else { return ([], String(localized: "Open a project to pick its files")) }
             let answered = entries?.query == typed.needle ? entries : nil
             if let failed = answered?.failed { return ([], failed) }
             let draft = session.draftText
@@ -234,14 +240,21 @@ final class MentionSearch {
                     take: { write(written, "\(entry.folder ? Mentions.folder : Mentions.file)\(whole)", nil, nil) }
                 )
             }
-            return (rows, rows.isEmpty && answered != nil ? "Nothing in the project matches" : nil)
+            return (rows, rows.isEmpty && answered != nil ? String(localized: "Nothing in the project matches") : nil)
 
         case .issues, .pulls:
             let pulls = typed.trigger == .pulls
             guard let project, let cwd else {
-                return ([], "Open a project to pick its \(pulls ? "pull requests" : "issues")")
+                return (
+                    [],
+                    pulls
+                        ? String(localized: "Open a project to pick its pull requests")
+                        : String(localized: "Open a project to pick its issues")
+                )
             }
-            guard project.codeHost != nil else { return ([], "This project has no remote on a code host") }
+            guard project.codeHost != nil else {
+                return ([], String(localized: "This project has no remote on a code host"))
+            }
             let listed = tracked?.cwd == cwd ? tracked?.listed : nil
             if case .failed(let why) = listed { return ([], why) }
             var items: [Item] = []
@@ -282,7 +295,8 @@ final class MentionSearch {
                         }
                     )
                 }
-            let none = pulls ? "No open pull request matches" : "No open issue matches"
+            let none =
+                pulls ? String(localized: "No open pull request matches") : String(localized: "No open issue matches")
             return (rows, rows.isEmpty && listed != nil ? none : nil)
         }
     }
@@ -315,7 +329,7 @@ struct MentionMenu: View {
                             HStack(spacing: 5) {
                                 Text(trigger.rawValue).font(Theme.mono(12.5)).foregroundStyle(
                                     on ? palette.accent : palette.inkFaint)
-                                Text(label).font(Theme.ui(12.5, .medium)).foregroundStyle(
+                                Text(LocalizedStringKey(label)).font(Theme.ui(12.5, .medium)).foregroundStyle(
                                     on ? palette.ink : palette.tertiary)
                             }
                             .padding(.horizontal, 9)

@@ -37,7 +37,7 @@ struct TaskNoticeView: View {
                     IconView(icon: notice.taskType == "workflow" ? Icons.workflow : Icons.timer, size: 12)
                         .foregroundStyle(palette.inkDim)
                     Text(notice.name).font(Theme.mono(12)).foregroundStyle(palette.ink).lineLimit(1)
-                    Text(notice.state.rawValue).font(Theme.ui(12.5)).foregroundStyle(
+                    Text(notice.state.word).font(Theme.ui(12.5)).foregroundStyle(
                         failed ? palette.danger : palette.inkDim
                     )
                     .fixedSize()
@@ -55,8 +55,19 @@ struct TaskNoticeView: View {
         }
         .buttonStyle(.plain)
         .disabled(summary == nil)
-        .accessibilityLabel("\(notice.name) \(notice.state.rawValue)\(summary.map { ". \($0)" } ?? "")")
+        .accessibilityLabel("\(notice.name) \(notice.state.word)\(summary.map { ". \($0)" } ?? "")")
         .accessibilityValue(summary == nil ? "" : open ? "expanded" : "collapsed")
+    }
+}
+
+extension NoticeState {
+    fileprivate var word: String {
+        switch self {
+        case .completed: String(localized: "completed")
+        case .failed: String(localized: "failed")
+        case .stopped: String(localized: "stopped")
+        case .unknown: rawValue
+        }
     }
 }
 
@@ -108,7 +119,7 @@ struct AccountLine: View {
     let move: AccountMove
 
     var body: some View {
-        let why = move.reason == .limit ? move.from.map { "\($0) reached its usage limit" } : nil
+        let why = move.reason == .limit ? move.from.map { String(localized: "\($0) reached its usage limit") } : nil
         NoticeLine {
             HStack(spacing: 8) {
                 IconView(icon: Icons.user, size: 12).foregroundStyle(palette.inkDim)
@@ -119,7 +130,7 @@ struct AccountLine: View {
             .frame(minHeight: 18)
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Moved to \(move.label)\(why.map { ". \($0)" } ?? "")")
+        .accessibilityLabel(String(localized: "Moved to \(move.label)") + (why.map { ". \($0)" } ?? ""))
     }
 }
 
@@ -144,7 +155,7 @@ struct SmartPick: View {
         .padding(.top, 40)
         .padding(.horizontal, 16)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Smart pick: \(move.label)\(move.placed.map { ". \($0)" } ?? "")")
+        .accessibilityLabel(String(localized: "Smart pick: \(move.label)") + (move.placed.map { ". \($0)" } ?? ""))
     }
 }
 
@@ -296,7 +307,8 @@ struct HostPicture: View {
 }
 
 private let subagentWords: [SubagentState: String] = [
-    .running: "working", .completed: "done", .failed: "failed", .cancelled: "stopped", .disconnected: "lost",
+    .running: String(localized: "working"), .completed: String(localized: "done"), .failed: String(localized: "failed"),
+    .cancelled: String(localized: "stopped"), .disconnected: String(localized: "lost"),
 ]
 
 /// A subagent as a strip: who, its task, what it is doing now or how it ended, and what it cost; it opens onto its work.
@@ -340,7 +352,8 @@ struct SubagentRow: View {
             }
             .buttonStyle(ActiveFill(radius: 10))
             .accessibilityLabel(
-                "Subagent \(subagent.name), \(doing ?? subagentWords[subagent.state] ?? "")\(cost.map { ", \($0)" } ?? "")"
+                String(localized: "Subagent \(subagent.name), \(doing ?? subagentWords[subagent.state] ?? "")")
+                    + (cost.map { ", \($0)" } ?? "")
             )
             .accessibilityValue(open ? "expanded" : "collapsed")
             if open {
@@ -357,7 +370,9 @@ struct SubagentRow: View {
 
     static func cost(_ subagent: SubagentCard) -> String? {
         var pieces: [String] = []
-        if let tokens = subagent.tokens, tokens > 0 { pieces.append("\(Format.tokens(tokens)) tokens") }
+        if let tokens = subagent.tokens, tokens > 0 {
+            pieces.append(String(localized: "\(Format.tokens(tokens)) tokens"))
+        }
         if subagent.calls > 0 { pieces.append(ChatWords.callCount(subagent.calls)) }
         return pieces.isEmpty ? nil : pieces.joined(separator: " · ")
     }
@@ -561,7 +576,7 @@ struct EarlierLine: View {
             if failed {
                 Button(action: onRetry) {
                     Text(
-                        "Couldn't load earlier messages ·\(Text(" Retry").font(Theme.ui(12.5, .medium)).foregroundStyle(palette.ink))"
+                        "Couldn't load earlier messages · \(Text("Retry").font(Theme.ui(12.5, .medium)).foregroundStyle(palette.ink))"
                     )
                 }
                 .buttonStyle(.plain)

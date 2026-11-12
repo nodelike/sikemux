@@ -156,7 +156,6 @@ struct ContextChips: View {
             ForEach(items, id: \.uri) { item in
                 let tracked = item.tracked
                 let issue = tracked?.kind == .issue
-                let label = tracked == nil ? "Context" : issue ? "Issue" : "Pull request"
                 HStack(spacing: 6) {
                     IconView(icon: tracked == nil ? Icons.file : issue ? Icons.issue : Icons.pullRequest, size: 14)
                         .foregroundStyle(tracked == nil ? palette.inkFaint : palette.live)
@@ -173,7 +172,12 @@ struct ContextChips: View {
                     RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(palette.border, lineWidth: 1)
                 )
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel("\(label) \(tracked.map { "#\($0.number) " } ?? "")\(tracked?.title ?? item.title)")
+                .accessibilityLabel(
+                    tracked.map {
+                        issue
+                            ? String(localized: "Issue #\($0.number) \($0.title)")
+                            : String(localized: "Pull request #\($0.number) \($0.title)")
+                    } ?? String(localized: "Context \(item.title)"))
             }
         }
         .padding(.bottom, 6)

@@ -68,12 +68,19 @@ struct ChatBottom: View {
     }
 
     private func placeholder(_ rows: ChatRows) -> String {
-        if context.offline { return "Reconnect to continue this conversation" }
-        if rows.running { return context.steers ? "Send to steer this turn" : "Send to queue behind the running turn" }
-        if let to = to(rows) {
-            return to.commands && !rows.commands.isEmpty ? "\(to.words), or type / for commands" : to.words
+        if context.offline { return String(localized: "Reconnect to continue this conversation") }
+        if rows.running {
+            return context.steers
+                ? String(localized: "Send to steer this turn")
+                : String(localized: "Send to queue behind the running turn")
         }
-        return rows.commands.isEmpty ? "Ask about this project" : "Ask about this project, or type / for commands"
+        if let to = to(rows) {
+            return to.commands && !rows.commands.isEmpty
+                ? String(localized: "\(to.words), or type / for commands") : to.words
+        }
+        return rows.commands.isEmpty
+            ? String(localized: "Ask about this project")
+            : String(localized: "Ask about this project, or type / for commands")
     }
 
     /// Who an idle chat's words go to, as the Mac says it: the chief in its own chat, a worker by name in a project
@@ -109,7 +116,7 @@ struct SentAttachments: View {
                 } else {
                     FileChip(name: name, size: picked?.size)
                         .accessibilityElement(children: .ignore)
-                        .accessibilityLabel("File \(name)")
+                        .accessibilityLabel(String(localized: "File \(name)"))
                 }
             }
         }
@@ -145,7 +152,7 @@ private struct SentImage: View {
             }
         }
         .buttonStyle(PressFade())
-        .accessibilityLabel("\(name), open")
+        .accessibilityLabel(String(localized: "\(name), open"))
         .task(id: path) {
             let local = picked.flatMap { $0.onHostOnly ? nil : $0.uri }
             var url = local

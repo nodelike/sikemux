@@ -89,7 +89,7 @@ struct ConfigSheet: View {
         }
     }
 
-    private func label(_ text: String) -> some View {
+    private func label(_ text: LocalizedStringKey) -> some View {
         Text(text)
             .font(Theme.label)
             .foregroundStyle(palette.tertiary)

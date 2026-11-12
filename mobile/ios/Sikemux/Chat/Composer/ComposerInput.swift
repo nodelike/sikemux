@@ -41,7 +41,7 @@ struct ComposerInput: UIViewRepresentable {
         field.textContainer.lineFragmentPadding = 0
         field.isScrollEnabled = false
         field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        field.accessibilityLabel = "Message"
+        field.accessibilityLabel = String(localized: "Message")
         field.focusOnShow = focusOnShow
         focus?.field = field
         return field

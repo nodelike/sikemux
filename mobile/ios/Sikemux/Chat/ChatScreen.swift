@@ -60,7 +60,7 @@ private struct ChatPane: View {
                 provider: info?.provider ?? "agent", core: core, agentId: agentId, folds: session.folds,
                 messages: { [weak session] in session?.rows.messages ?? [] },
                 toolDetail: { [weak session] id, done in
-                    guard let session else { throw ChatProblem("the chat is closed") }
+                    guard let session else { throw ChatProblem(String(localized: "the chat is closed")) }
                     return try await session.toolDetail(id, done: done)
                 }))
     }
@@ -68,7 +68,7 @@ private struct ChatPane: View {
     private var live: HostLive { Hub.shared.live(core) }
     private var info: ChatInfo? { live.view?.chats.first { $0.agentId == agentId } }
     private var device: PairedDevice? { Hub.shared.device(core) }
-    private var hostName: String { device?.displayName ?? "the host" }
+    private var hostName: String { device?.displayName ?? String(localized: "the host") }
     private var watchOnly: Bool { device?.access == .watch }
     private var provider: String { info?.provider ?? "agent" }
     private var listed: AgentShown? { live.view?.inbox.agents.first { $0.agentId == agentId } }
@@ -272,12 +272,15 @@ private struct ChatPane: View {
     @ViewBuilder private var status: some View {
         let unreachable = session.attached != .live && isClosed
         if unreachable {
-            ChatProblemView(text: "Can't reach \(hostName). \(capitalised(closedProblem))", action: "Try again") {
+            ChatProblemView(
+                text: String(localized: "Can't reach \(hostName). \(capitalised(closedProblem))"), action: "Try again"
+            ) {
                 Hub.shared.retry(core)
             }
         } else if session.attached == .missing {
             ChatProblemView(
-                text: session.problem.map(capitalised) ?? "This chat is no longer running on the host.",
+                text: session.problem.map(capitalised)
+                    ?? String(localized: "This chat is no longer running on the host."),
                 action: "Try again"
             ) { session.retry() }
         } else if session.attached == .attaching {
@@ -285,7 +288,9 @@ private struct ChatPane: View {
                 Working()
                 Text(
                     isConnecting
-                        ? "Reaching \(hostName)…" : info?.state == .asleep ? "Waking the chat…" : "Opening the chat…"
+                        ? String(localized: "Reaching \(hostName)…")
+                        : info?.state == .asleep
+                            ? String(localized: "Waking the chat…") : String(localized: "Opening the chat…")
                 )
                 .metaStyle(palette)
             }
@@ -378,7 +383,7 @@ private struct TranscriptFooter: View {
         let namedStep = rows.head.turn?.on != nil
         let activity =
             session.stoppingTurn
-            ? Doing("Stopping")
+            ? Doing(String(localized: "Stopping"))
             : session.permissions.isEmpty && !namedStep ? ChatWords.doing(rows.head.activity) : nil
         let reachable = canAct && session.attached == .live && Hub.shared.live(core).isOpen
         VStack(alignment: .leading, spacing: 0) {
@@ -438,9 +443,13 @@ private struct Reconnecting: View {
     var body: some View {
         HStack(spacing: 10) {
             if !closed { Working() }
-            Text(closed ? "Can't reach \(hostName). \(capitalised(problem))" : "Reconnecting to \(hostName)…")
-                .font(Theme.ui(13)).foregroundStyle(palette.secondary).lineLimit(2)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            Text(
+                closed
+                    ? String(localized: "Can't reach \(hostName). \(capitalised(problem))")
+                    : String(localized: "Reconnecting to \(hostName)…")
+            )
+            .font(Theme.ui(13)).foregroundStyle(palette.secondary).lineLimit(2)
+            .frame(maxWidth: .infinity, alignment: .leading)
             Button("Try now", action: onTry).font(Theme.ui(13, .semibold)).foregroundStyle(palette.ink)
                 .accessibilityLabel("Try reaching \(hostName) now")
         }

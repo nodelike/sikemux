@@ -50,7 +50,7 @@ final class TranscriptContext {
                 picture?.image = image
             } else {
                 Haptics.failure()
-                picture?.problem = "Could not get it from the host."
+                picture?.problem = String(localized: "Could not get it from the host.")
             }
         }
     }

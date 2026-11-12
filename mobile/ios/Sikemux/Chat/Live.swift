@@ -26,13 +26,16 @@ struct LiveWork: Equatable {
     }
 
     static func == (a: LiveWork, b: LiveWork) -> Bool {
-        a.handoff == b.handoff && a.guests == b.guests && a.subagents == b.subagents && a.queued == b.queued && a.plan == b.plan
+        a.handoff == b.handoff && a.guests == b.guests && a.subagents == b.subagents && a.queued == b.queued
+            && a.plan == b.plan
             && a.tasks.map(\.kind) == b.tasks.map(\.kind) && a.tasks.map(\.tasks) == b.tasks.map(\.tasks)
     }
 
     /// Some step of the plan is still to do.
     var planOpen: Bool { plan.contains { $0.status != .completed } }
-    var any: Bool { handoff != nil || !guests.isEmpty || !subagents.isEmpty || !tasks.isEmpty || !queued.isEmpty || planOpen }
+    var any: Bool {
+        handoff != nil || !guests.isEmpty || !subagents.isEmpty || !tasks.isEmpty || !queued.isEmpty || planOpen
+    }
 
     struct Piece: Equatable {
         enum Kind: Hashable {
@@ -52,24 +55,29 @@ struct LiveWork: Equatable {
     var pieces: [Piece] {
         var pieces: [Piece] = []
         if let handoff {
-            pieces.append(Piece(kind: .handoff(handoff.from), count: "~\(Self.thousands(handoff.tokens))k", word: "handoff"))
+            pieces.append(
+                Piece(
+                    kind: .handoff(handoff.from), count: "~\(Self.thousands(handoff.tokens))k",
+                    word: String(localized: "handoff")))
         }
         if !guests.isEmpty {
-            pieces.append(Piece(kind: .guests, count: "\(guests.count)", word: "from guests"))
+            pieces.append(Piece(kind: .guests, count: "\(guests.count)", word: String(localized: "from guests")))
         }
         if !subagents.isEmpty {
             pieces.append(
-                Piece(kind: .subagents, count: "\(subagents.count)", word: Format.counted("subagent", subagents.count)))
+                Piece(kind: .subagents, count: "\(subagents.count)", word: Self.kindWord("subagent", subagents.count)))
         }
         for (kind, tasks) in tasks {
             pieces.append(
-                Piece(kind: .task(kind), count: "\(tasks.count)", word: Format.counted(kind, tasks.count))
+                Piece(kind: .task(kind), count: "\(tasks.count)", word: Self.kindWord(kind, tasks.count))
             )
         }
-        if !queued.isEmpty { pieces.append(Piece(kind: .queued, count: "\(queued.count)", word: "queued")) }
+        if !queued.isEmpty {
+            pieces.append(Piece(kind: .queued, count: "\(queued.count)", word: String(localized: "queued")))
+        }
         if planOpen {
             let done = plan.filter { $0.status == .completed }.count
-            pieces.append(Piece(kind: .plan, count: "\(done)/\(plan.count)", word: "plan"))
+            pieces.append(Piece(kind: .plan, count: "\(done)/\(plan.count)", word: String(localized: "plan")))
         }
         return pieces
     }
@@ -103,7 +111,8 @@ struct LiveWork: Equatable {
         let detail = [task.summary, task.description, task.lastToolName, task.taskType].compactMap { $0 }.first {
             !$0.isEmpty && $0 != task.name
         }
-        let joined = [task.owner.map { "from \($0)" }, detail].compactMap { $0 }.joined(separator: " · ")
+        let joined = [task.owner.map { String(localized: "from \($0)") }, detail].compactMap { $0 }.joined(
+            separator: " · ")
         return joined.isEmpty ? nil : joined
     }
 
@@ -114,16 +123,21 @@ struct LiveWork: Equatable {
     }
 
     static func agentCost(_ agent: WorkflowAgent) -> String? {
-        let cost = [agent.tokens.map { "\(Format.tokens($0)) tokens" }, agent.toolCalls.map { "\($0) tools" }]
-            .compactMap {
-                $0
-            }
+        let cost = [
+            agent.tokens.map { String(localized: "\(Format.tokens($0)) tokens") },
+            agent.toolCalls.map { String(localized: "\($0) tools") },
+        ]
+        .compactMap {
+            $0
+        }
         return cost.isEmpty ? nil : cost.joined(separator: " · ")
     }
 
     static func agentCount(_ agents: [WorkflowAgent]) -> String {
         let finished = agents.filter { $0.state == .completed || $0.state == .failed }.count
-        return "\(finished)/\(agents.count) \(agents.count == 1 ? "agent" : "agents")"
+        return agents.count == 1
+            ? String(localized: "\(finished)/\(agents.count) agent")
+            : String(localized: "\(finished)/\(agents.count) agents")
     }
 
     static func thousands(_ tokens: Int) -> Int { (tokens + 999) / 1000 }
@@ -131,18 +145,33 @@ struct LiveWork: Equatable {
     /// What a handoff's line says first: where the chat goes, or where it was forked from.
     static func handoffTitle(_ handoff: Handoff, to provider: String, core: String) -> String {
         handoff.forkedFrom == nil
-            ? "Hands over to \(Catalog.label(provider, core: core))"
-            : "Forked from a \(Catalog.label(handoff.from, core: core)) chat"
+            ? String(localized: "Hands over to \(Catalog.label(provider, core: core))")
+            : String(localized: "Forked from a \(Catalog.label(handoff.from, core: core)) chat")
     }
 
     /// What a handoff holds, as the Mac's dock line says it.
     static func handoffDetail(_ handoff: Handoff) -> String {
         var said: [String] = []
-        if handoff.request { said.append("first request") }
-        said.append(handoff.exchanges == 1 ? "the latest exchange" : "\(handoff.exchanges) latest exchanges")
-        if handoff.commands > 0 { said.append("\(handoff.commands) \(Format.counted("command", handoff.commands))") }
-        said.append("~\(thousands(handoff.tokens))k tokens")
+        if handoff.request { said.append(String(localized: "first request")) }
+        said.append(
+            handoff.exchanges == 1
+                ? String(localized: "the latest exchange") : String(localized: "\(handoff.exchanges) latest exchanges"))
+        if handoff.commands == 1 { said.append(String(localized: "1 command")) }
+        if handoff.commands > 1 { said.append(String(localized: "\(handoff.commands) commands")) }
+        said.append(String(localized: "~\(thousands(handoff.tokens))k tokens"))
         return said.joined(separator: " · ")
+    }
+
+    /// The word for `count` of a kind of running work, such as subagents or a background task's kind.
+    static func kindWord(_ kind: String, _ count: Int) -> String {
+        let one = count == 1
+        return switch kind {
+        case "subagent": one ? String(localized: "subagent") : String(localized: "subagents")
+        case "task": one ? String(localized: "task") : String(localized: "tasks")
+        case "shell": one ? String(localized: "shell") : String(localized: "shells")
+        case "workflow": one ? String(localized: "workflow") : String(localized: "workflows")
+        default: Format.counted(kind, count)
+        }
     }
 
     static func queuedLabel(_ message: QueuedMessage) -> String {
@@ -211,7 +240,9 @@ struct LiveStrip: View {
         .buttonStyle(.plain)
         .padding(.horizontal, 14)
         .padding(.bottom, -1)
-        .accessibilityLabel(pieces.map { "\($0.count) \($0.word)" }.joined(separator: ", ") + ". Show")
+        .accessibilityLabel(
+            String(localized: "\(pieces.map { "\($0.count) \($0.word)" }.joined(separator: ", ")). Show")
+        )
         .task(id: lines.count) {
             guard lines.count > 1 else { return }
             while !Task.isCancelled {
@@ -262,7 +293,7 @@ struct LiveSheet: View {
                 }
             }
             if !work.subagents.isEmpty {
-                SectionLabel(Format.counted("subagent", work.subagents.count), count: work.subagents.count)
+                SectionLabel(LiveWork.kindWord("subagent", work.subagents.count), count: work.subagents.count)
                 ForEach(work.subagents, id: \.sessionId) { subagent in
                     Line(title: subagent.name, detail: LiveWork.activity(subagent), cost: SubagentRow.cost(subagent)) {
                         AgentMark(provider: provider, size: 16)
@@ -279,10 +310,11 @@ struct LiveSheet: View {
                 }
             }
             ForEach(work.tasks, id: \.kind) { kind, tasks in
-                SectionLabel(Format.counted(kind, tasks.count), count: tasks.count)
+                SectionLabel(LiveWork.kindWord(kind, tasks.count), count: tasks.count)
                 ForEach(tasks, id: \.asyncTaskId) { task in
                     Line(
-                        title: task.name, detail: task.state == .paused ? "paused" : LiveWork.detail(task),
+                        title: task.name,
+                        detail: task.state == .paused ? String(localized: "paused") : LiveWork.detail(task),
                         cost: task.agents.map(LiveWork.agentCount)
                     ) {
                         IconView(icon: taskIcon(kind), size: 15).foregroundStyle(
@@ -317,7 +349,10 @@ struct LiveSheet: View {
             if !work.guests.isEmpty {
                 SectionLabel("from guests", count: work.guests.count)
                 ForEach(work.guests, id: \.id) { guest in
-                    Line(title: guest.name.map { "\($0) · guest" } ?? "Guest", detail: guest.text) {
+                    Line(
+                        title: guest.name.map { String(localized: "\($0) · guest") } ?? String(localized: "Guest"),
+                        detail: guest.text
+                    ) {
                         IconView(icon: Icons.link, size: 15).foregroundStyle(palette.inkDim)
                     } end: {
                         if canAct {
@@ -347,7 +382,8 @@ struct LiveSheet: View {
                     let files = held.paths.count
                     Line(
                         title: label,
-                        detail: !held.text.isEmpty && files > 0 ? "\(files) \(Format.counted("file", files))" : nil
+                        detail: !held.text.isEmpty && files > 0
+                            ? files == 1 ? String(localized: "1 file") : String(localized: "\(files) files") : nil
                     ) {
                         IconView(icon: Icons.clock, size: 15).foregroundStyle(palette.inkDim)
                     } end: {
@@ -454,7 +490,7 @@ private struct SmallButton: View {
                 if busy {
                     ProgressView().controlSize(.small)
                 } else {
-                    Text(label).font(Theme.ui(12.5, .medium)).foregroundStyle(palette.ink)
+                    Text(LocalizedStringKey(label)).font(Theme.ui(12.5, .medium)).foregroundStyle(palette.ink)
                 }
             }
             .frame(minWidth: 52, minHeight: 28)

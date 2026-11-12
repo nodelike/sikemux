@@ -35,14 +35,14 @@ struct GoalLine: View {
     /// What the line says and the state its mark takes, from the moment of the goal it marks.
     private var said: (SliceState, String) {
         switch goal.moment ?? .started {
-        case .step: (.done, "Step done")
-        case .done: (.done, "Goal done")
-        case .stopped: (goal.state == .failed ? .failed : .waiting, "Goal stopped")
+        case .step: (.done, String(localized: "Step done"))
+        case .done: (.done, String(localized: "Goal done"))
+        case .stopped: (goal.state == .failed ? .failed : .waiting, String(localized: "Goal stopped"))
         default:
             switch goal.state {
-            case .needsYou: (.needsYou, "Goal needs you")
-            case .waiting: (.waiting, "Goal waiting")
-            default: (goal.state, "Goal")
+            case .needsYou: (.needsYou, String(localized: "Goal needs you"))
+            case .waiting: (.waiting, String(localized: "Goal waiting"))
+            default: (goal.state, String(localized: "Goal"))
             }
         }
     }
@@ -51,7 +51,8 @@ struct GoalLine: View {
     private var progress: String? {
         guard let steps = goal.steps, !steps.isEmpty else { return nil }
         let done = steps.filter { $0 == .done }.count
-        return "\(done) of \(steps.count) \(goal.ofGates == true ? "gates" : "done")"
+        return goal.ofGates == true
+            ? String(localized: "\(done) of \(steps.count) gates") : String(localized: "\(done) of \(steps.count) done")
     }
 }
 

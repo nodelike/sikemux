@@ -162,7 +162,9 @@ private struct UserMessage: View {
                     .padding(.top, 5)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Not sent\(look.unsent?.problem.map { ": \($0)" } ?? ""). Retry")
+                .accessibilityLabel(
+                    look.unsent?.problem.map { String(localized: "Not sent: \($0). Retry") }
+                        ?? String(localized: "Not sent. Retry"))
             } else if look.unsent?.state == .sending {
                 Text("Sending…").font(Theme.ui(11)).foregroundStyle(palette.inkFaint).padding(.top, 4)
             } else if let strip = look.strip, !look.editing {
@@ -207,8 +209,10 @@ private struct StripView: View {
     var body: some View {
         HStack(spacing: 8) {
             if mine { Spacer(minLength: 0) }
-            CopyButton(value: strip.text, label: mine ? "message" : "reply", size: 15)
-                .frame(width: 24, height: 24)
+            CopyButton(
+                value: strip.text, label: mine ? String(localized: "message") : String(localized: "reply"), size: 15
+            )
+            .frame(width: 24, height: 24)
             if let onEdit {
                 Button(action: onEdit) {
                     IconView(icon: Icons.pencil, size: 15).foregroundStyle(palette.inkFaint).frame(
@@ -219,7 +223,9 @@ private struct StripView: View {
             }
             if let at = strip.at {
                 Text(
-                    strip.took.map { "\(ChatWords.sent(at)) · took \(ChatWords.duration(ms: Double($0)))" }
+                    strip.took.map {
+                        String(localized: "\(ChatWords.sent(at)) · took \(ChatWords.duration(ms: Double($0)))")
+                    }
                         ?? ChatWords.sent(at)
                 )
                 .font(Theme.ui(11))
@@ -507,17 +513,20 @@ struct TeamFoldLine: View {
         let name = "@\(need.name)"
         let said: String =
             switch need.kind {
-            case .asks: need.text.map { "\(name) asks: \($0)" } ?? "\(name) has a question"
-            case .waits: need.text.map { "\(name): \($0)" } ?? "\(name) waits on you"
-            case .failed: need.text.map { "\(name) failed: \($0)" } ?? "\(name) failed"
-            default: "\(name) stopped"
+            case .asks:
+                need.text.map { String(localized: "\(name) asks: \($0)") }
+                    ?? String(localized: "\(name) has a question")
+            case .waits: need.text.map { "\(name): \($0)" } ?? String(localized: "\(name) waits on you")
+            case .failed:
+                need.text.map { String(localized: "\(name) failed: \($0)") } ?? String(localized: "\(name) failed")
+            default: String(localized: "\(name) stopped")
             }
         return (said, true)
     }
 
     var body: some View {
         let (said, wanting) = words
-        let count = line.messages == 1 ? "1 message" : "\(line.messages) messages"
+        let count = line.messages == 1 ? String(localized: "1 message") : String(localized: "\(line.messages) messages")
         VStack(alignment: .leading, spacing: 0) {
             Button {
                 Haptics.select()
@@ -571,6 +580,6 @@ struct TeamFoldLine: View {
     static func took(_ ms: Int) -> String {
         if ms < 60_000 { return ChatWords.duration(ms: Double(ms)) }
         let minutes = Int((Double(ms) / 60_000).rounded())
-        return minutes < 60 ? "\(minutes)m" : "\(minutes / 60)h \(minutes % 60)m"
+        return minutes < 60 ? String(localized: "\(minutes)m") : String(localized: "\(minutes / 60)h \(minutes % 60)m")
     }
 }

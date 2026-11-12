@@ -207,10 +207,11 @@ struct Composer: View {
                 locked: modeLocked, onToggle: session.setPermissionMode)
             // The model keeps its name; the effort's shortens first, as on the Mac.
             if let model {
-                Capped(width: 160) { picker(model, accent: true, label: "Model, \(model)") }.layoutPriority(1)
+                Capped(width: 160) { picker(model, accent: true, label: String(localized: "Model, \(model)")) }
+                    .layoutPriority(1)
             }
             if let effort {
-                picker(effort, accent: false, label: "Effort, \(effort)").layoutPriority(-1)
+                picker(effort, accent: false, label: String(localized: "Effort, \(effort)")).layoutPriority(-1)
             }
             if let usage = rows.usage {
                 ContextRing(usage: usage, provider: provider) { configuring = true }
@@ -273,10 +274,14 @@ struct Composer: View {
             )
             .accessibilityLabel(
                 uploading
-                    ? "Sending files"
+                    ? String(localized: "Sending files")
                     : offline
-                        ? "Send, waiting for \(hostName)"
-                        : running ? (steers ? "Send to steer this turn" : "Send after this turn") : "Send"
+                        ? String(localized: "Send, waiting for \(hostName)")
+                        : running
+                            ? (steers
+                                ? String(localized: "Send to steer this turn")
+                                : String(localized: "Send after this turn"))
+                            : String(localized: "Send")
             )
             .accessibilityHint(sendable ? "Hold to stash this prompt" : "")
         } else {
@@ -350,7 +355,7 @@ struct Composer: View {
         let sendable = !text.isEmpty || !draft.attachments.isEmpty || !draft.chips.isEmpty
         guard sendable, !offline, !draft.uploading else { return }
         if Self.side(text) == nil, let unknown = Self.unknownCommand(text, session.rows.commands) {
-            session.report("/\(unknown) is not available in this session")
+            session.report(String(localized: "/\(unknown) is not available in this session"))
             return
         }
         Haptics.tap()
@@ -387,7 +392,7 @@ struct Composer: View {
             do {
                 try await session.attachStash(items.map(\.id))
             } catch {
-                session.report("could not attach it: \(problem(error))")
+                session.report(String(localized: "could not attach it: \(problem(error))"))
             }
         }
     }
@@ -400,7 +405,8 @@ struct Composer: View {
     }
 
     /// `/side`, which Sikemux answers itself by opening a side chat, ahead of the agent's own commands.
-    static let sideCommand = ChatCommandInfo(name: "side", description: "Ask aside, with this chat's context")
+    static let sideCommand = ChatCommandInfo(
+        name: "side", description: String(localized: "Ask aside, with this chat's context"))
 
     /// The question after `/side`, empty when none, or nil when the text is not `/side`.
     static func side(_ text: String) -> String? {

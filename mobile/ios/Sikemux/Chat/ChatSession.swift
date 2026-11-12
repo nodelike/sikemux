@@ -303,7 +303,7 @@ final class ChatSession {
                 chat.setHead { $0.permissions = [] }
                 touched.head = true
             }
-            outbox.failWaiting("the chat is gone from the host")
+            outbox.failWaiting(String(localized: "the chat is gone from the host"))
             emit()
             return
         }
@@ -394,7 +394,9 @@ final class ChatSession {
         notice = nil
         let agentId = agentId
         Task {
-            await ask("Could not stop the task") { try await $0.stopTask(agentId: agentId, taskId: taskId) }
+            await ask(String(localized: "Could not stop the task")) {
+                try await $0.stopTask(agentId: agentId, taskId: taskId)
+            }
             stopping.remove(taskId)
         }
     }
@@ -405,7 +407,7 @@ final class ChatSession {
     func failedTurn(_ how: FailedTurn) {
         let params = ChatAccountsParams(agentId: agentId)
         Task {
-            await ask("Could not do that") { connection in
+            await ask(String(localized: "Could not do that")) { connection in
                 switch how {
                 case .retry: _ = try await connection.call(PhoneCall.RetryFailed.self, params)
                 case .discard: _ = try await connection.call(PhoneCall.DiscardFailed.self, params)
@@ -419,18 +421,30 @@ final class ChatSession {
     /// Hands the chat to another agent, which carries on with what it said.
     func handOff(to provider: String) {
         let params = HandOffParams(agentId: agentId, provider: provider)
-        Task { await ask("Could not hand the chat over") { _ = try await $0.call(PhoneCall.HandOff.self, params) } }
+        Task {
+            await ask(String(localized: "Could not hand the chat over")) {
+                _ = try await $0.call(PhoneCall.HandOff.self, params)
+            }
+        }
     }
 
     /// Sends the next message without the handoff waiting for it.
     func dropHandoff() {
         let params = DropHandoffParams(agentId: agentId)
-        Task { await ask("Could not leave the handoff out") { _ = try await $0.call(PhoneCall.DropHandoff.self, params) } }
+        Task {
+            await ask(String(localized: "Could not leave the handoff out")) {
+                _ = try await $0.call(PhoneCall.DropHandoff.self, params)
+            }
+        }
     }
 
     func moveToAccount(_ accountId: String) {
         let params = MoveChatParams(agentId: agentId, accountId: accountId)
-        Task { await ask("Could not move the chat") { _ = try await $0.call(PhoneCall.MoveChatAccount.self, params) } }
+        Task {
+            await ask(String(localized: "Could not move the chat")) {
+                _ = try await $0.call(PhoneCall.MoveChatAccount.self, params)
+            }
+        }
     }
 
     /// Opens a side chat beside this one, with the same agent, model and project, sending `text` as its first
@@ -439,7 +453,7 @@ final class ChatSession {
         let params = SideChatParams(agentId: agentId, text: text.isEmpty ? nil : text)
         let core = core
         let opened: (SideChat) -> Void = { side in Router.shared.push(.chat(core: core, agent: side.agentId)) }
-        return await ask("Could not open a side chat", then: opened) {
+        return await ask(String(localized: "Could not open a side chat"), then: opened) {
             try await $0.call(PhoneCall.StartSideChat.self, params)
         }
     }
@@ -447,7 +461,9 @@ final class ChatSession {
     /// Ends the chat's agent on the host and closes it in every app. Answers whether it did.
     func stopChat() async -> Bool {
         let params = AgentParams(agentId: agentId)
-        return await ask("Could not stop the chat") { _ = try await $0.call(PhoneCall.CloseChat.self, params) }
+        return await ask(String(localized: "Could not stop the chat")) {
+            _ = try await $0.call(PhoneCall.CloseChat.self, params)
+        }
     }
 
     /// Takes the chat back to before the person's message `rowId` and sends `text` in its place with the files it
@@ -460,7 +476,7 @@ final class ChatSession {
         emit()
         let params = EditParams(agentId: agentId, messageId: messageId, text: text, paths: row.attachments ?? [])
         Task {
-            await ask("Could not edit the message", undo: { self.retry() }) {
+            await ask(String(localized: "Could not edit the message"), undo: { self.retry() }) {
                 _ = try await $0.call(PhoneCall.EditMessage.self, params)
             }
         }
@@ -484,7 +500,7 @@ final class ChatSession {
         _ query: String, matchCase: Bool, wholeWord: Bool, from: FindAt?, direction: FindDirection?, limit: Int?,
         countOnly: Bool
     ) async throws -> FindAnswer {
-        guard let feed = feed.mark?.feed else { throw ChatProblem("the chat is not open") }
+        guard let feed = feed.mark?.feed else { throw ChatProblem(String(localized: "the chat is not open")) }
         let params = FindParams(
             agentId: agentId, feed: feed, query: query, matchCase: matchCase, wholeWord: wholeWord, from: from,
             direction: direction, limit: limit, countOnly: countOnly)

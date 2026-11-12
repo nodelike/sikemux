@@ -19,10 +19,10 @@ struct ImageViewer: View {
                 ProgressView().tint(palette.ink).frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             HStack(spacing: 12) {
-                control(Icons.close, label: "Close") { dismiss() }
+                control(Icons.close, label: String(localized: "Close")) { dismiss() }
                 Text(name).font(Theme.mono(12)).foregroundStyle(palette.inkDim).lineLimit(1).truncationMode(.middle)
                     .frame(maxWidth: .infinity)
-                control(Icons.download, label: "Save \(name)") { saving = true }
+                control(Icons.download, label: String(localized: "Save \(name)")) { saving = true }
                     .disabled(picture.image == nil)
                     .opacity(picture.image == nil ? 0.5 : 1)
             }

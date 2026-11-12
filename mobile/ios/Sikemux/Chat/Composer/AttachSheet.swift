@@ -50,7 +50,7 @@ struct AttachSheet: ViewModifier {
                     )
                     .overlay(alignment: .bottom) {
                         if !stashChosen.isEmpty {
-                            ActionButton("Add \(stashChosen.count)", kind: .primary) {
+                            ActionButton(String(localized: "Add \(stashChosen.count)"), kind: .primary) {
                                 onStash(stashChosen)
                                 shown = false
                             }
@@ -129,7 +129,11 @@ struct AttachSheet: ViewModifier {
         }
         .overlay(alignment: .bottom) {
             if !chosen.isEmpty {
-                ActionButton("Add \(chosen.count) \(Format.counted("photo", chosen.count))", kind: .primary) {
+                ActionButton(
+                    chosen.count == 1
+                        ? String(localized: "Add 1 photo") : String(localized: "Add \(chosen.count) photos"),
+                    kind: .primary
+                ) {
                     let picked = chosen
                     shown = false
                     attach { try await Pick.library(picked) }
@@ -171,7 +175,7 @@ struct AttachSheet: ViewModifier {
                     .overlay(
                         RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(
                             palette.border, lineWidth: 1))
-                Text(label).font(Theme.ui(12.5, .medium)).foregroundStyle(palette.secondary)
+                Text(LocalizedStringKey(label)).font(Theme.ui(12.5, .medium)).foregroundStyle(palette.secondary)
             }
             .contentShape(Rectangle())
         }
@@ -262,7 +266,7 @@ struct AttachSheet: ViewModifier {
                 let picked = try await pick()
                 if !picked.isEmpty { onAttach(picked) }
             } catch {
-                onProblem("could not pick: \(problem(error))")
+                onProblem(String(localized: "could not pick: \(problem(error))"))
             }
         }
     }

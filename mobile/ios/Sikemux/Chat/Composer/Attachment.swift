@@ -55,9 +55,17 @@ enum Uploads {
         if !tooBig.isEmpty {
             let names = tooBig.map(\.name).joined(separator: ", ")
             let limit = WireLimits.maxAttachmentBytes / (1024 * 1024)
-            return (fits, "\(names) \(tooBig.count == 1 ? "is" : "are") over \(limit) MB, too big to send")
+            return (
+                fits,
+                tooBig.count == 1
+                    ? String(localized: "\(names) is over \(limit) MB, too big to send")
+                    : String(localized: "\(names) are over \(limit) MB, too big to send")
+            )
         }
-        return (fits, small.count > room ? "a message takes at most \(WireLimits.maxAttachments) files" : nil)
+        return (
+            fits,
+            small.count > room ? String(localized: "a message takes at most \(WireLimits.maxAttachments) files") : nil
+        )
     }
 
     /// Where the host keeps each file that got there.

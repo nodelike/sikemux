@@ -37,7 +37,7 @@ extension ChatSession {
             }
             draft.edited()
         }
-        guard await draft.saveNow() else { throw ChatProblem("the draft did not reach the host") }
+        guard await draft.saveNow() else { throw ChatProblem(String(localized: "the draft did not reach the host")) }
         let stashed = try await connection.call(PhoneCall.StashPrompt.self, StashPromptParams(agentId: agentId))
         draft.clear()
         return stashed.id
@@ -107,7 +107,7 @@ extension ChatSession {
         let ids = outbox.onHostQueue(ids)
         guard !ids.isEmpty else { return }
         Task {
-            await ask("Could not steer") { connection in
+            await ask(String(localized: "Could not steer")) { connection in
                 try await connection.call(PhoneCall.SteerQueued.self, QueuedParams(agentId: self.agentId, ids: ids))
             }
         }
@@ -116,7 +116,7 @@ extension ChatSession {
     func dropQueued(_ id: String) {
         guard !outbox.onHostQueue([id]).isEmpty else { return }
         Task {
-            await ask("Could not take it back") { connection in
+            await ask(String(localized: "Could not take it back")) { connection in
                 try await connection.call(PhoneCall.DropQueued.self, QueuedParams(agentId: self.agentId, ids: [id]))
             }
         }
@@ -125,7 +125,7 @@ extension ChatSession {
     /// Sends a share viewer's waiting message to the agent as the person's own.
     func sendGuest(_ id: String) {
         Task {
-            await ask("Could not send it") { connection in
+            await ask(String(localized: "Could not send it")) { connection in
                 try await connection.call(
                     PhoneCall.SendGuestMessage.self, GuestMessageParams(agentId: self.agentId, id: id))
             }
@@ -134,7 +134,7 @@ extension ChatSession {
 
     func dismissGuest(_ id: String) {
         Task {
-            await ask("Could not dismiss it") { connection in
+            await ask(String(localized: "Could not dismiss it")) { connection in
                 try await connection.call(
                     PhoneCall.DismissGuestMessage.self, GuestMessageParams(agentId: self.agentId, id: id))
             }
@@ -161,7 +161,7 @@ extension ChatSession {
         notice = nil
         if chat.running { stoppingTurn = true }
         Task {
-            await ask("Could not stop the turn", undo: { self.stoppingTurn = false }) { connection in
+            await ask(String(localized: "Could not stop the turn"), undo: { self.stoppingTurn = false }) { connection in
                 try await connection.cancel(agentId: self.agentId)
             }
         }
@@ -174,7 +174,7 @@ extension ChatSession {
         notice = nil
         Task {
             await ask(
-                "The answer did not reach the host",
+                String(localized: "The answer did not reach the host"),
                 then: { _ in
                     self.feed.chat.permissions.removeAll { $0.requestId == requestId }
                 }
@@ -192,7 +192,10 @@ extension ChatSession {
         mode = chosen
         notice = nil
         Task {
-            await ask("Could not change permissions", undo: { if self.mode == chosen { self.mode = before } }) {
+            await ask(
+                String(localized: "Could not change permissions"),
+                undo: { if self.mode == chosen { self.mode = before } }
+            ) {
                 connection in
                 try await connection.setPermissionMode(agentId: self.agentId, mode: chosen.rawValue)
             }
@@ -205,7 +208,7 @@ extension ChatSession {
         chosen[configId] = value
         Task {
             await ask(
-                "Could not change the setting",
+                String(localized: "Could not change the setting"),
                 undo: {
                     if self.chosen[configId] == value { self.chosen[configId] = nil }
                 }
@@ -222,7 +225,7 @@ extension ChatSession {
                 try await outbox.queue(text, files, steers: steers, named: named)
             } catch {
                 draft.putBack([text], files)
-                notice = "Could not send the message: \(Sikemux.problem(error))"
+                notice = String(localized: "Could not send the message: \(Sikemux.problem(error))")
             }
         }
     }

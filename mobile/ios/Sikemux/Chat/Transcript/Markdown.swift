@@ -477,7 +477,7 @@ private struct DetailsBlock: View {
                     IconView(icon: Icons.chevron, size: 10)
                         .foregroundStyle(palette.inkFaint)
                         .rotationEffect(.degrees(shown ? 90 : 0))
-                    Text(details.summary.isEmpty ? "Details" : details.summary)
+                    (details.summary.isEmpty ? Text("Details") : Text(verbatim: details.summary))
                         .font(Theme.ui(style.size, .semibold))
                         .foregroundStyle(palette.ink)
                 }
@@ -513,7 +513,7 @@ struct CodeBlock: View, Equatable {
     private static func title(_ lang: String, _ code: String) -> (title: String, numbered: Bool) {
         let lower = lang.lowercased()
         let typed = lang.isEmpty ? code.hasPrefix("$ ") : shells.contains(lower) || commands.contains(lower)
-        return typed ? ("Terminal", false) : (lang.isEmpty ? "Code" : lang, true)
+        return typed ? (String(localized: "Terminal"), false) : (lang.isEmpty ? String(localized: "Code") : lang, true)
     }
 
     var body: some View {
@@ -536,7 +536,7 @@ struct CodeBlock: View, Equatable {
                         .truncationMode(.head)
                 }
                 Spacer(minLength: 0)
-                CopyButton(value: code, label: "code", worded: true)
+                CopyButton(value: code, label: String(localized: "code"), worded: true)
             }
             .padding(.leading, 14)
             .padding(.trailing, 8)
@@ -636,7 +636,9 @@ private struct TableBlock: View {
             }
         }
         .overlay(alignment: .topTrailing) {
-            CopyButton(value: tableSource(table), label: "table", size: 12).background(palette.raised).padding(3)
+            CopyButton(value: tableSource(table), label: String(localized: "table"), size: 12).background(
+                palette.raised
+            ).padding(3)
         }
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(palette.border, lineWidth: 1))
