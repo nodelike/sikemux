@@ -209,6 +209,18 @@ fn heard(core: &Arc<Core>, event: RepoEvent) {
     if let RepoEvent::Committed { agent, .. } | RepoEvent::Landed { agent, .. } = &event {
         crate::server::turn_state::read_work(core, agent);
     }
+    if let RepoEvent::Deployed {
+        project,
+        agent,
+        ran,
+    } = &event
+    {
+        let passed = ran.verdict == Some(Verdict::Passed);
+        if passed && !crate::server::board::is_production(core, project, &ran.environment) {
+            core.inbox.staged(agent);
+            core.changed(crate::server::changed::What::View);
+        }
+    }
     let known = match &event {
         RepoEvent::Committed { project, agent, .. } | RepoEvent::Landed { project, agent, .. } => {
             let state = core.boards.state.locked();

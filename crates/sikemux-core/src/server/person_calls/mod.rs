@@ -519,10 +519,6 @@ impl PersonCalls {
     }
 
     /// What came of the newest production call `agent_id` asked or joined that has an outcome.
-    #[expect(
-        dead_code,
-        reason = "the turn state shows how an agent's last ship went through it"
-    )]
     pub(crate) fn latest_outcome(&self, agent_id: &str) -> Option<CallOutcome> {
         (self.book.locked().iter())
             .map(|kept| &kept.call)

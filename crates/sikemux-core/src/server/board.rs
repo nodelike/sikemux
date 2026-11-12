@@ -3579,6 +3579,15 @@ pub(crate) fn landed_set(core: &Core, project: &str) -> Option<sikemux_view::tur
     state.boards.get(project)?.settings.landed
 }
 
+/// Whether `environment` is `project`'s production: the last of its nearest environments.
+pub(crate) fn is_production(core: &Core, project: &str, environment: &str) -> bool {
+    let state = core.boards.state.locked();
+    let nearest = (levels(&state, project).into_iter()).find(|level| !level.is_empty());
+    nearest
+        .and_then(<[Environment]>::last)
+        .is_some_and(|last| last.name == environment)
+}
+
 /// Whether `project` deploys somewhere before production, and whether it deploys at all, by
 /// its nearest environments: the last of them is production.
 pub(crate) fn deploys_to(core: &Core, project: &str) -> (bool, bool) {

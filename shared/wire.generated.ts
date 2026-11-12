@@ -1274,6 +1274,8 @@ export interface TurnDone {
     checks: ChecksStand;
     /** How many tests passed, when the check said. */
     tests?: number;
+    /** Once shipped: whether the place's health check passed after it went. */
+    healthy?: boolean;
     /** The next steps by the project's landing rule, soonest first. */
     next?: NextStep[];
 }

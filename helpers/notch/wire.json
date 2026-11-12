@@ -15,7 +15,7 @@
     "TurnState": "state since on wait call done stopped failed",
     "TurnWait": "kind what startedAt expectedMs until",
     "TurnCall": "id question waitingSince count",
-    "TurnDone": "changes checks tests next",
+    "TurnDone": "changes checks tests healthy next",
     "NextStep": "step primary",
     "TurnStopped": "left",
     "TurnFailed": "why said resetsAt can",

@@ -2055,6 +2055,8 @@ struct TurnDone: Codable, Hashable, Sendable {
     var checks: ChecksStand
     /// How many tests passed, when the check said.
     var tests: Int?
+    /// Once shipped: whether the place's health check passed after it went.
+    var healthy: Bool?
     /// The next steps by the project's landing rule, soonest first.
     var next: [NextStep]?
 }

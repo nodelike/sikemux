@@ -269,6 +269,8 @@ struct Turn {
     handoff: Option<InboxHandoff>,
     /// The agent committed during it.
     committed: bool,
+    /// A deploy of its went to a place before production, and passed.
+    staged: bool,
     /// Where git said its work was, read once the turn ended and again on each commit.
     work: Option<turn_state::Work>,
 }
@@ -384,6 +386,7 @@ impl Turns {
         Some(turn_state::Ended {
             at: turn.ended_at,
             started_at: turn.started_at,
+            staged: turn.staged,
             problem: (turn.problem.as_ref()).map(|problem| turn_state::Problem {
                 said: problem.said.clone(),
                 fault: problem.fault,
@@ -391,6 +394,13 @@ impl Turns {
             }),
             work: turn.work.clone(),
         })
+    }
+
+    /// A deploy of the agent's went to a place before production, and passed.
+    pub(crate) fn staged(&self, agent_id: &str) {
+        if let Some(turn) = self.turns.locked().get_mut(agent_id) {
+            turn.staged = true;
+        }
     }
 
     /// Whether the agent changed anything in its latest turn, as far as the core heard.

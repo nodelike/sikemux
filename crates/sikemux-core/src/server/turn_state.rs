@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
+use sikemux_view::calls::CallResult;
 use sikemux_view::chat::FailureKind;
 use sikemux_view::inbox::AgentShown;
 use sikemux_view::slice::Verdict;
@@ -37,6 +38,8 @@ pub(crate) struct Ended {
     /// None while it runs, and once the person stopped it.
     pub at: Option<u64>,
     pub started_at: u64,
+    /// A deploy of its went to a place before production during it, and passed.
+    pub staged: bool,
     pub problem: Option<Problem>,
     pub work: Option<Work>,
 }
@@ -186,7 +189,7 @@ pub(crate) fn of(
         return Some(state);
     }
     let mut state = standing(TurnPhase::Done, at);
-    state.done = Some(done(core, ended.work.as_ref()));
+    state.done = Some(done(core, agent_id, &ended));
     Some(state)
 }
 
@@ -241,8 +244,17 @@ fn failed(core: &Core, agent_id: &str, ended: &Ended) -> Option<TurnFailed> {
     })
 }
 
-fn done(core: &Core, work: Option<&Work>) -> TurnDone {
-    let changes = work.map_or(WorkAt::None, |work| work.changes);
+fn done(core: &Core, agent_id: &str, ended: &Ended) -> TurnDone {
+    let work = ended.work.as_ref();
+    let shipped = (core.person_calls.latest_outcome(agent_id))
+        .filter(|outcome| outcome.result == CallResult::Shipped)
+        .filter(|outcome| outcome.at >= ended.started_at);
+    let landed = work.map_or(WorkAt::None, |work| work.changes);
+    let changes = match (&shipped, ended.staged) {
+        (Some(_), _) => WorkAt::Shipped,
+        (None, true) if landed == WorkAt::Landed => WorkAt::Staged,
+        (None, _) => landed,
+    };
     let verdict = work.and_then(|work| {
         let head = work.head.as_deref()?;
         super::board::verdict_on(core, &work.project, head)
@@ -253,11 +265,15 @@ fn done(core: &Core, work: Option<&Work>) -> TurnDone {
         None => ChecksStand::NotChecked,
     };
     let places = work.map(|work| super::board::deploys_to(core, &work.project));
+    let can_roll_back = shipped.as_ref().is_some_and(|outcome| outcome.roll_back);
+    let mut next = next_steps(changes, places.unwrap_or_default());
+    next.retain(|next| next.step != TurnStep::RollBack || can_roll_back);
     TurnDone {
         changes,
         checks,
         tests: None,
-        next: next_steps(changes, places.unwrap_or_default()),
+        healthy: shipped.and_then(|outcome| outcome.healthy),
+        next,
     }
 }
 

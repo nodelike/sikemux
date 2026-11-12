@@ -695,6 +695,8 @@ struct TurnDone: Codable, Hashable {
     let checks: ChecksStand
     /// How many tests passed, when the check said.
     let tests: Int?
+    /// Once shipped: whether the place's health check passed after it went.
+    let healthy: Bool?
     /// The next steps by the project's landing rule, soonest first.
     let next: [NextStep]?
 }

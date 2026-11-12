@@ -95,6 +95,9 @@ pub struct TurnDone {
     /// How many tests passed, when the check said.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tests: Option<u32>,
+    /// Once shipped: whether the place's health check passed after it went.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub healthy: Option<bool>,
     /// The next steps by the project's landing rule, soonest first.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub next: Vec<NextStep>,
