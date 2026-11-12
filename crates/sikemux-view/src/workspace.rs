@@ -436,6 +436,9 @@ pub struct WorkspaceAgent {
     /// The agent that started it, when one did.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lead: Option<String>,
+    /// The chat it was opened beside to ask aside, by agent id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub side_of: Option<String>,
     /// The provider's session, which resumes it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resume_id: Option<String>,

@@ -172,7 +172,9 @@ fn queued_view(queued: &[Queued]) -> Vec<QueuedMessage> {
                 .context
                 .iter()
                 .filter(|item| !item.for_agent_only())
-                .map(|item| SentContext::new(item.uri.clone(), item.title.clone()))
+                .map(|item| {
+                    SentContext::new(item.uri.clone(), item.title.clone()).with_text(&item.text)
+                })
                 .collect(),
         })
         .collect()
@@ -531,7 +533,11 @@ impl Feed {
         if !shown.is_empty() {
             payload["context"] = json!(shown
                 .iter()
-                .map(|item| json!({ "uri": item.uri, "title": item.title }))
+                .map(|item| {
+                    let sent = SentContext::new(item.uri.clone(), item.title.clone())
+                        .with_text(&item.text);
+                    json!({ "uri": item.uri, "title": item.title, "quote": sent.quote })
+                })
                 .collect::<Vec<_>>());
         }
         if !for_agent.is_empty() {

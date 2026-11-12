@@ -1,6 +1,7 @@
 import { memo, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { ActivityIndicator, PanResponder, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { router } from 'expo-router';
 
 import { unknownCommand } from '@shared/chat/composerInput';
 import { currentLabel } from '@/chat/sessionConfig';
@@ -24,7 +25,7 @@ import type { WrittenAnswer } from './assumptions';
 import type { ChatSession } from './session';
 import type { Attachment } from './uploads';
 import { useDraft, useDraftTokens } from './useChat';
-import { matchingCommands } from './commands';
+import { matchingCommands, sideQuestion } from './commands';
 import { typedMention } from './mentions';
 import { MentionMenu } from './MentionMenu';
 import { useMentions } from './useMentions';
@@ -225,12 +226,22 @@ export const Composer = memo(function Composer({
   const send = () => {
     const text = draft.trim();
     if (!sendable || offline || uploading) return;
-    const unknown = unknownCommand(text, commands);
+    const aside = sideQuestion(text);
+    const unknown = aside === undefined ? unknownCommand(text, commands) : null;
     if (unknown) {
       session.report(`/${unknown} is not available in this session`);
       return;
     }
     haptics.tap();
+    if (aside !== undefined) {
+      void session.startSideChat(aside).then((side) => {
+        if (!side) return;
+        input.current?.clear();
+        session.setDraft('');
+        router.push(`/device/${core}/chat/${side}`);
+      });
+      return;
+    }
     const sending = question ? session.answerWith(text, question) : session.send(text, steers);
     void sending.then((sent) => {
       if (!sent) return;

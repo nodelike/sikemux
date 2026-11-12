@@ -21,7 +21,7 @@ use gpui_transcript::FilePress;
 use sikemux_core::server::chat::prompt::MAX_ATTACHMENTS;
 use sikemux_view::chat::{
     tracked_at, tracked_title, SentChip, SentChipKind, SentSpan, TrackedKind, AGENT_URI,
-    ANSWER_URI, EARLIER_URI, STASH_URI, WOKEN_URI,
+    ANSWER_URI, EARLIER_URI, REPLY_URI, SIDE_URI, STASH_URI, WOKEN_URI,
 };
 use sikemux_view::chat::{ChatMessage, SentContext, WhyChip, WhyKind, WhyOpen, WHY_URI};
 use sikemux_wire::protocol::ChatContext;
@@ -1116,9 +1116,18 @@ pub fn tiles(
             .when_some(opens, |tile, opens| tile.on_click(opens))
             .on_remove(move |_, window, cx| remove(index, window, cx))
     });
+    let quotes = context.iter().enumerate();
+    let quotes: Vec<_> = quotes
+        .filter(|(_, item)| item.uri.starts_with(REPLY_URI))
+        .map(|(index, item)| {
+            let forget = forget.clone();
+            let remove: Remove = Box::new(move |window, cx| forget(index, window, cx));
+            quote_card(format!("quote-{index}"), &item.text, Some(remove), cx)
+        })
+        .collect();
     let shown = context.iter().enumerate();
     let chips = shown
-        .filter(|(_, item)| !item.for_agent_only())
+        .filter(|(_, item)| !item.for_agent_only() && !item.uri.starts_with(REPLY_URI))
         .map(|(index, item)| {
             let forget = forget.clone();
             context_chip(format!("context-{index}"), &item.uri, &item.title, asks, &t)
@@ -1132,6 +1141,7 @@ pub fn tiles(
             .gap(px(7.))
             .px(SPACE_2H)
             .pt(SPACE_1)
+            .children(quotes)
             .children(tiles)
             .children(chips),
     )
@@ -1231,7 +1241,9 @@ fn context_chip(
         ),
         None if uri.starts_with(EARLIER_URI) => (Icon::Message, title.to_owned()),
         None if uri.starts_with(STASH_URI) => (Icon::Text, title.to_owned()),
-        None if uri.starts_with(ANSWER_URI) => (Icon::Message, title.to_owned()),
+        None if uri.starts_with(ANSWER_URI) || uri.starts_with(SIDE_URI) => {
+            (Icon::Message, title.to_owned())
+        }
         None if web => (
             Icon::Globe,
             if title.is_empty() { uri } else { title }.to_owned(),
@@ -1297,7 +1309,7 @@ pub fn sent(
     file: super::files::FilePressed,
     cx: &App,
 ) -> Option<Div> {
-    if message.attachments.is_empty() && message.context.is_empty() {
+    if message.attachments.is_empty() && message.context.iter().all(|item| item.quote.is_some()) {
         return None;
     }
     let t = Tokens::get(cx).clone();
@@ -1329,7 +1341,7 @@ pub fn sent(
     });
     let context = message.context.iter().enumerate();
     let context: Vec<_> = context
-        .filter(|(_, item)| !in_text(&item.uri))
+        .filter(|(_, item)| !in_text(&item.uri) && item.quote.is_none())
         .map(|(index, item)| {
             context_chip(
                 format!("sent-context-{}-{index}", message.id),
@@ -1355,6 +1367,55 @@ pub fn sent(
             .children(files)
             .children(context),
     )
+}
+
+/// What takes a quote off a draft.
+pub type Remove = Box<dyn Fn(&mut Window, &mut App)>;
+
+/// The answer a message replies to, as the draft and the sent message show it: the reply mark
+/// over two lines of its words, on a sunken card, with a way to take it off while in a draft.
+pub fn quote_card(
+    id: impl Into<SharedString>,
+    quote: &str,
+    remove: Option<Remove>,
+    cx: &App,
+) -> gpui_kit::Stateful<Div> {
+    let t = Tokens::get(cx);
+    let quote: String = quote.split_whitespace().collect::<Vec<_>>().join(" ");
+    div()
+        .id(id.into())
+        .w_full()
+        .flex()
+        .items_start()
+        .gap(SPACE_1H)
+        .px(SPACE_2)
+        .py(SPACE_1H)
+        .rounded(theme::RADIUS_3)
+        .bg(Hsla {
+            a: 0.6,
+            ..t.surface_sunken
+        })
+        .child(
+            ui::icon(Icon::Reply, 12.)
+                .flex_none()
+                .mt(px(2.))
+                .text_color(t.text_tertiary),
+        )
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .text_size(theme::ui_text(TEXT_XS))
+                .text_color(t.text_secondary)
+                .line_clamp(2)
+                .child(quote),
+        )
+        .children(remove.map(|remove| {
+            ui::IconButton::new("quote-remove", Icon::Close, "Remove quote")
+                .glyph(11.)
+                .width(18.)
+                .on_click(move |_, window, cx| remove(window, cx))
+        }))
 }
 
 /// One file a message carried: a picture as a tile that opens over the window, with the number its

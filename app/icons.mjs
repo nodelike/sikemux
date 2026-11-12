@@ -43,6 +43,7 @@ const DRAWN = {
   chevron: [ICONS, "IconChevron"],
   "arrow-down": [ICONS, "IconArrowDown"],
   copy: [ICONS, "IconCopy"],
+  reply: [ICONS, "IconReply"],
   wrap: [ICONS, "IconWrap"],
   text: [ICONS, "IconText"],
   discard: [ICONS, "IconDiscard"],

@@ -653,7 +653,7 @@ async fn resumed_on(
     }
 }
 
-async fn start_new(
+pub(crate) async fn start_new(
     core: &Arc<Core>,
     client: Option<&Arc<ClientConn>>,
     choice: ChatChoice,

@@ -141,6 +141,7 @@ icons!(
     Push => "push",
     Record => "record",
     Refresh => "refresh",
+    Reply => "reply",
     Releases => "releases",
     Resize => "resize",
     Rocket => "rocket",

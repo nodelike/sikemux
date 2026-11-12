@@ -1361,7 +1361,7 @@ pub(crate) fn view(core: &Core, chats: &[ChatInfo], sessions: &[SessionInfo]) ->
             super::settling::show(agent, place, now);
         }
     }
-    let leads = core.workspaces.agent_leads();
+    let leads = core.workspaces.agent_parents();
     let turns: Turned = (shown.iter())
         .filter_map(|agent| Some((agent.agent_id.clone(), agent.turn.clone()?)))
         .collect();

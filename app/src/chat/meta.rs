@@ -112,6 +112,23 @@ pub fn line(
         .width(24.)
         .on_click(move |_, _, cx| cx.write_to_clipboard(ClipboardItem::new_string(text.clone())))
     });
+    let reply = (!user).then(|| copied(rows, ix)).flatten().map(|quote| {
+        let (bench, agent, row) = (looks.bench.clone(), looks.agent.clone(), message.id.clone());
+        IconButton::new(
+            SharedString::from(format!("reply:{}", message.id)),
+            Icon::Reply,
+            "Reply",
+        )
+        .glyph(13.)
+        .width(24.)
+        .on_click(move |_, window, cx| {
+            bench
+                .update(cx, |bench, cx| {
+                    bench.reply_to(&agent, &row, &quote, window, cx)
+                })
+                .ok();
+        })
+    });
     let editable =
         user && looks.reading.editable && message.prompt_id.is_some() && message.context.is_empty();
     let edit = editable.then(|| {
@@ -176,7 +193,7 @@ pub fn line(
             .gap(SPACE_2)
             .invisible()
             .group_hover(group.clone(), |line| line.visible())
-            .children(copy)
+            .child(div().flex().items_center().children(copy).children(reply))
             .children(when.map(|when| ui::mono(when, TEXT_3XS_H, cx).text_color(t.text_disabled)))
             .children(
                 speed.map(|speed| ui::mono(speed, TEXT_3XS_H, cx).text_color(t.text_disabled)),

@@ -291,10 +291,13 @@ pub(super) fn split_sent_context(text: &str) -> (String, Vec<SentContext>) {
         let before = &remaining[..at];
         rest.push_str(before.strip_suffix('\n').unwrap_or(before));
         let body = &remaining[body_start..body_start + body_len];
-        context.push(SentContext::new(
-            uri.to_owned(),
-            body.split('\n').next().unwrap_or_default().to_owned(),
-        ));
+        context.push(
+            SentContext::new(
+                uri.to_owned(),
+                body.split('\n').next().unwrap_or_default().to_owned(),
+            )
+            .with_text(body),
+        );
         remaining = &remaining[body_start + body_len + "\n</context>".len()..];
     }
     rest.push_str(remaining);
@@ -325,9 +328,9 @@ fn headed_fences(text: &str, context: &mut Vec<SentContext>) -> String {
             break;
         };
         match headed_fence(&text[head..]) {
-            Some((uri, title, len)) => {
+            Some((sent, len)) => {
                 out.push_str(&text[at..cut]);
-                context.push(SentContext::new(uri, title));
+                context.push(sent);
                 at = head + len;
             }
             None => {
@@ -340,7 +343,7 @@ fn headed_fences(text: &str, context: &mut Vec<SentContext>) -> String {
     out
 }
 
-fn headed_fence(text: &str) -> Option<(String, String, usize)> {
+fn headed_fence(text: &str) -> Option<(SentContext, usize)> {
     let rest = text.strip_prefix("### ")?;
     let (title, rest) = rest.split_once('\n')?;
     let (uri, rest) = rest.split_once('\n')?;
@@ -361,7 +364,9 @@ fn headed_fence(text: &str) -> Option<(String, String, usize)> {
         let after = &body[end..];
         if after.is_empty() || after.starts_with("\n\n###") {
             let consumed = text.len() - after.len();
-            return Some((uri.to_owned(), title.to_owned(), consumed));
+            let sent = SentContext::new(uri.to_owned(), title.to_owned())
+                .with_text(&body[..search + found]);
+            return Some((sent, consumed));
         }
         search = search + found + 1;
     }

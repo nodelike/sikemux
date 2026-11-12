@@ -226,6 +226,7 @@ fn from_app(saved: &mut Saved, app: &Value, earlier: &Earlier) {
             renamed: agent["renamed"].as_bool().unwrap_or(false),
             titled: false,
             lead: text(agent, "lead"),
+            side_of: None,
             resume_id: text(agent, "resumeId"),
             permission_mode,
             profile_id: text(agent, "profileId"),

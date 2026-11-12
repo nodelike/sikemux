@@ -129,6 +129,7 @@ calls! { core, client, method, params;
     "nameAgent": NoDevice => answer(names::name_agent(&core, parse(params)?).await?),
     "appDeviceKey": NoDevice => answer(super::account::devices::app_device_key(parse(params)?).await?),
     "renameAgent" RenameAgent (names::RenameAgentParams) -> names::AgentName: Full, counted => names::rename_agent(&core, params).await?,
+    "startSideChat" StartSideChat (super::chat::side::SideChatParams) -> super::chat::side::SideChat: Full, counted => super::chat::side::start(&core, params).await?,
     "promptChat" PromptChat (chat_calls::PromptChatParams) -> (): Full => chat_calls::prompt_chat(&core, params).await?,
     "closedAgents" ClosedAgents (names::ClosedAgentsParams) -> Vec<names::ClosedAgent>: Full => names::closed_agents(&core, params).await?,
     "agentNames": Watch, any_program => answer(names::agent_names(&core).await?),

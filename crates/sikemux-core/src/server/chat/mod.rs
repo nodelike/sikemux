@@ -20,6 +20,7 @@ pub(crate) use rebind::on_account;
 mod registry;
 pub(crate) mod reset;
 pub(crate) mod rotation;
+pub mod side;
 mod start;
 mod states;
 mod turn;

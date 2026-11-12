@@ -349,6 +349,8 @@ export interface WorkspaceAgent {
     titled?: boolean;
     /** The agent that started it, when one did. */
     lead?: string;
+    /** The chat it was opened beside to ask aside, by agent id. */
+    sideOf?: string;
     /** The provider's session, which resumes it. */
     resumeId?: string;
     permissionMode: PermissionMode;
@@ -2144,6 +2146,8 @@ export interface SentContext {
     uri: string;
     title: string;
     tracked?: Tracked;
+    /** The words of the answer a reply quotes. */
+    quote?: string;
 }
 
 /** The issue or pull request a context item is, read from its address. */
@@ -5042,6 +5046,17 @@ export interface SnoozePreset {
     until: number;
 }
 
+export interface SideChatParams {
+    /** The chat to open one beside. */
+    agentId: string;
+    /** The first message, sent at once when given. */
+    text?: string;
+}
+
+export interface SideChat {
+    agentId: string;
+}
+
 export interface StashPromptParams {
     agentId: string;
 }
@@ -5099,6 +5114,7 @@ export interface CoreCalls {
     smartPick: { params: SmartPickParams; answer: AccountMove | null };
     snoozeAgents: { params: SnoozeParams; answer: null };
     snoozePresets: { params: NoParams; answer: SnoozePreset[] };
+    startSideChat: { params: SideChatParams; answer: SideChat };
     stashPrompt: { params: StashPromptParams; answer: StashedPrompt };
     steerQueued: { params: QueuedParams; answer: null };
     takeStep: { params: TakeStepParams; answer: null };

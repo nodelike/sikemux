@@ -19,7 +19,7 @@ What you typed but did not send comes with you. A draft in the composer waits at
 ## The composer
 
 - `↑` in an empty box brings back what you sent before, and `↓` goes forward again.
-- `/` at the start of a message lists Sikemux's own commands, then the session's commands and skills. `/model` opens the model picker, `/clear` starts a fresh chat with the same agent, account and model, and `/yolo` turns asking before acting off or on. A session command or skill you pick goes in as a chip, like a mention. A command the session doesn't have isn't sent: it stays in the draft, and the composer says so.
+- `/` at the start of a message lists Sikemux's own commands, then the session's commands and skills. `/side` opens a side chat (see below), `/model` opens the model picker, `/clear` starts a fresh chat with the same agent, account and model, and `/yolo` turns asking before acting off or on. A session command or skill you pick goes in as a chip, like a mention. A command the session doesn't have isn't sent: it stays in the draft, and the composer says so.
 - `@` names another agent, in this project or any other, or an earlier chat to open again. A closed agent keeps its name, so `@` finds it by that name and opens its chat again.
 - `#` hands over a GitHub, GitLab or Bitbucket issue, and `!` a pull request.
 - `+` attaches a file or folder from the project.
@@ -76,6 +76,14 @@ For recurring work that shouldn't depend on one chat, such as triaging new issue
 ## Editing a message you sent
 
 In a Claude Code, Codex, Muse or Pi chat, click the pencil under a message you sent, **Edit message**, while the agent is idle. Change it and press `Enter`; `Esc` leaves it as it was. The chat goes back to that message: the replies after it are dropped, and your new text is sent in its place.
+
+## Replying to an answer
+
+Hover over the end of an agent's answer and click the arrow beside the copy button, **Reply**. The answer is quoted above your draft; the × takes it off. When you send, the agent gets the quoted words with your message, so it knows which answer you mean, and your message shows the quote above its text.
+
+## Side chats
+
+To ask something aside without derailing a chat, type `/side` in it, or `/side` and your question. A new chat opens beside it with the same agent, account, model and project, and is listed under the main chat. Its first message carries the main chat's latest exchanges and tells the agent how to read more of it; the main chat carries on and isn't told. The side chat's header says **side of @Name**; click it to go back to the main chat. On the phone, send `/side` the same way and the side chat opens.
 
 ## Subagents
 

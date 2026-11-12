@@ -219,6 +219,7 @@ pub(crate) fn prompt(
         None => uuid::Uuid::now_v7().to_string(),
     };
     mentions::fill(core, agent_id, &mut context);
+    super::side::tell(core, agent_id, &mut context);
     crate::server::messages::worked(core, agent_id);
     let words = context.first().map(|context| context.title.as_str());
     let title = feed::title(if text.trim().is_empty() {

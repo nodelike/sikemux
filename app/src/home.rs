@@ -514,6 +514,7 @@ fn agent_header(bench: &Workbench, agent: &AgentRow, cx: &mut Context<Workbench>
         .map(|retitling| retitle_field(retitling, 13., cx).min_w(px(160.)));
     let chief = agent.chief.then(|| chief_fact(bench, agent, cx));
     let chain = (!agent.chief).then(|| chain_to(bench, agent, cx)).flatten();
+    let side = side_of(bench, agent, cx);
     PaneHeader::new(match agent.chief {
         true => "@Chief".to_owned(),
         false => agent.title.clone(),
@@ -542,6 +543,7 @@ fn agent_header(bench: &Workbench, agent: &AgentRow, cx: &mut Context<Workbench>
             .handle()
             .map(|name| SharedString::from(format!("@{name}"))),
     )
+    .when_some(side, PaneHeader::fact)
     .when_some(
         agent.turn.as_ref().filter(|_| in_terminal),
         |header, turn| {
@@ -560,6 +562,28 @@ fn agent_header(bench: &Workbench, agent: &AgentRow, cx: &mut Context<Workbench>
     )
     .when(has_chat, |header| header.action(share))
     .action(more)
+}
+
+/// A side chat's tag naming the chat it was opened beside, which brings that chat to the front.
+fn side_of(bench: &Workbench, agent: &AgentRow, cx: &mut Context<Workbench>) -> Option<AnyElement> {
+    let main = bench.saved_agent(&agent.id)?.side_of.clone()?;
+    let name = bench.agent_by_id(&main)?.name?;
+    let t = Tokens::get(cx);
+    Some(
+        div()
+            .id("side-of")
+            .px(SPACE_1H)
+            .rounded(crate::theme::RADIUS_1)
+            .bg(t.surface_chosen)
+            .cursor_pointer()
+            .text_size(crate::theme::ui_text(TEXT_XS))
+            .text_color(t.text_tertiary)
+            .hover(|tag| tag.text_color(t.text_primary))
+            .tooltip(ui::tooltip("Go to the main chat"))
+            .on_click(cx.listener(move |bench, _, _, cx| bench.open_agent(&main, cx)))
+            .child(format!("side of @{name}"))
+            .into_any_element(),
+    )
 }
 
 /// What follows @Chief in its chat's header: the project, how many agents it has, and the

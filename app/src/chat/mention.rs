@@ -51,16 +51,18 @@ const SETTLE: Duration = Duration::from_millis(150);
 /// the same name is left out of the menu.
 #[derive(Clone, Copy, PartialEq)]
 enum Own {
+    Side,
     Model,
     Clear,
     Yolo,
 }
 
 impl Own {
-    const ALL: [Own; 3] = [Own::Model, Own::Clear, Own::Yolo];
+    const ALL: [Own; 4] = [Own::Side, Own::Model, Own::Clear, Own::Yolo];
 
     fn name(self) -> &'static str {
         match self {
+            Own::Side => "side",
             Own::Model => "model",
             Own::Clear => "clear",
             Own::Yolo => "yolo",
@@ -471,6 +473,9 @@ impl Workbench {
         });
         let own = Own::ALL.into_iter().filter_map(|own| {
             let description = match own {
+                Own::Side => saved
+                    .filter(|saved| !saved.terminal)
+                    .map(|_| "Ask aside, with this chat's context".to_owned()),
                 Own::Model => head.model.as_ref().map(|_| "Pick the model".to_owned()),
                 Own::Clear => saved.map(|_| "Start a fresh chat with this agent".to_owned()),
                 Own::Yolo => yolo.map(|saved| match saved.permission_mode {
@@ -810,7 +815,16 @@ impl Workbench {
                 draft.set_selected_range(menu.typed.start..end, cx);
                 draft.replace("", window, cx);
             });
+            if own == Own::Side {
+                let text = composing.draft.read(cx).value().trim().to_owned();
+                composing
+                    .draft
+                    .update(cx, |draft, cx| draft.set_value("", window, cx));
+                self.side_chat(agent, text, cx);
+                return cx.notify();
+            }
             match own {
+                Own::Side => {}
                 Own::Model => composing.model_open = true,
                 Own::Clear => self.fresh_chat(agent),
                 Own::Yolo => {

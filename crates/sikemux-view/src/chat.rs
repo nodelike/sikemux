@@ -871,6 +871,12 @@ pub const WOKEN_URI: &str = "sikemux://woken/";
 pub const STASH_URI: &str = "sikemux://stash/";
 /// An answer the person gave to a question asked in an agent's reply.
 pub const ANSWER_URI: &str = "sikemux://answer/";
+/// An earlier answer the person replies to, by its message id; its text is the words quoted.
+pub const REPLY_URI: &str = "sikemux://reply/";
+/// What a side chat is told about the chat it was opened beside, by that chat's agent id.
+pub const SIDE_URI: &str = "sikemux://side/";
+/// The most of an answer a reply quotes.
+pub const QUOTE_MAX: usize = 1_200;
 /// What a claim in an agent's answer rests on, as `why` gave it: a commit, the person's words in
 /// a chat, a call or a rule.
 pub const WHY_URI: &str = "sikemux://why/";
@@ -1044,6 +1050,9 @@ pub struct SentContext {
     pub title: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tracked: Option<Tracked>,
+    /// The words of the answer a reply quotes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quote: Option<String>,
 }
 
 impl SentContext {
@@ -1057,7 +1066,17 @@ impl SentContext {
             uri,
             title,
             tracked,
+            quote: None,
         }
+    }
+
+    /// The item as its text read, which for a reply is the words it quotes.
+    pub fn with_text(mut self, text: &str) -> Self {
+        if self.uri.starts_with(REPLY_URI) {
+            let text = text.trim();
+            self.quote = (!text.is_empty()).then(|| text.to_owned());
+        }
+        self
     }
 }
 

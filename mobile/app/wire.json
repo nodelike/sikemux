@@ -42,6 +42,7 @@
     "smartPick",
     "snoozeAgents",
     "snoozePresets",
+    "startSideChat",
     "stashPrompt",
     "steerQueued",
     "takeStep"

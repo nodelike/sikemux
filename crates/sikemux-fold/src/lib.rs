@@ -1073,10 +1073,11 @@ impl Fold {
                 items
                     .iter()
                     .filter_map(|item| {
-                        Some(SentContext::new(
+                        let sent = SentContext::new(
                             text_of(item.get("uri"))?.to_owned(),
                             text_of(item.get("title"))?.to_owned(),
-                        ))
+                        );
+                        Some(sent.with_text(text_of(item.get("quote")).unwrap_or_default()))
                     })
                     .collect()
             })
@@ -2536,7 +2537,8 @@ fn read_sent(row: &mut Row, commands: &[ChatCommandInfo]) {
                     .and_then(|text| text.split('\n').next())
                     .filter(|line| !line.is_empty())
                     .unwrap_or(&resource.uri);
-                context.push(SentContext::new(resource.uri.clone(), first.to_owned()));
+                let sent = SentContext::new(resource.uri.clone(), first.to_owned());
+                context.push(sent.with_text(resource.text.as_deref().unwrap_or_default()));
             }
             ChatPart::Text { text, .. } => {
                 let (rest, found) = prompt::split_sent_context(text);

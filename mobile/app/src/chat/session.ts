@@ -445,6 +445,23 @@ export class ChatSession {
     );
   };
 
+  /**
+   * Opens a side chat beside this one, with the same agent, model and project, sending `text` as its first message
+   * when there is any. Answers the side chat's agent, or undefined when the host refused.
+   */
+  startSideChat = async (text: string): Promise<string | undefined> => {
+    try {
+      const side = await callHost(this.openConnection(), 'startSideChat', {
+        agentId: this.agentId,
+        text: text || undefined,
+      });
+      return side.agentId;
+    } catch (error) {
+      this.report(`Could not open a side chat: ${problemOf(error)}`);
+      return undefined;
+    }
+  };
+
   /** Says what went wrong where the person is looking. */
   report = (text: string) => {
     this.notice = text;

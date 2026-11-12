@@ -349,12 +349,16 @@ struct Composer: View {
         let draft = session.draft!
         let sendable = !text.isEmpty || !draft.attachments.isEmpty || !draft.chips.isEmpty
         guard sendable, !offline, !draft.uploading else { return }
-        if let unknown = Self.unknownCommand(text, session.rows.commands) {
+        if Self.side(text) == nil, let unknown = Self.unknownCommand(text, session.rows.commands) {
             session.report("/\(unknown) is not available in this session")
             return
         }
         Haptics.tap()
-        if let question {
+        if let aside = Self.side(text) {
+            Task {
+                if await session.startSideChat(aside) { sent() }
+            }
+        } else if let question {
             Task {
                 if await session.answerWith(text, question) { sent() }
             }
@@ -395,11 +399,22 @@ struct Composer: View {
         return picker.current.isEmpty ? nil : picker.current
     }
 
-    /// The agent's slash commands with what is typed anywhere in their name, while only a command is typed.
+    /// `/side`, which Sikemux answers itself by opening a side chat, ahead of the agent's own commands.
+    static let sideCommand = ChatCommandInfo(name: "side", description: "Ask aside, with this chat's context")
+
+    /// The question after `/side`, empty when none, or nil when the text is not `/side`.
+    static func side(_ text: String) -> String? {
+        guard text == "/side" || text.hasPrefix("/side ") || text.hasPrefix("/side\n") else { return nil }
+        return text.dropFirst(5).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// The slash commands with what is typed anywhere in their name, while only a command is typed: Sikemux's own
+    /// first, then the agent's.
     static func matching(_ commands: [ChatCommandInfo], _ typed: String) -> [ChatCommandInfo] {
         guard typed.hasPrefix("/"), !typed.contains(where: \.isWhitespace) else { return [] }
         let needle = typed.dropFirst().lowercased()
-        return Array(commands.filter { needle.isEmpty || $0.name.lowercased().contains(needle) }.prefix(8))
+        let all = [sideCommand] + commands.filter { $0.name != sideCommand.name }
+        return Array(all.filter { needle.isEmpty || $0.name.lowercased().contains(needle) }.prefix(8))
     }
 
     /// The command a message opens with that the session does not offer. A session that lists none is taken at its

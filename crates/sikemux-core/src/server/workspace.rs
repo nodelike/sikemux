@@ -276,6 +276,7 @@ pub(crate) fn new_agent(
         renamed: false,
         titled: false,
         lead: None,
+        side_of: None,
         resume_id: None,
         permission_mode,
         profile_id: None,
@@ -971,6 +972,18 @@ impl Workspaces {
             .collect()
     }
 
+    /// The agent each one is listed under, by its id: a worker's lead, a side chat's main chat.
+    pub(crate) fn agent_parents(&self) -> HashMap<String, String> {
+        let published = self.published.locked();
+        let agents = published.saved.agents.iter().map(|kept| &kept.agent);
+        agents
+            .filter_map(|agent| {
+                let parent = agent.lead.as_ref().or(agent.side_of.as_ref())?;
+                Some((agent.id.clone(), parent.clone()))
+            })
+            .collect()
+    }
+
     /// What each project is called, by its id and by its folder, as clients know it by either.
     pub(crate) fn project_names(&self) -> HashMap<String, String> {
         let published = self.published.locked();
@@ -1061,6 +1074,7 @@ impl Workspaces {
             renamed: false,
             titled: false,
             lead: lead.map(|lead| lead.id),
+            side_of: None,
             resume_id: launch.resume_id.clone(),
             permission_mode: launch.permission_mode,
             profile_id,

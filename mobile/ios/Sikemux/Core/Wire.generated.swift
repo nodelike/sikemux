@@ -182,6 +182,7 @@ enum PhoneCall {
     enum SmartPick {}
     enum SnoozeAgents {}
     enum SnoozePresets {}
+    enum StartSideChat {}
     enum StashPrompt {}
     enum SteerQueued {}
     enum TakeStep {}
@@ -437,6 +438,12 @@ extension PhoneCall.SnoozePresets: PhoneCallable {
     static let method = "snoozePresets"
     typealias Params = NoParams
     typealias Answer = [SnoozePreset]
+}
+
+extension PhoneCall.StartSideChat: PhoneCallable {
+    static let method = "startSideChat"
+    typealias Params = SideChatParams
+    typealias Answer = SideChat
 }
 
 extension PhoneCall.StashPrompt: PhoneCallable {
@@ -811,6 +818,8 @@ struct WorkspaceAgent: Codable, Hashable, Sendable {
     var titled: Bool?
     /// The agent that started it, when one did.
     var lead: String?
+    /// The chat it was opened beside to ask aside, by agent id.
+    var sideOf: String?
     /// The provider's session, which resumes it.
     var resumeId: String?
     var permissionMode: PermissionMode
@@ -3373,6 +3382,8 @@ struct SentContext: Codable, Hashable, Sendable {
     var uri: String
     var title: String
     var tracked: Tracked?
+    /// The words of the answer a reply quotes.
+    var quote: String?
 }
 
 /// The issue or pull request a context item is, read from its address.
@@ -7743,6 +7754,17 @@ struct SnoozeParams: Codable, Hashable, Sendable {
 struct SnoozePreset: Codable, Hashable, Sendable {
     var label: String
     var until: Int
+}
+
+struct SideChatParams: Codable, Hashable, Sendable {
+    /// The chat to open one beside.
+    var agentId: String
+    /// The first message, sent at once when given.
+    var text: String?
+}
+
+struct SideChat: Codable, Hashable, Sendable {
+    var agentId: String
 }
 
 struct StashPromptParams: Codable, Hashable, Sendable {

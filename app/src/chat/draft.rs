@@ -9,11 +9,12 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use gpui_kit::base::input::{InlineToken, InputContent};
-use gpui_kit::{App, Context, Window};
+use gpui_kit::{App, Context, Focusable, Window};
 use sikemux_core::server::call;
 use sikemux_core::server::calls::AgentParams;
 use sikemux_core::server::drafts::SetDraftParams;
-use sikemux_view::chat::{chat_draft_key, DraftExtra, DraftToken};
+use sikemux_view::chat::{chat_draft_key, DraftExtra, DraftToken, QUOTE_MAX, REPLY_URI};
+use sikemux_wire::protocol::ChatContext;
 
 use super::{Composing, Sent};
 use crate::core::Target;
@@ -189,6 +190,40 @@ impl Workbench {
                     agent_id: agent.to_owned(),
                 }),
         );
+    }
+
+    /// Quotes the answer `message` of `agent`'s chat in its draft, in place of any quote there,
+    /// and puts the keys in the draft.
+    pub fn reply_to(
+        &mut self,
+        agent: &str,
+        message: &str,
+        quote: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(composing) = self.composing_mut(agent) else {
+            return;
+        };
+        let quote = match quote.char_indices().nth(QUOTE_MAX) {
+            Some((cut, _)) => format!("{}…", quote[..cut].trim_end()),
+            None => quote.to_owned(),
+        };
+        composing
+            .context
+            .retain(|item| !item.uri.starts_with(REPLY_URI));
+        composing.context.insert(
+            0,
+            ChatContext {
+                uri: format!("{REPLY_URI}{message}"),
+                title: "Earlier answer".to_owned(),
+                text: quote,
+            },
+        );
+        let draft = composing.draft.clone();
+        draft.read(cx).focus_handle(cx).focus(window, cx);
+        self.typed_draft(agent, cx);
+        cx.notify();
     }
 
     /// Keeps `agent`'s draft once the person pauses.

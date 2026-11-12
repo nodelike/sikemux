@@ -846,6 +846,58 @@ impl Workbench {
         .detach();
     }
 
+    /// Opens a side chat of `agent` to the right of its view, which takes the focus, with
+    /// `text` as its first message when there is any.
+    pub fn side_chat(&mut self, agent: &str, text: String, cx: &mut Context<Self>) {
+        let (Some(strip), Some(tab)) = (self.strip(), self.tab()) else {
+            return;
+        };
+        let shown =
+            views(&tab.pane).find(|view| view.kind == PaneKind::Agent && view.target == agent);
+        let Some(pane) = shown
+            .map(|view| view.id.clone())
+            .or_else(|| self.focused_view())
+        else {
+            return;
+        };
+        let tab = tab.id.clone();
+        let core = self.target();
+        let params = sikemux_core::server::chat::side::SideChatParams {
+            agent_id: agent.to_owned(),
+            text: Some(text).filter(|text| !text.trim().is_empty()),
+        };
+        cx.spawn(async move |bench, cx| {
+            let side = match core.request_typed::<call::StartSideChat>(params).await {
+                Ok(side) => side,
+                Err(error) => {
+                    let note = crate::toast::error(format!("The side chat did not open: {error}"));
+                    let _ = bench.update(cx, |bench, cx| bench.notify(note, cx));
+                    return;
+                }
+            };
+            let added = core
+                .request_typed::<call::SplitPane>(layout::SplitPane {
+                    at: strip.at(),
+                    tab,
+                    pane,
+                    side: layout::Side::Right,
+                    kind: Some(PaneKind::Agent),
+                    target: Some(side.agent_id),
+                    from_tab: None,
+                    keep_front: false,
+                })
+                .await;
+            let _ = bench.update(cx, |bench, cx| {
+                bench.panes.zoomed = None;
+                if let Ok(added) = added {
+                    bench.focus_pane(added, cx);
+                }
+                bench.parts.redraw_stage(cx);
+            });
+        })
+        .detach();
+    }
+
     /// Moves the focus to the view beside the one in focus, as the views were last drawn.
     pub fn focus_towards(&mut self, towards: Towards, window: &mut Window, cx: &mut Context<Self>) {
         let Some(from) = self.focused_view() else {
