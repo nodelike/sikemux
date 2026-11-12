@@ -1,5 +1,8 @@
 //! Pictures of a page: what it shows now, or the whole of it, as JPEG.
 
+use objc2::AnyThread;
+use objc2_core_graphics::CGImage;
+
 use super::*;
 
 /// The visible page as a JPEG at 1x: plenty for a model to read at a fraction
@@ -134,6 +137,18 @@ pub fn full_page_jpeg(
 
 pub(crate) fn jpeg_bytes(image: &[u8]) -> Option<Vec<u8>> {
     let bitmap = NSBitmapImageRep::imageRepWithData(&NSData::with_bytes(image))?;
+    jpeg_of(&bitmap)
+}
+
+/// `image` as a JPEG, made on whichever thread calls it.
+pub(crate) fn picture_jpeg(image: &CGImage) -> Option<Vec<u8>> {
+    jpeg_of(&NSBitmapImageRep::initWithCGImage(
+        NSBitmapImageRep::alloc(),
+        image,
+    ))
+}
+
+fn jpeg_of(bitmap: &NSBitmapImageRep) -> Option<Vec<u8>> {
     let quality = NSNumber::numberWithDouble(0.82);
     let properties: Retained<NSDictionary<NSString, AnyObject>> =
         // SAFETY: an immutable constant string AppKit sets up when it loads.

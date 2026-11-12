@@ -146,6 +146,12 @@ define_class!(
     }
 );
 
+/// A still as Core Graphics holds it, which is never changed once made, so any thread may read it.
+struct Picture(Retained<objc2_core_graphics::CGImage>);
+
+// SAFETY: a CGImage is immutable, and Core Graphics lets any thread read one.
+unsafe impl Send for Picture {}
+
 /// The Escape key's code on a Mac keyboard.
 const ESCAPE_KEY: u16 = 53;
 
@@ -293,12 +299,17 @@ impl PageView {
                 return;
             };
             // SAFETY: WebKit passes a live image or nil; `retain` takes our own reference.
-            let tiff = unsafe { Retained::retain(image) }
-                .and_then(|image| image.TIFFRepresentation())
-                .map(|tiff| tiff.to_vec());
-            match tiff {
-                Some(tiff) => {
-                    std::thread::spawn(move || done(crate::macos::jpeg_bytes(&tiff)));
+            let picture = unsafe { Retained::retain(image) }
+                // SAFETY: a null rect and no context or hints ask for the image at its own size.
+                .and_then(|image| unsafe {
+                    image.CGImageForProposedRect_context_hints(std::ptr::null_mut(), None, None)
+                })
+                .map(Picture);
+            // Encoding takes milliseconds, and this block runs on the thread that draws the
+            // window.
+            match picture {
+                Some(picture) => {
+                    std::thread::spawn(move || done(crate::macos::picture_jpeg(&picture.0)));
                 }
                 None => done(None),
             }
