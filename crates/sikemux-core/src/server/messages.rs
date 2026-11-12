@@ -909,7 +909,10 @@ pub(crate) async fn send(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
             let target = match resolve(&core, &agents, &to, &project, &from) {
                 Ok(target) => target,
                 Err(why) => {
-                    let (wanted, _) = on_host(to.trim().trim_start_matches('@'));
+                    let (wanted, on) = on_host(to.trim().trim_start_matches('@'));
+                    if on.is_some() {
+                        return Err(why.into());
+                    }
                     let named = |agent: &Listed| {
                         agent.agent_id == wanted
                             || (agent.name.as_deref())

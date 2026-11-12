@@ -1368,7 +1368,7 @@ pub(crate) async fn ask(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
     if let Some(worker) = text_param(params, "for", 200)? {
         let raise = raise_of(params, &text, &mut choices)?;
         (core.harness.questions).keep_pictures(&request.project, &mut choices)?;
-        if let Some(foreign) = foreign_worker(core, &agent_id, &worker) {
+        if let Some(foreign) = foreign_worker(core, &agent_id, &worker)? {
             let choices = serde_json::to_value(&choices).map_err(|error| error.to_string())?;
             return super::hosts::route::pass_on(core, &agent_id, &foreign, text, choices, raise)
                 .await;
@@ -1588,15 +1588,35 @@ pub(crate) fn withdraw_dialogs(core: &Core, agent_id: &str, only: Option<&str>) 
     }
 }
 
-/// The worker of `lead` on a linked host that `worker` names, by its id or
-/// name.
-fn foreign_worker(core: &Core, lead: &str, worker: &str) -> Option<super::hosts::team::Foreign> {
-    let wanted = worker.trim().trim_start_matches('@');
-    let wanted = wanted.split([' ', '@']).next().unwrap_or(wanted);
-    core.hosts.team.all().into_iter().find(|foreign| {
-        foreign.parent.as_deref() == Some(lead)
-            && (foreign.agent_id == wanted || foreign.name.eq_ignore_ascii_case(wanted))
-    })
+/// The worker of `lead` on a linked host that `worker` names, by its id, its
+/// name, or its name and host.
+fn foreign_worker(
+    core: &Core,
+    lead: &str,
+    worker: &str,
+) -> Result<Option<super::hosts::team::Foreign>, String> {
+    let (wanted, on) = super::messages::on_host(worker.trim().trim_start_matches('@'));
+    let mut found: Vec<super::hosts::team::Foreign> = (core.hosts.team.all().into_iter())
+        .filter(|foreign| foreign.parent.as_deref() == Some(lead))
+        .filter(|foreign| {
+            foreign.agent_id == wanted
+                || foreign.name.eq_ignore_ascii_case(wanted)
+                    && on.is_none_or(|on| {
+                        super::hosts::name_of(core, &foreign.host).eq_ignore_ascii_case(on)
+                    })
+        })
+        .collect();
+    if found.len() > 1 {
+        return Err(format!(
+            "More than one of your agents on linked hosts is called {wanted}: {}. Set for to the agent id instead",
+            found
+                .iter()
+                .map(|foreign| format!("{} on {}", foreign.agent_id, super::hosts::name_of(core, &foreign.host)))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
+    Ok(found.pop())
 }
 
 /// A lead on a linked host passes on to the person a question its worker
