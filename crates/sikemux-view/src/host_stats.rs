@@ -255,6 +255,13 @@ pub enum HostEventKind {
         bytes: u64,
         reason: ClearedFor,
     },
+    /// A command the project's `worktree.onSettle` runs failed in a worktree, named by its
+    /// folder, with the end of what it printed.
+    SettleFailed {
+        worktree: String,
+        command: String,
+        output: String,
+    },
     #[serde(other)]
     Unknown,
 }

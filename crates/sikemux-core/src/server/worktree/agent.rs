@@ -7,12 +7,15 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use sikemux_process::vars;
+use sikemux_view::changed::Topic;
+use sikemux_view::host_stats::HostEventKind;
 
 use super::{
     add_again, branch_exists, branch_for, copy_included, cut, inside, warm, worktrees_folder,
     AgentWorktree,
 };
 use crate::git::{main_checkout, Git};
+use crate::server::changed::What;
 use crate::server::connection::blocking;
 use crate::server::custom_command::{self, CommandParams};
 use crate::server::{launching, tasks, Core, CoreResult};
@@ -436,7 +439,9 @@ pub(crate) async fn set_up(
             "The worktree setup in sikemux.json was not trusted, so it did not run".into(),
         );
     }
-    run_hooks(hooks, cwd).await
+    run_hooks(hooks, cwd)
+        .await
+        .map(|failed| format!("{} failed: {}", failed.label, failed.output))
 }
 
 /// Runs `project`'s `worktree.onSettle` commands in the agent worktree at `tree` once nothing
@@ -463,16 +468,32 @@ pub(crate) async fn settle(core: Arc<Core>, project: PathBuf, tree: PathBuf) {
     if hooks.is_empty() || !tree.is_dir() {
         return;
     }
-    if let Some(error) = run_hooks(hooks, &tree).await {
-        eprintln!(
-            "sikemux core: settling the worktree {} stopped: {error}",
-            tree.display()
-        );
-    }
+    let Some(failed) = run_hooks(hooks, &tree).await else {
+        return;
+    };
+    let worktree = tree.file_name().map_or_else(
+        || tree.display().to_string(),
+        |name| name.to_string_lossy().into_owned(),
+    );
+    core.host_watch.note(HostEventKind::SettleFailed {
+        worktree,
+        command: failed.label,
+        output: failed.output,
+    });
+    core.changed(What::Read(Topic::HostStats));
 }
 
-/// Runs `hooks` in `cwd` one after another, stopping at the first that fails, and says why.
-async fn run_hooks(hooks: Vec<WorktreeHook>, cwd: &Path) -> Option<String> {
+/// A hook that failed: its label, and the end of what it printed or why it could not run.
+struct Failed {
+    label: String,
+    output: String,
+}
+
+/// How much of the end of a failed hook's output is kept.
+const FAILED_LINES: usize = 3;
+
+/// Runs `hooks` in `cwd` one after another, stopping at the first that fails.
+async fn run_hooks(hooks: Vec<WorktreeHook>, cwd: &Path) -> Option<Failed> {
     for hook in hooks {
         let ran = custom_command::run(CommandParams {
             command: hook.command,
@@ -480,15 +501,21 @@ async fn run_hooks(hooks: Vec<WorktreeHook>, cwd: &Path) -> Option<String> {
             env: HashMap::from([(vars::PROJECT.to_owned(), cwd.to_string_lossy().into_owned())]),
         })
         .await;
-        let failed = match ran {
+        let output = match ran {
             Ok(result) if result.code == 0 => continue,
             Ok(result) => match result.output.trim() {
                 "" => format!("exit {}", result.code),
-                output => output.to_owned(),
+                output => {
+                    let lines: Vec<&str> = output.lines().collect();
+                    lines[lines.len().saturating_sub(FAILED_LINES)..].join("\n")
+                }
             },
             Err(error) => error.to_string(),
         };
-        return Some(format!("{} failed: {failed}", hook.label));
+        return Some(Failed {
+            label: hook.label,
+            output,
+        });
     }
     None
 }

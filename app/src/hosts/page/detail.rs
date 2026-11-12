@@ -1687,6 +1687,18 @@ fn activity(host: &Listed, stats: &HostStats, t: &Tokens, cx: &mut Context<Workb
                         }
                     ),
                 ),
+                HostEventKind::SettleFailed {
+                    worktree,
+                    command,
+                    output,
+                } => (
+                    Icon::Warning,
+                    t.danger,
+                    match output.lines().last() {
+                        Some(said) => format!("{command} failed in {worktree}: {said}"),
+                        None => format!("{command} failed in {worktree}"),
+                    },
+                ),
                 HostEventKind::Unknown => return None,
             };
             Some(
