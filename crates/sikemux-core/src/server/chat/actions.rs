@@ -221,6 +221,7 @@ pub(crate) fn prompt(
     mentions::fill(core, agent_id, &mut context);
     super::side::tell(core, agent_id, &mut context);
     crate::server::messages::worked(core, agent_id);
+    crate::server::messages::person_wrote(core, agent_id);
     let words = context.first().map(|context| context.title.as_str());
     let title = feed::title(if text.trim().is_empty() {
         words.unwrap_or_default()
@@ -285,6 +286,7 @@ pub(crate) async fn steer(
     mut context: Vec<ChatContext>,
 ) -> CoreResult<native::Steered> {
     mentions::fill(core, agent_id, &mut context);
+    crate::server::messages::person_wrote(core, agent_id);
     let (reply, answer) = oneshot::channel();
     core.chats.running(agent_id)?.send(ChatCommand::Steer {
         text,

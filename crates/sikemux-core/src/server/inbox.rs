@@ -99,6 +99,8 @@ enum Case {
     Stalled,
     /// Two agents keep messaging each other and nothing else.
     Looping,
+    /// An agent took turn after turn on its own, so what else would wake it waits for the person.
+    Stopped,
     /// Two agents keep changing the same lines.
     Colliding,
     /// The project's check keeps failing after agents' commits.
@@ -136,7 +138,7 @@ impl Case {
             Case::Gate(_) => (InboxKind::Gate, Wants::Person(Decide)),
             Case::Ship(_) => (InboxKind::Ship, Wants::Person(Decide)),
             Case::PullRequest => (InboxKind::PullRequest, Wants::Person(Decide)),
-            Case::HandedBack(RunHold::Unblock) | Case::Stalled => {
+            Case::HandedBack(RunHold::Unblock) | Case::Stalled | Case::Stopped => {
                 (InboxKind::Held, Wants::Person(Unblock))
             }
             Case::HandedBack(RunHold::Fix)
@@ -1234,6 +1236,23 @@ fn needs(core: &Core, agents: &[Agent], sessions: &[SessionInfo]) -> Vec<InboxIt
         .by(agent, find(agent));
         item.detail = Some(
             "Sikemux holds their messages to each other until one of them does other work or you write to one of them.".to_owned(),
+        );
+        items.push(item);
+    }
+    for stopped in core.harness.mailbox.stopped_agents() {
+        let agent = &stopped.agent_id;
+        let mut item = item(
+            format!("stopped:{agent}"),
+            Case::Stopped,
+            format!(
+                "Took {} turns in a row with nobody writing to it",
+                stopped.turns
+            ),
+            stopped.since,
+        )
+        .by(agent, find(agent));
+        item.detail = Some(
+            "Triggers and other agents' messages wait until you write to it; anything you write lets it go on.".to_owned(),
         );
         items.push(item);
     }
