@@ -95,6 +95,8 @@ pub struct Composing {
     pub dismissed: Option<SharedString>,
     /// The files going out with the next message, its pictures named in the draft by number.
     pub attachments: Vec<PathBuf>,
+    /// The file attached last and when, whose tile flashes as it comes in.
+    pub fresh: Option<(PathBuf, std::time::Instant)>,
     /// The agents, files or commands offered for the word at the caret.
     pub menu: Option<mention::Menu>,
     /// Whether the model picker is open, so `/model` can open it.
@@ -468,8 +470,12 @@ pub fn drafting(
                 .ok();
         }
     };
+    let fresh = (composing.fresh.as_ref())
+        .filter(|(_, at)| at.elapsed() < attach::FRESH)
+        .map(|(path, _)| path.as_path());
     let tiles = attach::tiles(
         &composing.attachments,
+        fresh,
         &composing.context,
         remove,
         forget,
@@ -1170,6 +1176,7 @@ impl Workbench {
             suggested: None,
             dismissed: None,
             attachments: Vec::new(),
+            fresh: None,
             menu: None,
             model_open: false,
             context: Vec::new(),

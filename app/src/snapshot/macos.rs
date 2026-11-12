@@ -4,7 +4,7 @@
 
 use std::ffi::c_void;
 use std::sync::mpsc;
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use block2::RcBlock;
@@ -18,7 +18,7 @@ use objc2::runtime::{AnyClass, AnyObject};
 use objc2::{msg_send, AnyThread};
 use objc2_app_kit::{NSBitmapImageFileType, NSBitmapImageRep, NSImageCompressionFactor};
 use objc2_core_graphics::CGImage;
-use objc2_foundation::{NSDictionary, NSNumber, NSRect, NSString};
+use objc2_foundation::{ns_string, NSDictionary, NSNumber, NSRect, NSString};
 
 use super::{Element, Missed, Shot, Text};
 
@@ -108,60 +108,133 @@ fn kit_loaded() -> bool {
     })
 }
 
-/// The window in front of every other app's, which is the one the person was in when they came
-/// to Sikemux, or is in now when they pressed the shortcut in another app.
+/// The front window of the app the person was in last, which they are in now when they pressed
+/// the shortcut in another app; else the window in front of every other app's.
 fn front_window() -> Option<Found> {
+    let windows = windows();
+    let last = last_app().map(|(pid, _)| pid);
+    let at = (windows.iter())
+        .position(|window| Some(window.pid) == last)
+        .unwrap_or(0);
+    windows.into_iter().nth(at)
+}
+
+/// Other apps' windows on screen, front to back.
+fn windows() -> Vec<Found> {
     // SAFETY: the options are valid, and the array returned is ours to release.
     let list = unsafe { CGWindowListCopyWindowInfo(ON_SCREEN_ONLY | EXCLUDE_DESKTOP, 0) };
     if list.is_null() {
-        return None;
+        return Vec::new();
     }
     // SAFETY: a CFArray of CFDictionary, returned retained.
     let list: CFArray<CFType> = unsafe { CFArray::wrap_under_create_rule(list) };
     let ours = std::process::id() as i64;
-    list.iter().find_map(|info| {
-        // SAFETY: each item of the window list is a dictionary.
-        let info: CFDictionary<CFString, CFType> =
-            unsafe { CFDictionary::wrap_under_get_rule(info.as_CFTypeRef() as CFDictionaryRef) };
-        let number = |key: &'static str| {
-            info.find(CFString::from_static_string(key))
-                .and_then(|value| value.downcast::<CFNumber>())
-                .and_then(|number| number.to_f64())
-        };
-        let text = |key: &'static str| {
-            info.find(CFString::from_static_string(key))
-                .and_then(|value| value.downcast::<CFString>())
-                .map(|text| plain(&text))
-                .unwrap_or_default()
-        };
-        let pid = number("kCGWindowOwnerPID")? as i64;
-        if number("kCGWindowLayer")? != 0. || pid == ours || number("kCGWindowAlpha")? <= 0. {
-            return None;
-        }
-        let bounds = info
-            .find(CFString::from_static_string("kCGWindowBounds"))
-            .and_then(|value| value.downcast::<CFDictionary>())?;
-        // SAFETY: the bounds are a dictionary of numbers keyed by strings.
-        let bounds: CFDictionary<CFString, CFType> =
-            unsafe { CFDictionary::wrap_under_get_rule(bounds.as_concrete_TypeRef()) };
-        let side = |key: &'static str| {
-            bounds
-                .find(CFString::from_static_string(key))
-                .and_then(|value| value.downcast::<CFNumber>())
-                .and_then(|number| number.to_f64())
-        };
-        let bounds = [side("X")?, side("Y")?, side("Width")?, side("Height")?];
-        if bounds[2] < 40. || bounds[3] < 40. {
-            return None;
-        }
-        Some(Found {
-            id: number("kCGWindowNumber")? as u32,
-            pid: pid as i32,
-            app: text("kCGWindowOwnerName"),
-            title: text("kCGWindowName"),
-            bounds,
+    list.iter()
+        .filter_map(|info| {
+            // SAFETY: each item of the window list is a dictionary.
+            let info: CFDictionary<CFString, CFType> = unsafe {
+                CFDictionary::wrap_under_get_rule(info.as_CFTypeRef() as CFDictionaryRef)
+            };
+            let number = |key: &'static str| {
+                info.find(CFString::from_static_string(key))
+                    .and_then(|value| value.downcast::<CFNumber>())
+                    .and_then(|number| number.to_f64())
+            };
+            let text = |key: &'static str| {
+                info.find(CFString::from_static_string(key))
+                    .and_then(|value| value.downcast::<CFString>())
+                    .map(|text| plain(&text))
+                    .unwrap_or_default()
+            };
+            let pid = number("kCGWindowOwnerPID")? as i64;
+            if number("kCGWindowLayer")? != 0. || pid == ours || number("kCGWindowAlpha")? <= 0. {
+                return None;
+            }
+            let bounds = info
+                .find(CFString::from_static_string("kCGWindowBounds"))
+                .and_then(|value| value.downcast::<CFDictionary>())?;
+            // SAFETY: the bounds are a dictionary of numbers keyed by strings.
+            let bounds: CFDictionary<CFString, CFType> =
+                unsafe { CFDictionary::wrap_under_get_rule(bounds.as_concrete_TypeRef()) };
+            let side = |key: &'static str| {
+                bounds
+                    .find(CFString::from_static_string(key))
+                    .and_then(|value| value.downcast::<CFNumber>())
+                    .and_then(|number| number.to_f64())
+            };
+            let bounds = [side("X")?, side("Y")?, side("Width")?, side("Height")?];
+            if bounds[2] < 40. || bounds[3] < 40. {
+                return None;
+            }
+            Some(Found {
+                id: number("kCGWindowNumber")? as u32,
+                pid: pid as i32,
+                app: text("kCGWindowOwnerName"),
+                title: text("kCGWindowName"),
+                bounds,
+            })
         })
-    })
+        .collect()
+}
+
+/// The app other than Sikemux the person was in last: its process and name.
+static LAST_APP: Mutex<Option<(i32, String)>> = Mutex::new(None);
+
+pub fn last_app() -> Option<(i32, String)> {
+    LAST_APP.lock().ok()?.clone()
+}
+
+/// Keeps [`last_app`] as the person moves between apps, starting from the app whose window is
+/// in front now. Runs on the main thread, once.
+pub fn follow_apps() {
+    let ours = std::process::id() as i32;
+    if let Some(front) = windows().into_iter().next() {
+        set_last_app(front.pid, front.app);
+    }
+    let activated = RcBlock::new(move |note: *mut AnyObject| {
+        // SAFETY: AppKit hands the notification, whose info holds the app that came forward.
+        let Some(note) = (unsafe { note.as_ref() }) else {
+            return;
+        };
+        let info: Option<Retained<AnyObject>> = unsafe { msg_send![note, userInfo] };
+        let Some(info) = info else {
+            return;
+        };
+        let key = ns_string!("NSWorkspaceApplicationKey");
+        let app: Option<Retained<AnyObject>> = unsafe { msg_send![&*info, objectForKey: key] };
+        let Some(app) = app else {
+            return;
+        };
+        let pid: i32 = unsafe { msg_send![&*app, processIdentifier] };
+        let name: Option<Retained<NSString>> = unsafe { msg_send![&*app, localizedName] };
+        if pid != ours {
+            set_last_app(pid, name.map(|name| name.to_string()).unwrap_or_default());
+        }
+    });
+    let Some(workspace) = AnyClass::get(c"NSWorkspace") else {
+        return;
+    };
+    // SAFETY: the shared workspace's own notification center, which keeps the observer it
+    // returns; the observer is kept for as long as the app runs.
+    unsafe {
+        let workspace: Retained<AnyObject> = msg_send![workspace, sharedWorkspace];
+        let center: Retained<AnyObject> = msg_send![&*workspace, notificationCenter];
+        let name = ns_string!("NSWorkspaceDidActivateApplicationNotification");
+        let observer: Retained<AnyObject> = msg_send![
+            &*center,
+            addObserverForName: name,
+            object: std::ptr::null::<AnyObject>(),
+            queue: std::ptr::null::<AnyObject>(),
+            usingBlock: &*activated
+        ];
+        std::mem::forget(observer);
+    }
+}
+
+fn set_last_app(pid: i32, name: String) {
+    if let Ok(mut last) = LAST_APP.lock() {
+        *last = Some((pid, name.replace(['\u{200e}', '\u{200f}'], "")));
+    }
 }
 
 /// The window's picture as a JPEG, with its size in pixels and pixels to a point.

@@ -864,7 +864,10 @@ impl Room {
 fn snapshot_button(take: Act, cx: &App) -> IconButton {
     let keys = crate::keymap::hint_named(crate::snapshot::COMMAND, cx)
         .map_or_else(String::new, |keys| format!(" {keys}"));
-    let label = format!("SnapShot the window you were in before Sikemux{keys}");
+    let label = match crate::snapshot::last_app() {
+        Some(app) => format!("SnapShot {app}'s window{keys}"),
+        None => format!("SnapShot the window you were in before Sikemux{keys}"),
+    };
     IconButton::new("composer-snapshot", Icon::Camera, label)
         .glyph(16.)
         .width(31.)

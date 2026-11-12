@@ -121,6 +121,7 @@ pub fn listen(window: &mut Window, cx: &mut Context<Workbench>) {
     if PRESSED.set(pressed).is_err() {
         return;
     }
+    super::macos::follow_apps();
     cx.spawn_in(window, async move |bench, cx| {
         while presses.recv().await.is_some() {
             let taken = bench.update_in(cx, |bench, window, cx| {

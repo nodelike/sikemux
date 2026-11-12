@@ -67,6 +67,16 @@ fn capture() -> Result<Shot, Missed> {
     Err(Missed::Unsupported)
 }
 
+/// The name of the app whose window a SnapShot from Sikemux takes.
+pub fn last_app() -> Option<String> {
+    #[cfg(target_os = "macos")]
+    return macos::last_app()
+        .map(|(_, name)| name)
+        .filter(|name| !name.is_empty());
+    #[cfg(not(target_os = "macos"))]
+    None
+}
+
 impl Workbench {
     /// Takes the window in front of every other app's and hands it to `agent`'s next message, or
     /// to the project's front chat. `bring_forward` brings Sikemux forward after, as when its
@@ -89,11 +99,17 @@ impl Workbench {
                     Ok(shot) => shot,
                     Err(missed) => return bench.notify(missed_note(missed), cx),
                 };
+                let app = shot.app.clone();
                 let made = made(shot);
-                match agent {
-                    Some(agent) => bench.attach_picture(&agent, made, window, cx),
-                    None => bench.hand_to_front_chat(made, "SnapShots", window, cx),
-                }
+                let Some(agent) = agent else {
+                    let went = bench.hand_to_front_chat(made, "SnapShots", window, cx);
+                    if let Some(chat) = went.filter(|_| bring_forward) {
+                        let note = format!("SnapShot of {app} added to {chat}");
+                        bench.notify(toast::success(note), cx);
+                    }
+                    return;
+                };
+                bench.attach_picture(&agent, made, window, cx);
             });
         })
         .detach();

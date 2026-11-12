@@ -12,8 +12,8 @@ use gpui_kit::component::attachment::{
 use gpui_kit::component::{Sizable, WindowExt};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    div, px, App, AppContext, Axis, ClipboardEntry, ClipboardItem, Context, Div, ExternalPaths,
-    FontWeight, Hsla, InteractiveElement, IntoElement, MouseButton, ParentElement,
+    div, px, AnimationExt, App, AppContext, Axis, ClipboardEntry, ClipboardItem, Context, Div,
+    ExternalPaths, FontWeight, Hsla, InteractiveElement, IntoElement, MouseButton, ParentElement,
     PathPromptOptions, SharedString, StatefulInteractiveElement, Styled, StyledImage, WeakEntity,
     Window,
 };
@@ -206,6 +206,7 @@ impl Composing {
             if self.attachments.len() == MAX_ATTACHMENTS {
                 break;
             }
+            self.fresh = Some((path.clone(), std::time::Instant::now()));
             self.attachments.push(path);
             let path = &self.attachments[self.attachments.len() - 1];
             if is_image(path) {
@@ -398,24 +399,28 @@ impl Workbench {
 
     /// Hands a picture made in the app to the project's front chat, starting one when none is
     /// open. `kind` names such pictures in what the person is told when no agent can take it.
+    /// Says which chat it went to, if it went to one.
     pub(crate) fn hand_to_front_chat(
         &mut self,
         made: Made,
         kind: &str,
         window: &mut Window,
         cx: &mut Context<Self>,
-    ) {
+    ) -> Option<SharedString> {
         if let Some(waiting) = &mut self.chats.pictures_for_new_chat {
             waiting.push(made);
-            return;
+            return Some("the new chat".into());
         }
         let Some(choice) = crate::send_to::choices(self).into_iter().next() else {
             let note = format!("Start an agent first — {kind} go to its chat");
             self.notify(crate::toast::info(note), cx);
-            return;
+            return None;
         };
         let (launcher, project) = match choice.to {
-            Recipient::Agent(agent) => return self.attach_picture(&agent, made, window, cx),
+            Recipient::Agent(agent) => {
+                self.attach_picture(&agent, made, window, cx);
+                return Some(choice.label);
+            }
             Recipient::NewChat { launcher, project } => (launcher, project),
         };
         self.chats.pictures_for_new_chat = Some(vec![made]);
@@ -435,6 +440,7 @@ impl Workbench {
             });
         })
         .detach();
+        Some(choice.label)
     }
 
     /// Reads files off the window's thread and has the chat's core keep each, attaching it
@@ -1145,6 +1151,7 @@ fn chip_words(id: &str, label: &SharedString) -> (SharedString, Option<SharedStr
 /// number, and a way to take it off; then the chats and issues it carries, as chips.
 pub fn tiles(
     attachments: &[PathBuf],
+    fresh: Option<&Path>,
     context: &[ChatContext],
     remove: impl Fn(usize, &mut Window, &mut App) + Clone + 'static,
     forget: impl Fn(usize, &mut Window, &mut App) + Clone + 'static,
@@ -1169,9 +1176,13 @@ pub fn tiles(
             true => picture_label(index + 1, path),
             false => crate::ui::path::file_name(path).to_string(),
         };
-        framed(format!("attachment-{index}"), path, number, name, &t, cx)
+        let tile = framed(format!("attachment-{index}"), path, number, name, &t, cx)
             .when_some(opens, |tile, opens| tile.on_click(opens))
-            .on_remove(move |_, window, cx| remove(index, window, cx))
+            .on_remove(move |_, window, cx| remove(index, window, cx));
+        match fresh == Some(path.as_path()) {
+            true => flashed(tile, path, t.accent).into_any_element(),
+            false => tile.into_any_element(),
+        }
     });
     let quotes = context.iter().enumerate();
     let quotes: Vec<_> = quotes
@@ -1201,6 +1212,19 @@ pub fn tiles(
             .children(quotes)
             .children(tiles)
             .children(chips),
+    )
+}
+
+/// How long after a file is attached its tile still flashes when it first draws.
+pub const FRESH: std::time::Duration = std::time::Duration::from_millis(800);
+
+/// A tile just attached, its edge lit in `accent` and fading out.
+fn flashed(tile: Attachment, path: &Path, accent: Hsla) -> impl IntoElement {
+    let id = SharedString::from(format!("attachment-flash-{}", path.to_string_lossy()));
+    tile.with_animation(
+        id,
+        crate::motion::entrance(crate::motion::ATTACHED),
+        move |tile, shown| tile.border_color(accent.opacity(1. - shown)),
     )
 }
 

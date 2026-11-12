@@ -102,6 +102,9 @@ pub const SECOND_RING: Duration = Duration::from_millis(380);
 /// The light that passes over an agent's row when it is named or messaged.
 pub const CALLED: Ease = Ease::new(700, Curve::Bezier(0.3, 0., 0.2, 1.));
 
+/// A file's tile lit as it is attached, fading out.
+pub const ATTACHED: Ease = Ease::new(700, Curve::CSS_OUT);
+
 /// An animation that plays once as its element first draws, on `ease`. It holds still while
 /// macOS asks for less motion, so it is only for what the Mac stills then too.
 pub fn entrance(ease: Ease) -> Animation {
