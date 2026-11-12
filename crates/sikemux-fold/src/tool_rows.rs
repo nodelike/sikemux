@@ -1851,6 +1851,7 @@ pub(super) const FAMILIES: &[&str] = &[
     "aws",
     "bitbucket",
     "db",
+    "forgejo",
     "gitlab",
     "play",
     "jira",
