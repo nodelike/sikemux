@@ -2,6 +2,7 @@
   "calls": [
     "agentCatalog",
     "agentSessions",
+    "agentUsages",
     "answerCall",
     "answerPairing",
     "answerQuestion",

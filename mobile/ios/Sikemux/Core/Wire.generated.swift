@@ -142,6 +142,7 @@ protocol PhoneCallable {
 enum PhoneCall {
     enum AgentCatalog {}
     enum AgentSessions {}
+    enum AgentUsages {}
     enum AnswerCall {}
     enum AnswerPairing {}
     enum AnswerQuestion {}
@@ -194,6 +195,12 @@ extension PhoneCall.AgentSessions: PhoneCallable {
     static let method = "agentSessions"
     typealias Params = SessionSearchParams
     typealias Answer = [SessionMatch]
+}
+
+extension PhoneCall.AgentUsages: PhoneCallable {
+    static let method = "agentUsages"
+    typealias Params = NoParams
+    typealias Answer = [AccountUsage]
 }
 
 extension PhoneCall.AnswerCall: PhoneCallable {
@@ -7146,6 +7153,90 @@ struct SessionMatch: Codable, Hashable, Sendable {
     var activeAt: Int
     /// Lines of the conversation the words were found in.
     var snippets: [String]
+}
+
+/// How much of its plan an account has used, as the core last read it.
+struct AccountUsage: Codable, Hashable, Sendable {
+    /// The launcher that starts agents on the account.
+    var launcher: String
+    var provider: String
+    /// The account as the agent picker names it.
+    var label: String
+    var signedIn: Bool
+    /// Its plan and rolling windows as its CLI last reported them, however long ago.
+    var usage: Usage?
+    /// When that reading was taken, in Unix milliseconds.
+    var readAt: Int?
+    /// Why the latest lookup found no reading.
+    var problem: String?
+    /// Whether smart accounts would start the agent's next new chat on it.
+    var next: Bool?
+    /// Whether the person pinned the agent's new chats to it.
+    var pinned: Bool?
+}
+
+struct Usage: Codable, Hashable, Sendable {
+    var provider: String
+    var plan: String?
+    /// The plan as its provider names it to the person, such as Claude's "Ultra" or Codex's "Pro".
+    var tier: String?
+    var windows: [UsageWindow]
+    var unavailableReason: String?
+    /// The limit resets the account holds; none when its provider offers it none.
+    var resets: Resets?
+}
+
+struct UsageWindow: Codable, Hashable, Sendable {
+    var label: String
+    /// The model or limit the window is for, such as Opus; none for the whole plan.
+    var scope: String?
+    var usedPercent: Double
+    var resetsAt: UsageResetAt?
+    var windowMinutes: Int?
+}
+
+enum UsageResetAt: Codable, Hashable, Sendable {
+    case unix(Int)
+    case iso(String)
+
+    init(from decoder: any Decoder) throws {
+        if let value = try? Int(from: decoder) {
+            self = .unix(value)
+            return
+        }
+        if let value = try? String(from: decoder) {
+            self = .iso(value)
+            return
+        }
+        throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "UsageResetAt matches no variant"))
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        switch self {
+        case .unix(let value):
+            try value.encode(to: encoder)
+        case .iso(let value):
+            try value.encode(to: encoder)
+        }
+    }
+}
+
+/// Limit resets an account was given, by kind.
+struct Resets: Codable, Hashable, Sendable {
+    var left: Int
+    var kinds: [ResetKind]
+}
+
+/// Resets of one kind, such as Claude's weekly or Fable resets.
+struct ResetKind: Codable, Hashable, Sendable {
+    /// The grant spending one uses: the kind's first to run out. None when the agent chooses.
+    var id: String?
+    var label: String
+    var left: Int
+    /// When the first of them expires, in Unix milliseconds; none when none do.
+    var useBy: Int?
+    /// The label of the window one refills; none when one starts every used-up window over.
+    var window: String?
 }
 
 /// What answers a call: an option, with a note, or the person's own words, with any files.

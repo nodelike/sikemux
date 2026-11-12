@@ -4612,6 +4612,66 @@ export interface SessionMatch {
     snippets: string[];
 }
 
+/** How much of its plan an account has used, as the core last read it. */
+export interface AccountUsage {
+    /** The launcher that starts agents on the account. */
+    launcher: string;
+    provider: string;
+    /** The account as the agent picker names it. */
+    label: string;
+    signedIn: boolean;
+    /** Its plan and rolling windows as its CLI last reported them, however long ago. */
+    usage: Usage | null;
+    /** When that reading was taken, in Unix milliseconds. */
+    readAt: number | null;
+    /** Why the latest lookup found no reading. */
+    problem: string | null;
+    /** Whether smart accounts would start the agent's next new chat on it. */
+    next?: boolean;
+    /** Whether the person pinned the agent's new chats to it. */
+    pinned?: boolean;
+}
+
+export interface Usage {
+    provider: string;
+    plan: string | null;
+    /** The plan as its provider names it to the person, such as Claude's "Ultra" or Codex's "Pro". */
+    tier?: string;
+    windows: UsageWindow[];
+    unavailableReason: string | null;
+    /** The limit resets the account holds; none when its provider offers it none. */
+    resets?: Resets;
+}
+
+export interface UsageWindow {
+    label: string;
+    /** The model or limit the window is for, such as Opus; none for the whole plan. */
+    scope?: string;
+    usedPercent: number;
+    resetsAt: UsageResetAt | null;
+    windowMinutes: number | null;
+}
+
+export type UsageResetAt = number | string;
+
+/** Limit resets an account was given, by kind. */
+export interface Resets {
+    left: number;
+    kinds: ResetKind[];
+}
+
+/** Resets of one kind, such as Claude's weekly or Fable resets. */
+export interface ResetKind {
+    /** The grant spending one uses: the kind's first to run out. None when the agent chooses. */
+    id: string | null;
+    label: string;
+    left: number;
+    /** When the first of them expires, in Unix milliseconds; none when none do. */
+    useBy: number | null;
+    /** The label of the window one refills; none when one starts every used-up window over. */
+    window: string | null;
+}
+
 /** What answers a call: an option, with a note, or the person's own words, with any files. */
 export interface AnswerCallParams {
     id: string;
@@ -4960,6 +5020,7 @@ export interface TakeStepParams {
 export interface CoreCalls {
     agentCatalog: { params: NoParams; answer: CatalogAgent[] };
     agentSessions: { params: SessionSearchParams; answer: SessionMatch[] };
+    agentUsages: { params: NoParams; answer: AccountUsage[] };
     answerCall: { params: AnswerCallParams; answer: null };
     answerPairing: { params: PairingAnswer; answer: RemotePairing };
     answerQuestion: { params: AnswerParams; answer: null };

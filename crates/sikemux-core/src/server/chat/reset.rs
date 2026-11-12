@@ -47,13 +47,13 @@ enum Slot {
 }
 
 #[derive(Default)]
-pub(crate) struct Resets {
+pub(crate) struct LimitResumes {
     path: Option<PathBuf>,
     slots: Mutex<HashMap<String, Slot>>,
     tickets: AtomicU64,
 }
 
-impl Resets {
+impl LimitResumes {
     pub(crate) fn new(data_dir: Option<&Path>) -> Self {
         let path = data_dir.map(|dir| dir.join(FILE));
         let saved = path.as_deref().map(read_saved).unwrap_or_default();

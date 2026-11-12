@@ -19,7 +19,7 @@ pub(crate) struct Chats {
     pub(super) history: Option<PathBuf>,
     /// Where each chat is written down, for a core that starts after this one.
     pub(super) kept: Option<PathBuf>,
-    pub(crate) resets: reset::Resets,
+    pub(crate) resets: reset::LimitResumes,
     /// The feeds of chats asleep, their history kept on disk for clients to page and find
     /// through without waking anything.
     pub(super) resting: Mutex<Vec<Resting>>,
@@ -46,7 +46,7 @@ impl Chats {
         Self {
             history: data_dir.map(|dir| dir.join("chat-history")),
             kept: data_dir.map(|dir| dir.join("chats")),
-            resets: reset::Resets::new(data_dir),
+            resets: reset::LimitResumes::new(data_dir),
             ..Self::default()
         }
     }
