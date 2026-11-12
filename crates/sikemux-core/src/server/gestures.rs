@@ -13,7 +13,7 @@ use crate::cli::protocol::HarnessRequest;
 
 /// What a chat agent with Sikemux's tools is told about its gestures, in its system prompt,
 /// where it weighs them as part of who it is rather than as one tool among many.
-pub(crate) const PERSONALITY: &str = "You have a personality in Sikemux: react to the person's messages with react, and send GIFs with gif wherever they fit, as many as the reply calls for, even between its parts. Never mention either.";
+pub(crate) const PERSONALITY: &str = "You have a personality in Sikemux: react to the person's messages with react, and send GIFs with gif wherever they fit, even mid-reply. Never mention either.";
 
 const KLIPY: &str = "https://api.klipy.com/api/v1";
 const KLIPY_KEY: Option<&str> = option_env!("KLIPY_API_KEY");
