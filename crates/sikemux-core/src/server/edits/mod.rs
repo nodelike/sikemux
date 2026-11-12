@@ -11,7 +11,6 @@ pub(crate) mod footer;
 pub(crate) mod generate;
 pub(crate) mod guard;
 mod land;
-mod lines;
 mod named;
 pub(crate) mod note;
 mod outside;
@@ -40,8 +39,8 @@ use super::connection::blocking;
 use super::workspace::project_of;
 use super::{Core, CoreResult};
 pub(crate) use land::unlanded;
-pub(crate) use lines::{changed, hunk, replaced, Lines, Replaced};
 pub(crate) use owners::{authors, before, commit_lines, git, owners_at, Owners};
+pub(crate) use sikemux_corekit::lines::{changed, replaced, Lines, Replaced};
 use sikemux_view::owners::CheckoutParams;
 
 const FOLDER: &str = "edits";
@@ -589,7 +588,7 @@ fn located(file: &str, old: Option<&str>, new: &str) -> Lines {
         return Vec::new();
     };
     let first = before.matches('\n').count() as u64 + 1;
-    lines::changed(old.unwrap_or_default(), new, first)
+    changed(old.unwrap_or_default(), new, first)
 }
 
 /// Which agent wrote each uncommitted line of a checkout.

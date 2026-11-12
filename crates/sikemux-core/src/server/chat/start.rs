@@ -374,10 +374,6 @@ pub(crate) fn carry_on_prompt(what: &str) -> rebind::Replay {
     }
 }
 
-pub(crate) fn restart_notice(title: &str, description: &str) -> Value {
-    notice("warning", title, Some(description))
-}
-
 pub(super) const RESTARTED: &str = "Sikemux restarted while this agent was working";
 
 /// Takes up again every chat an earlier core was running when it stopped,

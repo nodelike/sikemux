@@ -14,6 +14,7 @@ pub mod fuzzy;
 pub mod host_update;
 #[cfg(unix)]
 pub mod join;
+pub mod lines;
 #[cfg(unix)]
 pub mod push;
 pub mod release_feed;

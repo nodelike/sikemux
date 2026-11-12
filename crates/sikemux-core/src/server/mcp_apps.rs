@@ -4,6 +4,7 @@
 //! its own server, through the agent that called it.
 
 use crate::server::parts::Parts;
+pub(crate) use sikemux_drivers::server::mcp_apps::{Record, ServerRequest};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -20,26 +21,6 @@ const FOLDER: &str = "mcp-apps";
 pub(crate) const MARK: &str = "sikemuxMcpApp";
 const MAX_HTML_BYTES: usize = 4 * 1024 * 1024;
 const MAX_ID_CHARS: usize = 128;
-
-/// What an app is shown from: its server's page, the call it came from and that call's result.
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct Record {
-    /// The MCP server, by the name the agent knows it by.
-    pub server: String,
-    /// The tool as the server described it, the name under `name`.
-    pub tool: Value,
-    pub uri: String,
-    pub html: String,
-    /// The domains the page asked to reach, as `_meta.ui.csp` names them.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub csp: Option<Value>,
-    #[serde(default)]
-    pub prefers_border: bool,
-    pub input: Value,
-    /// The call's result, as MCP's `CallToolResult`.
-    pub result: Value,
-}
 
 /// An app as a client draws it.
 #[derive(Serialize, Deserialize)]
@@ -70,13 +51,6 @@ pub struct McpAppRequestParams {
     /// `tools/call` or `resources/read`.
     pub method: String,
     #[serde(default)]
-    pub params: Value,
-}
-
-/// A request an app made of its server, for the agent that called it to pass on.
-pub(crate) struct ServerRequest {
-    pub server: String,
-    pub method: String,
     pub params: Value,
 }
 

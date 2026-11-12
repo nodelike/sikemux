@@ -15,7 +15,6 @@ mod backdrop;
 pub mod board;
 pub(crate) mod builds;
 mod caller;
-mod callers;
 pub mod calls;
 mod catalog;
 mod changed;
@@ -164,6 +163,7 @@ use tokio::sync::Notify;
 use crate::client::{probe, ProbeError};
 use sikemux_wire::protocol::{BuildIdentity, Event, SessionId};
 
+pub(crate) use sikemux_agents::callers;
 pub(crate) use sikemux_kernel::{Core, CoreError, CoreResult, Listening};
 
 use changed::What;

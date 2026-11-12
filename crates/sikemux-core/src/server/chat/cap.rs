@@ -10,7 +10,6 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
 use sikemux_process::clock::epoch_ms;
 use sikemux_wire::protocol::AgentState;
 
@@ -21,14 +20,6 @@ use super::{Chat, ChatCommand};
 use crate::server::messages::called_now;
 use crate::server::{inbox, person_calls, roster, Core};
 
-/// Claude compacts about 33K tokens under the window it is given, so this compacts near 150K.
-pub(crate) const CLAUDE_WINDOW: u64 = 183_000;
-/// The callbacks Claude calls before it compacts and as it starts again after.
-pub(crate) const KEEP_HOOK: &str = "sikemux-keep";
-pub(crate) const AFTER_COMPACT_HOOK: &str = "sikemux-after-compact";
-/// The callback Claude calls before each tool, so a handoff note runs none, even one the
-/// person's settings allow without asking.
-pub(crate) const TOOL_HOOK: &str = "sikemux-tool";
 /// Claude cuts what a compaction hook answers past this many characters.
 const HOOK_CHARS: usize = 10_000;
 /// One message of the person's past this is cut, so a pasted log leaves room for the rest.
@@ -49,26 +40,6 @@ const IDLE_COMPACT_TOKENS: u64 = 40_000;
 /// A chat that is not capped keeps its whole session unless it is this big, as the person may
 /// come back for its detail.
 const IDLE_COMPACT_UNCAPPED_TOKENS: u64 = 150_000;
-/// What the core asks for when it compacts an idle chat itself.
-pub(crate) const IDLE_FOCUS: &str =
-    "Keep what the person asked for and decided, and the work still open.";
-
-/// The hooks a Claude chat registers as it starts. Every chat is handed Sikemux's words back
-/// after a compaction; only a capped one is told what to keep before it, and only one that
-/// `rotates` has its tools refused while it writes a handoff note.
-pub(crate) fn claude_hooks(capped: bool, rotates: bool) -> Value {
-    let mut hooks = json!({
-        "SessionStart": [{ "matcher": "compact", "hookCallbackIds": [AFTER_COMPACT_HOOK] }],
-    });
-    if capped {
-        hooks["PreCompact"] = json!([{ "hookCallbackIds": [KEEP_HOOK] }]);
-    }
-    if rotates {
-        hooks["PreToolUse"] = json!([{ "hookCallbackIds": [TOOL_HOOK] }]);
-    }
-    hooks
-}
-
 /// When the chat's session last called the model and how much context that call carried.
 #[derive(Default)]
 pub(crate) struct Meter {

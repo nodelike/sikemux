@@ -13,6 +13,7 @@ host-addresses-file = []
 sikemux-agents = { path = "../sikemux-agents" }
 sikemux-base = { path = "../sikemux-base" }
 sikemux-corekit = { path = "../sikemux-corekit" }
+sikemux-drivers = { path = "../sikemux-drivers" }
 sikemux-process = { path = "../sikemux-process" }
 sikemux-fold = { path = "../sikemux-fold" }
 sikemux-markdown = { path = "../sikemux-markdown" }

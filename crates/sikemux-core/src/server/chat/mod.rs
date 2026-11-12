@@ -6,15 +6,15 @@ mod actions;
 pub mod calls;
 pub(crate) mod cap;
 pub(crate) mod feed;
-pub mod find;
+pub use sikemux_drivers::server::chat::find;
 pub mod handoff;
-pub(crate) mod history;
+pub(crate) use sikemux_drivers::server::chat::history;
 mod kept;
 pub(crate) mod mentions;
 mod native;
 mod offers;
-pub(crate) mod permission;
-pub mod prompt;
+pub(crate) use sikemux_drivers::server::chat::permission;
+pub use sikemux_drivers::server::chat::prompt;
 pub mod queue;
 mod rebind;
 pub(crate) use rebind::on_account;
@@ -23,7 +23,7 @@ pub(crate) mod reset;
 pub(crate) mod rotation;
 pub mod side;
 mod start;
-mod states;
+use sikemux_drivers::server::chat::states;
 mod turn;
 mod usage;
 
@@ -53,6 +53,7 @@ use crate::launch::PermissionMode;
 pub(crate) use native::Steered;
 use native::{ended_status, SessionEnd};
 use prompt::bounded_text;
+pub(crate) use sikemux_drivers::server::chat::{restart_notice, Answered, Respond};
 use sikemux_wire::protocol::{
     ask, AgentState, AgentStatus, Attention, AttentionKind, ChatAccount, ChatAttachment,
     ChatContext, ChatInfo, ChatLaunch, ChatMark, ChatStart, ChatState, Event, RequestId,
@@ -112,17 +113,6 @@ pub(crate) struct Whose {
     /// They answered a call to the person.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub answered: Option<Answered>,
-}
-
-/// A call to the person that a prompt answered.
-#[derive(
-    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
-)]
-#[serde(rename_all = "camelCase")]
-pub(crate) enum Answered {
-    Call,
-    /// One whose words are never kept: they may be a password or a token.
-    HiddenCall,
 }
 
 impl Whose {
@@ -258,11 +248,6 @@ enum Readiness {
     Ready(ChatStart),
     Ended(Option<String>),
 }
-
-/// Tells the agent the option the person chose, or none when the question
-/// was cancelled. It writes to the agent before it returns, so an answer
-/// given before the chat lets go of its agent is never lost.
-pub(crate) type Respond = Box<dyn FnOnce(Option<String>) + Send>;
 
 struct PendingPermission {
     option_ids: Vec<String>,

@@ -11,6 +11,8 @@ pub mod agent_ops;
 #[cfg(unix)]
 pub mod agent_shell;
 #[cfg(unix)]
+pub mod callers;
+#[cfg(unix)]
 pub mod git;
 #[cfg(unix)]
 pub mod git_guard;

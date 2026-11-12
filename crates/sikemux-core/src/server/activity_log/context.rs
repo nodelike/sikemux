@@ -2,52 +2,15 @@
 //! call for the day they happen in and then added up into one row per chat and UTC day: how big
 //! its calls were, how often the cache was rewritten cold and how often it compacted.
 
+pub(crate) use sikemux_drivers::server::activity_log::{Compaction, ModelCall};
 use std::collections::BTreeMap;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use rusqlite::{params, Connection};
-use serde::{Deserialize, Serialize};
 use sikemux_process::clock::epoch_ms;
 
 use super::{in_background, ActivityLog, DAY_MS};
-
-/// A call this big that read less than half of it from the cache wrote the cache again cold.
-const COLD_CONTEXT: u64 = 100_000;
-
-/// One call to the model, with how much context it carried and how much of that the cache held.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct ModelCall {
-    pub at_ms: u64,
-    pub input: u64,
-    pub cache_read: u64,
-    pub cache_write: u64,
-    pub output: u64,
-}
-
-impl ModelCall {
-    pub(crate) fn context(&self) -> u64 {
-        self.input + self.cache_read + self.cache_write
-    }
-
-    fn cold(&self) -> bool {
-        self.context() > COLD_CONTEXT && self.cache_read * 2 < self.context()
-    }
-}
-
-/// The session was compacted: by its agent as it filled, by the person, or by the core while idle.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct Compaction {
-    pub at_ms: u64,
-    pub trigger: String,
-    pub before: u64,
-    pub after: u64,
-    pub ms: u64,
-    /// What writing the summary cost, when nothing else called the model beside it.
-    pub cost: Option<ModelCall>,
-}
 
 pub(super) const TABLES: &str = "CREATE TABLE model_calls (
          at_ms INTEGER NOT NULL,

@@ -3,6 +3,7 @@
 //! or loaded is kept, so a client that attaches later rebuilds the chat from
 //! the same events the others watched arrive.
 
+pub(crate) use sikemux_drivers::server::chat::feed::{Earlier, Reach};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
@@ -51,21 +52,6 @@ const PAGE_BYTES: u64 = 1024 * 1024;
 /// Where a chat taken up on a session it never ran numbers its first event, leaving the
 /// numbers below it for what it reads further back.
 const EARLIER_ROOM: u64 = 1 << 40;
-
-/// How far into its agent CLI's own record of a session a chat's history reaches, so a resume
-/// replays only what the CLI added since.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) enum Reach {
-    /// The length of a transcript file.
-    Bytes(u64),
-    /// The latest turn of a thread.
-    Turn(String),
-}
-
-/// Reads further back into an agent CLI's own record of a session than the chat holds, a part
-/// at a time: the updates it tells, oldest first, until nothing earlier is left.
-pub(crate) type Earlier = Box<dyn FnMut() -> Result<Option<Vec<(String, Value)>>, String> + Send>;
 
 /// What a client attaching now is told about the chat besides its rows.
 pub(crate) struct Standing {

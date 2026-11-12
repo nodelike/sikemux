@@ -3,13 +3,11 @@
 //! agent again under the chat.
 
 use crate::server::parts::Parts;
-use std::collections::HashMap;
 use std::ops::ControlFlow;
 use std::os::fd::OwnedFd;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
-use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio::sync::mpsc;
@@ -17,9 +15,8 @@ use uuid::Uuid;
 
 use crate::launch::PermissionMode;
 
-use crate::acp::failure::{sounds_offline, Failure, FailureKind};
+use crate::acp::failure::{Failure, FailureKind};
 use crate::agent_accounts::sign_in::{self, SignIn};
-use crate::server::chat::permission;
 use crate::server::chat::prompt::MAX_CONTEXT_ITEMS;
 use crate::server::inbox::Fault;
 
@@ -38,22 +35,12 @@ use super::super::rebind::{
 };
 use super::super::{cap, rotation};
 use super::super::{reset, stall_later, Asked, Chat, ChatCommand, Delivery, Respond, Whose};
-use super::process::{AgentRecord, Lines, Process, Released, Writer};
+use super::process::{AgentRecord, Process, Released};
 use crate::server::activity_log::{Compaction, ModelCall};
 use crate::server::agent_accounts;
-
-/// What the person sent, for the agent to read in its own form.
-#[derive(Clone)]
-pub(crate) struct Prompt {
-    pub message_id: Option<String>,
-    pub text: String,
-    pub paths: Vec<String>,
-    pub context: Vec<ChatContext>,
-    /// A message from another agent rather than the person.
-    pub letter: bool,
-    /// Sent before, to this agent or one that ran the session earlier, so its id may be taken.
-    pub resent: bool,
-}
+pub(crate) use sikemux_drivers::server::chat::native::session::{
+    slim, Backend, Prompt, Sink, SinkPort, Steered, Telling, Told, TurnEnd,
+};
 
 impl From<&Replay> for Prompt {
     fn from(replay: &Replay) -> Self {
@@ -68,97 +55,8 @@ impl From<&Replay> for Prompt {
     }
 }
 
-/// The most of any one text an update carries. The chat shows only the first
-/// few hundred lines of what a tool printed, and a long chat loaded again
-/// would otherwise send all of it.
-const MAX_TEXT: usize = 128 * 1024;
 /// Where a chat's brief says it is from, when it goes with the first message.
 const BRIEF_URI: &str = "sikemux://memory";
-/// The largest picture an update carries, as base64. The chat keeps none
-/// bigger.
-const MAX_IMAGE: usize = 2 * 1024 * 1024;
-
-/// Cuts every text in `value` down to what the chat can show.
-pub(crate) fn slim(value: &mut Value) {
-    match value {
-        Value::String(text) if text.len() > MAX_TEXT => {
-            let mut end = MAX_TEXT;
-            while !text.is_char_boundary(end) {
-                end -= 1;
-            }
-            text.truncate(end);
-            text.push('…');
-        }
-        Value::Array(items) => items.iter_mut().for_each(slim),
-        Value::Object(fields) => {
-            let picture = fields.get("data").and_then(Value::as_str).map(str::len);
-            if picture.is_some_and(|len| len > MAX_IMAGE) {
-                fields.remove("data");
-            }
-            for (key, field) in fields.iter_mut() {
-                if key != "data" {
-                    slim(field);
-                }
-            }
-        }
-        _ => {}
-    }
-}
-
-pub(crate) enum TurnEnd {
-    /// The `turn_completed` payload, such as `{"stopReason": "end_turn"}`.
-    Completed(Value),
-    /// The agent could not finish it, and said why.
-    Failed {
-        failure: Failure,
-        response: Option<Value>,
-    },
-    /// The agent turned the prompt down with this error.
-    Refused(String),
-    /// The agent can take no more turns in this session, for this reason, and
-    /// is started again.
-    Broken(String),
-}
-
-impl TurnEnd {
-    /// A failure or refusal whose words say the network was at fault reads as
-    /// one, whichever agent it came from, so the prompt goes again once it is back.
-    fn read_offline(self) -> Self {
-        match self {
-            Self::Failed { failure, response }
-                if failure.kind == FailureKind::Other && sounds_offline(&failure.title) =>
-            {
-                Self::Failed {
-                    failure: Failure::lost_connection(failure.title),
-                    response,
-                }
-            }
-            Self::Refused(message) if sounds_offline(&message) => Self::Failed {
-                failure: Failure::lost_connection(message),
-                response: None,
-            },
-            end => end,
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Steered {
-    Injected,
-    /// The turn ended first, so it goes as a prompt instead.
-    PromptRequired,
-}
-
-impl Steered {
-    /// As ACP agents say it and as the phone's call answers it.
-    pub(crate) fn word(self) -> &'static str {
-        match self {
-            Self::Injected => "injected",
-            Self::PromptRequired => "promptRequired",
-        }
-    }
-}
-
 enum Woke {
     Command(Option<ChatCommand>),
     Closed(String),
@@ -178,22 +76,24 @@ pub(crate) struct Failed {
 /// What tells a chat a session's history, the one thing a chat's saved history
 /// needs shown before its agent starts.
 #[derive(Clone)]
-pub(crate) struct Telling {
+pub(crate) struct ChatTelling {
     chat: Arc<Chat>,
     /// Quiet while a session loaded under a running chat replays history the
     /// chat already shows.
     quiet: Arc<std::sync::atomic::AtomicBool>,
 }
 
-impl Telling {
+impl ChatTelling {
     pub(crate) fn new(chat: Arc<Chat>) -> Self {
         Self {
             chat,
             quiet: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
     }
+}
 
-    pub fn update(&self, session_id: &str, mut update: Value) {
+impl Told for ChatTelling {
+    fn update(&self, session_id: &str, mut update: Value) {
         // The commands an agent lists are what it offers now, never history it replays.
         if self.quiet.load(Ordering::Acquire)
             && UpdateKind::of(&update) != Some(UpdateKind::AvailableCommandsUpdate)
@@ -209,41 +109,32 @@ impl Telling {
         );
     }
 
-    /// Keeps the MCP app the call `id` showed, for the update that ends the call to name.
-    pub fn keep_app(
-        &self,
-        id: &str,
-        record: &crate::server::mcp_apps::Record,
-    ) -> Result<(), String> {
+    fn keep_app(&self, id: &str, record: &crate::server::mcp_apps::Record) -> Result<(), String> {
         let core = self.chat.core.upgrade().ok_or("the core is stopping")?;
         core.mcp_apps().keep(id, record)
     }
 
-    /// Whether this start loads the session again under a running chat.
-    pub fn reloading(&self) -> bool {
+    fn reloading(&self) -> bool {
         self.quiet.load(Ordering::Acquire)
     }
 
-    /// What the agent says until [`Telling::loaded`] is history the chat already shows.
-    pub fn hush(&self) {
+    fn hush(&self) {
         self.quiet.store(true, Ordering::Release);
     }
 
-    /// The session has loaded, so what the agent says from now on is new to
-    /// the chat.
-    pub fn loaded(&self) {
+    fn loaded(&self) {
         self.quiet.store(false, Ordering::Release);
     }
 
-    pub fn reach(&self, session: &str) -> Option<Reach> {
+    fn reach(&self, session: &str) -> Option<Reach> {
         self.chat.feed.reach(session)
     }
 
-    pub fn leave_room(&self) {
+    fn leave_room(&self) {
         self.chat.feed.leave_room();
     }
 
-    pub fn tell_earlier(&self, mut earlier: Earlier) {
+    fn tell_earlier(&self, mut earlier: Earlier) {
         let chat = self.chat.clone();
         self.chat.feed.tell_earlier(Box::new(move || {
             let mut read = earlier()?;
@@ -254,51 +145,44 @@ impl Telling {
         }));
     }
 
-    pub fn reached(&self, session: &str, reach: Reach) {
+    fn reached(&self, session: &str, reach: Reach) {
         self.chat.feed.reached(session, reach);
     }
 
-    /// Whether the chat's session is kept small.
-    pub fn capped(&self) -> bool {
+    fn capped(&self) -> bool {
         self.chat.capped()
     }
 
-    /// Whether the chat's session gives way to fresh ones, so it may be asked for a handoff note.
-    pub fn rotates(&self) -> bool {
+    fn rotates(&self) -> bool {
         self.chat.capped()
             && (self.chat.core.upgrade()).is_some_and(|core| super::super::rotation::on(&core))
     }
 
-    /// The core's own compaction has ended, done or not.
-    pub fn compaction_over(&self) {
+    fn compaction_over(&self) {
         self.chat.meter.compaction_over();
     }
 
-    /// What the session's compaction is told to keep.
-    pub fn keep_list(&self) -> String {
+    fn keep_list(&self) -> String {
         match self.chat.core.upgrade() {
             Some(core) => cap::keep_list(&core, &self.chat),
             None => String::new(),
         }
     }
 
-    /// What the session is told after its compaction.
-    pub fn after_compaction(&self) -> Option<String> {
+    fn after_compaction(&self) -> Option<String> {
         let core = self.chat.core.upgrade()?;
         cap::after_compaction(&core, &self.chat)
     }
 
-    /// The session called the model with `context` tokens.
-    pub fn called(&self, context: u64) {
+    fn called(&self, context: u64) {
         self.chat.meter.called(context);
     }
 
-    /// The session was compacted down to `context` tokens.
-    pub fn compacted(&self, context: u64) {
+    fn compacted(&self, context: u64) {
         self.chat.meter.compacted(context);
     }
 
-    pub fn session_used(&self, calls: Vec<ModelCall>, compactions: Vec<Compaction>) {
+    fn session_used(&self, calls: Vec<ModelCall>, compactions: Vec<Compaction>) {
         if let Some(core) = self.chat.core.upgrade() {
             let project = core.workspaces().project_of(&self.chat.launch.cwd);
             core.activity_log()
@@ -310,62 +194,51 @@ impl Telling {
 /// What an agent's reader tells the chat. Cheap to clone, and safe to use
 /// from any task.
 #[derive(Clone)]
-pub(crate) struct Sink {
-    telling: Telling,
+pub(crate) struct ChatSink {
+    telling: ChatTelling,
     failed: mpsc::UnboundedSender<Failed>,
     broken: mpsc::UnboundedSender<String>,
     settled: mpsc::UnboundedSender<u64>,
     account: Option<String>,
 }
 
-impl std::ops::Deref for Sink {
-    type Target = Telling;
+impl std::ops::Deref for ChatSink {
+    type Target = ChatTelling;
 
-    fn deref(&self) -> &Telling {
+    fn deref(&self) -> &ChatTelling {
         &self.telling
     }
 }
 
-impl Sink {
-    pub fn error(&self, message: impl std::fmt::Display) {
-        self.chat.error(error_message(message));
-    }
-
-    /// Whether the provider has a saved session to load.
-    pub fn has_answered(&self) -> bool {
+impl SinkPort for ChatSink {
+    fn has_answered(&self) -> bool {
         self.chat.has_answered()
     }
 
-    /// Whether a turn this side prompted is being answered.
-    pub fn running(&self) -> bool {
+    fn running(&self) -> bool {
         self.chat.prompted()
     }
 
-    pub fn cli_version(&self, version: &str) {
+    fn cli_version(&self, version: &str) {
         self.chat.note_cli_version(version);
     }
 
-    /// Keeps the plan limits the agent reported as it worked as its account's reading.
-    pub fn plan_limits(&self, live: Vec<crate::agent_accounts::usage::UsageWindow>) {
+    fn plan_limits(&self, live: Vec<crate::agent_accounts::usage::UsageWindow>) {
         if let Some(core) = self.chat.core.upgrade() {
             let provider = self.chat.provider();
             agent_accounts::note_live(&core, provider, self.account.as_deref(), live);
         }
     }
 
-    /// The agent began work nobody here asked for, such as answering a
-    /// background task that finished.
-    pub fn work_started(&self) {
+    fn work_started(&self) {
         self.chat.work_started();
     }
 
-    pub fn work_ended(&self, stop_reason: StopReason) {
+    fn work_ended(&self, stop_reason: StopReason) {
         self.chat.work_ended(stop_reason);
     }
 
-    /// Settles turn `turn`, or hands a failure another account may fix to
-    /// the chat's loop to decide on, with the turn still running.
-    pub fn end_turn(&self, turn: u64, end: TurnEnd) {
+    fn end_turn(&self, turn: u64, end: TurnEnd) {
         let end = end.read_offline();
         let chat = &self.chat;
         chat.cancel_permissions();
@@ -409,21 +282,15 @@ impl Sink {
         let _ = self.settled.send(turn);
     }
 
-    /// A message from another agent went into the running turn but the agent
-    /// dropped it unread, so it waits for the agent's next turn instead.
-    pub fn letter_unread(&self, text: String) {
+    fn letter_unread(&self, text: String) {
         self.chat.letter_unread(text);
     }
 
-    /// The agent asked a question with its CLI's own tool. Answers what it
-    /// is told in place of the answer, which comes later as a message.
-    pub fn question(&self, input: &Value) -> String {
+    fn question(&self, input: &Value) -> String {
         self.chat.ask_question(input)
     }
 
-    /// Puts to the person a dialog the agent is blocked on, whose answer comes
-    /// back through [`Backend::answer_dialog`].
-    pub fn ask_dialog(
+    fn ask_dialog(
         &self,
         dialog: String,
         header: &str,
@@ -433,50 +300,28 @@ impl Sink {
         self.chat.ask_dialog(dialog, header, text, choices)
     }
 
-    pub fn withdraw_dialogs(&self, only: Option<&str>) {
+    fn withdraw_dialogs(&self, only: Option<&str>) {
         self.chat.withdraw_dialogs(only);
     }
 
-    pub fn withdraw_permission(&self, tool_call_id: &str) {
+    fn withdraw_permission(&self, tool_call_id: &str) {
         self.chat.withdraw_permission(tool_call_id);
     }
 
-    /// `text` went into the running turn; `person` when the person sent it.
-    pub fn prompted(&self, text: &str, paths: &[String], person: bool) {
+    fn prompted(&self, text: &str, paths: &[String], person: bool) {
         self.chat
             .record_prompt(None, text, paths, &[], Whose::of(person));
     }
 
-    /// Asks the person about a tool call. `request` is shaped as an ACP
-    /// permission request: the session, the tool call and its `options`.
-    /// `reply` is what the backend needs to answer the agent, kept with the
-    /// question so a core that takes the chat over can answer it too.
-    /// `responder` makes from it what is told the chosen option's id, or none
-    /// when it was cancelled.
-    pub fn ask<R: Serialize>(
-        &self,
-        request: Value,
-        reply: R,
-        responder: impl FnOnce(R) -> Respond,
-    ) {
-        if self.chat.approves() {
-            if let Some(option_id) = permission::approval(&request) {
-                responder(reply)(Some(option_id));
-                return;
-            }
-        }
-        self.ask_person(request, reply, responder);
+    fn error_text(&self, message: String) {
+        self.chat.error(error_message(message));
     }
 
-    /// Like `ask`, for what only the person may answer, even under YOLO.
-    pub fn ask_person<R: Serialize>(
-        &self,
-        mut request: Value,
-        reply: R,
-        responder: impl FnOnce(R) -> Respond,
-    ) {
-        let kept = serde_json::to_value(&reply).unwrap_or(Value::Null);
-        let respond = responder(reply);
+    fn approves(&self) -> bool {
+        self.chat.approves()
+    }
+
+    fn hold(&self, mut request: Value, kept: Value, respond: Respond) {
         let option_ids = request
             .get("options")
             .and_then(Value::as_array)
@@ -494,6 +339,10 @@ impl Sink {
         {
             self.chat.emit(ChatEventKind::PermissionRequest, request);
         }
+    }
+
+    fn telling(&self) -> &Telling {
+        &self.telling
     }
 }
 
@@ -518,51 +367,6 @@ fn after_turn(chat: Arc<Chat>, command: ChatCommand) {
     });
 }
 
-/// How many subagents' histories a resumed chat reads.
-const MAX_SUBAGENT_HISTORIES: usize = 64;
-
-/// The histories of the subagents `first` names and of theirs, each read by
-/// `read`, whose subagents `children` names.
-pub(crate) async fn subagent_histories<F>(
-    first: Vec<String>,
-    read: impl Fn(String) -> F,
-    children: impl Fn(&[Value]) -> Vec<String>,
-) -> HashMap<String, Vec<Value>>
-where
-    F: std::future::Future<Output = Vec<Value>>,
-{
-    let mut histories = HashMap::new();
-    let mut queue = first;
-    while let Some(child) = queue.pop() {
-        if histories.contains_key(&child) || histories.len() >= MAX_SUBAGENT_HISTORIES {
-            continue;
-        }
-        let said = read(child.clone()).await;
-        queue.extend(children(&said));
-        histories.insert(child, said);
-    }
-    histories
-}
-
-/// The session an agent opened, as the chat reads it.
-pub(crate) struct Opened {
-    pub session_id: String,
-    pub capabilities: Value,
-    pub setup: Value,
-}
-
-impl Opened {
-    /// What the chat can do with an agent the core speaks to in that agent's own protocol.
-    pub fn native_capabilities() -> Value {
-        json!({
-            "loadSession": true,
-            "steering": true,
-            "editing": true,
-            "promptCapabilities": { "image": true, "embeddedContext": true },
-        })
-    }
-}
-
 /// A chat's brief as context handed over with its first message, titled by its first line.
 fn brief_context(brief: String) -> ChatContext {
     ChatContext {
@@ -570,138 +374,6 @@ fn brief_context(brief: String) -> ChatContext {
         title: brief.lines().next().unwrap_or_default().to_owned(),
         text: brief,
     }
-}
-
-/// One agent the core speaks to in its own protocol.
-pub(crate) trait Backend: Sized + Send {
-    /// What it needs kept with a question to answer the agent.
-    type Reply: DeserializeOwned;
-
-    /// The agent takes instructions of the core's own as it starts, so a
-    /// chat's brief goes there rather than with its first message.
-    const INSTRUCTIONS: bool = false;
-
-    /// The agent takes a new effort while a turn runs, so the person need not stop it first.
-    const EFFORT_MID_TURN: bool = false;
-
-    /// Starts the agent and opens the chat's session, or loads the one it
-    /// resumes, replaying its history through `sink`, with `brief` among its
-    /// instructions when it takes them.
-    fn start(
-        launch: &ChatLaunch,
-        brief: Option<&str>,
-        sink: Sink,
-    ) -> impl std::future::Future<Output = Result<(Self, Opened), String>> + Send;
-
-    /// Sends a prompt that begins turn `turn`. How it ends is told to the
-    /// sink.
-    fn prompt(
-        &mut self,
-        turn: u64,
-        prompt: Prompt,
-    ) -> impl std::future::Future<Output = Result<(), String>> + Send;
-
-    /// Puts a message into the running turn. The answer is waited on apart
-    /// from the chat's other commands, so a stop sent right after a steer is
-    /// never held up behind it.
-    fn steer(
-        &mut self,
-        prompt: Prompt,
-    ) -> impl std::future::Future<Output = Result<Steered, String>> + Send + 'static;
-
-    fn cancel(&mut self) -> impl std::future::Future<Output = Result<(), String>> + Send;
-
-    fn set_permission_mode(
-        &mut self,
-        mode: PermissionMode,
-    ) -> impl std::future::Future<Output = Result<(), String>> + Send;
-
-    /// Changes a session option, answering with the options as they now are.
-    fn set_config(
-        &mut self,
-        config_id: &str,
-        value: &str,
-    ) -> impl std::future::Future<Output = Result<Value, String>> + Send;
-
-    fn stop_task(
-        &mut self,
-        task_id: &str,
-    ) -> impl std::future::Future<Output = Result<(), String>> + Send;
-
-    /// Compacts the session between turns, with no turn in the chat to show for it.
-    fn compact(&mut self) -> impl std::future::Future<Output = Result<(), String>> + Send {
-        async { Ok(()) }
-    }
-
-    /// Asks the session between turns what a fresh one would need to know, with no turn in
-    /// the chat to show for it, and answers with what it wrote.
-    fn handoff(&mut self) -> impl std::future::Future<Output = Result<String, String>> + Send {
-        async { Err("This agent writes no handoff note".to_owned()) }
-    }
-
-    /// Passes a request an MCP app made on to its server, answering with what the server said.
-    fn mcp_app(
-        &mut self,
-        _request: crate::server::mcp_apps::ServerRequest,
-    ) -> impl std::future::Future<Output = Result<Value, String>> + Send + 'static {
-        std::future::ready(Err("This agent cannot pass on an app's requests".to_owned()))
-    }
-
-    /// The person answered a dialog the agent is blocked on.
-    fn answer_dialog(&mut self, _id: &str, _answer: String, _choice: Option<usize>) {}
-
-    /// Asks the agent to sign in by itself, by `method_id`, one of the
-    /// methods it offered.
-    fn authenticate(
-        &mut self,
-        _method_id: &str,
-    ) -> impl std::future::Future<Output = Result<(), String>> + Send {
-        async { Err("This agent signs in only through its own sign-in".to_string()) }
-    }
-
-    /// Takes the conversation back to before the person's message `message_id`,
-    /// answering with the session it goes on in when that is a new one.
-    fn rewind(
-        &mut self,
-        message_id: &str,
-    ) -> impl std::future::Future<Output = Result<Option<String>, String>> + Send;
-
-    /// Resolves once the agent is gone, with why.
-    fn closed(&self) -> impl std::future::Future<Output = String> + Send;
-
-    /// The agent's process, which leads its own process group.
-    fn pid(&self) -> u32;
-
-    /// Whether a new agent process can load this session, so the chat can go
-    /// on in one after a sign-in or on another account.
-    fn reloadable(&self) -> bool {
-        true
-    }
-
-    /// How far into its own record of the session the agent has written, all of which the
-    /// chat has been told.
-    fn reach(&self) -> Option<Reach> {
-        None
-    }
-
-    /// Lets go of the agent without stopping it, answering with what a core
-    /// that takes it up needs: this side's state as plain data, and the
-    /// agent's process. On failure the agent is stopped.
-    fn release(self)
-        -> impl std::future::Future<Output = Result<(Value, Released), String>> + Send;
-
-    /// Takes up an agent an earlier core released, from the state `release`
-    /// answered.
-    fn adopt(
-        launch: &ChatLaunch,
-        sink: Sink,
-        state: Value,
-        agent: (Process, Writer, Lines),
-    ) -> Result<Self, String>;
-
-    /// What answers the agent with the person's choice for a question whose
-    /// backend data is `reply`.
-    fn responder(&self, reply: Self::Reply) -> Respond;
 }
 
 /// Where the chat's loop stands, as plain data, for a core that takes the
@@ -782,15 +454,17 @@ pub(crate) async fn run<B: Backend>(
             Some(book.account_in(&provider, folder)?.id)
         })
         .or_else(|| launch.account.as_ref().map(|account| account.id.clone()));
-    let sink = |quiet: bool| Sink {
-        telling: Telling {
-            chat: chat.clone(),
-            quiet: Arc::new(std::sync::atomic::AtomicBool::new(quiet)),
-        },
-        failed: failed_tx.clone(),
-        broken: broken_tx.clone(),
-        settled: settled_tx.clone(),
-        account: account.clone(),
+    let sink = |quiet: bool| {
+        Sink::new(Arc::new(ChatSink {
+            telling: ChatTelling {
+                chat: chat.clone(),
+                quiet: Arc::new(std::sync::atomic::AtomicBool::new(quiet)),
+            },
+            failed: failed_tx.clone(),
+            broken: broken_tx.clone(),
+            settled: settled_tx.clone(),
+            account: account.clone(),
+        }))
     };
     let (backend, state, replay) = match opening {
         Begin::Start { rebind, notice } => {
@@ -1852,29 +1526,4 @@ async fn restart(
         signed_in_again: false,
         notice: Some(super::super::restart_notice(title, why)),
     }))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn long_texts_are_cut_and_pictures_kept_whole() {
-        let long = "é".repeat(MAX_TEXT);
-        let picture = "A".repeat(MAX_TEXT * 2);
-        let mut update = json!({
-            "rawOutput": long,
-            "content": [{ "type": "image", "data": picture, "mimeType": "image/png" }],
-            "huge": [{ "type": "image", "source": { "type": "base64", "data": "A".repeat(MAX_IMAGE + 1) } }],
-        });
-        slim(&mut update);
-        let cut = update["rawOutput"].as_str().unwrap();
-        assert!(cut.len() <= MAX_TEXT + '…'.len_utf8());
-        assert!(cut.ends_with('…'));
-        assert_eq!(
-            update["content"][0]["data"].as_str().map(str::len),
-            Some(MAX_TEXT * 2)
-        );
-        assert!(update["huge"][0]["source"].get("data").is_none());
-    }
 }

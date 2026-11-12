@@ -3,30 +3,14 @@
 //! session protocol, Pi over its RPC mode, and every other agent over ACP. Each tells the chat the
 //! same ACP-shaped session updates, so the app reads them alike.
 
-mod acp;
-mod claude;
-mod codex;
-mod commands;
-mod json;
-mod models;
-mod muse;
-mod parts;
-mod patch;
-mod pending;
-mod pi;
-mod process;
-mod rpc;
-mod rpc_driver;
-mod servers;
 mod session;
-mod turns;
-mod words;
+
+use sikemux_drivers::server::chat::native::{acp, claude, codex, muse, pi, process};
 
 use std::sync::Arc;
 
 use serde::Serialize;
 use serde_json::{json, Value};
-use sikemux_fold::update::stamp_replayed;
 use tokio::sync::mpsc;
 
 use crate::agent_catalog::ChatDriver;
@@ -57,18 +41,6 @@ pub(crate) fn ended_status(result: &Result<SessionEnd, String>, started: bool) -
             "reason": if started { SessionEnd::Exited } else { SessionEnd::Failed },
             "message": message,
         }),
-    }
-}
-
-/// How an agent is shown a file the person attached: a markdown link named
-/// for the file, the way the agents' own clients write it.
-fn file_link(name: Option<&str>, uri: &str) -> String {
-    match name.filter(|name| !name.is_empty()) {
-        Some(name) => format!("[@{name}]({uri})"),
-        None => match uri.strip_prefix("file://") {
-            Some(path) => format!("[@{}]({uri})", path.rsplit('/').next().unwrap_or(path)),
-            None => uri.to_owned(),
-        },
     }
 }
 
@@ -122,7 +94,7 @@ pub(crate) fn show_saved(chat: &Arc<Chat>) {
     chat.saved_reading.send_replace(true);
     let chat = chat.clone();
     tokio::task::spawn_blocking(move || {
-        let sink = session::Telling::new(chat.clone());
+        let sink = session::ChatTelling::new(chat.clone());
         let shown = match driver(chat.provider()) {
             Some(ChatDriver::Claude) => claude::replay_saved(&chat.launch, &session, &sink),
             Some(ChatDriver::Acp { .. }) => acp::replay_saved(&chat.launch, &session, &sink),

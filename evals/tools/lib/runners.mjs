@@ -68,8 +68,8 @@ export function run({ command, args, cwd, env, dir, timeoutMs, profile = join(di
 export function sikemuxSystemLines(at) {
   const constant = (path, name) => readRepo(path, at).match(new RegExp(`const ${name}: &str = "((?:[^"\\\\]|\\\\.)*)";`))[1].replace(/\\(.)/g, '$1');
   return [
-    constant('crates/sikemux-core/src/server/gestures.rs', 'PERSONALITY'),
-    constant('crates/sikemux-core/src/server/chat/native/claude/mod.rs', 'SHOWING_PAGES'),
+    constant('crates/sikemux-drivers/src/server/gestures.rs', 'PERSONALITY'),
+    constant('crates/sikemux-drivers/src/server/chat/native/claude/mod.rs', 'SHOWING_PAGES'),
   ].join('\n\n');
 }
 

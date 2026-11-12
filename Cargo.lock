@@ -9885,6 +9885,7 @@ dependencies = [
  "sikemux-base",
  "sikemux-client",
  "sikemux-corekit",
+ "sikemux-drivers",
  "sikemux-fold",
  "sikemux-git",
  "sikemux-grid",
@@ -9942,6 +9943,31 @@ dependencies = [
  "tokio-rustls",
  "tokio-websockets",
  "toml 1.1.6+spec-1.1.0",
+ "url",
+ "uuid",
+ "workspace-hack",
+]
+
+[[package]]
+name = "sikemux-drivers"
+version = "0.1.0"
+dependencies = [
+ "agent-client-protocol",
+ "base64 0.22.1",
+ "libc",
+ "serde",
+ "serde_json",
+ "sikemux-agents",
+ "sikemux-corekit",
+ "sikemux-fold",
+ "sikemux-markdown",
+ "sikemux-process",
+ "sikemux-pty",
+ "sikemux-view",
+ "sikemux-wire",
+ "tempfile",
+ "time",
+ "tokio",
  "url",
  "uuid",
  "workspace-hack",

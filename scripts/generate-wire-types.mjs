@@ -19,6 +19,7 @@ const CORE_PARTS = [
   "crates/sikemux-corekit/src",
   "crates/sikemux-git/src",
   "crates/sikemux-agents/src",
+  "crates/sikemux-drivers/src",
 ];
 const PLUGIN_API = "crates/sikemux-plugin-api/src";
 const MARKDOWN = "crates/sikemux-markdown/src";
@@ -94,7 +95,7 @@ const { calls: PHONE_CALLS } = JSON.parse(
 /** Limits the clients check before they send, read from where the core enforces them. */
 const LIMITS = [
   [`${WIRE}/protocol.rs`, "MAX_ATTACHMENT_BYTES"],
-  [`${CORE}/server/chat/prompt.rs`, "MAX_ATTACHMENTS"],
+  ["crates/sikemux-drivers/src/server/chat/prompt.rs", "MAX_ATTACHMENTS"],
 ];
 
 /** How long the host waits on a client, in seconds, read from where the host waits. */

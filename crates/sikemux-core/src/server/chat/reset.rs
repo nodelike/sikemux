@@ -24,9 +24,7 @@ use super::super::{launching, Core};
 use super::kept;
 use super::rebind::Replay;
 use super::{Chat, ChatCommand};
-pub(crate) use sikemux_corekit::wall_clock::{
-    calendar, month_day, twelve_hour, when, WallClock, Zone,
-};
+pub(crate) use sikemux_corekit::wall_clock::{calendar, when, WallClock, Zone};
 use sikemux_process::clock::epoch_ms;
 
 const FILE: &str = "limit-resumes.json";

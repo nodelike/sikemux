@@ -14,6 +14,7 @@ on:
       - "crates/sikemux-git/**"
       - "crates/sikemux-agents/**"
       - "crates/sikemux-kernel/**"
+      - "crates/sikemux-drivers/**"
       - "crates/sikemux-client/**"
       - "crates/sikemux-wire/**"
       - "helpers/notch/Sources/NotchKit/**"

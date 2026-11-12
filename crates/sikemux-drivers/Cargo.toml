@@ -1,0 +1,31 @@
+[package]
+name = "sikemux-drivers"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[target.'cfg(unix)'.dependencies]
+sikemux-agents = { path = "../sikemux-agents" }
+sikemux-corekit = { path = "../sikemux-corekit" }
+sikemux-fold = { path = "../sikemux-fold" }
+sikemux-markdown = { path = "../sikemux-markdown" }
+sikemux-process = { path = "../sikemux-process" }
+sikemux-pty = { path = "../sikemux-pty" }
+sikemux-view = { path = "../sikemux-view" }
+sikemux-wire = { path = "../sikemux-wire" }
+agent-client-protocol = { version = "2.0.0", features = ["unstable_session_notices"] }
+base64 = "0.22"
+libc = "0.2"
+serde = { version = "1", features = ["derive", "rc"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+tempfile = "3"
+time = { version = "0.3", features = ["formatting", "macros", "parsing"] }
+tokio = { version = "1", features = ["io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
+url = "2"
+uuid = { version = "1", features = ["v4", "v7"] }
+
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+workspace-hack = { version = "0.1", path = "../workspace-hack" }

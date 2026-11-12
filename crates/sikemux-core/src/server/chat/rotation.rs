@@ -50,8 +50,6 @@ const FRESH_START_TOKENS: u64 = 65_000;
 /// the brief leaves out.
 const HISTORY_PER_BRIEF: u64 = 3;
 const LEAST_HISTORY: u64 = 30_000;
-/// What the old session is asked for while its cache is warm.
-pub(crate) const HANDOFF_ASK: &str = "Sikemux is about to carry this chat on in a fresh session, which starts from what Sikemux keeps. Write a handoff note of under 150 words for it: what you were in the middle of, what you meant to do next, and anything you suspect but have not checked. Plain text only. Do not use any tool.";
 
 /// What the chat's session started on, to tell when it moved to another model or account.
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
