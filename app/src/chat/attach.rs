@@ -176,8 +176,8 @@ fn is_snip(path: &Path) -> bool {
 /// where the core puts the picture.
 fn picture_label(number: usize, path: &Path) -> String {
     match is_snip(path) {
-        true => format!("Selection {number}"),
-        false => format!("Image {number}"),
+        true => t!("Selection {number}", number = number),
+        false => t!("Image {number}", number = number),
     }
 }
 
@@ -409,10 +409,10 @@ impl Workbench {
     ) -> Option<SharedString> {
         if let Some(waiting) = &mut self.chats.pictures_for_new_chat {
             waiting.push(made);
-            return Some("the new chat".into());
+            return Some(t!("the new chat").into());
         }
         let Some(choice) = crate::send_to::choices(self).into_iter().next() else {
-            let note = format!("Start an agent first — {kind} go to its chat");
+            let note = t!("Start an agent first — {kind} go to its chat", kind = kind);
             self.notify(crate::toast::info(note), cx);
             return None;
         };
@@ -485,9 +485,10 @@ impl Workbench {
                         eprintln!("sikemux: {} does not read: {error}", path.display())
                     }
                     None => {
-                        let note = format!(
-                            "{name} is over {} MB, too large to send to the chat",
-                            MAX_KEPT / (1024 * 1024)
+                        let note = t!(
+                            "{name} is over {megabytes} MB, too large to send to the chat",
+                            name = name,
+                            megabytes = MAX_KEPT / (1024 * 1024)
                         );
                         cx.update(|window, cx| window.push_notification(note, cx))
                             .ok();
@@ -526,7 +527,10 @@ impl Workbench {
                     .ok();
             }
             Ok(Err(error)) => {
-                let note = format!("The picture or file could not be attached: {error}");
+                let note = t!(
+                    "The picture or file could not be attached: {error}",
+                    error = error
+                );
                 cx.update(|window, cx| window.push_notification(note, cx))
                     .ok();
             }
@@ -692,8 +696,8 @@ pub fn drop_hint(words: &'static str, agent: &str, bench: &Workbench, cx: &App) 
         let named = chat.agent.as_ref().map(|(_, name)| format!("@{name}"));
         let title = chat.label.clone();
         match named {
-            Some(named) => (format!("Add {named} as context"), Some(title)),
-            None => (format!("Add \"{title}\" as context"), None),
+            Some(named) => (t!("Add {named} as context", named = named), Some(title)),
+            None => (t!("Add \"{title}\" as context", title = title), None),
         }
     });
     let (words, under) = match chat {
@@ -985,21 +989,21 @@ pub fn with_why(
 fn why_words(chip: &WhyChip) -> (Icon, String, String) {
     let day = |time: bool| chip.at.map(|at| said_at(at, time)).unwrap_or_default();
     match chip.kind {
-        WhyKind::Said => (Icon::Message, "your message".into(), day(true)),
+        WhyKind::Said => (Icon::Message, t!("your message").into(), day(true)),
         WhyKind::Change if chip.landed => (
             Icon::Commit,
-            "the change".into(),
-            format!("landed {}", day(false)),
+            t!("the change").into(),
+            t!("landed {day}", day = day(false)),
         ),
-        WhyKind::Change => (Icon::Commit, "the change".into(), day(false)),
-        WhyKind::Call => (Icon::Check, "your answer".into(), day(false)),
+        WhyKind::Change => (Icon::Commit, t!("the change").into(), day(false)),
+        WhyKind::Call => (Icon::Check, t!("your answer").into(), day(false)),
         WhyKind::Rule => (
             Icon::Book,
-            "your rule".into(),
-            format!("said {}", day(false)),
+            t!("your rule").into(),
+            t!("said {day}", day = day(false)),
         ),
-        WhyKind::Decision => (Icon::Merge, "decided".into(), day(false)),
-        WhyKind::Unknown => (Icon::Message, "source".into(), day(false)),
+        WhyKind::Decision => (Icon::Merge, t!("decided").into(), day(false)),
+        WhyKind::Unknown => (Icon::Message, t!("source").into(), day(false)),
     }
 }
 
@@ -1014,7 +1018,7 @@ fn said_at(at: u64, time: bool) -> String {
     let clock = at.format("%-I:%M %p");
     match (days, time) {
         (..=0, true) => clock.to_string(),
-        (..=0, false) => "today".into(),
+        (..=0, false) => t!("today").into(),
         (1..=6, true) => format!("{} {clock}", at.format("%a")),
         (1..=6, false) => at.format("%a").to_string(),
         _ => at.format("%b %-d").to_string(),
@@ -1497,7 +1501,7 @@ fn quote_card(
                 .child(quote),
         )
         .child(
-            ui::IconButton::new("quote-remove", Icon::Close, "Remove quote")
+            ui::IconButton::new("quote-remove", Icon::Close, t!("Remove quote"))
                 .glyph(11.)
                 .width(18.)
                 .on_click(move |_, window, cx| remove(window, cx)),

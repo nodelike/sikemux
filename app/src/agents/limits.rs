@@ -124,7 +124,7 @@ impl Shown<'_> {
         let Some(usage) = self.usage.and_then(|usage| usage.usage.as_ref()) else {
             return Vec::new();
         };
-        let plan = [("Session", usage.session()), ("Week", usage.week())]
+        let plan = [(t!("Session"), usage.session()), (t!("Week"), usage.week())]
             .into_iter()
             .filter_map(|(label, window)| Some((label.to_owned(), window?)));
         let models =
@@ -151,12 +151,12 @@ impl Shown<'_> {
     /// Why there is nothing to draw for a signed-in account.
     fn nothing(&self) -> String {
         let Some(usage) = self.usage else {
-            return "Not read yet".into();
+            return t!("Not read yet").into();
         };
         match (&usage.problem, &usage.usage) {
-            (Some(_), _) => "Could not read".into(),
-            (None, Some(_)) => "No plan limits".into(),
-            (None, None) => "Not read yet".into(),
+            (Some(_), _) => t!("Could not read").into(),
+            (None, Some(_)) => t!("No plan limits").into(),
+            (None, None) => t!("Not read yet").into(),
         }
     }
 
@@ -448,7 +448,10 @@ fn resets_badge(view: &View, agents: &[Agent], cx: &App) -> Option<Stateful<Div>
         return None;
     }
     let t = Tokens::get(cx);
-    let plural = if left == 1 { "" } else { "s" };
+    let says = match left {
+        1 => t!("1 limit reset across these accounts").to_owned(),
+        left => t!("{count} limit resets across these accounts", count = left),
+    };
     Some(
         div()
             .id("limits-resets")
@@ -460,9 +463,7 @@ fn resets_badge(view: &View, agents: &[Agent], cx: &App) -> Option<Stateful<Div>
             .rounded(RADIUS_1)
             .bg(t.surface_hover)
             .text_color(t.text_secondary)
-            .tooltip(ui::tooltip(format!(
-                "{left} limit reset{plural} across these accounts"
-            )))
+            .tooltip(ui::tooltip(says))
             .child(ui::icon(Icon::Refresh, 10.).text_color(t.text_secondary))
             .child(ui::text(left.to_string(), TEXT_3XS_H, FontWeight::MEDIUM)),
     )
@@ -473,7 +474,7 @@ fn add_button(view: &View, agent: &Agent) -> IconButton {
     small_button(
         SharedString::from(format!("add-account-{provider}")),
         Icon::Plus,
-        format!("Add a {} account", agent.name),
+        t!("Add a {name} account", name = agent.name),
     )
     .on_click(view.on(move |bench, window, cx| {
         crate::accounts::open_sign_in(bench, &provider, None, window, cx);
@@ -485,7 +486,7 @@ fn refresh_button(view: &View, agents: &[Agent], cx: &App) -> AnyElement {
     let button = small_button(
         "refresh-limits",
         Icon::Refresh,
-        "Refresh plan limits".into(),
+        t!("Refresh plan limits").into(),
     )
     .on_click(view.on(move |bench, _, cx| {
         if bench.accounts.limits.reading.is_none() {
@@ -585,7 +586,7 @@ fn rest_accounts<'b, 'a>(agents: &'b [Agent<'a>], solo: bool) -> Vec<(&'b Agent<
 /// What an account's rail row draws: its session over its week, else its week alone. A model's
 /// own week, such as Fable's, is left to the card.
 fn rail_limits<'s>(shown: &'s Shown) -> Vec<(&'static str, &'s UsageWindow)> {
-    [("Session", shown.session()), ("Week", shown.week())]
+    [(t!("Session"), shown.session()), (t!("Week"), shown.week())]
         .into_iter()
         .filter_map(|(name, window)| Some((name, window?)))
         .collect()
@@ -648,7 +649,7 @@ fn rest_row(view: &View, agent: &Agent, place: usize, numbers: f32, cx: &App) ->
             .hover(|row| row.bg(t.surface_hover))
             .on_click(sign_in(view, agent.provider, shown))
             .child(div().flex_1())
-            .child(go("Sign in", cx))
+            .child(go(t!("Sign in"), cx))
             .into_any_element();
     }
     let Some((_, main)) = limits.first() else {
@@ -731,7 +732,7 @@ fn percent_cell(window: &UsageWindow, now: u64, cx: &App) -> Div {
 
 /// How much of a window is used, as every limit says it.
 fn used_label(used: f64) -> String {
-    format!("{}% used", used.round().min(100.))
+    t!("{percent}% used", percent = used.round().min(100.))
 }
 
 /// When the window is back. Past its reset with reads failing it says how old the reading is,
@@ -741,7 +742,7 @@ fn when_cell(window: &UsageWindow, now: u64, age: Option<&str>, cx: &App) -> Div
     let reset = reset_at(window);
     let full = window.used_at(now) >= 100.;
     let text = match (full, reset, age.filter(|_| window.is_past_reset(now))) {
-        (_, _, Some(age)) => format!("read {age}"),
+        (_, _, Some(age)) => t!("read {age}", age = age),
         (true, Some(reset), _) => time_of_day(reset),
         (_, None, _) => String::new(),
         (false, Some(reset), _) => ui::time::countdown(Some(reset)),
@@ -914,24 +915,24 @@ fn account_line(
         let short = line(ACCOUNT_LINE);
         if shown.signed_out {
             let names = match agent.unnamed(shown) && in_use {
-                true => short.child(name("Signed out".into()).flex_1()),
+                true => short.child(name(t!("Signed out").into()).flex_1()),
                 false => short
                     .child(name(shown.name.clone()))
-                    .child(meta("Signed out".into()).flex_1()),
+                    .child(meta(t!("Signed out").into()).flex_1()),
             };
             return frame()
                 .py(px(ACCOUNT_PAD / 2.))
                 .cursor_pointer()
                 .hover(|account| account.bg(t.surface_hover))
                 .on_click(sign_in(view, agent.provider, shown))
-                .child(names.child(go("Sign in", cx)))
+                .child(names.child(go(t!("Sign in"), cx)))
                 .into_any_element();
         }
         return frame()
             .py(px(ACCOUNT_PAD / 2.))
             .child(
                 short.child(name(shown.name.clone()).flex_1()).child(
-                    go("Undo", cx)
+                    go(t!("Undo"), cx)
                         .id(SharedString::from(format!("limits-undo-{key}")))
                         .cursor_pointer()
                         .hover(|link| link.text_color(t.text_primary))
@@ -980,9 +981,9 @@ fn account_line(
     let target = shown.profile.filter(|_| smart || !in_use).cloned();
     let pickable = target.is_some();
     let offer = match (smart, pinned) {
-        (true, true) => "Unpin",
-        (true, false) => "Pin new chats here",
-        (false, _) => "Move chats here",
+        (true, true) => t!("Unpin"),
+        (true, false) => t!("Pin new chats here"),
+        (false, _) => t!("Move chats here"),
     };
     let provider = agent.provider.to_owned();
     let names = line(NAME_LINE)
@@ -997,7 +998,9 @@ fn account_line(
                 .gap(px(6.))
                 .child(name(shown.name.clone()))
                 .children(shown.tier().map(|tier| tier_pill(tier, cx)))
-                .when(smart && pinned, |names| names.child(meta("Pinned".into()))),
+                .when(smart && pinned, |names| {
+                    names.child(meta(t!("Pinned").into()))
+                }),
         )
         .when(pickable, |names| {
             names.child(
@@ -1070,7 +1073,7 @@ fn resets_list(
         )
         .child(div().flex_1().h(px(1.)).bg(t.border))
         .child(
-            ui::text(format!("{left} left"), TEXT_3XS, FontWeight::NORMAL)
+            ui::text(t!("{left} left", left = left), TEXT_3XS, FontWeight::NORMAL)
                 .text_color(t.text_tertiary),
         );
     Some(
@@ -1090,7 +1093,7 @@ fn reset_key(shown: &Shown, kind: &ResetKind) -> String {
 /// A reset kind as the person says it: Weekly, Fable, Full.
 fn short_kind(kind: &ResetKind) -> &str {
     match kind.label.strip_suffix(" reset") {
-        Some("5-hour") => "Session",
+        Some("5-hour") => t!("Session"),
         Some(short) => short,
         None => &kind.label,
     }
@@ -1111,7 +1114,7 @@ fn until(use_by: Option<u64>, now: u64, cx: &App) -> Option<Div> {
     let at = chrono::DateTime::from_timestamp_millis(i64::try_from(use_by?).ok()?)?;
     let day = at.with_timezone(&chrono::Local).format("%b %-d");
     Some(
-        ui::text(format!("until {day}"), TEXT_3XS_H, FontWeight::NORMAL)
+        ui::text(t!("until {day}", day = day), TEXT_3XS_H, FontWeight::NORMAL)
             .flex_none()
             .text_color(expiry_ink(use_by?, now, t)),
     )
@@ -1123,28 +1126,35 @@ fn reset_says(kind: &ResetKind, windows: &[(String, &UsageWindow)], now: u64) ->
         .and_then(|label| windows.iter().find(|(_, window)| window.label == label))
         .map(|(name, window)| (name.as_str(), *window));
     let after = match kind.left {
-        1 => format!(
-            "No {} resets will be left.",
-            short_kind(kind).to_lowercase()
+        1 => t!(
+            "No {kind} resets will be left.",
+            kind = short_kind(kind).to_lowercase()
         ),
-        left => format!("{} will be left.", left - 1),
+        left => t!("{count} will be left.", count = left - 1),
     };
     let (does, button) = match refilled {
         Some((name, window)) if window.scope.is_some() => (
-            format!("Refills your {name} allowance and gives back what {name} used of your week."),
-            format!("Reset {name}"),
+            t!(
+                "Refills your {name} allowance and gives back what {name} used of your week.",
+                name = name
+            ),
+            t!("Reset {name}", name = name),
         ),
         Some((name, window)) => {
             let used = window.used_at(now).round();
             let what = name.to_lowercase();
             (
-                format!("Refills your whole {what} now, from {used}% used back to 0%."),
-                format!("Reset {what}"),
+                t!(
+                    "Refills your whole {what} now, from {used}% used back to 0%.",
+                    what = what,
+                    used = used
+                ),
+                t!("Reset {what}", what = what),
             )
         }
         None => (
-            "Starts every used-up limit over.".to_owned(),
-            "Reset all".to_owned(),
+            t!("Starts every used-up limit over.").to_owned(),
+            t!("Reset all").to_owned(),
         ),
     };
     (format!("{does} {after}"), button)
@@ -1318,20 +1328,34 @@ fn use_reset(bench: &mut Workbench, key: String, spend: Spend, cx: &mut Context<
                     outcome: ResetOutcome::Reset,
                     left,
                 }) => toast::success(match left {
-                    Some(left) => format!("{what} used on {account} · {left} left"),
-                    None => format!("{what} used on {account}"),
+                    Some(left) => t!(
+                        "{what} used on {account} · {left} left",
+                        what = what,
+                        account = account,
+                        left = left
+                    ),
+                    None => t!("{what} used on {account}", what = what, account = account),
                 }),
                 Ok(UsedReset {
                     outcome: ResetOutcome::NothingToReset,
                     ..
-                }) => toast::info(format!(
-                    "Nothing to reset on {account} yet, so none was used"
+                }) => toast::info(t!(
+                    "Nothing to reset on {account} yet, so none was used",
+                    account = account
                 )),
                 Ok(UsedReset {
                     outcome: ResetOutcome::NoReset,
                     ..
-                }) => toast::info(format!("{account} has no {what}s left")),
-                Err(error) => toast::error(format!("Couldn't reset {account}: {error}")),
+                }) => toast::info(t!(
+                    "{account} has no {what} left",
+                    account = account,
+                    what = what
+                )),
+                Err(error) => toast::error(t!(
+                    "Couldn't reset {account}: {error}",
+                    account = account,
+                    error = error
+                )),
             };
             bench.notify(note, cx);
             redraw(bench, cx);
@@ -1569,8 +1593,8 @@ pub(crate) fn day_and_time(at: chrono::DateTime<chrono::Utc>) -> String {
     let days = (at.date_naive() - chrono::Local::now().date_naive()).num_days();
     let time = at.format("%-I:%M %p");
     match days {
-        ..=0 => format!("today {time}"),
-        1 => format!("tomorrow {time}"),
+        ..=0 => t!("today {time}", time = time),
+        1 => t!("tomorrow {time}", time = time),
         2..=6 => format!("{} {time}", at.format("%a")),
         _ => format!("{}, {time}", at.format("%b %-d")),
     }

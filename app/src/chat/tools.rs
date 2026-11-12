@@ -222,17 +222,17 @@ pub(super) fn word(row: &ToolRow) -> &str {
         return word;
     }
     match row.action {
-        ToolAction::Read => "read",
-        ToolAction::Edit => "edit",
-        ToolAction::Delete => "delete",
-        ToolAction::Move => "move",
-        ToolAction::Search => "search",
-        ToolAction::Execute => "run",
-        ToolAction::Think => "think",
-        ToolAction::Fetch => "fetch",
-        ToolAction::SwitchMode => "mode",
+        ToolAction::Read => t!("read"),
+        ToolAction::Edit => t!("edit"),
+        ToolAction::Delete => t!("delete"),
+        ToolAction::Move => t!("move"),
+        ToolAction::Search => t!("search"),
+        ToolAction::Execute => t!("run"),
+        ToolAction::Think => t!("think"),
+        ToolAction::Fetch => t!("fetch"),
+        ToolAction::SwitchMode => t!("mode"),
         ToolAction::Mcp => "mcp",
-        ToolAction::Other => "tool",
+        ToolAction::Other => t!("tool"),
     }
 }
 
@@ -363,7 +363,10 @@ pub fn run(
         .unwrap_or(live || current.is_some());
     let count: u64 = calls.iter().map(|call| call.tool.row.calls()).sum();
     let said = current.and_then(|call| call.tool.description.clone());
-    let calls_said = format!("{count} tool {}", if count == 1 { "call" } else { "calls" });
+    let calls_said = match count {
+        1 => t!("1 tool call").to_owned(),
+        count => t!("{count} tool calls", count = count),
+    };
     let label = match (&said, current.is_some()) {
         (Some(said), _) => div()
             .min_w_0()
@@ -407,7 +410,7 @@ pub fn run(
                 div()
                     .flex_none()
                     .text_color(looks.faint)
-                    .child(format!("{count} calls")),
+                    .child(t!("{count} calls", count = count)),
             )
         })
         .children(time.map(|time| {
@@ -563,7 +566,7 @@ fn row(
     let tint = tint(call, looks);
     let target = (!row.target.is_empty()).then(|| target(row, running, &id, looks, cx));
     let elapsed = if call.status() == ToolStatus::Cancelled {
-        Some("stopped".into_any_element())
+        Some(t!("stopped").into_any_element())
     } else if running {
         call.started
             .map(|started| running_for(format!("call-seconds:{id}"), started, 0))
@@ -768,8 +771,8 @@ fn web_link(text: &str) -> Option<std::ops::Range<usize>> {
 }
 
 /// Copies `text`, without opening or closing the row it sits in.
-fn copy(id: String, what: &str, text: String) -> ui::IconButton {
-    ui::IconButton::new(SharedString::from(id), Icon::Copy, format!("Copy {what}"))
+fn copy(id: String, label: &'static str, text: String) -> ui::IconButton {
+    ui::IconButton::new(SharedString::from(id), Icon::Copy, label)
         .glyph(12.)
         .width(22.)
         .on_click(move |_, _, cx| {
@@ -887,12 +890,14 @@ fn terminal(
     };
     let exit = (call.status() == ToolStatus::Failed).then(|| {
         match call.output.and_then(|output| output.exit_code) {
-            Some(code) => format!("exit {code}"),
-            None => "failed".to_owned(),
+            Some(code) => t!("exit {code}", code = code),
+            None => t!("failed").to_owned(),
         }
     });
-    let lines =
-        (count > 0).then(|| format!("{count} {}", if count == 1 { "line" } else { "lines" }));
+    let lines = (count > 0).then(|| match count {
+        1 => t!("1 line").to_owned(),
+        count => t!("{count} lines", count = count),
+    });
     let more = folds.then(|| {
         let (reader, id, quiet, ink) = (looks.reader.clone(), id.clone(), looks.quiet, looks.ink);
         let key = id.clone();
@@ -915,7 +920,11 @@ fn terminal(
                 });
             })
             .child(chevron(format!("more-chevron:{key}"), whole, quiet))
-            .child(if whole { "Show less" } else { "Show all" })
+            .child(if whole {
+                t!("Show less")
+            } else {
+                t!("Show all")
+            })
     });
     let head = div()
         .h(px(26.))
@@ -967,7 +976,7 @@ fn terminal(
             )
             .child(div().absolute().top(px(6.)).right(px(6.)).child(copy(
                 format!("copy-output:{id}"),
-                "output",
+                t!("Copy output"),
                 text.to_owned(),
             )))
     });
@@ -986,9 +995,9 @@ fn terminal(
         .child(head)
         .children(shot)
         .children(printed)
-        .when(silent, |body| body.child(quiet_note("No output")))
+        .when(silent, |body| body.child(quiet_note(t!("No output"))))
         .when(cut, |body| {
-            body.child(quiet_note("The rest of the output was not kept"))
+            body.child(quiet_note(t!("The rest of the output was not kept")))
         })
 }
 
@@ -1078,10 +1087,10 @@ fn diff_gap(id: &str, gap: usize, looks: &Drawn) -> AnyElement {
             });
         })
         .child(ui::icon(Icon::Chevron, 10.))
-        .child(format!(
-            "{gap} more {}",
-            if gap == 1 { "line" } else { "lines" }
-        ))
+        .child(match gap {
+            1 => t!("1 more line").to_owned(),
+            gap => t!("{gap} more lines", gap = gap),
+        })
         .into_any_element()
 }
 

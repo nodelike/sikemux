@@ -89,7 +89,7 @@ pub(super) fn block(
                 });
             }
         })
-        .tooltip(crate::ui::tooltip("Double-click to see the LaTeX"))
+        .tooltip(crate::ui::tooltip(t!("Double-click to see the LaTeX")))
         .into_any_element()
 }
 
@@ -111,7 +111,7 @@ fn source(fence: Fence, fault: Option<SharedString>, t: &Tokens) -> AnyElement {
                         div()
                             .id("math-fault")
                             .mr(SPACE_1)
-                            .child("Can't typeset")
+                            .child(t!("Can't typeset"))
                             .tooltip(crate::ui::tooltip(fault)),
                     )
                 })

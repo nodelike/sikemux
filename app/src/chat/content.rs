@@ -105,7 +105,10 @@ pub fn content(
     }
     let (uri, ink) = (uri.map(str::to_owned), looks.ink);
     let (bench, agent) = (looks.bench.clone(), looks.agent.clone());
-    let label = label.or(uri.as_deref()).unwrap_or("Resource").to_owned();
+    let label = label
+        .or(uri.as_deref())
+        .unwrap_or(t!("Resource"))
+        .to_owned();
     let file = uri
         .as_deref()
         .is_some_and(|uri| super::files::Files::kind_of(&looks.files, uri, cx).is_some());

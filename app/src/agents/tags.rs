@@ -66,7 +66,7 @@ pub(crate) fn menu_item(
     let (id, had) = (agent.id.clone(), agent.tags.clone());
     popup.submenu_with_icon(
         Some(Icon::Tag.into()),
-        "Tags",
+        t!("Tags"),
         window,
         cx,
         ui::menu(move |mut menu, _, _| {
@@ -79,7 +79,7 @@ pub(crate) fn menu_item(
                         window.defer(cx, move |_, cx| {
                             let _ = bench.update(cx, |bench, cx| {
                                 bench.prompt(
-                                    "New tag",
+                                    t!("New tag"),
                                     "",
                                     move |bench, typed, _, _| {
                                         let typed = typed.trim().to_lowercase();
@@ -183,7 +183,7 @@ pub(crate) fn pill(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<Any
                     .hover(move |style| style.bg(t.surface_active))
                     .child(ui::caps(&tag, cx).text_color(t.text_primary))
                     .child(ui::icon(Icon::Close, 9.).text_color(t.text_tertiary))
-                    .tooltip(ui::tooltip("Show every chat again"))
+                    .tooltip(ui::tooltip(t!("Show every chat again")))
                     .on_click(cx.listener(|bench, _, _, cx| bench.show_tag(None, cx))),
             )
             .into_any_element(),

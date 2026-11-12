@@ -83,8 +83,8 @@ impl Question {
     pub(super) fn title(&self, ix: usize, count: usize) -> String {
         match &self.header {
             Some(header) => header.clone(),
-            None if count > 1 => format!("Question {}", ix + 1),
-            None => "Question".into(),
+            None if count > 1 => t!("Question {number}", number = ix + 1),
+            None => t!("Question").into(),
         }
     }
 }
@@ -144,7 +144,7 @@ pub(super) fn waiting_answers(
     let t = Tokens::get(cx).clone();
     let label = live::Label {
         key: "answered".into(),
-        word: "answered".into(),
+        word: t!("answered").into(),
         count: answered.len(),
         folds: false,
         folded: false,
@@ -155,7 +155,7 @@ pub(super) fn waiting_answers(
     .draw(agent, cx);
     let rows = answered.iter().map(|question| {
         let answer = match question.secret {
-            true => "Kept private".to_owned(),
+            true => t!("Kept private").to_owned(),
             false => question.answer.clone().unwrap_or_default(),
         };
         div()
@@ -237,9 +237,9 @@ pub(super) fn questions(
                     count,
                     open.iter().all(|question| question.assumption.is_some()),
                 ) {
-                    (_, true) => "ASSUMED",
-                    (1, false) => "QUESTION",
-                    _ => "QUESTIONS",
+                    (_, true) => t!("ASSUMED"),
+                    (1, false) => t!("QUESTION"),
+                    _ => t!("QUESTIONS"),
                 },
             )
             .child(
@@ -427,7 +427,7 @@ pub(super) fn asking(
         let agent = agent.to_owned();
         let hover = t.surface_hover;
         BaseButton::new("questions-fold")
-            .accessibility_label("Fold the questions away")
+            .accessibility_label(t!("Fold the questions away"))
             .size(px(22.))
             .flex()
             .items_center()
@@ -472,7 +472,8 @@ pub(super) fn asking(
     let mut asked = current.text.clone();
     let plain = asked.len();
     if current.multi {
-        asked.push_str(" Pick any.");
+        asked.push(' ');
+        asked.push_str(t!("Pick any."));
     }
     if let Some(via) = &current.via_note {
         asked.push_str(&format!(" · {via}"));
@@ -494,8 +495,8 @@ pub(super) fn asking(
             [(plain..asked.len(), faint)],
         ));
     let assumed = current.assumption.as_ref().map(|assumption| {
-        let lead = format!("{} went on assuming ", current.name);
-        let said = format!("{lead}{assumption}");
+        let lead = t!("{name} went on assuming", name = current.name);
+        let said = format!("{lead} {assumption}");
         div()
             .px(SPACE_3)
             .pb(SPACE_1)
@@ -543,7 +544,7 @@ pub(super) fn asking(
                 )
                 .when(choice.recommended, |label| {
                     label.child(
-                        ui::text("recommended", TEXT_2XS, FontWeight::NORMAL)
+                        ui::text(t!("recommended"), TEXT_2XS, FontWeight::NORMAL)
                             .text_color(t.text_disabled),
                     )
                 });

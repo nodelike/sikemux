@@ -65,8 +65,8 @@ pub(super) fn block(fence: Fence, running: bool, window: &mut Window, cx: &mut A
     let title = head(fence.icon, fence.lang, &t)
         .when(drawing.is_some(), |title| {
             title
-                .child(shows("mermaid-diagram", "Diagram", false))
-                .child(shows("mermaid-source", "Source", true))
+                .child(shows("mermaid-diagram", t!("Diagram"), false))
+                .child(shows("mermaid-source", t!("Source"), true))
                 .child(div().w(px(6.)))
         })
         .when_some(fault, |title, fault| {
@@ -74,7 +74,7 @@ pub(super) fn block(fence: Fence, running: bool, window: &mut Window, cx: &mut A
                 div()
                     .id("mermaid-fault")
                     .mr(SPACE_1H)
-                    .child("Can't draw")
+                    .child(t!("Can't draw"))
                     .tooltip(crate::ui::tooltip(fault)),
             )
         })
@@ -311,7 +311,7 @@ pub(super) fn picture(tree: &usvg::Tree, scale: f32) -> Result<Drawing, String> 
         (width * scale).ceil() as u32,
         (height * scale).ceil() as u32,
     )
-    .ok_or("The drawing is empty")?;
+    .ok_or(t!("The drawing is empty"))?;
     let place = tiny_skia::Transform::from_row(
         scale,
         0.,
@@ -323,7 +323,7 @@ pub(super) fn picture(tree: &usvg::Tree, scale: f32) -> Result<Drawing, String> 
     resvg::render(tree, place, &mut pixmap.as_mut());
     let (columns, rows) = (pixmap.width(), pixmap.height());
     let mut pixels = image::RgbaImage::from_raw(columns, rows, pixmap.take())
-        .ok_or("The drawing could not be made")?;
+        .ok_or(t!("The drawing could not be made"))?;
     for pixel in pixels.as_chunks_mut::<4>().0 {
         gpui::swap_rgba_pa_to_bgra(pixel);
     }

@@ -78,7 +78,7 @@ impl Workbench {
             return;
         };
         composing.stage = ComposeStage::Worktree {
-            step: "Creating worktree".into(),
+            step: t!("Creating worktree").into(),
             sends: false,
         };
         composing.refusal = None;
@@ -115,10 +115,14 @@ impl Workbench {
             return;
         };
         let refused = match &made {
-            Err(error) => Some(format!("Could not create a worktree: {error}")),
+            Err(error) => Some(t!("Could not create a worktree: {error}", error = error)),
             Ok(made) => made.setup_error.as_ref().map(|error| {
                 let path = made.worktree.path.display();
-                format!("{error}. The worktree is kept at {path}; send again to start there.")
+                t!(
+                    "{error}. The worktree is kept at {path}; send again to start there.",
+                    error = error,
+                    path = path
+                )
             }),
         };
         match refused {
@@ -128,7 +132,7 @@ impl Workbench {
             }
             None => {
                 composing.stage = ComposeStage::Worktree {
-                    step: "Starting the agent in the worktree".into(),
+                    step: t!("Starting the agent in the worktree").into(),
                     sends: true,
                 };
                 self.ask_chat(ChatAsk::Attach {

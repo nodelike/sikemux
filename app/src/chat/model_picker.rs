@@ -151,26 +151,33 @@ fn facts(route: &Route, model: &str) -> Vec<String> {
     let mut words = Vec::new();
     if let Some(facts) = facts {
         let context = facts.context as f64;
-        words.push(format!("{} context", crate::ui::numbers::compact(context)));
+        words.push(t!(
+            "{size} context",
+            size = crate::ui::numbers::compact(context)
+        ));
         if let (Some(input), Some(output)) = (facts.input, facts.output) {
-            words.push(format!("${input}/${output} per 1M"));
+            words.push(t!(
+                "${input}/${output} per 1M",
+                input = input,
+                output = output
+            ));
         }
     }
     if let Some(check) = route.provider.checks.get(name) {
         words.push(
             if check.works {
-                "works with agents"
+                t!("works with agents")
             } else {
-                "tool calls failed"
+                t!("tool calls failed")
             }
             .into(),
         );
     } else if let Some(facts) = facts {
         words.push(
             if facts.tool_call {
-                "lists tool calls"
+                t!("lists tool calls")
             } else {
-                "no tool calls"
+                t!("no tool calls")
             }
             .into(),
         );
@@ -186,7 +193,7 @@ impl Menu {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let query = cx.new(|cx| InputState::new(window, cx).placeholder("Search model…"));
+        let query = cx.new(|cx| InputState::new(window, cx).placeholder(t!("Search model…")));
         query.update(cx, |query, cx| query.focus(window, cx));
         let typing = cx.subscribe(&query, |menu, _, event: &InputEvent, cx| {
             if matches!(event, InputEvent::Change) {
@@ -313,7 +320,7 @@ impl Menu {
                         group: 0,
                         mark: Some(own.to_owned()),
                         label: choice.label.clone(),
-                        meta: choice.is_default.then(|| "Default".to_owned()),
+                        meta: choice.is_default.then(|| t!("Default").to_owned()),
                         current: choice.value == current,
                         act: Act::Set(choice.value.clone()),
                     }),
@@ -340,7 +347,7 @@ impl Menu {
                 true => options.push(Row {
                     group: 0,
                     mark: Some(own.to_owned()),
-                    label: "Default model".into(),
+                    label: t!("Default model").into(),
                     meta: None,
                     current: false,
                     act: Act::Move(going(None)),
@@ -349,7 +356,7 @@ impl Menu {
                     group: 0,
                     mark: Some(own.to_owned()),
                     label: choice.label.clone(),
-                    meta: choice.is_default.then(|| "Default".to_owned()),
+                    meta: choice.is_default.then(|| t!("Default").to_owned()),
                     current: false,
                     act: Act::Move(going(Some(choice.value.clone()))),
                 })),
@@ -362,7 +369,12 @@ impl Menu {
             options.push(Row {
                 group: 0,
                 mark: None,
-                label: if self.older { "Show less" } else { "Show more" }.into(),
+                label: if self.older {
+                    t!("Show less")
+                } else {
+                    t!("Show more")
+                }
+                .into(),
                 meta: None,
                 current: false,
                 act: Act::Fold,
@@ -372,7 +384,7 @@ impl Menu {
             for route in self.routes.iter().filter(|route| route.runs(own)) {
                 let here = self.picked.model_provider.as_deref() == Some(route.id.as_str());
                 groups.push(match route.local && !route.label.starts_with("Local") {
-                    true => format!("{} · local", route.label),
+                    true => t!("{route} · local", route = route.label),
                     false => route.label.clone(),
                 });
                 let group = groups.len() - 1;
@@ -409,7 +421,7 @@ impl Menu {
             options.push(Row {
                 group: groups.len() - 1,
                 mark: None,
-                label: "Add provider".into(),
+                label: t!("Add provider").into(),
                 meta: None,
                 current: false,
                 act: Act::AddProvider,
@@ -475,9 +487,13 @@ impl Menu {
             .iter()
             .find(|agent| agent.kind == self.picked.provider)?;
         let label = match agent.updating_now() {
-            true => format!("Updating {}…", agent.label),
+            true => t!("Updating {agent}…", agent = agent.label),
             false if agent.unlocks.is_empty() || agent.update_to().is_none() => return None,
-            false => format!("Update {} to use {}", agent.label, agent.unlocks.join(", ")),
+            false => t!(
+                "Update {agent} to use {models}",
+                agent = agent.label,
+                models = agent.unlocks.join(", ")
+            ),
         };
         Some(Row {
             group: 0,
@@ -529,7 +545,7 @@ impl Menu {
                     div()
                         .text_size(crate::theme::ui_text(TEXT_XS_H))
                         .text_color(t.text_secondary)
-                        .child("Speed"),
+                        .child(t!("Speed")),
                 )
                 .child(switch)
                 .into_any_element(),
@@ -600,8 +616,8 @@ fn chip(
     on: impl Fn(&mut Window, &mut App) + 'static,
 ) -> AnyElement {
     let state = match agent.installing {
-        Some(Installing::Running) => Some(("Installing", t.text_tertiary)),
-        Some(Installing::Failed) => Some(("Install failed", t.danger)),
+        Some(Installing::Running) => Some((t!("Installing"), t.text_tertiary)),
+        Some(Installing::Failed) => Some((t!("Install failed"), t.danger)),
         None => None,
     };
     div()
@@ -775,11 +791,11 @@ impl Render for Menu {
                     .iter()
                     .all(|row| matches!(row.act, Act::AddProvider)) =>
             {
-                Some("No matches")
+                Some(t!("No matches"))
             }
             (true, _) if !empty_own || self.picked.model_provider.is_some() => None,
             (true, Some(pending)) => Some(pending),
-            (true, None) => Some("This agent offers no models to pick"),
+            (true, None) => Some(t!("This agent offers no models to pick")),
             (false, _) => None,
         };
         let add = options

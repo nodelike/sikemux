@@ -135,7 +135,7 @@ impl AgentMenu {
                     let (renamed, name) = (renamed.clone(), name.clone());
                     let _ = bench.update(cx, |bench, cx| {
                         bench.prompt(
-                            "Rename agent",
+                            t!("Rename agent"),
                             name.clone(),
                             move |bench, typed, _, _| {
                                 if !typed.is_empty() && typed != name {
@@ -173,7 +173,7 @@ impl AgentMenu {
                     }
                     let _ = bench.update(cx, |bench, cx| {
                         bench.prompt(
-                            "Edit title",
+                            t!("Edit title"),
                             title.clone(),
                             move |bench, typed, _, _| {
                                 if !typed.is_empty() && typed != title {
@@ -225,7 +225,7 @@ impl AgentMenu {
                 chats.push(pin.clone());
             }
             popup = popup.item(
-                PopupMenuItem::new(if pinned { "Unpin" } else { "Pin" })
+                PopupMenuItem::new(if pinned { t!("Unpin") } else { t!("Pin") })
                     .icon(Icon::Pin)
                     .on_click(self.on_bench(move |bench, _| {
                         Target::here(&bench.asks).call_typed::<call::SetPinnedChats>(PinnedParams {
@@ -277,9 +277,9 @@ impl AgentMenu {
                     ))
                     .item(
                         PopupMenuItem::new(if agent.keep_alive {
-                            "Allow Auto-Sleep"
+                            t!("Allow Auto-Sleep")
                         } else {
-                            "Keep Alive"
+                            t!("Keep Alive")
                         })
                         .icon(Icon::Pin)
                         .on_click({
@@ -352,9 +352,9 @@ impl AgentMenu {
             };
             popup = popup.separator().item(
                 PopupMenuItem::new(if yolo {
-                    "Disable YOLO Mode"
+                    t!("Disable YOLO Mode")
                 } else {
-                    "Enable YOLO Mode"
+                    t!("Enable YOLO Mode")
                 })
                 .icon(if yolo { Icon::Lock } else { Icon::BoltFill })
                 .on_click(self.on_bench({
@@ -386,7 +386,7 @@ impl AgentMenu {
                 .on_click(move |_, window, cx| {
                     if let Some(link) = &link {
                         cx.write_to_clipboard(ClipboardItem::new_string(link.clone()));
-                        window.push_notification(toast::success("Copied link"), cx);
+                        window.push_notification(toast::success(t!("Copied link")), cx);
                     }
                 }),
         )

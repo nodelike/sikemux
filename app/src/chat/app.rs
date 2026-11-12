@@ -123,7 +123,10 @@ pub(super) fn app(app: &McpAppRef, title: &str, looks: &Looks, cx: &mut App) -> 
             .flex()
             .items_center()
             .justify_center()
-            .child(ui::meta(format!("Could not show this app: {failed}"), cx))
+            .child(ui::meta(
+                t!("Could not show this app: {failed}", failed = failed),
+                cx,
+            ))
             .into_any_element(),
         (None, Some(still), None) => img(still)
             .size_full()
@@ -328,7 +331,7 @@ fn open(
     let html = host_page(id, app, height, cx);
     let (events, heard) = tokio::sync::mpsc::unbounded_channel();
     let view = page_view::open(&html, Room::App, events, window, cx)
-        .ok_or("this window cannot show web pages")?;
+        .ok_or(t!("this window cannot show web pages"))?;
     let live = Live {
         view: view.clone(),
         changed: Rc::new(Cell::new(true)),

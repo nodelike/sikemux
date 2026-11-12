@@ -45,7 +45,7 @@ pub fn gif(id: &str, gif: &GifRef, looks: &Drawn, cx: &App) -> AnyElement {
                 .children(shown),
         )
         .child(
-            ui::text("Powered by KLIPY", TEXT_3XS, FontWeight::NORMAL)
+            ui::text(t!("Powered by KLIPY"), TEXT_3XS, FontWeight::NORMAL)
                 .text_color(Tokens::get(cx).text_tertiary),
         )
         .into_any_element()

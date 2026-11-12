@@ -60,8 +60,8 @@ pub fn tell(
         return;
     }
     let said = match fresh.len() {
-        1 => "Settled a chat you're done with".to_owned(),
-        count => format!("Settled {count} chats you're done with"),
+        1 => t!("Settled a chat you're done with").to_owned(),
+        count => t!("Settled {count} chats you're done with", count = count),
     };
     let (bench_handle, place) = (cx.entity().downgrade(), place.clone());
     bench.notify(
@@ -113,7 +113,7 @@ impl Workbench {
         if settled {
             let (handle, place) = (cx.entity().downgrade(), place.clone());
             self.notify(
-                toast::undoable("Settled", move |_, cx| {
+                toast::undoable(t!("Settled"), move |_, cx| {
                     settle(&handle, &place, agent_ids.clone(), false, cx)
                 }),
                 cx,
@@ -137,9 +137,10 @@ impl Workbench {
         if let Some(until) = until {
             let (handle, place) = (cx.entity().downgrade(), place.clone());
             self.notify(
-                toast::undoable(format!("Snoozed until {}", when(until)), move |_, cx| {
-                    snooze(&handle, &place, agent_ids.clone(), None, cx)
-                }),
+                toast::undoable(
+                    t!("Snoozed until {time}", time = when(until)),
+                    move |_, cx| snooze(&handle, &place, agent_ids.clone(), None, cx),
+                ),
                 cx,
             );
         }
@@ -152,8 +153,10 @@ pub fn wake_label(until: u64, cx: &App) -> AnyElement {
     const HOUR_MS: u64 = 3_600_000;
     let left = until.saturating_sub(epoch_ms());
     let words = match left {
-        left if left < HOUR_MS => format!("{}m", left.div_ceil(60_000).max(1)),
-        left if left < 24 * HOUR_MS => format!("{}h", ((left + HOUR_MS / 2) / HOUR_MS).max(1)),
+        left if left < HOUR_MS => t!("{minutes}m", minutes = left.div_ceil(60_000).max(1)),
+        left if left < 24 * HOUR_MS => {
+            t!("{hours}h", hours = ((left + HOUR_MS / 2) / HOUR_MS).max(1))
+        }
         _ => Local
             .timestamp_millis_opt(until as i64)
             .single()
@@ -206,7 +209,7 @@ pub fn menu_items(
         let (bench, id) = (bench.clone(), id.clone());
         popup.submenu_with_icon(
             Some(Icon::Clock.into()),
-            "Snooze",
+            t!("Snooze"),
             window,
             cx,
             crate::ui::menu(move |menu, _, _| {
@@ -224,7 +227,7 @@ pub fn menu_items(
                             let id = id.clone();
                             let _ = bench.update(cx, |bench, cx| {
                                 bench.prompt(
-                                    "Snooze until, such as fri 2pm or in 90m",
+                                    t!("Snooze until, such as fri 2pm or in 90m"),
                                     "",
                                     move |bench, typed, _, cx| match settling::parse_time(&typed) {
                                         Some(until) => bench.snooze_agents(
@@ -234,8 +237,9 @@ pub fn menu_items(
                                             cx,
                                         ),
                                         None => bench.notify(
-                                            toast::error(format!(
-                                                "Couldn't read \"{typed}\" as a time"
+                                            toast::error(t!(
+                                                "Couldn't read \"{typed}\" as a time",
+                                                typed = typed
                                             )),
                                             cx,
                                         ),
@@ -249,8 +253,8 @@ pub fn menu_items(
         )
     };
     let (label, icon) = match settled {
-        true => ("Restore", Icon::Rotate),
-        false => ("Settle", Icon::Check),
+        true => (t!("Restore"), Icon::Rotate),
+        false => (t!("Settle"), Icon::Check),
     };
     popup.item(
         PopupMenuItem::new(label)

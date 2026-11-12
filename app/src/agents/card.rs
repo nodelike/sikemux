@@ -275,7 +275,7 @@ pub fn view(
         facts.push(
             fact(
                 Some(Icon::Timer),
-                format!("A trigger wakes it in {}", ui::time::until(at)).into_any_element(),
+                t!("A trigger wakes it in {time}", time = ui::time::until(at)).into_any_element(),
             )
             .into_any_element(),
         );
@@ -295,7 +295,7 @@ pub fn view(
                     .text_color(t.text_primary)
                     .cursor_pointer()
                     .hover(|link| link.underline())
-                    .tooltip(ui::tooltip("Review its work"))
+                    .tooltip(ui::tooltip(t!("Review its work")))
                     .on_click(cx.listener(move |bench, _, _, cx| {
                         bench.close_card(cx);
                         crate::agents::review::open(bench, &reviewed, cx);
@@ -365,10 +365,13 @@ pub fn paused(
     let header = header(
         ui::mark(&recent.provider, 20.).into_any_element(),
         recent.title.clone(),
-        format!(
-            "{} paused until it is opened again",
-            crate::ui::numbers::plural(count as f64, "trigger")
-        ),
+        match count {
+            1 => t!("1 trigger paused until it is opened again").to_owned(),
+            count => t!(
+                "{count} triggers paused until it is opened again",
+                count = count
+            ),
+        },
         &t,
     );
     let rows = recent

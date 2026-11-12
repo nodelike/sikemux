@@ -385,12 +385,12 @@ impl RenderOnce for Composer {
                 .filter(|model| !model.current.is_empty())
                 .map_or_else(
                     || self.agent_label.to_string(),
-                    |model| chosen(model, "Model"),
+                    |model| chosen(model, t!("Model")),
                 );
             let trigger = picker_trigger(
                 "model",
                 label,
-                "Model",
+                t!("Model"),
                 Some(&self.provider),
                 enabled,
                 room,
@@ -412,7 +412,7 @@ impl RenderOnce for Composer {
             bar = bar.children(model.filter(|_| !has_menu).map(|model| {
                 picker(
                     model,
-                    "Model",
+                    t!("Model"),
                     Some(&self.provider),
                     settable,
                     pick.clone(),
@@ -423,7 +423,7 @@ impl RenderOnce for Composer {
             bar = bar.children(effort.map(|effort| {
                 picker(
                     effort,
-                    "Reasoning effort",
+                    t!("Reasoning effort"),
                     None,
                     settable || waiting,
                     pick,
@@ -658,7 +658,7 @@ fn context_line(strip: Strip, cx: &App) -> impl IntoElement {
     let project = match strip.moves {
         Some(menu) => menu(
             BaseButton::new("composer-project")
-                .accessibility_label("Project")
+                .accessibility_label(t!("Project"))
                 .min_w_0()
                 .rounded_full()
                 .hover(move |style| style.bg(t.surface_hover))
@@ -691,7 +691,7 @@ fn context_line(strip: Strip, cx: &App) -> impl IntoElement {
             })
             .child(
                 ui::text(
-                    strip.host.clone().unwrap_or_else(|| "This host".into()),
+                    strip.host.clone().unwrap_or_else(|| t!("This host").into()),
                     TEXT_XS,
                     FontWeight::NORMAL,
                 )
@@ -713,7 +713,7 @@ fn context_line(strip: Strip, cx: &App) -> impl IntoElement {
     let host = match strip.hosts {
         Some(menu) => menu(
             BaseButton::new("composer-host")
-                .accessibility_label("Host")
+                .accessibility_label(t!("Host"))
                 .min_w_0()
                 .rounded_full()
                 .hover(move |style| style.bg(t.surface_hover))
@@ -796,7 +796,7 @@ impl Drawn {
 fn stash_button(fresh: usize, open: bool, toggle: Act, room: Room, cx: &App) -> impl IntoElement {
     let t = Tokens::get(cx).clone();
     BaseButton::new("composer-stash")
-        .accessibility_label("Stash")
+        .accessibility_label(t!("Stash"))
         .h(px(28.))
         .px(SPACE_2)
         .flex()
@@ -812,7 +812,7 @@ fn stash_button(fresh: usize, open: bool, toggle: Act, room: Room, cx: &App) -> 
         })
         .when(open, |button| button.bg(t.surface_chosen))
         .hover(move |button| button.bg(t.surface_hover).text_color(t.text_primary))
-        .tooltip(ui::tooltip("Stash · &"))
+        .tooltip(ui::tooltip(format!("{} · &", t!("Stash"))))
         .on_click(move |_, window, cx| toggle(window, cx))
         .child(ui::icon(Icon::Stack, 14.).text_color(if open {
             t.text_primary
@@ -866,8 +866,11 @@ fn snapshot_button(take: Act, cx: &App) -> IconButton {
     let keys = crate::keymap::hint_named(crate::snapshot::COMMAND, cx)
         .map_or_else(String::new, |keys| format!(" {keys}"));
     let label = match crate::snapshot::last_app() {
-        Some(app) => format!("SnapShot {app}'s window{keys}"),
-        None => format!("SnapShot the window you were in before Sikemux{keys}"),
+        Some(app) => format!("{}{keys}", t!("SnapShot {app}'s window", app = app)),
+        None => format!(
+            "{}{keys}",
+            t!("SnapShot the window you were in before Sikemux")
+        ),
     };
     IconButton::new("composer-snapshot", Icon::Camera, label)
         .glyph(16.)
@@ -891,11 +894,17 @@ fn mode_chip(modes: Modes, settable: bool, agent: &str, room: Room, cx: &App) ->
     let mode = modes.current;
     let on = mode == PermissionMode::Bypass;
     let about = match mode {
-        PermissionMode::Bypass => format!("YOLO mode on — {agent} runs without approvals."),
-        PermissionMode::Auto => {
-            format!("Auto mode — {agent}'s reviewer approves safe actions and asks you the rest.")
+        PermissionMode::Bypass => t!(
+            "YOLO mode on — {agent} runs without approvals.",
+            agent = agent
+        ),
+        PermissionMode::Auto => t!(
+            "Auto mode — {agent}'s reviewer approves safe actions and asks you the rest.",
+            agent = agent
+        ),
+        PermissionMode::WorkspaceWrite => {
+            t!("Safe mode — {agent} asks before it acts.", agent = agent)
         }
-        PermissionMode::WorkspaceWrite => format!("Safe mode — {agent} asks before it acts."),
     };
     let chip = BaseButton::new("composer-yolo")
         .accessibility_label(mode_word(mode))
@@ -968,16 +977,16 @@ fn mode_chip(modes: Modes, settable: bool, agent: &str, room: Room, cx: &App) ->
 fn mode_word(mode: PermissionMode) -> &'static str {
     match mode {
         PermissionMode::Bypass => "YOLO",
-        PermissionMode::Auto => "AUTO",
-        PermissionMode::WorkspaceWrite => "SAFE",
+        PermissionMode::Auto => t!("AUTO"),
+        PermissionMode::WorkspaceWrite => t!("SAFE"),
     }
 }
 
 fn mode_name(mode: PermissionMode) -> &'static str {
     match mode {
-        PermissionMode::Bypass => "YOLO — never asks",
-        PermissionMode::Auto => "Auto — asks only what's risky",
-        PermissionMode::WorkspaceWrite => "Safe — asks before it acts",
+        PermissionMode::Bypass => t!("YOLO — never asks"),
+        PermissionMode::Auto => t!("Auto — asks only what's risky"),
+        PermissionMode::WorkspaceWrite => t!("Safe — asks before it acts"),
     }
 }
 
@@ -1125,7 +1134,7 @@ fn picker(
                     let (pick, id, value) = (pick.clone(), id.clone(), choice.value.clone());
                     popup = popup.item(
                         ui::MenuRow::new(choice.label.clone())
-                            .when(choice.is_default, |row| row.hint("Default"))
+                            .when(choice.is_default, |row| row.hint(t!("Default")))
                             .item(cx)
                             .checked(choice.value == current)
                             .on_click(move |_, window, cx| pick(&id, &value, window, cx)),
@@ -1305,7 +1314,7 @@ fn context_card(
                 .flex()
                 .flex_col()
                 .gap(px(3.))
-                .child(row("Tokens", tokens.into_any_element()))
+                .child(row(t!("Tokens"), tokens.into_any_element()))
                 .children(compactions.map(|compactions| {
                     let ink = match compactions.count {
                         10.. => t.danger,
@@ -1313,11 +1322,11 @@ fn context_card(
                         _ => t.text_primary,
                     };
                     let times = match compactions.count {
-                        1 => "Once".to_owned(),
-                        count => format!("{count} times"),
+                        1 => t!("Once").to_owned(),
+                        count => t!("{count} times", count = count),
                     };
                     row(
-                        "Compacted",
+                        t!("Compacted"),
                         ui::text(
                             format!("{times} · {}", ui::time::ago(compactions.last_at)),
                             TEXT_2XS_H,
@@ -1330,7 +1339,7 @@ fn context_card(
                 }))
                 .children(usage.cost.map(|cost| {
                     row(
-                        "Session cost",
+                        t!("Session cost"),
                         ui::text(
                             crate::ui::numbers::money(cost.amount),
                             TEXT_2XS_H,
@@ -1377,16 +1386,16 @@ fn send(
         );
     let about = steers.filter(|_| !stopping).map(|steers| {
         if steers {
-            "Steers into this turn — ⌘↵ queues behind it"
+            t!("Steers into this turn — ⌘↵ queues behind it")
         } else {
-            "Queues behind this turn — ⌘↵ steers into it"
+            t!("Queues behind this turn — ⌘↵ steers into it")
         }
     });
     BaseButton::new("composer-send")
         .accessibility_label(if stopping {
-            "Stop agent"
+            t!("Stop agent")
         } else {
-            "Send message"
+            t!("Send message")
         })
         .disabled(!stopping && !drafted)
         .ml(px(3.))

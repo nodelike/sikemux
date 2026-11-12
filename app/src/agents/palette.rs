@@ -42,16 +42,16 @@ impl Workbench {
         ));
         let choice = Choice {
             options: vec![
-                (Icon::Lock, "safe".into()),
-                (Icon::ShieldBolt, "auto".into()),
-                (Icon::BoltFill, "yolo".into()),
+                (Icon::Lock, t!("safe").into()),
+                (Icon::ShieldBolt, t!("auto").into()),
+                (Icon::BoltFill, t!("yolo").into()),
             ],
             chosen: mode.clone(),
             armed: Some(2),
         };
         let mut spec = Spec::new(
             AGENT_PALETTE,
-            "search agents",
+            t!("search agents"),
             rows,
             move |row, bench, window, cx| {
                 let key: &str = &row.key;
@@ -88,7 +88,7 @@ impl Workbench {
                 }
             },
         )
-        .empty("no agent matches")
+        .empty(t!("no agent matches"))
         .choice(choice)
         .on_stage()
         .ruled();
@@ -151,29 +151,29 @@ impl Workbench {
             let new = || {
                 Row::new(
                     format!("{NEW}{}", launcher.id),
-                    format!("+ new {}", launcher.label),
+                    t!("+ new {agent}", agent = launcher.label),
                 )
                 .unarmed(!bypasses)
             };
             let row = match launcher.status.as_deref() {
                 Some("missing") if kind.is_some_and(|kind| kind.install.is_some()) => Row::new(
                     format!("{INSTALL}{}", launcher.id),
-                    format!("Install {}", launcher.label),
+                    t!("Install {agent}", agent = launcher.label),
                 )
                 .meta(kind.map(|kind| kind.about.clone()).unwrap_or_default()),
-                Some("missing" | "broken") => {
-                    new().meta("Agent executable is unavailable").disabled(true)
-                }
-                Some("signedOut") => new().meta("signed out"),
+                Some("missing" | "broken") => new()
+                    .meta(t!("Agent executable is unavailable"))
+                    .disabled(true),
+                Some("signedOut") => new().meta(t!("signed out")),
                 _ => new(),
             };
             if launcher.status.as_deref() == Some("signedOut") && signs_in {
                 sign_ins.push(
                     Row::new(
                         format!("{SIGN_IN}{}", launcher.id),
-                        format!("Sign in to {}", launcher.label),
+                        t!("Sign in to {agent}", agent = launcher.label),
                     )
-                    .meta("Signed out")
+                    .meta(t!("Signed out"))
                     .mark(Mark::Agent(launcher.provider.clone()))
                     .group(NEW)
                     .also(&launcher.provider),
@@ -307,12 +307,12 @@ fn install(
 
 pub(crate) fn status_word(status: AgentStatus) -> &'static str {
     match status {
-        AgentStatus::Working => "working",
-        AgentStatus::Starting => "starting",
-        AgentStatus::Blocked => "needs you",
-        AgentStatus::Done => "done",
-        AgentStatus::Idle => "idle",
-        AgentStatus::Asleep => "asleep",
-        AgentStatus::Stopped => "stopped",
+        AgentStatus::Working => t!("working"),
+        AgentStatus::Starting => t!("starting"),
+        AgentStatus::Blocked => t!("needs you"),
+        AgentStatus::Done => t!("done"),
+        AgentStatus::Idle => t!("idle"),
+        AgentStatus::Asleep => t!("asleep"),
+        AgentStatus::Stopped => t!("stopped"),
     }
 }

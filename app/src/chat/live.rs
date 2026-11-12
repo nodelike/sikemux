@@ -139,14 +139,6 @@ fn folding(key: &str, folded: bool, rows: Vec<AnyElement>) -> AnyElement {
     .into_any_element()
 }
 
-fn plural(word: &str, count: usize) -> String {
-    if count == 1 {
-        word.to_owned()
-    } else {
-        format!("{word}s")
-    }
-}
-
 /// The colours of work going on: an agent's in the accent its card wears, a task's in green.
 struct Tints {
     agent: Hsla,
@@ -163,9 +155,12 @@ impl Tints {
 }
 
 fn tokens(tokens: Option<u64>) -> Option<String> {
-    tokens
-        .filter(|tokens| *tokens > 0)
-        .map(|tokens| format!("{} tokens", crate::ui::numbers::compact(tokens as f64)))
+    tokens.filter(|tokens| *tokens > 0).map(|tokens| {
+        t!(
+            "{tokens} tokens",
+            tokens = crate::ui::numbers::compact(tokens as f64)
+        )
+    })
 }
 
 fn cost(parts: [Option<String>; 2]) -> Option<String> {
@@ -196,7 +191,10 @@ fn task_detail(task: &AsyncTask) -> Option<String> {
         .into_iter()
         .flatten()
         .find(|text| !text.is_empty() && *text != task.name);
-    let owner = task.owner.as_ref().map(|owner| format!("from {owner}"));
+    let owner = task
+        .owner
+        .as_ref()
+        .map(|owner| t!("from {owner}", owner = owner));
     let detail: Vec<String> = owner.into_iter().chain(said.map(str::to_owned)).collect();
     (!detail.is_empty()).then(|| one_line(&detail.join(" · ")))
 }
@@ -464,7 +462,7 @@ fn running(agent: &AgentRow, chat: &Chat, cx: &mut Context<Workbench>) -> Option
     let live = div().size(px(6.)).flex_none().rounded_full().bg(t.live);
     let mut words = vec![counted(
         live.into_any_element(),
-        format!("{count} running"),
+        t!("{count} running", count = count),
         &t,
     )];
     if chat.groups_folded.contains(RUNNING) {
@@ -547,7 +545,7 @@ fn stop_all(
         .collect();
     let (ink, hover) = (t.text_tertiary, t.text_primary);
     BaseButton::new("dock-stop-all")
-        .accessibility_label("Stop all background tasks")
+        .accessibility_label(t!("Stop all background tasks"))
         .h(px(22.))
         .px(SPACE_1H)
         .flex()
@@ -568,7 +566,7 @@ fn stop_all(
                 });
             }
         }))
-        .child("Stop all")
+        .child(t!("Stop all"))
         .into_any_element()
 }
 
@@ -650,12 +648,9 @@ fn subagent_row(
             .to_owned(),
         None => one_line(&card.task),
     };
-    let calls = (card.calls > 0).then(|| {
-        format!(
-            "{} {}",
-            card.calls,
-            if card.calls == 1 { "call" } else { "calls" }
-        )
+    let calls = (card.calls > 0).then(|| match card.calls {
+        1 => t!("1 call").to_owned(),
+        calls => t!("{calls} calls", calls = calls),
     });
     let end = if card.can_stop {
         let stopping = chat.stopping.contains(&card.session_id);
@@ -708,16 +703,13 @@ fn task_row_of(
             )
         })
         .count();
-    let agents = (!task.agents.is_empty()).then(|| {
-        format!(
-            "{finished}/{} {}",
-            task.agents.len(),
-            if task.agents.len() == 1 {
-                "agent"
-            } else {
-                "agents"
-            }
-        )
+    let agents = (!task.agents.is_empty()).then(|| match task.agents.len() {
+        1 => t!("{finished}/1 agent", finished = finished),
+        total => t!(
+            "{finished}/{total} agents",
+            finished = finished,
+            total = total
+        ),
     });
     let used = task
         .usage
@@ -757,7 +749,7 @@ fn stop(
 ) -> AnyElement {
     let (agent, id, danger) = (agent.to_owned(), id.to_owned(), t.danger);
     BaseButton::new(SharedString::from(format!("stop:{id}")))
-        .accessibility_label(format!("Stop {name}"))
+        .accessibility_label(t!("Stop {name}", name = name))
         .size(px(18.))
         .flex()
         .items_center()
@@ -797,7 +789,7 @@ fn workflow_agent(
     let calls = worker
         .tool_calls
         .filter(|calls| *calls > 0)
-        .map(|calls| format!("{calls} tools"));
+        .map(|calls| t!("{calls} tools", calls = calls));
     let end = match worker.state {
         WorkflowAgentState::Running => Some(ui::icon(Icon::Hourglass, 11.).text_color(tints.agent)),
         WorkflowAgentState::Completed => Some(ui::icon(Icon::Check, 10.).text_color(tints.task)),
@@ -850,21 +842,30 @@ fn handoff(agent: &AgentRow, chat: &Chat, cx: &mut Context<Workbench>) -> Option
     let t = Tokens::get(cx).clone();
     let mut said = Vec::new();
     if handoff.request {
-        said.push("first request".to_owned());
+        said.push(t!("first request").to_owned());
     }
     said.push(match handoff.exchanges {
-        1 => "the latest exchange".to_owned(),
-        count => format!("{count} latest exchanges"),
+        1 => t!("the latest exchange").to_owned(),
+        count => t!("{count} latest exchanges", count = count),
     });
     match handoff.commands {
         0 => {}
-        1 => said.push("1 command".to_owned()),
-        count => said.push(format!("{count} commands")),
+        1 => said.push(t!("1 command").to_owned()),
+        count => said.push(t!("{count} commands", count = count)),
     }
-    said.push(format!("~{}k tokens", handoff.tokens.div_ceil(1000)));
+    said.push(t!(
+        "~{thousands}k tokens",
+        thousands = handoff.tokens.div_ceil(1000)
+    ));
     let lead = match handoff.forked_from {
-        Some(_) => format!("Forked from a {} chat", agent_label(&handoff.from)),
-        None => format!("Hands over to {}", agent_label(&agent.provider)),
+        Some(_) => t!(
+            "Forked from a {agent} chat",
+            agent = agent_label(&handoff.from)
+        ),
+        None => t!(
+            "Hands over to {agent}",
+            agent = agent_label(&agent.provider)
+        ),
     };
     let marks = div()
         .flex()
@@ -900,7 +901,7 @@ fn handoff(agent: &AgentRow, chat: &Chat, cx: &mut Context<Workbench>) -> Option
             bench.drop_handoff(&id);
             cx.stop_propagation();
         }))
-        .child("Leave out")
+        .child(t!("Leave out"))
         .into_any_element();
     Some(Group {
         key: HANDOFF,
@@ -945,18 +946,31 @@ fn queued(agent: &str, chat: &Chat, cx: &mut Context<Workbench>) -> Option<Group
             .into_any_element()
     };
     let all = waiting.iter().map(|message| message.id.clone()).collect();
-    let action = (steerable && waiting.len() > 1).then(|| steer(all, "Steer all", true, cx));
+    let action = (steerable && waiting.len() > 1).then(|| steer(all, t!("Steer all"), true, cx));
     let arrow = ui::icon(Icon::ArrowUp, 11.)
         .text_color(t.text_tertiary)
         .into_any_element();
-    let words = vec![counted(arrow, format!("{} queued", waiting.len()), &t)];
+    let words = vec![counted(
+        arrow,
+        t!("{count} queued", count = waiting.len()),
+        &t,
+    )];
     let rows: Vec<AnyElement> = waiting
         .iter()
         .map(|message| {
-            let steer_one =
-                steerable.then(|| steer(vec![message.id.clone()], "Steer", waiting.len() == 1, cx));
+            let steer_one = steerable.then(|| {
+                steer(
+                    vec![message.id.clone()],
+                    t!("Steer"),
+                    waiting.len() == 1,
+                    cx,
+                )
+            });
             let (agent, id) = (agent.to_owned(), message.id.clone());
-            let label = format!("Drop {} from the queue", queued_label(message));
+            let label = t!(
+                "Drop {message} from the queue",
+                message = queued_label(message)
+            );
             let drop = remove_button(SharedString::from(format!("drop:{id}")), label, &t)
                 .on_click(cx.listener(move |bench, _, _, _| {
                     bench
@@ -1046,7 +1060,11 @@ fn guests(agent: &str, chat: &Chat, cx: &mut Context<Workbench>) -> Option<Group
     let icon = ui::icon(Icon::Link, 11.)
         .text_color(t.text_tertiary)
         .into_any_element();
-    let words = vec![counted(icon, format!("{} from guests", waiting.len()), &t)];
+    let words = vec![counted(
+        icon,
+        t!("{count} from guests", count = waiting.len()),
+        &t,
+    )];
     let rows = waiting
         .iter()
         .map(|message| {
@@ -1057,7 +1075,7 @@ fn guests(agent: &str, chat: &Chat, cx: &mut Context<Workbench>) -> Option<Group
             let (agent, sending) = (agent.to_owned(), params.clone());
             let send = tinted_button(
                 SharedString::from(format!("guest-send:{}", message.id)),
-                "Send",
+                t!("Send"),
                 accent,
                 &t,
             )
@@ -1069,7 +1087,7 @@ fn guests(agent: &str, chat: &Chat, cx: &mut Context<Workbench>) -> Option<Group
             let (agent, dismissing) = (params.agent_id.clone(), params);
             let dismiss = remove_button(
                 SharedString::from(format!("guest-dismiss:{}", message.id)),
-                "Dismiss the guest's message".to_owned(),
+                t!("Dismiss the guest's message").to_owned(),
                 &t,
             )
             .on_click(cx.listener(move |bench, _, _, _| {
@@ -1088,8 +1106,8 @@ fn guests(agent: &str, chat: &Chat, cx: &mut Context<Workbench>) -> Option<Group
                 .child(dismiss)
                 .into_any_element();
             let who = match &message.name {
-                Some(name) => format!("{name} · guest"),
-                None => "Guest".to_owned(),
+                Some(name) => t!("{name} · guest", name = name),
+                None => t!("Guest").to_owned(),
             };
             let text = div().child(one_line(&message.text)).into_any_element();
             work_row(&t, mark, who, Some((text, false)), None, Some(end)).into_any_element()
@@ -1103,28 +1121,33 @@ fn guests(agent: &str, chat: &Chat, cx: &mut Context<Workbench>) -> Option<Group
     })
 }
 
-const WEEKDAYS: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const WEEKDAYS: [&str; 7] = [
+    n!("Sun"),
+    n!("Mon"),
+    n!("Tue"),
+    n!("Wed"),
+    n!("Thu"),
+    n!("Fri"),
+    n!("Sat"),
+];
 
 /// How often a trigger fires, in a few words; none for one that fires once.
 fn repeats(when: &TriggerWhen) -> Option<String> {
     match when {
         TriggerWhen::Once { .. } | TriggerWhen::Webhook { .. } | TriggerWhen::Ci { .. } => None,
         TriggerWhen::Every { seconds } => Some(match seconds {
-            s if s % 86_400 == 0 => format!(
-                "every {} {}",
-                s / 86_400,
-                plural("day", (s / 86_400) as usize)
-            ),
-            s if s % 3_600 == 0 => format!("every {} h", s / 3_600),
-            s => format!("every {} min", s.div_ceil(60)),
+            86_400 => t!("every 1 day").to_owned(),
+            s if s % 86_400 == 0 => t!("every {days} days", days = s / 86_400),
+            s if s % 3_600 == 0 => t!("every {hours} h", hours = s / 3_600),
+            s => t!("every {minutes} min", minutes = s.div_ceil(60)),
         }),
         TriggerWhen::Daily { weekdays, .. } => Some(match weekdays.as_slice() {
-            [] => "daily".to_owned(),
-            [1, 2, 3, 4, 5] => "weekdays".to_owned(),
+            [] => t!("daily").to_owned(),
+            [1, 2, 3, 4, 5] => t!("weekdays").to_owned(),
             days => days
                 .iter()
                 .filter_map(|day| WEEKDAYS.get(usize::from(*day)))
-                .copied()
+                .map(|day| crate::i18n::tr(*day))
                 .collect::<Vec<_>>()
                 .join(" "),
         }),
@@ -1134,8 +1157,8 @@ fn repeats(when: &TriggerWhen) -> Option<String> {
 /// When the trigger fires: on each request for a webhook, else how often and when next.
 pub(crate) fn fires(trigger: &ChatTrigger) -> String {
     match &trigger.when {
-        TriggerWhen::Webhook { .. } => return "on each request".to_owned(),
-        TriggerWhen::Ci { on } => return format!("when CI on {on} ends"),
+        TriggerWhen::Webhook { .. } => return t!("on each request").to_owned(),
+        TriggerWhen::Ci { on } => return t!("when CI on {on} ends", on = on),
         _ => {}
     }
     let next = trigger
@@ -1145,7 +1168,7 @@ pub(crate) fn fires(trigger: &ChatTrigger) -> String {
         .map(crate::agents::limits::day_and_time)
         .unwrap_or_default();
     match repeats(&trigger.when) {
-        Some(repeats) => format!("{repeats} · next {next}"),
+        Some(repeats) => t!("{repeats} · next {next}", repeats = repeats, next = next),
         None => next,
     }
 }
@@ -1165,7 +1188,10 @@ fn triggers(agent: &str, chat: &Chat, cx: &mut Context<Workbench>) -> Option<Gro
     };
     let words = vec![counted(
         clock(11.),
-        format!("{} {}", set.len(), plural("trigger", set.len())),
+        match set.len() {
+            1 => t!("1 trigger").to_owned(),
+            count => t!("{count} triggers", count = count),
+        },
         &t,
     )];
     let rows: Vec<AnyElement> = set
@@ -1215,7 +1241,7 @@ fn trigger_buttons(
 ) -> (Option<BaseButton>, BaseButton) {
     let danger = t.danger;
     let remove = BaseButton::new(SharedString::from(format!("trigger-remove:{}", trigger.id)))
-        .accessibility_label(format!("Remove trigger {}", trigger.title))
+        .accessibility_label(t!("Remove trigger {title}", title = trigger.title))
         .size(px(18.))
         .flex()
         .items_center()
@@ -1230,7 +1256,10 @@ fn trigger_buttons(
             let url = url.clone();
             Some(
                 BaseButton::new(SharedString::from(format!("trigger-copy:{}", trigger.id)))
-                    .accessibility_label(format!("Copy the address of trigger {}", trigger.title))
+                    .accessibility_label(t!(
+                        "Copy the address of trigger {title}",
+                        title = trigger.title
+                    ))
                     .size(px(18.))
                     .flex()
                     .items_center()

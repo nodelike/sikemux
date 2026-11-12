@@ -73,12 +73,12 @@ impl AddProvider {
     ) -> Self {
         let url = input("https://api.example.com/v1", false, window, cx);
         let key = input(
-            "Not needed for a model server on this host",
+            t!("Not needed for a model server on this host"),
             true,
             window,
             cx,
         );
-        let name = input("Named from the URL", false, window, cx);
+        let name = input(t!("Named from the URL"), false, window, cx);
         url.update(cx, |url, cx| url.focus(window, cx));
         let checks =
             |field: &Entity<InputState>, window: &mut Window, cx: &mut Context<Workbench>| {
@@ -263,8 +263,9 @@ fn add(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench>) 
                 Ok(provider) => {
                     let label = &provider.label;
                     window.push_notification(
-                        toast::success(format!(
-                            "Added {label}; its models are in every chat's model menu"
+                        toast::success(t!(
+                            "Added {label}; its models are in every chat's model menu",
+                            label = label
                         )),
                         cx,
                     );
@@ -316,9 +317,9 @@ fn onto(bench: &Workbench, provider: &ModelProvider) -> Option<Moving> {
 /// to know the call, or a core that went away, says only what it lacked.
 fn readable(failure: CallError) -> String {
     if failure.kind == Some(ErrorKind::UnknownMethod) {
-        "This host's Sikemux is too old to add providers. Update it, then try again.".into()
+        t!("This host's Sikemux is too old to add providers. Update it, then try again.").into()
     } else if failure.gone {
-        "Sikemux lost touch with this host. Try again in a moment.".into()
+        t!("Sikemux lost touch with this host. Try again in a moment.").into()
     } else {
         failure.message
     }
@@ -328,11 +329,20 @@ fn readable(failure: CallError) -> String {
 fn reason(name: &str, read: &Reading) -> String {
     let speaks = |api: &str| read.speaks.iter().any(|each| each == api);
     if speaks("anthropic") {
-        format!("{name} speaks Anthropic's API, which Claude Code uses.")
+        t!(
+            "{name} speaks Anthropic's API, which Claude Code uses.",
+            name = name
+        )
     } else if speaks("responses") {
-        format!("{name} speaks OpenAI's Responses API, which Codex uses.")
+        t!(
+            "{name} speaks OpenAI's Responses API, which Codex uses.",
+            name = name
+        )
     } else {
-        format!("{name} speaks only chat completions, so Claude Code and Codex can't use it.")
+        t!(
+            "{name} speaks only chat completions, so Claude Code and Codex can't use it.",
+            name = name
+        )
     }
 }
 
@@ -394,13 +404,16 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
         (Some(failure), _, _) => Some((failure.clone(), t.danger)),
         (None, Some(count), _) => Some((
             format!(
-                "{} · {count} model{}",
-                if keyed { "Key works" } else { "Works" },
-                if count == 1 { "" } else { "s" }
+                "{} · {}",
+                if keyed { t!("Key works") } else { t!("Works") },
+                match count {
+                    1 => t!("1 model").to_owned(),
+                    count => t!("{count} models", count = count),
+                }
             ),
             t.live,
         )),
-        (None, None, true) => Some(("Checking…".to_owned(), t.text_tertiary)),
+        (None, None, true) => Some((t!("Checking…").to_owned(), t.text_tertiary)),
         (None, None, false) => None,
     };
     let runs = read
@@ -409,17 +422,17 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
         .and_then(|read| Some((read.runs_with.clone()?, read)))
         .map(|(agent, read)| {
             let label = bench.agent_name(&agent).to_owned();
-            let state = match (
-                bench.has_agent(&agent),
-                bench.agent_setup.installing(&agent),
-            ) {
-                (true, _) => None,
-                (false, Some(Installing::Running)) => Some(("Installing", t.text_tertiary)),
-                (false, Some(Installing::Failed)) => Some(("Install failed", t.danger)),
-                (false, None) => Some(("Not installed", t.text_tertiary)),
+            let installing = match bench.has_agent(&agent) {
+                true => None,
+                false => Some(bench.agent_setup.installing(&agent)),
             };
-            let running = matches!(state, Some(("Installing", _)));
-            let failed = matches!(state, Some(("Install failed", _)));
+            let state = installing.map(|installing| match installing {
+                Some(Installing::Running) => (t!("Installing"), t.text_tertiary),
+                Some(Installing::Failed) => (t!("Install failed"), t.danger),
+                None => (t!("Not installed"), t.text_tertiary),
+            });
+            let running = installing == Some(Some(Installing::Running));
+            let failed = installing == Some(Some(Installing::Failed));
             let open = {
                 let (this, agent) = (this.clone(), agent.clone());
                 move |_: &gpui_kit::ClickEvent, window: &mut Window, cx: &mut gpui_kit::App| {
@@ -453,7 +466,7 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
                                 .child(
                                     div()
                                         .text_color(t.text_primary)
-                                        .child(format!("Runs with {label}")),
+                                        .child(t!("Runs with {label}", label = label)),
                                 )
                                 .child(
                                     div()
@@ -485,13 +498,13 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
                 .text_size(crate::theme::ui_text(TEXT_XS))
                 .line_height(crate::theme::ui_text(17.))
                 .text_color(t.text_tertiary)
-                .child(
-                    "Any provider with an OpenAI-compatible API, or a model server on this host.",
-                ),
+                .child(t!(
+                    "Any provider with an OpenAI-compatible API, or a model server on this host."
+                )),
         )
-        .child(dialog::field("Base URL", &adding.url, true, cx))
-        .child(dialog::field("API key", &adding.key, false, cx))
-        .child(dialog::field("Name", &adding.name, false, cx))
+        .child(dialog::field(t!("Base URL"), &adding.url, true, cx))
+        .child(dialog::field(t!("API key"), &adding.key, false, cx))
+        .child(dialog::field(t!("Name"), &adding.name, false, cx))
         .children(check.map(|(words, ink)| {
             ui::text(words, TEXT_XS, FontWeight::NORMAL)
                 .text_color(ink)
@@ -504,14 +517,14 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
         Rc::new(move |window, cx| adds.update(cx, |bench, cx| add(bench, window, cx)));
     let no: dialog::Answer = Rc::new(move |_, cx| closing.update(cx, close));
     let label: SharedString = match (adding.adding, name.is_empty()) {
-        (true, _) => "Adding…".into(),
-        (false, false) => format!("Add {name}").into(),
-        (false, true) => "Add".into(),
+        (true, _) => t!("Adding…").into(),
+        (false, false) => t!("Add {name}", name = name).into(),
+        (false, true) => t!("Add").into(),
     };
     let foot = dialog::hinted_foot(dialog::escape("cancel", cx), cx)
         .child(dialog::button(
             "provider-cancel",
-            "Cancel".into(),
+            t!("Cancel").into(),
             None,
             no.clone(),
             cx,
@@ -528,7 +541,15 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
                 )),
         );
     Some(
-        dialog::marked_sheet(Icon::Plus, "Add a provider".into(), body, foot, yes, no, cx)
-            .into_any_element(),
+        dialog::marked_sheet(
+            Icon::Plus,
+            t!("Add a provider").into(),
+            body,
+            foot,
+            yes,
+            no,
+            cx,
+        )
+        .into_any_element(),
     )
 }

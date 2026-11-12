@@ -45,13 +45,17 @@ fn said(line: &TeamLine) -> (String, Option<TeamNeedKind>) {
         let name = &need.name;
         let text = need.text.as_deref();
         let words = match (need.kind, text) {
-            (TeamNeedKind::Asks, Some(text)) => format!("@{name} asks: {text}"),
-            (TeamNeedKind::Asks, None) => format!("@{name} has a question"),
+            (TeamNeedKind::Asks, Some(text)) => {
+                t!("@{name} asks: {text}", name = name, text = text)
+            }
+            (TeamNeedKind::Asks, None) => t!("@{name} has a question", name = name),
             (TeamNeedKind::Waits, Some(text)) => format!("@{name}: {text}"),
-            (TeamNeedKind::Waits, None) => format!("@{name} waits on you"),
-            (TeamNeedKind::Failed, Some(text)) => format!("@{name} failed: {text}"),
-            (TeamNeedKind::Failed, None) => format!("@{name} failed"),
-            (TeamNeedKind::Stopped, _) => format!("@{name} stopped"),
+            (TeamNeedKind::Waits, None) => t!("@{name} waits on you", name = name),
+            (TeamNeedKind::Failed, Some(text)) => {
+                t!("@{name} failed: {text}", name = name, text = text)
+            }
+            (TeamNeedKind::Failed, None) => t!("@{name} failed", name = name),
+            (TeamNeedKind::Stopped, _) => t!("@{name} stopped", name = name),
         };
         return (words, Some(need.kind));
     }
@@ -82,8 +86,8 @@ pub(super) fn head(
         .map(|agent| looks.mark_of(&agent.agent_id, &agent.cli, MARK, cx))
         .collect::<Vec<_>>();
     let count = match line.messages {
-        1 => "1 message".to_owned(),
-        messages => format!("{messages} messages"),
+        1 => t!("1 message").to_owned(),
+        messages => t!("{messages} messages", messages = messages),
     };
     let (reader, bench, agent, hover) = (
         looks.reader.clone(),
@@ -196,7 +200,7 @@ pub(super) fn head(
                     reading.teams.insert(id.clone(), true);
                 });
             })
-            .child(format!("Show {} earlier", line.earlier))
+            .child(t!("Show {count} earlier", count = line.earlier))
     });
     div()
         .w_full()

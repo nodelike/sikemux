@@ -167,7 +167,7 @@ pub fn dictate(agent: &str, this: WeakEntity<Workbench>) -> crate::voice::Act {
             if off {
                 crate::settings::set(bench, PreferenceChange::VoiceDictation(true));
                 window.push_notification(
-                    "Dictation is on. The speech model downloads once, about 600 MB, then click the microphone again.",
+                    t!("Dictation is on. The speech model downloads once, about 600 MB, then click the microphone again."),
                     cx,
                 );
             }
@@ -402,7 +402,10 @@ fn sent_notice(composing: &Composing, owner: &str, this: &WeakEntity<Workbench>)
                 this.update(cx, |bench, cx| bench.unstash_prompt(&owner, &id, cx))
                     .ok();
             });
-            Some(Notice::Done("Stashed".into(), ("Undo".into(), undo)))
+            Some(Notice::Done(
+                t!("Stashed").into(),
+                (t!("Undo").into(), undo),
+            ))
         })
 }
 
@@ -630,8 +633,8 @@ pub(super) fn composer(
             locked: !fresh,
             pending: match (started, reads_models) {
                 (true, _) => None,
-                (false, true) => Some("Reading the models…"),
-                (false, false) => Some("Models show once the agent starts"),
+                (false, true) => Some(t!("Reading the models…")),
+                (false, false) => Some(t!("Models show once the agent starts")),
             },
             set: pick.clone(),
             moving,
@@ -662,7 +665,7 @@ pub(super) fn composer(
             id: "effort".into(),
             current: saved
                 .and_then(|saved| saved.effort.clone())
-                .unwrap_or_else(|| "Effort".into()),
+                .unwrap_or_else(|| t!("Effort").into()),
             choices: Vec::new(),
         })
     });
@@ -768,7 +771,7 @@ pub(super) fn strip(
         let here = crate::copies::HostCopy {
             place: place.clone(),
             project: saved.project.clone(),
-            host: host.clone().unwrap_or_else(|| "This host".into()),
+            host: host.clone().unwrap_or_else(|| t!("This host").into()),
             path: folder.to_path_buf(),
             git: project.and_then(|project| project.git.clone()),
             away: false,
@@ -910,13 +913,13 @@ impl Chat {
                 .iter()
                 .position(|question| question.id == current.id)
                 .unwrap_or(0);
-            return format!(
-                "Or answer “{}” in your own words",
-                current.title(ix, open.len())
+            return t!(
+                "Or answer “{question}” in your own words",
+                question = current.title(ix, open.len())
             );
         }
         let ask = |commands: bool| match (to, commands) {
-            (Some((to, true)), true) => format!("{to}, or type / for commands"),
+            (Some((to, true)), true) => t!("{to}, or type / for commands", to = to),
             (Some((to, _)), _) => to.to_owned(),
             (None, true) => t!("Ask about this project, or type / for commands").to_owned(),
             (None, false) => t!("Ask about this project").to_owned(),
@@ -926,12 +929,14 @@ impl Chat {
         };
         match head.connection {
             ChatConnection::Error | ChatConnection::Stopped => {
-                "Reconnect to continue this conversation".into()
+                t!("Reconnect to continue this conversation").into()
             }
             ChatConnection::Ready if head.running && steer_first && self.steers() => {
-                "Send to steer this turn".into()
+                t!("Send to steer this turn").into()
             }
-            ChatConnection::Ready if head.running => "Send to queue behind the running turn".into(),
+            ChatConnection::Ready if head.running => {
+                t!("Send to queue behind the running turn").into()
+            }
             ChatConnection::Ready if head.commands.is_empty() => ask(false),
             _ => ask(true),
         }
@@ -1292,13 +1297,13 @@ impl Workbench {
         self.focus_draft(&agent, window, cx);
         let steer_first = self.preferences().mid_turn_send == MidTurnSend::Steer;
         let to = self.agent().and_then(|row| match row.chief {
-            true => Some(("Tell @Chief what you want".to_owned(), true)),
+            true => Some((t!("Tell @Chief what you want").to_owned(), true)),
             false => (self
                 .project()
                 .is_some_and(|project| project.chief.is_some()))
             .then_some(row.name)
             .flatten()
-            .map(|name| (format!("Send to @{name}"), false)),
+            .map(|name| (t!("Send to @{name}", name = name), false)),
         });
         let call_waits = (self.chats.open.get(&agent))
             .and_then(|chat| self.waiting_call(chat.target.place(), &agent))
@@ -1311,7 +1316,7 @@ impl Workbench {
             .flatten()
             .map(SharedString::new);
         let hint = SharedString::from(match call_waits {
-            true => "Or answer in your own words".to_owned(),
+            true => t!("Or answer in your own words").to_owned(),
             false => chat.hint(
                 &agent,
                 self.feeds.questions_outside_calls(),
@@ -1465,7 +1470,7 @@ impl Workbench {
             .open
             .get(agent)
             .and_then(|chat| chat.unknown_command(&text))
-            .map(|name| format!("/{name} is not available in this session"));
+            .map(|name| t!("/{name} is not available in this session", name = name));
         if let Some(refused) = unknown {
             if let Some(composing) = self
                 .chats

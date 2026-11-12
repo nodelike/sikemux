@@ -156,7 +156,7 @@ pub fn short(turn: &TurnState, now: u64) -> Option<String> {
             match (filling(wait, now), wait.expected_ms, wait.until) {
                 (Some(_), Some(expected), _) => {
                     let left = (wait.started_at + expected).saturating_sub(now);
-                    Some(format!("{}m", left.div_ceil(60_000).max(1)))
+                    Some(t!("{minutes}m", minutes = left.div_ceil(60_000).max(1)))
                 }
                 (_, _, Some(until)) => Some(ui::time::until(until)),
                 _ => None,
@@ -164,9 +164,9 @@ pub fn short(turn: &TurnState, now: u64) -> Option<String> {
         }
         TurnPhase::NeedsYou => {
             let call = turn.call.as_ref()?;
-            Some(format!(
-                "{}m",
-                (now.saturating_sub(call.waiting_since) / 60_000).max(1)
+            Some(t!(
+                "{minutes}m",
+                minutes = (now.saturating_sub(call.waiting_since) / 60_000).max(1)
             ))
         }
         _ => None,
@@ -237,8 +237,12 @@ fn waited(wait: &TurnWait, now: u64) -> Option<String> {
     }
     let gone = now.saturating_sub(wait.started_at) / 60_000;
     Some(match wait.expected_ms {
-        Some(expected) => format!("{gone} of ~{} min", expected.div_ceil(60_000)),
-        None => format!("{gone} min"),
+        Some(expected) => t!(
+            "{gone} of ~{expected} min",
+            gone = gone,
+            expected = expected.div_ceil(60_000)
+        ),
+        None => t!("{minutes} min", minutes = gone),
     })
 }
 

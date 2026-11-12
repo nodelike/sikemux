@@ -216,7 +216,7 @@ impl Activity {
         let agent = self.agent.as_ref()?.id.clone();
         let bench = self.bench.clone()?;
         Some(
-            step_button("Look", Variant::Primary)
+            step_button(t!("Look"), Variant::Primary)
                 .on_click(move |_, window, cx| {
                     bench
                         .update(cx, |bench, cx| {
@@ -559,7 +559,7 @@ pub(super) fn trouble(
     let key = SharedString::from(format!("turn-failed:{}", agent.id));
     let failed = |parts: Vec<String>, buttons: Vec<AnyElement>, cx: &mut Context<Workbench>| {
         let said = turn_line::Said {
-            word: "Failed".into(),
+            word: t!("Failed").into(),
             phase: TurnPhase::Failed,
             parts: parts.into_iter().map(SharedString::from).collect(),
         };
@@ -574,13 +574,13 @@ pub(super) fn trouble(
     );
     if dropped && !chat.is_empty(cx) {
         let why = (head.ended.as_ref()).and_then(|ended| ended.message.clone());
-        let mut parts = vec!["the session dropped".to_owned()];
+        let mut parts = vec![t!("the session dropped").to_owned()];
         parts.extend(why);
         let buttons = vec![
-            act("Reconnect", "chat-reconnect", |bench, agent| {
+            act(t!("Reconnect"), "chat-reconnect", |bench, agent| {
                 bench.reconnect(agent)
             }),
-            act("Start new chat", "chat-start-over", |bench, agent| {
+            act(t!("Start new chat"), "chat-start-over", |bench, agent| {
                 bench.start_over(agent)
             }),
         ];
@@ -598,15 +598,15 @@ pub(super) fn trouble(
         Some(turn) => turn_line::said(turn, maker, now_ms())
             .map(|said| said.parts.into_iter().map(String::from).collect())
             .unwrap_or_else(|| vec![error.clone()]),
-        None if network => vec![format!("lost the connection to {maker}")],
+        None if network => vec![t!("lost the connection to {maker}", maker = maker)],
         None => vec![error.clone()],
     };
     let mut buttons = Vec::new();
     if network {
-        buttons.push(act("Retry now", "chat-retry", |bench, agent| {
+        buttons.push(act(t!("Retry now"), "chat-retry", |bench, agent| {
             bench.account_call::<call::RetryFailed>(agent)
         }));
-        buttons.push(act("Discard", "chat-discard", |bench, agent| {
+        buttons.push(act(t!("Discard"), "chat-discard", |bench, agent| {
             bench.account_call::<call::DiscardFailed>(agent)
         }));
     }
@@ -622,7 +622,7 @@ pub(super) fn trouble(
         let carry_on_with = failure.and_then(|failure| failure.carry_on_with.clone());
         if let Some(other) = carry_on_with {
             let (this, chat) = (this.clone(), agent.id.clone());
-            let label = format!("Hand to {}", bench.agent_name(&other));
+            let label = t!("Hand to {agent}", agent = bench.agent_name(&other));
             let button =
                 Button::new("chat-hand-off", label, Variant::Outline).on_click(move |_, _, cx| {
                     let other = other.clone();
@@ -649,14 +649,14 @@ pub(super) fn trouble(
             Some(at) => quiet(
                 &this,
                 &agent.id,
-                format!("Retry at {}", turn_line::moment(at)),
+                t!("Retry at {time}", time = turn_line::moment(at)),
                 |bench, agent| bench.account_call::<call::CancelResume>(agent),
             )
             .tooltip(t!(
                 "Sikemux sends your last message again then. Click to not send it."
             ))
             .into_any_element(),
-            None => quiet(&this, &agent.id, "Retry".into(), |bench, agent| {
+            None => quiet(&this, &agent.id, t!("Retry").into(), |bench, agent| {
                 bench.account_call::<call::RetryFailed>(agent)
             })
             .into_any_element(),
@@ -707,10 +707,10 @@ pub(crate) fn connection_note(
     }
     let t = Tokens::get(cx).clone();
     let (icon, said) = match connection {
-        ChatConnection::Starting => (Icon::Hourglass, "Starting agent…"),
-        ChatConnection::Error => (Icon::Plug, "Structured session unavailable."),
-        ChatConnection::Stopped => (Icon::Plug, "Agent session stopped."),
-        _ => (Icon::Hourglass, "Connecting to agent session…"),
+        ChatConnection::Starting => (Icon::Hourglass, t!("Starting agent…")),
+        ChatConnection::Error => (Icon::Plug, t!("Structured session unavailable.")),
+        ChatConnection::Stopped => (Icon::Plug, t!("Agent session stopped.")),
+        _ => (Icon::Hourglass, t!("Connecting to agent session…")),
     };
     let this = cx.weak_entity();
     let row = div()
@@ -731,14 +731,14 @@ pub(crate) fn connection_note(
             row.child(action(
                 &this,
                 &agent.id,
-                "Reconnect",
+                t!("Reconnect"),
                 "chat-reconnect",
                 |bench, agent| bench.reconnect(agent),
             ))
             .child(action(
                 &this,
                 &agent.id,
-                "Start new chat",
+                t!("Start new chat"),
                 "chat-start-over",
                 |bench, agent| bench.start_over(agent),
             ))
@@ -893,7 +893,7 @@ fn account_ways(
     let retry = action(
         this,
         &agent.id,
-        "Retry",
+        t!("Retry"),
         "chat-retry-signed-in",
         |bench, agent| bench.account_call::<call::RetryFailed>(agent),
     );
@@ -933,7 +933,7 @@ fn account_ways(
     );
     let sign_in = Button::new(
         "chat-sign-in",
-        format!("Sign in to {name}"),
+        t!("Sign in to {name}", name = name),
         Variant::Outline,
     )
     .on_click(move |_, window, cx| {
@@ -993,7 +993,7 @@ pub(super) fn plan(
             ui::icon(Icon::Chevron, 10.).text_color(t.text_disabled),
         ))
         .child(t!("Plan"))
-        .child(format!("{done} of {}", plan.len()))
+        .child(t!("{done} of {total}", done = done, total = plan.len()))
         .on_click({
             let agent = agent.clone();
             move |_, _, cx| {

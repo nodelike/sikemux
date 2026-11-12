@@ -194,7 +194,7 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
                 .min_w_0()
                 .child(
                     ui::text(
-                        agent.name.clone().unwrap_or_else(|| "Buddy".into()),
+                        agent.name.clone().unwrap_or_else(|| t!("Buddy").into()),
                         TEXT_SM,
                         FontWeight::SEMIBOLD,
                     )
@@ -305,9 +305,9 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
     let close: dialog::Answer =
         Rc::new(move |_, cx| this.update(cx, |bench, cx| bench.close_buddy_picker(cx)));
     let hint = if chosen {
-        "Picked for this agent"
+        t!("Picked for this agent")
     } else {
-        "Following the default in Settings"
+        t!("Following the default in Settings")
     };
     let reset: dialog::Answer = {
         let (this, agent_id) = (cx.entity(), agent_id.clone());
@@ -325,7 +325,7 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
         .when(chosen, |foot| {
             foot.child(dialog::button(
                 "buddy-default",
-                "Use Default".into(),
+                t!("Use Default").into(),
                 None,
                 reset,
                 cx,
@@ -333,7 +333,7 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
         })
         .child(dialog::button(
             "buddy-done",
-            "Done".into(),
+            t!("Done").into(),
             Some(t.accent),
             close.clone(),
             cx,
@@ -341,7 +341,7 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
     Some(
         dialog::sheet_of(
             px(600.),
-            "Change buddy".into(),
+            t!("Change buddy").into(),
             body,
             foot,
             close.clone(),

@@ -1645,7 +1645,7 @@ pub fn pane(
                                     IconButton::new(
                                         "chat-latest",
                                         Icon::ArrowDown,
-                                        "Jump to latest message",
+                                        t!("Jump to latest message"),
                                     )
                                     .glyph(14.)
                                     .on_click(latest),
@@ -1810,7 +1810,8 @@ pub fn pane(
             composing.view.clone().into_element().isolated()
         }))
         .when(composing && cx.has_active_drag(), |pane| {
-            let hint = attach::drop_hint("Drop files or folders into this session", id, bench, cx);
+            let hint =
+                attach::drop_hint(t!("Drop files or folders into this session"), id, bench, cx);
             pane.child(gpui_kit::deferred(hint))
         });
     let this = cx.weak_entity();

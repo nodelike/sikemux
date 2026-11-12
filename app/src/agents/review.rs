@@ -126,7 +126,7 @@ impl Render for AgentReview {
                     .handle()
                     .map_or_else(|| agent.title.clone(), str::to_owned)
             })
-            .unwrap_or_else(|| "Agent".into());
+            .unwrap_or_else(|| t!("Agent").into());
         let mut body = div().flex().flex_col().gap(SPACE_2);
         let mut actions = div().flex().flex_wrap().gap(SPACE_1H).child(
             Button::new("review-show", t!("Show agent"), Variant::Outline).on_click(cx.listener(
@@ -137,10 +137,10 @@ impl Render for AgentReview {
             )),
         );
         match &self.found {
-            None => body = body.child(ui::meta("Reading the worktree…", cx)),
+            None => body = body.child(ui::meta(t!("Reading the worktree…"), cx)),
             Some(Err(error)) => {
                 body = body.child(ui::meta(
-                    format!("Could not read the worktree: {error}"),
+                    t!("Could not read the worktree: {error}", error = error),
                     cx,
                 ))
             }
@@ -156,16 +156,19 @@ impl Render for AgentReview {
                             .child(summary)
                     }));
                 let changes = if found.changed.is_empty() {
-                    "No changes yet".to_owned()
+                    t!("No changes yet").to_owned()
                 } else {
-                    let count = found.changed.len();
-                    let mut words = format!("{count} file{}", if count == 1 { "" } else { "s" });
+                    let mut words = match found.changed.len() {
+                        1 => t!("1 file").to_owned(),
+                        count => t!("{count} files", count = count),
+                    };
                     if found.uncommitted > 0 {
-                        words.push_str(&format!(" · {} not committed", found.uncommitted));
+                        words.push_str(" · ");
+                        words.push_str(&t!("{count} not committed", count = found.uncommitted));
                     }
                     words
                 };
-                body = body.child(row("Changes").child(changes));
+                body = body.child(row(t!("Changes")).child(changes));
                 body = body.children(found.changed.iter().take(SHOWN_FILES).enumerate().map(
                     |(index, file)| {
                         let path = found.path.join(file);
@@ -192,10 +195,10 @@ impl Render for AgentReview {
                 ));
                 if found.changed.len() > SHOWN_FILES {
                     let more = found.changed.len() - SHOWN_FILES;
-                    body = body.child(ui::meta(format!("and {more} more"), cx).pl(px(72.)));
+                    body = body.child(ui::meta(t!("and {more} more", more = more), cx).pl(px(72.)));
                 }
                 let tests = if !found.tested {
-                    ui::meta("No results yet", cx)
+                    ui::meta(t!("No results yet"), cx)
                 } else if found.failed > 0 {
                     div()
                         .flex()
@@ -203,7 +206,11 @@ impl Render for AgentReview {
                         .gap(SPACE_1)
                         .text_color(t.danger)
                         .child(ui::icon(Icon::Close, 11.).text_color(t.danger))
-                        .child(format!("{} failed · {} passed", found.failed, found.passed))
+                        .child(t!(
+                            "{failed} failed · {passed} passed",
+                            failed = found.failed,
+                            passed = found.passed
+                        ))
                 } else {
                     div()
                         .flex()
@@ -211,16 +218,16 @@ impl Render for AgentReview {
                         .gap(SPACE_1)
                         .text_color(t.live)
                         .child(ui::icon(Icon::Check, 11.).text_color(t.live))
-                        .child(format!("{} passed", found.passed))
+                        .child(t!("{passed} passed", passed = found.passed))
                 };
-                body = body.child(row("Tests").child(tests));
+                body = body.child(row(t!("Tests")).child(tests));
                 body = body.child(
-                    row("Running").child(match &found.url {
+                    row(t!("Running")).child(match &found.url {
                         Some(url) => {
                             ui::mono(url.trim_start_matches("http://").to_owned(), TEXT_2XS_H, cx)
                                 .text_color(t.text_primary)
                         }
-                        None => ui::meta("Nothing running", cx),
+                        None => ui::meta(t!("Nothing running"), cx),
                     }),
                 );
                 if let Some(url) = found.url.clone() {

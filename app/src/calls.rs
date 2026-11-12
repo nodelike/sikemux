@@ -635,7 +635,7 @@ fn card(
                 .text_size(theme::ui_text(11.))
                 .text_color(t.text_tertiary)
                 .child(ui::mark_box(12., ui::mark("sikemux", 17.)))
-                .child("pick")
+                .child(t!("pick"))
         });
         let label = div()
             .flex_1()
@@ -679,9 +679,9 @@ fn card(
             .into_any_element()
     });
     let hint = match (chosen.is_empty(), call.secret) {
-        (_, true) => "Type or paste it…",
-        (false, false) => "Add a note…",
-        (true, false) => "Or answer in your own words…",
+        (_, true) => t!("Type or paste it…"),
+        (false, false) => t!("Add a note…"),
+        (true, false) => t!("Or answer in your own words…"),
     };
     let focused = field.read(cx).focus_handle(cx).is_focused(window);
     let note = note_row(&field, hint, focused || typed, !call.options.is_empty(), &t);
@@ -709,19 +709,20 @@ fn card(
             .text_size(theme::ui_text(11.5))
             .text_color(t.text_tertiary)
             .child(ui::icon(Icon::Shield, 11.).text_color(t.text_tertiary))
-            .child(format!(
-                "Kept private: @{} reads it, and it never shows in the chat.",
-                call.asker.name
+            .child(t!(
+                "Kept private: @{name} reads it, and it never shows in the chat.",
+                name = call.asker.name
             ))
     });
     let against = call.against.clone().map(|against| {
+        let lead = t!("Against it:");
         div()
             .text_size(theme::ui_text(12.5))
             .line_height(relative(1.5))
             .text_color(t.text_secondary)
             .child(
-                gpui_kit::StyledText::new(format!("Against it: {against}")).with_highlights([(
-                    0.."Against it:".len(),
+                gpui_kit::StyledText::new(format!("{lead} {against}")).with_highlights([(
+                    0..lead.len(),
                     gpui_kit::HighlightStyle {
                         color: Some(t.text_tertiary),
                         ..Default::default()
@@ -739,7 +740,7 @@ fn card(
         let (bench, id) = (bench.clone(), call.id.clone());
         Button::new(
             SharedString::from(format!("call-go-{}", call.id)),
-            "Go with this",
+            t!("Go with this"),
             Variant::Primary,
         )
         .sized(26., 11., 12.)
@@ -756,7 +757,7 @@ fn card(
     let open_chat = open_chat.map(|(dismiss, bench, agent)| {
         Button::new(
             SharedString::from(format!("call-chat-{}", call.id)),
-            "Open chat",
+            t!("Open chat"),
             Variant::Ghost,
         )
         .icon(Icon::Message)
@@ -773,7 +774,7 @@ fn card(
         let (bench, id) = (bench.clone(), call.id.clone());
         Button::new(
             SharedString::from(format!("call-not-mine-{}", call.id)),
-            "Not mine",
+            t!("Not mine"),
             Variant::Ghost,
         )
         .sized(26., 9., 12.)
@@ -798,7 +799,11 @@ fn card(
                 .text_size(theme::ui_text(11.5))
                 .text_color(t.text_disabled)
                 .child(ui::icon(Icon::Clock, 11.).text_color(t.text_disabled))
-                .child(div().truncate().child("Nothing happens until you answer")),
+                .child(
+                    div()
+                        .truncate()
+                        .child(t!("Nothing happens until you answer")),
+                ),
         )
         .children(not_mine)
         .children(open_chat)
@@ -863,7 +868,7 @@ fn what_runs(
                     ))
                 }),
         )
-        .child("What runs");
+        .child(t!("What runs"));
     let command = open.then(|| {
         div()
             .mt(SPACE_1H)
@@ -1137,23 +1142,25 @@ fn notice(call: &PersonCall, t: &Tokens) -> Option<AnyElement> {
             .filter_map(label)
             .collect();
         match (&answer.by, picked.is_empty(), call.secret) {
-            (_, _, true) => "You answered, kept private".to_owned(),
-            (CallClient::Chat, ..) => "You answered in the chat".to_owned(),
-            (_, false, _) => format!("You chose {}", picked.join(", ")),
-            (_, true, _) => "You answered in your own words".to_owned(),
+            (_, _, true) => t!("You answered, kept private").to_owned(),
+            (CallClient::Chat, ..) => t!("You answered in the chat").to_owned(),
+            (_, false, _) => t!("You chose {options}", options = picked.join(", ")),
+            (_, true, _) => t!("You answered in your own words").to_owned(),
         }
     });
     let outcome = call.outcome.as_ref().and_then(|outcome| {
         Some(match (outcome.result, outcome.healthy) {
-            (CallResult::Shipped, Some(true)) => "shipped · healthy".to_owned(),
-            (CallResult::Shipped, Some(false)) => "shipped · unhealthy".to_owned(),
-            (CallResult::Shipped, None) => "shipped".to_owned(),
-            (CallResult::NotShipped, _) => "not shipped".to_owned(),
-            (CallResult::Failed, _) => "it failed".to_owned(),
-            (CallResult::MayHaveRun, _) => "may have run, Sikemux restarted".to_owned(),
-            (CallResult::HandedBack, _) => format!("handed back to @{}", call.asker.name),
+            (CallResult::Shipped, Some(true)) => t!("shipped · healthy").to_owned(),
+            (CallResult::Shipped, Some(false)) => t!("shipped · unhealthy").to_owned(),
+            (CallResult::Shipped, None) => t!("shipped").to_owned(),
+            (CallResult::NotShipped, _) => t!("not shipped").to_owned(),
+            (CallResult::Failed, _) => t!("it failed").to_owned(),
+            (CallResult::MayHaveRun, _) => t!("may have run, Sikemux restarted").to_owned(),
+            (CallResult::HandedBack, _) => {
+                t!("handed back to @{name}", name = call.asker.name)
+            }
             (CallResult::Withdrawn, _) => {
-                format!("@{} went on without an answer", call.asker.name)
+                t!("@{name} went on without an answer", name = call.asker.name)
             }
             (CallResult::Heard | CallResult::Unknown, _) => return None,
         })
@@ -1287,8 +1294,8 @@ pub(crate) fn chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<Any
     let this = cx.entity().downgrade();
     let cards = bench.calls.clone();
     let words = match count {
-        1 => "1 call".to_owned(),
-        count => format!("{count} calls"),
+        1 => t!("1 call").to_owned(),
+        count => t!("{count} calls", count = count),
     };
     let hover = t.surface_hover;
     let chip = Popover::new("calls-chip")
@@ -1434,7 +1441,7 @@ fn popover(
         .flex()
         .items_center()
         .gap(px(10.))
-        .child(ui::caps("Calls", cx))
+        .child(ui::caps(t!("Calls"), cx))
         .child(div().flex_1().h(px(1.)).bg(t.line))
         .child(
             div()

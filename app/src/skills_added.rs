@@ -18,14 +18,12 @@ impl Workbench {
                 continue;
             }
             let asks = self.asks.clone();
-            let note = toast::info(format!(
-                "{agent} saved the skill {name} in its own folder, so only {agent} has it, outside Sikemux too."
-            ))
+            let note = toast::info(t!("{agent} saved the skill {name} in its own folder, so only {agent} has it, outside Sikemux too.", agent = agent, name = name))
             .action(move |_, _, cx| {
                 let (note, asks, path, name) =
                     (cx.entity(), asks.clone(), path.clone(), name.clone());
                 gpui_kit::component::button::Button::new("move-skill")
-                    .label("Move into Sikemux")
+                    .label(t!("Move into Sikemux"))
                     .on_click(move |_, window, cx| {
                         let moved = core::Target::here(&asks)
                             .request_typed::<call::AdoptSkill>(Located { path: path.clone() });
@@ -33,10 +31,8 @@ impl Workbench {
                         window
                             .spawn(cx, async move |cx| {
                                 let said = match moved.await {
-                                    Ok(_) => toast::success(format!(
-                                        "{name} is in Sikemux now, for every agent's next session."
-                                    )),
-                                    Err(error) => toast::error(format!("Move {name}: {error}")),
+                                    Ok(_) => toast::success(t!("{name} is in Sikemux now, for every agent's next session.", name = name)),
+                                    Err(error) => toast::error(t!("Move {name}: {error}", name = name, error = error)),
                                 };
                                 let _ = cx.update(|window, cx| window.push_notification(said, cx));
                             })

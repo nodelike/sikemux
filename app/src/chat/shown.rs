@@ -36,9 +36,9 @@ fn tallness(width: u32) -> f32 {
 }
 
 const WIDTHS: [(u32, &str, f32, f32); 3] = [
-    (390, "Phone", 80., 150.),
-    (820, "Tablet", 112., 116.),
-    (1440, "Desktop", 150., 94.),
+    (390, n!("Phone"), 80., 150.),
+    (820, n!("Tablet"), 112., 116.),
+    (1440, n!("Desktop"), 150., 94.),
 ];
 const PAIR_GAP: f32 = 8.;
 const ROW_HEIGHT: f32 = 30.;
@@ -85,8 +85,8 @@ fn pair(
     cx: &mut App,
 ) -> AnyElement {
     let pictures: Vec<(&str, &Shown)> = [
-        ("Before", shown.before.as_ref()),
-        ("After", Some(&shown.after)),
+        (n!("Before"), shown.before.as_ref()),
+        (n!("After"), Some(&shown.after)),
     ]
     .into_iter()
     .filter_map(|(word, picture)| Some((word, picture?)))
@@ -98,12 +98,12 @@ fn pair(
         })
         .collect();
     let t = Tokens::get(cx);
-    let caption = |word: &str| ui::caps(word, cx).w(px(width)).flex_none();
+    let caption = |word: &str| ui::caps(crate::i18n::tr(word), cx).w(px(width)).flex_none();
     div()
         .flex()
         .flex_col()
         .gap(SPACE_1H)
-        .child(ui::caps(name, cx).text_color(t.text_secondary))
+        .child(ui::caps(crate::i18n::tr(name), cx).text_color(t.text_secondary))
         .child(div().flex().gap(px(PAIR_GAP)).children(frames))
         .child(
             div()

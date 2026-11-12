@@ -20,7 +20,7 @@ use crate::home::METRICS;
 use crate::theme::{
     Tokens, SPACE_1, SPACE_1H, SPACE_2, SPACE_3, TEXT_2XS, TEXT_3XS, TEXT_XL, TEXT_XS,
 };
-use crate::ui::numbers::{compact, money, plural, whole};
+use crate::ui::numbers::{compact, money, whole};
 use crate::ui::Toggle;
 use crate::workbench::Workbench;
 use crate::{theme, ui};
@@ -92,47 +92,59 @@ pub(crate) fn overview(totals: &ActivityTotals, cx: &App) -> impl IntoElement {
     let quiet = t.text_tertiary;
     let stats = [
         (
-            "Agent time",
+            t!("Agent time"),
             None,
             crate::ui::time::total(totals.agent_ms as f64),
-            vec![(plural(totals.turns as f64, "turn"), quiet)],
+            vec![(turns(totals.turns as f64), quiet)],
         ),
         (
-            "Sessions",
+            t!("Sessions"),
             None,
             whole(totals.sessions as f64),
-            vec![(format!("{} resumed", whole(totals.resumed as f64)), quiet)],
+            vec![(
+                t!("{count} resumed", count = whole(totals.resumed as f64)),
+                quiet,
+            )],
         ),
         (
-            "Tokens",
+            t!("Tokens"),
             None,
             compact(tokens),
             vec![
-                (format!("{} read", compact(totals.cache_read as f64)), quiet),
                 (
-                    format!("{} write", compact(totals.cache_write as f64)),
+                    t!("{tokens} read", tokens = compact(totals.cache_read as f64)),
+                    quiet,
+                ),
+                (
+                    t!(
+                        "{tokens} write",
+                        tokens = compact(totals.cache_write as f64)
+                    ),
                     t.warn,
                 ),
             ],
         ),
         (
-            "Cost",
-            Some("API est."),
+            t!("Cost"),
+            Some(t!("API est.")),
             if cost > 0. { money(cost) } else { "—".into() },
             vec![match cost > 0. {
                 true => (
-                    format!("${} writes", whole(totals.costs.cache_write)),
+                    t!("{cost} on writes", cost = format!("${}", whole(totals.costs.cache_write))),
                     quiet,
                 ),
-                false => ("not priced yet".into(), quiet),
+                false => (t!("not priced yet").into(), quiet),
             }],
         ),
         (
-            "Commits",
+            t!("Commits"),
             None,
             whole(totals.commits as f64),
             vec![(
-                format!("{} by agents", whole(totals.agent_commits as f64)),
+                t!(
+                    "{count} by agents",
+                    count = whole(totals.agent_commits as f64)
+                ),
                 quiet,
             )],
         ),
@@ -298,12 +310,14 @@ pub(crate) fn calendar(
         .enumerate()
         .map(|(index, (shown, label))| {
             let (this, shown) = (this.clone(), *shown);
-            Toggle::new(("metric", index), *label, shown == metric).on_click(move |_, _, cx| {
-                this.update(cx, |bench, cx| {
-                    bench.calendar.metric = shown;
-                    bench.parts.redraw_activity(cx);
-                })
-            })
+            Toggle::new(("metric", index), crate::i18n::tr(*label), shown == metric).on_click(
+                move |_, _, cx| {
+                    this.update(cx, |bench, cx| {
+                        bench.calendar.metric = shown;
+                        bench.parts.redraw_activity(cx);
+                    })
+                },
+            )
         })
         .collect();
     div()
@@ -353,14 +367,16 @@ pub(crate) fn calendar(
                             .flex_col()
                             .pt(px(14. + CELL_GAP))
                             .gap(px(CELL_GAP))
-                            .children(["Mon", "", "Wed", "", "Fri", "", ""].map(|label| {
-                                div()
-                                    .flex_1()
-                                    .min_h_0()
-                                    .flex()
-                                    .items_center()
-                                    .child(small(label.into(), &t))
-                            })),
+                            .children([t!("Mon"), "", t!("Wed"), "", t!("Fri"), "", ""].map(
+                                |label| {
+                                    div()
+                                        .flex_1()
+                                        .min_h_0()
+                                        .flex()
+                                        .items_center()
+                                        .child(small(label.into(), &t))
+                                },
+                            )),
                     ),
                 )
                 .child(
@@ -381,9 +397,9 @@ pub(crate) fn calendar(
                 .justify_end()
                 .gap(px(CELL_GAP))
                 .children(footer.map(|footer| div().flex_1().flex().child(footer)))
-                .child(small("Less".into(), &t).mr(SPACE_1))
+                .child(small(t!("Less").into(), &t).mr(SPACE_1))
                 .children((0..5).map(|level| div().size(px(10.)).rounded(px(2.)).bg(colour(level))))
-                .child(small("More".into(), &t).ml(SPACE_1)),
+                .child(small(t!("More").into(), &t).ml(SPACE_1)),
         )
 }
 
@@ -435,33 +451,49 @@ pub(crate) fn long_date(day: i64) -> String {
 pub(crate) fn readout(streaks: &ActivityStreaks) -> String {
     let active = streaks.active_days as f64;
     if active == 0. {
-        return "No activity yet".into();
+        return t!("No activity yet").into();
     }
     let current = streaks.current as f64;
-    let mut readout = format!(
-        "{} · longest streak {}",
-        plural(active, "active day"),
-        plural(streaks.longest as f64, "day")
-    );
+    let active = match active == 1. {
+        true => t!("1 active day").to_owned(),
+        false => t!("{count} active days", count = whole(active)),
+    };
+    let longest = match streaks.longest == 1 {
+        true => t!("1 day").to_owned(),
+        false => t!("{count} days", count = whole(streaks.longest as f64)),
+    };
+    let mut readout = format!("{active} · {}", t!("longest streak {days}", days = longest));
     if current > 1. {
-        readout.push_str(&format!(" · {current} days running"));
+        readout.push_str(" · ");
+        readout.push_str(&t!("{count} days running", count = current));
     }
     readout
+}
+
+fn turns(count: f64) -> String {
+    match count == 1. {
+        true => t!("1 turn").to_owned(),
+        false => t!("{count} turns", count = whole(count)),
+    }
 }
 
 /// A day's measure as the calendar reads it out.
 pub(crate) fn metric_text(measure: Metric, value: f64) -> String {
     match (measure, value > 0.) {
-        (Metric::AgentTime, true) => format!("{} of agent time", crate::ui::time::total(value)),
-        (Metric::AgentTime, false) => "No agent time".into(),
-        (Metric::Tokens, true) => format!("{} tokens", compact(value)),
-        (Metric::Tokens, false) => "No tokens".into(),
-        (Metric::Sessions, true) => plural(value, "session"),
-        (Metric::Sessions, false) => "No sessions".into(),
-        (Metric::Cost, true) => format!("{} at API prices", money(value)),
-        (Metric::Cost, false) => "No cost".into(),
-        (Metric::Commits, true) => plural(value, "commit"),
-        (Metric::Commits, false) => "No commits".into(),
+        (Metric::AgentTime, true) => {
+            t!("{time} of agent time", time = crate::ui::time::total(value))
+        }
+        (Metric::AgentTime, false) => t!("No agent time").into(),
+        (Metric::Tokens, true) => t!("{count} tokens", count = compact(value)),
+        (Metric::Tokens, false) => t!("No tokens").into(),
+        (Metric::Sessions, true) if value == 1. => t!("1 session").into(),
+        (Metric::Sessions, true) => t!("{count} sessions", count = whole(value)),
+        (Metric::Sessions, false) => t!("No sessions").into(),
+        (Metric::Cost, true) => t!("{cost} at API prices", cost = money(value)),
+        (Metric::Cost, false) => t!("No cost").into(),
+        (Metric::Commits, true) if value == 1. => t!("1 commit").into(),
+        (Metric::Commits, true) => t!("{count} commits", count = whole(value)),
+        (Metric::Commits, false) => t!("No commits").into(),
     }
 }
 

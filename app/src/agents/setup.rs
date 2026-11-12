@@ -357,16 +357,34 @@ fn tell_updated(
         if agent.updating_now() {
             continue;
         }
-        let on = host.map(|host| format!(" on {}", bench.host_name(&host)));
-        let on = on.unwrap_or_default();
-        let note = match (&agent.updating, &agent.version) {
-            (Some(Updating::Failed { .. }), _) => {
-                crate::toast::error(format!("{} did not update{on}", agent.label))
+        let on = host.map(|host| bench.host_name(&host));
+        let agent_name = &agent.label;
+        let note = match (&agent.updating, &agent.version, on) {
+            (Some(Updating::Failed { .. }), _, None) => {
+                crate::toast::error(t!("{agent} did not update", agent = agent_name))
             }
-            (_, Some(version)) => {
-                crate::toast::success(format!("{} updated to {version}{on}", agent.label))
-            }
-            (_, None) => crate::toast::success(format!("{} updated{on}", agent.label)),
+            (Some(Updating::Failed { .. }), _, Some(host)) => crate::toast::error(t!(
+                "{agent} did not update on {host}",
+                agent = agent_name,
+                host = host
+            )),
+            (_, Some(version), None) => crate::toast::success(t!(
+                "{agent} updated to {version}",
+                agent = agent_name,
+                version = version
+            )),
+            (_, Some(version), Some(host)) => crate::toast::success(t!(
+                "{agent} updated to {version} on {host}",
+                agent = agent_name,
+                version = version,
+                host = host
+            )),
+            (_, None, None) => crate::toast::success(t!("{agent} updated", agent = agent_name)),
+            (_, None, Some(host)) => crate::toast::success(t!(
+                "{agent} updated on {host}",
+                agent = agent_name,
+                host = host
+            )),
         };
         bench.notify(note, cx);
     }
@@ -407,7 +425,7 @@ pub fn update(
         let _ = bench.update(cx, |bench, cx| {
             if let Err(error) = answer {
                 bench.notify(
-                    crate::toast::error(format!("Could not update: {error}")),
+                    crate::toast::error(t!("Could not update: {error}", error = error)),
                     cx,
                 );
             }
@@ -436,14 +454,14 @@ pub fn usable(status: &AgentStatus) -> bool {
 /// What the agent needs next, as the button that does it says, and the sheet that does it.
 pub fn next_step(bench: &Workbench, agent: &Found) -> Option<(&'static str, Sheet)> {
     match agent.status {
-        AgentStatus::Missing => installing(agent).map(|sheet| ("Install", sheet)),
-        AgentStatus::Broken { .. } => installing(agent).map(|sheet| ("Reinstall", sheet)),
+        AgentStatus::Missing => installing(agent).map(|sheet| (t!("Install"), sheet)),
+        AgentStatus::Broken { .. } => installing(agent).map(|sheet| (t!("Reinstall"), sheet)),
         AgentStatus::SignedOut => {
             let folder = bench
                 .accounts
                 .current(&agent.kind)
                 .and_then(|profile| profile.config_path.clone());
-            signing_in(agent, folder.as_deref()).map(|sheet| ("Sign in", sheet))
+            signing_in(agent, folder.as_deref()).map(|sheet| (t!("Sign in"), sheet))
         }
         _ => None,
     }
@@ -451,15 +469,15 @@ pub fn next_step(bench: &Workbench, agent: &Found) -> Option<(&'static str, Shee
 
 pub fn status_label(status: &AgentStatus) -> &'static str {
     match status {
-        AgentStatus::Missing => "Not installed",
-        AgentStatus::Broken { .. } => "Not working",
-        AgentStatus::SignedOut => "Signed out",
+        AgentStatus::Missing => t!("Not installed"),
+        AgentStatus::Broken { .. } => t!("Not working"),
+        AgentStatus::SignedOut => t!("Signed out"),
         AgentStatus::Ready { account } => match account.as_deref() {
-            Some("apiKey") => "Ready · API key",
-            Some("subscription") => "Ready · subscription",
-            _ => "Ready",
+            Some("apiKey") => t!("Ready · API key"),
+            Some("subscription") => t!("Ready · subscription"),
+            _ => t!("Ready"),
         },
-        AgentStatus::Unknown => "Found",
+        AgentStatus::Unknown => t!("Found"),
     }
 }
 
@@ -601,7 +619,7 @@ fn start(bench: &mut Workbench, sheet: Sheet, cx: &mut Context<Workbench>) {
                     true
                 }
                 (Some(sheet), Err(_)) => {
-                    sheet.phase = Phase::Refused("the core is not connected".to_owned());
+                    sheet.phase = Phase::Refused(t!("the core is not connected").to_owned());
                     true
                 }
                 (None, Ok(Ok(session))) => {
@@ -760,29 +778,46 @@ fn again(bench: &mut Workbench, cx: &mut Context<Workbench>) {
 fn state(sheet: &Sheet) -> String {
     let label = &sheet.label;
     match (&sheet.phase, sheet.install) {
-        (Phase::Running, true) => format!("Running {label}'s own installer…"),
-        (Phase::Running, false) => format!("Running {label}'s own sign-in. Finish it in the browser if one opened."),
-        (Phase::Checking, true) => format!("Installed. Looking for {label}…"),
-        (Phase::Checking, false) => format!("Checking {label}'s sign-in…"),
-        (Phase::Refused(error), _) => format!("Sikemux could not start it: {error}"),
-        (Phase::Failed(code), install) => format!(
-            "The {} stopped{}. Its output above says why.",
-            if install { "installer" } else { "sign-in" },
-            code.map(|code| format!(" with exit code {code}")).unwrap_or_default()
+        (Phase::Running, true) => t!("Running {label}'s own installer…", label = label),
+        (Phase::Running, false) => t!(
+            "Running {label}'s own sign-in. Finish it in the browser if one opened.",
+            label = label
         ),
-        (Phase::Done(None), true) => format!(
-            "The installer finished, but Sikemux can't find {label} yet. Open a new terminal or restart Sikemux."
+        (Phase::Checking, true) => t!("Installed. Looking for {label}…", label = label),
+        (Phase::Checking, false) => t!("Checking {label}'s sign-in…", label = label),
+        (Phase::Refused(error), _) => t!("Sikemux could not start it: {error}", error = error),
+        (Phase::Failed(None), true) => t!("The installer stopped. Its output above says why.").to_owned(),
+        (Phase::Failed(None), false) => t!("The sign-in stopped. Its output above says why.").to_owned(),
+        (Phase::Failed(Some(code)), true) => t!(
+            "The installer stopped with exit code {code}. Its output above says why.",
+            code = code
         ),
-        (Phase::Done(Some(status)), true) => {
-            format!("{label} is installed: {}.", status_label(status).to_lowercase())
-        }
-        (Phase::Done(Some(status @ AgentStatus::Ready { .. })), false) => {
-            format!("{label} is signed in: {}.", status_label(status).to_lowercase())
-        }
-        (Phase::Done(Some(AgentStatus::SignedOut)), false) => {
-            format!("{label} still reads as signed out. Try again, or check the output above.")
-        }
-        (Phase::Done(_), false) => format!("The sign-in finished. Start a {label} chat to use it."),
+        (Phase::Failed(Some(code)), false) => t!(
+            "The sign-in stopped with exit code {code}. Its output above says why.",
+            code = code
+        ),
+        (Phase::Done(None), true) => t!(
+            "The installer finished, but Sikemux can't find {label} yet. Open a new terminal or restart Sikemux.",
+            label = label
+        ),
+        (Phase::Done(Some(status)), true) => t!(
+            "{label} is installed: {status}.",
+            label = label,
+            status = status_label(status).to_lowercase()
+        ),
+        (Phase::Done(Some(status @ AgentStatus::Ready { .. })), false) => t!(
+            "{label} is signed in: {status}.",
+            label = label,
+            status = status_label(status).to_lowercase()
+        ),
+        (Phase::Done(Some(AgentStatus::SignedOut)), false) => t!(
+            "{label} still reads as signed out. Try again, or check the output above.",
+            label = label
+        ),
+        (Phase::Done(_), false) => t!(
+            "The sign-in finished. Start a {label} chat to use it.",
+            label = label
+        ),
     }
 }
 
@@ -795,8 +830,8 @@ fn body(
     let sheet = bench.agent_setup.sheet.as_ref()?;
     let t = Tokens::get(cx).clone();
     let title = match sheet.install {
-        true => format!("Install {}", sheet.label),
-        false => format!("Sign in to {}", sheet.label),
+        true => t!("Install {agent}", agent = sheet.label),
+        false => t!("Sign in to {agent}", agent = sheet.label),
     };
     let terminal: AnyElement = match sheet.session {
         Some(session) => crate::terminal::pane(
@@ -873,11 +908,11 @@ fn body(
                         .child(state(sheet)),
                 )
                 .when(failed, |foot| {
-                    foot.child(button("agent-sheet-again", "Try again", again))
+                    foot.child(button("agent-sheet-again", t!("Try again"), again))
                 })
                 .child(button(
                     "agent-sheet-close",
-                    if running { "Cancel" } else { "Close" },
+                    if running { t!("Cancel") } else { t!("Close") },
                     close,
                 )),
         );

@@ -116,17 +116,17 @@ fn block(
         chip("dbml-open")
             .text_color(t.text_disabled)
             .hover(|open| open.bg(t.surface_hover).text_color(t.text_primary))
-            .tooltip(crate::ui::tooltip(
-                "Open on the desk, with room to spread out",
-            ))
+            .tooltip(crate::ui::tooltip(t!(
+                "Open on the desk, with room to spread out"
+            )))
             .on_click(move |_, _, cx| open_on_desk(&code, &bench, &agent, cx))
-            .child("Open on desk")
+            .child(t!("Open on desk"))
     };
     let title = head(fence.icon, fence.lang, &t)
         .when(!empty, |title| {
             title
-                .child(shows("dbml-diagram", "Diagram", false))
-                .child(shows("dbml-source", "Source", true))
+                .child(shows("dbml-diagram", t!("Diagram"), false))
+                .child(shows("dbml-source", t!("Source"), true))
                 .child(div().w(px(1.)).h(px(10.)).mx(SPACE_1).bg(t.line_soft))
                 .child(open)
                 .child(div().w(px(6.)))

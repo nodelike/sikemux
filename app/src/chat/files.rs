@@ -308,9 +308,13 @@ fn menu(
         .strip_prefix(&format!("{}/", normalized(&on.cwd)))
         .map_or_else(|| name.clone(), str::to_owned);
     let copies = [
-        ("Copy Path", found.path.clone(), "Copied path"),
-        ("Copy Relative Path", relative, "Copied relative path"),
-        ("Copy Name", name, "Copied name"),
+        (t!("Copy Path"), found.path.clone(), t!("Copied path")),
+        (
+            t!("Copy Relative Path"),
+            relative,
+            t!("Copied relative path"),
+        ),
+        (t!("Copy Name"), name, t!("Copied name")),
     ];
     let agent = agent.to_owned();
     PopupMenu::build(
@@ -321,7 +325,7 @@ fn menu(
             if file && on.here {
                 let (found, bench, agent) = (found.clone(), bench.clone(), agent.clone());
                 popup = popup.item(
-                    PopupMenuItem::new("Open on Desk")
+                    PopupMenuItem::new(t!("Open on Desk"))
                         .icon(Icon::PanelRight)
                         .on_click(move |_, _, cx| open_on_desk(&agent, &found, &bench, cx)),
                 );
@@ -329,8 +333,8 @@ fn menu(
             if file {
                 let (found, bench, on) = (found.clone(), bench.clone(), on.clone());
                 let (label, glyph) = match on.here {
-                    true => ("Open in Editor", Icon::Editor),
-                    false => ("Open", Icon::File),
+                    true => (t!("Open in Editor"), Icon::Editor),
+                    false => (t!("Open"), Icon::File),
                 };
                 popup = popup
                     .item(
@@ -343,7 +347,7 @@ fn menu(
             if on.here {
                 let revealed = found.path.clone();
                 popup = popup.item(
-                    PopupMenuItem::new(ui::REVEAL)
+                    PopupMenuItem::new(crate::i18n::tr(ui::REVEAL))
                         .icon(Icon::Folder)
                         .on_click(move |_, _, cx| cx.reveal_path(Path::new(&revealed))),
                 );
@@ -353,7 +357,7 @@ fn menu(
                         .map(Path::to_path_buf)
                         .unwrap_or_default();
                     popup = popup.item(
-                        PopupMenuItem::new("Open Containing Folder")
+                        PopupMenuItem::new(t!("Open Containing Folder"))
                             .icon(Icon::Folder)
                             .on_click(move |_, _, cx| cx.reveal_path(&folder)),
                     );

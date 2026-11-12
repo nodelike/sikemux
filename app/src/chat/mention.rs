@@ -174,15 +174,21 @@ fn tracked_empty(
     tracked: Option<&Tracked>,
     trigger: char,
 ) -> Option<String> {
-    let (things, matches) = match trigger {
-        '!' => ("pull requests", "No open pull request matches"),
-        _ => ("issues", "No open issue matches"),
+    let (pick, matches) = match trigger {
+        '!' => (
+            t!("Open a project to pick its pull requests"),
+            t!("No open pull request matches"),
+        ),
+        _ => (
+            t!("Open a project to pick its issues"),
+            t!("No open issue matches"),
+        ),
     };
     let Some(project) = project else {
-        return Some(format!("Open a project to pick its {things}"));
+        return Some(pick.to_owned());
     };
     if project.code_host.is_none() {
-        return Some("This project has no remote on a code host".into());
+        return Some(t!("This project has no remote on a code host").into());
     }
     match tracked {
         Some(Tracked::Failed(why)) => Some(why.to_string()),
@@ -427,7 +433,11 @@ impl Workbench {
             let tracked = match answer.await {
                 Ok(PluginOutcome::Failed(failed)) if failed.category == FailureCategory::Auth => {
                     Tracked::Failed(
-                        format!("Sign in to {host} in the Git pane to pick from its issues").into(),
+                        t!(
+                            "Sign in to {host} in the Git pane to pick from its issues",
+                            host = host
+                        )
+                        .into(),
                     )
                 }
                 Ok(PluginOutcome::Failed(failed)) => Tracked::Failed(failed.message.into()),
@@ -477,15 +487,16 @@ impl Workbench {
             let description = match own {
                 Own::Side => saved
                     .filter(|saved| !saved.terminal)
-                    .map(|_| "Ask aside, with this chat's context".to_owned()),
-                Own::Model => head.model.as_ref().map(|_| "Pick the model".to_owned()),
-                Own::Clear => saved.map(|_| "Start a fresh chat with this agent".to_owned()),
-                Own::Fork => (saved.is_some() && head.turned)
-                    .then(|| "Go on in a new chat that takes this one's words along".to_owned()),
+                    .map(|_| t!("Ask aside, with this chat's context").to_owned()),
+                Own::Model => head.model.as_ref().map(|_| t!("Pick the model").to_owned()),
+                Own::Clear => saved.map(|_| t!("Start a fresh chat with this agent").to_owned()),
+                Own::Fork => (saved.is_some() && head.turned).then(|| {
+                    t!("Go on in a new chat that takes this one's words along").to_owned()
+                }),
                 Own::Yolo => yolo.map(|saved| match saved.permission_mode {
-                    PermissionMode::Bypass => "Ask before acting again".to_owned(),
+                    PermissionMode::Bypass => t!("Ask before acting again").to_owned(),
                     PermissionMode::WorkspaceWrite | PermissionMode::Auto => {
-                        "Act without asking".to_owned()
+                        t!("Act without asking").to_owned()
                     }
                 }),
             }?;
@@ -1002,11 +1013,11 @@ fn ranked_entries(needle: &str, files: &Arc<Vec<String>>) -> Vec<Choice> {
 
 /// The kinds of thing the menu names, in the order its heading lists them.
 const SCOPES: [(char, &str); 5] = [
-    ('@', "Agents"),
-    ('#', "Issues"),
-    ('!', "Pull requests"),
-    ('+', "Files"),
-    ('&', "Stash"),
+    ('@', n!("Agents")),
+    ('#', n!("Issues")),
+    ('!', n!("Pull requests")),
+    ('+', n!("Files")),
+    ('&', n!("Stash")),
 ];
 
 /// The menu over the draft of `agent`'s chat, while it offers anything, under a heading of the
@@ -1026,7 +1037,7 @@ pub fn dock(
     }
     let headed = |dock: DockMenu| {
         if trigger == '/' {
-            return dock.titled("Commands", "");
+            return dock.titled(t!("Commands"), "");
         }
         let scopes = SCOPES
             .iter()
@@ -1034,7 +1045,7 @@ pub fn dock(
                 let (this, agent) = (cx.weak_entity(), agent.to_owned());
                 DockScope {
                     key: key.to_string().into(),
-                    label: label.into(),
+                    label: crate::i18n::tr(label).into(),
                     on: key == trigger,
                     choose: Rc::new(move |window: &mut Window, cx: &mut App| {
                         this.update(cx, |bench, cx| bench.switch_scope(&agent, key, window, cx))
@@ -1044,22 +1055,22 @@ pub fn dock(
             })
             .collect();
         let aside = match trigger {
-            '+' => "attach",
+            '+' => t!("attach"),
             '#' | '!' => repo.unwrap_or_default(),
-            _ => "mention",
+            _ => t!("mention"),
         };
         dock.heading(scopes, aside.to_owned())
     };
     if menu.choices.is_empty() {
         let blank = menu.typed.needle.is_empty();
         let empty = match trigger {
-            '@' if blank => Some(DockMenu::empty("No other agent yet")),
-            '@' => Some(DockMenu::empty("No agent or earlier chat matches")),
+            '@' if blank => Some(DockMenu::empty(t!("No other agent yet"))),
+            '@' => Some(DockMenu::empty(t!("No agent or earlier chat matches"))),
             '+' if files.project.is_none() => {
-                Some(DockMenu::empty("Open a project to pick its files"))
+                Some(DockMenu::empty(t!("Open a project to pick its files")))
             }
             '+' if !files.listed() => Some(DockMenu::loading()),
-            '+' => Some(DockMenu::empty("Nothing in the project matches")),
+            '+' => Some(DockMenu::empty(t!("Nothing in the project matches"))),
             '#' | '!' => Some(
                 menu.empty
                     .clone()
@@ -1149,9 +1160,9 @@ pub fn dock(
                 ..
             } => {
                 let kind = if name.is_some() {
-                    "Closed"
+                    t!("Closed")
                 } else {
-                    "Earlier chats"
+                    t!("Earlier chats")
                 };
                 let group = (shown_kind != Some(kind)).then_some(SharedString::from(kind));
                 shown_kind = Some(kind);

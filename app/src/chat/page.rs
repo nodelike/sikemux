@@ -105,7 +105,15 @@ pub(super) fn page(page: &PageRef, looks: &Looks, window: &mut Window, cx: &mut 
         shown.pointer.clone(),
     );
     if let Some(failed) = shown.failed.clone() {
-        return ui::meta(format!("Could not show {}: {failed}", page.title), cx).into_any_element();
+        return ui::meta(
+            t!(
+                "Could not show {title}: {failed}",
+                title = page.title,
+                failed = failed
+            ),
+            cx,
+        )
+        .into_any_element();
     }
     let t = Tokens::get(cx);
     let cut = height > MAX_HEIGHT;
@@ -156,10 +164,10 @@ pub(super) fn page(page: &PageRef, looks: &Looks, window: &mut Window, cx: &mut 
     }
     let shows = cut.then(|| {
         ui::meta(
-            format!(
-                "Showing {} of {} px",
-                ui::numbers::whole(f64::from(MAX_HEIGHT)),
-                ui::numbers::whole(f64::from(height))
+            t!(
+                "Showing {shown} of {height} px",
+                shown = ui::numbers::whole(f64::from(MAX_HEIGHT)),
+                height = ui::numbers::whole(f64::from(height))
             ),
             cx,
         )
@@ -243,8 +251,8 @@ fn tab_row(
                 .into_any_element(),
         });
     let place = match failed {
-        Some(failed) => ui::meta(format!("Could not show it: {failed}"), cx).truncate(),
-        None => ui::meta("In a tab on the desk", cx),
+        Some(failed) => ui::meta(t!("Could not show it: {failed}", failed = failed), cx).truncate(),
+        None => ui::meta(t!("In a tab on the desk"), cx),
     };
     div()
         .id(SharedString::from(format!("page-card-{}", page.id)))
@@ -272,7 +280,7 @@ fn tab_row(
         .child(
             ui::Button::new(
                 SharedString::from(format!("page-card-open-{}", page.id)),
-                "Open",
+                t!("Open"),
                 ui::Variant::Outline,
             )
             .icon(Icon::Tabs)
@@ -286,7 +294,7 @@ fn open_in_tab(page: &PageRef, looks: &Looks, key: &str, cx: &App) -> AnyElement
     let t = Tokens::get(cx);
     ui::Button::new(
         SharedString::from(format!("{key}-{}", page.id)),
-        "Open in tab",
+        t!("Open in tab"),
         ui::Variant::Outline,
     )
     .icon(Icon::Tabs)

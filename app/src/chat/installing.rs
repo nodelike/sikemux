@@ -98,14 +98,18 @@ pub(super) fn notice(
     let label = bench.agent_name(kind);
     Some(match state {
         Installing::Running => {
-            Notice::Waiting(format!("Waiting for {label} to finish installing…").into())
+            Notice::Waiting(t!("Waiting for {label} to finish installing…", label = label).into())
         }
         Installing::Failed => {
             let (this, kind) = (this.clone(), kind.clone());
             Notice::Refused(
-                format!("{label} did not install, so the message waits in the draft.").into(),
+                t!(
+                    "{label} did not install, so the message waits in the draft.",
+                    label = label
+                )
+                .into(),
                 Some((
-                    "Show the installer's output".into(),
+                    t!("Show the installer's output").into(),
                     Rc::new(move |window, cx| {
                         this.update(cx, |bench, cx| {
                             setup::show_install(bench, &kind, window, cx)

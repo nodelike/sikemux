@@ -36,26 +36,30 @@ pub(crate) fn terminals_page(bench: &Workbench, cx: &mut Context<Workbench>) -> 
             rail_empty(
                 Icon::Terminal,
                 t!("No project open"),
-                Some((actions::OpenProject::ID, "open one")),
+                Some((actions::OpenProject::ID, t!("to open one"))),
                 cx,
             )
         } else {
             let title = match (bench.rails.all_projects, bench.project(), other_host(bench)) {
                 (false, Some(project), Some(host)) => {
-                    format!("No terminals in {} on {host}", project.name)
+                    t!(
+                        "No terminals in {project} on {host}",
+                        project = project.name,
+                        host = host
+                    )
                 }
-                _ => "No terminals open".to_owned(),
+                _ => t!("No terminals open").to_owned(),
             };
             rail_empty(
                 Icon::Terminal,
                 title,
-                Some((actions::NewTerminal::ID, "start one")),
+                Some((actions::NewTerminal::ID, t!("to start one"))),
                 cx,
             )
         }
     });
     page_body()
-        .child(page_header("Terminals", bench, cx))
+        .child(page_header(t!("Terminals"), bench, cx))
         .child(
             div()
                 .flex_none()
@@ -65,7 +69,7 @@ pub(crate) fn terminals_page(bench: &Workbench, cx: &mut Context<Workbench>) -> 
                     new_row(
                         "new-terminal",
                         Icon::Plus,
-                        "New terminal",
+                        t!("New terminal"),
                         actions::NewTerminal::ID,
                         cx,
                     )
@@ -149,7 +153,7 @@ pub(crate) fn ssh_page(
         rail_empty(
             Icon::Terminal,
             t!("No terminals open"),
-            Some((actions::NewTerminal::ID, "start one")),
+            Some((actions::NewTerminal::ID, t!("to start one"))),
             cx,
         )
     });
@@ -164,7 +168,7 @@ pub(crate) fn ssh_page(
                     new_row(
                         "new-terminal",
                         Icon::Terminal,
-                        "New terminal",
+                        t!("New terminal"),
                         actions::NewTerminal::ID,
                         cx,
                     )

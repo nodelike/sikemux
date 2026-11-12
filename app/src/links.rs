@@ -118,7 +118,10 @@ pub fn follow(bench: &mut Workbench, link: &str, cx: &mut Context<Workbench>) {
             .any(|launcher| launcher.provider == resume.provider)
     });
     let Some(resume) = resume else {
-        return bench.notify(toast::error(format!("Sikemux couldn't open {link}")), cx);
+        return bench.notify(
+            toast::error(t!("Sikemux couldn't open {link}", link = link)),
+            cx,
+        );
     };
     let open = bench.this_view().and_then(|view| {
         view.chats
@@ -143,16 +146,16 @@ pub fn follow(bench: &mut Workbench, link: &str, cx: &mut Context<Workbench>) {
         take_up(bench, resume, false, cx);
         return;
     }
-    let body = format!(
-        "A link asks to resume a {} chat in {}, which is not one of your projects.\nThe agent starts there at once and follows the folder's own settings and hooks. Go ahead only if you trust it.",
-        bench.agent_name(&resume.provider),
-        resume.project.display(),
+    let body = t!(
+        "A link asks to resume a {agent} chat in {folder}, which is not one of your projects.\nThe agent starts there at once and follows the folder's own settings and hooks. Go ahead only if you trust it.",
+        agent = bench.agent_name(&resume.provider),
+        folder = resume.project.display(),
     );
     let resume = std::rc::Rc::new(resume);
     bench.confirm(
-        "Open this folder as a project?",
+        t!("Open this folder as a project?"),
         body,
-        "Open project",
+        t!("Open project"),
         false,
         move |bench, yes, _: &mut Window, cx| {
             if yes {
@@ -195,7 +198,10 @@ fn take_up(bench: &mut Workbench, resume: Resume, add: bool, cx: &mut Context<Wo
             Ok(taken) => {
                 bench.open_agent(&taken.agent_id, cx);
             }
-            Err(error) => bench.notify(toast::error(format!("The chat did not open: {error}")), cx),
+            Err(error) => bench.notify(
+                toast::error(t!("The chat did not open: {error}", error = error)),
+                cx,
+            ),
         });
     })
     .detach();

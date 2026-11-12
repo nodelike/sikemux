@@ -170,7 +170,7 @@ pub(super) fn row(
             .justify_center()
             .child(
                 ui::text(
-                    "Earlier messages are no longer kept.",
+                    t!("Earlier messages are no longer kept."),
                     TEXT_XS,
                     FontWeight::NORMAL,
                 )
@@ -759,13 +759,13 @@ fn goal_marker(notice: &AgentNotice, looks: &Drawn, cx: &App) -> AnyElement {
     };
     let t = Tokens::get(cx);
     let (state, word) = match (goal.moment, goal.state) {
-        (GoalMoment::Step, _) => (SliceState::Done, "Step done"),
-        (GoalMoment::Done, _) => (SliceState::Done, "Goal done"),
-        (GoalMoment::Stopped, SliceState::Failed) => (SliceState::Failed, "Goal stopped"),
-        (GoalMoment::Stopped, _) => (SliceState::Waiting, "Goal stopped"),
-        (GoalMoment::Started, SliceState::NeedsYou) => (SliceState::NeedsYou, "Goal needs you"),
-        (GoalMoment::Started, SliceState::Waiting) => (SliceState::Waiting, "Goal waiting"),
-        (GoalMoment::Started, state) => (state, "Goal"),
+        (GoalMoment::Step, _) => (SliceState::Done, t!("Step done")),
+        (GoalMoment::Done, _) => (SliceState::Done, t!("Goal done")),
+        (GoalMoment::Stopped, SliceState::Failed) => (SliceState::Failed, t!("Goal stopped")),
+        (GoalMoment::Stopped, _) => (SliceState::Waiting, t!("Goal stopped")),
+        (GoalMoment::Started, SliceState::NeedsYou) => (SliceState::NeedsYou, t!("Goal needs you")),
+        (GoalMoment::Started, SliceState::Waiting) => (SliceState::Waiting, t!("Goal waiting")),
+        (GoalMoment::Started, state) => (state, t!("Goal")),
     };
     let name = match goal.name.is_empty() {
         true => notice.title.clone(),
@@ -879,8 +879,8 @@ fn left_out(row: &ChatRow, looks: &Drawn, cx: &App) -> Option<AnyElement> {
     let key = left_out_key(row);
     let open = looks.reading.opened.contains(&key);
     let said = match count {
-        1 => "1 sentence with no source left out".to_owned(),
-        count => format!("{count} sentences with no source left out"),
+        1 => t!("1 sentence with no source left out").to_owned(),
+        count => t!("{count} sentences with no source left out", count = count),
     };
     let faint = Tokens::get(cx).text_tertiary;
     let (reader, ink) = (looks.reader.clone(), looks.ink);
@@ -888,7 +888,7 @@ fn left_out(row: &ChatRow, looks: &Drawn, cx: &App) -> Option<AnyElement> {
         .id(SharedString::from(key.clone()))
         .cursor_pointer()
         .hover(move |toggle| toggle.text_color(ink))
-        .child(if open { "Hide" } else { "Show" })
+        .child(if open { t!("Hide") } else { t!("Show") })
         .on_click(move |_, _, cx| {
             reader.update(cx, |reading, cx| {
                 reading.toggle(&key);
@@ -925,14 +925,14 @@ pub(super) fn card_of<'a>(rows: &'a [ChatRow], session: &str) -> Option<&'a Suba
 fn task_ended(notice: &TaskNotice, looks: &Drawn, cx: &App) -> AnyElement {
     let t = Tokens::get(cx);
     let (icon, word, tint) = match notice.task_type.as_deref() {
-        Some("workflow") => (Icon::Workflow, "workflow", looks.tints.called),
-        Some("monitor") => (Icon::Timer, "watch", looks.tints.looked),
-        _ => (Icon::Run, "bg", looks.tints.ran),
+        Some("workflow") => (Icon::Workflow, t!("workflow"), looks.tints.called),
+        Some("monitor") => (Icon::Timer, t!("watch"), looks.tints.looked),
+        _ => (Icon::Run, t!("bg"), looks.tints.ran),
     };
     let (mark, state, state_ink) = match notice.state {
-        NoticeState::Completed => (Some((Icon::Check, t.live)), "done", looks.quiet),
-        NoticeState::Failed => (Some((Icon::Close, t.danger)), "failed", t.danger),
-        NoticeState::Stopped => (None, "stopped", looks.quiet),
+        NoticeState::Completed => (Some((Icon::Check, t.live)), t!("done"), looks.quiet),
+        NoticeState::Failed => (Some((Icon::Close, t.danger)), t!("failed"), t.danger),
+        NoticeState::Stopped => (None, t!("stopped"), looks.quiet),
     };
     let name = notice
         .name
@@ -998,7 +998,7 @@ fn kept_rule(notice: &AgentNotice, looks: &Drawn) -> AnyElement {
                 .id(SharedString::from(format!("kept-rule-{}", rule.id)))
                 .cursor_pointer()
                 .text_color(looks.ink)
-                .child("Undo")
+                .child(t!("Undo"))
                 .on_click(move |_, _, cx| {
                     let rule = rule.clone();
                     let _ = bench.update(cx, |bench, cx| {
@@ -1051,26 +1051,26 @@ pub(super) fn subagent(
         SubagentState::Running => (
             theme::mix(t.accent, t.text_disabled, 0.62),
             Icon::Hourglass,
-            "working",
+            t!("working"),
         ),
         SubagentState::Completed => (
             theme::mix(t.live, t.text_disabled, 0.58),
             Icon::Check,
-            "done",
+            t!("done"),
         ),
-        SubagentState::Failed => (t.danger, Icon::Warning, "failed"),
-        SubagentState::Disconnected => (t.danger, Icon::Plug, "lost"),
-        SubagentState::Cancelled => (t.text_disabled, Icon::Close, "stopped"),
+        SubagentState::Failed => (t.danger, Icon::Warning, t!("failed")),
+        SubagentState::Disconnected => (t.danger, Icon::Plug, t!("lost")),
+        SubagentState::Cancelled => (t.text_disabled, Icon::Close, t!("stopped")),
     };
-    let tokens = card
-        .tokens
-        .map(|tokens| format!("{} tokens", crate::ui::numbers::compact(tokens as f64)));
-    let calls = (card.calls > 0).then(|| {
-        format!(
-            "{} {}",
-            card.calls,
-            if card.calls == 1 { "call" } else { "calls" }
+    let tokens = card.tokens.map(|tokens| {
+        t!(
+            "{tokens} tokens",
+            tokens = crate::ui::numbers::compact(tokens as f64)
         )
+    });
+    let calls = (card.calls > 0).then(|| match card.calls {
+        1 => t!("1 call").to_owned(),
+        calls => t!("{calls} calls", calls = calls),
     });
     let cost = [tokens, calls]
         .into_iter()
@@ -1190,7 +1190,7 @@ pub(super) fn subagent(
                 div()
                     .text_size(crate::theme::ui_text(TEXT_3XS_H))
                     .text_color(looks.faint)
-                    .child("No output yet.")
+                    .child(t!("No output yet."))
                     .into_any_element(),
             );
         }
@@ -1274,7 +1274,10 @@ pub(super) fn part(
                 return pen.markdown_with(&look, id, &doc.markdown, window, cx);
             };
             let reader = looks.reader.clone();
-            let label = format!("Show the rest · {}k more characters", (hidden + 500) / 1000);
+            let label = t!(
+                "Show the rest · {thousands}k more characters",
+                thousands = (hidden + 500) / 1000
+            );
             let more = Button::new(
                 SharedString::from(format!("rest:{id}")),
                 label,
@@ -1346,7 +1349,7 @@ pub(super) fn part(
                 .from
                 .as_ref()
                 .filter(|_| moved.reason == MoveReason::Limit)
-                .map(|from| format!("{from} reached its usage limit"));
+                .map(|from| t!("{from} reached its usage limit", from = from));
             let face = looks
                 .bench
                 .upgrade()
@@ -1365,7 +1368,7 @@ pub(super) fn part(
                 });
             notice_box(looks)
                 .child(face)
-                .child(div().flex_none().child("Moved to"))
+                .child(div().flex_none().child(t!("Moved to")))
                 .child(notice_name(moved.label.clone(), false, looks))
                 .children(why.map(notice_summary))
                 .into_any_element()

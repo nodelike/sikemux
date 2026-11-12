@@ -109,7 +109,7 @@ impl Workbench {
             return;
         };
         if chat.finding.is_none() {
-            let input = cx.new(|cx| InputState::new(window, cx).placeholder("Find in chat"));
+            let input = cx.new(|cx| InputState::new(window, cx).placeholder(t!("Find in chat")));
             let typed = {
                 let agent = agent.to_owned();
                 cx.subscribe(&input, move |bench, _, event: &InputEvent, cx| {
@@ -370,7 +370,7 @@ pub fn bar(
         (Some(whole), _) => whole,
         (None, (current, total)) if total > 0 => format!("{}/{total}", current + 1),
         _ if finding.input.read(cx).value().is_empty() => "0/0".to_owned(),
-        _ => "No results".to_owned(),
+        _ => t!("No results").to_owned(),
     };
     let this = cx.weak_entity();
     let on = |act: fn(&mut Workbench, &str, &mut Window, &mut Context<Workbench>)| {

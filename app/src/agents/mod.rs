@@ -195,21 +195,25 @@ fn page_panel(bench: &Workbench, page: TabRailPage, cx: &mut Context<Workbench>)
         let shown = (project.zip(other_host(bench)))
             .filter(|_| bench.filter_text().is_empty())
             .map(|(project, host)| match bench.rails.all_projects {
-                true => format!("No chats on {host}"),
-                false => format!("No chats in {} on {host}", project.name),
+                true => t!("No chats on {host}", host = host),
+                false => t!(
+                    "No chats in {project} on {host}",
+                    project = project.name,
+                    host = host
+                ),
             });
         if let Some(title) = shown {
             rail_empty(
                 Icon::Agent,
                 title,
-                Some((actions::NewChat::ID, "start one")),
+                Some((actions::NewChat::ID, t!("to start one"))),
                 cx,
             )
         } else if project.is_none() {
             rail_empty(
                 Icon::Agent,
                 t!("No project open"),
-                Some((actions::OpenProject::ID, "open one")),
+                Some((actions::OpenProject::ID, t!("to open one"))),
                 cx,
             )
         } else if bench.launchers().is_empty() {
@@ -231,7 +235,7 @@ fn page_panel(bench: &Workbench, page: TabRailPage, cx: &mut Context<Workbench>)
             rail_empty(
                 Icon::Agent,
                 t!("No agents yet"),
-                Some((actions::NewChat::ID, "start one")),
+                Some((actions::NewChat::ID, t!("to start one"))),
                 cx,
             )
         }
@@ -415,9 +419,9 @@ fn header_frame(
                             "hide-tab-rail",
                             Icon::PanelRight,
                             if bench.rails.tab_open {
-                                "Hide agents rail"
+                                t!("Hide agents rail")
                             } else {
-                                "Keep agents rail open"
+                                t!("Keep agents rail open")
                             },
                         )
                         .on_click(cx.listener(|bench, _, _, cx| bench.toggle_rail(Edge::End, cx))),
@@ -435,7 +439,7 @@ fn picker(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
             ui::icon(Icon::Inbox, 16.)
                 .text_color(t.text_secondary)
                 .into_any_element(),
-            "All harnesses".to_owned(),
+            t!("All harnesses").to_owned(),
         ),
         Some(launcher) => (
             ui::mark(&launcher.provider, 16.),
@@ -490,7 +494,7 @@ fn picker(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
         "agent-picker",
         Anchor::TopLeft,
         BaseButton::new("agent-picker-button")
-            .accessibility_label("Agent provider")
+            .accessibility_label(t!("Agent provider"))
             .h(px(28.))
             .ml(px(-6.))
             .px(SPACE_1H)
@@ -586,7 +590,7 @@ fn recent_row(bench: &Workbench, recent: &RecentInfo, cx: &mut Context<Workbench
                 IconButton::new(
                     SharedString::from(format!("unpin-{}", recent.id)),
                     Icon::Pin,
-                    format!("Unpin {}", recent.title),
+                    t!("Unpin {title}", title = recent.title),
                 )
                 .small()
                 .pressed(true)
@@ -690,7 +694,7 @@ fn older_when_seen(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement
 fn rename_recent(bench: &mut Workbench, chat: &RecentInfo, cx: &mut Context<Workbench>) {
     let (recent, cwd) = (chat.id.clone(), chat.cwd.clone());
     bench.prompt(
-        "Rename chat",
+        t!("Rename chat"),
         chat.title.clone(),
         move |bench, title, _, _| {
             if !title.trim().is_empty() {
@@ -712,12 +716,12 @@ fn rename_recent(bench: &mut Workbench, chat: &RecentInfo, cx: &mut Context<Work
 fn delete_recent(bench: &mut Workbench, chat: &RecentInfo, cx: &mut Context<Workbench>) {
     let (recent, cwd) = (chat.id.clone(), chat.cwd.clone());
     bench.confirm(
-        "Delete this chat?",
-        format!(
-            "“{}” will be removed from disk for good and can no longer be resumed.",
-            chat.title
+        t!("Delete this chat?"),
+        t!(
+            "“{title}” will be removed from disk for good and can no longer be resumed.",
+            title = chat.title
         ),
-        "Delete",
+        t!("Delete"),
         true,
         move |bench, yes, _, _| {
             if yes {
@@ -737,7 +741,7 @@ type Click = Rc<dyn Fn(&mut Window, &mut App)>;
 /// "Pin" or "Unpin" for the saved chat, and what does it.
 fn pin_chat(this: &Entity<Workbench>, recent: &RecentInfo) -> (&'static str, Click) {
     let (this, id, pinned) = (this.clone(), recent.id.clone(), recent.pinned);
-    let label = if pinned { "Unpin" } else { "Pin" };
+    let label = if pinned { t!("Unpin") } else { t!("Pin") };
     let pin = move |_: &mut Window, cx: &mut App| {
         let params = PinChatParams {
             recent: id.clone(),
@@ -1152,7 +1156,10 @@ fn agent_row(
         .top_0()
         .h(px(if bench.rail_compact() { 27. } else { 28. }))
         .children(pin.map(|(pinned, pin)| {
-            let label = format!("{} {}", if pinned { "Unpin" } else { "Pin" }, agent.title);
+            let label = match pinned {
+                true => t!("Unpin {title}", title = agent.title),
+                false => t!("Pin {title}", title = agent.title),
+            };
             IconButton::new(
                 SharedString::from(format!("pin-{}", agent.id)),
                 Icon::Pin,
@@ -1165,7 +1172,7 @@ fn agent_row(
         .when(!elsewhere, |actions| {
             actions.child(ui::close_button(
                 SharedString::from(format!("close-{}", agent.id)),
-                format!("Close {}", agent.title),
+                t!("Close {title}", title = agent.title),
                 cx.listener(move |bench, _, _, cx| bench.close_agents(vec![close.clone()], cx)),
                 cx,
             ))
@@ -1404,7 +1411,7 @@ pub fn counts(agent: &AgentRow, cx: &App) -> Option<impl IntoElement> {
                 row.child(count(Icon::Command, 11., t.warn, agent.tasks))
             })
             .when(agent.build_queued, |row| {
-                row.child(labelled(Icon::Hourglass, t.warn, "queued".into()))
+                row.child(labelled(Icon::Hourglass, t.warn, t!("queued").into()))
             })
     })
 }
@@ -1436,21 +1443,21 @@ fn pages(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
         .child(page(
             "page-agents",
             Icon::Agents,
-            "Agents",
+            t!("Agents"),
             TabRailPage::Agents,
             cx,
         ))
         .child(page(
             "page-terminals",
             Icon::Terminal,
-            "Terminals",
+            t!("Terminals"),
             TabRailPage::Terminals,
             cx,
         ))
         .child(page(
             "page-files",
             Icon::File,
-            "Files",
+            t!("Files"),
             TabRailPage::Files,
             cx,
         ))
@@ -1511,7 +1518,7 @@ pub(crate) fn rail_empty(
                 .text_color(t.text_tertiary)
                 .child(t!("Press"))
                 .child(ui::kbd(keys, cx))
-                .child(format!("to {doing}")),
+                .child(doing),
         )
     });
     div()

@@ -29,7 +29,7 @@ pub(super) fn permission(
         })
         .collect();
     if !ask.options.iter().any(|option| option.kind.is_reject()) {
-        answers.push(("Cancel".into(), None, false));
+        answers.push((t!("Cancel").into(), None, false));
     }
     let buttons: Vec<_> = answers
         .into_iter()
@@ -208,10 +208,13 @@ pub(super) fn kept(t: &Tokens) -> impl IntoElement {
 /// How much a hidden answer holds, so the person can see their typing and paste landed.
 fn hidden_size(text: &str) -> String {
     let characters = text.chars().count();
-    let plural = if characters == 1 { "" } else { "s" };
+    let size = match characters {
+        1 => t!("1 character").to_owned(),
+        _ => t!("{characters} characters", characters = characters),
+    };
     match text.lines().count() {
-        0 | 1 => format!("{characters} character{plural}"),
-        lines => format!("{lines} lines · {characters} character{plural}"),
+        0 | 1 => size,
+        lines => t!("{lines} lines · {size}", lines = lines, size = size),
     }
 }
 

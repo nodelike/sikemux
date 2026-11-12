@@ -61,8 +61,8 @@ fn sent(at: u64, mine: bool) -> Option<String> {
     let time = at.format("%H:%M");
     Some(match days {
         0 if mine => time.to_string(),
-        0 => format!("Today, {time}"),
-        1 => format!("Yesterday, {time}"),
+        0 => t!("Today, {time}", time = time),
+        1 => t!("Yesterday, {time}", time = time),
         _ if at.year() == now.year() => format!("{}, {time}", at.format("%-d %b")),
         _ => format!("{}, {time}", at.format("%-d %b %Y")),
     })
@@ -102,7 +102,11 @@ pub fn line(
     }
     let t = Tokens::get(cx);
     let copy = copied(rows, ix).map(|text| {
-        let label = if user { "Copy message" } else { "Copy reply" };
+        let label = if user {
+            t!("Copy message")
+        } else {
+            t!("Copy reply")
+        };
         IconButton::new(
             SharedString::from(format!("copy:{}", message.id)),
             Icon::Copy,
@@ -117,7 +121,7 @@ pub fn line(
         IconButton::new(
             SharedString::from(format!("reply:{}", message.id)),
             Icon::Reply,
-            "Reply",
+            t!("Reply"),
         )
         .glyph(13.)
         .width(24.)
@@ -137,7 +141,7 @@ pub fn line(
         IconButton::new(
             SharedString::from(format!("edit:{}", message.id)),
             Icon::Pencil,
-            "Edit message",
+            t!("Edit message"),
         )
         .glyph(13.)
         .width(24.)
@@ -155,7 +159,11 @@ pub fn line(
         .and_then(|at| sent(at, user));
     let took = meta.and_then(|meta| meta.took);
     let when = at.map(|at| match took {
-        Some(took) => format!("{at} · took {}", crate::ui::time::took(took)),
+        Some(took) => t!(
+            "{at} · took {took}",
+            at = at,
+            took = crate::ui::time::took(took)
+        ),
         None => at,
     });
     let speed = meta.and_then(|meta| meta.rate).map(rate);
