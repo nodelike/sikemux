@@ -423,6 +423,7 @@ pub(crate) async fn move_to_account(
 pub(crate) fn cancel(core: &Core, agent_id: &str) -> CoreResult<()> {
     let chat = core.chats().running(agent_id)?;
     chat.feed.clear_queue();
+    super::cap::stop_summarising(&chat);
     chat.send(ChatCommand::Cancel)
 }
 

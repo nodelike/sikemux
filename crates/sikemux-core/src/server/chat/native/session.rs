@@ -636,7 +636,9 @@ impl<B: Backend> Running<'_, B> {
             if replay.announce {
                 self.show(&replay);
             }
-            self.rotate_if_due().await;
+            if !crate::server::chat::prompt::is_command(&replay.text) {
+                self.rotate_if_due().await;
+            }
             self.send(replay).await;
         }
     }
@@ -746,20 +748,22 @@ impl<B: Backend> Running<'_, B> {
 
     /// Summarises a big chat whose prompt cache expired before its message goes, unless the
     /// person keeps the full history, so the message reads the summary rather than all of it.
-    async fn summarise_first(&mut self) {
+    /// Answers whether the message may go: not once the person stopped the turn meanwhile.
+    async fn summarise_first(&mut self) -> bool {
         const LOOK: std::time::Duration = std::time::Duration::from_millis(200);
         if !cap::summarises_first(&self.chat) {
-            return;
+            return true;
         }
         cap::summarising(&self.chat);
         if let Err(error) = self.backend.compact().await {
             eprintln!("sikemux core: the chat goes as it is, as it was not summarised: {error}");
             self.chat.meter.compaction_over();
-            return;
+            return true;
         }
-        while self.chat.meter.compacting() {
+        while self.chat.meter.compacting() && !cap::summarise_stopped(&self.chat) {
             tokio::time::sleep(LOOK).await;
         }
+        !cap::summarise_stopped(&self.chat)
     }
 
     /// Writes down where the chat stands before the loop waits for what comes next.
@@ -1163,7 +1167,10 @@ impl<B: Backend> Running<'_, B> {
         }
         if !crate::server::chat::prompt::is_command(&replay.text) {
             self.rotate_if_due().await;
-            self.summarise_first().await;
+            if !self.summarise_first().await {
+                self.chat.finish_turn(turn_answer(StopReason::Cancelled));
+                return ControlFlow::Continue(());
+            }
         }
         self.send(replay).await;
         ControlFlow::Continue(())

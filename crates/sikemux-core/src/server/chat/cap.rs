@@ -52,6 +52,8 @@ pub(crate) struct Meter {
     compacting_since: AtomicU64,
     /// The person chose to keep the full history for the next message after the cache expired.
     keeps_history: AtomicBool,
+    /// The person stopped the turn while the chat was summarised ahead of its message.
+    summarise_stopped: AtomicBool,
 }
 
 /// What a meter keeps while its chat sleeps or its core starts again.
@@ -336,8 +338,21 @@ pub(crate) fn summarises_first(chat: &Chat) -> bool {
     expired_cache(chat, epoch_ms()).is_some_and(|expired| expired.summarise)
 }
 
+/// The person stopped the turn: a summary its message waits on lets the message go no further.
+pub(crate) fn stop_summarising(chat: &Chat) {
+    if chat.meter.compacting() {
+        chat.meter.summarise_stopped.store(true, Ordering::Release);
+    }
+}
+
+/// Whether the person stopped the turn since its summary began.
+pub(crate) fn summarise_stopped(chat: &Chat) -> bool {
+    chat.meter.summarise_stopped.load(Ordering::Acquire)
+}
+
 /// The core is summarising the chat ahead of its next message.
 pub(crate) fn summarising(chat: &Chat) {
+    chat.meter.summarise_stopped.store(false, Ordering::Release);
     chat.meter.compacted.store(true, Ordering::Release);
     chat.meter
         .compacting_since
