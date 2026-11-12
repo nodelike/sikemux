@@ -96,12 +96,16 @@ def scroll_through(run, chat, label):
     sampler = Sampler(run.app.pid)
     sampler.start()
     run.drive("frames start")
+    started = time.monotonic()
+    flicks = []
     for direction in (1, -1):
         for flick in range(28):
+            flicks.append(round((time.monotonic() - started) * 1000))
             run.drive(f"scroll {x:.0f} {y:.0f} 0 {direction * 420} 14 momentum", "wait 0.25")
             if direction == 1 and flick == 6:
                 run.capture(f"{label}-scrolling")
     frames = next((json.loads(line.split(" ", 2)[2]) for line in run.drive("frames") if line.startswith("did: frames ")), {})
+    frames["flicks"] = flicks
     run.drive("wait 2.5")
     memory = sampler.stop()
     run.capture(f"{label}-end")
