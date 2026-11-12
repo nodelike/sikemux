@@ -4,6 +4,7 @@
 //! checkout does. Where there is no cheap clone, installed packages are linked
 //! to the main checkout's instead.
 
+use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::path::{Path, PathBuf};
 
@@ -45,6 +46,7 @@ pub(crate) fn seed(main: &Path, tree: &Path) {
     let Some(ignored) = ignored_folders(main) else {
         return;
     };
+    match_times(main, tree);
     for folder in chosen(main, tree, &ignored, &included(main)) {
         if let Err(error) = bring(&main.join(&folder), &tree.join(&folder)) {
             eprintln!(
@@ -53,6 +55,44 @@ pub(crate) fn seed(main: &Path, tree: &Path) {
             );
         }
     }
+}
+
+/// Gives each file `tree` holds unchanged from `main` the time `main`'s copy last
+/// changed. Cargo rebuilds a crate whose sources are newer than its last build, and a
+/// new checkout's files are all new, so the build output cloned from `main` would
+/// otherwise be rebuilt crate by crate.
+fn match_times(main: &Path, tree: &Path) {
+    let edited = Git::quick(main).trimmed(&["diff", "--name-only", "-z"]);
+    let (Some(ours), Some(theirs), Ok(edited)) = (indexed(main), indexed(tree), edited) else {
+        return;
+    };
+    let edited: HashSet<&str> = edited.split('\0').collect();
+    for (path, entry) in &theirs {
+        if ours.get(path) != Some(entry) || edited.contains(path.as_str()) {
+            continue;
+        }
+        let Ok(changed) = main.join(path).metadata().and_then(|meta| meta.modified()) else {
+            continue;
+        };
+        if let Ok(file) = File::open(tree.join(path)) {
+            let _ = file.set_modified(changed);
+        }
+    }
+}
+
+/// Each regular file in `checkout`'s index, with its mode and content id.
+fn indexed(checkout: &Path) -> Option<HashMap<String, String>> {
+    let listed = Git::quick(checkout)
+        .trimmed(&["ls-files", "-s", "-z"])
+        .ok()?;
+    Some(
+        listed
+            .split('\0')
+            .filter_map(|line| line.split_once('\t'))
+            .filter(|(entry, _)| entry.starts_with("100"))
+            .map(|(entry, path)| (path.to_owned(), entry.to_owned()))
+            .collect(),
+    )
 }
 
 /// The folders Git ignores in `checkout`, each by its topmost ignored folder.

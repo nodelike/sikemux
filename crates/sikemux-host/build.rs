@@ -84,7 +84,8 @@ fn core_source_fingerprint() -> String {
     let root = std::fs::canonicalize("../..").unwrap_or_default();
     let mut files = Vec::new();
     for source in core_sources(&root) {
-        println!("cargo:rerun-if-changed={}", source.display());
+        let inside = source.strip_prefix(&root).unwrap_or(&source);
+        println!("cargo:rerun-if-changed=../../{}", inside.display());
         collect_files(&source, &mut files);
     }
     files.sort();
