@@ -335,7 +335,13 @@ struct WorkerRow: View {
             dim: !worker.reachable,
             mark: { AgentMark(provider: worker.cli, size: 16).opacity(worker.reachable ? 1 : 0.5) },
             end: {
-                if worker.reachable { AgentStateMark(group: worker.group) }
+                if worker.reachable {
+                    if let turn = worker.turn {
+                        TurnMark(turn: turn, now: Date())
+                    } else {
+                        AgentStateMark(group: worker.group)
+                    }
+                }
             }
         )
         .padding(.leading, nested ? 30 : 0)
