@@ -335,6 +335,7 @@ pub(crate) async fn hand_off(core: &Arc<Core>, params: HandOffParams) -> CoreRes
         });
     }
     let agent_id = params.agent_id;
+    core.chats.resets.cancel(&agent_id);
     if let Some(chat) = core.chats.get(&agent_id) {
         core.workspaces.note_stopping(&chat);
         if core.chats.stop(&agent_id) {

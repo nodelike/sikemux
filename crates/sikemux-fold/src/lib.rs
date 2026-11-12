@@ -822,7 +822,15 @@ impl Fold {
         }
     }
 
+    /// What the next message hands over. A chat handed to another agent has moved on from the
+    /// turn its old agent failed.
     pub fn set_handoff(&mut self, handoff: Option<sikemux_view::chat::Handoff>) {
+        if handoff.is_some() && (self.head.error.is_some() || self.head.failure.is_some()) {
+            self.head.error = None;
+            self.head.failure = None;
+            self.set_head("error");
+            self.set_head("failure");
+        }
         if self.head.handoff != handoff {
             self.head.handoff = handoff;
             self.set_head("handoff");
