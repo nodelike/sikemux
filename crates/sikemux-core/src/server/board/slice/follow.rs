@@ -209,6 +209,17 @@ fn heard(core: &Arc<Core>, event: RepoEvent) {
     if let RepoEvent::Committed { agent, .. } | RepoEvent::Landed { agent, .. } = &event {
         crate::server::turn_state::read_work(core, agent);
     }
+    if let RepoEvent::Checked {
+        project,
+        covered,
+        verdict: Some(Verdict::Passed),
+        ..
+    } = &event
+    {
+        for (agent, turn) in core.inbox.showing(project, covered) {
+            crate::server::pictures::take(core, &agent, project, turn);
+        }
+    }
     if let RepoEvent::Deployed {
         project,
         agent,

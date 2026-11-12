@@ -50,7 +50,7 @@ use pages::*;
 pub use processes::RunSelector;
 use processes::*;
 pub(crate) use processes::{
-    start_for_person, stop_run, stop_runs, tell_agent_run_failed, FailedRun,
+    start_for_agent, start_for_person, stop_run, stop_runs, tell_agent_run_failed, FailedRun,
 };
 use skills_tool::*;
 use tally::*;

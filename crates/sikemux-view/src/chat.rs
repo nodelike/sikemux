@@ -311,6 +311,12 @@ pub struct ChatHead {
     /// works under.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub chief: bool,
+    /// The pages its latest turns changed, as the core took them, oldest first.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub shown: Vec<crate::shown::TurnShown>,
+    /// Its workers' finished work, oldest first; empty for a chat that leads nobody.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub results: Vec<crate::shown::ResultRow>,
     /// What the person has written and not sent, as the host keeps it for every app.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub draft: Option<ChatDraft>,

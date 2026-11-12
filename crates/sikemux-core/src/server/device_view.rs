@@ -212,9 +212,14 @@ impl Core {
         attentions.sort_by(|a, b| (a.at, &a.id).cmp(&(b.at, &b.id)));
         let recent = self.workspaces.recent(&chats, &self.triggers.held());
         let inbox = inbox::view(self, &chats, &sessions);
+        let leads = self.workspaces.agent_leads();
         for agent in &inbox.agents {
             if let Some(chat) = self.chats.get(&agent.agent_id) {
                 chat.feed.set_turn(agent.turn.clone());
+                chat.feed.set_shown(
+                    self.pictures.turns_of(&agent.agent_id),
+                    super::pictures::results(self, &agent.agent_id, &leads),
+                );
             }
         }
         goals::view_moved(self, &inbox);

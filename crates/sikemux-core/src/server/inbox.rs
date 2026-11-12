@@ -404,6 +404,24 @@ impl Turns {
         }
     }
 
+    /// The agents whose latest turn changed a page of `project` and whose work is at one of
+    /// `covered`, with when that turn began.
+    pub(crate) fn showing(&self, project: &str, covered: &[String]) -> Vec<(String, u64)> {
+        (self.turns.locked().iter())
+            .filter(|(_, turn)| {
+                turn.work.as_ref().is_some_and(|work| {
+                    work.can_try
+                        && work.project == project
+                        && work
+                            .head
+                            .as_ref()
+                            .is_some_and(|head| covered.contains(head))
+                })
+            })
+            .map(|(agent, turn)| (agent.clone(), turn.started_at))
+            .collect()
+    }
+
     /// Whether the agent changed anything in its latest turn, as far as the core heard.
     pub(crate) fn changed_in_turn(&self, agent_id: &str) -> bool {
         (self.turns.locked().get(agent_id)).is_some_and(|turn| turn.committed)

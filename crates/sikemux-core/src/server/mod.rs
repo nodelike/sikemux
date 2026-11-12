@@ -71,6 +71,7 @@ mod notify;
 pub mod open_files;
 mod part;
 pub(crate) mod person_calls;
+mod pictures;
 pub mod playbook;
 pub mod plugins;
 pub mod ports;
@@ -450,6 +451,7 @@ pub(crate) struct Core {
     pub(crate) landing: landing::Histories,
     pub(crate) waits: waits::Waits,
     pub(crate) turns: turn_state::Latest,
+    pub(crate) pictures: pictures::Pictures,
     pub(crate) changes: changed::Changes,
     pub(crate) ports: ports::Ports,
     pub(crate) spares: spare::Spares,
@@ -611,6 +613,7 @@ impl Core {
             landing: landing::Histories::default(),
             waits: waits::Waits::new(data_dir),
             turns: turn_state::Latest::default(),
+            pictures: pictures::Pictures::new(data_dir),
             memory: memory::Memory::new(data_dir),
             triggers: triggers::Triggers::new(data_dir),
             changes: changed::Changes::default(),

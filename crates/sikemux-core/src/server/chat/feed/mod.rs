@@ -18,6 +18,7 @@ use sikemux_view::chat::{
     ChatChange, ChatDraft, ChatGoal, ChatPage, ChatTrigger, PlanEntry, PlanStatus, QueuedMessage,
     SentContext, ToolDetail,
 };
+use sikemux_view::shown::{ResultRow, TurnShown};
 use sikemux_view::turn::TurnState;
 use sikemux_wire::protocol::{ChatContext, ChatStart, PermissionMode};
 
@@ -152,6 +153,8 @@ struct Stand {
     plan_open: Option<String>,
     /// How the turn stands, as clients were last told.
     turn: Option<TurnState>,
+    /// What its turns and its workers' showed, as clients were last told.
+    shown: (Vec<TurnShown>, Vec<ResultRow>),
 }
 
 fn queued_view(queued: &[Queued]) -> Vec<QueuedMessage> {
@@ -408,6 +411,8 @@ impl Feed {
             fold.set_goal(inner.goal.clone());
             fold.set_turn(inner.turn.clone());
             fold.set_chief(inner.chief);
+            let (shown, results) = self.stand.locked().shown.clone();
+            fold.set_shown(shown, results);
             fold.set_needs(inner.needs.clone());
             if inner.replay.is_trimmed() && !inner.replay.keeps_history() {
                 fold.set_earlier_lost();
@@ -990,6 +995,23 @@ impl Feed {
 
     pub(crate) fn start(&self) -> Option<ChatStart> {
         self.inner.locked().start.clone()
+    }
+
+    /// What the chat's turns and its workers' showed changed; clients already hearing it are told.
+    pub(crate) fn set_shown(&self, shown: Vec<TurnShown>, results: Vec<ResultRow>) {
+        let both = (shown, results);
+        {
+            let mut stand = self.stand.locked();
+            if stand.shown == both {
+                return;
+            }
+            stand.shown.clone_from(&both);
+        }
+        let mut inner = self.inner.locked();
+        if let Some(fold) = inner.fold.as_mut() {
+            fold.set_shown(both.0, both.1);
+            self.flush_locked(&mut inner);
+        }
     }
 
     /// How the chat's turn stands, as clients were last told.

@@ -40,6 +40,7 @@ use sikemux_view::chat::{
     Retrying, SentContext, SessionEnded, StopReason, SubagentCard, SubagentState, TaskNotice,
     TaskState, TaskUsage, ToolDetail, ToolStatus, TurnStart, UsageCost, WorkflowAgent,
 };
+use sikemux_view::shown::{ResultRow, TurnShown};
 use sikemux_view::turn::TurnState;
 use tools::WithRow;
 
@@ -733,6 +734,17 @@ impl Fold {
         if self.head.chief != chief {
             self.head.chief = chief;
             self.set_head("chief");
+        }
+    }
+
+    pub fn set_shown(&mut self, shown: Vec<TurnShown>, results: Vec<ResultRow>) {
+        if self.head.shown != shown {
+            self.head.shown = shown;
+            self.set_head("shown");
+        }
+        if self.head.results != results {
+            self.head.results = results;
+            self.set_head("results");
         }
     }
 

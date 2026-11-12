@@ -888,36 +888,6 @@ impl Slice {
         }
     }
 
-    /// Keeps the screenshots the core took itself of the page at `opened`,
-    /// which the change ending at `head` shows, toward the gate it waits at,
-    /// or its last once it is done, as landing can be before they are taken.
-    /// They show the running thing, but no assertion's evidence.
-    pub(super) fn page(&mut self, owner: &str, head: &str, opened: &str, shots: &[Shot]) {
-        let Some(gate) = (self.waiting().or(self.ladder.last()))
-            .filter(|_| self.head() == Some(head))
-            .cloned()
-        else {
-            return;
-        };
-        for (path, width) in shots {
-            self.add_evidence(
-                &gate,
-                epoch_ms(),
-                Some(owner.to_owned()),
-                None,
-                Proof::Picture {
-                    path: path.clone(),
-                    seconds: None,
-                    feed: None,
-                    turn: None,
-                    width: *width,
-                    opened: Some(opened.to_owned()),
-                },
-                &[],
-            );
-        }
-    }
-
     /// The owner's work now ends at `head`, made on `from`, and takes the
     /// verdict of a check run heard before it. New work undoes every gate
     /// from the first that needs the check on it; work made again elsewhere,
@@ -1855,31 +1825,25 @@ fn collect_diff(core: &Core, diff: DiffWork) {
             return;
         }
     };
-    let owner = {
-        let mut state = core.boards.state.locked();
-        let Some(card) = state
-            .boards
-            .get_mut(&diff.project)
-            .and_then(|board| board.card_mut(diff.card).ok())
-        else {
-            return;
-        };
-        let owner = card.owner_id().map(str::to_owned);
-        let Some(slice) = card
-            .slice
-            .as_mut()
-            .filter(|slice| slice.head() == Some(diff.head.as_str()))
-        else {
-            return;
-        };
-        slice.add_evidence(&diff.gate, epoch_ms(), owner.clone(), None, proof, &[]);
-        slice.pages = pages;
-        core.boards.save(&mut state, &diff.project);
-        owner
+    let mut state = core.boards.state.locked();
+    let Some(card) = state
+        .boards
+        .get_mut(&diff.project)
+        .and_then(|board| board.card_mut(diff.card).ok())
+    else {
+        return;
     };
-    if let (true, Some(owner)) = (pages, owner) {
-        super::page::take(core, diff.project, diff.card, owner, diff.head);
-    }
+    let owner = card.owner_id().map(str::to_owned);
+    let Some(slice) = card
+        .slice
+        .as_mut()
+        .filter(|slice| slice.head() == Some(diff.head.as_str()))
+    else {
+        return;
+    };
+    slice.add_evidence(&diff.gate, epoch_ms(), owner, None, proof, &[]);
+    slice.pages = pages;
+    core.boards.save(&mut state, &diff.project);
 }
 
 /// The change from `base` to `head`, and whether it touches the project's pages.
@@ -1894,7 +1858,7 @@ fn diff_of(repo: &Path, base: &str, head: &str) -> Result<(Proof, bool), String>
         };
         added += plus.parse::<u64>().unwrap_or(0);
         removed += minus.parse::<u64>().unwrap_or(0);
-        pages |= super::page::is_page_file(path);
+        pages |= crate::server::pictures::is_page_file(path);
         if files.len() < DIFF_FILES {
             files.push(path.to_owned());
         }

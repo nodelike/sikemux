@@ -19,7 +19,7 @@ use crate::manager::BrowserManager;
 use crate::native::{self, Mouse};
 use crate::viewport::Viewport;
 use crate::{Tab, BLANK_URL};
-use sikemux_base::cli::protocol::{HarnessRequest, PAGE_REPLY_TIMEOUT};
+use sikemux_base::cli::protocol::{HarnessRequest, BROWSER_PICTURE_METHOD, PAGE_REPLY_TIMEOUT};
 
 use crate::native::EVAL_TIMEOUT;
 use crate::{PAGE_SCRIPT, RECORDS_SCRIPT};
@@ -72,7 +72,7 @@ pub fn execute(
         .ok_or("browser tools need the agent's id")?;
     let acts_on_a_tab = !matches!(
         request.method.as_str(),
-        "browser.tab.close" | "browser.page"
+        "browser.tab.close" | "browser.page" | BROWSER_PICTURE_METHOD
     );
     let mut marks = Vec::new();
     if acts_on_a_tab {
@@ -810,6 +810,19 @@ async fn run(
             size["tabId"] = json!(tab_id);
             size["held"] = json!(manager.viewport(agent_id, &tab_id));
             Ok(size)
+        }
+        BROWSER_PICTURE_METHOD => {
+            let url = text("url").ok_or("url is required")?;
+            let width = text("width").ok_or("width is required")?;
+            let fixed =
+                Viewport::preset(&width).ok_or("width must be desktop, tablet or mobile")?;
+            let image = manager.picture_at(agent_id, &url, fixed).await?;
+            Ok(json!({
+                "url": url,
+                "width": fixed.width,
+                "mimeType": "image/jpeg",
+                "data": base64::engine::general_purpose::STANDARD.encode(&image),
+            }))
         }
         "browser.page" => {
             let source = std::path::PathBuf::from(text("path").ok_or("path is required")?);

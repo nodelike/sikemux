@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
+use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 use sikemux_view::calls::CallResult;
 use sikemux_view::chat::FailureKind;
@@ -32,6 +33,8 @@ pub(crate) struct Work {
     /// The commit its checkout was at, which the project's check is looked up by.
     pub head: Option<String>,
     pub project: String,
+    /// The turn changed a page, and the agent's checkout can be served to look at it.
+    pub can_try: bool,
 }
 
 /// How the agent's latest turn ended, as [`inbox::Turns`] keeps it.
@@ -269,6 +272,18 @@ fn done(core: &Core, agent_id: &str, ended: &Ended) -> TurnDone {
     let can_roll_back = shipped.as_ref().is_some_and(|outcome| outcome.roll_back);
     let mut next = next_steps(changes, places.unwrap_or_default());
     next.retain(|next| next.step != TurnStep::RollBack || can_roll_back);
+    if work.is_some_and(|work| work.can_try) && changes != WorkAt::None {
+        for step in &mut next {
+            step.primary = false;
+        }
+        next.insert(
+            0,
+            NextStep {
+                step: TurnStep::TryIt,
+                primary: true,
+            },
+        );
+    }
     TurnDone {
         changes,
         checks,
@@ -320,8 +335,18 @@ pub(crate) fn read_work(core: &Core, agent_id: &str) {
         let Some(work) = work_of(&core, &agent_id) else {
             return;
         };
+        let shows = (work.can_try).then(|| (work.project.clone(), work.changes));
         if core.inbox.keep_work(&agent_id, work) {
             core.changed(What::View);
+        }
+        let Some((project, changes)) = shows else {
+            return;
+        };
+        let unchecked = changes == WorkAt::Uncommitted
+            || super::checks::project_check(&core, &project).is_err();
+        let started = core.inbox.ending(&agent_id).map(|ended| ended.started_at);
+        if let (true, Some(turn)) = (unchecked, started) {
+            super::pictures::take(&core, &agent_id, &project, turn);
         }
     });
 }
@@ -336,6 +361,7 @@ fn work_of(core: &Arc<Core>, agent_id: &str) -> Option<Work> {
         .unwrap_or_else(|| core.workspaces.project_of(&cwd));
     let handoff = inbox::handoff(core, agent_id);
     let head = Git::quick(&cwd).trimmed(&["rev-parse", "HEAD"]).ok();
+    let pages = (handoff.files.iter()).any(|file| super::pictures::is_page_file(file));
     let changes = if handoff.uncommitted {
         WorkAt::Uncommitted
     } else if handoff.edited == 0 && !core.inbox.changed_in_turn(agent_id) {
@@ -347,10 +373,13 @@ fn work_of(core: &Arc<Core>, agent_id: &str) -> Option<Work> {
             _ => WorkAt::Committed,
         }
     };
+    let can_try =
+        pages && changes != WorkAt::None && super::pictures::servable(core, agent_id, &cwd);
     Some(Work {
         changes,
         head,
         project,
+        can_try,
     })
 }
 
@@ -494,7 +523,9 @@ pub(crate) async fn take_step(core: &Arc<Core>, params: TakeStepParams) -> CoreR
         TurnStep::ShipProduction => "Ship this to production.",
         TurnStep::RollBack => "Roll back the last production deploy.",
         TurnStep::CarryOn => "Carry on with what is left.",
-        TurnStep::TryIt | TurnStep::Unknown => {
+        TurnStep::Undo => "Take your commits back out of the project's branch: revert them there, as the project lands changes.",
+        TurnStep::TryIt => return try_it(core, &params.agent_id).await,
+        TurnStep::Unknown => {
             return Err(CoreError::from(
                 "This step is not something Sikemux can take yet",
             ));
@@ -505,4 +536,20 @@ pub(crate) async fn take_step(core: &Arc<Core>, params: TakeStepParams) -> CoreR
         super::chat::calls::PromptChatParams::new(params.agent_id, text.to_owned()),
     )
     .await
+}
+
+/// Opens the page the agent's checkout serves on its desk, starting the project's process there
+/// when nothing serves it yet.
+async fn try_it(core: &Arc<Core>, agent_id: &str) -> CoreResult<()> {
+    let url = super::pictures::serve(core, agent_id).await?;
+    let project = (core.names.get(agent_id).map(|named| named.project)).unwrap_or_default();
+    let opened = crate::cli::protocol::HarnessRequest {
+        id: format!("try-it-{}", epoch_ms()),
+        project,
+        agent_id: Some(agent_id.to_owned()),
+        method: "browser.navigate".to_owned(),
+        params: serde_json::json!({ "url": url, "newTab": true, "report": "outcome" }),
+    };
+    super::harness::forward(core, opened).await?;
+    Ok(())
 }

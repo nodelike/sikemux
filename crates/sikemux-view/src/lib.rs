@@ -22,6 +22,7 @@ pub mod prefs;
 pub mod push;
 pub mod questions;
 pub mod share;
+pub mod shown;
 pub mod slice;
 pub mod start;
 pub mod theme;

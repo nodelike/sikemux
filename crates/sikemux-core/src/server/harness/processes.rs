@@ -280,6 +280,29 @@ pub(super) fn launch(
     });
 }
 
+/// Starts the project's process `task_id` in the checkout at `dir` for `agent_id`, so the page
+/// that checkout serves can be looked at, or finds the run of it already going there. Answers
+/// the run's id.
+pub(crate) fn start_for_agent(
+    core: &Arc<Core>,
+    dir: &str,
+    agent_id: &str,
+    task_id: &str,
+) -> Result<String, String> {
+    let params = json!({ "processId": task_id });
+    let key = format!("served:{agent_id}:{task_id}");
+    match begin_start(core, dir, Some(agent_id), &params, &key, false)? {
+        Begun::Existing(execution_id) => Ok(execution_id),
+        Begun::New {
+            execution_id,
+            previous,
+        } => {
+            launch(core, execution_id.clone(), previous, false);
+            Ok(execution_id)
+        }
+    }
+}
+
 /// The person starts a task, in place of whatever else they run in that
 /// project. Answers the new run's id.
 pub(crate) fn start_for_person(

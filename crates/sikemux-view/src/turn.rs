@@ -153,6 +153,8 @@ pub enum TurnStep {
     TryIt,
     /// Tells a stopped agent to go on with what is left.
     CarryOn,
+    /// Tells a worker to take its landed commits back out.
+    Undo,
     /// A value a newer core sends.
     #[serde(other)]
     Unknown,

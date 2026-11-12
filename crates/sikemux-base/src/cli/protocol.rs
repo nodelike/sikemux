@@ -240,8 +240,11 @@ pub const SHIP_CHECK_METHOD: &str = "ship.check";
 /// How a deploy the core let go ended, from the shim that ran it.
 pub const SHIP_RAN_METHOD: &str = "ship.ran";
 
+/// What the core asks the window for: a page taken at a width off screen, not a tool.
+pub const BROWSER_PICTURE_METHOD: &str = "browser.picture";
+
 pub fn is_browser_method(method: &str) -> bool {
-    BROWSER_METHODS.contains(&method)
+    BROWSER_METHODS.contains(&method) || method == BROWSER_PICTURE_METHOD
 }
 
 /// Set on a reviewer Auto starts, and on its tools server, to `reviewer`, which

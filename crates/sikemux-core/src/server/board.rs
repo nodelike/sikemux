@@ -53,7 +53,6 @@ mod hand_off;
 pub(crate) mod lease;
 mod migrate;
 pub(crate) mod offers;
-mod page;
 pub(crate) mod proof;
 mod queue;
 mod record;
