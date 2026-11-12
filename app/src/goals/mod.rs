@@ -28,8 +28,6 @@ use sikemux_core::server::memory::KeepSeededParams;
 use sikemux_core::server::memory::MemoryEntryParams;
 use sikemux_core::server::memory::MemoryParams;
 use sikemux_view::inbox::{InboxCard, InboxDigest, InboxItem, InboxKind};
-use sikemux_view::layout::OpenTab;
-use sikemux_view::layout::PaneKind;
 use sikemux_view::memory::{MemoryView, Seeding};
 use sikemux_view::slice::{
     CheckRun, Decision, Gate, GateState, GateView, GoalSummaryParams, GoalSummaryView, Need,
@@ -47,7 +45,6 @@ use crate::theme::{Tokens, SPACE_1H, TEXT_SM};
 use crate::ui;
 use crate::workbench::Workbench;
 use sikemux_core::server::inbox::DigestParams;
-use sikemux_core::server::workspace::SessionChoice;
 
 mod assertions;
 mod changes;
