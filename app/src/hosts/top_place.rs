@@ -154,6 +154,7 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
                 .into_iter()
                 .flatten(),
         )
+        .children(crate::calls::chip(bench, cx))
         .into_any_element()
 }
 

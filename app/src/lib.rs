@@ -11,6 +11,7 @@ mod battery;
 mod board;
 mod boot;
 mod buddy_picker;
+mod calls;
 mod chat;
 mod closing;
 #[cfg(target_os = "macos")]

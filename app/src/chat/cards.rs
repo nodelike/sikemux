@@ -125,8 +125,8 @@ pub(super) fn permission(
     )
 }
 
-/// What the inbox holds for the agent to approve, over the composer: an action that leaves this
-/// machine with its exact command, or a gate with the evidence it leads with.
+/// A gate the agent waits at for the person to pass, over the composer, with the evidence it
+/// leads with.
 pub(super) fn approval(
     workbench: &Workbench,
     agent: &str,
@@ -141,47 +141,29 @@ pub(super) fn approval(
         .min_w_0()
         .truncate()
         .text_color(t.text_primary);
-    let row = div().flex().items_center().gap(SPACE_2H);
-    let body = match &item.hold {
-        Some(hold) => div()
-            .flex()
-            .flex_col()
-            .gap(SPACE_1H)
-            .child(
-                row.child(ui::icon(Icon::Shield, 14.).flex_none().text_color(t.warn))
-                    .child(said)
-                    .child(div().flex_1())
-                    .child(crate::approvals::ship_buttons(hold, busy, target, bench)),
-            )
-            .child(
-                ui::mono(hold.what.clone(), TEXT_XS, cx)
-                    .whitespace_normal()
-                    .text_color(t.text_secondary),
-            )
-            .children(hold.why.clone().map(|why| {
-                ui::text(why, TEXT_2XS, FontWeight::NORMAL).text_color(t.text_tertiary)
-            })),
-        None => row
-            .children(item.evidence.as_ref().map(|evidence| {
-                let face = crate::ui::evidence::thumb_face(evidence, false, cx);
-                evidence_opens(evidence, face, cx)
-            }))
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .flex_1()
-                    .min_w_0()
-                    .gap(SPACE_0)
-                    .child(said)
-                    .children(item.detail.clone().map(|detail| {
-                        ui::text(detail, TEXT_2XS, FontWeight::NORMAL)
-                            .truncate()
-                            .text_color(t.text_tertiary)
-                    })),
-            )
-            .children(crate::approvals::pass_button(item, busy, target, bench)),
-    };
+    let body = div()
+        .flex()
+        .items_center()
+        .gap(SPACE_2H)
+        .children(item.evidence.as_ref().map(|evidence| {
+            let face = crate::ui::evidence::thumb_face(evidence, false, cx);
+            evidence_opens(evidence, face, cx)
+        }))
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .flex_1()
+                .min_w_0()
+                .gap(SPACE_0)
+                .child(said)
+                .children(item.detail.clone().map(|detail| {
+                    ui::text(detail, TEXT_2XS, FontWeight::NORMAL)
+                        .truncate()
+                        .text_color(t.text_tertiary)
+                })),
+        )
+        .children(crate::approvals::pass_button(item, busy, target, bench));
     div().p(SPACE_3).child(body).into_any_element()
 }
 

@@ -20,7 +20,8 @@ use crate::ui::{Button, Variant};
 use crate::workbench::Workbench;
 
 impl Workbench {
-    /// What the inbox holds for `agent` to approve, in the core's order.
+    /// The gates `agent` waits at for the person to pass, in the core's order. Its held actions
+    /// are calls, which its chat draws as their cards.
     pub fn approvals_of(&self, agent: &str) -> Vec<InboxItem> {
         let view = self.view_at(self.chat_target(agent).place());
         view.map_or(Vec::new(), |view| {
@@ -28,7 +29,7 @@ impl Workbench {
                 .filter(|item| {
                     item.need.is_some()
                         && item.agent_id.as_deref() == Some(agent)
-                        && matches!(item.kind, InboxKind::Ship | InboxKind::Gate)
+                        && item.kind == InboxKind::Gate
                 })
                 .cloned()
                 .collect()

@@ -179,6 +179,7 @@ impl Workbench {
             }
         }
         crate::agents::settled::tell(self, &place, &settled_before, cx);
+        self.keep_cards(cx);
         self.settle_closing();
         self.keep_terminals();
         crate::editor::keep(self, cx);

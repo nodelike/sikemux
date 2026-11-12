@@ -1223,6 +1223,15 @@ fn faces(agents: &[AgentRow], cx: &App) -> impl IntoElement {
 /// How a project's open agents stand together on every host that holds it, as each core rolls
 /// them up; none while all are idle.
 fn rollup(bench: &Workbench, folded: &Folded, cx: &App) -> Option<gpui_kit::AnyElement> {
+    let calls_wait = folded.copies.iter().any(|copy| {
+        (bench.project_on(&copy.place, &copy.project)).is_some_and(|project| {
+            crate::calls::waits_on_person(bench, &copy.place, &project.path.to_string_lossy())
+        })
+    });
+    let key = format!("project:{}", folded.key());
+    if calls_wait {
+        return ui::status_mark(&key, AgentStatus::Blocked, cx);
+    }
     let group = (folded.copies.iter())
         .filter_map(|copy| {
             let view = bench.view_at(&copy.place)?;
@@ -1235,7 +1244,7 @@ fn rollup(bench: &Workbench, folded: &Folded, cx: &App) -> Option<gpui_kit::AnyE
         AgentGroup::Done => AgentStatus::Done,
         AgentGroup::Idle => return None,
     };
-    ui::status_mark(&format!("project:{}", folded.key()), status, cx)
+    ui::status_mark(&key, status, cx)
 }
 
 /// The project's surfaces and its Playbook, hung off a spine with a tick to each, the one in

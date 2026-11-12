@@ -1252,10 +1252,16 @@ impl Workbench {
         }
         self.focus_draft(&agent, window, cx);
         let steer_first = self.preferences().mid_turn_send == MidTurnSend::Steer;
+        let call_waits = (self.chats.open.get(&agent))
+            .and_then(|chat| self.waiting_call(chat.target.place(), &agent))
+            .is_some();
         let Some(chat) = self.chats.open.get_mut(&agent) else {
             return;
         };
-        let hint = SharedString::from(chat.hint(&agent, self.feeds.questions(), steer_first));
+        let hint = SharedString::from(match call_waits {
+            true => "Or answer in your own words".to_owned(),
+            false => chat.hint(&agent, self.feeds.questions_outside_calls(), steer_first),
+        });
         let Some(composing) = chat
             .composer
             .as_mut()
@@ -1339,6 +1345,25 @@ impl Workbench {
                 .and_then(|chat| Some(chat.composer.as_ref()?.draft.read(cx).value().to_string()))
                 .unwrap_or_default();
             return self.begin_worktree(agent, text, cx);
+        }
+        let typed = (self.chats.open.get(agent))
+            .and_then(|chat| chat.composer.as_ref())
+            .map(|composing| (composing.draft.clone(), composing.outgoing(cx)));
+        if let Some((draft, outgoing)) = typed {
+            let text = draft.read(cx).value().trim().to_owned();
+            if !text.is_empty() && self.answer_in_chat(agent, &text, outgoing, cx) {
+                let composing =
+                    (self.chats.open.get_mut(agent)).and_then(|chat| chat.composer.as_mut());
+                if let Some(composing) = composing {
+                    composing.refusal = None;
+                    composing.attachments.clear();
+                    composing.context.clear();
+                    composing.tracked_context.clear();
+                }
+                draft.update(cx, |draft, cx| draft.set_value("", window, cx));
+                self.keep_draft(agent, cx);
+                return cx.notify();
+            }
         }
         let Some(composing) = self
             .chats
@@ -1441,7 +1466,7 @@ impl Workbench {
     ) {
         let open: Vec<&Question> = self
             .feeds
-            .questions()
+            .questions_outside_calls()
             .filter(|question| question.asks(agent))
             .collect();
         if let Some(ask) = self

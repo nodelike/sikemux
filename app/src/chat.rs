@@ -495,7 +495,7 @@ impl Reading {
 
 /// What the transcript draws after its last row.
 struct Footer {
-    pictures: AnyView,
+    calls: AnyView,
     activity: AnyView,
 }
 
@@ -505,7 +505,7 @@ impl Render for Footer {
             .w_full()
             .flex()
             .flex_col()
-            .child(self.pictures.clone())
+            .child(self.calls.clone())
             .child(self.activity.clone())
     }
 }
@@ -548,8 +548,8 @@ pub struct Chat {
     plan_open: bool,
     /// The line under the last row saying what the agent is doing.
     activity_line: Entity<status::Activity>,
-    /// The tiles of an open question whose choices show pictures, over the activity line.
-    pictures: Entity<PictureChoices>,
+    /// The calls the agent asks, over the activity line.
+    calls: Entity<crate::calls::InChat>,
     /// The core of the host the agent runs on, which every ask of the chat goes to.
     pub target: Target,
     /// The head as last changed.
@@ -610,12 +610,14 @@ impl Chat {
         provider: &str,
         bench: WeakEntity<Workbench>,
         target: Target,
+        cards: Entity<crate::calls::Cards>,
         cx: &mut App,
     ) -> Chat {
         let reader = cx.new(|_| Reading::default());
         let running = reader.read(cx).running.clone();
         let stage = bench.clone();
-        let pictures = cx.new(|_| PictureChoices::new(bench.clone(), agent.clone()));
+        let calls =
+            cx.new(|cx| crate::calls::InChat::new(bench.clone(), cards, target.clone(), cx));
         let chat = agent.clone();
         let looks = Rc::new(RefCell::new(Rc::new(Looks::new(
             Tokens::get(cx),
@@ -720,7 +722,7 @@ impl Chat {
         });
         let activity_line = cx.new(|_| status::Activity::new(provider));
         let footer = cx.new(|_| Footer {
-            pictures: pictures.clone().into(),
+            calls: calls.clone().into(),
             activity: activity_line.clone().into(),
         });
         transcript.update(cx, |transcript, cx| {
@@ -735,7 +737,7 @@ impl Chat {
             finding: None,
             plan_open: false,
             activity_line,
-            pictures,
+            calls,
             target,
             _rows: [emptied, rows_changed],
             state: None,
@@ -1092,6 +1094,14 @@ impl Chat {
     /// Whether the head changed since this was last asked.
     pub fn take_head_moved(&mut self) -> bool {
         std::mem::take(&mut self.head_moved)
+    }
+
+    /// When the newest row that says when it was written was, which a call answered after
+    /// stays under as a line saying so.
+    fn last_said(&self, cx: &App) -> u64 {
+        (self.transcript.read(cx).rows().iter().rev())
+            .find_map(|row| row.message.ended_at.or(row.message.sent_at))
+            .unwrap_or(0)
     }
 
     /// Draws the chat's text at `scale` times its designed size.
@@ -1564,22 +1574,11 @@ pub fn pane(
         .children(welcome.map(|welcome| crate::home::centred(welcome).absolute().inset_0()));
     let open: Vec<&Question> = bench
         .feeds
-        .questions()
+        .questions_outside_calls()
         .filter(|question| question.asks(&agent.id))
         .collect();
-    let tiles = chat
-        .current(&open)
-        .filter(|question| pictured(question))
-        .map(|question| OnShow {
-            question: question.asked.clone(),
-            chosen: chat.chosen(&question.id),
-            cursor: (chat.cursor.as_ref())
-                .filter(|(id, _)| *id == question.id)
-                .map(|(_, at)| *at),
-            sending: chat.sending_answers(),
-        });
-    chat.pictures
-        .update(cx, |pictures, cx| pictures.show(tiles, cx));
+    let calls = bench.calls_of(chat.target.place(), &agent.id, chat.last_said(cx));
+    chat.calls.update(cx, |shown, cx| shown.show(calls, cx));
     let permissions = chat
         .state
         .as_ref()
@@ -1597,7 +1596,7 @@ pub fn pane(
     }
     let answered: Vec<&Question> = bench
         .feeds
-        .questions()
+        .questions_outside_calls()
         .filter(|question| question.of(&agent.id, QuestionState::Answered))
         .collect();
     if !answered.is_empty() {
@@ -1780,7 +1779,7 @@ fn pressed<A: gpui::Action, F: Fn(&A) -> Press + 'static>(
         let taken = this.update(cx, |bench, cx| {
             let open: Vec<&Question> = bench
                 .feeds
-                .questions()
+                .questions_outside_calls()
                 .filter(|question| question.asks(&agent))
                 .collect();
             let chat = bench.chats.open.get_mut(&agent)?;
@@ -1901,6 +1900,7 @@ impl Workbench {
             &provider,
             cx.weak_entity(),
             Target::new(&self.asks, self.place()),
+            self.calls.clone(),
             cx,
         );
         chat.rescale(self.preferences().chat_text_scale as f32, cx);

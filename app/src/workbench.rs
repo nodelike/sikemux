@@ -170,6 +170,9 @@ pub struct Workbench {
     pub(crate) desk_news: crate::desk::DeskNews,
     pub sims: Entity<crate::sim::pane::Simulators>,
     _sim_news: Subscription,
+    /// What the person has done on the cards of the calls that wait on them.
+    pub calls: Entity<crate::calls::Cards>,
+    _calls_go: Subscription,
     pub(crate) _older: Option<Task<()>>,
 }
 
@@ -301,6 +304,7 @@ impl Workbench {
         ];
         let sims = cx.new(crate::sim::pane::Simulators::new);
         let desks = cx.new(|cx| crate::desk::Desks::new(window, cx));
+        let calls = cx.new(|_| crate::calls::Cards::default());
         let mut bench = Self {
             connection: crate::boot::Connection::default(),
             reads: Reads::default(),
@@ -371,6 +375,10 @@ impl Workbench {
             desks,
             _sim_news: cx.subscribe(&sims, Self::hear_sims),
             sims,
+            _calls_go: cx.subscribe(&calls, |bench, _, go: &crate::calls::GoWith, cx| {
+                bench.go_with(&go.0, cx)
+            }),
+            calls,
             _older: None,
         };
         bench.parts.stage_follows(&bench.sims, cx);
@@ -378,6 +386,10 @@ impl Workbench {
         bench.desk_news.follow(&bench.desks, &bench.sims, cx);
         bench.parts.stage_follows(&bench.editors, cx);
         bench.parts.stage_follows(&bench.settings, cx);
+        bench.parts.top.update(cx, |part, cx| {
+            part.stores
+                .push(cx.observe(&bench.calls, |_, _, cx| cx.notify()))
+        });
         bench.keys.focus.focus(window, cx);
         bench.wait_patiently(cx);
         crate::handover::follow(&mut bench, cx);

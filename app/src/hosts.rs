@@ -118,6 +118,10 @@ pub struct Feed {
 pub const STATS_FRESH: std::time::Duration = std::time::Duration::from_secs(30);
 
 impl Feed {
+    fn is_call(&self, id: &str) -> bool {
+        (self.view.as_ref()).is_some_and(|view| view.calls.iter().any(|call| call.id == id))
+    }
+
     /// The host's numbers while they are recent, from a host this window reaches.
     pub fn fresh_stats(&self) -> Option<&sikemux_view::host_stats::HostStats> {
         let recent = self.stats_seen?.elapsed() < STATS_FRESH;
@@ -213,6 +217,15 @@ impl Feeds {
     pub fn questions(&self) -> impl Iterator<Item = &Question> {
         let front = self.front.as_ref().and_then(|front| self.hosts.get(front));
         (self.this.questions.iter()).chain(front.into_iter().flat_map(|feed| &feed.questions))
+    }
+
+    /// The questions a chat answers outside a call: an assumption an agent went on that nobody
+    /// raised, which the person may still correct. Every other question reaches them as a call.
+    pub fn questions_outside_calls(&self) -> impl Iterator<Item = &Question> {
+        let front = self.front.as_ref().and_then(|front| self.hosts.get(front));
+        std::iter::once(&self.this).chain(front).flat_map(|feed| {
+            (feed.questions.iter()).filter(move |question| !feed.is_call(&question.id))
+        })
     }
 
     /// Forgets the hosts no longer linked to the account, as `listed` says.

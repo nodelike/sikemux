@@ -6,7 +6,6 @@ use super::*;
 use std::future::Future;
 use std::pin::Pin;
 
-use gpui_kit::{img, ObjectFit, StyledImage};
 use sikemux_core::server::call;
 use sikemux_core::server::questions::AnswerParams;
 use sikemux_core::server::questions::AnswersParams;
@@ -259,22 +258,10 @@ pub(super) fn questions(
             )
             .child(ui::icon(Icon::Chevron, 10.).text_color(t.text_disabled))
             .into_any_element()
-    } else if pictured(current) {
-        picked_line(agent, chat, open, current, &t, cx)
     } else {
         asking(agent, chat, open, current, &t, cx).into_any_element()
     };
     Some(body)
-}
-
-/// Whether the question's choices show pictures, which the chat draws as tiles in the
-/// transcript rather than as rows over the composer.
-pub(super) fn pictured(question: &AgentQuestion) -> bool {
-    !question.secret
-        && question
-            .choices
-            .iter()
-            .any(|choice| choice.picture.is_some())
 }
 
 /// A tab for each open question, the one on show chosen; a click shows another.
@@ -397,103 +384,6 @@ fn send_button(
                 .text_color(t.text_disabled)
                 .child("⌘↵"),
         )
-}
-
-/// The dock of a question whose choices are tiles in the transcript: one line saying what is
-/// picked, the way back to the tiles once they scrolled away, and Send.
-fn picked_line(
-    agent: &str,
-    chat: &Chat,
-    open: &[&Question],
-    current: &Question,
-    t: &Tokens,
-    cx: &mut Context<Workbench>,
-) -> AnyElement {
-    let picked = match chat.picks.get(&current.id) {
-        Some(Pick {
-            answer: Answer::Choice(ix),
-            shown,
-        }) => Some(format!("{} · {shown}", ix + 1)),
-        Some(pick) => Some(pick.shown.clone()),
-        None => None,
-    };
-    let said = match &picked {
-        Some(picked) => div()
-            .flex()
-            .min_w_0()
-            .gap(SPACE_1H)
-            .child(
-                div()
-                    .flex_none()
-                    .text_color(t.text_tertiary)
-                    .child("Picked"),
-            )
-            .child(
-                div()
-                    .min_w_0()
-                    .truncate()
-                    .font_weight(FontWeight::MEDIUM)
-                    .text_color(t.text_primary)
-                    .child(picked.clone()),
-            ),
-        None => div()
-            .text_color(t.text_tertiary)
-            .child(match current.multi {
-                true => "Pick any above",
-                false => "Pick one above",
-            }),
-    };
-    let away = chat.transcript.read(cx).away();
-    let back = away.then(|| {
-        let agent = agent.to_owned();
-        let hover = t.text_primary;
-        BaseButton::new("question-show-choices")
-            .flex_none()
-            .flex()
-            .items_center()
-            .gap(SPACE_1)
-            .text_color(t.text_secondary)
-            .hover(move |style| style.text_color(hover))
-            .on_click(cx.listener(move |bench, _, _, cx| bench.show_latest(&agent, cx)))
-            .child(ui::icon(Icon::ArrowUp, 10.).text_color(t.text_secondary))
-            .child("Show choices")
-    });
-    let count = current.choices.len();
-    let hint = format!(
-        "1–{count} to {}",
-        if picked.is_some() { "change" } else { "pick" }
-    );
-    let ready = open
-        .iter()
-        .all(|question| chat.picks.contains_key(&question.id));
-    div()
-        .flex()
-        .items_center()
-        .gap(SPACE_2)
-        .px(SPACE_1H)
-        .py(SPACE_1H)
-        .text_size(crate::theme::ui_text(TEXT_XS))
-        .child(
-            div()
-                .flex()
-                .flex_none()
-                .max_w(relative(0.4))
-                .gap(SPACE_1)
-                .overflow_hidden()
-                .children(question_tabs(agent, chat, open, current, t, cx)),
-        )
-        .child(said)
-        .children(back)
-        .child(div().flex_1())
-        .child(
-            div()
-                .flex_none()
-                .text_size(crate::theme::ui_text(TEXT_2XS))
-                .text_color(t.text_disabled)
-                .child(hint),
-        )
-        .child(send_button(agent, ready, chat.sending_answers(), t, cx))
-        .into_any_element()
 }
 
 pub(super) fn asking(
@@ -732,251 +622,6 @@ pub(super) fn asking(
         .children(secret)
 }
 
-/// The open question whose choices show pictures, drawn after the chat's last row, under the
-/// reply that asked it: what it asks, then a tile for each choice, two to a line.
-pub struct PictureChoices {
-    bench: WeakEntity<Workbench>,
-    agent: String,
-    shown: Option<OnShow>,
-}
-
-/// The question the tiles show and where the person stands with it.
-#[derive(Clone, PartialEq)]
-pub(super) struct OnShow {
-    pub question: AgentQuestion,
-    pub chosen: Vec<usize>,
-    pub cursor: Option<usize>,
-    pub sending: bool,
-}
-
-impl PictureChoices {
-    pub(super) fn new(bench: WeakEntity<Workbench>, agent: String) -> Self {
-        Self {
-            bench,
-            agent,
-            shown: None,
-        }
-    }
-
-    pub(super) fn show(&mut self, shown: Option<OnShow>, cx: &mut Context<Self>) {
-        if self.shown != shown {
-            self.shown = shown;
-            cx.notify();
-        }
-    }
-}
-
-impl Render for PictureChoices {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let Some(shown) = &self.shown else {
-            return div().into_any_element();
-        };
-        let t = Tokens::get(cx).clone();
-        let mut tiles = (0..shown.question.choices.len())
-            .map(|ix| tile(&self.bench, &self.agent, shown, ix, &t, cx));
-        let cell = |tile: Option<AnyElement>| div().flex_1().min_w_0().flex().children(tile);
-        let mut lines = Vec::new();
-        while let Some(first) = tiles.next() {
-            lines.push(
-                div()
-                    .flex()
-                    .gap(SPACE_2)
-                    .child(cell(Some(first)))
-                    .child(cell(tiles.next())),
-            );
-        }
-        let mut asked = shown.question.text.clone();
-        let plain = asked.len();
-        asked.push_str(match shown.question.multi {
-            true => " Pick any below.",
-            false => " Pick one below.",
-        });
-        let faint = HighlightStyle {
-            color: Some(t.text_tertiary),
-            ..Default::default()
-        };
-        div()
-            .w_full()
-            .flex()
-            .justify_center()
-            .child(
-                div()
-                    .w_full()
-                    .max_w(px(800.))
-                    .px(px(22.))
-                    .pt(SPACE_2)
-                    .pb(SPACE_3)
-                    .flex()
-                    .flex_col()
-                    .gap(SPACE_2)
-                    .child(
-                        div()
-                            .pb(SPACE_1)
-                            .text_size(crate::theme::ui_text(13.5))
-                            .line_height(relative(1.5))
-                            .text_color(t.text_primary)
-                            .child(crate::ui::selectable::selectable(
-                                SharedString::from(format!("question-tiles-{}", shown.question.id)),
-                                asked.clone(),
-                                [(plain..asked.len(), faint)],
-                            )),
-                    )
-                    .children(lines),
-            )
-            .into_any_element()
-    }
-}
-
-/// A choice and its picture as a tile. A click picks it, and on the tile already picked opens
-/// the picture full size.
-fn tile(
-    bench: &WeakEntity<Workbench>,
-    agent: &str,
-    shown: &OnShow,
-    ix: usize,
-    t: &Tokens,
-    cx: &App,
-) -> AnyElement {
-    let choice = &shown.question.choices[ix];
-    let chosen = shown.chosen.contains(&ix);
-    let picture = choice
-        .picture
-        .as_deref()
-        .map(|path| Picture::File(std::path::PathBuf::from(path)));
-    let (bench, agent, id) = (bench.clone(), agent.to_owned(), shown.question.id.clone());
-    let enlarge = picture.clone().map(|picture| {
-        let (bench, title) = (bench.clone(), SharedString::from(choice.label.clone()));
-        div()
-            .absolute()
-            .top(SPACE_1H)
-            .right(SPACE_1H)
-            .rounded(theme::RADIUS_2)
-            .bg(t.surface_raised)
-            .child(
-                IconButton::new(
-                    SharedString::from(format!("question-tile-view-{id}-{ix}")),
-                    Icon::Eye,
-                    "View full size",
-                )
-                .small()
-                .on_click(move |_, window, cx| {
-                    cx.stop_propagation();
-                    bench
-                        .update(cx, |bench, cx| {
-                            bench.show_picture_titled(picture.clone(), title.clone(), window, cx)
-                        })
-                        .ok();
-                }),
-            )
-    });
-    let shot = div()
-        .relative()
-        .w_full()
-        .aspect_ratio(TILE_RATIO)
-        .rounded(theme::RADIUS_2)
-        .overflow_hidden()
-        .bg(t.surface_sunken)
-        .children(picture.map(|picture| {
-            img(picture.source_at(px(TILE_PICTURE)))
-                .size_full()
-                .object_fit(ObjectFit::Contain)
-        }))
-        .children(enlarge);
-    let named = div()
-        .flex_grow(1.)
-        .min_w_0()
-        .flex()
-        .items_center()
-        .gap(SPACE_1H)
-        .when(chosen, |named| {
-            named.child(ui::icon(Icon::Check, 11.).text_color(t.text_primary))
-        })
-        .child(
-            div().min_w_0().truncate().child(
-                ui::text(choice.label.clone(), TEXT_SM, FontWeight::MEDIUM)
-                    .line_height(crate::theme::ui_text(19.)),
-            ),
-        );
-    // On a narrow tile the mark and number drop under the label rather than cutting it short.
-    let label = div()
-        .flex()
-        .flex_wrap()
-        .items_center()
-        .gap_x(SPACE_2)
-        .child(named)
-        .child(
-            div()
-                .ml_auto()
-                .flex()
-                .flex_none()
-                .items_center()
-                .gap(SPACE_1H)
-                .when(choice.recommended, |end| {
-                    end.child(ui::caps("Recommended", cx).text_color(t.accent))
-                })
-                .child(ui::kbd((ix + 1).to_string(), cx).line_height(crate::theme::ui_text(19.))),
-        );
-    let note = choice.detail.clone().map(|note| {
-        div()
-            .text_size(crate::theme::ui_text(TEXT_XS))
-            .line_height(relative(1.45))
-            .text_color(t.text_tertiary)
-            .line_clamp(2)
-            .child(note)
-    });
-    let hover = theme::over(t.surface_hover, t.surface_raised);
-    BaseButton::new(SharedString::from(format!("question-tile-{id}-{ix}")))
-        .bg(t.surface_raised)
-        .w_full()
-        .p(SPACE_1H)
-        .flex()
-        .flex_col()
-        .justify_start()
-        .gap(SPACE_1H)
-        .rounded(theme::RADIUS_3)
-        .border_1()
-        .border_color(if chosen { t.border_selected } else { t.border })
-        .when(chosen, |tile| {
-            tile.bg(theme::over(t.surface_chosen, t.surface_raised))
-        })
-        .when(!chosen && shown.cursor == Some(ix), |tile| tile.bg(hover))
-        .when(!chosen && shown.cursor != Some(ix), |tile| {
-            tile.hover(move |style| style.bg(hover))
-        })
-        .text_color(if chosen {
-            t.text_primary
-        } else {
-            t.text_secondary
-        })
-        .child(shot)
-        .child(
-            div()
-                .w_full()
-                .px(SPACE_1)
-                .pb(SPACE_1)
-                .child(label)
-                .children(note),
-        )
-        .disabled(shown.sending)
-        .on_click(move |_, window, cx| {
-            bench
-                .update(cx, |bench, cx| {
-                    bench.answer(
-                        &agent,
-                        |chat, open| chat.choose(&id, ix, open).map(Into::into),
-                        cx,
-                    );
-                    bench.focus_answer(&agent, window, cx);
-                    cx.notify();
-                })
-                .ok();
-        })
-        .into_any_element()
-}
-
-const TILE_RATIO: f32 = 2.;
-const TILE_PICTURE: f32 = 800.;
-
 pub(super) fn answer_row(
     id: SharedString,
     chosen: bool,
@@ -1182,15 +827,6 @@ impl Chat {
         self.failed(error);
     }
 
-    /// The choices of question `id` the person picked or ticked.
-    pub(super) fn chosen(&self, id: &str) -> Vec<usize> {
-        match self.picks.get(id).map(|pick| &pick.answer) {
-            Some(Answer::Choice(choice)) => vec![*choice],
-            Some(Answer::Choices(choices)) => choices.clone(),
-            _ => Vec::new(),
-        }
-    }
-
     /// Answers on their way to the core keep the questions from being answered again.
     pub fn sending_answers(&self) -> bool {
         !self.answering.is_empty()
@@ -1329,11 +965,6 @@ impl Chat {
                 answer: Answer::Choice(choice),
                 shown: label(&choice).to_owned(),
             };
-            if pictured(question) {
-                self.picks.insert(id.to_owned(), pick);
-                self.cursor = None;
-                return None;
-            }
             return self.pick(id, pick, open);
         }
         let mut ticked = match self.picks.remove(id) {
@@ -1416,7 +1047,7 @@ impl Workbench {
         };
         let open: Vec<&Question> = self
             .feeds
-            .questions()
+            .questions_outside_calls()
             .filter(|question| question.asks(&agent))
             .collect();
         let Some(chat) = self.chats.open.get_mut(&agent) else {
@@ -1490,7 +1121,7 @@ impl Workbench {
         let chat = self.chats.open.get(&agent.id)?;
         let open: Vec<&Question> = self
             .feeds
-            .questions()
+            .questions_outside_calls()
             .filter(|question| question.asks(&agent.id))
             .collect();
         let asking = chat.current(&open).is_some() && !chat.is_folded(&open);
