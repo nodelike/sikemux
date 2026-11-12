@@ -363,6 +363,16 @@ pub(super) fn grok_prose(session_dir: &Path, prose: &mut dyn Hear) {
 pub(crate) struct Grok;
 
 impl AgentOps for Grok {
+    fn usage<'a>(
+        &self,
+        _program: &'a Path,
+        config_path: Option<&'a str>,
+    ) -> Option<Pending<'a, Result<crate::agent_accounts::usage::Usage, String>>> {
+        Some(Box::pin(crate::agent_accounts::plan_limits::grok(
+            config_path,
+        )))
+    }
+
     /// The plugin whose hook checks its shell commands, since its login
     /// profile's PATH puts the system's git ahead of Sikemux's.
     fn acp_plugin(&self) -> Option<&'static Path> {

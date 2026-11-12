@@ -112,6 +112,21 @@ pub struct Routed {
     pub rank: u8,
 }
 
+/// A model an agent's CLI runs from release `since` on.
+pub struct ModelSince {
+    pub model: &'static str,
+    pub label: &'static str,
+    pub since: &'static str,
+}
+
+/// Where an agent's newest release is announced.
+pub enum Latest {
+    /// The npm package it is published as.
+    Npm(&'static str),
+    /// Its own arguments that print JSON naming the newest release as `latestVersion`.
+    Command(&'static [&'static str]),
+}
+
 pub enum ProviderUse {
     /// Sikemux points it at one in place of its maker's account.
     Routed,
@@ -145,6 +160,12 @@ pub struct AgentEntry {
     pub install: Option<&'static str>,
     /// The arguments that start its own sign-in.
     pub login: Option<&'static [&'static str]>,
+    /// The arguments of its own updater; without one, its installer updates it.
+    pub update: Option<&'static [&'static str]>,
+    /// The models its CLI runs only from a release on, so an update can say what it brings.
+    pub models_since: &'static [ModelSince],
+    /// Where its newest release is announced.
+    pub latest: Option<Latest>,
     /// Arguments that answer whether the CLI runs, without side effects.
     pub probe: &'static [&'static str],
     /// Where its installers put the CLI off PATH.
@@ -180,6 +201,30 @@ pub const AGENTS: &[AgentEntry] = &[
         efforts: &["low", "medium", "high", "xhigh", "max"],
         install: Some("curl -fsSL https://claude.ai/install.sh | bash"),
         login: Some(&["auth", "login"]),
+        update: Some(&["update"]),
+        models_since: &[
+            ModelSince {
+                model: "claude-opus-5-5",
+                label: "Opus 5.5",
+                since: "2.1.280",
+            },
+            ModelSince {
+                model: "claude-sonnet-5-5",
+                label: "Sonnet 5.5",
+                since: "2.1.284",
+            },
+            ModelSince {
+                model: "claude-haiku-5-5",
+                label: "Haiku 5.5",
+                since: "2.1.293",
+            },
+            ModelSince {
+                model: "claude-fable-5-2",
+                label: "Fable 5.2",
+                since: "2.1.321",
+            },
+        ],
+        latest: Some(Latest::Npm("@anthropic-ai/claude-code")),
         probe: &["--version"],
         install_paths: &["~/.claude/local/claude", "~/.claude/bin/claude"],
         git_shim_args: &[],
@@ -231,6 +276,25 @@ pub const AGENTS: &[AgentEntry] = &[
         efforts: &["minimal", "low", "medium", "high", "xhigh", "max"],
         install: Some("curl -fsSL https://chatgpt.com/codex/install.sh | sh"),
         login: Some(&["login"]),
+        update: None,
+        models_since: &[
+            ModelSince {
+                model: "gpt-6-astra",
+                label: "GPT-6 Astra",
+                since: "0.154.0",
+            },
+            ModelSince {
+                model: "gpt-6-sol",
+                label: "GPT-6 Sol",
+                since: "0.156.1",
+            },
+            ModelSince {
+                model: "gpt-6-luna",
+                label: "GPT-6 Luna",
+                since: "0.156.1",
+            },
+        ],
+        latest: Some(Latest::Npm("@openai/codex")),
         probe: &["--version"],
         install_paths: &["/Applications/ChatGPT.app/Contents/Resources/codex"],
         git_shim_args: &["-c", "allow_login_shell=false"],
@@ -282,6 +346,9 @@ pub const AGENTS: &[AgentEntry] = &[
         ],
         install: Some("curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash"),
         login: Some(&["model"]),
+        update: Some(&["update"]),
+        models_since: &[],
+        latest: None,
         probe: &["--help"],
         install_paths: &[],
         git_shim_args: &[],
@@ -335,6 +402,9 @@ pub const AGENTS: &[AgentEntry] = &[
         efforts: &["off", "minimal", "low", "medium", "high", "xhigh", "max"],
         install: Some("curl -fsSL https://pi.dev/install.sh | sh"),
         login: None,
+        update: Some(&["update", "self"]),
+        models_since: &[],
+        latest: Some(Latest::Npm("@earendil-works/pi-coding-agent")),
         probe: &["--version"],
         install_paths: &[],
         git_shim_args: &[],
@@ -366,7 +436,7 @@ pub const AGENTS: &[AgentEntry] = &[
         maker: None,
         featured: false,
         accounts: false,
-        usage: false,
+        usage: true,
         deletable_chats: false,
         resumes_by_path: false,
         relocatable_sessions: false,
@@ -376,6 +446,9 @@ pub const AGENTS: &[AgentEntry] = &[
         efforts: &[],
         install: Some("curl -fsSL https://opencode.ai/install | bash"),
         login: Some(&["auth", "login"]),
+        update: Some(&["upgrade"]),
+        models_since: &[],
+        latest: Some(Latest::Npm("opencode-ai")),
         probe: &["--version"],
         install_paths: &["~/.opencode/bin/opencode"],
         git_shim_args: &[],
@@ -417,6 +490,9 @@ pub const AGENTS: &[AgentEntry] = &[
         efforts: &["off", "minimal", "low", "medium", "high", "xhigh", "max"],
         install: Some("curl -fsSL https://omp.sh/install | sh"),
         login: Some(&["login"]),
+        update: Some(&["update"]),
+        models_since: &[],
+        latest: Some(Latest::Npm("@oh-my-pi/pi-coding-agent")),
         probe: &["--version"],
         install_paths: &[],
         git_shim_args: &[],
@@ -448,7 +524,7 @@ pub const AGENTS: &[AgentEntry] = &[
         maker: Some("xAI"),
         featured: false,
         accounts: false,
-        usage: false,
+        usage: true,
         deletable_chats: false,
         resumes_by_path: false,
         relocatable_sessions: false,
@@ -458,6 +534,9 @@ pub const AGENTS: &[AgentEntry] = &[
         efforts: &["none", "minimal", "low", "medium", "high", "xhigh", "max"],
         install: Some("curl -fsSL https://x.ai/cli/install.sh | bash"),
         login: Some(&["login"]),
+        update: Some(&["update"]),
+        models_since: &[],
+        latest: Some(Latest::Command(&["update", "--check", "--json"])),
         probe: &["--version"],
         install_paths: &["~/.grok/bin/grok"],
         git_shim_args: &[],
@@ -508,6 +587,9 @@ pub const AGENTS: &[AgentEntry] = &[
         efforts: &["minimal", "low", "medium", "high", "xhigh", "max", "ultra"],
         install: None,
         login: None,
+        update: None,
+        models_since: &[],
+        latest: None,
         probe: &["--version"],
         install_paths: &[],
         git_shim_args: &[],

@@ -259,6 +259,7 @@ calls! { core, client, method, params;
     "agentStatus": Full, any_program => answer(agent_accounts::status(&core, parse(params)?).await?),
     "installedAgents": Full, any_program => answer(agent_accounts::installed(&core).await?),
     "agentSetup" AgentSetup (NoParams) -> Vec<agent_accounts::Installed>: Full, any_program => agent_accounts::setup(&core).await?,
+    "updateAgents" UpdateAgents (super::agent_updates::UpdateAgents) -> (): Full, any_program => super::agent_updates::update(&core, params).await?,
     "agentAvailability" AgentAvailability (agent_accounts::Account) -> agent_accounts::Availability: Full, any_program => {
         agent_accounts::availability(&core, params).await?
     },

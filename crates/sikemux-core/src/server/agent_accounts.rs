@@ -963,6 +963,13 @@ async fn usages_read(core: &Arc<Core>, ask: bool) -> Vec<AccountUsage> {
             }
         };
         let reading = usage::last_reading(&account.provider, config_path);
+        let only_when_read =
+            !crate::agent_catalog::agent(&account.provider).is_some_and(|agent| agent.accounts);
+        let unread = reading.is_none()
+            || problem.as_deref() == Some(crate::agent_accounts::plan_limits::NO_LIMITS);
+        if only_when_read && unread {
+            continue;
+        }
         found.push(AccountUsage {
             launcher: account.launcher,
             provider: account.provider,
@@ -1042,6 +1049,21 @@ pub struct Installed {
     pub default_model: Option<String>,
     pub default_effort: Option<String>,
     pub status: status::AgentStatus,
+    /// The release of its CLI installed here, when the CLI names one.
+    #[serde(default)]
+    pub version: Option<String>,
+    /// The releases its chats run now, newest first.
+    #[serde(default)]
+    pub running: Vec<String>,
+    /// The newest release out.
+    #[serde(default)]
+    pub latest: Option<String>,
+    /// How an update the person asked for goes.
+    #[serde(default)]
+    pub updating: Option<super::agent_updates::Updating>,
+    /// The models updating to the newest release lets it run, by name.
+    #[serde(default)]
+    pub unlocks: Vec<String>,
 }
 
 /// The agents found on this host, each on the account chosen for it. An agent that
@@ -1097,6 +1119,11 @@ pub(super) async fn installed(core: &Arc<Core>) -> CoreResult<Vec<Installed>> {
             default_effort: defaults::configured_default_effort(def.kind, config_path.as_deref()),
             config_path,
             status,
+            version: None,
+            running: Vec::new(),
+            latest: None,
+            updating: None,
+            unlocks: Vec::new(),
         })
     }))
     .await
@@ -1105,7 +1132,9 @@ pub(super) async fn installed(core: &Arc<Core>) -> CoreResult<Vec<Installed>> {
 /// Every agent the person can set up here: those found, and those Sikemux can install
 /// that it did not find.
 pub(super) async fn setup(core: &Arc<Core>) -> CoreResult<Vec<Installed>> {
-    Ok(setup_list(installed(core).await?))
+    let mut agents = setup_list(installed(core).await?);
+    super::agent_updates::add_versions(core, &mut agents);
+    Ok(agents)
 }
 
 /// `found` with the installable agents it lacks, ready ones first, then the featured,
@@ -1127,6 +1156,11 @@ fn setup_list(mut agents: Vec<Installed>) -> Vec<Installed> {
         default_model: None,
         default_effort: None,
         status: status::AgentStatus::Missing,
+        version: None,
+        running: Vec::new(),
+        latest: None,
+        updating: None,
+        unlocks: Vec::new(),
     }));
     agents.sort_by_key(|agent| {
         let ready = agent.available && agent.status != status::AgentStatus::SignedOut;
@@ -1154,6 +1188,11 @@ mod tests {
             default_model: None,
             default_effort: None,
             status,
+            version: None,
+            running: Vec::new(),
+            latest: None,
+            updating: None,
+            unlocks: Vec::new(),
         }
     }
 

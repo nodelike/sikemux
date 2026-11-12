@@ -7,6 +7,7 @@ mod agent;
 pub mod agent_accounts;
 mod agent_now;
 pub mod agent_sign_in;
+pub mod agent_updates;
 pub mod agent_view;
 mod approvals;
 pub mod attachments;

@@ -8,7 +8,8 @@ use gpui_kit::{
     FocusHandle, Hsla, InteractiveElement, IntoElement, ParentElement, Stateful, Styled, Window,
 };
 use sikemux_core::agent_accounts::status::AgentStatus;
-use sikemux_core::server::agent_accounts::{Account, Forget};
+use sikemux_core::server::agent_accounts::{Account, Forget, Installed};
+use sikemux_core::server::agent_updates::{UpdateAgents, Updating};
 use sikemux_core::server::call;
 use sikemux_core::server::calls::NoParams;
 use sikemux_view::prefs::PreferenceChange;
@@ -16,6 +17,7 @@ use sikemux_wire::protocol::{SessionId, TerminalSpawn};
 use tokio::sync::oneshot;
 
 use crate::core::{Ask, Target, TerminalAsk};
+use crate::hosts::Place;
 use crate::theme::{
     self, Tokens, SPACE_2, SPACE_2H, SPACE_3, SPACE_4, TEXT_2XS_H, TEXT_SM, TEXT_XS,
 };
@@ -31,6 +33,39 @@ pub struct Found {
     /// Where its program is, once found.
     program: Option<String>,
     pub status: AgentStatus,
+    /// The release installed, the releases its chats run, and the newest out.
+    pub version: Option<String>,
+    pub running: Vec<String>,
+    pub latest: Option<String>,
+    pub updating: Option<Updating>,
+    /// The models updating lets it run.
+    pub unlocks: Vec<String>,
+}
+
+impl Found {
+    /// The newer release it can update to, while it is not updating already.
+    pub fn update_to(&self) -> Option<&str> {
+        let (version, latest) = (self.version.as_deref()?, self.latest.as_deref()?);
+        let ready = !matches!(
+            self.status,
+            AgentStatus::Missing | AgentStatus::Broken { .. }
+        );
+        (ready && sikemux_core::server::agent_updates::is_newer(latest, version)).then_some(latest)
+    }
+
+    /// Whether an update of it waits or runs.
+    pub fn updating_now(&self) -> bool {
+        matches!(
+            self.updating,
+            Some(Updating::Queued | Updating::Running { .. })
+        )
+    }
+}
+
+/// The agents on an account host, as its core lists them.
+pub struct Elsewhere {
+    pub host: String,
+    pub found: Vec<Found>,
 }
 
 /// How many exits are kept in case a spawn's reply is still on its way.
@@ -87,12 +122,16 @@ impl Sheet {
 #[derive(Default)]
 pub struct Setup {
     pub found: Option<Vec<Found>>,
+    /// The agents on each account host reached, for updating them from here.
+    pub elsewhere: Vec<Elsewhere>,
     sheet: Option<Sheet>,
     behind: Vec<Sheet>,
     /// An install or sign-in ended, however it did, since this was last cleared.
     pub ended: bool,
     /// Status is being read again at the person's asking.
     pub checking: bool,
+    /// A read is due shortly, to follow an account host's update.
+    following: bool,
     /// The last exits heard, for a command whose spawn reply came after its exit.
     exits: Vec<(SessionId, Option<u32>)>,
 }
@@ -201,36 +240,177 @@ async fn availability(
     }
 }
 
-/// Asks the core which agents are here, with those it can install that are not.
+/// What the core's listing says of each agent, with what the catalog adds.
+fn found_of(bench: &Workbench, listed: Vec<Installed>) -> Vec<Found> {
+    listed
+        .into_iter()
+        .map(|agent| {
+            let entry = bench.reads.catalog.kind(&agent.kind);
+            Found {
+                about: entry.map(|entry| entry.about.clone()).unwrap_or_default(),
+                install: entry.and_then(|entry| entry.install.clone()),
+                login: entry.and_then(|entry| entry.login.clone()),
+                program: agent.available.then_some(agent.command),
+                status: agent.status,
+                label: agent.label,
+                kind: agent.kind,
+                version: agent.version,
+                running: agent.running,
+                latest: agent.latest,
+                updating: agent.updating,
+                unlocks: agent.unlocks,
+            }
+        })
+        .collect()
+}
+
+/// Asks the core which agents are here, with those it can install that are not, and each
+/// account host reached which agents it has.
 pub fn read(bench: &Workbench, cx: &mut Context<Workbench>) {
     let asks = bench.asks.clone();
+    let hosts: Vec<String> = (bench.feeds.hosts())
+        .filter(|(_, feed)| feed.reached)
+        .map(|(host, _)| host.clone())
+        .collect();
     cx.spawn(async move |bench, cx| {
-        let listed = Target::here(&asks)
-            .request_typed::<call::AgentSetup>(NoParams {})
-            .await
-            .unwrap_or_default();
+        let here = Target::here(&asks).request_typed::<call::AgentSetup>(NoParams {});
+        let asked: Vec<_> = (hosts.into_iter())
+            .map(|host| {
+                let asked = Target::new(&asks, Place::Account(host.clone()))
+                    .request_typed::<call::AgentSetup>(NoParams {});
+                (host, asked)
+            })
+            .collect();
+        let listed = here.await.unwrap_or_default();
+        let mut there = Vec::new();
+        for (host, asked) in asked {
+            there.push((host, asked.await));
+        }
         let _ = bench.update(cx, |bench, cx| {
-            let found = listed
+            let found = found_of(bench, listed);
+            let elsewhere = there
                 .into_iter()
-                .map(|agent| {
-                    let entry = bench.reads.catalog.kind(&agent.kind);
-                    Found {
-                        about: entry.map(|entry| entry.about.clone()).unwrap_or_default(),
-                        install: entry.and_then(|entry| entry.install.clone()),
-                        login: entry.and_then(|entry| entry.login.clone()),
-                        program: agent.available.then_some(agent.command),
-                        status: agent.status,
-                        label: agent.label,
-                        kind: agent.kind,
-                    }
+                .filter_map(|(host, listed)| {
+                    let mut found = found_of(bench, listed.ok()?);
+                    found.retain(|agent| agent.status != AgentStatus::Missing);
+                    Some(Elsewhere { host, found })
                 })
                 .collect();
+            let was_updating = updating_kinds(&bench.agent_setup);
             bench.agent_setup.checking = false;
             bench.agent_setup.found = Some(found);
+            bench.agent_setup.elsewhere = elsewhere;
+            tell_updated(bench, was_updating, cx);
+            follow_updates(bench, cx);
             redraw(bench, cx);
         });
     })
     .detach();
+}
+
+/// Each agent whose update waits or runs, by the host it is on, none for this one.
+fn updating_kinds(setup: &Setup) -> Vec<(Option<String>, String)> {
+    let here = (setup.found.iter().flatten()).map(|agent| (None, agent));
+    let there = (setup.elsewhere.iter()).flat_map(|host| {
+        host.found
+            .iter()
+            .map(|agent| (Some(host.host.clone()), agent))
+    });
+    here.chain(there)
+        .filter(|(_, agent)| agent.updating_now())
+        .map(|(host, agent)| (host, agent.kind.clone()))
+        .collect()
+}
+
+/// Says which updates finished since the last read, and how.
+fn tell_updated(
+    bench: &mut Workbench,
+    was: Vec<(Option<String>, String)>,
+    cx: &mut Context<Workbench>,
+) {
+    for (host, kind) in was {
+        let found = match &host {
+            None => bench.agent_setup.found.as_deref(),
+            Some(host) => (bench.agent_setup.elsewhere.iter())
+                .find(|each| &each.host == host)
+                .map(|each| each.found.as_slice()),
+        };
+        let Some(agent) = found.and_then(|found| found.iter().find(|agent| agent.kind == kind))
+        else {
+            continue;
+        };
+        if agent.updating_now() {
+            continue;
+        }
+        let on = host.map(|host| format!(" on {}", bench.host_name(&host)));
+        let on = on.unwrap_or_default();
+        let note = match (&agent.updating, &agent.version) {
+            (Some(Updating::Failed { .. }), _) => {
+                crate::toast::error(format!("{} did not update{on}", agent.label))
+            }
+            (_, Some(version)) => {
+                crate::toast::success(format!("{} updated to {version}{on}", agent.label))
+            }
+            (_, None) => crate::toast::success(format!("{} updated{on}", agent.label)),
+        };
+        bench.notify(note, cx);
+    }
+}
+
+/// Reads again shortly while an account host updates an agent, as only this host's core
+/// tells the window when its agents change.
+fn follow_updates(bench: &mut Workbench, cx: &mut Context<Workbench>) {
+    let elsewhere =
+        (bench.agent_setup.elsewhere.iter()).any(|host| host.found.iter().any(Found::updating_now));
+    if !elsewhere || bench.agent_setup.following {
+        return;
+    }
+    bench.agent_setup.following = true;
+    cx.spawn(async move |bench, cx| {
+        cx.background_executor()
+            .timer(std::time::Duration::from_secs(2))
+            .await;
+        let _ = bench.update(cx, |bench, cx| {
+            bench.agent_setup.following = false;
+            read(bench, cx);
+        });
+    })
+    .detach();
+}
+
+/// Updates the agents `kinds` on the host at `place`, or every one with a newer release out.
+pub fn update(
+    bench: &mut Workbench,
+    place: Place,
+    kinds: Vec<String>,
+    cx: &mut Context<Workbench>,
+) {
+    let asked =
+        Target::new(&bench.asks, place).request_typed::<call::UpdateAgents>(UpdateAgents { kinds });
+    cx.spawn(async move |bench, cx| {
+        let answer = asked.await;
+        let _ = bench.update(cx, |bench, cx| {
+            if let Err(error) = answer {
+                bench.notify(
+                    crate::toast::error(format!("Could not update: {error}")),
+                    cx,
+                );
+            }
+            read(bench, cx);
+        });
+    })
+    .detach();
+}
+
+/// Updates every agent with a newer release out, on this host and every account host reached.
+pub fn update_everywhere(bench: &mut Workbench, cx: &mut Context<Workbench>) {
+    let hosts: Vec<String> = (bench.agent_setup.elsewhere.iter())
+        .filter(|host| host.found.iter().any(|agent| agent.update_to().is_some()))
+        .map(|host| host.host.clone())
+        .collect();
+    for place in std::iter::once(Place::This).chain(hosts.into_iter().map(Place::Account)) {
+        update(bench, place, Vec::new(), cx);
+    }
 }
 
 /// Whether the agent can be started, as far as its own check can tell.

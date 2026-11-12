@@ -229,9 +229,14 @@ impl<'a> Agent<'a> {
     }
 }
 
+/// Whether the agent has limits to show. One without accounts shows them only once the core
+/// has read some, as only some of its sign-ins have any.
 fn reports_limits(bench: &Workbench, provider: &str) -> bool {
-    sikemux_core::agent_catalog::agent(provider).is_some_and(|agent| agent.usage)
-        && bench.has_agent(provider)
+    let Some(agent) = sikemux_core::agent_catalog::agent(provider) else {
+        return false;
+    };
+    let read = || (bench.reads.usage.iter()).any(|account| account.provider == provider);
+    agent.usage && bench.has_agent(provider) && (agent.accounts || read())
 }
 
 /// The agents the panel has a row for, in the rail's own order: every one that reports limits,

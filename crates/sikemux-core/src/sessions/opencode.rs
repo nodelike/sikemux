@@ -277,6 +277,14 @@ pub(super) fn opencode_prose(db: &Path, session_id: &str, prose: &mut dyn Hear) 
 pub(crate) struct Opencode;
 
 impl AgentOps for Opencode {
+    fn usage<'a>(
+        &self,
+        _program: &'a Path,
+        _config_path: Option<&'a str>,
+    ) -> Option<Pending<'a, Result<crate::agent_accounts::usage::Usage, String>>> {
+        Some(Box::pin(crate::agent_accounts::plan_limits::opencode()))
+    }
+
     fn sessions(&self, cwd: &str, _config_path: Option<&str>) -> Vec<AgentSession> {
         opencode_sessions(cwd)
     }

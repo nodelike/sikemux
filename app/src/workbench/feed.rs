@@ -269,6 +269,9 @@ impl Workbench {
         }
         if topic == Topic::AgentStatus {
             crate::accounts::statuses_moved(self, cx);
+            if self.agent_setup.found.is_some() {
+                crate::agents::setup::read(self, cx);
+            }
         }
     }
 

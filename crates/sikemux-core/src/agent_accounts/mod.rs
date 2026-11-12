@@ -8,6 +8,7 @@ pub mod allocate;
 mod claude_resets;
 pub mod defaults;
 pub mod folders;
+pub mod plan_limits;
 pub mod sign_in;
 pub mod status;
 pub mod usage;

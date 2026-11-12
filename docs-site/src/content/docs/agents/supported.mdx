@@ -9,11 +9,11 @@ Sikemux runs the coding agent CLIs you already use. It finds them on your `PATH`
 |---|---|---|---|---|---|
 | [Claude Code](/each-agent/claude-code/) | Yes | Yes | low to max | Yes | Yes |
 | [Codex](/each-agent/codex/) | Yes | Yes | minimal to max | Yes | Yes |
-| [OpenCode](/each-agent/opencode/) | Yes | No | Not offered | No | No |
+| [OpenCode](/each-agent/opencode/) | Yes | No | Not offered | No | OpenCode Go |
 | [Hermes](/each-agent/hermes/) | Yes | Yes | none to ultra | No | No |
 | [Pi](/each-agent/pi/) | Yes | Yes | off to max | No | No |
 | [OMP](/each-agent/omp/) | Yes | Yes | off to max | No | No |
-| [Grok](/each-agent/grok/) | Yes | Yes | none to max | No | No |
+| [Grok](/each-agent/grok/) | Yes | Yes | none to max | No | Yes |
 | [Muse](/each-agent/muse/) | Yes | Yes | minimal to ultra | No | No |
 
 Each agent's page covers how to install it and sign in, how Sikemux runs it, and where Sikemux looks for it.
@@ -34,3 +34,11 @@ Each agent's page covers how to install it and sign in, how Sikemux runs it, and
 Sikemux finds an agent on your `PATH`, and in `~/.local/bin`, `~/Library/pnpm`, `~/.npm/bin` and `~/.bun/bin`, plus each agent's own folder: `~/.claude/local` and `~/.claude/bin` for Claude, `~/.opencode/bin` for OpenCode, `~/.grok/bin` for Grok, and the ChatGPT app for Codex. Before using one, it checks that the program runs.
 
 An agent that isn't installed shows **Not installed** on the welcome screen and in **Settings → Installed**, with an **Install** button, which runs the agent's own installer in a terminal you can watch. It installs where the agent's own updater expects, so the CLI works in your own terminal too. One that is signed out offers **Sign in** there, which runs the agent's own sign-in the same way, and one that is installed but won't run offers **Reinstall**.
+
+## Updating agents
+
+**Settings → Installed** shows each agent's release under its name: the one installed, the newest out, and the models the update brings, such as Fable 5.2 for Claude. Open chats still running an older release say so, as they keep it until they restart. Sikemux looks up the newest releases at most every six hours, from npm for Claude, Codex, OpenCode, Pi and OMP, and by asking Grok's own updater for Grok.
+
+**Update** runs the agent's own updater, such as `claude update`, `opencode upgrade` or `grok update`; Codex has none, so its installer runs again. While it runs, the row shows the last line the updater printed, and a toast says when it is done. A failed update says why and offers **Retry**. **Update all** updates every agent with a newer release out, one at a time.
+
+Each host linked to your account gets its own section, so you can update the agents there from here. When more than one host is behind, **Update every host** updates them all at once.

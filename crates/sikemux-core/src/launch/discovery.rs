@@ -317,6 +317,11 @@ pub async fn resolve(agent: &str, explicit: Option<&str>) -> Result<PathBuf, Str
     })
 }
 
+/// What the program at `executable` last said when asked whether it runs.
+pub fn said(executable: &Path) -> Option<String> {
+    probed().locked().get(executable)?.shown().ok()
+}
+
 fn timed_out(program: &Path) -> bool {
     probed()
         .locked()

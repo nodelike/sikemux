@@ -31,6 +31,8 @@ Rest the pointer on the rows and a card opens above them with each account: its 
 
 The chip at the right of the top bar shows how much of its week each agent has used across its accounts; click it for the same card of accounts in a popover, without having to hover. Sikemux reads your limits when it starts, every five minutes while the panel or the popover is on screen, and whenever the window comes forward or the card or popover opens on a reading more than 20 seconds old, as claude.ai does; the refresh button reads them again now. Claude's limits and resets come from one request to Claude's usage service, so these reads are light. A failed read keeps the last numbers and says how old they are.
 
+Grok and OpenCode Go show their limits too, under their own rows, once they have some to show: Grok's credit for its billing period when you signed in with `grok login`, and OpenCode Go's session, week and month when OpenCode keeps an OpenCode Go key. Sikemux reads each sign-in from the file its CLI saved, only to ask that service's own usage endpoint, and keeps it nowhere. An API key, or a Grok set up to sign in another way, has no plan limits, so it has no row.
+
 An account you signed out of waits under **Add account**, where you can sign in to it again or remove it.
 
 ## Agent profiles

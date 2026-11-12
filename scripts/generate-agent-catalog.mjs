@@ -100,6 +100,45 @@ for (const agent of agents) {
     throw new Error(
       `${agent.type} login must be null or its sign-in arguments`,
     );
+  if (
+    agent.update !== null &&
+    !(
+      Array.isArray(agent.update) &&
+      agent.update.length > 0 &&
+      agent.update.every((arg) => /^[a-z-]+$/.test(arg))
+    )
+  )
+    throw new Error(
+      `${agent.type} update must be null or the arguments of its own updater`,
+    );
+  if (
+    !Array.isArray(agent.modelsSince) ||
+    !agent.modelsSince.every(
+      (entry) =>
+        typeof entry.model === "string" &&
+        entry.model.length > 0 &&
+        typeof entry.label === "string" &&
+        entry.label.length > 0 &&
+        /^\d+\.\d+\.\d+$/.test(entry.since),
+    )
+  )
+    throw new Error(
+      `${agent.type} modelsSince must list { model, label, since } for each model a release of its CLI first runs`,
+    );
+  const latest = agent.latest;
+  if (
+    latest !== null &&
+    !(
+      (Object.keys(latest).join() === "npm" &&
+        /^(@[a-z0-9-]+\/)?[a-z0-9.-]+$/.test(latest.npm)) ||
+      (Object.keys(latest).join() === "command" &&
+        Array.isArray(latest.command) &&
+        latest.command.every((arg) => /^[a-z-]+$/.test(arg)))
+    )
+  )
+    throw new Error(
+      `${agent.type} latest must be null, { npm: package } or { command: args printing JSON with latestVersion }`,
+    );
 }
 const isArgs = (value) =>
   Array.isArray(value) &&
@@ -269,6 +308,19 @@ const RUST_ARRAY_WIDTH = 60;
 const rustOption = (value, write) =>
   value === null || value === undefined ? "None" : `Some(${write(value)})`;
 
+/** `models_since: &[…],` laid out as rustfmt lays out a list of struct literals. */
+function rustModelsSince(models) {
+  if (models.length === 0) return "        models_since: &[],";
+  const entries = models.map(
+    (entry) => `            ModelSince {
+                model: ${rustString(entry.model)},
+                label: ${rustString(entry.label)},
+                since: ${rustString(entry.since)},
+            },`,
+  );
+  return `        models_since: &[\n${entries.join("\n")}\n        ],`;
+}
+
 /** `name: &[…],` at `indent` spaces, wrapped the way rustfmt wraps a list of short strings. */
 function rustList(indent, name, items, open = "&[", close = "]") {
   const pad = " ".repeat(indent);
@@ -355,6 +407,9 @@ ${rustList(8, "commit_models", agent.commitMessages?.models ?? [])}
 ${rustList(8, "efforts", agent.efforts)}
         install: ${rustOption(agent.install, rustString)},
         login: ${rustOption(agent.login, (login) => `&[${login.map(rustString).join(", ")}]`)},
+        update: ${rustOption(agent.update, (update) => `&[${update.map(rustString).join(", ")}]`)},
+${rustModelsSince(agent.modelsSince)}
+        latest: ${rustOption(agent.latest, (latest) => (latest.npm ? `Latest::Npm(${rustString(latest.npm)})` : `Latest::Command(&[${latest.command.map(rustString).join(", ")}])`))},
 ${rustList(8, "probe", agent.probe)}
 ${rustList(8, "install_paths", agent.installPaths)}
 ${rustList(8, "git_shim_args", agent.gitShimArgs)}
@@ -514,6 +569,21 @@ pub struct Routed {
     pub rank: u8,
 }
 
+/// A model an agent's CLI runs from release \`since\` on.
+pub struct ModelSince {
+    pub model: &'static str,
+    pub label: &'static str,
+    pub since: &'static str,
+}
+
+/// Where an agent's newest release is announced.
+pub enum Latest {
+    /// The npm package it is published as.
+    Npm(&'static str),
+    /// Its own arguments that print JSON naming the newest release as \`latestVersion\`.
+    Command(&'static [&'static str]),
+}
+
 pub enum ProviderUse {
     /// Sikemux points it at one in place of its maker's account.
     Routed,
@@ -542,6 +612,12 @@ ${FLAGS.map((flag) => `    pub ${snake(flag)}: bool,`).join("\n")}
     pub install: Option<&'static str>,
     /// The arguments that start its own sign-in.
     pub login: Option<&'static [&'static str]>,
+    /// The arguments of its own updater; without one, its installer updates it.
+    pub update: Option<&'static [&'static str]>,
+    /// The models its CLI runs only from a release on, so an update can say what it brings.
+    pub models_since: &'static [ModelSince],
+    /// Where its newest release is announced.
+    pub latest: Option<Latest>,
     /// Arguments that answer whether the CLI runs, without side effects.
     pub probe: &'static [&'static str],
     /// Where its installers put the CLI off PATH.
