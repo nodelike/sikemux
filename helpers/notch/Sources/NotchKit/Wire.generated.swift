@@ -938,6 +938,8 @@ struct CallOutcome: Codable, Hashable {
     let healthy: Bool?
     /// The place can take it back.
     let rollBack: Bool?
+    /// Why it came to that, where the result alone does not say.
+    let why: CallWhy?
     let at: Int
 }
 
@@ -953,6 +955,17 @@ enum CallResult: String, Codable, Hashable {
     case handedBack
     /// Closed with no answer from the person.
     case withdrawn
+    /// One added after this build.
+    case unknown
+
+    init(from decoder: Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
+}
+
+enum CallWhy: String, Codable, Hashable {
+    /// Sikemux restarted after the person said yes and before it ran, so the yes lapsed.
+    case restarted
     /// One added after this build.
     case unknown
 

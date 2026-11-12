@@ -96,6 +96,9 @@ pub enum CallClient {
     Device { id: String },
     /// Typed in the asker's chat.
     Chat,
+    /// One from a later release.
+    #[serde(other)]
+    Unknown,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -149,7 +152,20 @@ pub struct CallOutcome {
     /// The place can take it back.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub roll_back: bool,
+    /// Why it came to that, where the result alone does not say.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub why: Option<CallWhy>,
     pub at: u64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CallWhy {
+    /// Sikemux restarted after the person said yes and before it ran, so the yes lapsed.
+    Restarted,
+    /// One from a later release.
+    #[serde(other)]
+    Unknown,
 }
 
 /// A decision put to the person.

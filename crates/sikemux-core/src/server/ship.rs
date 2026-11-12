@@ -31,7 +31,9 @@ use super::{messages, person_calls, plugins, questions, Core, CoreResult};
 use crate::cli::protocol::HarnessRequest;
 use crate::git::Git;
 use crate::ship::{Looks, Ship, Target, ToolShip};
-use sikemux_view::calls::{CallAsker, CallKind, CallOption, CallPlace, CallState, PersonCall};
+use sikemux_view::calls::{
+    CallAsker, CallKind, CallOption, CallOutcome, CallPlace, CallResult, CallState, PersonCall,
+};
 
 /// More than an agent waits on at once; past this its oldest hold goes.
 const MAX_HOLDS_PER_AGENT: usize = 16;
@@ -117,6 +119,8 @@ pub(crate) struct ToolCall {
 struct Allowed {
     agent_id: String,
     permit: Permit,
+    /// The call it was allowed on, which hears that it ran.
+    call: Option<String>,
     /// The agent has heard it may, so the approval ends with its turn.
     heard: bool,
 }
@@ -297,7 +301,11 @@ fn check_call(
             }
         };
         if let Some(at) = state.allowed.iter().position(permits) {
-            state.allowed.remove(at);
+            let ran = state.allowed.remove(at).call;
+            drop(state);
+            if let Some(call) = ran {
+                person_calls::set_outcome(core, &call, went(CallResult::Shipped));
+            }
             return Ok(let_go);
         }
         if state
@@ -780,7 +788,7 @@ async fn allow_hold(core: &Arc<Core>, mut hold: Hold) {
         ship: hold.ship,
         cwd: hold.cwd,
     };
-    permitted(core, hold.agent_id, permit, text).await;
+    permitted(core, hold.agent_id, permit, text, Some(hold.token)).await;
 }
 
 /// Runs a held tool call the person let go, without making them wait on it, and
@@ -793,6 +801,11 @@ fn run_held(core: &Arc<Core>, hold: Hold, call: ToolCall, allowed: String) {
             plugins::run_agent_tool(&core, &call.name, call.arguments, hold.deploy),
         )
         .await;
+        let result = match ran {
+            Ok(_) => CallResult::Shipped,
+            Err(_) => CallResult::Failed,
+        };
+        person_calls::set_outcome(&core, &hold.token, went(result));
         let text = match ran {
             Ok(Value::String(answer)) => {
                 format!("{allowed}, and Sikemux ran it for you. It answered:\n{answer}")
@@ -808,10 +821,17 @@ fn run_held(core: &Arc<Core>, hold: Hold, call: ToolCall, allowed: String) {
 
 /// Keeps what the person allowed and tells the agent, whose hearing of it in a
 /// turn starts the time it holds for.
-async fn permitted(core: &Arc<Core>, agent_id: String, permit: Permit, text: String) {
+async fn permitted(
+    core: &Arc<Core>,
+    agent_id: String,
+    permit: Permit,
+    text: String,
+    call: Option<String>,
+) {
     core.ship.state.locked().allowed.push(Allowed {
         agent_id: agent_id.clone(),
         permit,
+        call,
         heard: false,
     });
     let told = messages::for_person(core, agent_id.clone(), text).await;
@@ -862,7 +882,7 @@ pub(crate) async fn permit_environment(
     let text = format!(
         "The person passed {environment}. Deploy there now if you haven't; one deploy may run, until this turn ends."
     );
-    permitted(core, agent.to_owned(), permit, text).await;
+    permitted(core, agent.to_owned(), permit, text, None).await;
 }
 
 /// The person always allows what the held action lands in, for its project or for every
@@ -939,10 +959,23 @@ fn take(core: &Core, id: &str) -> CoreResult<Hold> {
 /// Puts each held action to the person as a production call, and closes the calls of those no
 /// longer held.
 fn tell_calls(core: &Core) {
-    let wanted = (core.ship.state.locked().holds.iter())
+    let state = core.ship.state.locked();
+    let wanted = (state.holds.iter())
         .map(|hold| (hold.token.clone(), held_call(core, hold)))
         .collect();
     person_calls::sync_holds(core, wanted);
+    drop(state);
+}
+
+/// What came of a held action the person allowed: it ran, and how it ended where Sikemux saw.
+fn went(result: CallResult) -> CallOutcome {
+    CallOutcome {
+        result,
+        healthy: None,
+        roll_back: false,
+        why: None,
+        at: epoch_ms(),
+    }
 }
 
 /// A place's id made from its name: lowercase letters and digits, words joined by `-`.

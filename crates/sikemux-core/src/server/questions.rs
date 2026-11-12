@@ -234,16 +234,26 @@ impl Question {
         }
     }
 
+    /// It changes a production place, so only the person's tap on its call answers it: never its
+    /// lead, and never words typed in the chat.
+    fn production(&self) -> bool {
+        (self.raise.as_ref()).is_some_and(|raise| raise.reason == RaisedFor::Irreversible)
+    }
+
+    /// Its answer may be a password or a token, so it is never shown again.
+    fn hides_answer(&self) -> bool {
+        self.secret || (self.raise.as_ref()).is_some_and(|raise| raise.reason == RaisedFor::Access)
+    }
+
     /// It as a call to the person.
     fn call(&self) -> PersonCall {
         let reason = self.raise.as_ref().map(|raise| raise.reason);
         let kind = match reason {
             _ if self.secret => CallKind::Access,
-            _ if self.approval.is_some() => CallKind::Production,
-            Some(RaisedFor::Irreversible) => CallKind::Production,
+            _ if self.approval.is_some() || self.production() => CallKind::Production,
             Some(RaisedFor::Money) => CallKind::Money,
             Some(RaisedFor::Access) => CallKind::Access,
-            Some(RaisedFor::Taste) | None => CallKind::Taste,
+            Some(RaisedFor::Taste | RaisedFor::Irreversible) | None => CallKind::Taste,
         };
         let only_theirs = self.approval.is_some()
             || self.proof.is_some()
@@ -467,9 +477,6 @@ struct State {
     /// The rule each agent was last sent back to over what it offered, so the same rule does not
     /// send it back again until a turn ends offering nothing a rule is about.
     followed_rules: HashMap<String, String>,
-    /// The agents whose next turn leaves their questions open, as when the person wrote to one
-    /// while several of its calls waited.
-    kept_through_turn: HashSet<String>,
     /// The agents whose latest turn ended in questions they were sent back to, so the next such
     /// turn reaches the person.
     sent_back: HashSet<String>,
@@ -647,8 +654,6 @@ impl Questions {
         Ok(path)
     }
 
-    /// Copies the picture each choice names, a path from `folder`, into the core's own folder,
-    /// pointing the choice at the copy. Nothing is copied unless every picture can be.
     /// Copies the pictures of the raise's evidence, as [`Self::keep_pictures`] copies choices'.
     fn keep_evidence(&self, folder: &str, raise: &mut Option<Raise>) -> Result<(), String> {
         let Some(raise) = raise.as_mut() else {
@@ -674,6 +679,8 @@ impl Questions {
         (self.pictures.as_deref()).is_some_and(|dir| super::attachments::is_kept(dir, path))
     }
 
+    /// Copies the picture each choice names, a path from `folder`, into the core's own folder,
+    /// pointing the choice at the copy. Nothing is copied unless every picture can be.
     fn keep_pictures(&self, folder: &str, choices: &mut [QuestionChoice]) -> Result<(), String> {
         let given: Vec<std::path::PathBuf> = (choices.iter())
             .filter_map(|choice| choice.picture.as_deref())
@@ -715,12 +722,6 @@ impl Questions {
     fn shown_changed(&self, state: &mut State) {
         state.dirty = true;
         self.wake.now();
-    }
-
-    /// The person wrote to `agent_id` while several of its calls waited, which their words
-    /// answer none of: its next turn leaves its questions open for the person.
-    pub(crate) fn keep_through_next_turn(&self, agent_id: &str) {
-        (self.state.locked().kept_through_turn).insert(agent_id.to_owned());
     }
 
     /// The questions of `agent_id` the person answers by writing to it, which its next turn takes
@@ -870,23 +871,24 @@ impl Questions {
         (self.state.locked().reply_questions.iter()).any(|question| question.agent_id == agent_id)
     }
 
-    /// The agent began another turn, as when the person wrote to it, so what it waited
-    /// on the person to answer no longer waits. An assumption it went on with, and a plugin
-    /// call waiting for the person's approval, still do.
-    pub(crate) fn turn_started(&self, agent_id: &str) {
+    /// The agent began another turn, as when the person wrote to it. A question it asked in the
+    /// reply its last turn ended with no longer waits, nor does one it stopped for, unless the
+    /// call it raised is still `open`: a call waits until the person answers it. An assumption
+    /// it went on with, and a plugin call waiting for the person's approval, still wait.
+    pub(crate) fn turn_started(&self, agent_id: &str, open: &[String]) {
         let mut state = self.state.locked();
-        if state.kept_through_turn.remove(agent_id) {
-            return;
-        }
-        let (replies, open) = (state.reply_questions.len(), state.open.len());
+        let (replies, before) = (state.reply_questions.len(), state.open.len());
         state
             .reply_questions
-            .retain(|question| question.agent_id != agent_id);
+            .retain(|question| question.agent_id != agent_id || open.contains(&question.id));
         state.open.retain(|question| {
             let waited_on = question.blocked && question.asks_person();
-            question.agent_id != agent_id || !waited_on || question.approval.is_some()
+            question.agent_id != agent_id
+                || !waited_on
+                || question.approval.is_some()
+                || open.contains(&question.id)
         });
-        if state.open.len() != open {
+        if state.open.len() != before {
             self.changed(&mut state);
         } else if state.reply_questions.len() != replies {
             self.shown_changed(&mut state);
@@ -910,7 +912,10 @@ impl Questions {
             .open
             .iter()
             .find(|question| {
-                question.id == id && question.agent_id == agent_id && question.went_to(lead)
+                question.id == id
+                    && question.agent_id == agent_id
+                    && question.went_to(lead)
+                    && !question.production()
             })
             .map(|question| question.asked.clone())
     }
@@ -919,7 +924,10 @@ impl Questions {
     fn take_answered(&self, lead: &str, agent_id: &str, id: &str) -> Option<Question> {
         let mut state = self.state.locked();
         let at = (state.open.iter()).position(|question| {
-            question.id == id && question.agent_id == agent_id && question.went_to(lead)
+            question.id == id
+                && question.agent_id == agent_id
+                && question.went_to(lead)
+                && !question.production()
         })?;
         let question = state.open.remove(at);
         self.changed(&mut state);
@@ -2234,7 +2242,7 @@ pub(crate) async fn answer_all(core: &Arc<Core>, mut params: AnswersParams) -> R
                 };
                 state.answered.push(Answered {
                     question: question.clone(),
-                    answer: (!question.secret).then_some(text),
+                    answer: (!question.hides_answer()).then_some(text),
                 });
             }
         }
@@ -2903,19 +2911,34 @@ fn tell_phones(core: &Core) {
     }
 }
 
-/// The questions put to the person, as calls.
+/// The questions put to the person, as calls. One that changes a production place carries the
+/// key the gate there looks its yes up by, so the person answers it once. A call nobody is left
+/// to hear the answer of closes.
 fn tell_calls(core: &Core) {
-    let wanted = {
+    let asked: Vec<PersonCall> = {
         let state = core.harness.questions.state.locked();
         let asked = (state.open.iter())
             .filter(|question| question.listed_for_devices())
-            .map(|question| (question.id.clone(), question.call()));
+            .map(Question::call);
         let replied = (state.reply_questions.iter())
             .filter(|question| question.waits())
-            .map(|question| (question.id.clone(), question.call()));
+            .map(ReplyQuestion::call);
         asked.chain(replied).collect()
     };
+    let wanted = (asked.into_iter())
+        .map(|mut call| {
+            let gate = (call.kind == CallKind::Production)
+                .then(|| person_calls::ask_key(core, &call.asker.agent_id, &call.project))
+                .flatten();
+            let key = gate.map(|(place, key)| {
+                call.place = Some(place);
+                key
+            });
+            (call.id.clone(), call, key)
+        })
+        .collect();
     person_calls::sync_questions(core, wanted);
+    person_calls::close_left(core, |agent_id| gone(core, agent_id));
 }
 
 /// What the asker hears when the person leaves its question to it.

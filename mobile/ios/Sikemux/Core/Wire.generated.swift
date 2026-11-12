@@ -2291,8 +2291,10 @@ enum CallClient: Codable, Hashable, Sendable {
     case device(Device)
     /// Typed in the asker's chat.
     case chat
+    /// One from a later release.
+    case unknown
     /// One added after this build, by its `kind`.
-    case unknown(String)
+    case unrecognised(String)
 
     struct Device: Codable, Hashable, Sendable {
         var id: String
@@ -2311,8 +2313,10 @@ enum CallClient: Codable, Hashable, Sendable {
             self = .device(try Device(from: decoder))
         case "chat":
             self = .chat
+        case "unknown":
+            self = .unknown
         default:
-            self = .unknown(tag)
+            self = .unrecognised(tag)
         }
     }
 
@@ -2326,7 +2330,9 @@ enum CallClient: Codable, Hashable, Sendable {
             tag = "device"
         case .chat:
             tag = "chat"
-        case .unknown(let value):
+        case .unknown:
+            tag = "unknown"
+        case .unrecognised(let value):
             tag = value
         }
         var container = encoder.container(keyedBy: TagKey.self)
@@ -2341,6 +2347,8 @@ struct CallOutcome: Codable, Hashable, Sendable {
     var healthy: Bool?
     /// The place can take it back.
     var rollBack: Bool?
+    /// Why it came to that, where the result alone does not say.
+    var why: CallWhy?
     var at: Int
 }
 
@@ -2356,6 +2364,17 @@ enum CallResult: String, Codable, Hashable, Sendable {
     case handedBack
     /// Closed with no answer from the person.
     case withdrawn
+    /// One added after this build.
+    case unknown
+
+    init(from decoder: any Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
+}
+
+enum CallWhy: String, Codable, Hashable, Sendable {
+    /// Sikemux restarted after the person said yes and before it ran, so the yes lapsed.
+    case restarted
     /// One added after this build.
     case unknown
 

@@ -2,7 +2,7 @@
 //! answered, what came of it. Lines are only ever added. A file that fills starts over, keeping the
 //! one before, and opens with every call still open so none is lost.
 
-use std::io::{BufRead, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -45,6 +45,9 @@ pub(super) enum Entry {
     /// It waits on the person again, as when an answer could not reach its asker.
     #[serde(rename_all = "camelCase")]
     Reopened { id: String, at: u64 },
+    /// An agent that waited on it no longer does, while others still do.
+    #[serde(rename_all = "camelCase")]
+    Left { id: String, source: Source, at: u64 },
     /// What came of it; with no answer, it closes.
     #[serde(rename_all = "camelCase")]
     Came { id: String, outcome: CallOutcome },
@@ -58,6 +61,7 @@ impl Entry {
             | Entry::Shown { id, .. }
             | Entry::Answered { id, .. }
             | Entry::Reopened { id, .. }
+            | Entry::Left { id, .. }
             | Entry::Came { id, .. } => id,
         }
     }
@@ -109,6 +113,9 @@ impl CallLog {
                     lines.extend(line_of(&carried)?);
                 }
             }
+            if !full && !ends_a_line(&current) {
+                lines.push(b'\n');
+            }
             lines.extend(line);
             if let Some(folder) = current.parent() {
                 std::fs::create_dir_all(folder)?;
@@ -137,17 +144,29 @@ impl CallLog {
         files.sort_by_key(|path| (older(path), path.clone()));
         let mut entries = Vec::new();
         for path in files {
-            let Ok(file) = std::fs::File::open(&path) else {
+            let Ok(bytes) = std::fs::read(&path) else {
                 continue;
             };
             entries.extend(
-                std::io::BufReader::new(file)
-                    .lines()
-                    .map_while(Result::ok)
-                    .filter_map(|line| serde_json::from_str::<Entry>(&line).ok()),
+                (bytes.split(|byte| *byte == b'\n'))
+                    .filter_map(|line| serde_json::from_slice::<Entry>(line).ok()),
             );
         }
         entries
+    }
+}
+
+/// Whether the file at `path` is empty or its last line is whole, as one cut off by a crash is
+/// not: the next entry then starts a line of its own.
+fn ends_a_line(path: &Path) -> bool {
+    use std::io::{Read, Seek, SeekFrom};
+    let Ok(mut file) = std::fs::File::open(path) else {
+        return true;
+    };
+    let mut last = [0u8; 1];
+    match file.seek(SeekFrom::End(-1)) {
+        Ok(_) => file.read_exact(&mut last).is_err() || last[0] == b'\n',
+        Err(_) => true,
     }
 }
 

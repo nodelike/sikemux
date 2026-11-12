@@ -1426,6 +1426,10 @@ export type CallClient =
     /** Typed in the asker's chat. */
     | {
           kind: "chat";
+      }
+    /** One from a later release. */
+    | {
+          kind: "unknown";
       };
 
 /** What came of a call, such as "Shipped · healthy". */
@@ -1435,10 +1439,14 @@ export interface CallOutcome {
     healthy?: boolean;
     /** The place can take it back. */
     rollBack?: boolean;
+    /** Why it came to that, where the result alone does not say. */
+    why?: CallWhy;
     at: number;
 }
 
 export type CallResult = "heard" | "shipped" | "notShipped" | "failed" | "handedBack" | "withdrawn";
+
+export type CallWhy = "restarted";
 
 /** The tabs every desktop client draws, kept by the core. */
 export interface Layout {

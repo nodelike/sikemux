@@ -37,7 +37,8 @@ impl Core {
                 self.seen.started(agent_id);
                 self.inbox.started(agent_id);
                 self.boards.wake.now();
-                self.harness.questions.turn_started(agent_id);
+                let open = self.person_calls.open_questions();
+                self.harness.questions.turn_started(agent_id, &open);
                 self.notify.send(Signal::TurnStarted {
                     agent_id: agent_id.to_owned(),
                 });
