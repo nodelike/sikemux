@@ -3,11 +3,13 @@
 //! transcripts or answers report, kept in one database in the core's data folder and
 //! priced from the model feed and the person's own prices.
 
+mod context;
 mod features;
 mod pricing;
 mod report;
 mod waits;
 
+pub(crate) use context::{Compaction, ModelCall};
 pub(crate) use features::Counted;
 
 use super::changed::Topic;
@@ -449,6 +451,7 @@ const MIGRATIONS: &[&str] = &[
          PRIMARY KEY (day, kind, via)
      );
      CREATE TABLE waited (day INTEGER PRIMARY KEY, ms INTEGER NOT NULL);",
+    context::TABLES,
 ];
 
 fn migrate(connection: &Connection) -> rusqlite::Result<()> {

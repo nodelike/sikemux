@@ -370,6 +370,7 @@ impl Chats {
             published: Mutex::new(AgentState::Unknown),
             unstarted: AtomicBool::new(false),
             brief: Mutex::new(None),
+            meter: Default::default(),
             wanted: tokio::sync::Notify::new(),
             saved_shown: AtomicBool::new(history_shown),
             saved_reading: watch::channel(false).0,

@@ -4,6 +4,7 @@
 
 mod actions;
 pub mod calls;
+pub(crate) mod cap;
 pub(crate) mod feed;
 pub mod find;
 mod history;
@@ -166,6 +167,8 @@ pub(crate) enum ChatCommand {
     },
     /// Lets go of the prompt the last failed turn stopped.
     DiscardFailed,
+    /// Compacts the agent's session between turns, with nothing in the chat to show for it.
+    Compact,
     /// Lets go of the agent, still running, for a core that replaces this one.
     HandOver {
         reply: oneshot::Sender<Result<native::Handed, String>>,
@@ -276,6 +279,8 @@ pub(crate) struct Chat {
     /// What Sikemux keeps for the project, which a chat the person started
     /// is handed once: with its agent's instructions, or else with its first message.
     brief: Mutex<Option<String>>,
+    /// How big its agent's session is and when it last called the model.
+    pub(crate) meter: cap::Meter,
 }
 
 impl Chat {
@@ -1120,9 +1125,10 @@ impl Chat {
     pub(crate) fn send(&self, command: ChatCommand) -> CoreResult<()> {
         if self.unstarted.load(Ordering::Acquire) {
             match command {
-                ChatCommand::Cancel | ChatCommand::StopTask { .. } | ChatCommand::DiscardFailed => {
-                    return Ok(())
-                }
+                ChatCommand::Cancel
+                | ChatCommand::StopTask { .. }
+                | ChatCommand::DiscardFailed
+                | ChatCommand::Compact => return Ok(()),
                 ChatCommand::HandOver { reply } => {
                     let _ = reply.send(Err("it had not started".into()));
                     return Ok(());

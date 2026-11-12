@@ -25,7 +25,7 @@ pub(crate) enum Message {
     },
     Assistant(Value),
     User(Value),
-    Result(TurnResult),
+    Result(Box<TurnResult>),
     System(System),
     CommandLifecycle {
         state: Option<String>,
@@ -111,6 +111,8 @@ pub(crate) struct TurnResult {
     /// Each model the turn used, by name.
     #[serde(rename = "modelUsage")]
     pub model_usage: Option<Map<String, Value>>,
+    /// Each model's use since Claude last answered, compactions included.
+    pub model_usage_since_last_result: Option<Map<String, Value>>,
 }
 
 #[derive(Deserialize)]
@@ -186,7 +188,10 @@ pub(crate) enum SystemEvent {
 
 #[derive(Deserialize)]
 pub(crate) struct CompactMetadata {
+    pub trigger: Option<String>,
+    pub pre_tokens: Option<u64>,
     pub post_tokens: Option<u64>,
+    pub duration_ms: Option<u64>,
 }
 
 #[derive(Default, Deserialize)]

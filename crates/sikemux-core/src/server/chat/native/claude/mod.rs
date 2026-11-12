@@ -28,6 +28,7 @@ use crate::launch::PermissionMode;
 use crate::sessions::{self, roots::account_root};
 use sikemux_wire::protocol::ChatLaunch;
 
+use super::super::cap;
 use super::super::feed::Reach;
 use super::super::Respond;
 use super::file_link;
@@ -335,6 +336,10 @@ impl Claude {
         .map(str::to_owned)
         .collect();
         args.extend(["--permission-mode".to_owned(), mode.to_owned()]);
+        let capped = sink.capped();
+        if capped {
+            args.extend(["--autocompact".to_owned(), cap::CLAUDE_WINDOW.to_owned()]);
+        }
         if let Some(settings) = crate::git_guard::shim::claude_settings() {
             args.extend(["--settings".to_owned(), settings]);
         }
@@ -387,7 +392,7 @@ impl Claude {
         let initialized = tokio::select! {
             answer = control.request(json!({
                 "subtype": "initialize",
-                "hooks": {},
+                "hooks": if capped { cap::claude_hooks() } else { json!({}) },
                 "forwardSubagentText": true,
                 "perTaskStopAffordance": true,
             })) => answer,
@@ -715,6 +720,22 @@ impl Backend for Claude {
             _ => return Err(format!("Unknown config option: {config_id}")),
         }
         Ok(self.options())
+    }
+
+    async fn compact(&mut self) -> Result<(), String> {
+        let uuid = Uuid::new_v4().to_string();
+        {
+            let mut shared = self.shared.locked();
+            if shared.turn.is_some() || shared.quiet.is_some() {
+                return Ok(());
+            }
+            shared.sent.insert(uuid.clone());
+            shared.quiet = Some(uuid.clone());
+        }
+        let command = json!({ "type": "text", "text": format!("/compact {}", cap::IDLE_FOCUS) });
+        self.writer()
+            .send(&user_message(&uuid, vec![command], None))
+            .inspect_err(|_| self.shared.locked().quiet = None)
     }
 
     async fn stop_task(&mut self, task_id: &str) -> Result<(), String> {

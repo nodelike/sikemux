@@ -29,6 +29,7 @@ use sikemux_view::chat::StopReason;
 use sikemux_view::questions::QuestionChoice;
 use sikemux_wire::protocol::{ChatAccount, ChatContext, ChatLaunch, ChatStart};
 
+use super::super::cap;
 use super::super::feed::{Earlier, Reach};
 use super::super::kept::Progress;
 use super::super::rebind::{
@@ -37,6 +38,7 @@ use super::super::rebind::{
 };
 use super::super::{reset, stall_later, Asked, Chat, ChatCommand, Delivery, Respond};
 use super::process::{AgentRecord, Lines, Process, Released, Writer};
+use crate::server::activity_log::{Compaction, ModelCall};
 use crate::server::agent_accounts;
 
 /// What the person sent, for the agent to read in its own form.
@@ -235,6 +237,40 @@ impl Telling {
 
     pub fn reached(&self, session: &str, reach: Reach) {
         self.chat.feed.reached(session, reach);
+    }
+
+    /// Whether the chat's session is kept small.
+    pub fn capped(&self) -> bool {
+        cap::capped(self.chat.agent_id())
+    }
+
+    /// What the session's compaction is told to keep.
+    pub fn keep_list(&self) -> String {
+        cap::keep_list(&self.chat)
+    }
+
+    /// What the session is told after its compaction.
+    pub fn facts(&self) -> Option<String> {
+        let core = self.chat.core.upgrade()?;
+        cap::facts(&core, self.chat.agent_id())
+    }
+
+    /// The session called the model with `context` tokens.
+    pub fn called(&self, context: u64) {
+        self.chat.meter.called(context);
+    }
+
+    /// The session was compacted down to `context` tokens.
+    pub fn compacted(&self, context: u64) {
+        self.chat.meter.compacted(context);
+    }
+
+    pub fn session_used(&self, calls: Vec<ModelCall>, compactions: Vec<Compaction>) {
+        if let Some(core) = self.chat.core.upgrade() {
+            let project = self.chat.launch.cwd.to_string_lossy();
+            core.activity_log
+                .session_used(self.chat.agent_id(), &project, calls, compactions);
+        }
     }
 }
 
@@ -545,6 +581,11 @@ pub(crate) trait Backend: Sized + Send {
         &mut self,
         task_id: &str,
     ) -> impl std::future::Future<Output = Result<(), String>> + Send;
+
+    /// Compacts the session between turns, with no turn in the chat to show for it.
+    fn compact(&mut self) -> impl std::future::Future<Output = Result<(), String>> + Send {
+        async { Ok(()) }
+    }
 
     /// The person answered a dialog the agent is blocked on.
     fn answer_dialog(&mut self, _id: &str, _answer: String, _choice: Option<usize>) {}
@@ -1101,6 +1142,13 @@ impl<B: Backend> Running<'_, B> {
                 self.backend.answer_dialog(&id, answer, choice)
             }
             ChatCommand::Cancel => self.cancel().await,
+            ChatCommand::Compact => {
+                if !self.chat.prompted() {
+                    if let Err(error) = self.backend.compact().await {
+                        eprintln!("sikemux core: an idle chat was not compacted: {error}");
+                    }
+                }
+            }
             ChatCommand::HandOver { .. } => unreachable!("the loop hands the chat over itself"),
         }
         ControlFlow::Continue(())

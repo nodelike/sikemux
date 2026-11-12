@@ -298,7 +298,9 @@ pub(crate) async fn serve(core: Arc<Core>) {
     ticker.tick().await;
     loop {
         ticker.tick().await;
-        for agent_id in due(&core, began, epoch_ms()) {
+        let now = epoch_ms();
+        super::chat::cap::compact_idle(&core, now);
+        for agent_id in due(&core, began, now) {
             sleep(&core, &agent_id);
         }
     }
@@ -333,7 +335,10 @@ fn due(core: &Core, began: u64, now: u64) -> Vec<String> {
 /// not keep it alive, no client has it on screen, and it rests on a session
 /// it can be woken on.
 fn may_sleep(core: &Core, agent_id: &str) -> bool {
-    kept(core, agent_id) && !core.seen.viewed(agent_id) && idle(core, agent_id)
+    kept(core, agent_id)
+        && !core.seen.viewed(agent_id)
+        && idle(core, agent_id)
+        && !super::chat::cap::holds_awake(core, agent_id, epoch_ms())
 }
 
 fn kept(core: &Core, agent_id: &str) -> bool {

@@ -873,6 +873,14 @@ impl Feed {
         }
     }
 
+    /// What the person wrote, oldest first, as [`Replay::persons_words`] picks it.
+    pub(crate) fn persons_words(&self, budget: usize, longest: usize) -> Vec<String> {
+        let mut inner = self.inner.locked();
+        inner.replay.reload();
+        self.account(&inner);
+        inner.replay.persons_words(budget, longest)
+    }
+
     /// Where the turn in progress, or the last one, starts in the history.
     pub(crate) fn turn_start(&self) -> Option<u64> {
         let mut inner = self.inner.locked();

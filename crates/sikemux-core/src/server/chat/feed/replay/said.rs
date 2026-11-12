@@ -114,6 +114,41 @@ pub(crate) fn session_title(payload: &Value) -> Option<String> {
 }
 
 impl Replay {
+    /// What the person wrote, oldest first: the newest messages that fit in `budget`
+    /// characters, each cut past `longest`. Messages from agents and background work are not
+    /// the person's.
+    pub(in super::super) fn persons_words(&self, budget: usize, longest: usize) -> Vec<String> {
+        let mut said = Vec::new();
+        let mut left = budget;
+        for entry in self.entries.iter().rev() {
+            if entry.event.kind != ChatEventKind::Prompt {
+                continue;
+            }
+            let Some(text) = entry.event.payload.get("text").and_then(Value::as_str) else {
+                continue;
+            };
+            let opening = text.trim_start();
+            if opening.starts_with("<agent-message ") || opening.starts_with("<task-notification>")
+            {
+                continue;
+            }
+            let mut text: String = text.trim().chars().take(longest).collect();
+            if text.len() < opening.trim_end().len() {
+                text.push('…');
+            }
+            if text.is_empty() || said.last() == Some(&text) {
+                continue;
+            }
+            let Some(rest) = left.checked_sub(text.len()) else {
+                break;
+            };
+            left = rest;
+            said.push(text);
+        }
+        said.reverse();
+        said
+    }
+
     /// What the agent wrote last in its latest turn: its text after its last
     /// tool call, or before it when it wrote nothing after.
     pub(in super::super) fn last_answer(&self) -> Option<String> {

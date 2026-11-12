@@ -14,7 +14,9 @@ use serde_json::{json, Map, Value};
 use sikemux_process::sync::Locked;
 
 use crate::acp::failure::{Failure, FailureKind};
+use crate::server::activity_log::{Compaction, ModelCall};
 
+use super::super::super::cap;
 use super::super::super::feed;
 use super::super::super::reset::{month_day, twelve_hour, WallClock, Zone};
 use super::super::super::states::{self, Held, Subagent, Task as TaskState};
@@ -25,7 +27,9 @@ use super::super::process::Reads;
 use super::super::session::{Sink, TurnEnd};
 use super::control::Control;
 use super::failure;
-use super::messages::{Delta, Message, StreamEvent, System, SystemEvent, TurnResult};
+use super::messages::{
+    CompactMetadata, Delta, Message, StreamEvent, System, SystemEvent, TurnResult,
+};
 use super::permission;
 use super::tools::{self, TaskPlan};
 
@@ -71,6 +75,8 @@ pub(crate) struct Shared {
     /// Set until the chat's first message is sent, which Claude names the
     /// chat from.
     pub untitled: Option<String>,
+    /// The core's own compaction runs on this message, so the chat sees no turn for it.
+    pub quiet: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -137,6 +143,11 @@ pub(crate) struct ReaderState {
     used: Option<u64>,
     size: u64,
     model: Option<String>,
+    /// The session's calls to the model and its compactions since Claude last answered.
+    #[serde(default)]
+    calls: Vec<ModelCall>,
+    #[serde(default)]
+    compactions: Vec<Compaction>,
 }
 
 fn usage_total(usage: &Value) -> Option<u64> {
@@ -419,6 +430,8 @@ impl Reader {
                 used: None,
                 size: 200_000,
                 model: None,
+                calls: Vec::new(),
+                compactions: Vec::new(),
             },
         )
     }
@@ -543,9 +556,25 @@ impl Reader {
     fn request(&mut self, request_id: String, request: Value) {
         match text(&request, "subtype") {
             Some("can_use_tool") => self.can_use_tool(request_id, request),
-            Some("hook_callback") => self
-                .control
-                .respond(&request_id, json!({ "continue": true })),
+            Some("hook_callback") => {
+                let answer = match text(&request, "callback_id") {
+                    Some(cap::KEEP_HOOK) => {
+                        json!({ "continue": true, "systemMessage": self.sink.keep_list() })
+                    }
+                    Some(cap::FACTS_HOOK) => match self.sink.facts() {
+                        Some(facts) => json!({
+                            "continue": true,
+                            "hookSpecificOutput": {
+                                "hookEventName": "SessionStart",
+                                "additionalContext": facts,
+                            },
+                        }),
+                        None => json!({ "continue": true }),
+                    },
+                    _ => json!({ "continue": true }),
+                };
+                self.control.respond(&request_id, answer)
+            }
             _ => self
                 .control
                 .refuse(&request_id, "Sikemux does not handle this request"),
@@ -648,6 +677,9 @@ impl Reader {
                     if let Some(used) = message.usage.as_ref().and_then(usage_total) {
                         self.data.used = Some(used);
                     }
+                    if let Some(usage) = message.usage.as_ref() {
+                        self.called(usage);
+                    }
                 }
             }
             StreamEvent::ContentBlockStart { content_block } => {
@@ -696,6 +728,9 @@ impl Reader {
                 let output = usage.and_then(|usage| usage.output_tokens);
                 if let (Some(used), Some(output)) = (self.data.used, output) {
                     self.data.used = Some(used.max(output));
+                }
+                if let (Some(call), Some(output)) = (self.data.calls.last_mut(), output) {
+                    call.output = call.output.max(output);
                 }
             }
             StreamEvent::MessageDelta { .. } | StreamEvent::Other => {}
@@ -909,9 +944,14 @@ impl Reader {
     /// when the chat changes its model or settings between turns, and that is
     /// no reply to anything, nor the agent starting work of its own.
     fn local_output(&mut self, parent: Option<&str>, output: String) {
-        if !self.turn_running() {
+        if !self.turn_running() || self.quiet() {
             return;
         }
+        // A capped chat's compaction hooks answer with what it keeps, which is not for the chat.
+        let output = match output.split_once(" PreCompact [") {
+            Some((said, _)) if self.sink.capped() => said.to_owned(),
+            _ => output,
+        };
         self.send(
             parent,
             json!({ "sessionUpdate": UpdateKind::AgentMessageChunk, "content": { "type": "text", "text": output } }),
@@ -934,7 +974,19 @@ impl Reader {
             }
             self.sink.update(&self.data.session_id, update);
         }
+        self.tally(result);
         let answers = result.user_message_uuid.as_deref();
+        let quiet = {
+            let mut shared = self.shared.locked();
+            let quiet = answers.is_some() && shared.quiet.as_deref() == answers;
+            if quiet {
+                shared.quiet = None;
+            }
+            quiet
+        };
+        if quiet {
+            return;
+        }
         let woken = result.origin.is_some();
         let ended = {
             let mut shared = self.shared.locked();
@@ -995,6 +1047,78 @@ impl Reader {
         self.sink.end_turn(turn.number, end);
     }
 
+    fn quiet(&self) -> bool {
+        self.shared.locked().quiet.is_some()
+    }
+
+    /// A call the session made to the model, as it starts streaming. The call that writes a
+    /// compaction's summary is the compaction's, not the chat's.
+    fn called(&mut self, usage: &Value) {
+        if self.data.compaction.is_some() {
+            return;
+        }
+        let field = |key: &str| usage.get(key).and_then(Value::as_u64).unwrap_or(0);
+        let call = ModelCall {
+            at_ms: sikemux_process::clock::epoch_ms(),
+            input: field("input_tokens"),
+            cache_read: field("cache_read_input_tokens"),
+            cache_write: field("cache_creation_input_tokens"),
+            output: 0,
+        };
+        self.sink.called(call.context());
+        self.data.calls.push(call);
+    }
+
+    fn boundary(&mut self, metadata: CompactMetadata) {
+        let after = metadata.post_tokens.unwrap_or(0);
+        if metadata.post_tokens.is_some() {
+            self.data.used = Some(after);
+        }
+        self.sink.compacted(after);
+        let trigger = if self.quiet() {
+            "idle".to_owned()
+        } else {
+            metadata.trigger.unwrap_or_else(|| "auto".to_owned())
+        };
+        self.data.compactions.push(Compaction {
+            at_ms: sikemux_process::clock::epoch_ms(),
+            trigger,
+            before: metadata.pre_tokens.unwrap_or(0),
+            after,
+            ms: metadata.duration_ms.unwrap_or(0),
+            cost: ModelCall::default(),
+        });
+    }
+
+    /// Keeps what the session's calls carried since Claude last answered. What Claude counted
+    /// beyond those calls went on writing a compaction's summary, when one ran.
+    fn tally(&mut self, result: &TurnResult) {
+        let calls = std::mem::take(&mut self.data.calls);
+        let mut compactions = std::mem::take(&mut self.data.compactions);
+        if let (Some(compaction), Some(counted)) = (
+            compactions.last_mut(),
+            result.model_usage_since_last_result.as_ref(),
+        ) {
+            let total = |key: &str| -> u64 {
+                counted
+                    .values()
+                    .filter_map(|usage| usage.get(key).and_then(Value::as_u64))
+                    .sum()
+            };
+            let seen = |part: fn(&ModelCall) -> u64| calls.iter().map(part).sum::<u64>();
+            compaction.cost = ModelCall {
+                at_ms: compaction.at_ms,
+                input: total("inputTokens").saturating_sub(seen(|call| call.input)),
+                cache_read: total("cacheReadInputTokens")
+                    .saturating_sub(seen(|call| call.cache_read)),
+                cache_write: total("cacheCreationInputTokens")
+                    .saturating_sub(seen(|call| call.cache_write)),
+                output: total("outputTokens").saturating_sub(seen(|call| call.output)),
+            };
+        }
+        self.sink.session_used(calls, compactions);
+    }
+
     fn window_of(&self, usage: &Map<String, Value>) -> Option<u64> {
         let model = self.data.model.as_deref().unwrap_or_default();
         let common = |key: &str| {
@@ -1018,6 +1142,7 @@ impl Reader {
             SystemEvent::SessionStateChanged { state } if state.as_deref() == Some("idle") => {
                 self.idle()
             }
+            SystemEvent::Init if self.quiet() => {}
             SystemEvent::Init => self.sink.work_started(),
             SystemEvent::Status {
                 status,
@@ -1030,8 +1155,8 @@ impl Reader {
                 error_status,
             } => self.retrying(attempt.unwrap_or(1), error_status),
             SystemEvent::CompactBoundary { compact_metadata } => {
-                if let Some(used) = compact_metadata.and_then(|metadata| metadata.post_tokens) {
-                    self.data.used = Some(used);
+                if let Some(metadata) = compact_metadata {
+                    self.boundary(metadata);
                 }
                 self.compacted("completed", None);
             }
@@ -1191,6 +1316,9 @@ impl Reader {
 
     /// Claude Code went idle: anything the turn still waited on is over.
     fn idle(&mut self) {
+        if self.quiet() {
+            return;
+        }
         let turn = self.shared.locked().turn.take();
         match turn {
             Some(mut turn) => {
