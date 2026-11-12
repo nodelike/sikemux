@@ -736,22 +736,14 @@ fn used_label(used: f64) -> String {
 /// When the window is back. Past its reset with reads failing it says how old the reading is,
 /// as "resetting now" would stay true for as long as the reads keep failing.
 fn when_cell(window: &UsageWindow, now: u64, age: Option<&str>, cx: &App) -> Div {
-    let t = Tokens::get(cx);
-    let reset = reset_at(window);
-    let full = window.used_at(now) >= 100.;
-    let text = match (full, reset, age.filter(|_| window.is_past_reset(now))) {
-        (_, _, Some(age)) => t!("read {age}", age = age),
-        (true, Some(reset), _) => time_of_day(reset),
-        (_, None, _) => String::new(),
-        (false, Some(reset), _) => ui::time::countdown(Some(reset)),
+    let text = match (reset_at(window), age.filter(|_| window.is_past_reset(now))) {
+        (_, Some(age)) => t!("read {age}", age = age),
+        (None, _) => String::new(),
+        (reset, None) => ui::time::countdown(reset),
     };
     ui::text(text, TEXT_3XS, FontWeight::NORMAL)
         .flex_none()
-        .text_color(if full {
-            t.text_primary
-        } else {
-            t.text_tertiary
-        })
+        .text_color(Tokens::get(cx).text_tertiary)
 }
 
 fn note(text: String, cx: &App) -> Div {
@@ -1555,18 +1547,6 @@ fn ruler(used: Option<f64>, t: &Tokens) -> gpui_kit::Canvas<()> {
             }
         },
     )
-}
-
-/// A reset as the panel says it: the time today, else the day and the time.
-fn time_of_day(at: chrono::DateTime<chrono::Utc>) -> String {
-    let at = at.with_timezone(&chrono::Local);
-    let days = (at.date_naive() - chrono::Local::now().date_naive()).num_days();
-    let time = at.format("%-I:%M %p");
-    match days {
-        ..=0 => time.to_string(),
-        1..=6 => format!("{} {time}", at.format("%a")),
-        _ => format!("{}, {time}", at.format("%b %-d")),
-    }
 }
 
 /// When a window resets, as a person would say it: today, tomorrow, a weekday or a date.
