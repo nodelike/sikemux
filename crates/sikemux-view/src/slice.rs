@@ -754,13 +754,11 @@ pub enum SourceKind {
     rename_all_fields = "camelCase"
 )]
 pub enum SourceLink {
-    /// The agent's chat; `feed` and `index` place it when the core could. Once the agent has
-    /// closed, `saved` names the session that opens it again.
+    /// The agent's chat; `feed` and `index` place it when the core could.
     Chat {
         agent: String,
         feed: Option<String>,
         index: Option<u64>,
-        saved: Option<SavedChat>,
     },
     Commit {
         sha: String,
@@ -775,14 +773,6 @@ pub enum SourceLink {
     Url {
         url: String,
     },
-}
-
-/// A chat's session as its CLI saved it.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SavedChat {
-    pub provider: String,
-    pub session: String,
 }
 
 /// An agent of a goal whose transcript no model was given.

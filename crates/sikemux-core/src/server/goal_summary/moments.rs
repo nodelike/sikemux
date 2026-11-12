@@ -9,8 +9,8 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use sikemux_view::slice::{
-    Evidence, GateState, LeftOut, LeftOutWhy, Passer, Proof, SavedChat, SourceKind, SourceLink,
-    SummarySource, Verdict,
+    Evidence, GateState, LeftOut, LeftOutWhy, Passer, Proof, SourceKind, SourceLink, SummarySource,
+    Verdict,
 };
 
 use crate::agent_catalog::AgentKind;
@@ -335,16 +335,11 @@ impl Turns {
     }
 }
 
-fn chat_link(core: &Core, agent: &str, feed: Option<String>, index: Option<u64>) -> SourceLink {
-    let saved = core.names.ran_session(agent).map(|ran| SavedChat {
-        provider: ran.provider,
-        session: ran.session_id,
-    });
+fn chat_link(agent: &str, feed: Option<String>, index: Option<u64>) -> SourceLink {
     SourceLink::Chat {
         agent: agent.to_owned(),
         feed,
         index,
-        saved,
     }
 }
 
@@ -435,7 +430,7 @@ fn place_moments(core: &Core, agent: &str, moments: &mut [Moment]) {
     for moment in moments {
         let index = moment.place.as_ref().and_then(|place| places.get(place));
         if let Some(index) = index {
-            moment.source.open = Some(chat_link(core, agent, Some(feed.clone()), Some(*index)));
+            moment.source.open = Some(chat_link(agent, Some(feed.clone()), Some(*index)));
         }
     }
 }
@@ -652,7 +647,6 @@ fn card_facts(cards: &[&BoardCard], moments: &mut Vec<Moment>, gaps: &mut Vec<(u
 /// What the goal keeps: its decisions, and its assertions with how far their evidence got. An
 /// assertion some slice has not met is a gap.
 fn goal_facts(
-    core: &Core,
     goal: &BoardCard,
     cards: &[&BoardCard],
     moments: &mut Vec<Moment>,
@@ -660,12 +654,7 @@ fn goal_facts(
 ) {
     for decision in goal.decisions.iter().filter(|kept| kept.retired.is_none()) {
         let link = match &decision.learned.agent {
-            Some(agent) => chat_link(
-                core,
-                agent,
-                decision.learned.feed.clone(),
-                decision.learned.turn,
-            ),
+            Some(agent) => chat_link(agent, decision.learned.feed.clone(), decision.learned.turn),
             None => SourceLink::Card { card: goal.id },
         };
         moments.push(fact(
@@ -715,7 +704,7 @@ fn held(core: &Core, workers: &[Worker], moments: &mut Vec<Moment>) {
                 waiting.at,
                 who,
                 &format!("Held for you, still waiting: {}", waiting.hold.what),
-                chat_link(core, &waiting.agent_id, None, None),
+                chat_link(&waiting.agent_id, None, None),
             ));
         }
     }
@@ -731,7 +720,7 @@ fn held(core: &Core, workers: &[Worker], moments: &mut Vec<Moment>) {
                 answered.at,
                 who,
                 &format!("{verb}: {}", answered.what),
-                chat_link(core, &answered.agent_id, None, None),
+                chat_link(&answered.agent_id, None, None),
             ));
         }
     }
@@ -830,7 +819,7 @@ pub(super) fn gather(core: &Core, project: &str, card: u64) -> Option<Gathered> 
             account = config;
         }
         let working = (core.chats.get(&worker.id)).is_some_and(|chat| chat.feed.in_turn());
-        let link = chat_link(core, &worker.id, None, None);
+        let link = chat_link(&worker.id, None, None);
         let mut read = read_session(kind, &path, worker, link, working, deadline);
         place_moments(core, &worker.id, &mut read);
         moments.append(&mut read);
@@ -849,7 +838,7 @@ pub(super) fn gather(core: &Core, project: &str, card: u64) -> Option<Gathered> 
         }
     }
     card_facts(&cards, &mut moments, &mut gaps);
-    goal_facts(core, goal, &cards, &mut moments, &mut gaps);
+    goal_facts(goal, &cards, &mut moments, &mut gaps);
     held(core, &workers, &mut moments);
     let (moments, gaps) = bounded(moments, gaps);
     let pulls = (cards.iter())

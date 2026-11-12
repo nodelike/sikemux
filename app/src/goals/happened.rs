@@ -467,7 +467,6 @@ fn recorded_source(decision: &Decision) -> SummarySource {
         agent,
         feed: learned.feed.clone(),
         index: learned.turn,
-        saved: None,
     });
     SummarySource {
         kind: SourceKind::Decision,

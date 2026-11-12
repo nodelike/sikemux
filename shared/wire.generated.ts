@@ -4424,7 +4424,7 @@ export interface ClosedAgentsParams {
     cwd: string;
 }
 
-/** A closed agent the person named, which can be opened again under its name. */
+/** A closed agent the person named, which can be opened again as itself. */
 export interface ClosedAgent {
     agentId: string;
     name: string;

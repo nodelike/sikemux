@@ -6866,7 +6866,7 @@ struct ClosedAgentsParams: Codable, Hashable, Sendable {
     var cwd: String
 }
 
-/// A closed agent the person named, which can be opened again under its name.
+/// A closed agent the person named, which can be opened again as itself.
 struct ClosedAgent: Codable, Hashable, Sendable {
     var agentId: String
     var name: String
