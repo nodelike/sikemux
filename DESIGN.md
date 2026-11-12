@@ -18,6 +18,8 @@ made for other apps.
 - Chat transcript text is reading text at full ink; don't mute it.
 - Sizes under 11px in the rails and lists are deliberate; don't round them up.
 - Colours come from the tokens, so every theme looks right.
+- UI icons are Lucide's, copied into `shared/ui/Icons.tsx` on its 24 grid at
+  stroke 2 with round ends; a glyph Lucide lacks is drawn the same way.
 
 ## Tokens
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Writes the icons the GPUI screens draw as SVG files, by rendering shared/ui/Icons.tsx,
-// the set the phone and the notch draw too. The plugin marks, code-host section icons,
-// outcome marks and phone QR code in assets/icons are kept as they are.
+// the set the phone and the notch draw too. The plugin and service marks, outcome marks,
+// the database mark and phone QR code in assets/icons are kept as they are.
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -136,6 +136,27 @@ const DRAWN = {
   workflow: [ICONS, "IconWorkflow"],
   wrench: [ICONS, "IconWrench"],
   timer: [ICONS, "IconTimer"],
+  actions: [ICONS, "IconActions"],
+  "arrow-left": [ICONS, "IconArrowLeft"],
+  "bolt-fill": [ICONS, "IconBoltFill"],
+  checkout: [ICONS, "IconCheckout"],
+  commit: [ICONS, "IconCommit"],
+  "expand-all": [ICONS, "IconExpandAll"],
+  fetch: [ICONS, "IconFetch"],
+  image: [ICONS, "IconImage"],
+  issues: [ICONS, "IconIssue"],
+  lock: [ICONS, "IconLock"],
+  merge: [ICONS, "IconMerge"],
+  minus: [ICONS, "IconMinus"],
+  pull: [ICONS, "IconPull"],
+  push: [ICONS, "IconPush"],
+  releases: [ICONS, "IconTag"],
+  sort: [ICONS, "IconSort"],
+  sparkle: [ICONS, "IconSparkle"],
+  stash: [ICONS, "IconStash"],
+  tablet: [ICONS, "IconTablet"],
+  tag: [ICONS, "IconTag"],
+  viewport: [ICONS, "IconViewport"],
   // The marks of a toast, named as GPUI Kit's notifications ask for them.
   info: [ICONS, "IconInfoMark"],
   "circle-check": [ICONS, "IconCheck"],
@@ -200,7 +221,7 @@ try {
   const chevron = await readFile(resolve(out, "chevron.svg"), "utf8");
   await writeFile(
     resolve(out, "chevron-down.svg"),
-    chevron.replace(/^(<svg[^>]*>)(.*)(<\/svg>)/s, '$1<g transform="rotate(90 8 8)">$2</g>$3'),
+    chevron.replace(/^(<svg[^>]*>)(.*)(<\/svg>)/s, '$1<g transform="rotate(90 12 12)">$2</g>$3'),
   );
   await writeFile(resolve(out, "battery-bolt.svg"), bolt(""));
   await writeFile(resolve(out, "battery-bolt-gap.svg"), bolt(' stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"'));

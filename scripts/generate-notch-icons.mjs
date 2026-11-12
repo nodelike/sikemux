@@ -42,6 +42,10 @@ const LINE_ICONS = {
   message: "IconMessage",
 };
 
+/** The grid and stroke of every line icon in shared/ui/Icons.tsx, which are Lucide's. */
+const LINE_VIEWBOX = "0 0 24 24";
+const LINE_WIDTH = 2;
+
 // Line icons the app fills from its stylesheet rather than from the icon itself.
 const FILLED_ICONS = new Set(["agent"]);
 
@@ -262,36 +266,23 @@ const source = await readFile(iconsPath, "utf8");
 const lines = [];
 
 for (const [key, name] of Object.entries(LINE_ICONS)) {
-  const match =
-    source.match(
-      new RegExp(
-        `export const ${name} = makeSvgIcon\\(\\s*([\\s\\S]*?)\\s*(?:,\\s*(\\{[^{}]*\\}))?\\s*,?\\s*\\);\\n`,
-      ),
-    ) ??
-    // An icon drawn on a 24-unit grid, which makeSvgIcon24 gives its own viewBox.
-    source
-      .match(
-        new RegExp(
-          `export const ${name} = makeSvgIcon24\\(([\\s\\S]*?)\\);\\n`,
-        ),
-      )
-      ?.slice(0, 2)
-      .concat('{ viewBox: "0 0 24 24" }');
+  const match = source.match(
+    new RegExp(
+      `export const ${name} = makeSvgIcon\\(\\s*([\\s\\S]*?)\\s*(?:,\\s*(\\{[^{}]*\\}))?\\s*,?\\s*\\);\\n`,
+    ),
+  );
   if (!match) throw new Error(`shared/ui/Icons.tsx has no ${name}`);
   const options = match[2] ?? "";
-  const box = options.match(/viewBox:\s*"([^"]+)"/)?.[1];
   const style =
     FILLED_ICONS.has(key) || options.includes('fill: "currentColor"')
       ? "fill"
       : "stroke";
-  // makeSvgIcon24 draws at 2.1 on its own grid, where the rest draw at 1.4 on 16 units.
-  const grid24 = box === "0 0 24 24";
   const body = shapes(match[1]).map((shape) => {
     const literal = shapeLiteral(shape, style, null, {});
-    return `        ${grid24 ? `${literal.slice(0, -1)}, lineWidth: 2.1)` : literal},`;
+    return `        ${literal.slice(0, -1)}, lineWidth: ${LINE_WIDTH}),`;
   });
   lines.push(
-    `    static let ${key} = IconDef(viewBox: ${viewBox(box)}, shapes: [\n${body.join("\n")}\n    ])`,
+    `    static let ${key} = IconDef(viewBox: ${viewBox(LINE_VIEWBOX)}, shapes: [\n${body.join("\n")}\n    ])`,
   );
 }
 
@@ -694,10 +685,10 @@ for (const [name, markup] of Object.entries(DRAWN_ICONS)) {
   const element = {
     type: "svg",
     props: {
-      viewBox: "0 0 16 16",
+      viewBox: LINE_VIEWBOX,
       fill: "none",
       stroke: "currentColor",
-      strokeWidth: 1.4,
+      strokeWidth: LINE_WIDTH,
       children: shapes(markup).map((shape) => ({
         type: "path",
         props: { d: shape.d },
