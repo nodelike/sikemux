@@ -508,6 +508,15 @@ impl World {
                     context: Vec::new(),
                 }))?;
             }
+            "auto" => {
+                let (_, path) = self.project()?.clone();
+                let slots: u32 = step.text(0)?.parse()?;
+                let ceiling: u32 = step.text(1)?.parse()?;
+                self.call(
+                    "boardSettings",
+                    json!({ "project": path, "auto": true, "slots": slots, "spendCeiling": ceiling }),
+                )?;
+            }
             "pause" => {
                 let trigger: u64 = step.text(0)?.parse()?;
                 self.call("holdTrigger", json!({ "trigger": trigger, "paused": true }))?;

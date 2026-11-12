@@ -50,8 +50,8 @@ pub(super) fn page(
         cx,
     );
     let about = match lands {
-        Lands::Agents => "Agents land their own work once its checks pass",
-        Lands::Person => "Agents leave their work for you to land",
+        Lands::Agents => "Agents land their own work",
+        Lands::Person => "You land the work agents leave",
     };
     let body = div()
         .child(rows::row_with(

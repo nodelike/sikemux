@@ -94,7 +94,10 @@ fn row(
     let line = said::line(
         format!("playbook-rule-{id}"),
         words,
-        Moment::of(&entry.learned),
+        match entry.learned.agent {
+            None => Moment::of(&entry.learned),
+            Some(_) => None,
+        },
         vec![if undo == "Undo" {
             retire.on_hover()
         } else {
