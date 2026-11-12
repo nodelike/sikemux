@@ -100,6 +100,10 @@ impl<T: Selectable + IntoElement + 'static> RenderOnce for MenuTrigger<T> {
 
 impl<T: Selectable + IntoElement + 'static> DropdownMenu for MenuTrigger<T> {}
 
+/// The side padding and height Kit gives a menu row.
+const ROW_PADDING: gpui_kit::Pixels = px(8.);
+const ROW_HEIGHT: gpui_kit::Pixels = px(26.);
+
 /// A menu row with what Kit's own rows lack: a mark in its own colours where the icon goes,
 /// words at its end, and the danger colour for a choice that deletes or discards.
 pub struct MenuRow {
@@ -108,6 +112,7 @@ pub struct MenuRow {
     mark: Option<Rc<dyn Fn() -> AnyElement>>,
     hint: Option<SharedString>,
     danger: bool,
+    chosen: bool,
 }
 
 impl FluentBuilder for MenuRow {}
@@ -120,6 +125,7 @@ impl MenuRow {
             mark: None,
             hint: None,
             danger: false,
+            chosen: false,
         }
     }
 
@@ -143,6 +149,12 @@ impl MenuRow {
         self
     }
 
+    /// Ticked, with the chosen surface across the whole row, for the choice in force.
+    pub fn chosen(mut self, chosen: bool) -> Self {
+        self.chosen = chosen;
+        self
+    }
+
     pub fn item(self, cx: &App) -> PopupMenuItem {
         let t = Tokens::get(cx);
         let ink = self
@@ -155,14 +167,26 @@ impl MenuRow {
                 None => icon,
             }
         });
+        let has_icon = self.icon.is_some();
         let Self {
-            label, mark, hint, ..
+            label,
+            mark,
+            hint,
+            chosen,
+            ..
         } = self;
-        let item = if mark.is_none() && hint.is_none() && ink.is_none() {
+        let item = if mark.is_none() && hint.is_none() && ink.is_none() && !chosen {
             PopupMenuItem::new(label)
         } else {
-            PopupMenuItem::element(move |_, cx| {
-                let hint_ink = Tokens::get(cx).text_tertiary;
+            PopupMenuItem::element(move |window, cx| {
+                let t = Tokens::get(cx);
+                let hint_ink = t.text_tertiary;
+                // Kit lays a row out as its padding, the icon and a gap, this element, then the
+                // tick and its margin; the chosen ground reaches across all of them.
+                let rem = window.rem_size();
+                let before = ROW_PADDING + if has_icon { rem } else { px(0.) };
+                let after = ROW_PADDING + rem * 1.5;
+                let ground = t.surface_chosen;
                 div()
                     .id(ElementId::Name(label.clone()))
                     .aria_label(label.clone())
@@ -172,6 +196,18 @@ impl MenuRow {
                     .flex()
                     .items_center()
                     .gap(SPACE_2)
+                    .when(chosen, |row| {
+                        row.relative().h(ROW_HEIGHT).child(
+                            div()
+                                .absolute()
+                                .top_0()
+                                .bottom_0()
+                                .left(-before)
+                                .right(-after)
+                                .rounded(RADIUS_2)
+                                .bg(ground),
+                        )
+                    })
                     .children(mark.as_ref().map(|mark| mark()))
                     .child(
                         div()
@@ -186,9 +222,14 @@ impl MenuRow {
                     }))
             })
         };
-        match icon {
+        let item = match icon {
             Some(icon) => item.icon(icon),
             None => item,
+        };
+        if chosen {
+            item.checked(true)
+        } else {
+            item
         }
     }
 }

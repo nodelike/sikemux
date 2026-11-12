@@ -1537,8 +1537,9 @@ impl BrowserManager {
         screenshot(&view, None, None).await
     }
 
-    /// A picture of `url` laid out at `fixed`, taken in a view of its own off screen, so the
-    /// agent's tab and whatever the person is doing in it are left alone.
+    /// A picture of `url` laid out at `fixed`, loaded again in a view of its own off screen, so
+    /// the agent's tab and whatever the person is doing in it are left alone. The view is made
+    /// on the first picture and kept, as making one holds up the window for a frame.
     pub async fn picture_at(
         &self,
         agent_id: &str,
@@ -1547,10 +1548,28 @@ impl BrowserManager {
     ) -> Result<Vec<u8>, String> {
         let user_agent = fixed.user_agent().unwrap_or(crate::USER_AGENT);
         let size = (f64::from(fixed.width), f64::from(fixed.height));
-        let mut view = crate::preview::Preview::open(self.host(), agent_id, url, size, user_agent)?;
-        view.loaded(LOAD_TIMEOUT).await?;
-        tokio::time::sleep(SETTLE).await;
-        screenshot(view.view(), None, None).await
+        let mut picturer = self.picturer.lock().await;
+        let view = match picturer.as_mut() {
+            Some(view) => {
+                view.load(url, size, user_agent);
+                view
+            }
+            None => picturer.insert(crate::preview::Preview::open(
+                self.host(),
+                agent_id,
+                url,
+                size,
+                user_agent,
+            )?),
+        };
+        let taken = async {
+            view.loaded(LOAD_TIMEOUT).await?;
+            tokio::time::sleep(SETTLE).await;
+            screenshot(view.view(), None, None).await
+        }
+        .await;
+        view.view().hide();
+        taken
     }
 
     pub fn page(&self, agent_id: &str, tab_id: &str) -> Option<super::TabPage> {

@@ -17,7 +17,7 @@ use sikemux_browser::viewport::Viewport;
 use sikemux_browser::BrowserTab;
 
 use crate::icons::Icon;
-use crate::theme::{Tokens, RADIUS_2, SPACE_1, SPACE_1H, SPACE_2, SPACE_3, TEXT_2XS_H, TEXT_XS};
+use crate::theme::{Tokens, RADIUS_2, SPACE_1H, SPACE_2, SPACE_3, TEXT_2XS_H, TEXT_XS};
 use crate::ui::{self, MenuRow};
 use crate::workbench::Workbench;
 
@@ -43,8 +43,12 @@ pub(crate) struct Pictures {
     by_address: HashMap<String, HashMap<&'static str, Picture>>,
     order: VecDeque<String>,
     taking: HashSet<String>,
+    /// Pages to take again once the taking under way ends, as they loaded anew meanwhile.
+    again: HashSet<String>,
     /// Tabs shown with All whose page was loading when last heard, taken again once it ends.
     loading: HashSet<String>,
+    /// Each tab whose page loaded anew, waiting for it to stay still before it is taken again.
+    settling: HashMap<String, gpui_kit::Task<()>>,
 }
 
 struct Picture {
@@ -123,7 +127,7 @@ pub(super) fn chip(
         .h(px(20.))
         .pl(px(7.))
         .pr(SPACE_1H)
-        .ml(SPACE_1)
+        .mr(px(3.))
         .flex()
         .items_center()
         .gap(px(5.))
@@ -162,8 +166,8 @@ pub(super) fn chip(
                         .when_some(size, |row, size| {
                             row.hint(format!("{}×{}", size.width, size.height))
                         })
+                        .chosen(chosen(preset))
                         .item(cx)
-                        .checked(chosen(preset))
                         .on_click(move |_, _, cx| {
                             crate::keymap::counted("browser.width", cx);
                             bench
@@ -182,8 +186,8 @@ pub(super) fn chip(
             popup.separator().item(
                 MenuRow::new("All three")
                     .icon(Icon::Viewport)
+                    .chosen(all)
                     .item(cx)
-                    .checked(all)
                     .on_click(move |_, _, cx| {
                         crate::keymap::counted("browser.widthAll", cx);
                         bench
@@ -367,36 +371,76 @@ fn shrunk(jpeg: Vec<u8>) -> Vec<u8> {
     }
 }
 
+/// How long a page must go without loading again before its pictures are taken again, so a
+/// dev server reloading on every save takes them once its burst is over.
+const SETTLE: std::time::Duration = std::time::Duration::from_millis(1500);
+
 impl Workbench {
-    /// Takes pictures of the page in front on `agent`'s desk at the widths All shows beside it
-    /// that it has none of yet, or at all of them again once the page has loaded anew.
+    /// Keeps the pictures All shows beside the page in front on `agent`'s desk: takes the widths
+    /// it has none of yet, and all of them again once the page has loaded anew and settled.
     pub(crate) fn take_pictures(&mut self, agent: &str, cx: &mut Context<Self>) {
-        let Some(engine) = self.desks.read(cx).engine.clone() else {
+        let Some(tab) = self.all_widths_tab(agent, cx) else {
             return;
         };
-        let Some(tab) = (self.desks.read(cx).strips.get(agent))
-            .and_then(|strip| strip.tabs.iter().find(|tab| tab.active).cloned())
-        else {
+        let anew = self.desks.update(cx, |desks, _| {
+            let pictures = &mut desks.pictures;
+            if tab.loading {
+                pictures.loading.insert(tab.id.clone());
+                pictures.settling.remove(&tab.id);
+                return None;
+            }
+            Some(pictures.loading.remove(&tab.id))
+        });
+        match anew {
+            None => {}
+            Some(false) => self.take(agent, false, cx),
+            Some(true) => {
+                let owner = agent.to_owned();
+                let settled = cx.spawn(async move |bench, cx| {
+                    cx.background_executor().timer(SETTLE).await;
+                    bench
+                        .update(cx, |bench, cx| bench.take(&owner, true, cx))
+                        .ok();
+                });
+                self.desks.update(cx, |desks, _| {
+                    desks.pictures.settling.insert(tab.id.clone(), settled)
+                });
+            }
+        }
+    }
+
+    /// The page in front on `agent`'s desk, while it is shown with All.
+    fn all_widths_tab(&self, agent: &str, cx: &Context<Self>) -> Option<BrowserTab> {
+        let desks = self.desks.read(cx);
+        let engine = desks.engine.as_ref()?;
+        let tab = (desks.strips.get(agent))
+            .and_then(|strip| strip.tabs.iter().find(|tab| tab.active).cloned())?;
+        (engine.all_widths(agent, &tab.id) && !super::idle_blank(&tab)).then_some(tab)
+    }
+
+    /// Takes the page in front at the widths All shows beside it that it has no picture of, or
+    /// with `fresh` at all of them.
+    fn take(&mut self, agent: &str, fresh: bool, cx: &mut Context<Self>) {
+        let (Some(tab), Some(engine)) = (
+            self.all_widths_tab(agent, cx),
+            self.desks.read(cx).engine.clone(),
+        ) else {
             return;
         };
-        if !engine.all_widths(agent, &tab.id) || super::idle_blank(&tab) {
+        if tab.loading {
             return;
         }
         let live_at = live_preset(engine.viewport(agent, &tab.id));
         let wanted = self.desks.update(cx, |desks, _| {
             let pictures = &mut desks.pictures;
-            if tab.loading {
-                pictures.loading.insert(tab.id.clone());
-                return Vec::new();
-            }
-            let anew = pictures.loading.remove(&tab.id);
+            pictures.settling.remove(&tab.id);
             if pictures.taking.contains(&tab.url) {
-                if anew {
-                    pictures.loading.insert(tab.id.clone());
+                if fresh {
+                    pictures.again.insert(tab.url.clone());
                 }
                 return Vec::new();
             }
-            if anew {
+            if fresh {
                 if let Some(had) = pictures.by_address.get_mut(&tab.url) {
                     had.remove(live_at);
                 }
@@ -406,7 +450,7 @@ impl Workbench {
                 .iter()
                 .map(|(preset, ..)| *preset)
                 .filter(|preset| *preset != live_at)
-                .filter(|preset| anew || had.is_none_or(|had| !had.contains_key(preset)))
+                .filter(|preset| fresh || had.is_none_or(|had| !had.contains_key(preset)))
                 .collect();
             if !wanted.is_empty() {
                 pictures.taking.insert(tab.url.clone());
@@ -416,9 +460,9 @@ impl Workbench {
         if wanted.is_empty() {
             return;
         }
-        let (agent, url) = (agent.to_owned(), tab.url.clone());
+        let (owner, url) = (agent.to_owned(), tab.url.clone());
         cx.spawn(async move |bench, cx| {
-            let taking = url.clone();
+            let (taking, agent) = (url.clone(), owner.clone());
             let shots = super::run(async move {
                 let mut shots = Vec::new();
                 for preset in wanted {
@@ -440,11 +484,16 @@ impl Workbench {
             .unwrap_or_default();
             bench
                 .update(cx, |bench, cx| {
-                    bench.desks.update(cx, |desks, cx| {
-                        desks.pictures.taking.remove(&url);
-                        desks.pictures.keep(&url, shots, ui::time::now_ms());
+                    let again = bench.desks.update(cx, |desks, cx| {
+                        let pictures = &mut desks.pictures;
+                        pictures.taking.remove(&url);
+                        pictures.keep(&url, shots, ui::time::now_ms());
                         cx.notify();
+                        pictures.again.remove(&url)
                     });
+                    if again {
+                        bench.take(&owner, true, cx);
+                    }
                 })
                 .ok();
         })

@@ -18,6 +18,7 @@ static NEXT: AtomicU64 = AtomicU64::new(1);
 pub(crate) struct Preview {
     view: Tab,
     load: watch::Receiver<Option<Result<(), String>>>,
+    events: Arc<PreviewEvents>,
 }
 
 impl Preview {
@@ -31,6 +32,7 @@ impl Preview {
         let parent = host.window()?;
         let tab_id = format!("page-preview-{}", NEXT.fetch_add(1, Ordering::Relaxed));
         let (sender, load) = watch::channel(None);
+        let events = Arc::new(PreviewEvents { load: sender });
         let view = Tab::open(
             parent,
             TabSpec {
@@ -41,11 +43,21 @@ impl Preview {
                 size,
                 opener: None,
             },
-            Arc::new(PreviewEvents { load: sender }),
+            events.clone(),
         )?;
         crate::manager::place(&view, viewport::Layout::Parked { page: size }, true);
         view.show();
-        Ok(Self { view, load })
+        Ok(Self { view, load, events })
+    }
+
+    /// Loads `url` again at `size`, introducing itself as `user_agent`, in the same view.
+    pub(crate) fn load(&mut self, url: &str, size: (f64, f64), user_agent: &'static str) {
+        self.events.load.send_replace(None);
+        crate::manager::place(&self.view, viewport::Layout::Parked { page: size }, true);
+        self.view.show();
+        self.view
+            .run(move |webview| crate::manager::introduce_as(webview, user_agent));
+        self.view.navigate(url);
     }
 
     pub(crate) fn view(&self) -> &Tab {

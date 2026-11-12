@@ -2131,10 +2131,15 @@ pub fn pane(
                     field.hover(move |field| field.bg(t.text_primary.opacity(0.08)))
                 })
                 .when(!floating, |field| {
-                    field.child(Input::new(&page.address).appearance(false))
+                    field.child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .child(Input::new(&page.address).appearance(false)),
+                    )
                 })
+                .children(front.map(|tab| width::chip(bench, agent, &tab.id, cx)))
         }))
-        .children(front.map(|tab| width::chip(bench, agent, &tab.id, cx)))
         .child(snip_toggle(bench, agent, cx));
     if let Some(item) = front_item {
         let shown = match item {

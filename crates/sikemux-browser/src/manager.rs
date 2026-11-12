@@ -30,6 +30,7 @@ use crate::{
     BrowserDownload, BrowserSnapshot, DownloadState, PageDialog, Tab, TabSpec, TabStall, BLANK_URL,
     PARKED_ORIGIN, USER_AGENT,
 };
+pub(crate) use page::introduce_as;
 
 const MAX_URL_LEN: usize = 8192;
 /// A page opening more tabs than this in `POPUP_WINDOW` is in a loop.
@@ -142,6 +143,8 @@ pub struct BrowserManager {
     window_draws: AtomicBool,
     pub(crate) host: Arc<dyn Host>,
     pub(crate) me: Weak<BrowserManager>,
+    /// The view off screen that pictures of pages at other widths are taken in, made once.
+    pub(crate) picturer: tokio::sync::Mutex<Option<crate::preview::Preview>>,
 }
 
 impl BrowserManager {
@@ -166,6 +169,7 @@ impl BrowserManager {
             window_draws: AtomicBool::default(),
             host,
             me: me.clone(),
+            picturer: tokio::sync::Mutex::new(None),
         });
         crate::discard::watch_pressure(Arc::downgrade(&manager));
         manager
