@@ -1,38 +1,33 @@
 import ActivityKit
 import Foundation
 
-/// What the phone's widgets and Live Activity draw, as the app last put together from every host's view.
+/// What the phone's widgets draw, as the app or the notification extension last left it.
 struct Glance: Codable, Hashable, Sendable {
-    var agents: AgentsGlance
+    var hosts: [HostGlance]
     var limits: [LimitGlance]
+    /// The person turned the lock on, so nothing outside the app shows what agents work on.
+    var hidden: Bool
 }
 
-/// The agents that need the person or work now, across every host, in the order the hosts rank them.
-struct AgentsGlance: Codable, Hashable, Sendable {
-    /// The first few, those that need the person first.
-    var rows: [AgentGlance]
-    var needed: Int
-    var working: Int
+/// One host's agents that need the person or work, as the host ranks them.
+struct HostGlance: Codable, Hashable, Sendable, Identifiable {
+    var host: String
+    var hostName: String
+    var agents: ActivityGlance
 
-    static let none = AgentsGlance(rows: [], needed: 0, working: 0)
+    var id: String { host }
+}
 
+extension ActivityGlance {
     var active: Bool { needed > 0 || working > 0 }
 }
 
-struct AgentGlance: Codable, Hashable, Sendable, Identifiable {
-    enum State: String, Codable, Sendable {
-        case needs, working, done, failed
-    }
+extension ActivityRow: Identifiable {
+    var id: String { agentId }
+}
 
-    var host: String
-    var hostName: String
-    var agentId: String
-    var cli: String
-    var title: String
-    var name: String?
-    var state: State
-
-    var id: String { "\(host)/\(agentId)" }
+extension ActivityProject: Identifiable {
+    var id: String { name }
 }
 
 /// One rolling window of an agent account's plan.
@@ -44,15 +39,33 @@ struct LimitGlance: Codable, Hashable, Sendable, Identifiable {
     var used: Double
     var resetsAt: Date?
     var readAt: Date?
-    /// The last reading failed or is well past due, so the numbers may be old.
+    /// The last reading failed, so the numbers may be old.
     var stale: Bool
 
     var id: String { "\(provider)/\(account)/\(window)" }
 }
 
-/// What a Live Activity of the agents carries: who is at work across hosts, and nothing that identifies the phone.
+/// A Live Activity of one host's agents. The app fills it in while it runs; while the phone is locked the host
+/// sends it sealed, and the widget extension opens it with the key the phone gave that host.
 struct AgentsActivity: ActivityAttributes {
-    typealias ContentState = AgentsGlance
+    struct ContentState: Codable, Hashable, Sendable {
+        var glance: ActivityGlance?
+        var sealed: String?
+
+        /// What it shows: as the app put it, or as the host sealed it, once opened.
+        func opened(host: String) -> ActivityGlance? {
+            if let glance { return glance }
+            let keys = Keys()
+            guard let sealed, let phone = keys.phone,
+                case .read(let from, let plaintext) = Envelope.open(sealed, phone: phone, keys: keys.all()),
+                from == host
+            else { return nil }
+            return try? JSONDecoder().decode(ActivityGlance.self, from: Data(plaintext.utf8))
+        }
+    }
+
+    var host: String
+    var hostName: String
 }
 
 /// Where the app leaves the glance for its widgets: a file in the App Group both read.

@@ -35,6 +35,7 @@ use super::{Core, CoreResult};
 use sikemux_fold::AgentNeed;
 use sikemux_view::chat::{FailureKind, TeamNeedKind};
 use sikemux_view::host_stats::HostAlertKind;
+use sikemux_view::push::ActivityGlance;
 use sikemux_view::slice::{Gate, Proof};
 use sikemux_view::turn::{TurnState, WorkAt};
 
@@ -1468,7 +1469,7 @@ pub(crate) fn view(core: &Core, chats: &[ChatInfo], sessions: &[SessionInfo]) ->
             *needs.entry(project.clone()).or_default() += 1;
         }
     }
-    Inbox {
+    let mut inbox = Inbox {
         rollup: rollup(listed.iter().filter(in_main)),
         projects,
         needs,
@@ -1476,7 +1477,9 @@ pub(crate) fn view(core: &Core, chats: &[ChatInfo], sessions: &[SessionInfo]) ->
         agents: listed,
         kept,
         ..view
-    }
+    };
+    inbox.glance = ActivityGlance::of(&inbox);
+    inbox
 }
 
 /// The agents the workspace keeps that run nothing now, as a client lists them.
@@ -1843,6 +1846,7 @@ fn view_of(core: &Core, agents: &[Agent], sessions: &[SessionInfo], turns: &Turn
         needs: BTreeMap::new(),
         needed: 0,
         rollup: None,
+        glance: ActivityGlance::default(),
     }
 }
 

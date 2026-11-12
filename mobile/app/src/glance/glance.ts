@@ -23,37 +23,37 @@ const usagesRead = new Map<string, number>();
 let shown: string | undefined;
 let shownLimits: string | undefined;
 
-/** Who needs the person or works now across hosts, in the shade's words; none while nothing does. */
+/** What every host's glance says together, in the shade's words; none while nothing works or waits. */
 function atWork(): AtWork | undefined {
   let needed = 0;
   let working = 0;
-  let first: { core: string; host: string; agentId: string; title: string; name?: string | null; needs: boolean } | undefined;
+  let done = 0;
+  let first: { core: string; host: string; agentId?: string; line: string } | undefined;
   for (const device of knownDevices()) {
-    const inbox = liveOf(device.core).snapshot?.inbox;
-    if (!inbox) continue;
-    needed += inbox.needed ?? inbox.items.filter((item) => item.need).length;
-    working += inbox.working;
-    const lead = inbox.agents.find((agent) => agent.group === 'blocked') ?? inbox.agents.find((agent) => agent.group === 'working');
-    if (lead && (!first || (!first.needs && lead.group === 'blocked'))) {
-      first = {
-        core: device.core,
-        host: deviceName(device),
-        agentId: lead.agentId,
-        title: lead.title,
-        name: lead.name,
-        needs: lead.group === 'blocked',
-      };
+    const glance = liveOf(device.core).snapshot?.inbox.glance;
+    if (!glance) continue;
+    needed += glance.needed;
+    working += glance.working;
+    done += glance.done;
+    const row = glance.rows[0];
+    if (row && !first?.agentId) {
+      const lead = row.name ? `@${row.name} · ` : '';
+      first = { core: device.core, host: deviceName(device), agentId: row.agentId, line: `${lead}${row.title}` };
+    } else if (!first && glance.projects[0]) {
+      const project = glance.projects[0];
+      first = { core: device.core, host: deviceName(device), line: `${project.name} · ${project.working} working` };
     }
   }
   if (needed === 0 && working === 0) return undefined;
-  const hidden = lockOn();
-  const who = first?.needs ? (hidden || !first.name ? 'An agent needs you' : `@${first.name} needs you`) : null;
-  const more = who && needed > 1 ? `${needed - 1} more` : null;
-  const needs = !who && needed > 0 ? `${needed} need you` : null;
+  const counts = [
+    needed > 0 ? `${needed} ${needed === 1 ? 'needs' : 'need'} you` : null,
+    working > 0 ? `${working} working` : null,
+    done > 0 ? `${done} done` : null,
+  ];
   return {
-    title: [who, more, needs, working > 0 ? `${working} working` : null].filter(Boolean).join(' · '),
-    text: first && !hidden ? `${first.title} · ${first.host}` : null,
-    url: first ? `sikemux://device/${first.core}/chat/${first.agentId}` : null,
+    title: counts.filter(Boolean).join(' · '),
+    text: first && !lockOn() ? `${first.line} · ${first.host}` : null,
+    url: first ? `sikemux://device/${first.core}${first.agentId ? `/chat/${first.agentId}` : ''}` : null,
   };
 }
 

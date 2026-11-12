@@ -69,6 +69,8 @@ pub struct Push {
     pub to: String,
     pub kind: PushKind,
     pub collapse_id: String,
+    /// For a Live Activity's update or end: the activity's own push token.
+    pub activity_token: Option<String>,
     pub blob: String,
     /// Milliseconds since the Unix epoch. Until then a push waits for the
     /// connection; after it, it is dropped.
@@ -136,6 +138,7 @@ impl Outbox {
                 to: push.to.clone(),
                 kind: push.kind,
                 collapse_id: push.collapse_id.clone(),
+                activity_token: push.activity_token.clone(),
                 blob: push.blob.clone(),
                 expires_at: rfc3339(push.expires_at),
             });

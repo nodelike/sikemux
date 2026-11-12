@@ -456,6 +456,7 @@ calls! { core, client, method, params;
     "refuseShip" RefuseShip (ship::HoldParams) -> (): Full, counted => person_calls::answer_hold(&core, &client.peer, params, person_calls::HOLD_REFUSE).await?,
     "letShipGo" LetShipGo (ship::HoldParams) -> (): Full => person_calls::answer_hold(&core, &client.peer, params, person_calls::HOLD_ALWAYS).await?,
     "answerCall" AnswerCall (sikemux_view::calls::AnswerCallParams) -> (): Full, counted => person_calls::answer(&core, &client.peer, params).await?,
+    "liveActivity" LiveActivity (super::notify::ActivityParams) -> (): Watch => super::notify::live_activity(&core, &client.peer, params)?,
     "callSeen" CallSeen (sikemux_view::calls::CallParams) -> (): Watch => person_calls::seen(&core, &client.peer, params)?,
     "callNotMine" CallNotMine (sikemux_view::calls::CallParams) -> (): Full, counted => person_calls::not_mine(&core, &client.peer, params).await?,
     "places" PlacesRead (super::places::PlacesParams) -> sikemux_view::places::Places: Watch, any_program => super::places::read(&core, params).await?,

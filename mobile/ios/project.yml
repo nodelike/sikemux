@@ -72,7 +72,7 @@ targets:
         group: Sikemux/Resources
         buildPhase: resources
       - path: Shared
-        excludes: [Notify/Card.generated.swift, ExtensionFonts.swift]
+        excludes: [Notify/Card.generated.swift, Glance/Glance.generated.swift, ExtensionFonts.swift]
       - path: ../../helpers/notch/Sources/NotchKit/IconView.swift
         group: Sikemux/UI/Notch
       - path: ../../helpers/notch/Sources/NotchKit/Icons.generated.swift
@@ -180,6 +180,7 @@ targets:
         excludes: [Info.plist, SikemuxNotifications.entitlements]
       - path: Shared/Notify
       - path: Shared/Keychain.swift
+      - path: Shared/Glance
     info:
       path: Notifications/Info.plist
       properties:
@@ -187,12 +188,14 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         SikemuxKeychainGroup: $(DEVELOPMENT_TEAM).$(SIKEMUX_BUNDLE_ID).notify
+        SikemuxAppGroup: group.$(SIKEMUX_BUNDLE_ID)
         NSExtension:
           NSExtensionPointIdentifier: com.apple.usernotifications.service
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).NotificationService
     entitlements:
       path: Notifications/SikemuxNotifications.entitlements
       properties:
+        com.apple.security.application-groups: [group.$(SIKEMUX_BUNDLE_ID)]
         keychain-access-groups: [$(AppIdentifierPrefix)$(SIKEMUX_BUNDLE_ID).notify]
     settings:
       base:
@@ -258,6 +261,8 @@ targets:
       - path: Widgets
         excludes: [Info.plist, SikemuxWidgets.entitlements]
       - path: Shared/Glance
+      - path: Shared/Notify
+      - path: Shared/Keychain.swift
       - path: Shared/ExtensionFonts.swift
       - path: Sikemux/UI/Theme.swift
       - path: Sikemux/UI/Format.swift
@@ -275,6 +280,7 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         SikemuxAppGroup: group.$(SIKEMUX_BUNDLE_ID)
+        SikemuxKeychainGroup: $(DEVELOPMENT_TEAM).$(SIKEMUX_BUNDLE_ID).notify
         SikemuxURLScheme: $(SIKEMUX_URL_SCHEME)
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
@@ -282,6 +288,7 @@ targets:
       path: Widgets/SikemuxWidgets.entitlements
       properties:
         com.apple.security.application-groups: [group.$(SIKEMUX_BUNDLE_ID)]
+        keychain-access-groups: [$(AppIdentifierPrefix)$(SIKEMUX_BUNDLE_ID).notify]
     settings:
       base:
         TARGETED_DEVICE_FAMILY: "1"

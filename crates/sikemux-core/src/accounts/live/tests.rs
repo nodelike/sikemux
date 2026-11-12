@@ -408,6 +408,7 @@ fn push(to: &str, card: &str, expires_at: u64) -> Push {
         to: to.into(),
         kind: PushKind::Alert,
         collapse_id: card.repeat(32),
+        activity_token: None,
         blob: "AAAA".into(),
         expires_at,
     }

@@ -2,36 +2,39 @@ import ActivityKit
 import SwiftUI
 import WidgetKit
 
-/// The agents at work on the lock screen and in the Dynamic Island, as the Mac's notch island shows them.
+/// One host's agents on the lock screen and in the Dynamic Island, however many: the counts, then what needs the
+/// person, else the projects most at work.
 struct AgentsLiveActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: AgentsActivity.self) { context in
-            LockCard(agents: context.state, stale: context.isStale)
-                .activityBackgroundTint(palette.sunken.opacity(0.86))
-                .activitySystemActionForegroundColor(palette.ink)
+            LockCard(
+                glance: context.state.opened(host: context.attributes.host), host: context.attributes.host,
+                hostName: context.attributes.hostName, stale: context.isStale
+            )
+            .activityBackgroundTint(palette.sunken.opacity(0.86))
+            .activitySystemActionForegroundColor(palette.ink)
         } dynamicIsland: { context in
-            let agents = context.state
+            let host = context.attributes.host
+            let glance = context.state.opened(host: host) ?? ActivityGlance.quiet
             return DynamicIsland {
                 DynamicIslandExpandedRegion(.bottom) {
                     VStack(alignment: .leading, spacing: 6) {
                         HStack(spacing: 8) {
                             BrandMark()
-                            AgentCounts(agents: agents)
+                            AgentCounts(glance: glance)
                         }
-                        ForEach(agents.rows.prefix(2)) { agent in
-                            Link(destination: agent.link ?? URL(fileURLWithPath: "/")) { AgentLine(agent: agent) }
-                        }
+                        GlanceRows(
+                            glance: glance, host: host, hostName: context.attributes.hostName,
+                            hidden: GlanceStore.read()?.hidden ?? false, limit: 2, height: 26)
                     }
                     .opacity(context.isStale ? 0.5 : 1)
                 }
             } compactLeading: {
-                HStack(spacing: -2) {
-                    ForEach(agents.rows.prefix(3)) { agent in AgentMark(provider: agent.cli, size: 16) }
-                }
+                if glance.needed > 0 { Count(count: glance.needed) { NeedsMark() } }
             } compactTrailing: {
-                Rollup(agents: agents)
+                if glance.working > 0 { Count(count: glance.working) { WorkingMark() } }
             } minimal: {
-                StateMark(state: agents.needed > 0 ? .needs : .working)
+                if glance.needed > 0 { NeedsMark() } else { WorkingMark() }
             }
             .keylineTint(palette.accent)
         }
@@ -39,54 +42,51 @@ struct AgentsLiveActivity: Widget {
 }
 
 private struct LockCard: View {
-    let agents: AgentsGlance
+    let glance: ActivityGlance?
+    let host: String
+    let hostName: String
     let stale: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 8) {
                 BrandMark()
-                AgentCounts(agents: agents)
-                Spacer(minLength: 0)
-                if stale {
-                    Text("May be out of date").font(Theme.ui(12)).foregroundStyle(palette.tertiary)
-                } else if let host = hostName {
-                    Text(host).font(Theme.ui(12)).foregroundStyle(palette.tertiary).lineLimit(1)
+                if let glance {
+                    AgentCounts(glance: glance)
+                } else {
+                    Text("Agents at work").font(Theme.ui(13)).foregroundStyle(palette.secondary)
                 }
+                Spacer(minLength: 0)
+                Text(stale ? "May be out of date" : hostName)
+                    .font(Theme.ui(12)).foregroundStyle(palette.tertiary).lineLimit(1)
             }
             .padding(.bottom, 6)
-            ForEach(agents.rows.prefix(3)) { agent in
-                Link(destination: agent.link ?? URL(fileURLWithPath: "/")) {
-                    AgentLine(agent: agent).frame(height: 30)
-                }
+            if let glance {
+                GlanceRows(
+                    glance: glance, host: host, hostName: hostName, hidden: GlanceStore.read()?.hidden ?? false,
+                    limit: 3)
             }
         }
         .opacity(stale ? 0.6 : 1)
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
     }
-
-    /// The host, when every row is on one.
-    private var hostName: String? {
-        let hosts = Set(agents.rows.map(\.hostName))
-        return hosts.count == 1 ? hosts.first : nil
-    }
 }
 
-/// The notch's right wing: how many need the person with the amber dot, how many work with the squares.
-private struct Rollup: View {
-    let agents: AgentsGlance
+/// A count beside its mark, as the notch's wings show them.
+private struct Count<Mark: View>: View {
+    let count: Int
+    @ViewBuilder let mark: () -> Mark
 
     var body: some View {
         HStack(spacing: 5) {
-            if agents.needed > 0 {
-                Text("\(agents.needed)").font(Theme.ui(12, .semibold)).monospacedDigit().foregroundStyle(palette.ink)
-                StateMark(state: .needs)
-            }
-            if agents.working > 0 {
-                Text("\(agents.working)").font(Theme.ui(12, .semibold)).monospacedDigit().foregroundStyle(palette.ink)
-                WorkingMark()
-            }
+            Text("\(count)").font(Theme.ui(12, .semibold)).monospacedDigit().foregroundStyle(palette.ink)
+            mark()
         }
     }
+}
+
+extension ActivityGlance {
+    /// What shows before an update can be opened: nothing counted.
+    static let quiet = ActivityGlance(needed: 0, working: 0, done: 0, rows: [], more: 0, projects: [])
 }

@@ -2,18 +2,18 @@ import ActivityKit
 import Foundation
 import WidgetKit
 
-/// Keeps the widgets and the agents' Live Activity in step with what the hosts send: who needs the person and who
-/// works, from each host's view, and each account's plan limits, from `agentUsages`.
+/// Keeps the widgets and each host's Live Activity in step with what the hosts send: who needs the person and who
+/// works, from each host's view, and each account's plan limits, from `agentUsages`. Each Live Activity's push token
+/// goes to its host, which keeps the activity current while the phone is locked.
 @MainActor
 enum Glances {
-    private static let rows = 4
     /// Hosts change their agents in bursts; the glance follows once they settle.
     private static let settle: Duration = .seconds(1)
     /// Limits change slowly, and the Mac reads them this often too.
     private static let limitsEvery: TimeInterval = 5 * 60
-    /// With nothing new from the hosts this long, the Live Activity says its numbers may be old.
+    /// With nothing new this long, a Live Activity says its numbers may be old.
     private static let staleAfter: TimeInterval = 15 * 60
-    /// The Live Activity stays on the lock screen this long after the last agent stops.
+    /// A Live Activity stays on the lock screen this long after its last agent stops.
     private static let lingers: TimeInterval = 5 * 60
 
     private static var written: Glance?
@@ -21,6 +21,11 @@ enum Glances {
     private static var signedIn = false
     private static var usages: [String: [AccountUsage]] = [:]
     private static var usagesRead: [String: Date] = [:]
+    /// The push token of each host's Live Activity, as the phone last heard it.
+    private static var tokens: [String: String] = [:]
+    /// What each host was last told of its Live Activity's token, empty once told there is none.
+    private static var handed: [String: String] = [:]
+    private static var following: Set<String> = []
 
     static func signIn() {
         signedIn = true
@@ -33,12 +38,16 @@ enum Glances {
         written = nil
         usages = [:]
         usagesRead = [:]
+        handed = [:]
+        tokens = [:]
         GlanceStore.write(nil)
         WidgetCenter.shared.reloadAllTimelines()
-        Task { await endActivities(.none) }
+        Task {
+            for activity in Activity<AgentsActivity>.activities { await activity.end(nil, dismissalPolicy: .immediate) }
+        }
     }
 
-    /// A host sent a new view, or the app came to the front.
+    /// A host sent a new view, the lock was turned on or off, or the app came to the front.
     static func changed() {
         guard signedIn else { return }
         settling?.cancel()
@@ -64,41 +73,25 @@ enum Glances {
     }
 
     private static func write() async {
-        let next = Glance(agents: agents(), limits: limits())
-        guard next != written else { return }
-        let agentsMoved = next.agents != written?.agents
-        let limitsMoved = next.limits != written?.limits
-        written = next
-        GlanceStore.write(next)
-        if agentsMoved { WidgetCenter.shared.reloadTimelines(ofKind: GlanceStore.agentsWidget) }
-        if limitsMoved { WidgetCenter.shared.reloadTimelines(ofKind: GlanceStore.limitsWidget) }
-        if agentsMoved { await show(next.agents) }
+        let next = Glance(hosts: hosts(), limits: limits(), hidden: Lock.shared.on)
+        if next != written {
+            let agentsMoved = next.hosts != written?.hosts || next.hidden != written?.hidden
+            let limitsMoved = next.limits != written?.limits
+            written = next
+            GlanceStore.write(next)
+            if agentsMoved { WidgetCenter.shared.reloadTimelines(ofKind: GlanceStore.agentsWidget) }
+            if limitsMoved { WidgetCenter.shared.reloadTimelines(ofKind: GlanceStore.limitsWidget) }
+            if agentsMoved { await show(next.hosts) }
+        }
+        await hand()
     }
 
-    private static func agents() -> AgentsGlance {
-        var needs: [AgentGlance] = []
-        var working: [AgentGlance] = []
-        var needed = 0
-        var workingCount = 0
-        let hidden = Lock.shared.on
-        for device in Hub.shared.devices {
-            guard let inbox = Hub.shared.live(device.core).view?.inbox else { continue }
-            needed += inbox.needed ?? inbox.items.filter { $0.need != nil }.count
-            workingCount += inbox.working
-            for agent in inbox.agents {
-                let row = { (state: AgentGlance.State) in
-                    AgentGlance(
-                        host: device.core, hostName: device.displayName, agentId: agent.agentId, cli: agent.cli,
-                        title: hidden ? "" : agent.title, name: hidden ? nil : agent.name, state: state)
-                }
-                switch agent.group {
-                case .blocked: needs.append(row(.needs))
-                case .working: working.append(row(.working))
-                case .done, .idle, .unknown: break
-                }
-            }
+    /// Each host's agents at a glance, as the host sends them.
+    private static func hosts() -> [HostGlance] {
+        Hub.shared.devices.compactMap { device in
+            guard let agents = Hub.shared.live(device.core).view?.inbox.glance else { return nil }
+            return HostGlance(host: device.core, hostName: device.displayName, agents: agents)
         }
-        return AgentsGlance(rows: Array((needs + working).prefix(rows)), needed: needed, working: workingCount)
     }
 
     /// Every signed-in account's windows once, however many hosts share it, from the newest reading.
@@ -123,27 +116,65 @@ enum Glances {
         }
     }
 
-    private static func show(_ agents: AgentsGlance) async {
-        let content = ActivityContent(state: agents, staleDate: Date().addingTimeInterval(staleAfter))
-        let running = Activity<AgentsActivity>.activities
-        guard agents.active else { return await endActivities(agents) }
-        if let first = running.first {
-            await first.update(content)
-            for extra in running.dropFirst() { await extra.end(nil, dismissalPolicy: .immediate) }
-            return
-        }
-        guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
-        do {
-            _ = try Activity.request(attributes: AgentsActivity(), content: content)
-        } catch {
-            print("sikemux: could not start the agents' Live Activity: \(error)")
+    /// One Live Activity for each host where something works or waits, started while the app is in front.
+    private static func show(_ hosts: [HostGlance]) async {
+        for host in hosts {
+            let content = ActivityContent(
+                state: AgentsActivity.ContentState(glance: host.agents, sealed: nil),
+                staleDate: Date().addingTimeInterval(staleAfter))
+            let mine = { Activity<AgentsActivity>.activities.filter { $0.attributes.host == host.host } }
+            if !host.agents.active {
+                for activity in mine() {
+                    await activity.end(content, dismissalPolicy: .after(Date().addingTimeInterval(lingers)))
+                }
+                continue
+            }
+            if let first = mine().first {
+                await first.update(content)
+                continue
+            }
+            guard ActivityAuthorizationInfo().areActivitiesEnabled else { continue }
+            do {
+                let activity = try Activity.request(
+                    attributes: AgentsActivity(host: host.host, hostName: host.hostName), content: content,
+                    pushType: .token)
+                follow(activity)
+            } catch {
+                print("sikemux: could not start the Live Activity for \(host.host.prefix(8)): \(error)")
+            }
         }
     }
 
-    private static func endActivities(_ last: AgentsGlance) async {
-        let content = ActivityContent(state: last, staleDate: nil)
-        for activity in Activity<AgentsActivity>.activities {
-            await activity.end(content, dismissalPolicy: .after(Date().addingTimeInterval(lingers)))
+    /// Hears each new push token of `activity`, and that it ended, to tell its host.
+    private static func follow(_ activity: Activity<AgentsActivity>) {
+        guard following.insert(activity.id).inserted else { return }
+        Task {
+            for await token in activity.pushTokenUpdates {
+                tokens[activity.attributes.host] = token.map { String(format: "%02x", $0) }.joined()
+                await hand()
+            }
+        }
+        Task {
+            for await state in activity.activityStateUpdates where state == .ended || state == .dismissed {
+                tokens[activity.attributes.host] = nil
+                await hand()
+                following.remove(activity.id)
+            }
+        }
+    }
+
+    /// Tells each host it can reach the token of the Live Activity it keeps current, or that it ended.
+    private static func hand() async {
+        for activity in Activity<AgentsActivity>.activities { follow(activity) }
+        for (core, connection) in Hub.shared.openConnections {
+            let token = tokens[core]
+            guard handed[core] != token ?? "" else { continue }
+            handed[core] = token ?? ""
+            do {
+                _ = try await connection.call(PhoneCall.LiveActivity.self, ActivityParams(token: token))
+            } catch {
+                print("sikemux: could not tell \(core.prefix(8)) of its Live Activity: \(error)")
+            }
         }
     }
 }

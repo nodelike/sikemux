@@ -106,6 +106,7 @@ const OUTPUTS = {
   phone: "mobile/ios/Sikemux/Core/Wire.generated.swift",
   notch: "helpers/notch/Sources/NotchKit/Wire.generated.swift",
   cardSwift: "mobile/ios/Shared/Notify/Card.generated.swift",
+  glanceSwift: "mobile/ios/Shared/Glance/Glance.generated.swift",
   cardKotlin:
     "mobile/app/modules/notify/android/src/main/java/com/nodelike/sikemux/notify/Card.generated.kt",
 };
@@ -115,6 +116,11 @@ const PHONE_ROOTS = ["NotifyPrefs", "ErrorKind"];
 
 /** What the phone's own notification code reads of a sealed card, in Swift and Kotlin. */
 const CARD_ROOTS = ["NotificationCard"];
+
+/** What the phone's widgets and Live Activity read of a host's agents, in Swift as the app declares it. */
+const GLANCE_ROOTS = ["ActivityGlance"];
+/** The glance's declarations, written by phoneSwift for the extensions that do not compile the whole view. */
+let glanceSwift = "";
 
 const fail = (message) => {
   throw new Error(`generate-wire-types: ${message}`);
@@ -1679,6 +1685,15 @@ ${calls
   ].map(([name]) => name);
 
   const body = declarations.map(declare).join("\n\n");
+  const glance = closure(GLANCE_ROOTS)
+    .map((d) => declare(byName.get(d.name) ?? fail(`${d.name} is not in the phone's view`)))
+    .join("\n\n");
+  glanceSwift = `// ${BANNER}
+
+import Foundation
+
+${glance}
+`;
   return `// ${BANNER}
 
 import Foundation
@@ -1887,4 +1902,5 @@ await emit(
 await emit(OUTPUTS.phone, await phoneSwift());
 await emit(OUTPUTS.notch, swift());
 await emit(OUTPUTS.cardSwift, cardSwift());
+await emit(OUTPUTS.glanceSwift, glanceSwift);
 await emit(OUTPUTS.cardKotlin, cardKotlin());

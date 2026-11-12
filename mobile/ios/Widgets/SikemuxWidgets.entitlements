@@ -6,5 +6,9 @@
 	<array>
 		<string>group.$(SIKEMUX_BUNDLE_ID)</string>
 	</array>
+	<key>keychain-access-groups</key>
+	<array>
+		<string>$(AppIdentifierPrefix)$(SIKEMUX_BUNDLE_ID).notify</string>
+	</array>
 </dict>
 </plist>

@@ -422,6 +422,7 @@ async fn what_the_server_answers_shows_in_settings_and_a_refusal_stops_pushing()
             to: host.phone.clone(),
             kind: PushKind::Alert,
             collapse_id: "0".repeat(32),
+            activity_token: None,
             blob: "AAAA".into(),
             expires_at: T,
         };

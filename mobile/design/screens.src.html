@@ -953,6 +953,9 @@
   .la-row .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .la-row .n { color: var(--text-tertiary); font-size: 12px; }
   .la-row .turn-mins { font-size: 11.5px; color: var(--warn); }
+  .la-row .n .loader { display: inline-grid; vertical-align: -2px; margin-left: 3px; }
+  .la-row .mark.proj { color: var(--text-tertiary); }
+  .la-more { font-size: 12px; color: var(--text-tertiary); padding: 2px 0 2px 26px; }
   .mark.claude { color: var(--brand-claude); } .mark.codex { color: var(--brand-codex); }
   .di-wide { position: absolute; z-index: 5; top: 11px; left: 50%; translate: -50% 0; height: 36px; border-radius: 20px; background: #000; display: flex; align-items: center; padding: 0 14px 0 12px; gap: 10px; }
   .di-wide .faces { display: flex; gap: -3px; } .di-wide .faces .mark { width: 18px; height: 18px; margin-right: -2px; }
@@ -4687,8 +4690,7 @@ expected 1 write, got 2</div>
 <!-- ================================================================ -->
 <section class="flow glance">
   <h2>At a glance</h2>
-  <p>Away from the app, the phone still shows what the agents are doing. While any agent works or needs you, a Live Activity holds the lock screen and the Dynamic Island, as the notch's island does on a Mac, and on Android an ongoing notification does the same. Widgets on the home screen show what needs you and how much of each agent account's plan is used. Each draws only what the hosts already send: who is working, who needs you, the limits the Mac's Limits panel shows.</p>
-
+  <p>Away from the app, the phone still shows what the agents are doing, however many there are: thirty agents with a lead running fifteen of them read the same as three. While any agent works or needs you, a Live Activity for each host holds the lock screen and the Dynamic Island, as the notch's island does on a Mac; on Android an ongoing notification does the same. Widgets on the home screen show what needs you and how much of each agent account's plan is used. The host decides what each shows and sends it ready to draw: the counts, then only what needs you, each team folded into its lead, else the projects most at work.</p>
   <div class="phones">
 
     <figure><div class="phone" style="background:#000"><div class="island"></div>
@@ -4696,33 +4698,47 @@ expected 1 write, got 2</div>
       <div class="lock">
         <div class="clock"><div>Thursday 12 November</div><div>9:41</div></div>
         <div class="la">
-          <div class="la-head"><span class="la-logo">{{Logo:14}}</span><span class="la-sum"><b>1</b> needs you · <b>3</b> working</span><span class="la-host">MacBook Pro</span></div>
-          <div class="la-row"><span class="mark claude">{{IconClaude:16}}</span><span class="t">Remote pairing screen</span><span class="n">@Otter</span><span class="turn-mins warn">4m</span><span class="dot warn still"></span></div>
-          <div class="la-row"><span class="mark codex">{{IconCodex:16}}</span><span class="t">Fix the flaky PTY replay test</span><span class="n">@Flint</span><span class="loader"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></div>
-          <div class="la-row"><span class="mark claude">{{IconClaude:16}}</span><span class="t">Tighten the rail spacing</span><span class="n">@Cedar</span><span class="loader"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></div>
+          <div class="la-head"><span class="la-logo">{{Logo:14}}</span><span class="la-sum"><b>2</b> need you · <b>27</b> working · <b>3</b> done</span><span class="la-host">MacBook Pro</span></div>
+          <div class="la-row"><span class="mark claude">{{IconClaude:16}}</span><span class="t">T3code vs sikemux feature parity</span><span class="n">@Quanxi · 14 <span class="loader"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></span><span class="dot warn still"></span></div>
+          <div class="la-row"><span class="mark claude">{{IconClaude:16}}</span><span class="t">Token usage optimization</span><span class="n">@Nozomi</span><span class="dot warn still"></span></div>
+          <div class="la-more">+1 more needs you</div>
         </div>
       </div>
       <div class="home-bar" style="background:#fff"></div></div>
-      <figcaption><b>Live Activity</b><div class="note">The lock screen's card: what needs you and how many work, then up to three agents as the rail lists them, the one that needs you first, each with its mark, title, name and state. Tapping a row opens its chat; anywhere else opens the app. It follows the hosts while the app is open or was just left; once it has heard nothing for fifteen minutes it dims and says May be out of date in place of the host. It ends a few minutes after the last agent stops. With the lock on, rows show their host in place of the title and no name.</div></figcaption>
+      <figcaption><b>Live Activity</b><div class="note">The headline is always the counts: what needs you, what works, what finished that you have not seen. Under it only what needs you, ranked as the rail ranks it, three at most and then how many more. A team is one row, its lead's, with how many of the team work, whichever teammate is asking; tapping it opens the agent that asks. There is one for each host where something works, started when the app opens. While the phone is locked the host keeps it current, sealing each update with the key the phone gave it as it seals notifications, so it needs notifications on; the widget extension opens it. Once it has heard nothing for fifteen minutes it dims and says May be out of date in place of the host, and it ends a few minutes after the last agent stops. With the lock on, rows show their host in place of the title and no name.</div></figcaption>
     </figure>
 
-    <figure><div class="phone"><div class="di-wide"><span class="faces"><span class="mark claude">{{IconClaude:15}}</span><span class="mark codex">{{IconCodex:15}}</span><span class="mark claude">{{IconClaude:15}}</span></span><span class="cam"></span><span class="roll"><b>1</b><span class="dot warn still"></span><b>3</b><span class="loader"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></span></div>
+    <figure><div class="phone" style="background:#000"><div class="island"></div>
+      <div class="status" style="color:#fff"><span></span><span class="bars"><i></i><i></i></span></div>
+      <div class="lock">
+        <div class="clock"><div>Thursday 12 November</div><div>9:41</div></div>
+        <div class="la">
+          <div class="la-head"><span class="la-logo">{{Logo:14}}</span><span class="la-sum"><b>27</b> working · <b>3</b> done</span><span class="la-host">MacBook Pro</span></div>
+          <div class="la-row"><span class="mark proj">{{IconFolder:15}}</span><span class="t">sikemux</span><span class="n">19 working</span><span class="loader"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></div>
+          <div class="la-row"><span class="mark proj">{{IconFolder:15}}</span><span class="t">server</span><span class="n">8 working</span><span class="loader"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></div>
+        </div>
+      </div>
+      <div class="home-bar" style="background:#fff"></div></div>
+      <figcaption><b>Live Activity, nothing waiting</b><div class="note">With nothing waiting on you, the rows are the projects most at work, two at most, each with how many work there, in the order the rail ranks them; no single agent is named.</div></figcaption>
+    </figure>
+
+    <figure><div class="phone"><div class="di-wide"><span class="roll"><b>2</b><span class="dot warn still"></span></span><span class="cam"></span><span class="roll"><b>27</b><span class="loader"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></span></div>
       <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
       <div class="screen dim-app"></div>
       <div class="home-bar"></div></div>
-      <figcaption><b>Dynamic Island</b><div class="note">Closed, it is the notch's island: the agents' marks on the left, up to three, and on the right how many need you with the amber dot and how many work with the rail's squares. Beside another app's activity it shrinks to the amber dot while anything needs you, else the squares.</div></figcaption>
+      <figcaption><b>Dynamic Island</b><div class="note">Closed, it is counts only: how many need you with the amber dot on the left, how many work with the rail's squares on the right. Beside another app's activity it shrinks to the amber dot while anything needs you, else the squares.</div></figcaption>
     </figure>
 
-    <figure><div class="phone"><div class="di-wide" style="visibility:hidden"><span class="faces"><span class="mark claude">{{IconClaude:15}}</span><span class="mark codex">{{IconCodex:15}}</span><span class="mark claude">{{IconClaude:15}}</span></span><span class="cam"></span><span class="roll"><b>1</b><span class="dot warn still"></span><b>3</b><span class="loader"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></span></div>
+    <figure><div class="phone"><div class="di-wide" style="visibility:hidden"></div>
       <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
       <div class="screen dim-app"></div>
       <div class="di-open">
-        <div class="la-head"><span class="la-logo">{{Logo:14}}</span><span class="la-sum"><b>1</b> needs you · <b>3</b> working</span></div>
-        <div class="la-row"><span class="mark claude">{{IconClaude:16}}</span><span class="t">Remote pairing screen</span><span class="n">@Otter</span><span class="turn-mins warn">4m</span><span class="dot warn still"></span></div>
-        <div class="la-row"><span class="mark codex">{{IconCodex:16}}</span><span class="t">Fix the flaky PTY replay test</span><span class="n">@Flint</span><span class="loader"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></div>
+        <div class="la-head"><span class="la-logo">{{Logo:14}}</span><span class="la-sum"><b>2</b> need you · <b>27</b> working · <b>3</b> done</span></div>
+        <div class="la-row"><span class="mark claude">{{IconClaude:16}}</span><span class="t">T3code vs sikemux feature parity</span><span class="n">@Quanxi · 14 <span class="loader"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></span><span class="dot warn still"></span></div>
+        <div class="la-row"><span class="mark claude">{{IconClaude:16}}</span><span class="t">Token usage optimization</span><span class="n">@Nozomi</span><span class="dot warn still"></span></div>
       </div>
       <div class="home-bar"></div></div>
-      <figcaption><b>Dynamic Island, held</b><div class="note">Held, it opens to the two agents that matter most, as the lock screen lists them; tapping a row opens its chat.</div></figcaption>
+      <figcaption><b>Dynamic Island, held</b><div class="note">Held, it opens to the counts and the first two rows of the lock screen's card, or its projects; tapping a row opens its chat.</div></figcaption>
     </figure>
 
     <figure><div class="phone home"><div class="island"></div>
@@ -4731,13 +4747,13 @@ expected 1 write, got 2</div>
         <div class="w w-s">
           <div class="w-head">{{Logo:12}}<span>Needs you</span></div>
           <div class="w-big">2</div>
-          <div class="w-line"><span class="mark claude">{{IconClaude:12}}</span>Remote pairing screen</div>
-          <div class="w-line"><span class="mark codex">{{IconCodex:12}}</span>Move the ledger import</div>
+          <div class="w-line"><span class="mark claude">{{IconClaude:12}}</span>@Quanxi · T3code vs sikemux</div>
+          <div class="w-line"><span class="mark claude">{{IconClaude:12}}</span>@Nozomi · Token usage</div>
         </div>
         <div class="w w-s">
           <div class="w-head">{{IconClaude:12}}<span>Claude · Max</span></div>
           <div class="ring" style="--used:.62"><b>62%</b></div>
-          <div class="w-foot">5h · resets in 2h 10m</div>
+          <div class="w-foot">5h · resets in 2h</div>
         </div>
         <div class="w w-m">
           <div class="w-head">{{Logo:12}}<span>Limits</span></div>
@@ -4748,7 +4764,7 @@ expected 1 write, got 2</div>
         </div>
       </div>
       <div class="home-bar" style="background:#fff"></div></div>
-      <figcaption><b>Widgets</b><div class="note">Needs you: how many wait on you across hosts, the first two by title; tapping one opens its chat. Limits, small: the window nearest its limit, of any account, as a ring. Limits, medium: every signed-in account's windows as the Mac's Limits panel lists them, the used share, then when it resets; a bar past 80% turns amber, a full one red. Numbers come from the hosts' last reading; an account whose last reading failed dims.</div></figcaption>
+      <figcaption><b>Widgets</b><div class="note">Needs you: how many wait on you across hosts, then the first two rows as the Live Activity draws them; with nothing waiting, how many work. Tapping a row opens its chat. A notification that an agent needs you, finished or failed changes it at once, until the app next hears from the host. Limits, small: the window nearest its limit, of any account, as a ring. Limits, medium: every signed-in account's windows as the Mac's Limits panel lists them, the used share, then when it resets; a bar past 80% turns amber, a full one red. Numbers come from the hosts' last reading; an account whose last reading failed dims.</div></figcaption>
     </figure>
 
     <figure><div class="phone android" style="background:#000">
@@ -4756,8 +4772,8 @@ expected 1 write, got 2</div>
       <div class="shade">
         <div class="an">
           <div class="an-h"><span class="an-ico">{{Logo:12}}</span>Sikemux</div>
-          <div class="an-b"><b>@Otter needs you</b> · 3 working</div>
-          <div class="an-s">Remote pairing screen · MacBook Pro</div>
+          <div class="an-b"><b>2 need you</b> · 27 working · 3 done</div>
+          <div class="an-s">@Quanxi · T3code vs sikemux feature parity · MacBook Pro</div>
           <div class="an-bar"><i></i></div>
         </div>
         <div class="aw">
@@ -4767,10 +4783,9 @@ expected 1 write, got 2</div>
         </div>
       </div>
       <div class="home-bar" style="background:#fff"></div></div>
-      <figcaption><b>Android</b><div class="note">A quiet ongoing notification while agents work: who needs you first, with how many more and how many work, else how many work, the agent's title and host beneath, with an indeterminate bar; tapping opens that agent's chat, and it goes once nothing works or needs you. With the lock on it says only An agent needs you and the counts. The Limits widget lists every account's tightest window, as the iPhone's medium one.</div></figcaption>
+      <figcaption><b>Android</b><div class="note">A quiet ongoing notification while agents work: the counts across hosts as its title, then the first row that needs you with its host, else the project most at work, with an indeterminate bar. Tapping opens that chat, or the host; it goes once nothing works or needs you. With the lock on it shows only the counts. The Limits widget lists every account's tightest window, as the iPhone's medium one.</div></figcaption>
     </figure>
   </div>
-
 </section>
 
 <script type="module">{{BackdropScript}}</script>

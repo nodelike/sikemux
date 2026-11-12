@@ -220,6 +220,12 @@ impl live::Account for HostAccount {
 
     fn pushed(&self, push: Push, result: PushResult) {
         if let Some(core) = self.0.upgrade() {
+            if let Some(token) = &push.activity_token {
+                if result == PushResult::NoToken {
+                    core.remote.activity_gone(&push.to, token);
+                }
+                return;
+            }
             if core.remote.note_pushed(&push, result) {
                 announce(&core);
             }

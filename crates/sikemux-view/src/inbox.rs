@@ -370,6 +370,9 @@ pub struct Inbox {
     pub needed: usize,
     /// How every open agent here shows together; none while none is open.
     pub rollup: Option<AgentRollup>,
+    /// The agents here at a glance, as a phone's Live Activity and widgets show them.
+    #[serde(default)]
+    pub glance: crate::push::ActivityGlance,
 }
 
 /// How devices show an open agent here.

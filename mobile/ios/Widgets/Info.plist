@@ -27,6 +27,8 @@
 	</dict>
 	<key>SikemuxAppGroup</key>
 	<string>group.$(SIKEMUX_BUNDLE_ID)</string>
+	<key>SikemuxKeychainGroup</key>
+	<string>$(DEVELOPMENT_TEAM).$(SIKEMUX_BUNDLE_ID).notify</string>
 	<key>SikemuxURLScheme</key>
 	<string>$(SIKEMUX_URL_SCHEME)</string>
 </dict>

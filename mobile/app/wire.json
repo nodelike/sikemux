@@ -24,6 +24,7 @@
     "dismissGuestMessage",
     "dropQueued",
     "editMessage",
+    "liveActivity",
     "moveChatAccount",
     "openChief",
     "pairing",

@@ -119,6 +119,47 @@ impl Remote {
         Some((host, targets))
     }
 
+    /// Keeps the push token of the Live Activity a paired phone shows this host's agents in, or forgets it.
+    pub(crate) fn set_activity(&self, id: &str, token: Option<String>) -> CoreResult<()> {
+        let token = token.map(|token| token.to_ascii_lowercase());
+        if token.as_ref().is_some_and(|token| {
+            !(16..=512).contains(&token.len())
+                || !token.bytes().all(|byte| byte.is_ascii_hexdigit())
+        }) {
+            return Err("a Live Activity's push token is 16 to 512 hex characters".into());
+        }
+        let mut inner = self.inner.locked();
+        if !inner.stored.devices.iter().any(|device| device.id == id) {
+            return Err(CoreError::from(crate::server::access::UNPAIRED));
+        }
+        match token {
+            Some(token) => inner.activities.insert(id.to_owned(), token),
+            None => inner.activities.remove(id),
+        };
+        Ok(())
+    }
+
+    /// Forgets `token` once Apple says its Live Activity is gone, unless the phone sent a newer one.
+    pub(crate) fn activity_gone(&self, id: &str, token: &str) {
+        let mut inner = self.inner.locked();
+        if inner.activities.get(id).is_some_and(|kept| kept == token) {
+            inner.activities.remove(id);
+        }
+    }
+
+    /// This host's key and the phones showing a Live Activity of it, each with its activity's token.
+    pub(crate) fn activity_targets(&self) -> Option<(String, Vec<(NotifyTarget, String)>)> {
+        let (host, targets) = self.notify_targets()?;
+        let inner = self.inner.locked();
+        let showing = (targets.into_iter())
+            .filter_map(|target| {
+                let token = inner.activities.get(&target.device_id)?.clone();
+                Some((target, token))
+            })
+            .collect();
+        Some((host, showing))
+    }
+
     pub(crate) fn note_pushed(&self, push: &Push, result: PushResult) -> bool {
         let state = match result {
             PushResult::Sent => NotificationState::On,

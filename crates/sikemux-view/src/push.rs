@@ -99,3 +99,128 @@ pub struct NotificationOption {
     pub id: String,
     pub label: String,
 }
+
+/// The agents on one host at a glance, as a phone's Live Activity and widgets show them however many there
+/// are: the counts, then what needs the person, else the projects most at work.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ActivityGlance {
+    /// How many things wait on the person.
+    pub needed: u32,
+    /// How many agents work.
+    pub working: u32,
+    /// How many finished a turn the person has not seen.
+    pub done: u32,
+    /// What needs the person, as the rail ranks it, each team folded into its lead's row.
+    pub rows: Vec<ActivityRow>,
+    /// How many more need the person than `rows` shows.
+    pub more: u32,
+    /// While nothing needs the person: the projects most at work.
+    pub projects: Vec<ActivityProject>,
+}
+
+/// One agent, or a team under its lead, that needs the person.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ActivityRow {
+    /// The agent that needs the person, which tapping the row opens.
+    pub agent_id: String,
+    /// The CLI the row's agent or lead runs, such as `claude`, whose mark it shows.
+    pub cli: String,
+    pub title: String,
+    /// What the core calls the row's agent or lead, such as Otter.
+    pub name: Option<String>,
+    /// How many of the lead's team work, for a team's row.
+    pub team_working: u32,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ActivityProject {
+    pub name: String,
+    pub working: u32,
+}
+
+impl ActivityGlance {
+    /// How many rows a glance lists at most.
+    pub const ROWS: usize = 3;
+    /// How many projects a glance lists at most.
+    pub const PROJECTS: usize = 2;
+
+    /// Whether anything works or waits on the person, so a Live Activity has reason to show.
+    pub fn active(&self) -> bool {
+        self.needed > 0 || self.working > 0
+    }
+
+    /// The glance of the inbox's agents, in the order the rail ranks them, with each lead's team after it.
+    pub fn of(inbox: &crate::inbox::Inbox) -> Self {
+        use crate::inbox::TeamLink;
+        use sikemux_wire::protocol::AgentGroup;
+        let shown: Vec<_> = (inbox.agents.iter())
+            .filter(|agent| agent.settled_at.is_none())
+            .collect();
+        let mut units: Vec<Vec<&crate::inbox::AgentShown>> = Vec::new();
+        let mut in_team = false;
+        for agent in &shown {
+            match agent.team {
+                Some(TeamLink::Member | TeamLink::Last) if in_team => {
+                    if let Some(team) = units.last_mut() {
+                        team.push(agent);
+                    }
+                    in_team = agent.team == Some(TeamLink::Member);
+                }
+                link => {
+                    units.push(vec![agent]);
+                    in_team = link == Some(TeamLink::Head);
+                }
+            }
+        }
+        let needing: Vec<ActivityRow> = (units.iter())
+            .filter_map(|unit| {
+                let asking = unit
+                    .iter()
+                    .find(|agent| agent.group == AgentGroup::Blocked)?;
+                let lead = unit.first()?;
+                let team_working = (unit.iter().skip(1))
+                    .filter(|agent| agent.group == AgentGroup::Working)
+                    .count();
+                Some(ActivityRow {
+                    agent_id: asking.agent_id.clone(),
+                    cli: lead.cli.clone(),
+                    title: lead.title.clone(),
+                    name: lead.name.clone(),
+                    team_working: u32::try_from(team_working).unwrap_or(u32::MAX),
+                })
+            })
+            .collect();
+        let mut projects: Vec<ActivityProject> = Vec::new();
+        if needing.is_empty() {
+            for agent in shown
+                .iter()
+                .filter(|agent| agent.group == AgentGroup::Working)
+            {
+                let name = agent.project_name.clone().unwrap_or_default();
+                match projects.iter_mut().find(|project| project.name == name) {
+                    Some(project) => project.working += 1,
+                    None => projects.push(ActivityProject { name, working: 1 }),
+                }
+            }
+            projects.truncate(Self::PROJECTS);
+        }
+        let more = needing.len().saturating_sub(Self::ROWS);
+        let small = |count: usize| u32::try_from(count).unwrap_or(u32::MAX);
+        Self {
+            needed: small(inbox.needed.max(needing.len())),
+            working: small(inbox.working),
+            done: small(
+                shown
+                    .iter()
+                    .filter(|agent| agent.group == AgentGroup::Done)
+                    .count(),
+            ),
+            rows: needing.into_iter().take(Self::ROWS).collect(),
+            more: small(more),
+            projects,
+        }
+    }
+}

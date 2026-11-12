@@ -818,6 +818,8 @@ export interface Inbox {
     needed?: number;
     /** How every open agent here shows together; none while none is open. */
     rollup: AgentRollup | null;
+    /** The agents here at a glance, as a phone's Live Activity and widgets show them. */
+    glance?: ActivityGlance;
 }
 
 /** One thing in the inbox: who, what they need or did, and where to open it. */
@@ -1355,6 +1357,43 @@ export interface AgentRollup {
     label: string;
     subagents: number;
     tasks: number;
+}
+
+/**
+ * The agents on one host at a glance, as a phone's Live Activity and widgets show them however many there
+ * are: the counts, then what needs the person, else the projects most at work.
+ */
+export interface ActivityGlance {
+    /** How many things wait on the person. */
+    needed: number;
+    /** How many agents work. */
+    working: number;
+    /** How many finished a turn the person has not seen. */
+    done: number;
+    /** What needs the person, as the rail ranks it, each team folded into its lead's row. */
+    rows: ActivityRow[];
+    /** How many more need the person than `rows` shows. */
+    more: number;
+    /** While nothing needs the person: the projects most at work. */
+    projects: ActivityProject[];
+}
+
+/** One agent, or a team under its lead, that needs the person. */
+export interface ActivityRow {
+    /** The agent that needs the person, which tapping the row opens. */
+    agentId: string;
+    /** The CLI the row's agent or lead runs, such as `claude`, whose mark it shows. */
+    cli: string;
+    title: string;
+    /** What the core calls the row's agent or lead, such as Otter. */
+    name: string | null;
+    /** How many of the lead's team work, for a team's row. */
+    teamWorking: number;
+}
+
+export interface ActivityProject {
+    name: string;
+    working: number;
 }
 
 /** A decision put to the person. */
@@ -5023,6 +5062,11 @@ export interface EditParams {
     paths?: string[];
 }
 
+/** The push token of the Live Activity the calling phone shows this host's agents in; none once it ended. */
+export interface ActivityParams {
+    token: string | null;
+}
+
 export interface MoveChatParams {
     agentId: string;
     accountId: string;
@@ -5152,6 +5196,7 @@ export interface CoreCalls {
     dismissGuestMessage: { params: GuestMessageParams; answer: null };
     dropQueued: { params: QueuedParams; answer: null };
     editMessage: { params: EditParams; answer: null };
+    liveActivity: { params: ActivityParams; answer: null };
     moveChatAccount: { params: MoveChatParams; answer: null };
     openChief: { params: OpenChiefParams; answer: OpenedChief };
     pairing: { params: NoParams; answer: RemotePairing };

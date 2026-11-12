@@ -455,6 +455,8 @@ struct Inner {
     pushed: HashMap<String, (NotificationState, u64)>,
     /// Phones the account will not pass notifications to.
     refused: HashSet<String>,
+    /// The push token of the Live Activity each phone shows this host's agents in, by phone.
+    activities: HashMap<String, String>,
     /// What the remote file trusted when it failed its check, until the
     /// person trusts it again or lets it go.
     held: Option<(Stored, u64)>,

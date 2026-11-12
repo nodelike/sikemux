@@ -164,6 +164,7 @@ enum PhoneCall {
     enum DismissGuestMessage {}
     enum DropQueued {}
     enum EditMessage {}
+    enum LiveActivity {}
     enum MoveChatAccount {}
     enum OpenChief {}
     enum Pairing {}
@@ -329,6 +330,12 @@ extension PhoneCall.DropQueued: PhoneCallable {
 extension PhoneCall.EditMessage: PhoneCallable {
     static let method = "editMessage"
     typealias Params = EditParams
+    typealias Answer = WireNull
+}
+
+extension PhoneCall.LiveActivity: PhoneCallable {
+    static let method = "liveActivity"
+    typealias Params = ActivityParams
     typealias Answer = WireNull
 }
 
@@ -1417,6 +1424,8 @@ struct Inbox: Codable, Hashable, Sendable {
     var needed: Int?
     /// How every open agent here shows together; none while none is open.
     var rollup: AgentRollup?
+    /// The agents here at a glance, as a phone's Live Activity and widgets show them.
+    var glance: ActivityGlance?
 }
 
 /// One thing in the inbox: who, what they need or did, and where to open it.
@@ -2206,6 +2215,41 @@ struct AgentRollup: Codable, Hashable, Sendable {
     var label: String
     var subagents: Int
     var tasks: Int
+}
+
+/// The agents on one host at a glance, as a phone's Live Activity and widgets show them however many there
+/// are: the counts, then what needs the person, else the projects most at work.
+struct ActivityGlance: Codable, Hashable, Sendable {
+    /// How many things wait on the person.
+    var needed: Int
+    /// How many agents work.
+    var working: Int
+    /// How many finished a turn the person has not seen.
+    var done: Int
+    /// What needs the person, as the rail ranks it, each team folded into its lead's row.
+    var rows: [ActivityRow]
+    /// How many more need the person than `rows` shows.
+    var more: Int
+    /// While nothing needs the person: the projects most at work.
+    var projects: [ActivityProject]
+}
+
+/// One agent, or a team under its lead, that needs the person.
+struct ActivityRow: Codable, Hashable, Sendable {
+    /// The agent that needs the person, which tapping the row opens.
+    var agentId: String
+    /// The CLI the row's agent or lead runs, such as `claude`, whose mark it shows.
+    var cli: String
+    var title: String
+    /// What the core calls the row's agent or lead, such as Otter.
+    var name: String?
+    /// How many of the lead's team work, for a team's row.
+    var teamWorking: Int
+}
+
+struct ActivityProject: Codable, Hashable, Sendable {
+    var name: String
+    var working: Int
 }
 
 /// A decision put to the person.
@@ -7738,6 +7782,11 @@ struct EditParams: Codable, Hashable, Sendable {
     var messageId: String
     var text: String
     var paths: [String]?
+}
+
+/// The push token of the Live Activity the calling phone shows this host's agents in; none once it ended.
+struct ActivityParams: Codable, Hashable, Sendable {
+    var token: String?
 }
 
 struct MoveChatParams: Codable, Hashable, Sendable {

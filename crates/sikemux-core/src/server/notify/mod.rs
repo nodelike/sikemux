@@ -5,6 +5,7 @@
 //! host a key to seal it with (see [`crate::push`]); the host decides
 //! everything else, since it knows most.
 
+mod activity;
 mod goals;
 mod presence;
 impl crate::server::part::Part for Notifier {
@@ -39,6 +40,7 @@ use sikemux_wire::protocol::{
     AgentState, Attention, Event, NotifyPrefs, NotifyWhen, PendingDevice,
 };
 
+pub(crate) use activity::{live_activity, ActivityParams};
 pub(crate) use goals::GoalMoved;
 pub(crate) use presence::{Presence, SystemPresence};
 
@@ -184,6 +186,8 @@ struct State {
     inbox: Option<HashMap<String, Draft>>,
     /// How goals moved since the person was last told, by project and goal.
     goals: goals::Gathered,
+    /// What each phone's Live Activity was last sent, by phone.
+    activities: HashMap<String, activity::Sent>,
 }
 
 impl Notifier {
@@ -248,7 +252,13 @@ pub(crate) async fn run(core: Arc<Core>) {
                 }
                 None => return,
             },
-            _ = ticker.tick() => noted(&core, away_now(&core).await, epoch_ms()),
+            _ = ticker.tick() => {
+                let now = epoch_ms();
+                noted(&core, away_now(&core).await, now);
+                if activity::refresh_due(&core, now) {
+                    activity::tell(&core, now);
+                }
+            }
             () = core.notify.inbox_moved.notified(), if inbox_due.is_none() => {
                 inbox_due = Some(tokio::time::Instant::now() + INBOX_GATHER);
             }
@@ -376,6 +386,7 @@ enum Told<'a> {
 /// Nothing is looked at while nobody could be told.
 fn inbox(core: &Core, now: u64) {
     tell_chats_needs(core);
+    activity::tell(core, now);
     let phones: Vec<String> = core
         .remote
         .notify_targets()
@@ -1204,6 +1215,7 @@ fn alert_phones(core: &Core, draft: &Draft, now: u64, also: impl Fn(&str) -> boo
             to: phone.clone(),
             kind: PushKind::Alert,
             collapse_id: target.key.collapse_id(&draft.card),
+            activity_token: None,
             blob,
             expires_at: draft.expires_at,
         });
@@ -1306,6 +1318,7 @@ fn clear_all(core: &Core, agent_id: &str, card: &str, request_id: Option<String>
             to: target.device_id.clone(),
             kind: PushKind::Clear,
             collapse_id,
+            activity_token: None,
             blob,
             expires_at: draft.expires_at,
         });
