@@ -102,13 +102,17 @@ def scroll_through(run, chat, label):
         for flick in range(28):
             flicks.append(round((time.monotonic() - started) * 1000))
             run.drive(f"scroll {x:.0f} {y:.0f} 0 {direction * 420} 14 momentum", "wait 0.25")
-            if direction == 1 and flick == 6:
-                run.capture(f"{label}-scrolling")
     frames = next((json.loads(line.split(" ", 2)[2]) for line in run.drive("frames") if line.startswith("did: frames ")), {})
     frames["flicks"] = flicks
     run.drive("wait 2.5")
     memory = sampler.stop()
     run.capture(f"{label}-end")
+    # A capture while the window is timed costs WebKit a wait for its views, which is the test's
+    # own doing, so the picture partway up is taken once the timing is over.
+    for _ in range(7):
+        run.drive(f"scroll {x:.0f} {y:.0f} 0 420 14 momentum", "wait 0.25")
+    run.drive("wait 2")
+    run.capture(f"{label}-scrolling")
     return {"chat": label, **frames, **memory}
 
 
