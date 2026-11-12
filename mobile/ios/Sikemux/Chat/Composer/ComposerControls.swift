@@ -89,10 +89,12 @@ enum ContextFill {
 }
 
 /// How much of the context window the chat has used, as the Mac's composer rings it. A tap opens the settings sheet.
+/// While the chat is to be summarised before its next message, it turns the accent and says how many tokens that covers.
 struct ContextRing: View {
     @Environment(\.palette) private var palette
     let usage: ContextUsage
     let provider: String
+    var summarising: Int?
     let onPress: () -> Void
 
     private static let ring: CGFloat = 14
@@ -101,19 +103,26 @@ struct ContextRing: View {
     var body: some View {
         let share = ContextFill.share(usage)
         Button(action: onPress) {
-            ZStack {
-                Circle().stroke(palette.border, lineWidth: Self.stroke)
-                Circle()
-                    .trim(from: 0, to: share)
-                    .stroke(
-                        ContextFill.color(usage, provider: provider, palette: palette),
-                        style: StrokeStyle(lineWidth: Self.stroke, lineCap: .round)
-                    )
-                    .rotationEffect(.degrees(-90))
+            HStack(spacing: 5) {
+                ZStack {
+                    Circle().stroke(palette.border, lineWidth: Self.stroke)
+                    Circle()
+                        .trim(from: 0, to: share)
+                        .stroke(
+                            summarising != nil
+                                ? palette.accent : ContextFill.color(usage, provider: provider, palette: palette),
+                            style: StrokeStyle(lineWidth: Self.stroke, lineCap: .round)
+                        )
+                        .rotationEffect(.degrees(-90))
+                }
+                .frame(width: Self.ring - Self.stroke, height: Self.ring - Self.stroke)
+                if let summarising {
+                    Text(Format.tokens(summarising)).font(Theme.mono(12)).foregroundStyle(palette.accent)
+                }
             }
-            .frame(width: Self.ring - Self.stroke, height: Self.ring - Self.stroke)
-            .frame(width: 34, height: 34)
-            .contentShape(Circle())
+            .padding(.horizontal, summarising != nil ? 10 : 0)
+            .frame(minWidth: 34, minHeight: 34)
+            .contentShape(Capsule())
         }
         .buttonStyle(ActiveFill(radius: 17))
         .accessibilityLabel("Context window \(Int((share * 100).rounded()))% used")

@@ -662,6 +662,14 @@
   .ps-ctx-note { margin-top: 8px; font-size: 12.5px; color: var(--text-tertiary); }
   .ps-bar { margin-top: 8px; height: 4px; border-radius: 999px; background: var(--border); overflow: hidden; }
   .ps-bar i { display: block; height: 100%; border-radius: 999px; background: var(--brand-claude); }
+  .ps-expired { margin: 18px 4px 0; padding-top: 16px; border-top: .5px solid var(--border); }
+  .ps-expired-line { font-size: 12.5px; line-height: 18px; color: var(--text-secondary); }
+  .ps-summarise { display: flex; align-items: center; gap: 12px; min-height: 48px; margin-top: 8px; font-size: 15px; font-weight: 500; color: var(--text-primary); }
+  .ps-summarise span:first-child { flex: 1; }
+  .ps-summarise .toggle { background: var(--acc); }
+  .ps-summarise .toggle.off { background: var(--surface-active); }
+  .ring-tokens { height: 34px; display: inline-flex; align-items: center; gap: 5px; padding: 0 10px; flex: none; font-family: var(--mono); font-size: 12px; color: var(--acc); }
+  .ring-tokens .ctx { --c: var(--acc); }
 
   .agent-switch { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
   .agent-switch > span { height: 64px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface-raised); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; font-size: 12px; color: var(--text-tertiary); }
@@ -3365,6 +3373,61 @@ expected 1 write, got 2</div>
       </div>
       <div class="home-bar"></div></div>
       <figcaption><b>Model and effort</b><div class="note">Tapping the model or effort opens one sheet: the agent and its plan, the models with the agent's icon and a check on the chosen one, effort as a three-way switch, and how much of the context is used before the agent compacts it, in the provider’s colour, with where it compacts and the whole window under it, with what the session has cost when the agent says.</div></figcaption>
+    </figure>
+
+    <figure><div class="phone"><div class="island"></div>
+      <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
+      <div class="screen">
+        <div class="nav"><span class="back">{{IconChevron:18}}</span><span class="mid"><span class="claude">{{IconClaude:17}}</span><span class="named"><b>@Birch</b><i>·</i><em>Download size on the hero</em></span></span><span class="icon-btn">{{IconMoreVertical:16}}</span></div>
+        <div class="chat">
+          <div class="msg-user">Show the download size next to the button.</div>
+          <div class="work"><span class="work-sum"><span class="claude">{{IconClaude:17}}</span>Worked for 6m <span class="calls">· 41 tool calls</span>{{IconChevron:10}}</span></div>
+          <div class="prose">Done. The size comes from the latest release's DMG at build time, then from the visitor's browser.</div>
+        </div>
+        <div class="scrim"></div>
+        <div class="sheet picker-sheet">
+          <div class="grabber"></div>
+          <div class="ps-head"><span class="claude">{{IconClaude:20}}</span><b>Claude</b><span class="ps-plan">Max</span></div>
+          <div class="ps-label">Effort</div>
+          <div class="track three"><span>Low</span><span>Medium</span><span class="on">High</span></div>
+          <div class="ps-context">
+            <div class="ps-ctx-top"><span>Context</span><span class="m">15% · 152k of 1M</span></div>
+            <div class="ps-bar"><i style="width:15%"></i></div>
+            <div class="ps-ctx-note">Session cost $4.12</div>
+          </div>
+          <div class="ps-expired">
+            <div class="ps-expired-line">Cache expired 2h ago · your next message re-reads all 152k tokens</div>
+            <div class="ps-summarise"><span>Summarise the chat before your next message</span><span class="toggle"></span></div>
+          </div>
+        </div>
+      </div>
+      <div class="home-bar"></div></div>
+      <figcaption><b>Expired cache</b><div class="note">When the host says a big Claude chat's prompt cache has expired, the sheet shows it under the context, past a hairline: how long ago, and how many tokens the next message reads again. The switch, in the accent, summarises the chat before the next message; off, the chat keeps its full history. The words stay the same either way.</div></figcaption>
+    </figure>
+
+    <figure><div class="phone"><div class="island"></div>
+      <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
+      <div class="screen">
+        <div class="nav"><span class="back">{{IconChevron:18}}</span><span class="mid"><span class="claude">{{IconClaude:17}}</span><span class="named"><b>@Birch</b><i>·</i><em>Download size on the hero</em></span></span><span class="icon-btn">{{IconMoreVertical:16}}</span></div>
+        <div class="chat">
+          <div class="prose">Done. The size comes from the latest release's DMG at build time, then from the visitor's browser.</div>
+        </div>
+        <div class="composer-wrap">
+          <div class="composer">
+            <div class="ta ph">Message @Birch</div>
+            <div class="bar">
+              <span class="ib">{{IconPlus:18}}</span>
+              <span class="yolo">{{IconShield:13}}<b style="font-weight:560">safe</b></span>
+              <span class="picker model"><span class="claude">{{IconClaude:16}}</span>Opus 4.6<span class="ch">{{IconChevron:10}}</span></span>
+              <span class="ring-tokens"><i class="ctx" style="--p:15"></i>152k</span>
+              <span class="spacer"></span>
+              <span class="send off">{{IconArrowUp:16}}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="home-bar"></div></div>
+      <figcaption><b>Summarising next</b><div class="note">While the chat is to be summarised before the next message, the context ring by the composer turns the accent and says how many tokens that covers. A tap opens the sheet with the switch.</div></figcaption>
     </figure>
 
     <figure><div class="phone"><div class="island"></div>

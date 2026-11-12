@@ -1,14 +1,23 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 
 import { contextLimit, contextShare, money, tokenCount } from '@shared/chat/contextUsage';
 import type { ChatRows } from '@shared/chat/rows';
+import { formatAgo } from '@shared/lib/format';
+import type { ExpiredCache } from '@shared/wire.generated';
 import { agentLabel, useAgentBrand } from '@shared/agents/catalog';
 import { AgentIcon, Icon } from '@/ui/Icon';
 import { Track } from '@/ui/controls';
 import { Sheet } from '@/ui/Sheet';
 import { fonts, type Palette, useColors, useStyles } from '@/ui/theme';
 import { usageColor } from '@/chat/ContextRing';
-import { useT } from '@/i18n';
+import { type Translate, useT } from '@/i18n';
+
+function expiredLine(cache: ExpiredCache, t: Translate): string {
+  return t('Cache expired {ago} · your next message re-reads all {tokens} tokens', {
+    ago: formatAgo(cache.at, Date.now(), t),
+    tokens: tokenCount(cache.tokens),
+  });
+}
 
 export function ConfigSheet({
   visible,
@@ -17,6 +26,8 @@ export function ConfigSheet({
   model,
   effort,
   usage,
+  expiredCache,
+  onSummarise,
   onPick,
 }: {
   visible: boolean;
@@ -25,6 +36,8 @@ export function ConfigSheet({
   model: ChatRows['model'];
   effort: ChatRows['effort'];
   usage: ChatRows['usage'];
+  expiredCache: ExpiredCache | null;
+  onSummarise: (summarise: boolean) => void;
   onPick: (picker: NonNullable<ChatRows['model']>, value: string) => void;
 }) {
   const colors = useColors();
@@ -94,6 +107,21 @@ export function ConfigSheet({
           {usage.cost ? <Text style={styles.cost}>{t('Session cost {cost}', { cost: money(usage.cost) })}</Text> : null}
         </View>
       ) : null}
+      {expiredCache ? (
+        <View style={styles.expired}>
+          <Text style={styles.expiredLine}>{expiredLine(expiredCache, t)}</Text>
+          <View style={styles.summarise}>
+            <Text style={styles.summariseLabel}>{t('Summarise the chat before your next message')}</Text>
+            <Switch
+              value={expiredCache.summarise}
+              onValueChange={onSummarise}
+              trackColor={{ false: colors.active, true: colors.accent }}
+              thumbColor={colors.ink}
+              accessibilityLabel={t('Summarise the chat before your next message')}
+            />
+          </View>
+        </View>
+      ) : null}
     </Sheet>
   );
 }
@@ -121,5 +149,15 @@ const makeStyles = (colors: Palette) => {
     contextValue: { fontFamily: fonts.mono, fontSize: 12, color: colors.tertiary },
     contextBar: { marginTop: 8, height: 4, borderRadius: 2, backgroundColor: colors.border, overflow: 'hidden' },
     contextFill: { height: 4, borderRadius: 2 },
+    expired: {
+      marginTop: 18,
+      marginHorizontal: 4,
+      paddingTop: 16,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.border,
+    },
+    expiredLine: { fontFamily: fonts.ui, fontSize: 12.5, lineHeight: 18, color: colors.secondary },
+    summarise: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 48, marginTop: 8 },
+    summariseLabel: { flex: 1, fontFamily: fonts.uiMedium, fontSize: 15, color: colors.ink },
   });
 };

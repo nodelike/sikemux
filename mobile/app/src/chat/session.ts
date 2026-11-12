@@ -3,7 +3,16 @@ import { File } from 'expo-file-system';
 
 import { applyChanges, type ChatRows } from '@shared/chat/rows';
 import { english, type Say } from '@shared/lib/say';
-import type { ChatChange, ChatView, PermissionAsk, ToolDetail, ChatInfo, FindAnswer, FindParams } from '@shared/wire.generated';
+import type {
+  ChatChange,
+  ChatView,
+  PermissionAsk,
+  ToolDetail,
+  ChatInfo,
+  FindAnswer,
+  FindParams,
+  ExpiredCache,
+} from '@shared/wire.generated';
 
 import { callHost } from '@/core/hostCalls';
 import { problem as problemOf } from '@/core/problem';
@@ -49,6 +58,8 @@ export type ChatSnapshot = {
   stoppingTurn: boolean;
   /** How the chat asks before acting, as this phone last set it or the host last said; null before either. */
   permissionMode: string | null;
+  /** The chat's prompt cache has expired, with whether its next message is summarised as this phone last set it. */
+  expiredCache: ExpiredCache | null;
   hasEarlier: boolean;
   earlier: 'idle' | 'loading' | 'failed';
   /** When the running turn began. */
@@ -110,6 +121,8 @@ export class ChatSession {
   private stopping: ReadonlySet<string> = new Set();
   /** The mode this phone set, until the host says another. */
   private mode: string | null = null;
+  /** Whether to summarise before the next message as this phone set it, until the host says. */
+  private summarise: boolean | null = null;
   /** When this phone saw the running turn begin, for a turn the host has no time for. */
   private turnSince: number;
 
@@ -450,6 +463,21 @@ export class ChatSession {
     );
   };
 
+  /** Whether the chat is summarised before its next message, while its prompt cache has expired. */
+  setSummarise = (summarise: boolean) => {
+    this.summarise = summarise;
+    this.notice = null;
+    this.emit();
+    this.ask(
+      (connection) => callHost(connection, 'keepHistory', { agentId: this.agentId, keep: !summarise }),
+      'Could not change the setting: {problem}',
+      undefined,
+      () => {
+        if (this.summarise === summarise) this.summarise = null;
+      },
+    );
+  };
+
   /** Ends the chat's agent on the host and closes it in every app. Answers whether it did. */
   stopChat = async (): Promise<boolean> => {
     let stopped = false;
@@ -597,6 +625,8 @@ export class ChatSession {
       stopping: this.stopping,
       stoppingTurn: this.stoppingTurn,
       permissionMode: this.mode ?? (chat.permissionMode || null),
+      expiredCache:
+        chat.expiredCache && this.summarise !== null ? { ...chat.expiredCache, summarise: this.summarise } : (chat.expiredCache ?? null),
       hasEarlier: chat.olderBefore !== null,
       earlier: this.feed.earlier,
       turnSince: this.since(),
@@ -669,6 +699,7 @@ export class ChatSession {
     if (!before.running && chat.running) this.turnSince = this.now();
     if (!chat.running) this.stoppingTurn = false;
     if (chat.permissionMode !== before.permissionMode) this.mode = null;
+    if (chat.expiredCache !== before.expiredCache) this.summarise = null;
     if (chat.queued !== before.queued || chat.running !== before.running) this.outbox.dropTaken();
     if (this.chosen.size && (chat.model !== before.model || chat.effort !== before.effort)) this.chosen = new Map();
     this.outbox.settle(before.running && !chat.running);

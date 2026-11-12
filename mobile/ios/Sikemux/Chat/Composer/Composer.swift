@@ -179,8 +179,10 @@ struct Composer: View {
             onProblem: { session.report($0) }
         )
         .liftedSheet(shown: $configuring) {
-            ConfigSheet(provider: provider, model: rows.model, effort: rows.effort, usage: rows.usage) {
-                picker, value in
+            ConfigSheet(
+                provider: provider, model: rows.model, effort: rows.effort, usage: rows.usage,
+                expiredCache: session.expiredCache, onSummarise: session.setSummarise
+            ) { picker, value in
                 session.setConfig(picker.id, value)
                 configuring = false
             }
@@ -214,7 +216,10 @@ struct Composer: View {
                 picker(effort, accent: false, label: String(localized: "Effort, \(effort)")).layoutPriority(-1)
             }
             if let usage = rows.usage {
-                ContextRing(usage: usage, provider: provider) { configuring = true }
+                ContextRing(
+                    usage: usage, provider: provider,
+                    summarising: session.expiredCache.flatMap { $0.summarise ? $0.tokens : nil }
+                ) { configuring = true }
             }
             Spacer(minLength: 0)
             sendOrStop(sendable: sendable, uploading: uploading)

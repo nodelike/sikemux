@@ -492,6 +492,7 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
                   model={state.model}
                   effort={state.effort}
                   usage={state.usage}
+                  expiredCache={chat.expiredCache}
                   commands={state.commands}
                   requests={chat.permissions}
                   answering={chat.answering}

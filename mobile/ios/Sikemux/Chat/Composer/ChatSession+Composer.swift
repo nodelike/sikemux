@@ -218,6 +218,21 @@ extension ChatSession {
         }
     }
 
+    /// Whether the chat is summarised before its next message, while its prompt cache has expired.
+    func setSummarise(_ on: Bool) {
+        notice = nil
+        summarise = on
+        Task {
+            await ask(
+                String(localized: "Could not change the setting"),
+                undo: { if self.summarise == on { self.summarise = nil } }
+            ) { connection in
+                _ = try await connection.call(
+                    PhoneCall.KeepHistory.self, KeepHistoryParams(agentId: self.agentId, keep: !on))
+            }
+        }
+    }
+
     /// Sends behind the running turn; a message that does not go goes back to the composer.
     private func queue(_ text: String, _ files: [Attachment], steers: Bool, named: Named) {
         Task {

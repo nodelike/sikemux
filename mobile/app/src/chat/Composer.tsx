@@ -6,7 +6,7 @@ import { router } from 'expo-router';
 import { unknownCommand } from '@shared/chat/composerInput';
 import { currentLabel } from '@/chat/sessionConfig';
 import type { ChatRows } from '@shared/chat/rows';
-import type { ChatCommandInfo, PermissionAsk } from '@shared/wire.generated';
+import type { ChatCommandInfo, ExpiredCache, PermissionAsk } from '@shared/wire.generated';
 import { problem } from '@/core/problem';
 import { useT } from '@/i18n';
 import { haptics } from '@/ui/haptics';
@@ -109,6 +109,7 @@ export const Composer = memo(function Composer({
   model,
   effort,
   usage,
+  expiredCache,
   commands,
   requests,
   answering,
@@ -138,6 +139,7 @@ export const Composer = memo(function Composer({
   model: ChatRows['model'];
   effort: ChatRows['effort'];
   usage: ChatRows['usage'];
+  expiredCache: ExpiredCache | null;
   commands: ChatCommandInfo[];
   /** The permission requests waiting on an answer, the first one shown first. */
   requests: PermissionAsk[];
@@ -360,7 +362,14 @@ export const Composer = memo(function Composer({
               </View>
             </Pressable>
           ) : null}
-          {usage ? <ContextRing usage={usage} provider={provider} onPress={() => setSheet(true)} /> : null}
+          {usage ? (
+            <ContextRing
+              usage={usage}
+              provider={provider}
+              summarising={expiredCache?.summarise ? expiredCache.tokens : undefined}
+              onPress={() => setSheet(true)}
+            />
+          ) : null}
           <View style={{ flex: 1 }} />
           {sendable || !running ? (
             <Pressable
@@ -412,6 +421,8 @@ export const Composer = memo(function Composer({
         model={model}
         effort={effort}
         usage={usage}
+        expiredCache={expiredCache}
+        onSummarise={session.setSummarise}
         onPick={(picker, value) => {
           session.setConfig(picker.id, value);
           setSheet(false);

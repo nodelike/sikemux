@@ -3,10 +3,13 @@ import SwiftUI
 /// The chat's model and effort, picked as the agent offers them, and how full its context is.
 struct ConfigSheet: View {
     @Environment(\.palette) private var palette
+    @Environment(\.displayScale) private var scale
     let provider: String
     let model: ConfigPicker?
     let effort: ConfigPicker?
     let usage: ContextUsage?
+    let expiredCache: ExpiredCache?
+    let onSummarise: (Bool) -> Void
     let onPick: (ConfigPicker, String) -> Void
 
     var body: some View {
@@ -88,6 +91,28 @@ struct ConfigSheet: View {
                     }
                 }
                 .padding(.top, 20)
+                .padding(.horizontal, 4)
+            }
+            if let expiredCache {
+                VStack(alignment: .leading, spacing: 0) {
+                    let ago = Format.ago(Format.date(millis: expiredCache.at))
+                    Text(
+                        "Cache expired \(ago) · your next message re-reads all \(Format.tokens(expiredCache.tokens)) tokens"
+                    )
+                    .font(Theme.ui(12.5)).foregroundStyle(palette.secondary)
+                    Toggle(
+                        isOn: Binding(get: { expiredCache.summarise }, set: { onSummarise($0) })
+                    ) {
+                        Text("Summarise the chat before your next message")
+                            .font(Theme.ui(15, .medium)).foregroundStyle(palette.ink)
+                    }
+                    .tint(palette.accent)
+                    .frame(minHeight: 48)
+                    .padding(.top, 8)
+                }
+                .padding(.top, 16)
+                .overlay(alignment: .top) { palette.border.frame(height: 1 / scale) }
+                .padding(.top, 18)
                 .padding(.horizontal, 4)
             }
         }

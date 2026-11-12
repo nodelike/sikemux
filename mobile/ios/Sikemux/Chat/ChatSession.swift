@@ -53,6 +53,8 @@ final class ChatSession {
     var mode: PermissionMode?
     /// Model and effort picks this phone made, by picker id, shown until the host says what it runs on.
     var chosen: [String: String] = [:]
+    /// Whether to summarise before the next message as this phone set it, until the host says.
+    var summarise: Bool?
 
     @ObservationIgnored let feed: Feed
     @ObservationIgnored private(set) var draft: ComposerDraft!
@@ -106,6 +108,12 @@ final class ChatSession {
     // MARK: What the screen reads
 
     var permissionMode: PermissionMode? { mode ?? rows.permissionMode }
+    /// The chat's prompt cache has expired, with whether its next message is summarised as this phone last set it.
+    var expiredCache: ExpiredCache? {
+        guard var cache = rows.head.expiredCache else { return nil }
+        if let summarise { cache.summarise = summarise }
+        return cache
+    }
     var mark: ChatMark? { feed.mark }
 
     /// Whether the transcript must redraw everything, or which rows, since it last asked; asking clears it.
@@ -337,6 +345,7 @@ final class ChatSession {
         if !before.running && chat.running { sawTurnBegin = Date() }
         if !chat.running { stoppingTurn = false }
         if chat.permissionMode != before.permissionMode { mode = nil }
+        if chat.head.expiredCache != before.head.expiredCache { summarise = nil }
         if chat.head.queued != before.head.queued || chat.running != before.running { outbox.dropTaken() }
         if !chosen.isEmpty && (chat.head.model != before.head.model || chat.head.effort != before.head.effort) {
             chosen = [:]
