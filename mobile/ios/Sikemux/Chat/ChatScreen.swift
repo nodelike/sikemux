@@ -151,6 +151,11 @@ private struct ChatPane: View {
             if asked != nil { Haptics.warning() }
         }
         .onChange(of: find?.finding) { _, found in context.finding = found }
+        .onChange(of: session.attached, initial: true) { _, attached in
+            guard attached == .live, let words = PendingFind.take(core: core, agent: agentId) else { return }
+            openFind()
+            find?.text = words
+        }
     }
 
     private func appeared() {

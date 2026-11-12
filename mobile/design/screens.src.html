@@ -172,6 +172,14 @@
   .turn-mins.warn { color: var(--warn); }
   .mark.chief { color: var(--acc); }
   .row .t .aside { font-weight: 400; color: var(--text-tertiary); margin-left: 4px; }
+  .row.said { align-items: flex-start; }
+  .row.said .mark { margin-top: 1px; }
+  .said-line { font-size: 13px; line-height: 18px; color: var(--text-tertiary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
+  .said-line b { font-weight: 500; color: var(--text-primary); }
+  .chat-search { display: flex; align-items: center; gap: 12px; padding: 6px 16px 10px; }
+  .chat-search .field { flex: 1; display: flex; align-items: center; gap: 8px; height: 38px; padding: 0 12px; border-radius: 12px; background: var(--surface-raised); border: 1px solid var(--border-selected); color: var(--text-tertiary); }
+  .chat-search .field b { font-weight: 400; color: var(--text-primary); font-size: 15.5px; }
+  .chat-search .cancel { font-size: 15.5px; color: var(--acc); }
   .chief-proj { flex: none; display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--text-tertiary); margin-right: 6px; }
   .chief-proj .ico { color: var(--live); }
   .call-end { flex: none; font-size: 12.5px; color: var(--text-tertiary); margin-left: 8px; }
@@ -1836,6 +1844,34 @@
       </div>
       <div class="home-bar"></div></div>
       <figcaption><b>Agents</b><div class="note">Each project's chief leads its own agents, as @Chief with Sikemux's S, drawn from the project whether or not its chat exists yet, and read as the Mac's rail reads it: after @Chief, in the quiet ink, what its chat is on once it has a title. With every project shown, each project with a chief or agents is a team, its chief's row with the project's name and folder at its end, then its agents in the host's order; projects come in the order of how the core says each stands (needs you, then at work, then the rest, ties in the host's order of projects), as the Mac and the notch order them; the phone ranks nothing itself. A tap opens the chief's chat, which the host makes the first time, waiting for the person to write, or brings back as itself when it was closed; once the chat is open its end shows its turn's mark like any agent's, and before that nothing. Then the host's open agents in one list, with no labels, in the order its core ranks them for the Mac's rail: what wants you first, then what finished and you have not seen, then what is working, then the rest. The phone draws them as they come and never sorts them itself. A row is one line, as the Mac's rail draws it: the agent's mark, its title, the name Sikemux gave it small and dim at the row's end, then its counts and state. An agent's teammates sit under it on the rail's spine, each turning off it on a tick, the last one on a corner, as the core orders them. The list starts a little below the tabs. The end shows how many subagents and shells it still has running, then its state, one mark per row, as the core says it and the Mac's rail draws it: the rail's squares while it works; a ring filling in the neutral ink while CI or the checks run with an estimate, the minutes left beside it (3m on @Pike); the pink timer for any other wait, with the time left when it waits for a set time; the amber dot with how long a call has waited on you; the purple dot once done; red once it failed; a hollow ring once it stopped with nothing set to wake it; and nothing when it is idle. A trigger's clock is not on the row. The phone works out none of these itself. Nothing is answered on the row; tapping it opens the chat, where permissions and questions wait. Agents running in terminals sit in the same list and open Terminals. An agent that just changed lines another agent had uncommitted carries the Mac rail's red merge mark beside its counts, and so does the other; a lockfile, migration or generated file two agents edited at once marks both in amber instead. The mark says with whom and in which file to a screen reader, and goes after ten minutes or once the agent commits that file. Under the open agents, Recent lists the saved chats the host's rail lists as recent: the first ten, Show more for the rest; tapping one resumes it on the host and opens it, and a phone that can only watch is told so under the list. The Calls tab's count is the calls open in the project in view. The project picker and the agent filter narrow both lists. The header scrolls with the list: once the big title passes under the top bar, the bar reads host / project with the chevron, which still opens the picker, and the Agents / Terminals / Calls control stays pinned beneath it, floating on the backdrop, and rows fade out as they slide under it and into the home bar.</div></figcaption>
+    </figure>
+
+    <figure><div class="phone"><div class="island"></div>
+      <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
+      <div class="screen">
+        <div class="nav"><span class="back">{{IconChevron:18}}<b class="host">MacBook Pro</b><i class="live"></i></span><span style="flex:1"></span><span class="icon-btn on">{{IconSearch:18}}</span><span class="new-chat">{{IconPlus:20}}</span><span class="icon-btn">{{IconMore:18}}</span></div>
+        <div class="chat-search"><span class="field">{{IconSearch:15}}<b>webhook retr<span class="caret"></span></b></span><span class="cancel">Cancel</span></div>
+        <div class="pad grow">
+          <div class="rows">
+            <div class="row said"><span class="mark codex">{{IconCodex:20}}</span><div class="body"><div class="t">Move the ledger import</div><div class="said-line">…the Stripe <b>webhook</b> <b>retries</b> back off from 30s…</div></div><span class="row-name">@Maple</span></div>
+            <div class="row"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Webhook retry budget</div></div><span class="row-name">@Otter</span></div>
+          </div>
+          <div class="glabel">Recent</div>
+          <div class="rows">
+            <div class="row said"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Payments cleanup</div><div class="said-line">why do <b>webhook</b> <b>retries</b> pile up after a deploy?</div></div><span class="ago">3d</span></div>
+            <div class="row said"><span class="mark codex">{{IconCodex:20}}</span><div class="body"><div class="t">Queue worker refactor</div><div class="said-line">…dead-letter the <b>webhook</b> after five <b>retries</b> and…</div></div><span class="ago">2w</span></div>
+            <div class="row"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Webhook retries spec</div></div><span class="ago">1mo</span></div>
+          </div>
+        </div>
+        <div class="kb" style="padding-bottom:26px">
+          <div class="r"><span class="k">q</span><span class="k">w</span><span class="k">e</span><span class="k">r</span><span class="k">t</span><span class="k">y</span><span class="k">u</span><span class="k">i</span><span class="k">o</span><span class="k">p</span></div>
+          <div class="r"><span class="k">a</span><span class="k">s</span><span class="k">d</span><span class="k">f</span><span class="k">g</span><span class="k">h</span><span class="k">j</span><span class="k">k</span><span class="k">l</span></div>
+          <div class="r"><span class="k w">⇧</span><span class="k">z</span><span class="k">x</span><span class="k">c</span><span class="k">v</span><span class="k">b</span><span class="k">n</span><span class="k">m</span><span class="k w">⌫</span></div>
+          <div class="r"><span class="k w">123</span><span class="k sp">space</span><span class="k w">search</span></div>
+        </div>
+      </div>
+      <div class="home-bar"></div></div>
+      <figcaption><b>Searching chats</b><div class="note">The magnifier in the top bar, beside New chat, puts a field where the big title was, the keyboard up, as the Mac's rail search and ⌘⇧N do. Typing narrows the open agents and asks the host for its saved chats in the project in view: a chat is found by its title, or by what you and its agent wrote in it, never by what its tools printed, every word at the start of a word in one message. A chat found by its words shows the line that holds them under its title, in the quiet ink with the words themselves in full ink, as the host's core cut it; the phone cuts nothing itself. Recent lists every saved chat found, newest first, with no Show more. A tap opens the chat, or resumes a saved one on the host, with Find in chat already open on the first word found, at the newest place it comes. Cancel, or emptying the field, puts the lists back.</div></figcaption>
     </figure>
 
     <figure><div class="phone"><div class="island"></div>

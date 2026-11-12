@@ -5287,6 +5287,46 @@ export interface PromptChatParams {
     context?: ChatContext[];
 }
 
+export interface RecentChatsParams {
+    /** Every project's when absent. */
+    project: string | null;
+    query: string | null;
+    cursor: RecentCursor | null;
+    limit: number | null;
+}
+
+/**
+ * Where the last page ended. Sessions are ordered newest first, then by
+ * provider and a key that is stable for each provider, so equal times never
+ * repeat or skip a row.
+ */
+export interface RecentCursor {
+    atMs: number;
+    agent: string;
+    key: string;
+}
+
+export interface RecentChats {
+    chats: RecentInfo[];
+    next: RecentCursor | null;
+    /** Where each chat found by its words said them, by the chat's id. */
+    said?: Record<string, FoundLine>;
+}
+
+/**
+ * A line of a session that holds the words looked for, in runs that alternate between
+ * the words found and what is around them.
+ */
+export interface FoundLine {
+    runs: FoundRun[];
+}
+
+export interface FoundRun {
+    text: string;
+    /** Whether these are words looked for. */
+    found?: boolean;
+}
+
 export interface StashItemParams {
     id: string;
 }
@@ -5393,6 +5433,7 @@ export interface CoreCalls {
     projectEntries: { params: ProjectEntriesParams; answer: ProjectEntry[] };
     promptChat: { params: PromptChatParams; answer: null };
     questions: { params: NoParams; answer: AgentQuestion[] };
+    recentChats: { params: RecentChatsParams; answer: RecentChats };
     removeStash: { params: StashItemParams; answer: null };
     requireApproval: { params: NoParams; answer: ApprovalSetting };
     retryFailed: { params: ChatAccountsParams; answer: null };

@@ -22,6 +22,7 @@ private struct DeviceContent: View {
     @State private var options = false
     @State private var filter: String?
     @State private var held: String?
+    @State private var searching = false
     @State private var scrolled: CGFloat = 0
     @State private var headHeight: CGFloat = 0
     @State private var barHeight: CGFloat = 34
@@ -53,7 +54,11 @@ private struct DeviceContent: View {
                     if device != nil { IconButton(icon: Icons.more, label: "Options") { options = true } }
                 })
             if view == nil || status.unpaired { HostHead(name: hostName, line: status.line, online: status.online) }
-            if status.unpaired {
+            if let view, searching, !status.unpaired {
+                ChatSearch(
+                    core: core, view: view, scope: view.project(id: device?.project), full: device?.access == .full,
+                    hostName: hostName, onClose: { searching = false })
+            } else if status.unpaired {
                 Unpaired(device: device)
             } else if away && view == nil {
                 unreachable(status, device)
@@ -213,6 +218,12 @@ private struct DeviceContent: View {
     @ViewBuilder
     private func navActions(_ view: DeviceView, device: PairedDevice?, status: HostStatus) -> some View {
         let scope = view.project(id: device?.project)
+        if status.online && !searching {
+            IconButton(icon: Icons.search, label: "Search chats") {
+                Haptics.tap()
+                searching = true
+            }
+        }
         if device?.access == .full && status.online {
             Button {
                 Haptics.tap()

@@ -26,6 +26,7 @@ import { Dot, Working } from '@/devices/AgentMarks';
 import { fonts, isLight, type Palette, typeFor, useColors, useStyles, useType, translucent } from '@/ui/theme';
 import { Agents, type Tab } from '@/devices/DeviceAgents';
 import { Terminals } from '@/devices/DeviceTerminals';
+import { ChatSearch } from '@/devices/ChatSearch';
 
 /** What runs in a project, as its row in the project sheet shows it. */
 function ProjectTail({ snapshot, project }: { snapshot: Snapshot; project: ProjectInfo }) {
@@ -276,6 +277,7 @@ export default function Device() {
   const snapshot = live.snapshot;
   const [picking, setPicking] = useState(false);
   const [options, setOptions] = useState(false);
+  const [searching, setSearching] = useState(false);
   const starts = device?.access === 'full' && status.online;
   const bottom = useBottomGap();
   const scope = snapshot?.workspace.projects.find((project) => project.id === device?.project);
@@ -335,6 +337,16 @@ export default function Device() {
         end={
           device ? (
             <View style={styles.navEnd}>
+              {snapshot && status.online && !searching ? (
+                <IconButton
+                  name="IconSearch"
+                  label="Search chats"
+                  onPress={() => {
+                    haptics.tap();
+                    setSearching(true);
+                  }}
+                />
+              ) : null}
               {snapshot && starts ? (
                 <Pressable
                   onPress={() => {
@@ -376,6 +388,16 @@ export default function Device() {
             </>
           )}
         </Prompt>
+      ) : snapshot && searching ? (
+        <ChatSearch
+          core={core}
+          snapshot={snapshot}
+          scope={scope}
+          full={device?.access === 'full'}
+          hostName={hostName}
+          bottom={bottom}
+          onClose={() => setSearching(false)}
+        />
       ) : !snapshot ? (
         <View style={styles.away}>
           <View style={styles.trying}>

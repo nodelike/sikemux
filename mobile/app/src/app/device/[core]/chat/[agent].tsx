@@ -1,4 +1,5 @@
 import { useChatFind, useRevealFound } from '@/chat/useChatFind';
+import { takeFind } from '@/devices/pendingFind';
 import { useEditingRow } from '@/chat/useEditingRow';
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { type TextInput, Pressable, StyleSheet, Text, View } from 'react-native';
@@ -109,6 +110,20 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
     session.folds.set(`team-all/${id}`, true);
   };
   const { find, finding, shown, shownIndex, openFind, closeFind } = useChatFind(session, rows, workOpen, () => setEditing(undefined));
+  // A chat opened from a search of what was said opens its find on those words once it is attached.
+  const foundWords = useRef<string>(undefined);
+  useEffect(() => {
+    if (chat.attached !== 'live') return;
+    const words = takeFind(core, agentId);
+    if (!words) return;
+    foundWords.current = words;
+    openFind();
+  }, [chat.attached, core, agentId, openFind]);
+  useEffect(() => {
+    if (!find || !foundWords.current) return;
+    find.setText(foundWords.current);
+    foundWords.current = undefined;
+  }, [find]);
   const watchOnly = access === 'watch';
   const canEdit = !watchOnly && state.capabilities.editing && state.connection === 'ready' && !state.running && chat.attached === 'live';
   if (editing !== undefined && !canEdit) setEditing(undefined);

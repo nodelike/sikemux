@@ -174,6 +174,7 @@ enum PhoneCall {
     enum ProjectEntries {}
     enum PromptChat {}
     enum Questions {}
+    enum RecentChats {}
     enum RemoveStash {}
     enum RequireApproval {}
     enum RetryFailed {}
@@ -393,6 +394,12 @@ extension PhoneCall.Questions: PhoneCallable {
     static let method = "questions"
     typealias Params = NoParams
     typealias Answer = [AgentQuestion]
+}
+
+extension PhoneCall.RecentChats: PhoneCallable {
+    static let method = "recentChats"
+    typealias Params = RecentChatsParams
+    typealias Answer = RecentChats
 }
 
 extension PhoneCall.RemoveStash: PhoneCallable {
@@ -7994,6 +8001,42 @@ struct PromptChatParams: Codable, Hashable, Sendable {
     var text: String
     var paths: [String]?
     var context: [ChatContext]?
+}
+
+struct RecentChatsParams: Codable, Hashable, Sendable {
+    /// Every project's when absent.
+    var project: String?
+    var query: String?
+    var cursor: RecentCursor?
+    var limit: Int?
+}
+
+/// Where the last page ended. Sessions are ordered newest first, then by
+/// provider and a key that is stable for each provider, so equal times never
+/// repeat or skip a row.
+struct RecentCursor: Codable, Hashable, Sendable {
+    var atMs: Int
+    var agent: String
+    var key: String
+}
+
+struct RecentChats: Codable, Hashable, Sendable {
+    var chats: [RecentInfo]
+    var next: RecentCursor?
+    /// Where each chat found by its words said them, by the chat's id.
+    var said: [String: FoundLine]?
+}
+
+/// A line of a session that holds the words looked for, in runs that alternate between
+/// the words found and what is around them.
+struct FoundLine: Codable, Hashable, Sendable {
+    var runs: [FoundRun]
+}
+
+struct FoundRun: Codable, Hashable, Sendable {
+    var text: String
+    /// Whether these are words looked for.
+    var found: Bool?
 }
 
 struct StashItemParams: Codable, Hashable, Sendable {

@@ -34,6 +34,7 @@
     "projectEntries",
     "promptChat",
     "questions",
+    "recentChats",
     "removeStash",
     "requireApproval",
     "retryFailed",
