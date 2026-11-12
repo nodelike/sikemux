@@ -117,6 +117,9 @@ pub struct Composer {
     send_label: Option<SharedString>,
     /// The chat's text size, as a share of its designed size.
     text_scale: f32,
+    /// What the agent predicts the person sends next, which the empty draft says with Tab
+    /// beside it.
+    suggestion: Option<SharedString>,
     /// Stands one line tall until more is written, where it sits under a long list.
     on_send: Act,
     on_stop: Act,
@@ -155,9 +158,15 @@ impl Composer {
             leading: None,
             send_label: None,
             text_scale: 1.,
+            suggestion: None,
             on_send,
             on_stop,
         }
+    }
+
+    pub fn suggestion(mut self, suggestion: Option<SharedString>) -> Self {
+        self.suggestion = suggestion;
+        self
     }
 
     pub fn leading(mut self, leading: AnyElement) -> Self {
@@ -290,6 +299,10 @@ impl RenderOnce for Composer {
             None => (None, None, None, None),
         };
         let drafted = tiles.is_some() || !self.draft.read(cx).value().trim().is_empty();
+        let text_size = px(14.5 * self.text_scale);
+        let suggestion = (self.suggestion)
+            .filter(|_| self.draft.read(cx).value().is_empty())
+            .map(|suggestion| tab_hint(suggestion, text_size, cx));
         let stopping = self.running && !drafted;
         let job = crate::motion::follow(
             ElementId::NamedInteger("composer-send-job".into(), self.draft.entity_id().as_u64()),
@@ -487,8 +500,10 @@ impl RenderOnce for Composer {
                             .children(tiles)
                             .child(
                                 div()
+                                    .relative()
                                     .py(SPACE_0)
                                     .min_h(px(14.5 * self.text_scale * 1.75 * 2.5))
+                                    .children(suggestion)
                                     .child(
                                         Textarea::new(&self.draft)
                                             .appearance(false)
@@ -522,6 +537,30 @@ impl RenderOnce for Composer {
             )
             .children(context)
     }
+}
+
+/// Tab's key after the suggestion the empty draft shows as its placeholder. The words are drawn
+/// again unseen where the draft draws them, inside its padding, so the key follows them.
+fn tab_hint(suggestion: SharedString, text_size: gpui_kit::Pixels, cx: &App) -> gpui_kit::Div {
+    div()
+        .absolute()
+        .top(px(8.))
+        .left(px(10.))
+        .right(px(10.))
+        .flex()
+        .items_center()
+        .gap_x(SPACE_1H)
+        .child(
+            div()
+                .min_w_0()
+                .overflow_hidden()
+                .whitespace_nowrap()
+                .text_size(text_size)
+                .line_height(gpui_kit::relative(1.75))
+                .text_color(gpui_kit::transparent_black())
+                .child(suggestion),
+        )
+        .child(ui::kbd("Tab", cx).flex_none())
 }
 
 /// A one-line notice just above the box: a send refused, something waited on, or something

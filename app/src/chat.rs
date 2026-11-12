@@ -438,7 +438,14 @@ actions!(
 actions!(chat, [FindInChat]);
 actions!(
     composer,
-    [OlderPrompt, NewerPrompt, StopTurn, CancelEdit, StashPrompt]
+    [
+        OlderPrompt,
+        NewerPrompt,
+        StopTurn,
+        TakeSuggestion,
+        CancelEdit,
+        StashPrompt
+    ]
 );
 
 /// Picks the choice at this index of the question on show, from its number key.
@@ -462,6 +469,7 @@ pub fn install(cx: &mut App) {
         KeyBinding::new("up", OlderPrompt, Some("ChatComposer > Input")),
         KeyBinding::new("down", NewerPrompt, Some("ChatComposer > Input")),
         KeyBinding::new("escape", StopTurn, Some("ChatComposer > Input")),
+        KeyBinding::new("tab", TakeSuggestion, Some("ChatComposer > Input")),
         KeyBinding::new(
             if cfg!(target_os = "macos") {
                 "cmd-s"

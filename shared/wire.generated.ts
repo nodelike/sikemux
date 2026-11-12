@@ -1828,6 +1828,11 @@ export interface ChatHead {
     shown?: TurnShown[];
     /** Its workers' finished work, oldest first; empty for a chat that leads nobody. */
     results?: ResultRow[];
+    /**
+     * What the agent predicts the person will send next, from the turn that ended last; none
+     * while a turn runs.
+     */
+    suggestion?: string;
     /** What the person has written and not sent, as the host keeps it for every app. */
     draft?: ChatDraft;
     /** The goal the chat works on now. */

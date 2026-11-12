@@ -2844,6 +2844,9 @@ struct ChatHead: Codable, Hashable, Sendable {
     var shown: [TurnShown]?
     /// Its workers' finished work, oldest first; empty for a chat that leads nobody.
     var results: [ResultRow]?
+    /// What the agent predicts the person will send next, from the turn that ended last; none
+    /// while a turn runs.
+    var suggestion: String?
     /// What the person has written and not sent, as the host keeps it for every app.
     var draft: ChatDraft?
     /// The goal the chat works on now.

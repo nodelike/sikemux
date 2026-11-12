@@ -114,6 +114,9 @@ pub(crate) struct Reader {
     shared: Arc<Mutex<Shared>>,
     asking: Asking,
     data: ReaderState,
+    /// The last turn to end was the person's and it finished, so what Claude predicts they
+    /// send next is shown.
+    suggests: bool,
 }
 
 /// What the reader knows of the session, as plain data, for a core that
@@ -462,6 +465,7 @@ impl Reader {
             control,
             shared,
             data,
+            suggests: false,
         }
     }
 
@@ -571,6 +575,14 @@ impl Reader {
             Message::ConversationReset => {
                 self.data.task_plan.clear();
                 self.send(None, self.data.task_plan.plan());
+            }
+            Message::PromptSuggestion { suggestion } => {
+                if std::mem::take(&mut self.suggests) && !self.turn_running() {
+                    self.sink.update(
+                        &self.data.session_id,
+                        sikemux_fold::update::prompt_suggestion(&suggestion),
+                    );
+                }
             }
             Message::Other => {}
         }
@@ -988,6 +1000,7 @@ impl Reader {
     }
 
     fn result(&mut self, result: &TurnResult) {
+        self.suggests = false;
         if let Some(size) = result
             .model_usage
             .as_ref()
@@ -1081,6 +1094,7 @@ impl Reader {
             TurnEnd::Completed(turn_answer(stop_reason(result)))
         };
         self.data.offline_retries = false;
+        self.suggests = !turn.cancelled && matches!(end, TurnEnd::Completed(_));
         self.sink.end_turn(turn.number, end);
     }
 

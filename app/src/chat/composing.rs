@@ -89,6 +89,10 @@ pub struct Composing {
     pub secret: Entity<TextareaState>,
     pub secret_focused: bool,
     pub hint: SharedString,
+    /// What the agent predicts the person sends next, while the empty draft offers it.
+    pub suggested: Option<SharedString>,
+    /// The suggestion the person turned away with Escape, which is not offered again.
+    pub dismissed: Option<SharedString>,
     /// The files going out with the next message, its pictures named in the draft by number.
     pub attachments: Vec<PathBuf>,
     /// The agents, files or commands offered for the word at the caret.
@@ -228,6 +232,30 @@ pub(super) fn recall<A: gpui::Action>(
     }
 }
 
+/// Puts the suggestion the empty draft offers into it, to change or send.
+pub(super) fn take_suggestion(
+    agent: &str,
+    cx: &mut Context<Workbench>,
+) -> impl Fn(&TakeSuggestion, &mut Window, &mut App) + use<> {
+    let (agent, this) = (agent.to_owned(), cx.weak_entity());
+    move |_: &TakeSuggestion, window: &mut Window, cx: &mut App| {
+        let taken = this.update(cx, |bench, cx| {
+            let composing = bench.composing_mut(&agent)?;
+            let draft = composing.draft.clone();
+            if !draft.read(cx).value().is_empty() {
+                return None;
+            }
+            let suggestion = composing.suggested.take()?;
+            draft.update(cx, |draft, cx| draft.set_value(suggestion, window, cx));
+            bench.typed_draft(&agent, cx);
+            Some(())
+        });
+        if !matches!(taken, Ok(Some(()))) {
+            cx.propagate();
+        }
+    }
+}
+
 /// Hands a key's action to the menu over the draft of `agent`'s chat.
 pub(super) fn offered<A: gpui::Action>(
     agent: &str,
@@ -251,7 +279,17 @@ pub(super) fn stop_turn(
         let stopped = this.update(cx, |bench, cx| {
             let chat = bench.chats.open.get(&agent)?;
             let empty = chat.composer.as_ref()?.draft.read(cx).value().is_empty();
-            (chat.running() && empty).then(|| bench.stop(&agent, window, cx))
+            if !empty {
+                return None;
+            }
+            if chat.running() {
+                bench.stop(&agent, window, cx);
+                return Some(());
+            }
+            let composing = bench.composing_mut(&agent)?;
+            composing.dismissed = Some(composing.suggested.take()?);
+            cx.notify();
+            Some(())
         });
         if !matches!(stopped, Ok(Some(()))) {
             cx.propagate();
@@ -312,6 +350,7 @@ pub fn mounted(
         .on_action(recall::<OlderPrompt>(owner, true, cx))
         .on_action(recall::<NewerPrompt>(owner, false, cx))
         .on_action(stop_turn(owner, cx))
+        .on_action(take_suggestion(owner, cx))
         .on_action({
             let (owner, this) = (owner.to_owned(), cx.weak_entity());
             move |_: &StashPrompt, _: &mut Window, cx: &mut App| {
@@ -449,6 +488,7 @@ pub fn drafting(
             attach::chip(cx.weak_entity()),
         )
         .dictation(composing.mic.clone(), bench.voice.read(cx).heard_for(owner))
+        .suggestion(composing.suggested.clone())
         .menu(dock);
     Some((composer, offering))
 }
@@ -865,6 +905,21 @@ impl Chat {
         }
     }
 
+    /// What the agent predicts the person sends next, while nothing else waits on them: the
+    /// session ready, no turn running, and no permission or question open.
+    pub fn suggestion<'a>(
+        &self,
+        agent: &str,
+        mut questions: impl Iterator<Item = &'a Question>,
+    ) -> Option<&str> {
+        let head = self.state.as_ref()?;
+        let free = head.connection == ChatConnection::Ready
+            && !head.running
+            && head.permissions.is_empty()
+            && !questions.any(|question| question.asks(agent));
+        head.suggestion.as_deref().filter(|_| free)
+    }
+
     /// The command `text` starts with when this session lists commands and not that one. Only a
     /// first word like `/name` counts, so a path such as `/usr/bin` goes to the agent as text.
     pub fn unknown_command<'a>(&self, text: &'a str) -> Option<&'a str> {
@@ -1085,6 +1140,8 @@ impl Workbench {
             secret_focused: false,
             mic,
             hint: SharedString::default(),
+            suggested: None,
+            dismissed: None,
             attachments: Vec::new(),
             menu: None,
             model_open: false,
@@ -1216,6 +1273,10 @@ impl Workbench {
         let Some(chat) = self.chats.open.get_mut(&agent) else {
             return;
         };
+        let suggested = (!call_waits)
+            .then(|| chat.suggestion(&agent, self.feeds.questions_outside_calls()))
+            .flatten()
+            .map(SharedString::new);
         let hint = SharedString::from(match call_waits {
             true => "Or answer in your own words".to_owned(),
             false => chat.hint(
@@ -1225,13 +1286,19 @@ impl Workbench {
                 to.as_ref().map(|(to, commands)| (to.as_str(), *commands)),
             ),
         });
-        let Some(composing) = chat
-            .composer
-            .as_mut()
-            .filter(|composing| composing.hint != hint)
-        else {
+        let Some(composing) = chat.composer.as_mut() else {
             return;
         };
+        let suggested = suggested.filter(|suggested| {
+            composing.attachments.is_empty()
+                && composing.context.is_empty()
+                && composing.dismissed.as_ref() != Some(suggested)
+        });
+        let hint = suggested.clone().unwrap_or(hint);
+        composing.suggested = suggested;
+        if composing.hint == hint {
+            return;
+        }
         composing.hint = hint.clone();
         composing
             .draft

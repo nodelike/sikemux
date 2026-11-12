@@ -35,9 +35,13 @@ use super::session::{self, Backend, Opened, Prompt, Sink, Steered};
 use crate::sessions::for_agent::context_text;
 use approvals::Question;
 use commands::Command;
-use state::{user_input_told, Reply, Session};
+use state::{user_input_told, Predict, Reply, Session};
 
 type Driver = rpc_driver::Driver<Session>;
+
+/// Codex has no suggestion of its own, so a finished turn is followed by one cheap question on
+/// the same thread. Codex releases without `thread/sample` refuse it, and nothing is shown.
+const PREDICT_NEXT: &str = "Predict the next message the user will send in this conversation. Reply with only that message, written as the user would type it, in under 20 words. Do not use tools. If there is no clear next step, reply with nothing.";
 
 impl RpcAgent for Session {
     type Reply = Asked;
@@ -52,8 +56,24 @@ impl RpcAgent for Session {
         answer["turn"]["id"].as_str()
     }
 
-    fn carry_out(_: &Driver, own: Self::Own) {
-        match own {}
+    fn carry_out(driver: &Driver, Predict(turn): Predict) {
+        let driver = driver.clone();
+        tokio::spawn(async move {
+            let thread = driver.session_id();
+            let params = json!({
+                "threadId": thread,
+                "expectedTurnId": turn,
+                "prompt": PREDICT_NEXT,
+                "effort": "low",
+            });
+            if let Ok(answer) = driver.rpc.request("thread/sample", params).await {
+                if let Some(text) = answer["text"].as_str() {
+                    driver
+                        .sink
+                        .update(&thread, sikemux_fold::update::prompt_suggestion(text));
+                }
+            }
+        });
     }
 
     fn notification(driver: &Driver, method: &str, params: Value) {

@@ -39,6 +39,8 @@ pub enum UpdateKind {
     QueuedMessages,
     EarlierTurnsLost,
     MessageRewound,
+    /// What the agent predicts the person will send next, once a turn of theirs has ended.
+    PromptSuggestion,
 }
 
 impl UpdateKind {
@@ -68,6 +70,7 @@ impl UpdateKind {
             Self::QueuedMessages => "queued_messages",
             Self::EarlierTurnsLost => "earlier_turns_lost",
             Self::MessageRewound => "message_rewound",
+            Self::PromptSuggestion => "prompt_suggestion",
         }
     }
 
@@ -97,6 +100,7 @@ impl UpdateKind {
             "queued_messages" => Self::QueuedMessages,
             "earlier_turns_lost" => Self::EarlierTurnsLost,
             "message_rewound" => Self::MessageRewound,
+            "prompt_suggestion" => Self::PromptSuggestion,
             _ => return None,
         })
     }
@@ -231,6 +235,11 @@ pub fn plan_entry(content: &str, status: &str) -> Value {
 /// What the agent calls the session; null when it named it nothing after all.
 pub fn session_title(title: impl Serialize) -> Value {
     json!({ "sessionUpdate": UpdateKind::SessionInfoUpdate, "title": title })
+}
+
+/// What the agent predicts the person will send next.
+pub fn prompt_suggestion(suggestion: &str) -> Value {
+    json!({ "sessionUpdate": UpdateKind::PromptSuggestion, "suggestion": suggestion })
 }
 
 /// How full the context window is.

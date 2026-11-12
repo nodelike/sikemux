@@ -12,6 +12,7 @@
 //! - `count` says how many messages the person sent before this one;
 //! - `limit` fails the way Claude Code does when the account is out of usage;
 //! - `question` asks three questions, or `question {...}` asks the AskUserQuestion input given;
+//! - `suggest WORDS` says `Done.` and, started with `--prompt-suggestions`, predicts WORDS next;
 //! - anything else is echoed back.
 //!
 //! `FAKE_CLAUDE_SCRIPT` names a JSON file of replies for recorded demos, each
@@ -54,6 +55,8 @@ struct Claude {
     out: Mutex<std::io::Stdout>,
     waiting: Mutex<HashMap<String, Sender<Value>>>,
     interrupted: AtomicBool,
+    /// Started with `--prompt-suggestions`, so it predicts the next prompt after a turn.
+    suggesting: bool,
     session_id: String,
     transcript: PathBuf,
     /// The newest record of the conversation, which the next one follows.
@@ -379,6 +382,18 @@ impl Claude {
                 self.say(&message_id, &format!("{earlier} earlier"));
                 self.finish(uuid, None);
             }
+            "suggest" => {
+                self.say(&message_id, "Done.");
+                self.finish(uuid, None);
+                if self.suggesting {
+                    let suggestion: Vec<&str> = words
+                        .take_while(|word| !word.starts_with("sikemux://"))
+                        .collect();
+                    self.send(
+                        json!({ "type": "prompt_suggestion", "suggestion": suggestion.join(" ") }),
+                    );
+                }
+            }
             "limit" => {
                 let resets_at = sikemux_process::clock::epoch_secs() + 3600;
                 self.send(json!({
@@ -625,6 +640,7 @@ fn main() {
         out: Mutex::new(std::io::stdout()),
         waiting: Mutex::new(HashMap::new()),
         interrupted: AtomicBool::new(false),
+        suggesting: args.iter().any(|arg| arg == "--prompt-suggestions"),
         session_id,
         transcript,
         leaf: Mutex::new(None),

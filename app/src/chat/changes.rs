@@ -188,6 +188,7 @@ named_fields!(head_field, ChatHead {
     "earlierLost" => earlier_lost,
     "ended" => ended,
     "activeTool" => active_tool,
+    "suggestion" => suggestion,
     "draft" => draft,
     "goal" => goal,
     "turn" => turn,

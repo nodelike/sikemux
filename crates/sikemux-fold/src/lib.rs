@@ -709,6 +709,9 @@ impl Fold {
             self.set_head("running");
             self.settle_last_run();
         }
+        if running {
+            self.drop_suggestion();
+        }
     }
 
     pub fn set_setup(&mut self, setup: &Value) {
@@ -853,6 +856,19 @@ impl Fold {
     /// Takes in one event the feed kept, `index` its place in the chat's
     /// history, `at` when it happened.
     pub fn apply(&mut self, index: u64, kind: ChatEventKind, payload: &Value, at: u64) {
+        self.take_in(index, kind, payload, at);
+        if self.head.running {
+            self.drop_suggestion();
+        }
+    }
+
+    fn drop_suggestion(&mut self) {
+        if self.head.suggestion.take().is_some() {
+            self.set_head("suggestion");
+        }
+    }
+
+    fn take_in(&mut self, index: u64, kind: ChatEventKind, payload: &Value, at: u64) {
         match kind {
             ChatEventKind::Status => self.status(payload, at),
             ChatEventKind::Sourced => self.sourced(payload),
@@ -1103,6 +1119,7 @@ impl Fold {
         self.head.stop_reason = None;
         self.set_head("plan");
         self.set_head("stopReason");
+        self.drop_suggestion();
         self.needs_moved();
         self.settle_from = Some(
             self.settle_from
@@ -1316,6 +1333,15 @@ impl Fold {
             UpdateKind::MessageRewound => {
                 if let Some(message) = text_of(update.get("messageId")) {
                     self.rewind(message);
+                }
+            }
+            UpdateKind::PromptSuggestion => {
+                let suggestion = text_of(update.get("suggestion"))
+                    .map(str::trim)
+                    .filter(|suggestion| !suggestion.is_empty());
+                if let Some(suggestion) = suggestion.filter(|_| !self.head.running) {
+                    self.head.suggestion = Some(suggestion.to_owned());
+                    self.set_head("suggestion");
                 }
             }
             _ => {}

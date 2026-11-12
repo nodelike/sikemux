@@ -36,6 +36,10 @@ pub(crate) enum Message {
         #[serde(default)]
         rate_limit_info: Value,
     },
+    /// What Claude predicts the person sends next, after a turn's result.
+    PromptSuggestion {
+        suggestion: String,
+    },
     #[serde(other)]
     Other,
 }
