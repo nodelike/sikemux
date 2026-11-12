@@ -281,7 +281,8 @@ pub(crate) fn rows(core: &Core, project: Option<&str>, caller: &str) -> Vec<Valu
 }
 
 /// Closes agents the caller started, or that one of its workers started, or,
-/// by id, one that no open agent leads, as the person closing their tabs would. Their chats stay in Recent.
+/// by id, one that no open agent leads, as the person closing their tabs would, on whichever host
+/// each runs. Their chats stay in Recent.
 pub(crate) async fn close(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, String> {
     let caller = request
         .agent_id
@@ -295,19 +296,19 @@ pub(crate) async fn close(core: &Arc<Core>, request: &HarnessRequest) -> Result<
             .ok_or("agents must be names or ids")?,
         _ => return Err("agents must list the agents to close".into()),
     };
-    let (core, request) = (core.clone(), request.clone());
-    blocking(move || {
+    let (here, request, caller_id) = (core.clone(), request.clone(), caller.clone());
+    let (mut closed, remote) = blocking(move || {
+        let (core, caller) = (here, caller_id);
         let project = super::caller::project_of(&core, &request);
         let agents = listed(&core);
         let mut closing = Vec::new();
+        let mut remote = Vec::new();
         for to in &wanted {
             let target = resolve(&core, &agents, to, &project, &caller)?;
             let name = target.name.clone().unwrap_or(target.agent_id.clone());
             if target.reach == Reach::Remote {
-                return Err(format!(
-                    "{name} runs on another host; ask it to finish, and the person closes its tab"
-                )
-                .into());
+                remote.push(target.agent_id);
+                continue;
             }
             let led = core.names.leads_of(&target.agent_id);
             let by_auto = super::board::run_by_auto(&core, &target.agent_id);
@@ -335,10 +336,14 @@ pub(crate) async fn close(core: &Arc<Core>, request: &HarnessRequest) -> Result<
         let ids: Vec<String> = closing.iter().map(|(id, _)| id.clone()).collect();
         super::workspace::close(&core, &ids)?;
         let closed: Vec<String> = closing.into_iter().map(|(_, name)| name).collect();
-        Ok(json!({ "closed": closed }))
+        Ok((closed, remote))
     })
     .await
-    .map_err(|error| error.to_string())
+    .map_err(|error| error.to_string())?;
+    for agent_id in remote {
+        closed.push(super::hosts::route::close(core, &caller, &agent_id).await?);
+    }
+    Ok(json!({ "closed": closed }))
 }
 
 /// The agent `to` names: an agent id, or a name held in the caller's project

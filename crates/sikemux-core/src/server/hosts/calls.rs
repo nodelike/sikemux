@@ -42,6 +42,7 @@ host_asks! {
     Hire "hire" route::HireParams;
     Forget "forget" route::AboutAgent;
     Read "read" route::ReadParams;
+    Close "close" route::CloseParams;
     Happened "happened" route::HappenedParams;
     Team "team" route::TeamParams;
     Worked "worked" route::AboutAgent;
@@ -162,6 +163,7 @@ async fn dispatch(
         Forget::METHOD => answered(route::forget_here(core, host, read::<Forget>(params)?)),
         "deliver" => route::deliver_here(core, host, params).await,
         Read::METHOD => route::read_here(core, host, read::<Read>(params)?).await,
+        Close::METHOD => answered(route::close_here(core, host, read::<Close>(params)?)),
         Workers::METHOD => route::workers_here(core, host, read::<Workers>(params)?),
         Happened::METHOD => answered(route::happened_here(core, host, read::<Happened>(params)?)),
         Team::METHOD => answered(route::team_here(core, host, read::<Team>(params)?)),

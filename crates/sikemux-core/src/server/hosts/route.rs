@@ -737,6 +737,65 @@ pub(super) async fn read_here(
     follow::read_here(core, params.agent_id, params.cursor).await
 }
 
+/// Closes `agent_id`, an agent on another host that `caller` leads, as the person
+/// there closing its tab would. Answers the agent as the caller knows it.
+pub(crate) async fn close(
+    core: &Arc<Core>,
+    caller: &str,
+    agent_id: &str,
+) -> Result<String, String> {
+    let foreign = core
+        .hosts
+        .team
+        .get(agent_id)
+        .ok_or("Sikemux no longer knows which host that agent runs on")?;
+    let params = params_of::<asks::Close>(&CloseParams {
+        caller: caller.to_owned(),
+        agent_id: agent_id.to_owned(),
+    });
+    ask(
+        core,
+        &foreign.host,
+        asks::Close::METHOD,
+        params,
+        None,
+        ASK_WAIT,
+    )
+    .await
+    .map_err(|error| match error {
+        Failed::Unreachable(why) | Failed::Unknown(why) | Failed::Retry(why) => {
+            format!("{} cannot be closed now: {why}", shown(&foreign, core))
+        }
+        Failed::Refused(why) | Failed::NotLinked(why) => why,
+    })?;
+    Ok(shown(&foreign, core))
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct CloseParams {
+    caller: String,
+    agent_id: String,
+}
+
+pub(super) fn close_here(core: &Core, host: &str, params: CloseParams) -> CoreResult<Value> {
+    let from_there = core
+        .hosts
+        .team
+        .get(&params.caller)
+        .is_some_and(|foreign| foreign.host == host);
+    if !from_there
+        || !core
+            .names
+            .leads_of(&params.agent_id)
+            .contains(&params.caller)
+    {
+        return Err("only the agent's lead may close it".into());
+    }
+    super::super::workspace::close(core, &[params.agent_id])?;
+    Ok(Value::Null)
+}
+
 /// Asks the host a team's lead runs on to name a worker `lead` starts here,
 /// counting the whole team there against the caps.
 pub(crate) async fn hire(
