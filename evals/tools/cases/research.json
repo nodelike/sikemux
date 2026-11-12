@@ -37,8 +37,8 @@
     },
     "grade": {
       "expect": [
-        { "tool": "browser_navigate", "args": { "url": "/grok\\.com/" } },
-        { "tool": ["browser_type", "browser_act"] }
+        { "tool": "browser", "args": { "action": "navigate", "url": "/grok\\.com/" } },
+        { "tool": "browser", "args": { "action": { "$any": ["type", "act"] } } }
       ],
       "forbid": [
         { "tool": ["WebSearch", "WebFetch"], "why": "researched with WebSearch or WebFetch instead of Grok in a desk tab" },
@@ -87,7 +87,7 @@
       ]
     },
     "grade": {
-      "expect": [{ "tool": "browser_navigate", "args": { "url": "/grok\\.com/" } }],
+      "expect": [{ "tool": "browser", "args": { "action": "navigate", "url": "/grok\\.com/" } }],
       "forbid": [
         { "tool": ["WebSearch", "WebFetch"], "why": "researched with WebSearch or WebFetch (itself or in a subagent) instead of Grok in a desk tab" },
         { "tool": "Bash", "args": { "command": "/\\b(curl|wget)\\b/" }, "why": "researched with curl instead of Grok in a desk tab" }
@@ -158,7 +158,7 @@
     },
     "grade": {
       "expect": [
-        { "tool": ["Bash", "browser_navigate"], "args": { "$any": [{ "command": "/curl.*api\\.sikemux\\.com\\/health/" }, { "url": "/api\\.sikemux\\.com\\/health/" }] } }
+        { "any": [{ "tool": "browser", "args": { "action": "navigate", "$any": [{ "command": "/curl.*api\\.sikemux\\.com\\/health/" }, { "url": "/api\\.sikemux\\.com\\/health/" }] } }, { "tool": "Bash", "args": { "$any": [{ "command": "/curl.*api\\.sikemux\\.com\\/health/" }, { "url": "/api\\.sikemux\\.com\\/health/" }] } }] }
       ],
       "forbid": [{ "tool": ["WebSearch", "WebFetch"], "why": "used WebFetch or WebSearch against the person's standing rule" }]
     },

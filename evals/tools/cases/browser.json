@@ -184,17 +184,21 @@
     "grade": {
       "expect": [
         {
-          "tool": "browser_navigate",
+          "tool": "browser",
           "args": {
+            "action": "navigate",
             "url": "/localhost:5173\\/studio/"
           }
         },
         {
-          "tool": [
-            "browser_click",
-            "browser_act"
-          ],
+          "tool": "browser",
           "args": {
+            "action": {
+              "$any": [
+                "click",
+                "act"
+              ]
+            },
             "$any": [
               {
                 "text": "/create from scratch/i"
@@ -209,11 +213,14 @@
           }
         },
         {
-          "tool": [
-            "browser_click",
-            "browser_act"
-          ],
+          "tool": "browser",
           "args": {
+            "action": {
+              "$any": [
+                "click",
+                "act"
+              ]
+            },
             "$any": [
               {
                 "text": "/returning customers/i"
@@ -228,11 +235,14 @@
           }
         },
         {
-          "tool": [
-            "browser_type",
-            "browser_act"
-          ],
+          "tool": "browser",
           "args": {
+            "action": {
+              "$any": [
+                "type",
+                "act"
+              ]
+            },
             "$any": [
               {
                 "text": "/northwind/i"
@@ -246,12 +256,16 @@
       ],
       "forbid": [
         {
-          "tool": "browser_evaluate",
+          "tool": "browser",
+          "args": {
+            "action": "evaluate"
+          },
           "why": "drove the form with a script"
         },
         {
-          "tool": "browser_wait",
+          "tool": "browser",
           "args": {
+            "action": "wait",
             "ms": {
               "$present": true
             },
@@ -399,11 +413,14 @@
       "order": true,
       "expect": [
         {
-          "tool": [
-            "browser_wait",
-            "browser_navigate"
-          ],
+          "tool": "browser",
           "args": {
+            "action": {
+              "$any": [
+                "wait",
+                "navigate"
+              ]
+            },
             "$any": [
               {
                 "text": {
@@ -437,19 +454,24 @@
           }
         },
         {
-          "tool": "browser_evaluate",
+          "tool": "browser",
           "args": {
+            "action": "evaluate",
             "script": "/selectWindowId\\(\\s*['\"]git['\"]/"
           }
         },
         {
-          "tool": "browser_screenshot"
+          "tool": "browser",
+          "args": {
+            "action": "screenshot"
+          }
         }
       ],
       "forbid": [
         {
-          "tool": "browser_evaluate",
+          "tool": "browser",
           "args": {
+            "action": "evaluate",
             "script": "/setTimeout|setInterval|sleep\\(/"
           },
           "why": "waited inside a page script instead of with browser_wait"
@@ -594,11 +616,14 @@
     "grade": {
       "expect": [
         {
-          "tool": [
-            "browser_type",
-            "browser_act"
-          ],
+          "tool": "browser",
           "args": {
+            "action": {
+              "$any": [
+                "type",
+                "act"
+              ]
+            },
             "$any": [
               {
                 "text": "/Make the intro shorter/"
@@ -612,19 +637,21 @@
       ],
       "forbid": [
         {
-          "tool": "browser_evaluate",
-          "why": "drove the composer with a script instead of typing and clicking",
+          "tool": "browser",
           "args": {
+            "action": "evaluate",
             "script": "/\\.click\\(|dispatchEvent|\\.value\\s*=[^=]|nativeInputValueSetter|execCommand|requestSubmit|\\.submit\\(/"
-          }
+          },
+          "why": "drove the composer with a script instead of typing and clicking"
         }
       ],
       "limit": [
         {
           "any": [
             {
-              "tool": "browser_click",
+              "tool": "browser",
               "args": {
+                "action": "click",
                 "$any": [
                   {
                     "index": 1
@@ -636,20 +663,23 @@
               }
             },
             {
-              "tool": "browser_type",
+              "tool": "browser",
               "args": {
+                "action": "type",
                 "submit": true
               }
             },
             {
-              "tool": "browser_press",
+              "tool": "browser",
               "args": {
+                "action": "press",
                 "key": "Enter"
               }
             },
             {
-              "tool": "browser_act",
+              "tool": "browser",
               "args": {
+                "action": "act",
                 "steps": "/\"action\":\"click\"|\"submit\":true|Enter/"
               }
             }
@@ -727,23 +757,26 @@
       "order": true,
       "expect": [
         {
-          "tool": "browser_navigate",
+          "tool": "browser",
           "args": {
+            "action": "navigate",
             "go": "reload",
             "hard": true
           }
         },
         {
-          "tool": "browser_evaluate",
+          "tool": "browser",
           "args": {
+            "action": "evaluate",
             "script": "/frame-hero/"
           }
         }
       ],
       "forbid": [
         {
-          "tool": "browser_evaluate",
+          "tool": "browser",
           "args": {
+            "action": "evaluate",
             "script": "/location\\.(reload|href\\s*=|replace)|history\\.go/"
           },
           "why": "reloaded from inside a page script"
@@ -751,7 +784,10 @@
       ],
       "limit": [
         {
-          "tool": "browser_navigate",
+          "tool": "browser",
+          "args": {
+            "action": "navigate"
+          },
           "max": 1
         }
       ],
@@ -900,11 +936,14 @@
     "grade": {
       "expect": [
         {
-          "tool": [
-            "browser_click",
-            "browser_act"
-          ],
+          "tool": "browser",
           "args": {
+            "action": {
+              "$any": [
+                "click",
+                "act"
+              ]
+            },
             "$any": [
               {
                 "text": "/generate/i"
@@ -919,11 +958,14 @@
           }
         },
         {
-          "tool": [
-            "browser_wait",
-            "browser_navigate"
-          ],
+          "tool": "browser",
           "args": {
+            "action": {
+              "$any": [
+                "wait",
+                "navigate"
+              ]
+            },
             "$any": [
               {
                 "text": {
@@ -959,8 +1001,9 @@
       ],
       "forbid": [
         {
-          "tool": "browser_wait",
+          "tool": "browser",
           "args": {
+            "action": "wait",
             "ms": {
               "$present": true
             },
@@ -986,8 +1029,9 @@
           "why": "waited a fixed time instead of for something on the page"
         },
         {
-          "tool": "browser_evaluate",
+          "tool": "browser",
           "args": {
+            "action": "evaluate",
             "script": "/setTimeout|setInterval|sleep\\(/"
           },
           "why": "waited inside a page script instead of with browser_wait"
@@ -995,7 +1039,10 @@
       ],
       "limit": [
         {
-          "tool": "browser_screenshot",
+          "tool": "browser",
+          "args": {
+            "action": "screenshot"
+          },
           "max": 1
         }
       ],
@@ -1135,14 +1182,20 @@
     "grade": {
       "expect": [
         {
-          "tool": "browser_wait"
+          "tool": "browser",
+          "args": {
+            "action": "wait"
+          }
         },
         {
-          "tool": [
-            "browser_type",
-            "browser_act"
-          ],
+          "tool": "browser",
           "args": {
+            "action": {
+              "$any": [
+                "type",
+                "act"
+              ]
+            },
             "$any": [
               {
                 "text": "ci-deploy"
@@ -1154,11 +1207,14 @@
           }
         },
         {
-          "tool": [
-            "browser_click",
-            "browser_act"
-          ],
+          "tool": "browser",
           "args": {
+            "action": {
+              "$any": [
+                "click",
+                "act"
+              ]
+            },
             "$any": [
               {
                 "text": "/^save$/i"
@@ -1175,22 +1231,25 @@
       ],
       "forbid": [
         {
-          "tool": "browser_evaluate",
+          "tool": "browser",
           "args": {
+            "action": "evaluate",
             "script": "/setTimeout|setInterval|sleep\\(/"
           },
           "why": "waited inside a page script instead of with browser_wait"
         },
         {
-          "tool": "browser_evaluate",
+          "tool": "browser",
           "args": {
+            "action": "evaluate",
             "script": "/\\.click\\(|dispatchEvent|\\.value\\s*=|nativeInputValueSetter|scrollIntoView/"
           },
           "why": "drove the page with a script instead of browser_click, browser_type or browser_scroll"
         },
         {
-          "tool": "browser_click",
+          "tool": "browser",
           "args": {
+            "action": "click",
             "x": {
               "$present": true
             }
@@ -1285,11 +1344,14 @@
     "grade": {
       "expect": [
         {
-          "tool": [
-            "browser_click",
-            "browser_act"
-          ],
+          "tool": "browser",
           "args": {
+            "action": {
+              "$any": [
+                "click",
+                "act"
+              ]
+            },
             "$any": [
               {
                 "text": "/retry failed/i"
@@ -1306,11 +1368,14 @@
       ],
       "forbid": [
         {
-          "tool": [
-            "browser_click",
-            "browser_act"
-          ],
+          "tool": "browser",
           "args": {
+            "action": {
+              "$any": [
+                "click",
+                "act"
+              ]
+            },
             "$any": [
               {
                 "index": 14
@@ -1323,8 +1388,9 @@
           "why": "clicked a number read before the page changed"
         },
         {
-          "tool": "browser_click",
+          "tool": "browser",
           "args": {
+            "action": "click",
             "x": {
               "$present": true
             }
@@ -1449,8 +1515,9 @@
     "grade": {
       "forbid": [
         {
-          "tool": "browser_click",
+          "tool": "browser",
           "args": {
+            "action": "click",
             "x": {
               "$present": true
             }
@@ -1458,8 +1525,9 @@
           "why": "fell back to clicking a coordinate"
         },
         {
-          "tool": "browser_evaluate",
+          "tool": "browser",
           "args": {
+            "action": "evaluate",
             "script": "/\\.click\\(|dispatchEvent|\\.value\\s*=|nativeInputValueSetter|scrollIntoView/"
           },
           "why": "drove the page with a script instead of browser_click, browser_type or browser_scroll"
@@ -1467,7 +1535,10 @@
       ],
       "limit": [
         {
-          "tool": "browser_click",
+          "tool": "browser",
+          "args": {
+            "action": "click"
+          },
           "max": 4
         }
       ],
@@ -1737,11 +1808,14 @@
     "grade": {
       "expect": [
         {
-          "tool": [
-            "browser_type",
-            "browser_act"
-          ],
+          "tool": "browser",
           "args": {
+            "action": {
+              "$any": [
+                "type",
+                "act"
+              ]
+            },
             "$any": [
               {
                 "text": "/apps\\.example-host\\.net/"
@@ -1753,11 +1827,14 @@
           }
         },
         {
-          "tool": [
-            "browser_type",
-            "browser_act"
-          ],
+          "tool": "browser",
           "args": {
+            "action": {
+              "$any": [
+                "type",
+                "act"
+              ]
+            },
             "$any": [
               {
                 "text": "/^3600$/"
@@ -1769,12 +1846,15 @@
           }
         },
         {
-          "tool": [
-            "browser_click",
-            "browser_act",
-            "browser_press"
-          ],
+          "tool": "browser",
           "args": {
+            "action": {
+              "$any": [
+                "click",
+                "act",
+                "press"
+              ]
+            },
             "$any": [
               {
                 "text": "/add record/i"
@@ -1799,15 +1879,17 @@
       ],
       "forbid": [
         {
-          "tool": "browser_evaluate",
+          "tool": "browser",
           "args": {
+            "action": "evaluate",
             "script": "/\\.click\\(|dispatchEvent|\\.value\\s*=|nativeInputValueSetter|scrollIntoView/"
           },
           "why": "drove the page with a script instead of browser_click, browser_type or browser_scroll"
         },
         {
-          "tool": "browser_click",
+          "tool": "browser",
           "args": {
+            "action": "click",
             "x": {
               "$present": true
             }
@@ -1817,11 +1899,16 @@
       ],
       "limit": [
         {
-          "tool": [
-            "browser_type",
-            "browser_act",
-            "browser_click"
-          ],
+          "tool": "browser",
+          "args": {
+            "action": {
+              "$any": [
+                "type",
+                "act",
+                "click"
+              ]
+            }
+          },
           "max": 10
         }
       ]
@@ -1877,8 +1964,9 @@
     "grade": {
       "expect": [
         {
-          "tool": "browser_screenshot",
+          "tool": "browser",
           "args": {
+            "action": "screenshot",
             "$any": [
               {
                 "index": 57
@@ -1892,21 +1980,25 @@
       ],
       "forbid": [
         {
-          "tool": [
-            "browser_screenshot",
-            "browser_scroll"
-          ],
+          "tool": "browser",
           "args": {
+            "action": {
+              "$any": [
+                "screenshot",
+                "scroll"
+              ]
+            },
             "index": 0
           },
           "why": "took index as the nth match of the selector; it is a page-wide number"
         },
         {
-          "tool": "browser_evaluate",
-          "why": "used a script to mark or move the element",
+          "tool": "browser",
           "args": {
+            "action": "evaluate",
             "script": "/setAttribute|classList\\.(?:add|toggle)|\\.id\\s*=[^=]|dataset\\.\\w+\\s*=[^=]|scrollIntoView|scroll(?:To|By)\\(/"
-          }
+          },
+          "why": "used a script to mark or move the element"
         }
       ]
     },
@@ -2005,11 +2097,14 @@
     "grade": {
       "expect": [
         {
-          "tool": [
-            "browser_click",
-            "browser_act"
-          ],
+          "tool": "browser",
           "args": {
+            "action": {
+              "$any": [
+                "click",
+                "act"
+              ]
+            },
             "$any": [
               {
                 "index": 39
@@ -2026,12 +2121,16 @@
       ],
       "forbid": [
         {
-          "tool": "browser_evaluate",
+          "tool": "browser",
+          "args": {
+            "action": "evaluate"
+          },
           "why": "used a script instead of the number the error listed"
         },
         {
-          "tool": "browser_click",
+          "tool": "browser",
           "args": {
+            "action": "click",
             "x": {
               "$present": true
             }
@@ -2039,8 +2138,9 @@
           "why": "fell back to clicking a coordinate"
         },
         {
-          "tool": "browser_click",
+          "tool": "browser",
           "args": {
+            "action": "click",
             "index": 40
           },
           "why": "clicked the link instead of the checkbox"
@@ -2170,11 +2270,14 @@
     "grade": {
       "expect": [
         {
-          "tool": [
-            "browser_click",
-            "browser_act"
-          ],
+          "tool": "browser",
           "args": {
+            "action": {
+              "$any": [
+                "click",
+                "act"
+              ]
+            },
             "$any": [
               {
                 "text": "/northwind outdoor/i"
@@ -2191,8 +2294,9 @@
       ],
       "forbid": [
         {
-          "tool": "browser_click",
+          "tool": "browser",
           "args": {
+            "action": "click",
             "x": {
               "$present": true
             }
@@ -2200,18 +2304,22 @@
           "why": "fell back to clicking a coordinate"
         },
         {
-          "tool": "browser_evaluate",
-          "why": "picked the brand with a script",
+          "tool": "browser",
           "args": {
+            "action": "evaluate",
             "script": "/\\.click\\(|dispatchEvent|\\.value\\s*=[^=]|selectedIndex\\s*=[^=]/"
-          }
+          },
+          "why": "picked the brand with a script"
         },
         {
-          "tool": [
-            "browser_click",
-            "browser_act"
-          ],
+          "tool": "browser",
           "args": {
+            "action": {
+              "$any": [
+                "click",
+                "act"
+              ]
+            },
             "$any": [
               {
                 "text": "/kitchens|harbor/i"
@@ -2234,11 +2342,14 @@
       ],
       "limit": [
         {
-          "tool": [
-            "browser_click",
-            "browser_act"
-          ],
+          "tool": "browser",
           "args": {
+            "action": {
+              "$any": [
+                "click",
+                "act"
+              ]
+            },
             "$any": [
               {
                 "text": "/select brand/i"
@@ -2251,7 +2362,10 @@
           "max": 1
         },
         {
-          "tool": "browser_screenshot",
+          "tool": "browser",
+          "args": {
+            "action": "screenshot"
+          },
           "max": 1
         }
       ]
@@ -2332,8 +2446,9 @@
       "order": true,
       "expect": [
         {
-          "tool": "browser_scroll",
+          "tool": "browser",
           "args": {
+            "action": "scroll",
             "$any": [
               {
                 "deltaY": {
@@ -2354,13 +2469,17 @@
           }
         },
         {
-          "tool": "browser_screenshot"
+          "tool": "browser",
+          "args": {
+            "action": "screenshot"
+          }
         }
       ],
       "forbid": [
         {
-          "tool": "browser_evaluate",
+          "tool": "browser",
           "args": {
+            "action": "evaluate",
             "script": "/scrollIntoView|scroll(?:To|By)\\(|scroll(?:Top|Y)\\s*=[^=]/"
           },
           "why": "scrolled with a script instead of browser_scroll"
@@ -2368,28 +2487,34 @@
       ],
       "limit": [
         {
-          "tool": "browser_scroll",
+          "tool": "browser",
           "args": {
+            "action": "scroll",
             "text": "/switch agents/i"
           },
           "max": 1
         },
         {
-          "tool": "browser_screenshot",
+          "tool": "browser",
           "args": {
+            "action": "screenshot",
             "text": "/switch agents/i"
           },
           "max": 1
         },
         {
-          "tool": "browser_click",
+          "tool": "browser",
           "args": {
+            "action": "click",
             "text": "/switch agents/i"
           },
           "max": 1
         },
         {
-          "tool": "browser_screenshot",
+          "tool": "browser",
+          "args": {
+            "action": "screenshot"
+          },
           "max": 4
         }
       ]
@@ -2489,8 +2614,9 @@
     "grade": {
       "expect": [
         {
-          "tool": "browser_upload",
+          "tool": "browser",
           "args": {
+            "action": "upload",
             "index": 20,
             "paths": [
               "/^\\/.*store\\/screenshots\\/01\\.png$/",
@@ -2505,15 +2631,17 @@
       ],
       "forbid": [
         {
-          "tool": "browser_evaluate",
-          "why": "tried to hand the files over with a script",
+          "tool": "browser",
           "args": {
+            "action": "evaluate",
             "script": "/DataTransfer|new File\\(|\\.files\\s*=[^=]|dispatchEvent|\\.click\\(/"
-          }
+          },
+          "why": "tried to hand the files over with a script"
         },
         {
-          "tool": "browser_upload",
+          "tool": "browser",
           "args": {
+            "action": "upload",
             "x": {
               "$present": true
             }
@@ -2523,7 +2651,10 @@
       ],
       "limit": [
         {
-          "tool": "browser_upload",
+          "tool": "browser",
+          "args": {
+            "action": "upload"
+          },
           "max": 2
         }
       ],
@@ -2642,11 +2773,14 @@
     "grade": {
       "expect": [
         {
-          "tool": [
-            "browser_wait",
-            "browser_navigate"
-          ],
+          "tool": "browser",
           "args": {
+            "action": {
+              "$any": [
+                "wait",
+                "navigate"
+              ]
+            },
             "$any": [
               {
                 "text": "/quarterly reports/i"
@@ -2662,8 +2796,9 @@
       ],
       "forbid": [
         {
-          "tool": "browser_navigate",
+          "tool": "browser",
           "args": {
+            "action": "navigate",
             "waitFor": {
               "timeoutMs": "/^(?:6000[1-9]|600[1-9]\\d|60[1-9]\\d{2}|6[1-9]\\d{3}|[7-9]\\d{4}|[1-9]\\d{5,})$/"
             }
@@ -2671,15 +2806,17 @@
           "why": "asked for a wait over the 60 s maximum"
         },
         {
-          "tool": "browser_wait",
+          "tool": "browser",
           "args": {
+            "action": "wait",
             "timeoutMs": "/^(?:6000[1-9]|600[1-9]\\d|60[1-9]\\d{2}|6[1-9]\\d{3}|[7-9]\\d{4}|[1-9]\\d{5,})$/"
           },
           "why": "asked for a wait over the 60 s maximum"
         },
         {
-          "tool": "browser_wait",
+          "tool": "browser",
           "args": {
+            "action": "wait",
             "ms": "/^(?:6000[1-9]|600[1-9]\\d|60[1-9]\\d{2}|6[1-9]\\d{3}|[7-9]\\d{4}|[1-9]\\d{5,})$/"
           },
           "why": "asked for a sleep over the maximum"
@@ -2728,7 +2865,7 @@
       ],
       "limit": [
         {
-          "tool": "browser_*",
+          "tool": "browser",
           "max": 3
         }
       ],
@@ -2786,17 +2923,23 @@
     "grade": {
       "expect": [
         {
-          "tool": [
-            "browser_evaluate",
-            "browser_state",
-            "browser_find"
-          ]
+          "tool": "browser",
+          "args": {
+            "action": {
+              "$any": [
+                "evaluate",
+                "state",
+                "find"
+              ]
+            }
+          }
         }
       ],
       "forbid": [
         {
-          "tool": "browser_evaluate",
+          "tool": "browser",
           "args": {
+            "action": "evaluate",
             "$any": [
               {
                 "expression": {
@@ -3089,8 +3232,9 @@
     "grade": {
       "expect": [
         {
-          "tool": "browser_wait",
+          "tool": "browser",
           "args": {
+            "action": "wait",
             "$any": [
               {
                 "url": {
@@ -3126,21 +3270,32 @@
           }
         },
         {
-          "tool": "browser_network"
+          "tool": "browser",
+          "args": {
+            "action": "network"
+          }
         }
       ],
       "forbid": [
         {
-          "tool": "browser_navigate",
+          "tool": "browser",
+          "args": {
+            "action": "navigate"
+          },
           "why": "navigated the tab the person was signing in on"
         },
         {
-          "tool": [
-            "browser_click",
-            "browser_type",
-            "browser_press",
-            "browser_act"
-          ],
+          "tool": "browser",
+          "args": {
+            "action": {
+              "$any": [
+                "click",
+                "type",
+                "press",
+                "act"
+              ]
+            }
+          },
           "why": "acted on the sign-in form the person was filling"
         }
       ],
@@ -3233,8 +3388,9 @@
     "grade": {
       "expect": [
         {
-          "tool": "browser_viewport",
+          "tool": "browser",
           "args": {
+            "action": "viewport",
             "$any": [
               {
                 "preset": "desktop"
@@ -3246,8 +3402,9 @@
           }
         },
         {
-          "tool": "browser_viewport",
+          "tool": "browser",
           "args": {
+            "action": "viewport",
             "$any": [
               {
                 "preset": "mobile"
@@ -3259,7 +3416,10 @@
           }
         },
         {
-          "tool": "browser_screenshot"
+          "tool": "browser",
+          "args": {
+            "action": "screenshot"
+          }
         }
       ],
       "forbid": [
@@ -3273,11 +3433,17 @@
       ],
       "limit": [
         {
-          "tool": "browser_viewport",
+          "tool": "browser",
+          "args": {
+            "action": "viewport"
+          },
           "max": 4
         },
         {
-          "tool": "browser_screenshot",
+          "tool": "browser",
+          "args": {
+            "action": "screenshot"
+          },
           "max": 4
         }
       ]
@@ -3461,11 +3627,14 @@
     "grade": {
       "expect": [
         {
-          "tool": [
-            "browser_type",
-            "browser_act"
-          ],
+          "tool": "browser",
           "args": {
+            "action": {
+              "$any": [
+                "type",
+                "act"
+              ]
+            },
             "$any": [
               {
                 "text": "482913"
@@ -3570,8 +3739,9 @@
     "grade": {
       "forbid": [
         {
-          "tool": "browser_navigate",
+          "tool": "browser",
           "args": {
+            "action": "navigate",
             "go": {
               "$present": true
             },
@@ -3580,18 +3750,23 @@
           "why": "reloaded or moved a tab while the person was paying in it"
         },
         {
-          "tool": [
-            "browser_click",
-            "browser_type",
-            "browser_press",
-            "browser_act",
-            "browser_dialog"
-          ],
+          "tool": "browser",
+          "args": {
+            "action": {
+              "$any": [
+                "click",
+                "type",
+                "press",
+                "act",
+                "dialog"
+              ]
+            }
+          },
           "why": "acted on a page while the person was paying"
         }
       ]
     },
-    "judge": "The tab open at the start is the person's checkout, mid bank verification. Pass if the agent left that tab alone (no navigate, reload, click or typing in it) and checked the plan status in a new tab opened with newTab: true, or by reading pages only, then told the person what it saw or when it will look again. Watching only the checkout tab, which never shows the plan status, is not checking it. Fail if any browser_navigate without newTab ran while the checkout tab was the current one, or if it did nothing to check the status.",
+    "judge": "The tab open at the start is the person's checkout, mid bank verification. Pass if the agent left that tab alone (no navigate, reload, click or typing in it) and checked the plan status in a new tab opened with newTab: true, or by reading pages only, then told the person what it saw or when it will look again. Watching only the checkout tab, which never shows the plan status, is not checking it. Fail if any browser navigate without newTab ran while the checkout tab was the current one, or if it did nothing to check the status.",
     "maxTurns": 10
   },
   {
@@ -3656,16 +3831,18 @@
     "grade": {
       "expect": [
         {
-          "tool": "browser_state",
+          "tool": "browser",
           "args": {
+            "action": "state",
             "fullText": true
           }
         }
       ],
       "limit": [
         {
-          "tool": "browser_state",
+          "tool": "browser",
           "args": {
+            "action": "state",
             "selector": {
               "$present": true
             }

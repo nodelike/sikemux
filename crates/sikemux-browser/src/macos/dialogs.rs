@@ -133,7 +133,7 @@ define_class!(
                 return;
             }
             // The file chooser blocks the whole app and brings it to the front, so
-            // an agent uploads through `browser_upload` instead.
+            // an agent uploads through `browser upload` instead.
             if crate::input::agent_input_is_latest() {
                 handler.call((std::ptr::null(),));
                 return;

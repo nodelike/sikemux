@@ -68,12 +68,17 @@
     "grade": {
       "expect": [
         {
-          "tool": [
-            "browser_navigate",
-            "browser_state",
-            "browser_find",
-            "browser_screenshot"
-          ]
+          "tool": "browser",
+          "args": {
+            "action": {
+              "$any": [
+                "navigate",
+                "state",
+                "find",
+                "screenshot"
+              ]
+            }
+          }
         }
       ]
     },
@@ -147,20 +152,29 @@
       "order": true,
       "expect": [
         {
-          "tool": "browser_navigate",
+          "tool": "browser",
           "args": {
+            "action": "navigate",
             "url": "/localhost:4321|127\\.0\\.0\\.1:4321/"
           }
         },
         {
-          "tool": [
-            "browser_scroll",
-            "browser_evaluate",
-            "browser_press"
-          ]
+          "tool": "browser",
+          "args": {
+            "action": {
+              "$any": [
+                "scroll",
+                "evaluate",
+                "press"
+              ]
+            }
+          }
         },
         {
-          "tool": "browser_screenshot"
+          "tool": "browser",
+          "args": {
+            "action": "screenshot"
+          }
         }
       ],
       "forbid": [
@@ -210,16 +224,23 @@
       "order": true,
       "expect": [
         {
-          "tool": "browser_navigate",
+          "tool": "browser",
           "args": {
+            "action": "navigate",
             "url": "/localhost:4321|127\\.0\\.0\\.1:4321/"
           }
         },
         {
-          "tool": "browser_screenshot"
+          "tool": "browser",
+          "args": {
+            "action": "screenshot"
+          }
         },
         {
-          "tool": "browser_screenshot"
+          "tool": "browser",
+          "args": {
+            "action": "screenshot"
+          }
         }
       ],
       "forbid": [
@@ -265,8 +286,9 @@
     "grade": {
       "expect": [
         {
-          "tool": "browser_screenshot",
+          "tool": "browser",
           "args": {
+            "action": "screenshot",
             "$any": [
               {
                 "selector": {
@@ -600,23 +622,38 @@
     "grade": {
       "expect": [
         {
-          "tool": [
-            "browser_navigate",
-            "browser_state"
-          ]
+          "tool": "browser",
+          "args": {
+            "action": {
+              "$any": [
+                "navigate",
+                "state"
+              ]
+            }
+          }
         },
         {
-          "tool": [
-            "browser_scroll",
-            "browser_evaluate",
-            "browser_press"
-          ]
+          "tool": "browser",
+          "args": {
+            "action": {
+              "$any": [
+                "scroll",
+                "evaluate",
+                "press"
+              ]
+            }
+          }
         },
         {
-          "tool": [
-            "browser_console",
-            "browser_evaluate"
-          ]
+          "tool": "browser",
+          "args": {
+            "action": {
+              "$any": [
+                "console",
+                "evaluate"
+              ]
+            }
+          }
         }
       ]
     },
@@ -697,16 +734,22 @@
       "order": true,
       "expect": [
         {
-          "tool": "browser_navigate",
+          "tool": "browser",
           "args": {
+            "action": "navigate",
             "url": "/1420\\/scratch\\/cards\\.html/"
           }
         },
         {
-          "tool": [
-            "browser_click",
-            "browser_act"
-          ]
+          "tool": "browser",
+          "args": {
+            "action": {
+              "$any": [
+                "click",
+                "act"
+              ]
+            }
+          }
         }
       ],
       "reply": "/Branch protection/i",

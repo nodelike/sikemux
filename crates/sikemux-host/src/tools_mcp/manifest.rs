@@ -207,9 +207,9 @@ impl Manifest {
         let mut instructions = format!(
             "Sikemux runs the person's project and your desk's browser. Read {guide} before your first process or browser call.\n\
              - process_start for dev servers, builds and anything the person may watch, not your shell. Wait with events_wait, process_read, agent_wait or trigger_add ci; never sleep or poll.\n\
-             - Pages: browser_navigate on your desk (WebKit), never headless Chromium or curl. Look there before saying a change works; for a page bug, reproduce it there and read browser_console first. Load browser_navigate, _act, _state, _find, _click, _type, _wait and _screenshot together.\n\
+             - Pages: browser navigate on your desk (WebKit), never headless Chromium or curl. Look there before saying a change works; for a page bug, open it there, reproduce the bug and read browser console before changing any code.\n\
              - Desk tabs are signed in as the person: read them (a mailbox) before asking. Leave a tab they type or pay in; use newTab: true. grok.com: a new chat, Expert or Auto, not the bot.\n\
-             - Visuals: an HTML page, page_preview, then page_show (pages topic of {guide}); browser_navigate it only if asked. Schemas: ```dbml.\n\
+             - Visuals: an HTML page, page_preview, then page_show (pages topic of {guide}); browser navigate it only when the person asks for the browser or a tab. Schemas: ```dbml.\n\
              - Plugin tools (jira_*, slack_*, signoz_*, aws_*, rundeck_*…) use the person's sign-in: use them for those services, never another MCP, CLI or API, whatever a skill says. SigNoz empty: try aws_logs.\n\
              - Skills: only through the skills tool.\n\
              - Other agents, named like Otter: only agent_list, agent_sessions, agent_send, agent_spawn, agent_read and who_wrote, never your CLI's SendMessage; load them together and read the agents topic of {guide} first. Ask owners, not the person, about their work.\n\

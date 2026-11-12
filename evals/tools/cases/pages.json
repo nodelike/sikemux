@@ -18,7 +18,7 @@
         { "tool": "page_show", "args": { "path": "/composer\\.html$/" } }
       ],
       "forbid": [
-        { "tool": "browser_navigate", "args": { "url": "/composer\\.html|^file:|^data:/" }, "why": "opened its own mockup in a desk tab instead of page_preview and page_show" }
+        { "tool": "browser", "args": { "action": "navigate", "url": "/composer\\.html|^file:|^data:/" }, "why": "opened its own mockup in a desk tab instead of page_preview and page_show" }
       ]
     },
     "maxTurns": 10
@@ -42,8 +42,8 @@
         { "tool": "page_show", "args": { "path": "/ruler\\.html$/" } }
       ],
       "forbid": [
-        { "tool": "browser_navigate", "args": { "url": "/ruler\\.html|^file:|^data:/" }, "why": "opened its own page in a desk tab to test it instead of page_preview" },
-        { "tool": "browser_evaluate", "why": "scripted its own page in a desk tab, injecting a hand-copied theme" }
+        { "tool": "browser", "args": { "action": "navigate", "url": "/ruler\\.html|^file:|^data:/" }, "why": "opened its own page in a desk tab to test it instead of page_preview" },
+        { "tool": "browser", "args": { "action": "evaluate" }, "why": "scripted its own page in a desk tab, injecting a hand-copied theme" }
       ]
     },
     "maxTurns": 14
@@ -91,7 +91,7 @@
           "args": { "$any": [{ "new_string": "/public\\/\\S*\\/public\\//" }, { "edits": "/public\\/\\S*\\/public\\//" }, { "content": "/public\\/\\S*\\/public\\//" }] },
           "why": "doubled the public/ prefix when rewriting the paths"
         },
-        { "tool": "browser_navigate", "args": { "url": "/page\\.html|^file:/" }, "why": "opened its mockup in a desk tab instead of fixing the paths" }
+        { "tool": "browser", "args": { "action": "navigate", "url": "/page\\.html|^file:/" }, "why": "opened its mockup in a desk tab instead of fixing the paths" }
       ],
       "limit": [{ "tool": "page_preview", "max": 3 }]
     },
@@ -169,7 +169,7 @@
       }
     },
     "grade": {
-      "expect": [{ "tool": "browser_navigate", "args": { "url": "/plans\\.html/" } }]
+      "expect": [{ "tool": "browser", "args": { "action": "navigate", "url": "/plans\\.html/" } }]
     },
     "maxTurns": 10
   },
@@ -190,7 +190,7 @@
     },
     "grade": {
       "expect": [
-        { "tool": ["page_show", "browser_navigate"], "args": { "$any": [{ "path": { "$present": true } }, { "url": "/store\\/listing/" }] } }
+        { "any": [{ "tool": "browser", "args": { "action": "navigate", "$any": [{ "path": { "$present": true } }, { "url": "/store\\/listing/" }] } }, { "tool": "page_show", "args": { "$any": [{ "path": { "$present": true } }, { "url": "/store\\/listing/" }] } }] }
       ],
       "forbid": [
         { "tool": "Bash", "args": { "command": "/(^|[;&|\\s])open\\s/" }, "why": "opened Preview or Finder on the person's screen to show its output" }
@@ -255,7 +255,10 @@
           "why": "published a claude.ai Artifact instead of showing the chart with page_show"
         },
         {
-          "tool": "browser_navigate",
+          "tool": "browser",
+          "args": {
+            "action": "navigate"
+          },
           "why": "opened its own chart in a desk tab though the person asked for no tab"
         }
       ]

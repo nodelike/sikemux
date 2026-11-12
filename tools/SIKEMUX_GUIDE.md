@@ -7,15 +7,14 @@ description: How to drive a Sikemux project and its browser — starting process
 
 You are running in a pane of a Sikemux workspace. `workspace_inspect`, the
 `process_*` tools, `ui_open` and `events_wait` act on the project the person has
-open. The tools named `browser_*` act on the browser tabs on your desk, the
-pane beside yours that the person can see. Your desk holds the pages, files and
+open. The `browser` tool acts on the browser tabs on your desk, the
+pane beside yours that the person can see; `browser navigate` here means
+`browser` with `action: "navigate"`. Your desk holds the pages, files and
 process terminals you open for the person, as tabs in one strip.
 
 When the person asks you to open, show or preview a page, open it on your desk
-with `browser_navigate`, not in their own browser. Desk tabs run WebKit, the
-engine Safari runs on, so check pages there, not in a headless Chromium.
-
-Read this page first; for one area in depth, call `guide` with a `topic`.
+with `browser navigate`, not in their own browser. Desk tabs run WebKit, as
+Safari does, so check pages there, not in a headless Chromium.
 
 ## Essentials
 
@@ -34,14 +33,14 @@ Read this page first; for one area in depth, call `guide` with a `topic`.
   wait. **Event cursors are not output cursors**; never mix them. A timeout
   is normal: wait again with the fresh cursor. Cursors stay valid after
   Sikemux reloads or restarts.
-- Browser tools that act report what changed since your last read of the
+- Browser calls that act report what changed since your last read of the
   page (`report: "changes"`); `"outcome"` is leaner and `"full"` returns the
   whole state. The first read of a new page is always full.
 - **Element numbers expire** when their element leaves the page, and
   numbering restarts on every new page. Never carry a number across a
-  navigation; read or `browser_find` again.
-- Wait with `browser_wait` conditions, or `waitFor` on `browser_navigate`,
-  not sleeps or screenshots.
+  navigation; read or `browser find` again.
+- Wait with `browser wait` or `waitFor` on `browser navigate`, not sleeps or
+  screenshots.
 - Every state says whether the tab is `visible` to the person; never tell
   them a hidden page is on their screen.
 - Other agents may share this checkout: commit with `git_commit`, and see
@@ -53,18 +52,18 @@ Read this page first; for one area in depth, call `guide` with a `topic`.
 
 ## Topics
 
-Pass one of these as `topic`:
+For one area in depth, call `guide` with one of these as `topic`:
 
 - `config` — writing or fixing `sikemux.json`, and `configStatus`
 - `processes` — starting, trust prompts, `readyWhen`, restarting, stopping
 - `output` — `process_read` paging, `plain`, `tail`, `search`, `events_wait`
 - `ui` — `ui_open` for files, diffs, terminals and the preview
 - `pages` — charts, tables, diagrams and mockups in your reply
-- `browser-reading` — page state, report modes, element numbers, `browser_find`, frames
-- `browser-input` — clicking, typing, `browser_act`, keys, drag, upload, dialogs
+- `browser-reading` — page state, report modes, element numbers, `browser find`, frames
+- `browser-input` — clicking, typing, `browser act`, keys, drag, upload, dialogs
 - `browser-pages` — navigating, reloading, waiting, local files, viewports, tabs
-- `browser-evidence` — `browser_screenshot`, `browser_annotate`, `browser_record`
-- `browser-debugging` — network, console, `app_console`, `browser_evaluate`
+- `browser-evidence` — `browser screenshot`, `browser annotate`, `browser record`
+- `browser-debugging` — network, console, `app_console`, `browser evaluate`
 - `simulator` — driving an iOS simulator with `sim_*`
 - `databases` — the `db_*` tools, SQL, and adding a database
 - `aws` — `aws_*` tools, profiles, expired sign-ins
@@ -311,7 +310,7 @@ chart library from a CDN, load as they are. Pass absolute paths to the tools.
 2. `page_preview` draws it off screen at the reply's width (756 px; pass
    `width: 390` to check a phone), opening no tab, and returns a screenshot, the
    `contentHeight` it needs and its console, errors included. A `script` runs
-   in the page first, with the real theme, as `browser_evaluate` does: click its
+   in the page first, with the real theme, as `browser evaluate` does: click its
    buttons or read what it drew, and its result comes back under `script`.
    `picture: false` leaves the screenshot out; `selector` pictures only that
    element and returns the picture's file as `saved`. This is the way to test your own
@@ -370,7 +369,7 @@ gif, so one can sit between parts of your reply.
 
 ## browser-reading: Reading a page
 
-`browser_state` returns page state: url, title, numbered interactive elements,
+`browser state` returns page state: url, title, numbered interactive elements,
 visible text, and the open tabs. The text stops after about 2 KB, and
 `textLength` then gives its full length; `fullText: true` returns up to 40 KB,
 and a CSS `selector` returns only the text of each part it matches, line by line.
@@ -392,7 +391,7 @@ chooses how much:
 - `"outcome"` returns only url, title, loading and what the action itself
   found, such as the clicked `label` and whether it was `covered`. Use it for a
   run of steps whose effect you will check afterwards.
-- `"full"` returns the whole state, as `browser_state` would.
+- `"full"` returns the whole state, as `browser state` would.
 
 **Element numbers expire** when their element leaves the page. A number stays
 with the same element for as long as that element is there. When the page
@@ -403,7 +402,7 @@ number across a navigation; the error says when a number was never handed out
 on this page.
 
 Browser calls run one at a time in the order you sent them, and
-`browser_evaluate` waits for a page that is still loading.
+`browser evaluate` waits for a page that is still loading.
 
 Each element line shows what a person would see of its state: `value="…"` for
 a filled field, `[checked]` or `[unchecked]` for checkboxes, radios and
@@ -418,11 +417,11 @@ their numbers, so a number read earlier still works.
 
 On a long page the list gives every element in view but only the 40 offscreen
 elements nearest the view, marked `[offscreen]`; `offscreen` counts the rest
-above and below. They keep their numbers, and `browser_find` finds them. A
+above and below. They keep their numbers, and `browser find` finds them. A
 change report lists such an element once it scrolls into view, and never
 reports one you were not shown as removed.
 
-`browser_find` with a `query` lists the elements whose visible text,
+`browser find` with a `query` lists the elements whose visible text,
 accessible name, placeholder, `name` or `id` contains it, with their numbers,
 exact matches first, with what sits around elements that would otherwise read
 the same, such as the row of a repeated Open button. `role` narrows it, as in
@@ -436,8 +435,8 @@ Controls inside a frame from the same site are numbered with the rest of the
 page. A frame from another site, such as a card field or a sign-in widget,
 cannot be read from outside, so state lists it as a single element. Click its
 number, or better the field inside it by `x` and `y` from a screenshot, then
-`browser_type` without an index to type at the caret. The page's text,
-`browser_network` and `browser_console` cover only the top page.
+`browser type` without an index to type at the caret. The page's text,
+`browser network` and `browser console` cover only the top page.
 
 ## browser-input: Acting on a page
 
@@ -445,7 +444,7 @@ Clicks, keys and typing arrive as real input, the same as the person's, so
 pages that check for a trusted event and editors that keep their own model of
 the text both respond to them.
 
-`browser_click` takes a number from the latest state, or `text` naming the
+`browser click` takes a number from the latest state, or `text` naming the
 element by its visible text or accessible name, or a CSS `selector`, or `x`
 and `y` in CSS pixels from the top left of the viewport, which is where a
 screenshot's pixels sit too. `text` names a control first, else the heading, caption or other element
@@ -461,10 +460,10 @@ number, such as a canvas or a field inside a frame from another site. `double: t
 `hover: true` only moves the pointer there, to open a hover menu; while
 Sikemux is in the background the page is told about the hover but CSS
 `:hover` styles do not apply. A result with `covered` names what was on top
-of the element and took the click instead. `browser_navigate` with `go:
+of the element and took the click instead. `browser navigate` with `go:
 "back"` or `go: "forward"` moves through the current tab's history.
 
-`browser_type` with an `index`, a `selector` or a `field`, the field's label,
+`browser type` with an `index`, a `selector` or a `field`, the field's label,
 placeholder or name, focuses that element and
 replaces its value. Without one it types at the caret of whatever is focused,
 so it adds to the text there; `replace: true` selects the focused field's
@@ -475,18 +474,18 @@ afterwards. The result names the field it typed `into` and carries its
 still empty. A `<select>` picks the option whose value or label matches the
 text.
 
-`browser_act` plays up to 20 `steps` in one call and answers once, so prefer it
+`browser act` plays up to 20 `steps` in one call and answers once, so prefer it
 to separate calls whenever you know the next steps. Each step is an `action`
 with the fields of its tool:
 
 - `navigate`: `url`, or `go` back, forward or reload.
-- `click`, `type`, `press`: as `browser_click`, `browser_type` and
-  `browser_press` (`index`, `text`, `role`, `selector`, `field`,
+- `click`, `type`, `press`: as `browser click`, `browser type` and
+  `browser press` (`index`, `text`, `role`, `selector`, `field`,
   `expectLabel`, `x`, `y`, `replace`, `submit`, `key`).
 - `wait`: `text`, `textGone`, `selector`, `selectorGone`, `url`, `urlGone`
-  or `networkIdle`, with `timeoutMs`, as `browser_wait`; a wait that runs out
+  or `networkIdle`, with `timeoutMs`, as `browser wait`; a wait that runs out
   fails its step, and one with no condition pauses for `timeoutMs`.
-- `find`: `query` and `role`, as `browser_find`.
+- `find`: `query` and `role`, as `browser find`.
 - `read`: the text of what `selector` matches, or the page's state without one.
 
 Put every step you can plan ahead in one call, dependent ones too: open a
@@ -502,7 +501,7 @@ covers the page once at the end: `outcome` when every step ran and one
 reads, else `changes`. A call that runs long stops before its time runs out and says
 which steps to send again.
 
-`browser_press` sends one key to the focused element: `Enter`, `Tab`,
+`browser press` sends one key to the focused element: `Enter`, `Tab`,
 `Escape`, `Backspace`, `Delete`, `ArrowDown`, `Home`, `PageDown`, `Space`, or
 a single character. Hold modifiers with `+`, as in `Meta+a` to select all or
 `Shift+Tab` to go back a field. `Meta` is the Command key. The editing chords
@@ -510,12 +509,12 @@ a single character. Hold modifiers with `+`, as in `Meta+a` to select all or
 page itself when it does not handle them; other command chords never reach
 the Sikemux app.
 
-`browser_drag` presses on `fromIndex` (or `fromX`, `fromY`), moves to
+`browser drag` presses on `fromIndex` (or `fromX`, `fromY`), moves to
 `toIndex` (or `toX`, `toY`) and releases there. Sliders and sortable lists
 see a real pointer; items marked draggable get the page's own drag and drop
 events.
 
-`browser_upload` attaches files the way a person picking them would. Pass
+`browser upload` attaches files the way a person picking them would. Pass
 absolute `paths` and the number, `selector` (or `x`, `y`) of the file input or
 of the button that opens its chooser; with none, the page's only file input.
 A file input hidden behind a styled drop zone works too. The chooser never
@@ -528,15 +527,15 @@ keep typing in Sikemux while you drive a page. The tab only gets the keyboard
 when the person clicks into it.
 
 A page that hangs or whose process crashes is reported at once on the next
-call: close that tab with `browser_close_tab` and open a new one.
+call: close that tab with `browser close_tab` and open a new one.
 
-`browser_dialog` answers an alert, confirm or prompt. Page state reports an
+`browser dialog` answers an alert, confirm or prompt. Page state reports an
 open one under `dialog`, and until it is answered the page is frozen: every
 other browser tool refuses rather than hang. `accept: true` presses OK and
 `false` presses Cancel; `text` fills a prompt first. The person sees the same
 dialog and may answer it before you do.
 
-`browser_scroll` with an `index`, `text` or `selector` alone brings that
+`browser scroll` with an `index`, `text` or `selector` alone brings that
 element into view and says whether it is now on screen. `deltaY` moves by
 that many pixels, negative for up, and `to: "top"` or `"bottom"` jumps to an
 end; either acts on the page, or with a target on the scrolling container
@@ -544,12 +543,12 @@ around it. It returns the scroll position and `atBottom`.
 
 ## browser-pages: Pages, tabs and viewport
 
-`browser_wait` waits for the page to reach a state. `text` or `textGone`
+`browser wait` waits for the page to reach a state. `text` or `textGone`
 waits for words to show or go, `selector` or `selectorGone` for an element,
 `url` or `urlGone` for the address to contain a string or stop containing it,
 and `networkIdle: true` for the
 page's fetch and XHR calls to have been quiet for half a second. `script` is a
-page expression, like `browser_evaluate`'s, that the wait runs until it returns
+page expression, like `browser evaluate`'s, that the wait runs until it returns
 something truthy, such as `document.querySelectorAll('.row').length >= 20`; it
 may only read the page. `stable` takes a selector and waits until its text has
 not changed for `quietMs` (1,000 by default), for a streamed answer or a log
@@ -563,7 +562,7 @@ for `ms` (default 1000, max 30000) and then waits for any load to finish.
 Prefer a condition over a guessed sleep, and over screenshots taken to see
 whether something has finished.
 
-`browser_navigate` takes the same conditions as `waitFor`, but `urlGone`, to
+`browser navigate` takes the same conditions as `waitFor`, but `urlGone`, to
 arrive at a page that has finished drawing. The load and the wait share one
 minute, so a slow load shortens the wait, and the result says so. Navigating to the url the tab is already on
 reloads it; `go: "reload"` does so directly, and with it `hard: true` skips
@@ -576,7 +575,7 @@ yet comes with a note to wait for it.
 
 Keep to a few tabs. `newTab: true` on a site you already have a tab on goes
 to that tab instead of opening another, and close a tab with
-`browser_close_tab` once you are done with it; without a `tabId` it closes the
+`browser close_tab` once you are done with it; without a `tabId` it closes the
 tab in front, and a tab already closed is no error. When your turn ends, Sikemux
 closes your tabs but the one in front, which closes at a later turn's end once
 you have moved on from it; all of them close with your chat. Tabs
@@ -587,12 +586,12 @@ result names it in `closedTab`. The person can open closed tabs again.
 
 Tabs only open `http` and `https` pages. To show a local HTML file, image or
 folder, pass its absolute path, a `~/` path or a `file://` url to
-`browser_navigate`: Sikemux serves its folder to the tab from a private
+`browser navigate`: Sikemux serves its folder to the tab from a private
 address on this machine, so relative links and assets load too.
 
 A tab's viewport follows the pane, so it changes size when the person resizes
 the pane, and a tab the pane is not showing lays out at the size it last had.
-`browser_viewport` holds the current tab at `width` and `height` in CSS pixels
+`browser viewport` holds the current tab at `width` and `height` in CSS pixels
 (200 to 4000), one alone keeping the other side as it is, or a `preset`: `desktop` is 1280×800, `tablet` 820×1180 and
 `mobile` 390×844. `preset: "fit"` lets it follow the pane again. The size
 stays through reloads and navigations in that tab. The page lays out at that
@@ -613,11 +612,11 @@ pane right now. A tab that is not visible still lays out at a real size and
 takes input, but do not tell the person a page is on their screen when
 `visible` is false. With no arguments it just returns the state.
 
-Tabs are yours. `browser_state` lists them, even before any is open, and
-`browser_switch_tab` and `browser_close_tab` act on this pane's tabs, not the person's other windows.
+Tabs are yours. `browser state` lists them, even before any is open, and
+`browser switch_tab` and `browser close_tab` act on this pane's tabs, not the person's other windows.
 Switching returns what changed since you last read that tab, or its full
 state when you have not read it yet.
-`browser_navigate` reuses the current tab unless you pass `newTab: true`.
+`browser navigate` reuses the current tab unless you pass `newTab: true`.
 When an action makes the page open a tab of its own, as a link with a new
 window target does, the result lists it under `openedTabs`, and that tab is
 now the current one. Tabs do not survive a restart of Sikemux.
@@ -627,16 +626,16 @@ Files a page downloads are saved to a folder of Sikemux's own, and reach
 navigation starts one, the result lists it under `downloads` with its `path`,
 `state` and `bytes`, after waiting up to 15 seconds for it to finish. A
 download that starts later shows up in the next result, such as a
-`browser_wait`, and `browser_state` lists the tabs' recent downloads. Click the
+`browser wait`, and `browser state` lists the tabs' recent downloads. Click the
 page's own download link and move the file from that path; never read a file's
-bytes back through `browser_evaluate`.
+bytes back through `browser evaluate`.
 
 ## browser-evidence: Screenshots, drawings and recordings
 
-`browser_screenshot` returns an image of the visible part of the tab. Use it
-when layout or rendering matters; use `browser_state` when you only need
+`browser screenshot` returns an image of the visible part of the tab. Use it
+when layout or rendering matters; use `browser state` when you only need
 text. Its pixels are CSS pixels, so a point you read off it can go straight to
-`browser_click` as `x` and `y`. `fullPage: true` captures the whole page
+`browser click` as `x` and `y`. `fullPage: true` captures the whole page
 instead, cut at 14,400 pixels tall (`cutAt` says when it was). An `index`,
 `text` or `selector` captures only that element, scrolled into view, which
 is the cheapest way to check one component.
@@ -647,26 +646,26 @@ off, covered, or behind an open modal, and boxes that would cover a large
 share of the view.
 
 While you act, the person sees a pointer move to each click, with a ripple
-where it lands. Screenshots leave the pointer out. `browser_annotate` draws
+where it lands. Screenshots leave the pointer out. `browser annotate` draws
 for them on purpose: with `index` (or `x`, `y`) and `text` it boxes an element
 with a label; with only `text` it shows a caption along the bottom of the page.
 Drawings stay until `durationMs` passes or you call it with `clear: true`,
 they follow the page as it scrolls, and screenshots include them. Use them to
 point something out, or to narrate a recording.
 
-`browser_record` with `action: "start"` films the tab you are on, ten frames a
-second, until `action: "stop"`, which returns the video's `path`, length and
+`browser record` films the tab you are on, ten frames a
+second, until `browser record` with `stop: true`, which returns the video's `path`, length and
 size. Pass an absolute `path` ending in `.mp4`, or it is saved in the
 person's Movies folder under Sikemux, named after the page. It follows you
 across tabs, includes your pointer, boxes and captions, and stops by itself
-after ten minutes. Narrate with `browser_annotate` captions as you go; a
+after ten minutes. Narrate with `browser annotate` captions as you go; a
 recording of a tab the person is not looking at still works. On Linux the
 video is WebM instead when the system has no H.264 encoder; the returned
 `path` always says where it went.
 
 ## browser-debugging: Network, console and scripts
 
-`browser_network` lists the fetch and XHR calls the page has made since it
+`browser network` lists the fetch and XHR calls the page has made since it
 loaded, oldest first, with each `id`, status, duration and the start of its
 response body. Pass an `id` to read that one call whole.
 It is how you tell a request that failed apart from a button that never asked,
@@ -687,7 +686,7 @@ that produced the page on screen and any tried after it. A web app moving
 between its own screens loads no document, so its calls stay listed with the
 page that made them.
 
-`browser_console` lists what the page logged since it loaded, oldest first:
+`browser console` lists what the page logged since it loaded, oldest first:
 each message's `level` (`log`, `info`, `warn`, `error`, `debug`, `uncaught`
 for a thrown error nobody caught, `unhandled rejection` for a failed promise)
 and its text. `errors: true` drops the log, info and debug noise. Up to 200
@@ -698,15 +697,15 @@ levels are `log`, `error` for the app's own complaints and `uncaught` for a
 panic, and each message carries an ISO `at` time. Use it when Sikemux itself
 misbehaves, such as a blank avatar or a panel that does not load.
 
-`browser_evaluate` runs JavaScript in the page and returns the result as
+`browser evaluate` runs JavaScript in the page and returns the result as
 JSON. The code goes in `script`: an expression such as `document.title`, or
 statements that end in `return`, since statements without one return
 nothing. Promises are awaited for `timeoutMs`, 30 seconds by default and 60 at
 most, and elements come back as their markup. Reach for it when no other tool
 reads what you need. Prefer the other tools for acting, since they send real
-input, and `browser_wait` for waiting, rather than a polling loop in a script.
+input, and `browser wait` for waiting, rather than a polling loop in a script.
 A script that reloads or leaves the page loses its result; use
-`browser_navigate` with `go: "reload"` for that. It runs with the page's own session, so `fetch` of
+`browser navigate` with `go: "reload"` for that. It runs with the page's own session, so `fetch` of
 the site's API returns what the signed-in person would get.
 
 WebKit words some errors differently from Chrome. "The string did not match the
@@ -714,7 +713,7 @@ expected pattern" from `response.json()` means the response was not JSON, such
 as an HTML error or sign-in page: read it with `response.text()` and check its
 status. "Load failed" means the request never got an answer: the server is
 down, the address is wrong, or CORS or a blocked mixed-content request
-stopped it; `browser_network` shows which.
+stopped it; `browser network` shows which.
 
 ## simulator: Driving the iOS Simulator and Android devices
 

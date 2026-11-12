@@ -7,6 +7,12 @@
     "description": "Read before your first process or browser click. Topics go deeper.",
     "comment": "The tools MCP server answers it from the guide the core serves with this manifest, so it has no harness method."
   },
+  "families": [
+    {
+      "name": "browser",
+      "description": "Your desk's browser tabs."
+    }
+  ],
   "tools": [
     {
       "name": "browser_navigate",
@@ -677,7 +683,7 @@
       "name": "browser_annotate",
       "row": {"verb": "mark", "kind": "edit", "icon": "highlighter", "target": ["element {index}", "{x}, {y}", "clear"], "detail": ["{text}"]},
       "method": "browser.annotate",
-      "description": "Draw a labelled box or caption over the page.",
+      "description": "Box an element or caption the page.",
       "properties": {
         "index": {
           "description": "Element to box; or x and y",
@@ -709,15 +715,12 @@
     },
     {
       "name": "browser_record",
-      "row": {"verb": "record", "kind": "execute", "icon": "record", "target": ["{action}"], "detail": ["{path}"]},
+      "row": {"verb": "record", "kind": "execute", "icon": "record", "target": ["this tab"], "detail": ["{path}"]},
       "method": "browser.record",
       "description": "Record this tab to MP4, or stop.",
       "properties": {
-        "action": {
-          "enum": [
-            "start",
-            "stop"
-          ]
+        "stop": {
+          "type": "boolean"
         },
         "path": {
           "description": "Absolute .mp4 path; default Movies/Sikemux",
@@ -725,9 +728,7 @@
           "maxLength": 4096
         }
       },
-      "required": [
-        "action"
-      ]
+      "required": []
     },
     {
       "name": "browser_wait",
@@ -815,7 +816,7 @@
       "name": "browser_switch_tab",
       "row": {"verb": "switch", "kind": "move", "icon": "tabs", "target": ["tab {tabId}"]},
       "method": "browser.tab.switch",
-      "description": "Switch to one of this agent's tabs.",
+      "description": "Switch to one of your tabs.",
       "properties": {
         "tabId": {
           "type": "string",
@@ -830,7 +831,7 @@
       "name": "browser_close_tab",
       "row": {"verb": "close", "kind": "edit", "icon": "close", "target": ["tab {tabId}"]},
       "method": "browser.tab.close",
-      "description": "Close one of this agent's tabs.",
+      "description": "Close one of your tabs.",
       "properties": {
         "tabId": {
           "description": "Default the tab in front",

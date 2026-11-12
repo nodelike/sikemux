@@ -1,5 +1,5 @@
 //! What someone means by what they type in the address bar or hand to
-//! `browser_navigate`: a file on this computer, a web address, or a search.
+//! `browser navigate`: a file on this computer, a web address, or a search.
 
 use std::net::IpAddr;
 use std::path::PathBuf;

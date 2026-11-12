@@ -704,10 +704,9 @@ async fn run(
             }
             Ok(result)
         }
-        "browser.record" => match text("action").as_deref() {
-            Some("start") => crate::recording::start(manager, agent_id, text("path")).await,
-            Some("stop") => crate::recording::stop(manager, agent_id).await,
-            _ => Err("action must be start or stop".into()),
+        "browser.record" => match params.get("stop").and_then(Value::as_bool) {
+            Some(true) => crate::recording::stop(manager, agent_id).await,
+            _ => crate::recording::start(manager, agent_id, text("path")).await,
         },
         "browser.annotate" => {
             let (_, view) = active(manager, agent_id)?;

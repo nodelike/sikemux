@@ -220,7 +220,7 @@ pub(super) const SPECS: &[(&str, Spec)] = &[
             verb: "record",
             kind: "execute",
             icon: "record",
-            target: &["{action}"],
+            target: &["this tab"],
             detail: &["{path}"],
             plugin: None,
         },
@@ -1768,4 +1768,4 @@ pub(super) const SPECS: &[(&str, Spec)] = &[
 
 pub(super) const GESTURES: &[&str] = &["react", "gif"];
 
-pub(super) const FAMILIES: &[&str] = &[];
+pub(super) const FAMILIES: &[&str] = &["browser"];

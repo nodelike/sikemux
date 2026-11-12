@@ -68,7 +68,7 @@ pub async fn start(
     }
     let (tab_id, view) = manager
         .active_view(agent_id)
-        .map_err(|_| "no browser tab is open; call browser_navigate first".to_string())?;
+        .map_err(|_| "no browser tab is open; call browser navigate first".to_string())?;
     let path = match path {
         Some(path) => {
             let path = PathBuf::from(path);

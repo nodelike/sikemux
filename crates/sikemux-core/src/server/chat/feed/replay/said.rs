@@ -79,7 +79,12 @@ pub(crate) fn title(text: &str) -> Option<String> {
     (!title.is_empty()).then_some(title)
 }
 
-const RUNNING_TOOLS: &[&str] = &["process_start", "process_restart", "browser_", "sim_"];
+const RUNNING_TOOLS: &[&str] = &[
+    "process_start",
+    "process_restart",
+    "browser",
+    "sikemux-tools__sim",
+];
 const READING_COMMANDS: &[&str] = &[
     "awk", "cat", "cd", "cut", "diff", "echo", "file", "find", "git", "grep", "head", "less", "ls",
     "more", "nl", "printf", "pwd", "rg", "sed", "sort", "stat", "tail", "test", "tr", "tree",
