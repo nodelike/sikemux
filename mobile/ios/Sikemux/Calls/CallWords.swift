@@ -190,16 +190,8 @@ enum CallWords {
 
     // MARK: The chief
 
-    /// The chief's row, with its project beside it where projects share the list.
-    static func chief(_ project: String?) -> String { project.map { "@Chief · \($0)" } ?? "@Chief" }
-    /// Under the chief's row: its team.
-    static func chiefTeam(_ agents: Int) -> String? {
-        switch agents {
-        case 0: nil
-        case 1: "1 agent"
-        default: "\(agents) agents"
-        }
-    }
+    /// The chief's row: what follows it is its chat's own title, and where projects share the list, the project.
+    static let chief = "@Chief"
 
     // MARK: An assumption
 

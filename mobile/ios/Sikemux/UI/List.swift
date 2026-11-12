@@ -53,6 +53,8 @@ struct Row<Mark: View, End: View, After: View>: View {
     var name: String?
     /// The linked host the agent runs on, set after its name.
     var host: String?
+    /// Quiet words after the title on its line, such as what a chief's chat is on.
+    var aside: String?
     var detail: String?
     /// A detail with its own styling, in place of `detail`.
     var detailText: Text?
@@ -129,6 +131,12 @@ struct Row<Mark: View, End: View, After: View>: View {
                             .lineLimit(1)
                             .layoutPriority(1)
                     }
+                    if let aside {
+                        Text("  \(aside)")
+                            .font(Theme.ui(14.5))
+                            .foregroundStyle(palette.tertiary)
+                            .lineLimit(1)
+                    }
                 }
                 if let place {
                     HStack(spacing: 4) {
@@ -172,13 +180,14 @@ struct Row<Mark: View, End: View, After: View>: View {
 
 extension Row where After == EmptyView {
     init(
-        title: String? = nil, name: String? = nil, host: String? = nil, detail: String? = nil, detailText: Text? = nil,
-        place: String? = nil, under: String? = nil, underText: Text? = nil, dim: Bool = false, detailLines: Int = 1,
-        onPress: (() -> Void)? = nil, onLongPress: (() -> Void)? = nil,
+        title: String? = nil, name: String? = nil, host: String? = nil, aside: String? = nil, detail: String? = nil,
+        detailText: Text? = nil, place: String? = nil, under: String? = nil, underText: Text? = nil, dim: Bool = false,
+        detailLines: Int = 1, onPress: (() -> Void)? = nil, onLongPress: (() -> Void)? = nil,
         @ViewBuilder mark: () -> Mark, @ViewBuilder end: () -> End
     ) {
         self.init(
-            title: title, name: name, host: host, detail: detail, detailText: detailText, place: place, under: under,
+            title: title, name: name, host: host, aside: aside, detail: detail, detailText: detailText, place: place,
+            under: under,
             underText: underText, dim: dim,
             detailLines: detailLines, onPress: onPress, onLongPress: onLongPress, mark: mark, end: end,
             after: { EmptyView() })
