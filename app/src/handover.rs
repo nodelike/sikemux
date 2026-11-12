@@ -49,6 +49,8 @@ pub fn follow(bench: &mut Workbench, cx: &mut Context<Workbench>) {
         if let Some(engine) = bench.desks.read(cx).engine() {
             engine.drain("Sikemux is quitting");
         }
+        #[cfg(target_os = "macos")]
+        sikemux_browser::macos::save_cookies();
         bench.voice.update(cx, |voice, _| voice.shutdown());
         let simulators = bench.sims.read(cx).engine();
         if handed_over.get() {

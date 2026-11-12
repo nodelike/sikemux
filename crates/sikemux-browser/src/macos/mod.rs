@@ -46,6 +46,7 @@ mod frame;
 mod scripts;
 mod shortcuts;
 mod snapshot;
+mod store;
 
 pub use activation::*;
 use delegates::*;
@@ -54,6 +55,7 @@ pub use frame::*;
 pub use scripts::{call_async, evaluate};
 pub use shortcuts::*;
 pub use snapshot::*;
+pub use store::save_cookies;
 
 use crate::burst::Burst;
 use crate::documents::DocumentEvent;
@@ -326,6 +328,7 @@ pub fn open(
 fn tab_configuration(mtm: MainThreadMarker) -> Retained<WKWebViewConfiguration> {
     // SAFETY: main thread, as `mtm` proves; the configuration is fresh and only ours.
     let configuration = unsafe { WKWebViewConfiguration::new(mtm) };
+    store::prepare(mtm);
     let yes = NSNumber::numberWithBool(true);
     // SAFETY: main thread, and every value set is one WebKit reads with that type.
     unsafe {

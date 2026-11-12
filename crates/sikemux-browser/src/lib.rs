@@ -70,9 +70,38 @@ pub const RECORDS_SCRIPT: &str = include_str!("records.js");
 
 /// WebKit's own agent string names no browser at all, and sites answer that
 /// with an "unsupported browser" page, so tabs — and the fetch that goes after
-/// their icons — introduce themselves as Safari.
-pub const USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Safari/605.1.15";
-pub const MOBILE_USER_AGENT: &str = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Mobile/15E148 Safari/604.1";
+/// their icons — introduce themselves as the Safari installed beside them. An
+/// older Safari than the engine underneath makes sign-in pages ask again.
+pub fn user_agent() -> &'static str {
+    &AGENTS.0
+}
+
+pub fn mobile_user_agent() -> &'static str {
+    &AGENTS.1
+}
+
+static AGENTS: std::sync::LazyLock<(String, String)> = std::sync::LazyLock::new(|| {
+    let version = safari_version().unwrap_or_else(|| "26.0".to_owned());
+    (
+        format!("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/{version} Safari/605.1.15"),
+        format!("Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/{version} Mobile/15E148 Safari/604.1"),
+    )
+});
+
+fn safari_version() -> Option<String> {
+    let plist = std::fs::read_to_string("/Applications/Safari.app/Contents/Info.plist").ok()?;
+    let after_key = plist
+        .split("<key>CFBundleShortVersionString</key>")
+        .nth(1)?;
+    let value = after_key
+        .split("<string>")
+        .nth(1)?
+        .split("</string>")
+        .next()?;
+    let version = value.trim();
+    (!version.is_empty() && version.chars().all(|c| c.is_ascii_digit() || c == '.'))
+        .then(|| version.to_owned())
+}
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -185,7 +214,7 @@ impl TabStall {
     pub fn message(self) -> &'static str {
         match self {
             TabStall::Unresponsive => {
-                "the tab stopped responding; close it with browser_close_tab and open a new one"
+                "the tab stopped responding; close it with browser close_tab and open a new one"
             }
             TabStall::Crashed => {
                 "the tab's page crashed; navigate or reload to load it again, or close the tab"

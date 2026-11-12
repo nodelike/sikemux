@@ -28,7 +28,7 @@ use crate::tab_events::{OpenedBy, TabListener};
 use crate::{
     address, burst, documents, downloads, favicon, history, local_files, viewport, BrowserBounds,
     BrowserDownload, BrowserSnapshot, DownloadState, PageDialog, Tab, TabSpec, TabStall, BLANK_URL,
-    PARKED_ORIGIN, USER_AGENT,
+    PARKED_ORIGIN,
 };
 pub(crate) use page::introduce_as;
 
@@ -252,7 +252,8 @@ impl BrowserManager {
             label_safe(agent_id),
             self.next_tab.fetch_add(1, Ordering::AcqRel)
         );
-        let webview = self.create_view(agent_id, &tab_id, parsed, USER_AGENT, opened_by)?;
+        let webview =
+            self.create_view(agent_id, &tab_id, parsed, crate::user_agent(), opened_by)?;
         {
             let mut agents = self.agents.locked();
             let agent = agents.entry(agent_id.to_owned()).or_default();
@@ -365,7 +366,7 @@ impl BrowserManager {
                 .viewports
                 .get(tab_id)
                 .and_then(|fixed| fixed.user_agent())
-                .unwrap_or(USER_AGENT);
+                .unwrap_or_else(crate::user_agent);
             (url, user_agent)
         };
         let parsed = Url::parse(&url)
@@ -978,7 +979,7 @@ impl BrowserManager {
         let view = self.lay_out_at(agent_id, tab_id, fixed)?;
         let agent = fixed
             .and_then(|fixed| fixed.user_agent())
-            .unwrap_or(USER_AGENT);
+            .unwrap_or_else(crate::user_agent);
         view.run(move |webview| page::introduce_as(webview, agent));
         self.relayout(agent_id);
         Ok(())
@@ -1253,7 +1254,7 @@ pub(crate) fn validate_url(url: &str) -> BrowserResult<()> {
     let opens = matches!(parsed.scheme(), "http" | "https") || parsed.as_str() == BLANK_URL;
     if !opens {
         return Err(Error::BadArg(
-            "browser url scheme is not allowed; to show a local file, pass its path or file:// url to browser_navigate",
+            "browser url scheme is not allowed; to show a local file, pass its path or file:// url to browser navigate",
         ));
     }
     Ok(())

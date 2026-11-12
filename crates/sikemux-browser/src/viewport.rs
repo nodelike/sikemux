@@ -4,7 +4,7 @@
 
 use serde::Serialize;
 
-use crate::{BrowserBounds, BrowserHole, MOBILE_USER_AGENT};
+use crate::{mobile_user_agent, BrowserBounds, BrowserHole};
 
 const MIN_SIZE: u32 = 200;
 const MAX_SIZE: u32 = 4000;
@@ -52,7 +52,7 @@ impl Viewport {
     /// Sites pick their phone layout by the agent string, so the mobile preset
     /// introduces itself as an iPhone. An iPad's Safari already claims to be a Mac.
     pub fn user_agent(&self) -> Option<&'static str> {
-        (self.preset == Some("mobile")).then_some(MOBILE_USER_AGENT)
+        (self.preset == Some("mobile")).then(mobile_user_agent)
     }
 
     fn size(&self) -> (f64, f64) {
