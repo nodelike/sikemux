@@ -48,7 +48,6 @@ private struct ChatPane: View {
     @State private var find: ChatFind?
     @State private var away = false
     @State private var stillness: (() -> Void)?
-    @Environment(\.scenePhase) private var scenePhase
 
     init(core: String, agentId: String) {
         self.core = core
@@ -117,14 +116,11 @@ private struct ChatPane: View {
         .environment(context)
         .onAppear(perform: appeared)
         .onDisappear(perform: left)
-        .onChange(of: session.rows.head.away?.calls) { _, calls in HostCalls.of(core).setAway(calls, for: agentId) }
-        .onChange(of: scenePhase) { _, phase in OnScreen.shared.front(phase == .active) }
-        .onChange(of: Lock.shared.phase) { _, _ in OnScreen.shared.tellAll() }
-        .onChange(of: drawn) { _, _ in show() }
-        .onChange(of: full) { _, full in
-            context.acts = full
-            show()
-        }
+        .modifier(
+            ScreenReport(
+                core: core, agentId: agentId, away: session.rows.head.away?.calls, drawn: drawn, full: full,
+                show: show, onFull: { context.acts = $0 })
+        )
         .onChange(of: info) { _, info in session.hostSaw(info) }
         .onChange(of: live.isOpen) { _, _ in
             OnScreen.shared.tell(core)
@@ -511,5 +507,29 @@ private struct NoticeBar: View {
         .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(palette.border, lineWidth: 1))
         .padding(.horizontal, 10)
         .padding(.top, 8)
+    }
+}
+
+/// Tells the host what the chat on screen shows, and docks the chief's away card's calls, as what it hangs on changes.
+private struct ScreenReport: ViewModifier {
+    let core: String
+    let agentId: String
+    let away: [String]?
+    let drawn: Bool
+    let full: Bool
+    let show: () -> Void
+    let onFull: (Bool) -> Void
+    @Environment(\.scenePhase) private var scenePhase
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: away) { _, calls in HostCalls.of(core).setAway(calls, for: agentId) }
+            .onChange(of: scenePhase) { _, phase in OnScreen.shared.front(phase == .active) }
+            .onChange(of: Lock.shared.phase) { _, _ in OnScreen.shared.tellAll() }
+            .onChange(of: drawn) { _, _ in show() }
+            .onChange(of: full) { _, full in
+                onFull(full)
+                show()
+            }
     }
 }
