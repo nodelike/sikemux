@@ -393,6 +393,18 @@ pub(crate) fn keep(core: &Core, agent_id: &str, at: u64, whole: &RotationBrief) 
     }
 }
 
+/// Lets go of the briefs a closed chat's fresh sessions started from.
+pub(crate) fn forget(core: &Core, agent_id: &str) {
+    let Some(folder) = briefs_folder(core, agent_id) else {
+        return;
+    };
+    if let Err(error) = std::fs::remove_dir_all(&folder) {
+        if error.kind() != std::io::ErrorKind::NotFound {
+            eprintln!("sikemux core: a closed chat's briefs were not removed: {error}");
+        }
+    }
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RotationBriefParams {
