@@ -2,42 +2,47 @@ import { memo } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import type { RemoteAgent } from '@shared/wire.generated';
-import { AgentIcon } from '@/ui/Icon';
+import { router } from 'expo-router';
+
+import { AgentFace } from '@/devices/Buddy';
+import { useDevices } from '@/devices/hub';
 import { Row } from '@/ui/list';
-import { AgentState, TurnMark } from '@/devices/AgentMarks';
+import { ShellCount, SubagentCount, TurnMark } from '@/devices/AgentMarks';
 import { useMinute } from '@/ui/motion';
 import { useT } from '@/i18n';
 
 /**
- * A worker's mark from its turn, or before its first turn from its group. One out of reach carries no mark, as on the
- * Mac's rail: the hollow ring is Stopped's alone.
+ * A worker an agent here started on a linked host: the row any agent has, with the host it runs on tagged. Tapping
+ * opens its chat on that host, when this phone is paired with it.
  */
-function WorkerEnd({ worker }: { worker: RemoteAgent }) {
-  const minute = useMinute();
-  if (!worker.reachable) return null;
-  return worker.turn ? <TurnMark turn={worker.turn} now={minute * 60_000} /> : <AgentState group={worker.group} />;
-}
-
-/** A worker an agent here started on a linked host, set in when it sits under the agent that started it. */
-export const WorkerRow = memo(function WorkerRow({ worker, nested }: { worker: RemoteAgent; nested?: boolean }) {
+export const WorkerRow = memo(function WorkerRow({ worker }: { worker: RemoteAgent }) {
   const t = useT();
+  const minute = useMinute();
+  const { devices } = useDevices();
+  const paired = devices.some((device) => device.core === worker.hostId);
+  const reachable = worker.reachable;
   return (
-    <View style={nested && styles.nested}>
-      <Row
-        dim={!worker.reachable}
-        mark={
-          <View style={!worker.reachable && styles.away}>
-            <AgentIcon provider={worker.cli} size={16} />
-          </View>
-        }
-        title={worker.titled ? worker.title : undefined}
-        name={worker.name}
-        host={worker.host}
-        place={worker.projectName ?? worker.project}
-        detail={worker.reachable ? worker.label : t('Out of reach')}
-        end={<WorkerEnd worker={worker} />}
-      />
-    </View>
+    <Row
+      dim={!reachable}
+      mark={
+        <View style={!reachable && styles.away}>
+          <AgentFace agentId={worker.agentId} provider={worker.cli} turn={worker.turn?.state} size={20} />
+        </View>
+      }
+      title={worker.titled ? worker.title : undefined}
+      name={worker.name}
+      host={reachable ? worker.host : `${worker.host} · ${t('Out of reach').toLowerCase()}`}
+      end={
+        reachable ? (
+          <>
+            {worker.subagents ? <SubagentCount count={worker.subagents} /> : null}
+            {worker.tasks ? <ShellCount count={worker.tasks} /> : null}
+            <TurnMark turn={worker.turn} now={minute * 60_000} />
+          </>
+        ) : undefined
+      }
+      onPress={paired ? () => router.push(`/device/${worker.hostId}/chat/${worker.agentId}`) : undefined}
+    />
   );
 });
 
@@ -46,6 +51,5 @@ export function workersOf(workers: readonly RemoteAgent[], lead: string): Remote
 }
 
 const styles = StyleSheet.create({
-  nested: { paddingLeft: 30 },
-  away: { opacity: 0.5 },
+  away: { opacity: 0.55 },
 });

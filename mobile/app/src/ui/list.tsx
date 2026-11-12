@@ -1,6 +1,5 @@
 import type { ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
-import { useT } from '@/i18n';
 
 import { Icon } from './Icon';
 import { fonts, type Palette, translucent, typeFor, useColors, useStyles } from './theme';
@@ -42,7 +41,7 @@ export function Row({
   mark?: ReactNode;
   /** The agent's name, small and dim with the row's counts and state at its end, as the Mac's rail sets it. */
   name?: string | null;
-  /** The linked host the agent runs on, set after its name. */
+  /** The linked host the agent runs on, tagged before its name as the Mac's rail tags it. */
   host?: string;
   title?: string;
   /** Quiet words after the title on its line, such as what a chief's chat is on. */
@@ -60,13 +59,11 @@ export function Row({
   /** A control of its own at the row's end, beside the row's press rather than inside it, as nested presses misbehave on iOS. */
   after?: ReactNode;
 }) {
-  const t = useT();
   const colors = useColors();
   const styles = useStyles(makeStyles);
-  const where = host ? t('on {host}', { host }) : undefined;
   const handle = name ? `@${name}` : undefined;
   const label = title ?? handle;
-  const named = title && handle ? [handle, where].filter(Boolean).join(' ') : undefined;
+  const named = title ? handle : undefined;
   const row = (
     <Pressable
       onPress={onPress}
@@ -89,12 +86,6 @@ export function Row({
               {aside}
             </Text>
           ) : null}
-          {where && !named ? (
-            <Text style={styles.rowWhere} numberOfLines={1}>
-              {' '}
-              {where}
-            </Text>
-          ) : null}
         </View>
         {place ? (
           <View style={styles.rowPlace}>
@@ -115,8 +106,16 @@ export function Row({
           </Text>
         ) : null}
       </View>
-      {named || end ? (
+      {named || host || end ? (
         <View style={styles.rowEnd}>
+          {host ? (
+            <View style={[styles.rowHost, dim && styles.rowHostDim]}>
+              <Icon name="IconServer" size={11} color={colors.live} />
+              <Text style={styles.rowHostName} numberOfLines={1}>
+                {host}
+              </Text>
+            </View>
+          ) : null}
           {named ? (
             <Text style={styles.rowName} numberOfLines={1}>
               {named}
@@ -165,7 +164,9 @@ const makeStyles = (colors: Palette) => {
     rowBody: { flex: 1, minWidth: 0 },
     rowLabel: { flexDirection: 'row', alignItems: 'baseline' },
     rowTitle: { ...type.row, fontSize: 14.5, flexShrink: 1 },
-    rowWhere: { flexShrink: 0, fontFamily: fonts.ui, color: colors.tertiary },
+    rowHost: { maxWidth: 150, flexDirection: 'row', alignItems: 'center', gap: 4 },
+    rowHostDim: { opacity: 0.55 },
+    rowHostName: { flexShrink: 1, fontFamily: fonts.uiMedium, fontSize: 11, color: colors.live },
     rowAside: { flexShrink: 1, marginLeft: 6, fontFamily: fonts.ui, fontSize: 14.5, color: colors.tertiary },
     rowName: { maxWidth: 110, fontFamily: fonts.ui, fontSize: 11.5, color: colors.tertiary },
     rowDetail: { ...type.meta, fontSize: 12, marginTop: 1 },

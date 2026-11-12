@@ -3,7 +3,7 @@ import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
 
 import Svg, { Circle } from 'react-native-svg';
 
-import type { AgentGroup, TurnState } from '@shared/wire.generated';
+import type { TurnState } from '@shared/wire.generated';
 import { ringShare, rowLabel, rowMinutes } from '@shared/calls/words';
 import { useT } from '@/i18n';
 

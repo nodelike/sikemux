@@ -323,31 +323,34 @@ private struct AwayGroup<Content: View>: View {
     }
 }
 
-/// A worker an agent here started on a linked host, set in when it sits under the agent that started it.
+/// A worker an agent here started on a linked host: the row any agent has, hung under the agent that started it,
+/// with the host it runs on tagged. Tapping opens its chat on that host, when this phone is paired with it.
 struct WorkerRow: View {
-    @Environment(\.palette) private var palette
     let worker: RemoteAgent
     let now: Date
     var nested = false
 
     var body: some View {
+        let reachable = worker.reachable
+        let paired = Hub.shared.device(worker.hostId) != nil
         Row(
-            title: worker.titled == true ? worker.title : nil, name: worker.name, host: worker.host,
-            detail: worker.reachable ? worker.label : String(localized: "Out of reach"),
-            place: worker.projectName ?? worker.project,
-            dim: !worker.reachable,
-            mark: { AgentMark(provider: worker.cli, size: 16).opacity(worker.reachable ? 1 : 0.5) },
+            title: worker.titled == true ? worker.title : nil, name: worker.name,
+            host: reachable ? worker.host : "\(worker.host) · \(String(localized: "Out of reach").lowercased())",
+            dim: !reachable,
+            onPress: paired ? { Router.shared.push(.chat(core: worker.hostId, agent: worker.agentId)) } : nil,
+            mark: {
+                AskerMark(agentId: worker.agentId, provider: worker.cli, turn: worker.turn?.state)
+                    .opacity(reachable ? 1 : 0.55)
+            },
             end: {
-                if worker.reachable {
-                    if let turn = worker.turn {
-                        TurnMark(turn: turn, now: now)
-                    } else {
-                        AgentStateMark(group: worker.group)
-                    }
+                if reachable {
+                    if worker.subagents > 0 { SubagentCount(count: worker.subagents) }
+                    if worker.tasks > 0 { ShellCount(count: worker.tasks) }
+                    TurnMark(turn: worker.turn, now: now)
                 }
             }
         )
-        .padding(.leading, nested ? 30 : 0)
+        .modifier(TeamLines(team: nested ? (worker.team == .last ? .last : .member) : nil))
     }
 }
 

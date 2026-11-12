@@ -52,7 +52,7 @@ struct Row<Mark: View, End: View, After: View>: View {
     var title: String?
     /// The agent's name, small and dim at the row's end.
     var name: String?
-    /// The linked host the agent runs on, set after its name.
+    /// The linked host the agent runs on, tagged before its name as the Mac's rail tags it.
     var host: String?
     /// Quiet words after the title on its line, such as what a chief's chat is on.
     var aside: String?
@@ -111,9 +111,8 @@ struct Row<Mark: View, End: View, After: View>: View {
 
     private var content: some View {
         let handle = name.map { "@\($0)" }
-        let onHost = host.map { String(localized: "on \($0)") }
         let label = title ?? handle ?? ""
-        let named = title != nil && handle != nil ? [handle, onHost].compactMap { $0 }.joined(separator: " ") : nil
+        let named = title != nil ? handle : nil
         return HStack(spacing: 10) {
             if Mark.self != EmptyView.self {
                 mark.frame(width: 20, height: 20)
@@ -125,13 +124,6 @@ struct Row<Mark: View, End: View, After: View>: View {
                         .tracking(-0.15)
                         .foregroundStyle(dim ? palette.tertiary : palette.ink)
                         .lineLimit(1)
-                    if let onHost, named == nil {
-                        Text(" \(onHost)")
-                            .font(Theme.ui(14.5))
-                            .foregroundStyle(palette.tertiary)
-                            .lineLimit(1)
-                            .layoutPriority(1)
-                    }
                     if let aside {
                         Text("  \(aside)")
                             .font(Theme.ui(14.5))
@@ -158,8 +150,17 @@ struct Row<Mark: View, End: View, After: View>: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            if named != nil || End.self != EmptyView.self {
+            if named != nil || host != nil || End.self != EmptyView.self {
                 HStack(spacing: 6) {
+                    if let host {
+                        HStack(spacing: 4) {
+                            IconView(icon: Icons.server, size: 11)
+                            Text(host).font(Theme.ui(11, .medium)).lineLimit(1)
+                        }
+                        .foregroundStyle(palette.live)
+                        .opacity(dim ? 0.55 : 1)
+                        .frame(maxWidth: 150, alignment: .trailing)
+                    }
                     if let named {
                         Text(named)
                             .font(Theme.ui(11.5))

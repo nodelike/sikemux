@@ -764,8 +764,9 @@
   .nav .mid .named:has(> i) > b { order: 2; flex: none; padding-left: 8px; font-size: 11.5px; font-weight: 400; color: var(--text-tertiary); }
   /* The agent's name sits with the row's counts and state at its end, centred with them, as the Mac's rail sets it. */
   .rows .row .row-name { flex: none; max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; color: var(--text-tertiary); }
-  .rows .row.worker { margin-left: 30px; }
-  .rows .row.worker.unreachable .t b { color: var(--text-tertiary); }
+  /* the host an agent runs on, on its row, while that is not the host in view */
+  .rows .row .row-host { flex: none; display: inline-flex; align-items: center; gap: 4px; max-width: 150px; overflow: hidden; white-space: nowrap; font: 500 11px var(--ui); color: var(--live); }
+  .rows .row.away .mark, .rows .row.away .t, .rows .row.away .row-host { opacity: .55; }
   .ibelow .ask { font-size: 12.5px; line-height: 1.4; color: var(--text-tertiary); }
   .rows .row.more { min-height: 40px; padding-left: 38px; }
   .rows .row.more .t { font-size: 13px; font-weight: 400; color: var(--text-tertiary); }
@@ -1979,15 +1980,15 @@
         <div class="host-bar"><div class="host-tabs"><span class="on"><span class="tab-ico agents">{{IconAgent:15}}</span>Agents</span><span><span class="tab-ico terminals">{{IconTerminal:15}}</span>Terminals</span><span><span class="tab-ico calls">{{IconMessage:15}}</span>Calls <i class="count">1</i></span></div></div>
         <div class="pad grow">
           <div class="rows">
-            <div class="row"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Move the ledger to cents</div></div><span class="row-name">@Cedar</span><span class="status-slot"><span class="loader"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></span></div>
-            <div class="row worker"><span class="mark claude">{{IconClaude:16}}</span><div class="body"><div class="t">Retry uploads on 503</div></div><span class="row-name">@Otter on studio</span><span class="status-slot"><span class="loader"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></span></div>
-            <div class="row worker unreachable"><span class="mark codex" style="opacity:.5">{{IconCodex:16}}</span><div class="body"><div class="t"><b>Fern</b><em> on build-box</em></div></div><span class="status-slot"><span class="dot off"></span></span></div>
-            <div class="row"><span class="mark codex">{{IconCodex:16}}</span><div class="body"><div class="t"><b>Wren</b><em> on studio</em></div></div><span class="status-slot"><span class="dot warn"></span></span></div>
+            <div class="row lead"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Move the ledger to cents</div></div><span class="row-name">@Cedar</span><span class="status-slot"><span class="loader"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></span></div>
+            <div class="row member"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Retry uploads on 503</div></div><span class="row-host">{{IconServer:11}}studio</span><span class="row-name">@Otter</span><span class="shells">{{IconCommand:11}}2</span><span class="status-slot"><span class="loader"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></span></div>
+            <div class="row last away"><span class="mark codex">{{IconCodex:20}}</span><div class="body"><div class="t">Fern</div></div><span class="row-host">{{IconServer:11}}build-box · out of reach</span></div>
+            <div class="row"><span class="mark codex">{{IconCodex:20}}</span><div class="body"><div class="t">Tidy the upload queue</div></div><span class="row-host">{{IconServer:11}}studio</span><span class="row-name">@Wren</span><span class="status-slot"><span class="dot warn"></span></span></div>
           </div>
         </div>
       </div>
       <div class="home-bar"></div></div>
-      <figcaption><b>Workers on linked hosts</b><div class="note">An agent here can start workers on another host linked to the same account; they run there, on that host's own sign-ins. Each sits right under the agent that started it, a little in from it and with a smaller mark, as its chat's title once its host has named it, with the agent's name and the host it runs on at the end; until then, the name and host alone, as Fern on build-box. The line under it is its project there and the rail's word for where it is, and the end shows the same squares or dot as any agent. Its chat lives on its own host, so tapping it does nothing here. When its host can't be reached the row dims, the dot goes hollow and its line says Out of reach in place of its state. A worker whose lead has closed sits at the end of the same list while all projects are shown, as Wren does here, still with its own line.</div></figcaption>
+      <figcaption><b>Workers on linked hosts</b><div class="note">An agent here can start workers on another host linked to the same account; they run there, on that host's own sign-ins. Each is a row like any other agent's, hung under the agent that started it on the team's spine: its chat's title, or its name until its host has titled it, then the host it runs on, its name, how many subagents and shells it still has running, and the same squares or dot as any agent. Tapping it opens its chat on its host. When its host can't be reached the row dims, its host says out of reach and the mark at the end goes. A worker whose lead has closed sits at the end of the same list while all projects are shown, as Wren does here.</div></figcaption>
     </figure>
 
     <figure><div class="phone"><div class="island"></div>

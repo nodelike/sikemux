@@ -160,7 +160,9 @@ export function Agents({
                       )}
                     </TeamLines>
                     {workersOf(workers, agent.agentId).map((worker) => (
-                      <WorkerRow key={worker.agentId} worker={worker} nested />
+                      <TeamLines key={worker.agentId} team={worker.team === 'last' ? 'last' : 'member'}>
+                        <WorkerRow worker={worker} />
+                      </TeamLines>
                     ))}
                   </Fragment>
                 ))}

@@ -126,21 +126,6 @@ struct WakeTime: View {
     }
 }
 
-/// Where an agent's turn is, as the Mac rail marks it: squares while it works, a dot once something waits, nothing idle.
-struct AgentStateMark: View {
-    @Environment(\.palette) private var palette
-    let group: AgentGroup
-
-    var body: some View {
-        switch group {
-        case .working: Working()
-        case .blocked: NeedsYou()
-        case .done: Dot(color: palette.accent, size: 7)
-        default: EmptyView()
-        }
-    }
-}
-
 struct Dot: View {
     let color: Color
     var size: CGFloat = 8
