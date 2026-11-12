@@ -1,33 +1,37 @@
-//! The model and effort pickers a chat head shows, read from the select
+//! The model, effort and speed pickers a chat head shows, read from the select
 //! options in a session's `configOptions`.
 
 use serde_json::Value;
 use sikemux_view::workspace::{ConfigChoice, ConfigPicker};
 
+/// The category of the option that picks how fast the model answers, which Sikemux's own
+/// drivers send for the agents that offer a faster tier of a model.
+pub const SPEED: &str = "_speed";
+
 pub fn pickers(options: &Value) -> (Option<ConfigPicker>, Option<ConfigPicker>) {
-    let selects: Vec<(&Value, ConfigPicker)> = options
+    (
+        select(options, &|row| row["id"] == "model"),
+        select(options, &is_effort),
+    )
+}
+
+pub fn speed(options: &Value) -> Option<ConfigPicker> {
+    select(options, &|row| row["category"] == SPEED)
+}
+
+fn select(options: &Value, matches: &dyn Fn(&Value) -> bool) -> Option<ConfigPicker> {
+    options
         .as_array()
         .into_iter()
         .flatten()
-        .filter(|row| row["type"] == "select")
-        .filter_map(|row| {
-            Some((
-                row,
-                ConfigPicker {
-                    id: row["id"].as_str()?.to_owned(),
-                    current: row["currentValue"].as_str()?.to_owned(),
-                    choices: choices(&row["options"]),
-                },
-            ))
+        .filter(|row| row["type"] == "select" && matches(row))
+        .find_map(|row| {
+            Some(ConfigPicker {
+                id: row["id"].as_str()?.to_owned(),
+                current: row["currentValue"].as_str()?.to_owned(),
+                choices: choices(&row["options"]),
+            })
         })
-        .collect();
-    let find = |matches: &dyn Fn(&Value) -> bool| {
-        selects
-            .iter()
-            .find(|(row, _)| matches(row))
-            .map(|(_, picker)| picker.clone())
-    };
-    (find(&|row| row["id"] == "model"), find(&is_effort))
 }
 
 /// Whether a session's option row sets how hard the model thinks. Agents name

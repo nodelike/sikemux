@@ -1,5 +1,6 @@
-//! The session options a Claude chat offers: its model and how hard that
-//! model thinks, read from the models the CLI lists when it starts.
+//! The session options a Claude chat offers: its model, how hard that model
+//! thinks and whether it runs in fast mode, read from the models the CLI lists
+//! when it starts.
 
 use crate::launch::claude_model;
 use std::collections::BTreeMap;
@@ -11,6 +12,7 @@ use crate::acp::pickers;
 use crate::launch::PermissionMode;
 
 pub(crate) const DEFAULT: &str = "default";
+pub(crate) const FAST: &str = "fast";
 
 /// The effort Claude Code runs each model at when none is set, which its model list does not
 /// say, by the model's full name.
@@ -171,6 +173,10 @@ pub(crate) fn effort_levels(models: &[Value], model: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
+pub(crate) fn supports_fast(models: &[Value], model: &str) -> bool {
+    find(models, model).is_some_and(|row| row["supportsFastMode"] == true)
+}
+
 /// The models to pick from, one row each: Claude Code's default row goes by the name of the
 /// model it stands for and is marked as the default, in place of that model's own row, which
 /// shows instead only while it is the one picked.
@@ -262,13 +268,18 @@ fn effort_option(levels: &[String], current: &str, own: Option<&str>) -> Value {
     )
 }
 
-/// The chat's options for `model` at `effort`. A model that takes no effort
-/// setting has no effort option.
-pub(crate) fn options(models: &[Value], model: &str, effort: &str) -> Value {
+/// The chat's options for `model` at `effort`, in fast mode or not. A model that takes no
+/// effort setting has no effort option, and one Claude Code cannot run fast has no speed.
+pub(crate) fn options(models: &[Value], model: &str, effort: &str, fast: bool) -> Value {
     let mut options = vec![model_option(models, model)];
     let levels = effort_levels(models, model);
     if !levels.is_empty() {
         options.push(effort_option(&levels, effort, own_effort(models, model)));
+    }
+    if supports_fast(models, model) {
+        let current = if fast { FAST } else { pickers::STANDARD };
+        let tier = pickers::choice(FAST, "Fast", Some("Faster output, at a higher price"));
+        options.push(pickers::speed_select(current, vec![tier]));
     }
     Value::Array(options)
 }
@@ -327,7 +338,7 @@ mod tests {
 
     #[test]
     fn the_default_model_goes_by_the_model_it_resolves_to_in_that_models_place() {
-        let options = options(&models(), "default", "high");
+        let options = options(&models(), "default", "high", false);
         let rows = options[0]["options"].as_array().unwrap();
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[0]["value"], "default");
@@ -346,7 +357,7 @@ mod tests {
             settings_model(&mut models, "opus[1m]").as_deref(),
             Some("opus[1m]")
         );
-        let options = options(&models, "opus[1m]", "high");
+        let options = options(&models, "opus[1m]", "high", false);
         let row = &options[0]["options"][2];
         assert_eq!(row["value"], "opus[1m]");
         assert_eq!(row["name"], "Opus 5.5 (1M context)");
@@ -364,14 +375,14 @@ mod tests {
 
     #[test]
     fn a_model_without_effort_has_no_effort_option() {
-        let options = options(&models(), "haiku", "high");
+        let options = options(&models(), "haiku", "high", false);
         assert_eq!(options.as_array().map(Vec::len), Some(1));
     }
 
     #[test]
     fn an_effort_the_model_does_not_take_falls_back_to_the_models_own() {
         assert_eq!(
-            options(&models(), "opus", "ultra")[1]["currentValue"],
+            options(&models(), "opus", "ultra", false)[1]["currentValue"],
             "medium"
         );
     }

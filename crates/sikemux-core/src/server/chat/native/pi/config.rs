@@ -111,6 +111,7 @@ pub(super) fn models(listed: &[Listed], current: Option<&str>, level: Option<&st
                     .and_then(|level| nearest_level(&levels, level)),
                 takes_images: model.input.iter().any(|kind| kind == "image"),
                 default: is_current,
+                speeds: Vec::new(),
                 id: slug,
             }
         })

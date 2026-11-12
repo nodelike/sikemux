@@ -19,6 +19,15 @@ pub(super) struct Model {
     pub takes_images: bool,
     /// The one the agent picks when none is named.
     pub default: bool,
+    /// The faster tiers the agent can serve the model on.
+    pub speeds: Vec<Speed>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub(super) struct Speed {
+    pub value: String,
+    pub name: String,
+    pub description: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -83,6 +92,24 @@ impl Models {
 
     fn efforts(&self, model: &str) -> &[Effort] {
         self.find(model).map_or(&[], |entry| &entry.efforts)
+    }
+
+    pub fn offers_speed(&self, model: &str, speed: &str) -> bool {
+        self.find(model)
+            .is_some_and(|entry| entry.speeds.iter().any(|tier| tier.value == speed))
+    }
+
+    /// The speed select for `model` on `speed`, its tier or the usual speed, when the agent
+    /// offers it faster.
+    pub fn speed_option(&self, model: &str, speed: Option<&str>) -> Option<Value> {
+        let tiers: Vec<Value> = self
+            .find(model)?
+            .speeds
+            .iter()
+            .map(|tier| pickers::choice(&tier.value, &tier.name, tier.description.as_deref()))
+            .collect();
+        (!tiers.is_empty())
+            .then(|| pickers::speed_select(speed.unwrap_or(pickers::STANDARD), tiers))
     }
 
     pub fn reasons(&self, model: &str) -> bool {

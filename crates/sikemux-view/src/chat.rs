@@ -283,6 +283,10 @@ pub struct ChatHead {
     /// with no choices until its session says them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effort: Option<crate::workspace::ConfigPicker>,
+    /// Standard speed or one of the faster tiers the agent offers for the model, while it
+    /// offers any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub speed: Option<crate::workspace::ConfigPicker>,
     pub permissions: Vec<PermissionAsk>,
     pub tasks: Vec<AsyncTask>,
     /// The chat's own subagents still at work.

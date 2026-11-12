@@ -620,6 +620,7 @@ pub(super) fn composer(
             provider: agent.provider.clone(),
             profile: saved.profile_id.clone(),
             model: model.clone(),
+            speed: head.and_then(|head| head.speed.clone()).filter(|_| started),
             model_provider: saved.model_provider.clone(),
             locked: !fresh,
             pending: match (started, reads_models) {

@@ -18,6 +18,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sikemux_process::sync::Locked;
 
+use crate::acp::pickers;
 use crate::launch::PermissionMode;
 use sikemux_wire::protocol::ChatLaunch;
 
@@ -143,6 +144,8 @@ struct Kept {
     models: Models,
     model: String,
     effort: Option<String>,
+    /// The faster tier turns run on, or none for the model's usual speed.
+    speed: Option<String>,
     mode: PermissionMode,
     account: Value,
     servers: Vec<String>,
@@ -290,6 +293,20 @@ fn input(parts: Vec<Part>, images: bool) -> Vec<Value> {
 }
 
 impl Codex {
+    fn options(&self) -> Value {
+        let kept = &self.kept;
+        let mut options = kept
+            .models
+            .options("Codex", &kept.model, kept.effort.as_deref());
+        if let (Some(rows), Some(speed)) = (
+            options.as_array_mut(),
+            kept.models.speed_option(&kept.model, kept.speed.as_deref()),
+        ) {
+            rows.push(speed);
+        }
+        options
+    }
+
     fn prompt_input(&self, prompt: &Prompt) -> Result<Vec<Value>, String> {
         Ok(input(
             parts(prompt)?,
@@ -612,6 +629,7 @@ impl Backend for Codex {
                 models,
                 model,
                 effort,
+                speed: None,
                 mode,
                 account,
                 servers,
@@ -634,7 +652,7 @@ impl Backend for Codex {
             session_id: thread_id,
             capabilities: Opened::native_capabilities(),
             setup: json!({
-                "configOptions": codex.kept.models.options("Codex", &codex.kept.model, codex.kept.effort.as_deref()),
+                "configOptions": codex.options(),
             }),
         };
         Ok((codex, opened))
@@ -661,7 +679,7 @@ impl Backend for Codex {
             "model": self.kept.model,
             "effort": self.kept.effort,
             "summary": summary,
-            "serviceTier": null,
+            "serviceTier": self.kept.speed,
             "clientUserMessageId": prompt.message_id,
         });
         self.send_turn(turn, &prompt, "turn/start", params).await
@@ -698,6 +716,8 @@ impl Backend for Codex {
                     .kept
                     .models
                     .effort_for(value, self.kept.effort.as_deref());
+                let speed = self.kept.speed.take();
+                self.kept.speed = speed.filter(|speed| self.kept.models.offers_speed(value, speed));
             }
             "reasoning_effort" => {
                 if !self.kept.models.supports_effort(&self.kept.model, value) {
@@ -708,12 +728,23 @@ impl Backend for Codex {
                 }
                 self.kept.effort = Some(value.to_owned());
             }
+            "speed" => {
+                self.kept.speed = match value {
+                    pickers::STANDARD => None,
+                    _ if self.kept.models.offers_speed(&self.kept.model, value) => {
+                        Some(value.to_owned())
+                    }
+                    _ => {
+                        return Err(format!(
+                            "{} does not offer the speed {value}",
+                            self.kept.model
+                        ))
+                    }
+                };
+            }
             _ => return Err(format!("Codex has no option {config_id}")),
         }
-        Ok(self
-            .kept
-            .models
-            .options("Codex", &self.kept.model, self.kept.effort.as_deref()))
+        Ok(self.options())
     }
 
     async fn stop_task(&mut self, _task_id: &str) -> Result<(), String> {

@@ -2917,6 +2917,9 @@ struct ChatHead: Codable, Hashable, Sendable {
     /// How hard the model thinks. An agent that always offers it has one
     /// with no choices until its session says them.
     var effort: ConfigPicker?
+    /// Standard speed or one of the faster tiers the agent offers for the model, while it
+    /// offers any.
+    var speed: ConfigPicker?
     var permissions: [PermissionAsk]
     var tasks: [AsyncTask]
     /// The chat's own subagents still at work.

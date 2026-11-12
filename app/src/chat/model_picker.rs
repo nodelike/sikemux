@@ -59,6 +59,8 @@ pub struct Picked {
     /// The account it runs on.
     pub profile: Option<String>,
     pub model: Option<ConfigPicker>,
+    /// Standard speed or the agent's faster tiers for the model, while the session runs one.
+    pub speed: Option<ConfigPicker>,
     /// The connected provider paying for its turns, when one is.
     pub model_provider: Option<String>,
     /// The chat has started, so it keeps its agent, account and provider.
@@ -487,6 +489,53 @@ impl Menu {
         })
     }
 
+    /// The switch between the model's usual speed and the faster tiers its agent offers.
+    fn speed(&self, t: &Tokens) -> Option<AnyElement> {
+        let speed = self.picked.speed.as_ref()?;
+        let chosen = speed
+            .choices
+            .iter()
+            .position(|choice| choice.value == speed.current)
+            .unwrap_or_default();
+        let words = speed
+            .choices
+            .iter()
+            .map(|choice| (SharedString::from(choice.label.clone()), None))
+            .collect();
+        let mut switch = ui::Segmented::words("model-speed", words, chosen);
+        for (at, choice) in speed.choices.iter().enumerate() {
+            if choice.label.to_lowercase().contains("fast") {
+                switch = switch.glyph(at, Icon::Bolt);
+            }
+        }
+        let (set, picker) = (self.picked.set.clone(), speed.clone());
+        let switch = switch.on_select(move |at, window, cx| {
+            if let Some(choice) = picker
+                .choices
+                .get(*at)
+                .filter(|choice| choice.value != picker.current)
+            {
+                set(&picker.id, &choice.value, window, cx);
+            }
+        });
+        Some(
+            div()
+                .flex()
+                .items_center()
+                .justify_between()
+                .px(SPACE_2H)
+                .py(px(3.))
+                .child(
+                    div()
+                        .text_size(crate::theme::ui_text(TEXT_XS_H))
+                        .text_color(t.text_secondary)
+                        .child("Speed"),
+                )
+                .child(switch)
+                .into_any_element(),
+        )
+    }
+
     /// Whether the chat runs on this host, where an agent it moves to can be installed.
     fn here(&self) -> bool {
         matches!(self.picked.target.place(), crate::hosts::Place::This)
@@ -733,12 +782,13 @@ impl Render for Menu {
             (true, None) => Some("This agent offers no models to pick"),
             (false, _) => None,
         };
-        let footer = options
+        let add = options
             .iter()
             .cloned()
             .enumerate()
             .find(|(_, row)| matches!(row.act, Act::AddProvider))
             .map(|(at, row)| self.row(at, row, &typed, found, &t, &this));
+        let footer: Vec<AnyElement> = self.speed(&t).into_iter().chain(add).collect();
         let mut list: Vec<AnyElement> = Vec::new();
         let mut chosen_at = None;
         for (group, heading) in groups.iter().enumerate() {
@@ -838,13 +888,18 @@ impl Render for Menu {
                     .track_scroll(&self.scroll)
                     .children(list),
             )
-            .children(footer.map(|footer| {
-                div()
-                    .p(px(ui::PANEL_INSET))
-                    .border_t_1()
-                    .border_color(t.line)
-                    .child(footer)
-            }))
+            .when(!footer.is_empty(), |menu| {
+                menu.child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap(px(2.))
+                        .p(px(ui::PANEL_INSET))
+                        .border_t_1()
+                        .border_color(t.line)
+                        .children(footer),
+                )
+            })
     }
 }
 

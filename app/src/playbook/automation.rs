@@ -516,6 +516,7 @@ fn agent_picker(
         provider: shown.provider.clone(),
         profile: profile_of(&shown.id),
         model: models,
+        speed: None,
         model_provider: agent.provider.clone(),
         locked: false,
         pending: None,

@@ -60,6 +60,24 @@ pub fn effort_select(
     })
 }
 
+/// The choice of the speed select that runs the model at its usual speed.
+pub const STANDARD: &str = "standard";
+
+/// The select option that picks how fast the model answers: at its usual speed, or on one
+/// of the faster `tiers` the agent offers for it.
+pub fn speed_select(current: &str, tiers: Vec<Value>) -> Value {
+    let mut choices = vec![as_default(choice(STANDARD, "Standard", None))];
+    choices.extend(tiers);
+    json!({
+        "id": "speed",
+        "name": "Speed",
+        "category": sikemux_fold::pickers::SPEED,
+        "type": "select",
+        "currentValue": current,
+        "options": choices,
+    })
+}
+
 /// An effort level as a picker names it: `xhigh` as "Extra high", `max_tokens`
 /// as "Max Tokens".
 pub fn level_name(level: &str) -> String {

@@ -1867,6 +1867,11 @@ export interface ChatHead {
      * with no choices until its session says them.
      */
     effort?: ConfigPicker;
+    /**
+     * Standard speed or one of the faster tiers the agent offers for the model, while it
+     * offers any.
+     */
+    speed?: ConfigPicker;
     permissions: PermissionAsk[];
     tasks: AsyncTask[];
     /** The chat's own subagents still at work. */

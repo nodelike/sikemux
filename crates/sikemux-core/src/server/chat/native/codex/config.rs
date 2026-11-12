@@ -5,7 +5,7 @@ use agent_client_protocol::schema::v1::McpServer;
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 
-use super::super::models::{self, Effort, Model, Models};
+use super::super::models::{self, Effort, Model, Models, Speed};
 use super::super::servers;
 use crate::launch::PermissionMode;
 
@@ -57,6 +57,15 @@ struct Listed {
     input_modalities: Option<Vec<String>>,
     #[serde(default)]
     is_default: bool,
+    #[serde(default)]
+    service_tiers: Vec<ListedTier>,
+}
+
+#[derive(Deserialize)]
+struct ListedTier {
+    id: String,
+    name: String,
+    description: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -93,6 +102,15 @@ pub(super) fn models(entries: Vec<Value>) -> Models {
                     .input_modalities
                     .is_none_or(|modalities| modalities.iter().any(|modality| modality == "image")),
                 default: listed.is_default,
+                speeds: listed
+                    .service_tiers
+                    .into_iter()
+                    .map(|tier| Speed {
+                        value: tier.id,
+                        name: tier.name,
+                        description: tier.description.filter(|about| !about.is_empty()),
+                    })
+                    .collect(),
             }
         })
         .collect();

@@ -180,6 +180,7 @@ named_fields!(head_field, ChatHead {
     "setup" => setup,
     "model" => model,
     "effort" => effort,
+    "speed" => speed,
     "permissions" => permissions,
     "tasks" => tasks,
     "runningSubagents" => running_subagents,

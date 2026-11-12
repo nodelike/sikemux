@@ -24,6 +24,7 @@ use sikemux_process::sync::Locked;
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
+use crate::acp::pickers;
 use crate::agent_catalog::AgentKind;
 use crate::launch::PermissionMode;
 use crate::sessions::{self, roots::account_root};
@@ -82,6 +83,7 @@ struct Kept {
     models: Vec<Value>,
     model: String,
     effort: String,
+    fast: bool,
     /// What the person calls each message they sent, against the id Claude
     /// Code knows it by. An edited message is sent again under a new id.
     aliases: HashMap<String, String>,
@@ -119,7 +121,12 @@ pub(crate) async fn read_options(command: tokio::process::Command) -> Result<Val
     let models = crate::agent_accounts::usage::control_answer(&said, ASKED)
         .and_then(|answer| answer.get("models")?.as_array().cloned())
         .ok_or("Claude named no models")?;
-    Ok(config::options(&models, config::DEFAULT, config::DEFAULT))
+    Ok(config::options(
+        &models,
+        config::DEFAULT,
+        config::DEFAULT,
+        false,
+    ))
 }
 
 /// Tells `sink` what the saved chat of `session_id` holds that the chat does not show yet: the
@@ -456,7 +463,22 @@ impl Claude {
     }
 
     fn options(&self) -> Value {
-        config::options(&self.kept.models, &self.kept.model, &self.kept.effort)
+        config::options(
+            &self.kept.models,
+            &self.kept.model,
+            &self.kept.effort,
+            self.kept.fast,
+        )
+    }
+
+    /// Claude Code's Agent SDK runs fast only when the flag settings ask for it, whatever the
+    /// person's own settings say.
+    async fn apply_fast(&self) -> Result<(), String> {
+        self.running
+            .control
+            .request(json!({ "subtype": "apply_flag_settings", "settings": { "fastMode": self.kept.fast } }))
+            .await
+            .map(drop)
     }
 
     async fn apply_effort(&self) -> Result<(), String> {
@@ -627,6 +649,8 @@ impl Backend for Claude {
             })
             .unwrap_or_else(|| config::DEFAULT.to_owned());
         let lifetimes = config::cache_lifetimes(&settings, &launch.env, routed);
+        let fast = settings.get("fastMode") == Some(&json!(true))
+            && settings.get("fastModePerSessionOptIn") != Some(&json!(true));
         let claude = Self {
             launch: launch.clone(),
             running,
@@ -636,6 +660,7 @@ impl Backend for Claude {
                 models,
                 model,
                 effort,
+                fast,
                 aliases: HashMap::new(),
             },
         };
@@ -655,6 +680,9 @@ impl Backend for Claude {
                 .control
                 .request(json!({ "subtype": "apply_flag_settings", "settings": lifetimes }))
                 .await;
+        }
+        if fast {
+            claude.apply_fast().await?;
         }
         if let Some(commands) = initialized.get("commands") {
             sink.update(&session_id, reader::available_commands(commands));
@@ -762,6 +790,17 @@ impl Backend for Claude {
                 }
                 self.kept.effort = value.to_owned();
                 self.apply_effort().await?;
+            }
+            "speed" => {
+                let fast = match value {
+                    config::FAST if config::supports_fast(&self.kept.models, &self.kept.model) => {
+                        true
+                    }
+                    pickers::STANDARD => false,
+                    _ => return Err(format!("Invalid value for config option speed: {value}")),
+                };
+                self.kept.fast = fast;
+                self.apply_fast().await?;
             }
             _ => return Err(format!("Unknown config option: {config_id}")),
         }

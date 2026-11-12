@@ -548,6 +548,14 @@ impl Segmented {
         self
     }
 
+    /// Puts `glyph` before the label of the choice at `index`.
+    pub fn glyph(mut self, index: usize, glyph: Icon) -> Self {
+        if let Some(option) = self.options.get_mut(index) {
+            option.0 = Some(glyph);
+        }
+        self
+    }
+
     pub fn on_select(mut self, handler: impl Fn(&usize, &mut Window, &mut App) + 'static) -> Self {
         self.on_select = Some(Rc::new(handler));
         self

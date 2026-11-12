@@ -672,6 +672,11 @@ impl Fold {
             self.head.effort = effort;
             self.set_head("effort");
         }
+        let speed = pickers::speed(&self.head.setup["configOptions"]);
+        if self.head.speed != speed {
+            self.head.speed = speed;
+            self.set_head("speed");
+        }
     }
 
     /// Counts what it takes in from now on as change `seq`.

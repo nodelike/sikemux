@@ -1203,6 +1203,7 @@ impl Chat {
         if let Some(state) = self.state.as_mut() {
             state.model = None;
             state.effort = None;
+            state.speed = None;
         }
         self.head_moved = true;
     }

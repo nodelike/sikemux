@@ -96,6 +96,7 @@ pub(super) fn models(entries: Vec<Value>) -> Models {
                 } else {
                     listed.is_default
                 },
+                speeds: Vec::new(),
             }
         })
         .collect();

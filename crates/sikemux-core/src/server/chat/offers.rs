@@ -6,7 +6,8 @@ use sikemux_view::workspace::ConfigPicker;
 use super::*;
 
 /// The options a chat that waits for the person offers: those its launcher's last session
-/// offered, on the model and effort it will start with. The model it starts with is
+/// offered, on the model and effort it will start with, but not its speed, which only a
+/// running session takes. The model it starts with is
 /// always among them, as one a provider serves is not among its agent's own.
 pub(super) fn waiting_options(core: &Core, chat: &Chat) -> Option<Value> {
     let launch = chat.current_launch();
@@ -17,6 +18,9 @@ pub(super) fn waiting_options(core: &Core, chat: &Chat) -> Option<Value> {
         .unwrap_or_else(|| Value::Array(Vec::new()));
     if let Some(model) = &launch.model {
         offer_model(core, &launch, &mut options, model);
+    }
+    if let Some(rows) = options.as_array_mut() {
+        rows.retain(|row| row["category"] != sikemux_fold::pickers::SPEED);
     }
     if options.as_array().is_none_or(Vec::is_empty) {
         return None;
