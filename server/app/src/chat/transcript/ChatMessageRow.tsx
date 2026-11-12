@@ -19,6 +19,7 @@ import sikemuxMark from "../../../../../brand/mark/mark-purple.svg";
 import { AnsweredQuestion } from "./AgentQuestions";
 import { rateLabel, sentLabel, sentTitle } from "@shared/chat/messageMeta";
 import { durationLabel } from "@shared/chat/durationLabel";
+import { HIDE, leftOutCount, leftOutLine, SHOW } from "@shared/chat/leftOut";
 import { localImagePath } from "@shared/lib/imagePaths";
 import { useImagePreview } from "../files/imagePreview";
 import { ChatFileRef, useFileRef } from "../files/FileRef";
@@ -515,6 +516,37 @@ function AgentLetters({
   );
 }
 
+/**
+ * The quiet line under an answer some of whose sentences rested on no source and were left out. Show lists them
+ * under it, faint; the page cannot ask the host to put them back in place, as the apps do.
+ */
+function LeftOut({ message }: { message: ChatMessage }) {
+  const [open, setOpen] = useState(false);
+  const count = leftOutCount(message);
+  if (!count) return null;
+  return (
+    <div className="chat-left-out">
+      <div className="chat-left-out-line">
+        <span>{leftOutLine(count)}</span>
+        <span aria-hidden>·</span>
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={() => setOpen(!open)}
+        >
+          {open ? HIDE : SHOW}
+        </button>
+      </div>
+      {open &&
+        (message.leftOut ?? []).map((out) => (
+          <p key={`${out.part}:${out.at}`} className="chat-left-out-text">
+            {out.text.trim()}
+          </p>
+        ))}
+    </div>
+  );
+}
+
 export const ChatMessageRow = memo(function ChatMessageRow({
   message,
   live,
@@ -586,6 +618,7 @@ export const ChatMessageRow = memo(function ChatMessageRow({
             typed={message.role === "user"}
           />
         </SentChipsContext.Provider>
+        <LeftOut message={message} />
         {copyable && (
           <div className="chat-message-meta">
             <CopyButton

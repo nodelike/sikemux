@@ -155,6 +155,19 @@ function inbox() {
   };
 }
 
+/** How a project stands and how many calls of its wait, as the core works them out. */
+function standingOf(project: { id: string; path: string }) {
+  const calls = CALLS.filter((call) => call.state === 'open' && call.project === project.path).length;
+  const states = CHATS.filter((chat) => chat.project === project.id).map((chat) => TURNS[chat.agentId]?.state);
+  const standing =
+    calls || states.includes('needsYou')
+      ? 'needsYou'
+      : states.some((state) => state === 'working' || state === 'waiting')
+        ? 'atWork'
+        : undefined;
+  return { standing, calls: calls || undefined };
+}
+
 function view() {
   return {
     calls: CALLS,
@@ -162,6 +175,7 @@ function view() {
       projects: PROJECTS.map((project) => ({
         ...project,
         agents: CHATS.filter((chat) => !chat.unlisted && chat.project === project.id).length || undefined,
+        ...standingOf(project),
       })),
       agents: CHATS.map((chat) => ({
         id: chat.agentId,

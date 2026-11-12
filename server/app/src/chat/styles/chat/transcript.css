@@ -631,3 +631,33 @@
 .chat-earlier button:hover {
   color: var(--text-primary);
 }
+
+.chat-left-out {
+  margin-top: var(--space-2);
+  color: var(--text-tertiary);
+}
+
+.chat-left-out-line {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-family: var(--ui);
+  font-size: var(--text-xs);
+}
+
+.chat-left-out button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.chat-left-out button:hover {
+  color: var(--text-primary);
+}
+
+.chat-left-out-text {
+  margin: var(--space-2) 0 0;
+}

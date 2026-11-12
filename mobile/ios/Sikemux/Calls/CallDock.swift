@@ -15,6 +15,8 @@ struct CallDock: View {
     @Bindable var draft: CallDraft
     let canAnswer: Bool
     let report: (String) -> Void
+    /// Unfolded under its row in a list that scrolls, so the card takes its full height rather than scrolling itself.
+    var inPlace = false
     @FocusState private var fieldFocused: Bool
     @State private var secretFocused = false
 
@@ -60,7 +62,8 @@ struct CallDock: View {
             .padding(12)
         }
         .scrollBounceBehavior(.basedOnSize)
-        .frame(maxHeight: 520)
+        .scrollDisabled(inPlace)
+        .frame(maxHeight: inPlace ? nil : 520)
         .fixedSize(horizontal: false, vertical: true)
         .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(palette.overlay))
         .overlay(

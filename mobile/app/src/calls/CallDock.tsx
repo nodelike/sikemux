@@ -46,6 +46,7 @@ export const CallDock = memo(function CallDock({
   connection,
   canAnswer,
   report,
+  inPlace = false,
 }: {
   core: string;
   /** The host's calls, which the hub keeps as the same array while none changes. */
@@ -58,6 +59,8 @@ export const CallDock = memo(function CallDock({
   connection: ConnectionLike | undefined;
   canAnswer: boolean;
   report: (text: string) => void;
+  /** Unfolded under its row in a list that scrolls, so the card takes its full height rather than scrolling itself. */
+  inPlace?: boolean;
 }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
@@ -92,8 +95,8 @@ export const CallDock = memo(function CallDock({
   };
 
   return (
-    <View style={styles.card}>
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.inner} showsVerticalScrollIndicator={false}>
+    <View style={[styles.card, inPlace && styles.cardInPlace]}>
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.inner} scrollEnabled={!inPlace} showsVerticalScrollIndicator={false}>
         <View style={styles.who}>
           <AskerMark agentId={call.asker.agentId} provider={call.asker.cli} chief={call.asker.chief} turn="needsYou" />
           <Text style={styles.name}>@{call.asker.name}</Text>
@@ -406,6 +409,7 @@ const makeStyles = (colors: Palette) => {
       maxHeight: 520,
       overflow: 'hidden',
     },
+    cardInPlace: { maxHeight: undefined },
     scroll: { flexGrow: 0 },
     inner: { padding: 12 },
     who: { flexDirection: 'row', alignItems: 'center', gap: 8 },

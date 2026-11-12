@@ -6,7 +6,7 @@ import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 
 import type { ProjectInfo } from '@shared/wire.generated';
 import type { Snapshot } from '@/core/protocol';
-import { reloadDevices, retry, useDevices, useHostStatus, useLive } from '@/devices/hub';
+import { connectionOf, reloadDevices, retry, useDevices, useHostStatus, useLive } from '@/devices/hub';
 import { deviceKind, deviceName, type PairedDevice, updateDevice } from '@/devices/paired';
 import { CallsTab } from '@/calls/CallsTab';
 import { openCalls } from '@/calls/hostCalls';
@@ -35,11 +35,10 @@ function ProjectTail({ snapshot, project }: { snapshot: Snapshot; project: Proje
   const chats = snapshot.chats.filter((chat) => projectOf(snapshot, chat.agentId) === project.id);
   const terminals = snapshot.sessions.filter((session) => session.project === project.id && session.running).length;
   const turnOf = (agentId: string) => snapshot.inbox.agents.find((agent) => agent.agentId === agentId)?.turn;
-  const waiting = openCalls(snapshot, project).length > 0 || chats.some((chat) => turnOf(chat.agentId)?.state === 'needsYou');
   if (!chats.length && !terminals) return null;
   return (
     <View style={styles.tail}>
-      {waiting ? <Dot color={colors.warn} size={7} /> : null}
+      {project.standing === 'needsYou' ? <Dot color={colors.warn} size={7} /> : null}
       {chats.length ? (
         <View style={styles.faces}>
           {chats.slice(0, 3).map((chat, index) => (
@@ -280,7 +279,7 @@ export default function Device() {
   const starts = device?.access === 'full' && status.online;
   const bottom = useBottomGap();
   const scope = snapshot?.workspace.projects.find((project) => project.id === device?.project);
-  const calling = openCalls(snapshot, scope).length;
+  const calling = scope ? (scope.calls ?? 0) : openCalls(snapshot).length;
   const [filter, setFilter] = useState('all');
   const providers = [
     ...new Set([
@@ -419,7 +418,13 @@ export default function Device() {
                     ) : tab === 'terminals' ? (
                       <Terminals snapshot={snapshot} scope={scope} />
                     ) : (
-                      <CallsTab core={core} snapshot={snapshot} scope={scope} />
+                      <CallsTab
+                        core={core}
+                        snapshot={snapshot}
+                        scope={scope}
+                        connection={connectionOf(live)}
+                        canAnswer={device?.access !== 'watch' && live.status === 'open'}
+                      />
                     )
                   ) : null}
                 </View>

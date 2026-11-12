@@ -85,7 +85,7 @@ export function useMentions(session: ChatSession, typed: Typed | undefined): Men
 
   const [closed, setClosed] = useState<{ cwd: string; list: ClosedAgent[] }>();
   useEffect(() => {
-    if (!namesAgents || !connection || !cwd) return;
+    if (!namesAgents || !connection || !cwd || closed?.cwd === cwd) return;
     let current = true;
     callHost(connection, 'closedAgents', { cwd }).then(
       (list) => current && setClosed({ cwd, list }),
@@ -94,7 +94,7 @@ export function useMentions(session: ChatSession, typed: Typed | undefined): Men
     return () => {
       current = false;
     };
-  }, [namesAgents, connection, cwd]);
+  }, [namesAgents, connection, cwd, closed?.cwd]);
 
   const [found, setFound] = useState<{ query: string; list: SessionMatch[] }>();
   useEffect(() => {

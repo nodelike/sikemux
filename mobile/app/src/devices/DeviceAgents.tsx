@@ -40,21 +40,13 @@ function openAgents(snapshot: Snapshot, scope: ProjectInfo | undefined, provider
 /** One project's chief and the agents under it; agents of no project shown go last with no chief. */
 type Team = { id: string; project?: ProjectInfo; agents: AgentShown[] };
 
-/**
- * How much a project needs the person: 0 with an open call or an agent that needs them, 1 with work under way, else
- * 2. The Mac and the notch order projects by the same.
- */
-function need(snapshot: Snapshot, project: ProjectInfo): number {
-  const rows = snapshot.inbox.agents.filter((agent) => agent.project === project.id);
-  const called = (snapshot.calls ?? []).some((call) => call.state === 'open' && call.project === project.path);
-  if (called || rows.some((agent) => agent.turn?.state === 'needsYou')) return 0;
-  if (rows.some((agent) => agent.turn?.state === 'working' || agent.turn?.state === 'waiting')) return 1;
-  return 2;
-}
+/** Where a project goes in the list by how the core says it stands, as the Mac and the notch order it. */
+const RANK: Record<string, number> = { needsYou: 0, atWork: 1 };
+const rankOf = (project: ProjectInfo) => RANK[project.standing ?? 'atRest'] ?? 2;
 
 /**
  * The list as teams. In one project, its chief leads it. With every project shown, each project with a chief or agents
- * is a team, those that most need the person first, ties in the host's order of projects. A list filtered to one kind
+ * is a team, ordered by how the core says each stands, ties in the host's order of projects. A list filtered to one kind
  * of agent has no chiefs.
  */
 function teamsOf(snapshot: Snapshot, open: AgentShown[], scope: ProjectInfo | undefined, provider: string): Team[] {
@@ -62,8 +54,8 @@ function teamsOf(snapshot: Snapshot, open: AgentShown[], scope: ProjectInfo | un
   if (scope) return [{ id: scope.id, project: scope, agents: open }];
   const shown = snapshot.workspace.projects.filter((project) => project.chief != null || (project.agents ?? 0) > 0);
   const ranked = shown
-    .map((project, index) => ({ project, index, need: need(snapshot, project) }))
-    .sort((a, b) => a.need - b.need || a.index - b.index)
+    .map((project, index) => ({ project, index, rank: rankOf(project) }))
+    .sort((a, b) => a.rank - b.rank || a.index - b.index)
     .map(({ project }) => project);
   const teams: Team[] = ranked.map((project) => ({
     id: project.id,

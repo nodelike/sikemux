@@ -115,7 +115,7 @@ private struct DeviceContent: View {
         _ view: DeviceView, live: HostLive, device: PairedDevice?, status: HostStatus, hostName: String
     ) -> some View {
         let scope = view.project(id: device?.project)
-        let calling = HostCalls.of(core).open(in: scope).count
+        let calling = scope.map { $0.calls ?? 0 } ?? HostCalls.of(core).open(in: nil).count
         let providers = Self.providers(view, scope)
         let provider = filter.flatMap { providers.contains($0) ? $0 : nil }
         let filtering = tab == .agents && providers.count > 1
@@ -144,7 +144,10 @@ private struct DeviceContent: View {
                     Group {
                         switch tab {
                         case .terminals: Terminals(view: view, scope: scope)
-                        case .calls: CallsTab(core: core, view: view, scope: scope)
+                        case .calls:
+                            CallsTab(
+                                core: core, view: view, scope: scope,
+                                canAnswer: device?.access != .watch && live.isOpen)
                         default:
                             DeviceAgents(
                                 core: core, view: view, scope: scope, provider: provider,
@@ -454,7 +457,7 @@ private struct ProjectTail: View {
         let terminals = view.sessions.filter { $0.project == project.id && $0.running }.count
         if !chats.isEmpty || terminals > 0 {
             HStack(spacing: 8) {
-                if needsYou(chats) { Dot(color: palette.warn, size: 7).frame(width: 16, height: 16) }
+                if project.standing == .needsYou { Dot(color: palette.warn, size: 7).frame(width: 16, height: 16) }
                 if !chats.isEmpty {
                     HStack(spacing: -4) {
                         ForEach(chats.prefix(3), id: \.agentId) { chat in
@@ -477,12 +480,6 @@ private struct ProjectTail: View {
 
     private func turn(_ agentId: String) -> TurnState? {
         view.inbox.agents.first { $0.agentId == agentId }?.turn
-    }
-
-    /// A call waits on the person in the project, or one of its agents needs them.
-    private func needsYou(_ chats: [ChatInfo]) -> Bool {
-        (view.calls ?? []).contains { $0.state == .open && $0.project == project.path }
-            || chats.contains { turn($0.agentId)?.state == .needsYou }
     }
 }
 

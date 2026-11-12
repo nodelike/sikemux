@@ -441,6 +441,22 @@ export const CALLS: PersonCall[] = [
     state: 'open',
   },
   {
+    id: 'call-cache',
+    project: `${HOME}/acme-shop`,
+    kind: 'taste',
+    asker: { agentId: 'term-cache', name: 'Wren', cli: 'codex' },
+    question: 'Keep product pages cached for an hour?',
+    options: [
+      { id: 'hour', label: 'An hour', detail: 'prices change at most daily' },
+      { id: 'five', label: 'Five minutes' },
+    ],
+    pick: 'hour',
+    against: 'a price fix would take up to an hour to show.',
+    canHandBack: true,
+    raisedAt: AGO(540_000),
+    state: 'open',
+  },
+  {
     id: 'call-font',
     project: `${HOME}/acme-shop`,
     kind: 'money',

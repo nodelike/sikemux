@@ -35,6 +35,7 @@ const SCENES = [
   { name: 'device-scrolled', route: `/device/${CORE}`, scroll: 400, height: 460 },
   { name: 'terminals', route: `/device/${CORE}`, tap: 'Terminals' },
   { name: 'calls', route: `/device/${CORE}?tab=calls` },
+  { name: 'calls-in-place', route: `/device/${CORE}?tab=calls`, tap: 'Keep product pages cached for an hour?' },
   { name: 'chat', route: `/device/${CORE}/chat/chat-login` },
   { name: 'notes', route: `/device/${CORE}/chat/chat-notes` },
   { name: 'notes-top', route: `/device/${CORE}/chat/chat-notes`, scroll: -500 },

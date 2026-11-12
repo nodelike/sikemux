@@ -88,14 +88,14 @@ struct DeviceAgents: View {
     }
 
     /// The list as teams. In one project, its chief leads it. With every project shown, each project with a chief or
-    /// agents is a team, those that most need the person first: an open call or an agent that needs you, then work
-    /// under way, then the rest, ties in the host's order of projects. A list filtered to one kind of agent has no
+    /// agents is a team, ordered by how the core says each stands: needs you, then at work, then the rest, ties in the
+    /// host's order of projects. A list filtered to one kind of agent has no
     /// chiefs.
     private func teams(_ open: [AgentShown]) -> [Team] {
         if provider != nil { return [Team(project: nil, agents: open)] }
         if let scope { return [Team(project: scope, agents: open)] }
         let shown = view.workspace.projects.filter { $0.chief != nil || ($0.agents ?? 0) > 0 }
-        let ranked = shown.enumerated().sorted { (need($0.element), $0.offset) < (need($1.element), $1.offset) }
+        let ranked = shown.enumerated().sorted { (rank($0.element), $0.offset) < (rank($1.element), $1.offset) }
         var teams = ranked.map { project in
             Team(project: project.element, agents: open.filter { $0.project == project.element.id })
         }
@@ -114,14 +114,13 @@ struct DeviceAgents: View {
             .map(\.element)
     }
 
-    /// How much a project needs the person: 0 with an open call or an agent that needs them, 1 with work under way,
-    /// else 2. The Mac and the notch order projects by the same.
-    private func need(_ project: ProjectInfo) -> Int {
-        let rows = view.inbox.agents.filter { $0.project == project.id }
-        let called = (view.calls ?? []).contains { $0.state == .open && $0.project == project.path }
-        if called || rows.contains(where: { $0.turn?.state == .needsYou }) { return 0 }
-        if rows.contains(where: { $0.turn?.state == .working || $0.turn?.state == .waiting }) { return 1 }
-        return 2
+    /// Where a project goes in the list by how the core says it stands, as the Mac and the notch order it.
+    private func rank(_ project: ProjectInfo) -> Int {
+        switch project.standing {
+        case .needsYou: 0
+        case .atWork: 1
+        default: 2
+        }
     }
 
     @ViewBuilder
