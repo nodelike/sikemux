@@ -112,7 +112,16 @@ pub(crate) trait AgentOps: Sync {
         Some(sessions::file_stamp(found.place.as_deref()?))
     }
 
-    fn prose(&self, found: &Found, prose: &mut dyn Hear) -> Option<()>;
+    /// What one line of its transcript says, for agents that write a line per entry.
+    fn prose_line(&self) -> Option<fn(&str, &mut dyn Hear)> {
+        None
+    }
+
+    fn prose(&self, found: &Found, prose: &mut dyn Hear) -> Option<()> {
+        let parse = self.prose_line()?;
+        sessions::search::each_line(found.place.as_deref()?, |line| parse(line, prose));
+        Some(())
+    }
 
     /// Renames a session kept in files or a database Sikemux can write. None when
     /// only its CLI can.

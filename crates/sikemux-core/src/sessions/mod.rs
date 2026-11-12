@@ -37,6 +37,7 @@ pub mod recent;
 pub mod relocate;
 pub mod rename;
 pub mod roots;
+pub mod said;
 pub mod search;
 pub(crate) mod tokens;
 pub mod transcript;

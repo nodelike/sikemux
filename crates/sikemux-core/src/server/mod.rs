@@ -574,6 +574,7 @@ impl Core {
             .unwrap_or_else(Instant::now);
         if let Some(dir) = data_dir {
             crate::sessions::index::open(dir);
+            crate::sessions::said::open(dir);
         }
         let detection = ManifestRegistry::bundled()
             .map_err(|error| ServerError::Manifests(error.to_string()))?;

@@ -489,7 +489,7 @@ impl Prose {
 
 /// Reads a transcript's lines, its start and then its end when it is too
 /// long to read whole.
-pub(super) fn each_line(path: &Path, mut visit: impl FnMut(&str)) {
+pub(crate) fn each_line(path: &Path, mut visit: impl FnMut(&str)) {
     if is_compressed(path) {
         return each_decoded_line(path, &mut visit);
     }

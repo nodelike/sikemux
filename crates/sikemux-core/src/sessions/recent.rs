@@ -1,16 +1,21 @@
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
+use super::said::{self, Excerpt, Words};
 use super::AgentSession;
 use crate::agent_catalog::AgentKind;
 
 const MAX_PAGE: usize = 100;
 pub const MAX_PROJECTS: usize = 64;
 const MAX_EXCLUDED: usize = 512;
+/// How many of the newest sessions a search reads what changed in before it looks.
+const FRESH_SESSIONS: usize = 200;
+const FRESH_BUDGET: Duration = Duration::from_millis(120);
 
 #[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -63,6 +68,9 @@ pub struct RecentSession {
     /// The worktree of `project` the chat ran in, which it resumes in.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) cwd: Option<String>,
+    /// Where it said the words searched for, when it did.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) said: Option<Excerpt>,
 }
 
 #[derive(Serialize, Debug)]
@@ -114,6 +122,8 @@ pub(crate) struct PageScan<'a> {
     cursor: Option<&'a RecentCursor>,
     limit: usize,
     query: Option<&'a str>,
+    /// Sessions that said every word of the query, which it finds whatever their titles.
+    said: Option<&'a HashSet<(&'static str, String)>>,
     exclude: &'a HashSet<(String, String)>,
     /// Opens every entry, not only a page's worth.
     count: bool,
@@ -133,6 +143,7 @@ impl<'a> PageScan<'a> {
             cursor: None,
             limit,
             query: None,
+            said: None,
             exclude,
             count: false,
         }
@@ -172,8 +183,12 @@ impl<'a> PageScan<'a> {
         {
             return false;
         }
-        self.query
-            .is_none_or(|needle| found.session.title.to_lowercase().contains(needle))
+        self.query.is_none_or(|needle| {
+            found.session.title.to_lowercase().contains(needle)
+                || self
+                    .said
+                    .is_some_and(|said| said.contains(&(self.agent, found.session.id.clone())))
+        })
     }
 
     /// Sorts what a provider listed, skips everything up to the cursor, then
@@ -264,6 +279,14 @@ pub fn recent_page(request: RecentRequest) -> Result<RecentPage, String> {
         .into_iter()
         .filter(|provider| seen.insert(provider.agent.as_str()))
         .collect();
+    let words = query.as_deref().and_then(Words::parse);
+    let said_in = words.as_ref().map(|words| {
+        if request.cursor.is_none() {
+            let deadline = Instant::now() + FRESH_BUDGET;
+            said::catch_up(&providers, Some(&projects), FRESH_SESSIONS, Some(deadline));
+        }
+        said::matching(words)
+    });
 
     let mut hits: Vec<Hit> = providers
         .par_iter()
@@ -274,6 +297,7 @@ pub fn recent_page(request: RecentRequest) -> Result<RecentPage, String> {
                 cursor: request.cursor.as_ref(),
                 limit: request.limit,
                 query: query.as_deref(),
+                said: said_in.as_ref(),
                 exclude: &exclude,
                 count: request.count,
             };
@@ -308,6 +332,14 @@ pub fn recent_page(request: RecentRequest) -> Result<RecentPage, String> {
         .map(|hit| {
             let ran_in = hit.found.project;
             let project = home_of(&ran_in);
+            let said = words
+                .as_ref()
+                .filter(|_| {
+                    (said_in.as_ref()).is_some_and(|said| {
+                        said.contains(&(hit.agent, hit.found.session.id.clone()))
+                    })
+                })
+                .and_then(|words| said::excerpt(words, hit.agent, &hit.found.session.id));
             RecentSession {
                 agent: hit.agent,
                 id: hit.found.session.id,
@@ -315,6 +347,7 @@ pub fn recent_page(request: RecentRequest) -> Result<RecentPage, String> {
                 mtime: hit.found.session.mtime,
                 cwd: (ran_in != project).then_some(ran_in),
                 project,
+                said,
             }
         })
         .collect();
@@ -397,6 +430,7 @@ mod tests {
             cursor,
             limit,
             query,
+            said: None,
             exclude,
             count: false,
         }

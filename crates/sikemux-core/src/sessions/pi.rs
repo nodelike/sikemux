@@ -20,7 +20,6 @@ const PI_TAIL_BYTES: u64 = 128 * 1024;
 use super::in_project;
 use super::rename::session_file_within;
 use super::roots::environment_path;
-use super::search::each_line;
 use super::AgentSession;
 use crate::agent_accounts::defaults::{json_effort, qualify_model};
 use crate::agent_accounts::status::{self, AgentStatus};
@@ -258,9 +257,8 @@ impl AgentOps for Pi {
         }
     }
 
-    fn prose(&self, found: &Found, prose: &mut dyn Hear) -> Option<()> {
-        each_line(found.place.as_deref()?, |line| message_prose(line, prose));
-        Some(())
+    fn prose_line(&self) -> Option<fn(&str, &mut dyn Hear)> {
+        Some(message_prose)
     }
 
     fn rename_saved(

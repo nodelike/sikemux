@@ -12,7 +12,6 @@ use super::is_jsonl;
 use super::recent::{Found, Hit, Listed, PageScan};
 use super::rename::append_line;
 use super::roots::agent_config_root;
-use super::search::each_line;
 use super::search::{Hear, Speaker};
 use super::tokens::{ModelTally, ReadState, TokenCount};
 use super::transcript::{self, written, Said};
@@ -435,9 +434,8 @@ impl AgentOps for Claude {
         }
     }
 
-    fn prose(&self, found: &Found, prose: &mut dyn Hear) -> Option<()> {
-        each_line(found.place.as_deref()?, |line| claude_prose(line, prose));
-        Some(())
+    fn prose_line(&self) -> Option<fn(&str, &mut dyn Hear)> {
+        Some(claude_prose)
     }
 
     fn rename_saved(

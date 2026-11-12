@@ -15,7 +15,6 @@ use super::context::{last_line_matching, SessionContext};
 use super::index::{indexed, Indexed};
 use super::recent::{Found, Hit, Listed, PageScan};
 use super::roots::agent_config_root;
-use super::search::each_line;
 use super::search::{Hear, Speaker};
 use super::tokens::{ModelTally, ReadState, TokenCount};
 use super::transcript::{self, Said};
@@ -464,9 +463,8 @@ impl AgentOps for Codex {
         places
     }
 
-    fn prose(&self, found: &Found, prose: &mut dyn Hear) -> Option<()> {
-        each_line(found.place.as_deref()?, |line| codex_prose(line, prose));
-        Some(())
+    fn prose_line(&self) -> Option<fn(&str, &mut dyn Hear)> {
+        Some(codex_prose)
     }
 
     fn transcript(&self, root: &Path, _cwd: Option<&str>, id: &str) -> Option<PathBuf> {
