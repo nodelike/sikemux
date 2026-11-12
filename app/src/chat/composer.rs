@@ -1473,6 +1473,8 @@ fn expired_section(expired: ExpiredCache, summarise: Option<Summarise>, cx: &App
                 TEXT_2XS_H,
                 FontWeight::NORMAL,
             )
+            .whitespace_normal()
+            .line_height(px(16.))
             .text_color(t.text_secondary),
         )
         .child(

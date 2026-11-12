@@ -33,6 +33,9 @@ pub(super) struct Resting {
     pub(super) feed: Arc<Feed>,
     pub(super) bytes: u64,
     pub(super) read: std::time::Instant,
+    /// The chat's meter as it fell asleep, taken up again as it wakes.
+    pub(super) meter: super::cap::KeptMeter,
+    pub(super) claude: bool,
 }
 
 /// The most history kept for sleeping chats in all; past it, the one read least lately goes.
@@ -142,6 +145,8 @@ impl Chats {
             feed: chat.feed.clone(),
             bytes,
             read: std::time::Instant::now(),
+            meter: chat.meter.kept(),
+            claude: chat.provider() == "claude",
         });
         while resting.iter().map(|resting| resting.bytes).sum::<u64>() > RESTING_BYTES {
             let Some(oldest) = (0..resting.len()).min_by_key(|&at| resting[at].read) else {
@@ -159,12 +164,34 @@ impl Chats {
     }
 
     /// The feed the agent's chat kept while it slept, no longer kept apart.
-    pub(super) fn take_rest(&self, agent_id: &str) -> Option<Arc<Feed>> {
+    pub(super) fn take_rest(&self, agent_id: &str) -> Option<(Arc<Feed>, super::cap::KeptMeter)> {
         let mut resting = self.resting.locked();
         let at = resting
             .iter()
             .position(|resting| resting.agent_id == agent_id)?;
-        Some(resting.remove(at).feed)
+        let rested = resting.remove(at);
+        Some((rested.feed, rested.meter))
+    }
+
+    /// The sleeping chats' feeds, each with its meter and whether it is Claude's.
+    pub(crate) fn resting_meters(&self) -> Vec<(Arc<Feed>, super::cap::KeptMeter, bool)> {
+        (self.resting.locked().iter())
+            .map(|resting| (resting.feed.clone(), resting.meter, resting.claude))
+            .collect()
+    }
+
+    /// The person's switch for a sleeping chat whose cache expired.
+    pub(crate) fn resting_keeps_history(
+        &self,
+        agent_id: &str,
+        keep: bool,
+    ) -> Option<(Arc<Feed>, super::cap::KeptMeter, bool)> {
+        let mut resting = self.resting.locked();
+        let rested = resting
+            .iter_mut()
+            .find(|resting| resting.agent_id == agent_id)?;
+        rested.meter.keep_history(keep);
+        Some((rested.feed.clone(), rested.meter, rested.claude))
     }
 
     /// Lets go of what a chat that will not wake again kept while it slept.
@@ -338,8 +365,9 @@ impl Chats {
             .then(|| self.take_rest(&launch.agent_id))
             .flatten();
         let history_shown = rested.is_some();
+        let rested_meter = rested.as_ref().map(|(_, meter)| *meter);
         let (feed, flags) = kept.unwrap_or_else(|| {
-            let feed = rested.unwrap_or_else(|| {
+            let feed = rested.map(|(feed, _)| feed).unwrap_or_else(|| {
                 Feed::new(
                     launch.agent_id.clone(),
                     launch.permission_mode,
@@ -396,6 +424,9 @@ impl Chats {
             origin,
             core: Arc::downgrade(core),
         });
+        if let Some(meter) = rested_meter {
+            chat.meter.take_up(meter);
+        }
         if let Some(kept) = chief
             .then(|| crate::server::chief::kept_session(core, &chat.launch.agent_id))
             .flatten()

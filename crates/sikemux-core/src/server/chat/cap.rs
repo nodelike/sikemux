@@ -63,6 +63,14 @@ pub(crate) struct KeptMeter {
     last_call_ms: u64,
     context: u64,
     compacted: bool,
+    #[serde(default)]
+    keeps_history: bool,
+}
+
+impl KeptMeter {
+    pub(crate) fn keep_history(&mut self, keep: bool) {
+        self.keeps_history = keep;
+    }
 }
 
 impl Meter {
@@ -71,6 +79,7 @@ impl Meter {
             last_call_ms: self.last_call_ms.load(Ordering::Acquire),
             context: self.context.load(Ordering::Acquire),
             compacted: self.compacted.load(Ordering::Acquire),
+            keeps_history: self.keeps_history.load(Ordering::Acquire),
         }
     }
 
@@ -79,6 +88,8 @@ impl Meter {
             .store(kept.last_call_ms, Ordering::Release);
         self.context.store(kept.context, Ordering::Release);
         self.compacted.store(kept.compacted, Ordering::Release);
+        self.keeps_history
+            .store(kept.keeps_history, Ordering::Release);
     }
 
     pub(crate) fn called(&self, context: u64) {
@@ -309,27 +320,32 @@ fn big_from(chat: &Chat) -> u64 {
 /// message reads its whole history again unless the chat is summarised first, which it is
 /// unless the person keeps the full history.
 fn expired_cache(chat: &Chat, now: u64) -> Option<ExpiredCache> {
-    let last = chat.meter.last_call_ms();
-    let tokens = chat.meter.context();
-    let expired = chat.provider() == "claude"
-        && last > 0
-        && now.saturating_sub(last) >= CACHE_MS
-        && tokens >= IDLE_COMPACT_UNCAPPED_TOKENS
-        && !chat.meter.compacted.load(Ordering::Acquire)
-        && !chat.meter.compacting();
-    expired.then(|| ExpiredCache {
-        tokens,
-        at: last + CACHE_MS,
-        summarise: !chat.meter.keeps_history.load(Ordering::Acquire),
+    let busy = chat.meter.compacting();
+    expired_from(chat.provider() == "claude" && !busy, chat.meter.kept(), now)
+}
+
+fn expired_from(claude: bool, meter: KeptMeter, now: u64) -> Option<ExpiredCache> {
+    let expired = claude
+        && meter.last_call_ms > 0
+        && now.saturating_sub(meter.last_call_ms) >= CACHE_MS
+        && meter.context >= IDLE_COMPACT_UNCAPPED_TOKENS
+        && !meter.compacted;
+    expired.then_some(ExpiredCache {
+        tokens: meter.context,
+        at: meter.last_call_ms + CACHE_MS,
+        summarise: !meter.keeps_history,
     })
 }
 
-/// Tells each chat's clients whether its cache has expired.
+/// Tells each chat's clients whether its cache has expired, sleeping chats' too.
 pub(crate) fn tell_expired(core: &Core, now: u64) {
     for agent_id in core.chats().ids() {
         if let Some(chat) = core.chats().get(&agent_id) {
             chat.feed.set_expired_cache(expired_cache(&chat, now));
         }
+    }
+    for (feed, meter, claude) in core.chats().resting_meters() {
+        feed.set_expired_cache(expired_from(claude, meter, now));
     }
 }
 
@@ -371,12 +387,19 @@ pub struct KeepHistoryParams {
 /// The person's switch for a chat whose cache expired: summarise it before the next message, or
 /// keep its full history.
 pub(crate) fn keep_history(core: &Core, params: KeepHistoryParams) -> CoreResult<()> {
-    let chat = core.chats().get(&params.agent_id).ok_or("no such chat")?;
-    chat.meter
-        .keeps_history
-        .store(params.keep, Ordering::Release);
-    chat.feed
-        .set_expired_cache(expired_cache(&chat, epoch_ms()));
+    if let Some(chat) = core.chats().get(&params.agent_id) {
+        chat.meter
+            .keeps_history
+            .store(params.keep, Ordering::Release);
+        chat.feed
+            .set_expired_cache(expired_cache(&chat, epoch_ms()));
+        return Ok(());
+    }
+    let (feed, meter, claude) = core
+        .chats()
+        .resting_keeps_history(&params.agent_id, params.keep)
+        .ok_or("no such chat")?;
+    feed.set_expired_cache(expired_from(claude, meter, epoch_ms()));
     Ok(())
 }
 
