@@ -253,7 +253,8 @@ pub(super) fn row(
                     .gap(px(PART_GAP))
                     .min_w_0()
                     .children(summary)
-                    .children(parts),
+                    .children(parts)
+                    .children(left_out(row, looks, cx)),
             )
             .children(meta::line(rows, ix, &group, looks, cx))
     };
@@ -883,6 +884,51 @@ pub(super) fn work(fold: &WorkFold, open: bool, looks: &Drawn, cx: &App) -> AnyE
         .into_any_element()
 }
 
+/// Where the reader's choice to see what was left out of `row` is kept.
+fn left_out_key(row: &ChatRow) -> String {
+    format!("left-out:{}", row.message.id)
+}
+
+/// The quiet line under an answer that says how many of its sentences rested on no source and
+/// were left out, with Show to put them back in place, faint, and Hide to take them out again.
+fn left_out(row: &ChatRow, looks: &Drawn, cx: &App) -> Option<AnyElement> {
+    let count: u64 = (row.message.left_out.iter()).map(|out| out.sentences).sum();
+    if count == 0 {
+        return None;
+    }
+    let key = left_out_key(row);
+    let open = looks.reading.opened.contains(&key);
+    let said = match count {
+        1 => "1 sentence with no source left out".to_owned(),
+        count => format!("{count} sentences with no source left out"),
+    };
+    let faint = Tokens::get(cx).text_tertiary;
+    let (reader, ink) = (looks.reader.clone(), looks.ink);
+    let toggle = div()
+        .id(SharedString::from(key.clone()))
+        .cursor_pointer()
+        .hover(move |toggle| toggle.text_color(ink))
+        .child(if open { "Hide" } else { "Show" })
+        .on_click(move |_, _, cx| {
+            reader.update(cx, |reading, cx| {
+                reading.toggle(&key);
+                cx.notify();
+            })
+        });
+    Some(
+        div()
+            .flex()
+            .items_center()
+            .gap(SPACE_1)
+            .text_size(crate::theme::ui_text(TEXT_XS_H))
+            .text_color(faint)
+            .child(said)
+            .child("·")
+            .child(toggle)
+            .into_any_element(),
+    )
+}
+
 /// The card of the subagent running in `session`, as the chat last showed it; a subagent's
 /// notice shows its card rather than a notice of its own.
 pub(super) fn card_of<'a>(rows: &'a [ChatRow], session: &str) -> Option<&'a SubagentCard> {
@@ -1219,7 +1265,14 @@ pub(super) fn part(
     };
     match part {
         ChatPart::Text { .. } | ChatPart::Thought { .. } => {
-            let Some(doc) = row.doc(part.id()) else {
+            let restored = (!user && looks.reading.opened.contains(&left_out_key(row)))
+                .then(|| row.restored(part.id()))
+                .flatten();
+            let id = match restored {
+                Some(_) => SharedString::from(format!("{id}:left-out")),
+                None => id,
+            };
+            let Some(doc) = restored.or_else(|| row.doc(part.id())) else {
                 return div().into_any_element();
             };
             let styles = looks.styles.borrow();
@@ -1232,7 +1285,7 @@ pub(super) fn part(
             let look = if user {
                 attach::with_chips(look, &row.message, &looks.bench, window)
             } else {
-                look
+                attach::with_why(look, &row.message, &looks.bench, window)
             };
             let cut = (doc.units > LONG_TEXT && looks.reading.folds(&row.message.id, &id))
                 .then(|| doc.markdown.cut(LONG_TEXT))

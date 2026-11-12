@@ -163,7 +163,7 @@ fn units(text: &str) -> usize {
 }
 
 /// The whole tree of the agent's `text`, read from scratch.
-pub(super) fn read(text: &str) -> PartTree {
+pub fn read(text: &str) -> PartTree {
     read_as(text, ANSWER)
 }
 
@@ -288,6 +288,8 @@ fn field(row: &ChatMessage, name: &str) -> Value {
         "context" => serde_json::to_value(&row.context),
         "letters" => serde_json::to_value(&row.letters),
         "reactions" => serde_json::to_value(&row.reactions),
+        "chips" => serde_json::to_value(&row.chips),
+        "leftOut" => serde_json::to_value(&row.left_out),
         _ => Ok(Value::Null),
     };
     value.unwrap_or_default()

@@ -6,7 +6,7 @@ mod automation;
 mod landing;
 mod places;
 mod rules;
-mod said;
+pub(crate) mod said;
 
 pub(crate) use rules::retire as undo_rule;
 
@@ -104,6 +104,17 @@ pub struct PlaybookTab {
 }
 
 impl Workbench {
+    /// Opens the Playbook of the project in front on its Rules page.
+    pub(crate) fn open_rules(&mut self) {
+        let folder = self
+            .project()
+            .map(|project| project.path.to_string_lossy().into_owned());
+        if let Some(tab) = folder.and_then(|folder| self.project_settings.get_mut(&folder)) {
+            tab.page = Page::Rules;
+        }
+        self.open_playbook();
+    }
+
     /// Opens the Playbook of the project in front.
     pub fn open_playbook(&self) {
         if let Some(project) = self.project().map(|project| project.id.clone()) {

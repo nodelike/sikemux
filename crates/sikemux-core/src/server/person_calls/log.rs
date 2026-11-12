@@ -140,6 +140,22 @@ impl CallLog {
         written.map_err(|error: std::io::Error| error.to_string())
     }
 
+    /// Every entry kept for `project`, oldest first.
+    pub(super) fn read_project(&self, project: &str) -> Vec<Entry> {
+        let Some((current, old)) = self.files(project) else {
+            return Vec::new();
+        };
+        [old, current]
+            .iter()
+            .filter_map(|path| std::fs::read(path).ok())
+            .flat_map(|bytes| {
+                (bytes.split(|byte| *byte == b'\n'))
+                    .filter_map(|line| serde_json::from_slice::<Entry>(line).ok())
+                    .collect::<Vec<_>>()
+            })
+            .collect()
+    }
+
     /// Every entry kept, oldest first.
     pub(super) fn read_all(&self) -> Vec<Entry> {
         let Some(folder) = &self.folder else {

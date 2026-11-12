@@ -7,10 +7,12 @@ mod doc;
 mod mend;
 pub mod paths;
 mod reference;
+mod sentences;
 mod url;
 
 pub use doc::{diff, Doc, MdChange, MdOp, Patch};
 pub use reference::name as reference;
+pub use sentences::unsourced;
 
 use pulldown_cmark::{
     Alignment, CodeBlockKind, Event, LinkType, Options as ParserOptions, Parser, Tag, TagEnd,

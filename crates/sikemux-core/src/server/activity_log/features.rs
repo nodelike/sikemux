@@ -119,6 +119,12 @@ impl ActivityLog {
         }
     }
 
+    /// One use of something the core does by itself, such as a `why` an agent asked, or a
+    /// sentence it dropped.
+    pub(crate) fn core_used(self: &Arc<Self>, feature: &str) {
+        self.used(feature.to_owned(), "core");
+    }
+
     fn used(self: &Arc<Self>, feature: String, via: &'static str) {
         let day = (epoch_ms() as i64).div_euclid(DAY_MS);
         let due = {

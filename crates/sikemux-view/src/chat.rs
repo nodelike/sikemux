@@ -709,6 +709,14 @@ pub struct ChatMessage {
     /// Emoji the agent reacted to it with, on a message to the agent.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub reactions: Vec<String>,
+    /// What the claims in an answer rest on, by the `why` links it holds: a link that names none
+    /// of these shows nothing.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub chips: Vec<WhyChip>,
+    /// The sentences of an answer that rested on none of its `why` links, taken out of its text;
+    /// clients count the sentences, not the entries.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub left_out: Vec<Unsourced>,
     /// The index of the chat event that opened it, where a client pages from: `chatPage`'s
     /// `before`, `after` and `around` take it. Clients read it here, never out of the id.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -842,6 +850,87 @@ pub const WOKEN_URI: &str = "sikemux://woken/";
 pub const STASH_URI: &str = "sikemux://stash/";
 /// An answer the person gave to a question asked in an agent's reply.
 pub const ANSWER_URI: &str = "sikemux://answer/";
+/// What a claim in an agent's answer rests on, as `why` gave it: a commit, the person's words in
+/// a chat, a call or a rule.
+pub const WHY_URI: &str = "sikemux://why/";
+
+/// What one `why` link in an answer names, checked by the core to be in the project.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WhyChip {
+    /// The link as the answer holds it.
+    pub href: String,
+    pub kind: WhyKind,
+    /// When it was said, made or answered, where the core knows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub at: Option<u64>,
+    /// A change that is on the project's branch, rather than only in a checkout.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub landed: bool,
+    pub open: WhyOpen,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum WhyKind {
+    /// The person's own words in a chat.
+    Said,
+    /// A change, by its commit.
+    Change,
+    /// A call the person answered.
+    Call,
+    /// One of the person's rules.
+    Rule,
+    /// What an agent or a lead decided.
+    Decision,
+    /// One from a later release.
+    #[serde(other)]
+    Unknown,
+}
+
+/// Where a chip goes when it is opened.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum WhyOpen {
+    /// The agent's chat, at the event `index` of its run `feed` when the core could place it.
+    Chat {
+        agent: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        feed: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        index: Option<u64>,
+    },
+    Commit {
+        sha: String,
+    },
+    Call {
+        id: String,
+    },
+    /// The rule on the Playbook's Rules page.
+    Rule {
+        id: u64,
+    },
+    /// One from a later release.
+    #[serde(other)]
+    Unknown,
+}
+
+/// Sentences taken out of a text part of an answer together, and where they stood.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Unsourced {
+    pub part: String,
+    /// The byte of the part's text, as it is now, where it stood.
+    pub at: u64,
+    /// As written, with the space that parted it from its neighbour.
+    pub text: String,
+    /// How many sentences it holds, as sentences side by side go out together.
+    pub sentences: u64,
+}
 
 /// What comes before an issue's number in an address, after the repository.
 const ISSUE_PATHS: [&str; 1] = ["/issues/"];

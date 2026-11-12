@@ -1,4 +1,6 @@
 const SAFE_SCHEMES: [&str; 6] = ["http", "https", "irc", "ircs", "mailto", "xmpp"];
+/// What an agent's answer points at as a claim's source, which a client draws as a chip.
+const SOURCE_LINKS: &str = "sikemux://why/";
 
 fn is_drive_path(url: &str) -> bool {
     let mut chars = url.chars();
@@ -9,8 +11,11 @@ fn is_drive_path(url: &str) -> bool {
 }
 
 /// Empties a link whose scheme could run code, such as `javascript:`, and keeps
-/// relative links, fragments and the web and mail schemes.
+/// relative links, fragments, the web and mail schemes and a claim's source.
 pub fn sanitize(url: &str, file_links: bool) -> String {
+    if url.starts_with(SOURCE_LINKS) {
+        return url.to_owned();
+    }
     if file_links
         && (url
             .get(..7)

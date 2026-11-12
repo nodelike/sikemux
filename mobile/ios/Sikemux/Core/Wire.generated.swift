@@ -3606,6 +3606,12 @@ struct ChatMessage: Codable, Hashable, Sendable {
     var team: TeamFold?
     /// Emoji the agent reacted to it with, on a message to the agent.
     var reactions: [String]?
+    /// What the claims in an answer rest on, by the `why` links it holds: a link that names none
+    /// of these shows nothing.
+    var chips: [WhyChip]?
+    /// The sentences of an answer that rested on none of its `why` links, taken out of its text;
+    /// clients count the sentences, not the entries.
+    var leftOut: [Unsourced]?
     /// The index of the chat event that opened it, where a client pages from: `chatPage`'s
     /// `before`, `after` and `around` take it. Clients read it here, never out of the id.
     var fromEvent: Int?
@@ -4542,6 +4548,126 @@ enum TeamNeedKind: String, Codable, Hashable, Sendable {
     init(from decoder: any Decoder) throws {
         self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
     }
+}
+
+/// What one `why` link in an answer names, checked by the core to be in the project.
+struct WhyChip: Codable, Hashable, Sendable {
+    /// The link as the answer holds it.
+    var href: String
+    var kind: WhyKind
+    /// When it was said, made or answered, where the core knows.
+    var at: Int?
+    /// A change that is on the project's branch, rather than only in a checkout.
+    var landed: Bool?
+    var `open`: WhyOpen
+}
+
+enum WhyKind: String, Codable, Hashable, Sendable {
+    /// The person's own words in a chat.
+    case said
+    /// A change, by its commit.
+    case change
+    /// A call the person answered.
+    case call
+    /// One of the person's rules.
+    case rule
+    /// What an agent or a lead decided.
+    case decision
+    /// One added after this build.
+    case unknown
+
+    init(from decoder: any Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
+}
+
+/// Where a chip goes when it is opened.
+enum WhyOpen: Codable, Hashable, Sendable {
+    /// The agent's chat, at the event `index` of its run `feed` when the core could place it.
+    case chat(Chat)
+    case commit(Commit)
+    case call(Call)
+    /// The rule on the Playbook's Rules page.
+    case rule(Rule)
+    /// One from a later release.
+    case unknown
+    /// One added after this build, by its `kind`.
+    case unrecognised(String)
+
+    struct Chat: Codable, Hashable, Sendable {
+        var agent: String
+        var feed: String?
+        var index: Int?
+    }
+
+    struct Commit: Codable, Hashable, Sendable {
+        var sha: String
+    }
+
+    struct Call: Codable, Hashable, Sendable {
+        var id: String
+    }
+
+    struct Rule: Codable, Hashable, Sendable {
+        var id: Int
+    }
+
+    private enum TagKey: String, CodingKey {
+        case tag = "kind"
+    }
+
+    init(from decoder: any Decoder) throws {
+        let tag = try decoder.container(keyedBy: TagKey.self).decode(String.self, forKey: .tag)
+        switch tag {
+        case "chat":
+            self = .chat(try Chat(from: decoder))
+        case "commit":
+            self = .commit(try Commit(from: decoder))
+        case "call":
+            self = .call(try Call(from: decoder))
+        case "rule":
+            self = .rule(try Rule(from: decoder))
+        case "unknown":
+            self = .unknown
+        default:
+            self = .unrecognised(tag)
+        }
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        let tag: String
+        switch self {
+        case .chat(let value):
+            try value.encode(to: encoder)
+            tag = "chat"
+        case .commit(let value):
+            try value.encode(to: encoder)
+            tag = "commit"
+        case .call(let value):
+            try value.encode(to: encoder)
+            tag = "call"
+        case .rule(let value):
+            try value.encode(to: encoder)
+            tag = "rule"
+        case .unknown:
+            tag = "unknown"
+        case .unrecognised(let value):
+            tag = value
+        }
+        var container = encoder.container(keyedBy: TagKey.self)
+        try container.encode(tag, forKey: .tag)
+    }
+}
+
+/// Sentences taken out of a text part of an answer together, and where they stood.
+struct Unsourced: Codable, Hashable, Sendable {
+    var part: String
+    /// The byte of the part's text, as it is now, where it stood.
+    var at: Int
+    /// As written, with the space that parted it from its neighbour.
+    var text: String
+    /// How many sentences it holds, as sentences side by side go out together.
+    var sentences: Int
 }
 
 /// Rows from before or after what a client holds, oldest first.

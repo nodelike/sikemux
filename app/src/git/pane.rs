@@ -713,6 +713,40 @@ impl GitPane {
         commit.map(|commit| Shown::Commit(commit.full_hash.clone()))
     }
 
+    /// Shows the commit `hash` on the History page, as a chip naming it opens it.
+    pub(crate) fn show_named_commit(&mut self, hash: String, cx: &mut Context<Self>) {
+        self.page = Page::History;
+        if let Some(at) = (self.commits.iter()).position(|commit| commit.full_hash == hash) {
+            self.commit = at;
+        }
+        self.ask_commit(hash, cx);
+        cx.notify();
+    }
+
+    /// Asks for the commit `hash`'s files and shows it in the review once they come.
+    fn ask_commit(&mut self, hash: String, cx: &mut Context<Self>) {
+        self.asked_commit = Some(hash.clone());
+        self.read_commit_lines(&hash, cx);
+        let answer = self
+            .core
+            .request_typed::<git_call::CommitFiles>(git_call::CommitFiles {
+                repo: self.repo.clone(),
+                rev: hash.clone(),
+            });
+        cx.spawn(async move |pane, cx| {
+            let paths = answer.await.unwrap_or_default();
+            pane.update(cx, |pane, cx| {
+                if pane.asked_commit.as_deref() == Some(hash.as_str()) {
+                    let repo = pane.repo.clone();
+                    pane.review.show_commit(&repo, &hash, &paths);
+                    cx.notify();
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
     /// Points the review at what it shows, asking for a commit's files the first time.
     fn follow(&mut self, cx: &mut Context<Self>) {
         match self.shown() {
@@ -731,26 +765,7 @@ impl GitPane {
                 {
                     return;
                 }
-                self.asked_commit = Some(hash.clone());
-                self.read_commit_lines(&hash, cx);
-                let answer =
-                    self.core
-                        .request_typed::<git_call::CommitFiles>(git_call::CommitFiles {
-                            repo: self.repo.clone(),
-                            rev: hash.clone(),
-                        });
-                cx.spawn(async move |pane, cx| {
-                    let paths = answer.await.unwrap_or_default();
-                    pane.update(cx, |pane, cx| {
-                        if pane.asked_commit.as_deref() == Some(hash.as_str()) {
-                            let repo = pane.repo.clone();
-                            pane.review.show_commit(&repo, &hash, &paths);
-                            cx.notify();
-                        }
-                    })
-                    .ok();
-                })
-                .detach();
+                self.ask_commit(hash, cx);
             }
             None => {
                 self.review.show_changes(&self.repo, &[]);

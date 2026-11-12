@@ -14,7 +14,7 @@
 //! - `run COMMAND` runs a shell command in the session's folder, as a tool
 //!   call, and says what it printed;
 //! - `tool METHOD JSON` calls one of Sikemux's agent tools, as the agent, and
-//!   says the answer;
+//!   says the answer, or the prompt's lines after it when it has more;
 //! - `show JSON` shows a page with Sikemux's page_show tool, as a tool call
 //!   whose output is the tool's answer, so the reply carries the page, and
 //!   says the answer;
@@ -412,7 +412,12 @@ fn run_turn(agent: &Agent, session_id: &str, text: &str) -> &'static str {
         "tool" => {
             let rest = line.trim_start().trim_start_matches("tool").trim();
             let (method, params) = rest.split_once(' ').unwrap_or((rest, "{}"));
-            say(&call_tool(&session, method, params.trim()));
+            let (params, then) = params.split_once('\n').unwrap_or((params, ""));
+            let answer = call_tool(&session, method, params.trim());
+            match then.trim() {
+                "" => say(&answer),
+                then => say(then),
+            }
             "end_turn"
         }
         _ => {

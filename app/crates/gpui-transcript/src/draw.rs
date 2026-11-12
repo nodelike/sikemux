@@ -93,6 +93,8 @@ pub type FileIcon = Rc<dyn Fn(&str, FileKind, Pixels, &mut Window, &mut App) -> 
 pub type LinkIcon = Rc<dyn Fn(&str, Pixels, &mut App) -> Option<AnyElement>>;
 /// Draws a chip in place of the words it stands for.
 pub type DrawChip = Rc<dyn Fn(&mut Window, &mut App) -> AnyElement>;
+/// The chip a link is drawn as instead of its words, by where it leads; none to draw the link.
+pub type LinkChip = Rc<dyn Fn(&str) -> Option<Chip>>;
 
 /// Words a message wrote for something it names, drawn in their place as a chip `width` wide.
 #[derive(Clone)]
@@ -195,6 +197,8 @@ pub struct Style {
     pub code: Option<CodeColours>,
     pub image: Option<DrawImage>,
     pub chips: Rc<[Chip]>,
+    /// Draws the links it knows as chips in place of their words.
+    pub link_chip: Option<LinkChip>,
     /// Level-two headings lead with their number, `01` and on, in the accent's mono face.
     pub numbered_sections: bool,
     /// Level-one and level-two headings are larger and sit on a rule, as GitHub draws a README.
@@ -256,6 +260,7 @@ impl Default for Style {
             code: None,
             image: None,
             chips: Rc::from(Vec::new()),
+            link_chip: None,
             numbered_sections: false,
             ruled_headings: false,
             editorial: false,
@@ -1092,7 +1097,7 @@ impl Draw<'_> {
             .marks
             .iter()
             .filter(|(_, marks)| marks.has(Marks::CODE));
-        let chips = chips_in(rich, &style.chips);
+        let chips = chips_in(rich, &style.chips, style.link_chip.as_ref());
         let files: Vec<(Range<usize>, SharedString, FileKind)> = match &style.file_of {
             Some(file_of) => rich
                 .paths
@@ -1173,6 +1178,7 @@ impl Draw<'_> {
             .links
             .iter()
             .filter(|(range, _)| !files.iter().any(|(file, _, _)| file == range))
+            .filter(|(range, _)| !chips.iter().any(|(chip, _)| overlap(chip, range)))
             .collect();
         let inner = if links.is_empty() {
             text.into_any_element()
@@ -1908,9 +1914,19 @@ fn highlights(
 
 /// Where the text wrote each chip's words, outside code, longer words first where two would
 /// share letters.
-fn chips_in(rich: &Rich, chips: &[Chip]) -> Vec<(Range<usize>, Chip)> {
+fn chips_in(
+    rich: &Rich,
+    chips: &[Chip],
+    link_chip: Option<&LinkChip>,
+) -> Vec<(Range<usize>, Chip)> {
+    let linked: Vec<(Range<usize>, Chip)> = match link_chip {
+        Some(link_chip) => (rich.links.iter())
+            .filter_map(|(range, href)| Some((range.clone(), link_chip(href)?)))
+            .collect(),
+        None => Vec::new(),
+    };
     if chips.is_empty() {
-        return Vec::new();
+        return linked;
     }
     let code: Vec<&Range<usize>> = rich
         .marks
@@ -1920,7 +1936,7 @@ fn chips_in(rich: &Rich, chips: &[Chip]) -> Vec<(Range<usize>, Chip)> {
         .collect();
     let mut longest: Vec<&Chip> = chips.iter().collect();
     longest.sort_by_key(|chip| std::cmp::Reverse(chip.written.len()));
-    let mut found: Vec<(Range<usize>, Chip)> = Vec::new();
+    let mut found = linked;
     for chip in longest {
         for (at, _) in rich.text.match_indices(chip.written.as_ref()) {
             let range = at..at + chip.written.len();
@@ -1986,6 +2002,9 @@ fn highlight(marks: Marks, style: &Style) -> HighlightStyle {
         highlight.color = Some(style.code_ink);
         highlight.background_color = Some(style.mark_ground);
         highlight.font_scale = Some(gpui::FontScale(0.88));
+    }
+    if marks.has(Marks::FAINT) {
+        highlight.color = Some(style.ink_faint);
     }
     if marks.has(Marks::LINK) {
         highlight.color = Some(style.link);

@@ -14,7 +14,8 @@ use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     div, px, App, AppContext, Axis, ClipboardEntry, ClipboardItem, Context, Div, ExternalPaths,
     FontWeight, Hsla, InteractiveElement, IntoElement, MouseButton, ParentElement,
-    PathPromptOptions, SharedString, Styled, StyledImage, WeakEntity, Window,
+    PathPromptOptions, SharedString, StatefulInteractiveElement, Styled, StyledImage, WeakEntity,
+    Window,
 };
 use gpui_transcript::FilePress;
 use sikemux_core::server::chat::prompt::MAX_ATTACHMENTS;
@@ -22,7 +23,7 @@ use sikemux_view::chat::{
     tracked_at, tracked_title, SentChip, SentChipKind, SentSpan, TrackedKind, AGENT_URI,
     ANSWER_URI, EARLIER_URI, STASH_URI, WOKEN_URI,
 };
-use sikemux_view::chat::{ChatMessage, SentContext};
+use sikemux_view::chat::{ChatMessage, SentContext, WhyChip, WhyKind, WhyOpen, WHY_URI};
 use sikemux_wire::protocol::ChatContext;
 use sikemux_wire::protocol::{FOR_AGENT_URI, MAX_ATTACHMENT_BYTES};
 use tokio::sync::oneshot;
@@ -828,6 +829,155 @@ pub fn with_chips(
         chips: chips.into(),
         ..(*look).clone()
     })
+}
+
+/// An answer's look with each `why` link drawn as the chip the core checked it to be, which opens
+/// what it names; a link the core did not check draws nothing.
+pub fn with_why(
+    look: Rc<gpui_transcript::Style>,
+    message: &ChatMessage,
+    bench: &WeakEntity<Workbench>,
+    window: &mut Window,
+) -> Rc<gpui_transcript::Style> {
+    let links = (message.parts.iter()).any(|part| match part {
+        sikemux_view::chat::ChatPart::Text { text, .. } => text.contains(WHY_URI),
+        _ => false,
+    });
+    if !links && message.chips.is_empty() {
+        return look;
+    }
+    let (size, font) = (look.text_size, look.font.clone());
+    let height = (size * look.line_height).floor() - px(4.);
+    let measure = |text: &str| {
+        let mut style = window.text_style();
+        style.font_family = look.font.clone();
+        let run = style.to_run(text.len());
+        window
+            .text_system()
+            .shape_line(text.to_owned().into(), size, &[run], None)
+            .width
+    };
+    let chips: Vec<(String, gpui_transcript::Chip)> = (message.chips.iter())
+        .map(|chip| {
+            let (icon, key, title) = why_words(chip);
+            let words = measure(&key) + px(CHIP_TITLE_GAP) + measure(&title);
+            let width = (words + px(CHIP_FRAME + 1.)).min(px(CHIP_WIDEST)).ceil();
+            let (bench, font, open) = (bench.clone(), font.clone(), chip.open.clone());
+            let id = SharedString::from(format!("why:{}", chip.href));
+            let drawn = gpui_transcript::Chip {
+                written: SharedString::default(),
+                width,
+                draw: Rc::new(move |_, cx| {
+                    let mark = ui::icon(icon, CHIP_MARK - 3.)
+                        .text_color(Tokens::get(cx).text_tertiary)
+                        .into_any_element();
+                    let (bench, open) = (bench.clone(), open.clone());
+                    div()
+                        .size_full()
+                        .flex()
+                        .items_center()
+                        .text_size(size)
+                        .font_family(font.clone())
+                        .child(
+                            chip_face(
+                                key.clone().into(),
+                                Some(title.clone().into()),
+                                false,
+                                mark,
+                                cx,
+                            )
+                            .id(id.clone())
+                            .cursor_pointer()
+                            .on_click(move |_, _, cx| {
+                                let open = open.clone();
+                                bench.update(cx, |bench, cx| open_why(bench, open, cx)).ok();
+                            })
+                            .w_full()
+                            .h(height),
+                        )
+                        .into_any_element()
+                }),
+            };
+            (chip.href.clone(), drawn)
+        })
+        .collect();
+    let hidden = gpui_transcript::Chip {
+        written: SharedString::default(),
+        width: px(0.),
+        draw: Rc::new(|_, _| div().into_any_element()),
+    };
+    Rc::new(gpui_transcript::Style {
+        link_chip: Some(Rc::new(move |href: &str| {
+            if !href.starts_with(WHY_URI) {
+                return None;
+            }
+            let known = chips.iter().find(|(known, _)| known == href);
+            Some(known.map_or_else(|| hidden.clone(), |(_, chip)| chip.clone()))
+        })),
+        ..(*look).clone()
+    })
+}
+
+/// A `why` chip's icon and words: what it is, then when.
+fn why_words(chip: &WhyChip) -> (Icon, String, String) {
+    let day = |time: bool| chip.at.map(|at| said_at(at, time)).unwrap_or_default();
+    match chip.kind {
+        WhyKind::Said => (Icon::Message, "your message".into(), day(true)),
+        WhyKind::Change if chip.landed => (
+            Icon::Commit,
+            "the change".into(),
+            format!("landed {}", day(false)),
+        ),
+        WhyKind::Change => (Icon::Commit, "the change".into(), day(false)),
+        WhyKind::Call => (Icon::Check, "your answer".into(), day(false)),
+        WhyKind::Rule => (
+            Icon::Book,
+            "your rule".into(),
+            format!("said {}", day(false)),
+        ),
+        WhyKind::Decision => (Icon::Merge, "decided".into(), day(false)),
+        WhyKind::Unknown => (Icon::Message, "source".into(), day(false)),
+    }
+}
+
+/// When something happened, as a person says it looking back: the time today, the weekday this
+/// week, else the date.
+fn said_at(at: u64, time: bool) -> String {
+    let Some(at) = chrono::DateTime::from_timestamp_millis(at as i64) else {
+        return String::new();
+    };
+    let at = at.with_timezone(&chrono::Local);
+    let days = (chrono::Local::now().date_naive() - at.date_naive()).num_days();
+    let clock = at.format("%-I:%M %p");
+    match (days, time) {
+        (..=0, true) => clock.to_string(),
+        (..=0, false) => "today".into(),
+        (1..=6, true) => format!("{} {clock}", at.format("%a")),
+        (1..=6, false) => at.format("%a").to_string(),
+        _ => at.format("%b %-d").to_string(),
+    }
+}
+
+/// Opens what a `why` chip names: the chat at the moment, the commit in Git, the Playbook's
+/// rules, or the chat of the agent that asked the call.
+fn open_why(bench: &mut Workbench, open: WhyOpen, cx: &mut Context<Workbench>) {
+    match open {
+        WhyOpen::Chat { agent, feed, index } => {
+            let moment = crate::playbook::said::Moment::new(agent, feed, index);
+            crate::playbook::said::open_moment(bench, moment, cx);
+        }
+        WhyOpen::Commit { sha } => bench.open_commit(sha, cx),
+        WhyOpen::Rule { .. } => bench.open_rules(),
+        WhyOpen::Call { id } => {
+            let asker = bench
+                .call_at(&id)
+                .map(|(_, call)| call.asker.agent_id.clone());
+            if let Some(asker) = asker {
+                bench.bring_agent(&asker, cx).detach();
+            }
+        }
+        WhyOpen::Unknown => {}
+    }
 }
 
 /// Something a sent message names in its text: the words it wrote, the chip they stood for

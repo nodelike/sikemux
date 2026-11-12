@@ -33,6 +33,7 @@ impl Core {
                     self.activity_log.turn_started(agent_id, place.cwd);
                 }
                 super::board::chat_goal::turn_started(self, agent_id);
+                super::why::turn_started(agent_id);
                 self.ship.turn_started(agent_id);
                 super::worktree::build_output::turn_started(self, agent_id);
                 self.seen.started(agent_id);
@@ -62,6 +63,7 @@ impl Core {
                 super::board::chat_goal::turn_ended(self, agent_id, !cancelled);
                 super::questions::turn_ended(self, agent_id);
                 super::pins::turn_ended(self, agent_id, !cancelled);
+                super::why::turn_ended(self, agent_id);
                 if cancelled {
                     self.seen.active(agent_id);
                     self.inbox.stopped(agent_id);

@@ -46,6 +46,8 @@ pub struct GitTab {
     /// The repository changed while the Git pane was out of sight, so it reads it and its
     /// review again once it shows rather than on every change.
     pub(crate) behind: bool,
+    /// A commit to show once the Git pane is made.
+    pub(crate) wanted: Option<String>,
 }
 
 impl GitTab {
@@ -711,7 +713,19 @@ impl Workbench {
         if let Some(drafts) = self.feeds.in_front().git_draft.as_ref() {
             pane.update(cx, |pane, cx| pane.drafts(drafts, cx));
         }
+        if let Some(hash) = self.git.wanted.take() {
+            pane.update(cx, |pane, cx| pane.show_named_commit(hash, cx));
+        }
         self.git.pane = Some(pane);
+    }
+
+    /// Brings the project's Git tab forward on the commit `hash`.
+    pub(crate) fn open_commit(&mut self, hash: String, cx: &mut Context<Self>) {
+        match self.git.pane.clone() {
+            Some(pane) => pane.update(cx, |pane, cx| pane.show_named_commit(hash, cx)),
+            None => self.git.wanted = Some(hash),
+        }
+        self.open_git(cx);
     }
 
     /// Brings the project's Git tab to the front, opening one when it has none.

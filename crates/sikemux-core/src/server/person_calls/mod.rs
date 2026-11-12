@@ -198,6 +198,12 @@ fn open<'a>(book: &'a Book, id: &str) -> CoreResult<&'a Kept> {
 
 /// What `entry` changes of the calls kept.
 fn apply(book: &mut Book, entry: Entry) {
+    apply_with(book, entry, true);
+}
+
+/// [`apply`], keeping every settled call when not `prune`, as reading a project's whole history
+/// does.
+fn apply_with(book: &mut Book, entry: Entry, prune: bool) {
     let id = entry.id().to_owned();
     if let Entry::Raised {
         call,
@@ -214,7 +220,8 @@ fn apply(book: &mut Book, entry: Entry) {
             .unwrap_or_default();
         book.retain(|kept| {
             kept.call.id != id
-                && (kept.call.state == CallState::Open
+                && (!prune
+                    || kept.call.state == CallState::Open
                     || now.saturating_sub(settled_at(&kept.call)) < SHOWN_AFTER_MS)
         });
         book.push(Kept {
@@ -1597,6 +1604,18 @@ async fn redeliver(core: &Arc<Core>, id: &str) {
     {
         core.person_calls.reopen(id);
     }
+}
+
+/// Every call `project` has had, as its file keeps them, newest first. Reads the disk, so it
+/// blocks.
+pub(crate) fn history(core: &Core, project: &str) -> Vec<PersonCall> {
+    let mut book = Book::new();
+    for entry in core.person_calls.log.read_project(project) {
+        apply_with(&mut book, entry, false);
+    }
+    let mut calls: Vec<PersonCall> = book.into_iter().map(|kept| kept.call).collect();
+    calls.sort_by_key(|call| std::cmp::Reverse(call.raised_at));
+    calls
 }
 
 /// Every call the device view shows, each asker marked when it is a project's chief.

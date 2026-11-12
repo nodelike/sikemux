@@ -99,6 +99,65 @@ pub(crate) struct Page {
     pub first: u64,
 }
 
+/// A prompt the person sent, as the history keeps it.
+pub(crate) struct PersonSaid {
+    pub index: u64,
+    /// When it was sent, in Unix milliseconds, where the history says.
+    pub at: Option<u64>,
+    pub text: String,
+}
+
+/// The prompts the person sent in the history file `name` in `dir`, newest first, from its last
+/// `max_bytes`: only those the core marked as the person's, as they typed them.
+pub(crate) fn persons_prompts(dir: &Path, name: &str, max_bytes: u64) -> Vec<PersonSaid> {
+    let mut said: Vec<PersonSaid> = (tail(dir, name, max_bytes).into_iter())
+        .filter_map(|(index, event)| {
+            let payload = &event.payload;
+            let person = payload.get("person").and_then(serde_json::Value::as_bool) == Some(true);
+            let text = payload.get("text").and_then(serde_json::Value::as_str)?;
+            (event.kind == ChatEventKind::Prompt && person).then(|| PersonSaid {
+                index,
+                at: payload.get("at").and_then(serde_json::Value::as_u64),
+                text: text.to_owned(),
+            })
+        })
+        .collect();
+    said.reverse();
+    said
+}
+
+/// The events of the history file `name` in `dir` in its last `max_bytes`, oldest first, by
+/// index. Reads the file alone, never the chat's lock, so a chat streaming meanwhile is not held
+/// up; an event still being written is not there yet.
+pub(crate) fn tail(dir: &Path, name: &str, max_bytes: u64) -> Vec<(u64, ChatEvent)> {
+    let path = dir.join(format!("{name}.jsonl"));
+    let Ok(mut file) = File::open(&path) else {
+        return Vec::new();
+    };
+    let len = file.metadata().map_or(0, |meta| meta.len());
+    let start = len.saturating_sub(max_bytes);
+    if file.seek(SeekFrom::Start(start)).is_err() {
+        return Vec::new();
+    }
+    let mut reader = BufReader::new(file);
+    let mut line = Vec::new();
+    if start > 0 && reader.read_until(b'\n', &mut line).is_err() {
+        return Vec::new();
+    }
+    let mut events = Vec::new();
+    loop {
+        line.clear();
+        match reader.read_until(b'\n', &mut line) {
+            Ok(read) if read > 0 && line.last() == Some(&b'\n') => {}
+            _ => break,
+        }
+        if let Ok(kept) = serde_json::from_slice::<Line<ChatEvent>>(&line) {
+            events.push((kept.index, kept.event));
+        }
+    }
+    events
+}
+
 /// Removes what an earlier core left, but for the files of chats `keep`
 /// names, which this core took over.
 pub(crate) fn clear(dir: &Path, keep: &[String]) {

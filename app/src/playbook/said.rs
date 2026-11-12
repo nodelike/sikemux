@@ -19,13 +19,17 @@ pub(super) const ROW: &str = "playbook-row";
 
 /// A moment in an agent's chat, which Open jumps to.
 #[derive(Clone)]
-pub(super) struct Moment {
+pub(crate) struct Moment {
     agent: String,
     feed: Option<String>,
     turn: Option<u64>,
 }
 
 impl Moment {
+    pub(crate) fn new(agent: String, feed: Option<String>, turn: Option<u64>) -> Self {
+        Self { agent, feed, turn }
+    }
+
     /// Where `learned` was said, when it was said in a chat.
     pub(super) fn of(learned: &Learned) -> Option<Self> {
         let agent = (learned.agent.clone())
@@ -144,7 +148,7 @@ pub(super) fn line(
 }
 
 /// Brings the agent's chat forward and scrolls it to the turn, opening a closed chat again.
-fn open_moment(bench: &mut Workbench, moment: Moment, cx: &mut Context<Workbench>) {
+pub(crate) fn open_moment(bench: &mut Workbench, moment: Moment, cx: &mut Context<Workbench>) {
     let opening = bench.bring_agent(&moment.agent, cx);
     cx.spawn(async move |bench, cx| {
         let Some(agent) = opening.await else {

@@ -37,6 +37,11 @@ pub(super) struct Resting {
 const RESTING_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 
 impl Chats {
+    /// Where each chat keeps everything it said.
+    pub(crate) fn history_dir(&self) -> Option<&std::path::Path> {
+        self.history.as_deref()
+    }
+
     pub(crate) fn new(data_dir: Option<&std::path::Path>) -> Self {
         Self {
             history: data_dir.map(|dir| dir.join("chat-history")),

@@ -7,7 +7,7 @@ pub mod calls;
 pub(crate) mod cap;
 pub(crate) mod feed;
 pub mod find;
-mod history;
+pub(crate) mod history;
 mod kept;
 pub(crate) mod mentions;
 mod native;

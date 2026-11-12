@@ -38,7 +38,8 @@ use sikemux_view::chat::{
     Compactions, ContentBlock, ContextUsage, FailureKind, LetterKind, MoveReason, NoticeSeverity,
     NoticeState, PermissionAsk, PermissionKind, PermissionOption, PlanEntry, QueuedMessage,
     Retrying, SentContext, SessionEnded, StopReason, SubagentCard, SubagentState, TaskNotice,
-    TaskState, TaskUsage, ToolDetail, ToolStatus, TurnStart, UsageCost, WorkflowAgent,
+    TaskState, TaskUsage, ToolDetail, ToolStatus, TurnStart, Unsourced, UsageCost, WhyChip,
+    WorkflowAgent, WHY_URI,
 };
 use sikemux_view::shown::{ResultRow, TurnShown};
 use sikemux_view::turn::TurnState;
@@ -46,7 +47,7 @@ use tools::WithRow;
 
 pub use event::{ChatEvent, ChatEventKind};
 pub use find::{found_in, matches, searchable, Found, Query};
-pub use send::{with_trees, PageOf, PAGE_BYTES, TAIL_TURNS};
+pub use send::{read as answer_tree, with_trees, PageOf, PAGE_BYTES, TAIL_TURNS};
 pub use team::AgentNeed;
 pub use update::UpdateKind;
 use update::{finished_compaction, stamped_at};
@@ -169,6 +170,8 @@ impl Row {
                 team: None,
                 from_event: Some(index),
                 reactions: Vec::new(),
+                chips: Vec::new(),
+                left_out: Vec::new(),
             },
             index,
             v: 0,
@@ -852,6 +855,7 @@ impl Fold {
     pub fn apply(&mut self, index: u64, kind: ChatEventKind, payload: &Value, at: u64) {
         match kind {
             ChatEventKind::Status => self.status(payload, at),
+            ChatEventKind::Sourced => self.sourced(payload),
             ChatEventKind::Ready => {
                 self.head.connection = ChatConnection::Ready;
                 if let Some(capabilities) = payload
@@ -1737,6 +1741,95 @@ impl Fold {
                 self.append_part(index, within, part, false).is_some()
             }
             None => false,
+        }
+    }
+
+    /// What the claims of an answer rest on, from the message a `why` call was made in, at the
+    /// event `from`, to its turn's end at `until`: each text part loses the sentences that rest on
+    /// none of the links the core checked and found, kept beside it as left out, and each message
+    /// carries the chips of the links it still holds. A link the core did not check holds its
+    /// sentence as markup does.
+    fn sourced(&mut self, payload: &Value) {
+        let number = |key: &str| payload.get(key).and_then(Value::as_u64);
+        let (Some(from), Some(until)) = (number("from"), number("until")) else {
+            return;
+        };
+        let chips: Vec<WhyChip> = (payload.get("chips").and_then(Value::as_array))
+            .into_iter()
+            .flatten()
+            .filter_map(|chip| serde_json::from_value(chip.clone()).ok())
+            .collect();
+        let checked: Vec<&str> = (payload.get("checked").and_then(Value::as_array))
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .collect();
+        let found = |href: &str| {
+            (href.starts_with(WHY_URI) && checked.contains(&href))
+                .then(|| chips.iter().any(|chip| chip.href == href))
+        };
+        let within = None;
+        let Some(transcript) = self.transcript(&within) else {
+            return;
+        };
+        let first = (transcript.rows.iter())
+            .rposition(|row| row.index <= from)
+            .unwrap_or(0);
+        let answer: Vec<usize> = (first..transcript.rows.len())
+            .filter(|&at| {
+                let row = &transcript.rows[at];
+                row.index <= until && row.msg.role == ChatRole::Assistant
+            })
+            .collect();
+        for &at in &answer {
+            let row = &mut transcript.rows[at];
+            let mut changed = Vec::new();
+            for (part, held) in row.msg.parts.iter_mut().enumerate() {
+                let ChatPart::Text { id, text, .. } = held else {
+                    continue;
+                };
+                let cuts = sikemux_markdown::unsourced(text, found);
+                let mut gone = 0;
+                for (cut, sentences) in &cuts {
+                    row.msg.left_out.push(Unsourced {
+                        part: id.clone(),
+                        at: (cut.start - gone) as u64,
+                        text: text[cut.clone()].to_owned(),
+                        sentences: *sentences as u64,
+                    });
+                    gone += cut.len();
+                }
+                for (cut, _) in cuts.iter().rev() {
+                    text.replace_range(cut.clone(), "");
+                }
+                if !cuts.is_empty() {
+                    changed.push(part);
+                }
+            }
+            let held: Vec<WhyChip> = (chips.iter())
+                .filter(|chip| {
+                    let link = format!("]({})", chip.href);
+                    (row.msg.parts.iter()).any(|part| match part {
+                        ChatPart::Text { text, .. } => text.contains(&link),
+                        _ => false,
+                    })
+                })
+                .cloned()
+                .collect();
+            if !changed.is_empty() {
+                row.set("leftOut");
+            }
+            for part in changed {
+                row.touch_part(part);
+            }
+            if !held.is_empty() {
+                row.msg.chips = held;
+                row.set("chips");
+            }
+            transcript.touch(at);
+        }
+        if let Some(&first) = answer.first() {
+            self.note_main_change(&within, first);
         }
     }
 

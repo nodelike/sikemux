@@ -668,6 +668,61 @@ fn split(
     answered
 }
 
+/// A commit a target comes down to, as `why` reads it.
+pub(super) struct Behind {
+    pub hash: String,
+    /// When it was made, in Unix milliseconds.
+    pub at: u64,
+    pub subject: String,
+    /// The agents its signed footer names that check out.
+    pub agents: Vec<Agent>,
+}
+
+/// The commits `target` comes down to in the checkout `project` is or holds, newest first, at
+/// most `most`: a file's latest, the lines' last, or the commit named. Reads git, so it blocks.
+pub(super) fn behind(
+    core: &Core,
+    project: &Path,
+    target: &str,
+    most: usize,
+) -> Result<Vec<Behind>, String> {
+    let dir = checkout_dir(project, target)?;
+    let top = PathBuf::from(git(&dir, &["rev-parse", "--show-toplevel"])?.trim());
+    let found = resolve(&dir, &top, target)?;
+    let hashes: Vec<&str> = (found.commits.iter())
+        .map(|(hash, _)| hash.as_str())
+        .filter(|hash| *hash != UNCOMMITTED)
+        .take(most)
+        .collect();
+    if hashes.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut args = vec![
+        "log",
+        "--no-walk=sorted",
+        "--format=%H%x00%ct%x00%s",
+        "--end-of-options",
+    ];
+    args.extend(&hashes);
+    let listed = git(&top, &args)?;
+    Ok(listed
+        .lines()
+        .filter_map(|line| {
+            let mut fields = line.splitn(3, '\0');
+            let hash = fields.next()?.to_owned();
+            let at = fields.next()?.parse::<u64>().ok()? * 1000;
+            let subject = fields.next()?.to_owned();
+            let agents = verified(core, &top, &hash);
+            Some(Behind {
+                hash,
+                at,
+                subject,
+                agents,
+            })
+        })
+        .collect())
+}
+
 /// What a `who_wrote` target names: commits found here, or a CI run to read
 /// from the code host first.
 enum Asked {

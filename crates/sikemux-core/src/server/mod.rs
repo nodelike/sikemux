@@ -121,6 +121,7 @@ mod waits;
 mod wake;
 pub mod wallpaper;
 mod who_wrote;
+mod why;
 mod window;
 pub mod workspace;
 pub mod worktree;

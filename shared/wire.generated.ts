@@ -2298,6 +2298,16 @@ export interface ChatMessage {
     /** Emoji the agent reacted to it with, on a message to the agent. */
     reactions?: string[];
     /**
+     * What the claims in an answer rest on, by the `why` links it holds: a link that names none
+     * of these shows nothing.
+     */
+    chips?: WhyChip[];
+    /**
+     * The sentences of an answer that rested on none of its `why` links, taken out of its text;
+     * clients count the sentences, not the entries.
+     */
+    leftOut?: Unsourced[];
+    /**
      * The index of the chat event that opened it, where a client pages from: `chatPage`'s
      * `before`, `after` and `around` take it. Clients read it here, never out of the id.
      */
@@ -2823,6 +2833,58 @@ export interface TeamNeed {
 }
 
 export type TeamNeedKind = "asks" | "waits" | "failed" | "stopped";
+
+/** What one `why` link in an answer names, checked by the core to be in the project. */
+export interface WhyChip {
+    /** The link as the answer holds it. */
+    href: string;
+    kind: WhyKind;
+    /** When it was said, made or answered, where the core knows. */
+    at?: number;
+    /** A change that is on the project's branch, rather than only in a checkout. */
+    landed?: boolean;
+    open: WhyOpen;
+}
+
+export type WhyKind = "said" | "change" | "call" | "rule" | "decision";
+
+/** Where a chip goes when it is opened. */
+export type WhyOpen =
+    /** The agent's chat, at the event `index` of its run `feed` when the core could place it. */
+    | {
+          kind: "chat";
+          agent: string;
+          feed?: string;
+          index?: number;
+      }
+    | {
+          kind: "commit";
+          sha: string;
+      }
+    | {
+          kind: "call";
+          id: string;
+      }
+    /** The rule on the Playbook's Rules page. */
+    | {
+          kind: "rule";
+          id: number;
+      }
+    /** One from a later release. */
+    | {
+          kind: "unknown";
+      };
+
+/** Sentences taken out of a text part of an answer together, and where they stood. */
+export interface Unsourced {
+    part: string;
+    /** The byte of the part's text, as it is now, where it stood. */
+    at: number;
+    /** As written, with the space that parted it from its neighbour. */
+    text: string;
+    /** How many sentences it holds, as sentences side by side go out together. */
+    sentences: number;
+}
 
 /** Rows from before or after what a client holds, oldest first. */
 export interface ChatPage {

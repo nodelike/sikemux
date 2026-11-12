@@ -36,6 +36,8 @@ pub enum Kind {
     Emphasis,
     Strong,
     Strike,
+    /// Words drawn in the faint ink, as words the reader asked to see that were left out.
+    Faint,
     InlineCode,
     Link(SharedString),
     /// A name that could be a file, as the message wrote it.
@@ -57,6 +59,7 @@ impl Kind {
                 | Kind::Emphasis
                 | Kind::Strong
                 | Kind::Strike
+                | Kind::Faint
                 | Kind::InlineCode
                 | Kind::Link(_)
                 | Kind::Path(_)
@@ -94,6 +97,7 @@ impl Marks {
     pub const STRIKE: Marks = Marks(4);
     pub const CODE: Marks = Marks(8);
     pub const LINK: Marks = Marks(16);
+    pub const FAINT: Marks = Marks(32);
 
     pub fn has(self, other: Marks) -> bool {
         self.0 & other.0 != 0
@@ -327,6 +331,7 @@ impl Builder {
             Kind::Strong => (with(Marks::STRONG), link),
             Kind::Emphasis => (with(Marks::EMPHASIS), link),
             Kind::Strike => (with(Marks::STRIKE), link),
+            Kind::Faint => (with(Marks::FAINT), link),
             Kind::Link(href) if link.is_none() => (with(Marks::LINK), Some(href)),
             _ => (marks, link),
         };
@@ -435,6 +440,7 @@ impl From<Wire> for Node {
             "em" => Kind::Emphasis,
             "strong" => Kind::Strong,
             "del" => Kind::Strike,
+            "faint" => Kind::Faint,
             "code" => Kind::InlineCode,
             "a" => Kind::Link(element.href),
             "path" => Kind::Path(element.href),

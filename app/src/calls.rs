@@ -264,7 +264,7 @@ impl Workbench {
         this.into_iter().chain(hosts)
     }
 
-    fn call_at(&self, id: &str) -> Option<(Place, &PersonCall)> {
+    pub(crate) fn call_at(&self, id: &str) -> Option<(Place, &PersonCall)> {
         self.views().find_map(|(place, view)| {
             let call = view.calls.iter().find(|call| call.id == id)?;
             Some((place, call))

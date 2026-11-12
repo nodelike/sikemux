@@ -3083,6 +3083,28 @@ pub(crate) async fn verdict(core: &Arc<Core>, request: &HarnessRequest) -> Resul
 /// The cards Auto handed back to the person, the slices waiting at the
 /// person's gate or whose ticket closed with nothing landed, and the cards
 /// done since `done_since`.
+/// Every decision kept in `project` that still stands, each with the card whose goal keeps it:
+/// none for one decided while working on no goal.
+pub(crate) fn decisions_of(
+    core: &Core,
+    project: &str,
+) -> Vec<(Option<u64>, sikemux_view::slice::Decision)> {
+    let state = core.boards.state.locked();
+    let Some(board) = state.boards.get(project) else {
+        return Vec::new();
+    };
+    let own = (board.decided.decisions().into_iter()).map(|decision| (None, decision));
+    let goals = (board.cards.iter()).flat_map(|card| {
+        let decisions = card.goal.decisions();
+        decisions
+            .into_iter()
+            .map(|decision| (Some(card.id), decision))
+    });
+    (own.chain(goals))
+        .filter(|(_, decision)| decision.retired.is_none())
+        .collect()
+}
+
 pub(crate) fn cards_for_person(core: &Core, done_since: Option<u64>) -> Vec<Summary> {
     let state = core.boards.state.locked();
     state.boards.values().for_each(Board::place_cards);
