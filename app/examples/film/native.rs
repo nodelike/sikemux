@@ -80,7 +80,7 @@ impl StandIn {
             } else {
                 height - placed.origin.y - placed.size.height
             };
-            let picture = self.picture(&webview, visible, density)?;
+            let picture = self.picture(&webview, visible, placed.size.width * density)?;
             image::imageops::overlay(
                 shot,
                 &picture,
@@ -91,12 +91,13 @@ impl StandIn {
         Ok(())
     }
 
-    /// What `webview` draws in `rect`, at `density` pixels a point.
+    /// What `webview` draws in `rect`, `width` pixels wide, so a page drawn scaled down comes
+    /// out at the size it shows.
     fn picture(
         &self,
         webview: &WKWebView,
         rect: NSRect,
-        density: f64,
+        width: f64,
     ) -> anyhow::Result<image::RgbaImage> {
         let screen = webview
             .window()
@@ -106,9 +107,7 @@ impl StandIn {
         // SAFETY: `configuration` is ours and not yet handed to WebKit.
         unsafe {
             configuration.setRect(rect);
-            configuration.setSnapshotWidth(Some(&NSNumber::numberWithDouble(
-                rect.size.width * density / screen,
-            )));
+            configuration.setSnapshotWidth(Some(&NSNumber::numberWithDouble(width / screen)));
         }
         let taken: Rc<RefCell<Option<Option<Vec<u8>>>>> = Rc::default();
         let kept = taken.clone();
