@@ -238,7 +238,7 @@ mod tools {
         );
         assert!(choose_device(&devices, "Pixel 9")
             .unwrap_err()
-            .contains("sim_devices"));
+            .contains("sim devices"));
     }
 
     #[test]
@@ -378,7 +378,7 @@ mod tools {
         );
         assert!(tap_point(&elements, Some(9), None, None)
             .unwrap_err()
-            .contains("sim_state"));
+            .contains("sim state"));
         assert!(tap_point(&elements, None, Some(3.0), None).is_err());
     }
 
@@ -750,7 +750,7 @@ done
         assert_eq!(detached["udid"], json!("U1"));
         assert!(call("sim.state", json!({}))
             .unwrap_err()
-            .contains("sim_attach"));
+            .contains("sim attach"));
     }
 
     #[test]
@@ -764,7 +764,7 @@ done
 
         assert_eq!(
             call("sim.tap", json!({ "index": 0 })).unwrap_err(),
-            "no simulator is attached; call sim_attach first"
+            "no simulator is attached; call sim attach first"
         );
         assert!(
             call("sim.install", json!({ "path": "/" })).is_err(),
@@ -815,7 +815,7 @@ done
         )
         .unwrap_err();
         assert!(
-            taken.contains("in use by another agent in tmp") && taken.contains("sim_devices"),
+            taken.contains("in use by another agent in tmp") && taken.contains("sim devices"),
             "{taken}"
         );
         let listed = run_now(&manager, "agent-2", "/work/blog", "sim.devices", &json!({})).unwrap();
