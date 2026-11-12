@@ -68,6 +68,7 @@ impl ActivityCore for Core {
                 super::why::turn_started(agent_id);
                 self.ship().turn_started(agent_id);
                 self.seen().started(agent_id);
+                super::settling::turn_started(self, agent_id);
                 self.inbox().started(agent_id);
                 super::pins::turn_started(self, agent_id);
                 self.boards().wake.now();

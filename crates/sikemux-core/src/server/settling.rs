@@ -162,6 +162,18 @@ pub(crate) fn needs_person(core: &Core, agent_id: &str) {
         .move_places(&[agent_id.to_owned()], |place| unsettle(place, now));
 }
 
+/// The agent began a turn, whoever asked for it, so it no longer sits settled out of sight.
+/// A snooze the person chose still runs out.
+pub(crate) fn turn_started(core: &Core, agent_id: &str) {
+    let now = epoch_ms();
+    core.workspaces()
+        .move_places(&[agent_id.to_owned()], |place| {
+            if place.settled.take().is_some() {
+                place.unsettled_at = Some(now);
+            }
+        });
+}
+
 fn unsettle(place: &mut ListPlace, now: u64) {
     place.snooze = None;
     if place.settled.take().is_some() {
