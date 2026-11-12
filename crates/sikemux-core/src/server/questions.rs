@@ -2304,11 +2304,14 @@ pub(crate) async fn answer_all(core: &Arc<Core>, mut params: AnswersParams) -> R
             (Some(approval), _) => super::approvals::settle(core, approval, given.choice)
                 .await
                 .map(|done| (text, Some(done))),
-            (None, true) => core
-                .harness
-                .questions
-                .keep_secret(&question, &text)
-                .map(|path| (secret_note(&path), None)),
+            (None, true) => {
+                tokio::task::spawn_blocking(move || sikemux_keychain::reference::resolve(&text))
+                    .await
+                    .map_err(|error| error.to_string())
+                    .flatten()
+                    .and_then(|secret| core.harness.questions.keep_secret(&question, &secret))
+                    .map(|path| (secret_note(&path), None))
+            }
             (None, false) => Ok((text, None)),
         };
         match told {

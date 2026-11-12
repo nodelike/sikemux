@@ -69,7 +69,7 @@ impl Fields {
     pub fn new(bench: &Workbench, window: &mut Window, cx: &mut Context<Workbench>) -> Self {
         let key = cx.new(|cx| {
             InputState::new(window, cx)
-                .placeholder("Paste the API key")
+                .placeholder("Paste the API key or its op:// reference")
                 .masked(true)
         });
         let helper_model = cx.new(|cx| InputState::new(window, cx));

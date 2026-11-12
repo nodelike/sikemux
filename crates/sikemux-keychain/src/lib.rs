@@ -11,6 +11,7 @@ mod file;
 mod guarded;
 #[cfg(target_os = "macos")]
 mod keychain;
+pub mod reference;
 mod signature;
 
 pub use signature::{signed_by_team, TEAM_REQUIREMENT};

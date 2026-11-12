@@ -130,8 +130,16 @@ fn forwarded_environment(environment_keys: &[String]) -> BTreeMap<String, String
         .iter()
         .take(64)
         .filter(|key| seen.insert(*key) && valid_environment_key(key))
-        .filter_map(|key| Some((key.clone(), shell_var(key)?)))
+        .filter_map(|key| Some((key.clone(), from_shell(key)?)))
         .collect()
+}
+
+/// `key`'s value in the person's shell, read from 1Password when it is an `op://` reference.
+fn from_shell(key: &str) -> Option<String> {
+    let value = shell_var(key)?;
+    sikemux_keychain::reference::resolve(&value)
+        .inspect_err(|error| eprintln!("sikemux core: {key} is left out: {error}"))
+        .ok()
 }
 
 fn valid_environment_key(key: &str) -> bool {

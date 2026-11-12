@@ -402,8 +402,16 @@ pub(crate) async fn connect(core: &Arc<Core>, params: ConnectParams) -> CoreResu
     if key.is_empty() {
         return Err("Paste the key first".into());
     }
-    check_key(&provider, &key).await?;
+    check_key(&provider, &resolved(key.clone()).await?).await?;
     Ok(on_store(core, move |store| store.save_key(&provider.id, key)).await??)
+}
+
+/// The key itself, read from 1Password when what was entered is an `op://` reference.
+pub(super) async fn resolved(entered: String) -> CoreResult<String> {
+    tokio::task::spawn_blocking(move || sikemux_keychain::reference::resolve(&entered))
+        .await
+        .map_err(|error| CoreError::from(error.to_string()))?
+        .map_err(CoreError::from)
 }
 
 pub(crate) async fn disconnect(core: &Arc<Core>, params: ProviderParams) -> CoreResult<()> {

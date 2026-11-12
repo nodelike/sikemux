@@ -160,7 +160,10 @@ pub async fn sign_in(data_dir: &Path, input: SignIn) -> GithubResult<String> {
             source,
             owns_token,
         },
-        token: token.clone(),
+        token: match owns_token {
+            true => store::entered_secret(token.clone()).await?,
+            false => token.clone(),
+        },
     };
     let identity = identify(&probe).await?;
     let account = Account {

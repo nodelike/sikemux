@@ -137,12 +137,13 @@ pub async fn sign_in_with_token(data_dir: &Path, input: TokenSignIn) -> Bitbucke
     if token.is_empty() {
         return Err(BitbucketError::BadArg("no token was given".into()));
     }
+    let secret = store::entered_secret(token.clone()).await?;
     let credential = match &email {
         Some(email) => Credential::Basic {
             email: email.clone(),
-            token: token.clone(),
+            token: secret,
         },
-        None => Credential::Bearer(token.clone()),
+        None => Credential::Bearer(secret),
     };
     let user = match identify(&credential).await {
         Ok(user) => Some(user),

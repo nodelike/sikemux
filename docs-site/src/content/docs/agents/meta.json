@@ -11,6 +11,7 @@
     "connectors",
     "databases",
     "providers",
+    "secrets",
     "linked-hosts"
   ]
 }

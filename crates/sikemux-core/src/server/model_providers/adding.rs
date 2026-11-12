@@ -173,7 +173,10 @@ async fn examine(core: &Arc<Core>, entered: Entered) -> CoreResult<Examined> {
         (found, saved_key)
     })
     .await?;
-    let key = entered_key.clone().or(saved_key);
+    let key = match entered_key.clone() {
+        Some(entered) => Some(super::resolved(entered).await?),
+        None => saved_key,
+    };
     let (provider, known, served) = match found {
         Found::Known(provider) => {
             let served = serving(&provider, key.as_deref()).await;

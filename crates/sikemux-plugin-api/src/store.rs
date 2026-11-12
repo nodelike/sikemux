@@ -46,13 +46,16 @@ impl Secrets {
         self.0
     }
 
-    /// A secret the caller may not use reads as an error saying why.
+    /// A secret the caller may not use reads as an error saying why. A 1Password reference
+    /// kept in its place is read from 1Password.
     pub fn read(self, account: &str) -> Result<Option<String>, KeychainError> {
         let Some(secret) = sikemux_keychain::read(self.0, account)? else {
             return Ok(None);
         };
         self.check(account)?;
-        Ok(Some(secret))
+        sikemux_keychain::reference::resolve(&secret)
+            .map(Some)
+            .map_err(KeychainError::Failed)
     }
 
     /// Whether the caller may use the secret under `account`, logged as a use when it may. A
@@ -86,6 +89,13 @@ where
     tokio::task::spawn_blocking(vault::carry(work))
         .await
         .map_err(|error| ServiceError::Transport(error.to_string()))?
+}
+
+/// The token the person entered, or the one it names when it is a 1Password `op://` reference,
+/// for checking it before the entered text is kept.
+pub async fn entered_secret<S: 'static>(entered: String) -> Result<String, ServiceError<S>> {
+    blocking(move || sikemux_keychain::reference::resolve(&entered).map_err(ServiceError::Auth))
+        .await
 }
 
 #[derive(Debug)]

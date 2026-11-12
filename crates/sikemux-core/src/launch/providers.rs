@@ -28,6 +28,11 @@ pub const KEY_SERVICE: &str = if cfg!(debug_assertions) {
 #[cfg(test)]
 pub const KEY_SERVICE: &str = "sikemux-model-provider-test";
 
+/// A key to keep in memory as it was given: a 1Password reference is read when first used instead.
+fn own_value(key: String) -> Option<String> {
+    (!sikemux_keychain::reference::is_reference(&key)).then_some(key)
+}
+
 /// Begins a provider's id as the agents that speak chat completions know it.
 const AGENT_ID_PREFIX: &str = "sikemux-";
 
@@ -687,7 +692,7 @@ impl Providers {
         state.custom.retain(|kept| kept.id != provider.id);
         state.custom.push(provider.clone());
         self.write_custom(&mut state)?;
-        match key {
+        match key.and_then(own_value) {
             Some(key) => state.keys.insert(provider.id.clone(), key),
             None => state.keys.remove(&provider.id),
         };
@@ -808,7 +813,7 @@ impl Providers {
     /// Connects the catalogue's provider `id` with `key`, in the Keychain.
     pub fn save_key(&self, id: &str, key: String) -> Result<(), String> {
         sikemux_keychain::write(KEY_SERVICE, id, &key).map_err(|error| error.to_string())?;
-        self.remember_key(id, Some(key));
+        self.remember_key(id, own_value(key));
         self.set_connected(id, true)
     }
 
@@ -833,6 +838,13 @@ impl Providers {
         }
         let key = match sikemux_keychain::read(KEY_SERVICE, id) {
             Ok(key) => key?,
+            Err(error) => {
+                eprintln!("Sikemux could not read the {id} key: {error}");
+                return None;
+            }
+        };
+        let key = match sikemux_keychain::reference::resolve(&key) {
+            Ok(key) => key,
             Err(error) => {
                 eprintln!("Sikemux could not read the {id} key: {error}");
                 return None;

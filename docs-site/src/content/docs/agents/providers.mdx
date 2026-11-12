@@ -20,7 +20,7 @@ Once a chat has started, it keeps its agent and provider, and the picker lists o
 **+ Add provider** asks for three things, as the provider's own dashboard gives them:
 
 - **Base URL**, such as `https://api.lithosai.cloud/v1`. A URL copied with an endpoint on the end, such as `/chat/completions`, is cut back to its base.
-- **API key**, which the field hides as you type. A model server on this host needs none.
+- **API key**, which the field hides as you type, or its [1Password reference](/agents/secrets/). A model server on this host needs none.
 - **Name**, filled in from the URL's domain. Change it if you like.
 
 Sikemux asks the provider for its models to check the key. It shows how many models the provider serves before you add it. Added from a chat that hasn't started, the provider takes the chat with it: the chat moves to the agent that runs the provider, on its first model.

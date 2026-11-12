@@ -147,7 +147,7 @@ pub async fn sign_in_with_token(data_dir: &Path, input: TokenSignIn) -> GitlabRe
         return Err(GitlabError::BadArg("no token was given".into()));
     }
     let host = host_of(&input.host)?;
-    let user = identify(&host, &token).await?;
+    let user = identify(&host, &store::entered_secret(token.clone()).await?).await?;
     let account = new_account(&host, &user)?;
     let id = account.id.clone();
     store::update(data_dir, move |config: &mut GitlabConfig| {
