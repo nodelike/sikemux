@@ -22,7 +22,8 @@ use gpui_kit::{
     StatefulInteractiveElement, Styled, Transformation, Window,
 };
 use sikemux_view::device::RecentInfo;
-use sikemux_view::workspace::LauncherInfo;
+use sikemux_view::turn::TurnPhase;
+use sikemux_view::workspace::{LauncherInfo, ProjectInfo};
 
 use crate::agents::menu::AgentMenu;
 use crate::agents::rows::AgentRow;
@@ -131,7 +132,31 @@ fn page_panel(bench: &Workbench, page: TabRailPage, cx: &mut Context<Workbench>)
     };
     let snoozed = away_rows(&snoozed, cx);
     let settled = away_rows(&settled, cx);
-    let (copy, rows) = team_rows(bench, &agents, cx);
+    let mut heads: Vec<(String, AnyElement)> = Vec::new();
+    let chiefs = match bench.rails.all_projects {
+        true => {
+            heads = (ranked_projects(bench, &agents).iter())
+                .map(|project| {
+                    let chief = chief_of(project, &agents);
+                    (
+                        project.id.clone(),
+                        chief_row(bench, project, chief, true, cx),
+                    )
+                })
+                .collect();
+            Vec::new()
+        }
+        false => (bench.project().cloned())
+            .map(|project| chief_row(bench, &project, chief_of(&project, &agents), false, cx))
+            .into_iter()
+            .collect(),
+    };
+    let mut agents: Vec<AgentRow> = agents.into_iter().filter(|agent| !agent.chief).collect();
+    if bench.rails.all_projects {
+        let at = |project: &str| heads.iter().position(|(id, _)| id == project);
+        agents.sort_by_key(|agent| at(&agent.project).unwrap_or(usize::MAX));
+    }
+    let (copy, rows) = team_rows(bench, &agents, heads, cx);
     let moving = bench.pin_move.as_ref().filter(|_| cx.has_active_drag());
     let pinned: Vec<_> = pins
         .iter()
@@ -260,6 +285,7 @@ fn page_panel(bench: &Workbench, page: TabRailPage, cx: &mut Context<Workbench>)
                 .pb(px(EDGE_FADE))
                 .overflow_y_scroll()
                 .children(empty)
+                .child(div().flex().flex_col().gap(SPACE_0).children(chiefs))
                 .child({
                     let glide = bench.rails.glide.borrow();
                     let skip = usize::from(copy.is_some());
@@ -745,6 +771,7 @@ pub type RailSeen = crate::motion::ListMemory<AgentRow>;
 fn team_rows(
     bench: &Workbench,
     agents: &[AgentRow],
+    mut heads: Vec<(String, AnyElement)>,
     cx: &mut Context<Workbench>,
 ) -> (Option<AnyElement>, Vec<AnyElement>) {
     let chosen = bench.agent().map(|agent| agent.id.clone());
@@ -783,6 +810,14 @@ fn team_rows(
     let mut drawn: Vec<(String, AnyElement)> = Vec::with_capacity(agents.len());
     let mut shown = Vec::new();
     for (ix, agent) in agents.iter().enumerate() {
+        if let Some(at) = heads
+            .iter()
+            .position(|(project, _)| *project == agent.project)
+        {
+            drawn.extend(
+                (heads.drain(..=at)).map(|(project, head)| (format!("chief:{project}"), head)),
+            );
+        }
         if teams && under_lead(agent) {
             continue;
         }
@@ -837,6 +872,11 @@ fn team_rows(
             }
         }
     }
+    drawn.extend(
+        heads
+            .into_iter()
+            .map(|(project, head)| (format!("chief:{project}"), head)),
+    );
     let view = format!(
         "{}:{}:{}",
         bench.rails.all_projects,
@@ -1044,6 +1084,9 @@ fn agent_row(
             .into_any_element(),
         None => agent.mark(20., cx),
     };
+    let worker = !agent.chief
+        && (bench.project_on(&agent.place, &agent.project))
+            .is_some_and(|project| project.chief.is_some());
     let away = agent.snoozed_until.is_some() || agent.settled_at.is_some();
     let mark = match away {
         true => div().opacity(0.55).child(mark).into_any_element(),
@@ -1085,7 +1128,12 @@ fn agent_row(
             }
             match event.click_count() {
                 2 if !elsewhere => bench.retitle(&id, true, window, cx),
-                _ => bench.open_agent(&id, cx),
+                _ => {
+                    if worker {
+                        crate::keymap::counted("chat.openWorker", cx);
+                    }
+                    bench.open_agent(&id, cx)
+                }
             }
         }
     }))
@@ -1181,6 +1229,87 @@ fn agent_row(
             Some(menu) => menu.build(popup, window, cx),
             None => popup,
         }))
+}
+
+/// The projects a list of every project shows, each led by its @Chief: those with a chief's chat
+/// or agents, the one that most needs the person first. A project with an open call or an agent
+/// that needs the person comes first, then one with work under way, then the rest, each rank in
+/// the order the core lists projects.
+fn ranked_projects(bench: &Workbench, agents: &[AgentRow]) -> Vec<ProjectInfo> {
+    let rank = |project: &ProjectInfo| {
+        let phases = || {
+            (agents.iter())
+                .filter(|agent| agent.project == project.id)
+                .filter_map(|agent| agent.turn.as_ref().map(|turn| turn.state))
+        };
+        let path = project.path.to_string_lossy();
+        if crate::calls::waits_on_person(bench, &bench.place(), &path)
+            || phases().any(|phase| phase == TurnPhase::NeedsYou)
+        {
+            0
+        } else if phases().any(|phase| matches!(phase, TurnPhase::Working | TurnPhase::Waiting)) {
+            1
+        } else {
+            2
+        }
+    };
+    let mut projects: Vec<ProjectInfo> = (bench.projects().iter())
+        .filter(|project| project.chief.is_some() || project.agents > 0)
+        .cloned()
+        .collect();
+    projects.sort_by_key(rank);
+    projects
+}
+
+/// The project's chief, while its chat is open.
+fn chief_of<'a>(project: &ProjectInfo, agents: &'a [AgentRow]) -> Option<&'a AgentRow> {
+    (project.chief.as_deref()).and_then(|id| agents.iter().find(|agent| agent.id == id))
+}
+
+/// A project's @Chief row: Sikemux's mark, @Chief, what it is on, the project's name where
+/// projects mix, and how its turn stands. Opening it opens the chief's chat, made the first time.
+fn chief_row(
+    bench: &Workbench,
+    project: &ProjectInfo,
+    chief: Option<&AgentRow>,
+    named: bool,
+    cx: &mut Context<Workbench>,
+) -> AnyElement {
+    let t = Tokens::get(cx).clone();
+    let chosen = chief.is_some_and(|chief| bench.agent().is_some_and(|front| front.id == chief.id));
+    let on = chief.filter(|chief| chief.titled).map(|chief| {
+        ui::meta(chief.title.clone(), cx)
+            .min_w_0()
+            .truncate()
+            .pl(SPACE_2)
+    });
+    let place = named.then(|| {
+        div()
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap(px(3.))
+            .pl(SPACE_2)
+            .text_color(t.text_tertiary)
+            .child(ui::icon(Icon::Folder, 11.))
+            .child(ui::text(project.name.clone(), TEXT_2XS, FontWeight::MEDIUM))
+    });
+    let (id, project_id) = (chief.map(|chief| chief.id.clone()), project.id.clone());
+    Row::new(
+        SharedString::from(format!("chief-{}", project.id)),
+        "@Chief".to_owned(),
+    )
+    .mark(22., ui::chief_mark(20.))
+    .chosen(chosen)
+    .compact(bench.rail_compact())
+    .status(chief.and_then(|chief| ui::turn_mark(&chief.id, chief.turn.as_ref())))
+    .children(on)
+    .children(place)
+    .on_click(cx.listener(move |bench, _, _, cx| match &id {
+        Some(id) => bench.open_agent(id, cx),
+        None => bench.open_chief(&project_id, cx),
+    }))
+    .into_any_element()
 }
 
 /// The host an agent runs on, on its row, while that is not this host.

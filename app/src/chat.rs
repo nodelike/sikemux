@@ -551,7 +551,7 @@ pub struct Chat {
     /// The core of the host the agent runs on, which every ask of the chat goes to.
     pub target: Target,
     /// The head as last changed.
-    state: Option<ChatHead>,
+    pub(crate) state: Option<ChatHead>,
     /// The head changed since the window last drew what stands around the rows.
     head_moved: bool,
     reader: Entity<Reading>,

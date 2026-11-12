@@ -102,6 +102,12 @@ impl PaneHeader {
         self
     }
 
+    /// What leads the header before the mark, such as the chain down to a worker.
+    pub fn back(mut self, back: impl IntoElement) -> Self {
+        self.back = Some(back.into_any_element());
+        self
+    }
+
     pub fn name(mut self, name: Option<SharedString>) -> Self {
         self.name = name;
         self

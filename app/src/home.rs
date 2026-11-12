@@ -17,7 +17,7 @@ use crate::agents::menu::AgentMenu;
 use crate::icons::Icon;
 use crate::theme::{
     self, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_3, SPACE_4, SPACE_6, TEXT_2XS,
-    TEXT_XL, TEXT_XS, TEXT_XS_H,
+    TEXT_SM, TEXT_XL, TEXT_XS, TEXT_XS_H,
 };
 use crate::ui::{self, Button, IconButton, PaneHeader, Segmented, Variant};
 
@@ -512,49 +512,139 @@ fn agent_header(bench: &Workbench, agent: &AgentRow, cx: &mut Context<Workbench>
         .as_ref()
         .filter(|retitling| retitling.agent == agent.id && !retitling.in_rail)
         .map(|retitling| retitle_field(retitling, 13., cx).min_w(px(160.)));
-    PaneHeader::new(agent.title.clone())
-        .title_view(editing)
-        .on_title_double_click(
-            cx.listener(move |bench, _, window, cx| bench.retitle(&id, false, window, cx)),
-        )
-        .mark(match agent.face.is_some() {
-            true => {
-                let picked = agent.id.clone();
-                div()
-                    .id("agent-buddy")
-                    .cursor_pointer()
-                    .tooltip(ui::tooltip("Change buddy"))
-                    .child(agent.mark(16., cx))
-                    .on_click(
-                        cx.listener(move |bench, _, _, cx| bench.open_buddy_picker(&picked, cx)),
-                    )
-                    .into_any_element()
-            }
-            false => ui::mark(&agent.provider, 16.).into_any_element(),
+    let chief = agent.chief.then(|| chief_fact(bench, agent, cx));
+    let chain = (!agent.chief).then(|| chain_to(bench, agent, cx)).flatten();
+    PaneHeader::new(match agent.chief {
+        true => "@Chief".to_owned(),
+        false => agent.title.clone(),
+    })
+    .when_some(chain, PaneHeader::back)
+    .when_some(chief, PaneHeader::fact)
+    .title_view(editing)
+    .on_title_double_click(
+        cx.listener(move |bench, _, window, cx| bench.retitle(&id, false, window, cx)),
+    )
+    .mark(match agent.face.is_some() {
+        true => {
+            let picked = agent.id.clone();
+            div()
+                .id("agent-buddy")
+                .cursor_pointer()
+                .tooltip(ui::tooltip("Change buddy"))
+                .child(agent.mark(16., cx))
+                .on_click(cx.listener(move |bench, _, _, cx| bench.open_buddy_picker(&picked, cx)))
+                .into_any_element()
+        }
+        false => ui::mark(&agent.provider, 16.).into_any_element(),
+    })
+    .name(
+        agent
+            .handle()
+            .map(|name| SharedString::from(format!("@{name}"))),
+    )
+    .when_some(
+        agent.turn.as_ref().filter(|_| in_terminal),
+        |header, turn| {
+            header.fact(crate::turn_line::header(
+                turn,
+                &agent.provider,
+                SharedString::from(format!("turn-head:{}", agent.id)),
+            ))
+        },
+    )
+    .when_some(
+        in_terminal
+            .then(|| crate::worktrees::head::badges(bench, &agent.id, cx))
+            .flatten(),
+        |header, badges| header.action(badges),
+    )
+    .when(has_chat, |header| header.action(share))
+    .action(more)
+}
+
+/// What follows @Chief in its chat's header: the project, how many agents it has, and the
+/// agent and model it runs on, so its mark never reads as a model of Sikemux's own.
+fn chief_fact(bench: &Workbench, agent: &AgentRow, cx: &App) -> AnyElement {
+    let t = Tokens::get(cx);
+    let project = bench.project();
+    let count = project.map_or(0, |project| project.agents);
+    let model = (bench.chats.open.get(&agent.id))
+        .and_then(|chat| chat.state.as_ref()?.model.clone())
+        .filter(|model| !model.current.is_empty())
+        .map(|model| crate::chat::composer::chosen(&model, "Model"))
+        .unwrap_or_else(|| crate::turn_line::maker(&agent.provider).to_owned());
+    let dot = || div().text_color(t.text_disabled).child("·");
+    div()
+        .flex()
+        .items_center()
+        .gap(SPACE_1H)
+        .text_size(crate::theme::ui_text(TEXT_XS))
+        .text_color(t.text_tertiary)
+        .children(project.map(|project| div().child(project.name.clone())))
+        .child(dot())
+        .child(match count {
+            1 => "1 agent".to_owned(),
+            count => format!("{count} agents"),
         })
-        .name(
-            agent
-                .handle()
-                .map(|name| SharedString::from(format!("@{name}"))),
-        )
-        .when_some(
-            agent.turn.as_ref().filter(|_| in_terminal),
-            |header, turn| {
-                header.fact(crate::turn_line::header(
-                    turn,
-                    &agent.provider,
-                    SharedString::from(format!("turn-head:{}", agent.id)),
-                ))
-            },
-        )
-        .when_some(
-            in_terminal
-                .then(|| crate::worktrees::head::badges(bench, &agent.id, cx))
-                .flatten(),
-            |header, badges| header.action(badges),
-        )
-        .when(has_chat, |header| header.action(share))
-        .action(more)
+        .child(dot())
+        .child(ui::mark(&agent.provider, 14.))
+        .child(model)
+        .into_any_element()
+}
+
+/// The chain down to a worker in a project with a chief, leading its header: @Chief, then each
+/// lead above it, each with its own mark.
+fn chain_to(bench: &Workbench, agent: &AgentRow, cx: &App) -> Option<AnyElement> {
+    let project = bench.project().filter(|project| project.chief.is_some())?;
+    let t = Tokens::get(cx);
+    let agents = bench.agents_of(&project.id);
+    let at = agents.iter().position(|row| row.id == agent.id)?;
+    let lead = match agent.team {
+        Some(sikemux_view::inbox::TeamLink::Member | sikemux_view::inbox::TeamLink::Last) => agents
+            [..at]
+            .iter()
+            .rev()
+            .find(|row| row.team == Some(sikemux_view::inbox::TeamLink::Head)),
+        _ => None,
+    };
+    let step = |mark: AnyElement, name: String| {
+        div()
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap(SPACE_1H)
+            .child(ui::mark_box(16., mark))
+            .child(name)
+    };
+    let chevron = || {
+        ui::icon(Icon::Chevron, 10.)
+            .flex_none()
+            .text_color(t.text_disabled)
+    };
+    Some(
+        div()
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap(SPACE_1H)
+            .text_size(crate::theme::ui_text(TEXT_SM))
+            .text_color(t.text_secondary)
+            .child(step(ui::chief_mark(16.), "@Chief".to_owned()))
+            .child(chevron())
+            .children(lead.map(|lead| {
+                let name = lead
+                    .name
+                    .clone()
+                    .map_or_else(|| lead.title.clone(), |name| format!("@{name}"));
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(SPACE_1H)
+                    .child(step(lead.mark(16., cx), name))
+                    .child(chevron())
+            }))
+            .into_any_element(),
+    )
 }
 
 /// The field an agent's title is edited in, at `size`; Escape leaves the title as it was.

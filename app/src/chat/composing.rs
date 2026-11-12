@@ -819,12 +819,15 @@ impl Chat {
     }
 
     /// What the empty draft says, as the chat stands: what typing answers, or where words go.
-    /// `steer_first` is the person's choice that sending mid-turn steers rather than queues.
+    /// `steer_first` is the person's choice that sending mid-turn steers rather than queues;
+    /// `to` is who the words go to, said in place of asking about the project, and whether the
+    /// chat's commands are offered beside it.
     pub fn hint<'a>(
         &self,
         agent: &str,
         questions: impl Iterator<Item = &'a Question>,
         steer_first: bool,
+        to: Option<(&str, bool)>,
     ) -> String {
         let open: Vec<&Question> = questions.filter(|question| question.asks(agent)).collect();
         if let Some(current) = self
@@ -840,8 +843,14 @@ impl Chat {
                 current.title(ix, open.len())
             );
         }
+        let ask = |commands: bool| match (to, commands) {
+            (Some((to, true)), true) => format!("{to}, or type / for commands"),
+            (Some((to, _)), _) => to.to_owned(),
+            (None, true) => "Ask about this project, or type / for commands".to_owned(),
+            (None, false) => "Ask about this project".to_owned(),
+        };
         let Some(head) = &self.state else {
-            return "Ask about this project".into();
+            return ask(false);
         };
         match head.connection {
             ChatConnection::Error | ChatConnection::Stopped => {
@@ -851,9 +860,8 @@ impl Chat {
                 "Send to steer this turn".into()
             }
             ChatConnection::Ready if head.running => "Send to queue behind the running turn".into(),
-            ChatConnection::Ready if head.commands.is_empty() => "Ask about this project".into(),
-            ChatConnection::Ready => "Ask about this project, or type / for commands".into(),
-            _ => "Ask about this project, or type / for commands".into(),
+            ChatConnection::Ready if head.commands.is_empty() => ask(false),
+            _ => ask(true),
         }
     }
 
@@ -1193,6 +1201,15 @@ impl Workbench {
         }
         self.focus_draft(&agent, window, cx);
         let steer_first = self.preferences().mid_turn_send == MidTurnSend::Steer;
+        let to = self.agent().and_then(|row| match row.chief {
+            true => Some(("Tell @Chief what you want".to_owned(), true)),
+            false => (self
+                .project()
+                .is_some_and(|project| project.chief.is_some()))
+            .then_some(row.name)
+            .flatten()
+            .map(|name| (format!("Send to @{name}"), false)),
+        });
         let call_waits = (self.chats.open.get(&agent))
             .and_then(|chat| self.waiting_call(chat.target.place(), &agent))
             .is_some();
@@ -1201,7 +1218,12 @@ impl Workbench {
         };
         let hint = SharedString::from(match call_waits {
             true => "Or answer in your own words".to_owned(),
-            false => chat.hint(&agent, self.feeds.questions_outside_calls(), steer_first),
+            false => chat.hint(
+                &agent,
+                self.feeds.questions_outside_calls(),
+                steer_first,
+                to.as_ref().map(|(to, commands)| (to.as_str(), *commands)),
+            ),
         });
         let Some(composing) = chat
             .composer

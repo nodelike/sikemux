@@ -612,6 +612,31 @@ impl Workbench {
         })
     }
 
+    /// Opens the chief of the project `project` in front, making its chat the first time and
+    /// bringing a closed one back as itself.
+    pub fn open_chief(&self, project: &str, cx: &mut Context<Self>) {
+        let target = self.target();
+        let opening =
+            target.request_typed::<call::OpenChief>(sikemux_core::server::chief::OpenChiefParams {
+                project: project.to_owned(),
+            });
+        let project = project.to_owned();
+        cx.spawn(async move |bench, cx| match opening.await {
+            Ok(opened) => {
+                target.call_typed::<call::OpenTab>(OpenTab::new(
+                    At::project(&project),
+                    PaneKind::Agent,
+                    opened.agent_id,
+                ));
+            }
+            Err(error) => {
+                let note = toast::error(format!("@Chief did not open: {error}"));
+                let _ = bench.update(cx, |bench, cx| bench.notify(note, cx));
+            }
+        })
+        .detach();
+    }
+
     /// Brings the tab of the open agent `id` forward, and says whether any view lists it.
     fn bring_open_agent(&mut self, id: &str) -> bool {
         let project_on = |view: &DeviceView| {

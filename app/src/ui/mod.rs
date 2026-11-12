@@ -89,6 +89,11 @@ pub fn picture(glyph: Icon, size: f32, tint: Hsla) -> AnyElement {
 }
 
 /// An agent's mark at `size`, in its brand colour.
+/// A project's chief's mark, `size` across in place of a face: Sikemux's own purple S.
+pub fn chief_mark(size: f32) -> AnyElement {
+    mark_box(size, mark("sikemux", size * 0.75)).into_any_element()
+}
+
 pub fn mark(provider: &str, size: f32) -> AnyElement {
     picture(icons::agent(provider), size, theme::brand(provider))
 }

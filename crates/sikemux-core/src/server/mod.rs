@@ -20,7 +20,7 @@ mod catalog;
 mod changed;
 pub mod chat;
 mod checks;
-mod chief;
+pub mod chief;
 pub mod cli_install;
 pub mod codehost;
 mod collisions;

@@ -45,14 +45,14 @@ pub(crate) fn is_chief(core: &Core, agent_id: &str) -> bool {
     (core.workspaces.projects().iter()).any(|project| project.chief.as_deref() == Some(agent_id))
 }
 
-#[derive(serde::Deserialize)]
+#[derive(serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OpenChiefParams {
     /// The project, by id.
     pub project: String,
 }
 
-#[derive(serde::Serialize)]
+#[derive(serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OpenedChief {
     pub agent_id: String,

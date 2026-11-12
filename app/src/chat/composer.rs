@@ -868,7 +868,7 @@ fn yolo(
 }
 
 /// What a choice is called, as its picker's trigger shows it.
-fn chosen(picker: &ConfigPicker, name: &str) -> String {
+pub(crate) fn chosen(picker: &ConfigPicker, name: &str) -> String {
     let label = picker
         .choices
         .iter()

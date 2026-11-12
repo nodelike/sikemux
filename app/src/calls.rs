@@ -472,8 +472,11 @@ fn settled_at(call: &PersonCall) -> u64 {
         .unwrap_or(call.raised_at)
 }
 
-/// The asker's own face, or its agent's mark.
+/// The asker's own face, or its agent's mark; the chief wears Sikemux's.
 fn asker_mark(bench: &Workbench, call: &PersonCall, size: f32, cx: &App) -> AnyElement {
+    if call.asker.chief {
+        return ui::chief_mark(size);
+    }
     match bench.agent_by_id(&call.asker.agent_id) {
         Some(agent) => agent.mark(size, cx),
         None => ui::mark(&call.asker.cli, size),

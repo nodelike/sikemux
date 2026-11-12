@@ -54,11 +54,17 @@ pub struct AgentRow {
     pub settled_at: Option<u64>,
     /// How its turn stands, as the core said; none before its first turn.
     pub turn: Option<sikemux_view::turn::TurnState>,
+    /// It is its project's chief, @Chief.
+    pub chief: bool,
 }
 
 impl AgentRow {
-    /// Its face, or its agent's mark while it wears none, `size` across.
+    /// Its face, or its agent's mark while it wears none, `size` across; the chief wears
+    /// Sikemux's own mark.
     pub fn mark(&self, size: f32, cx: &App) -> AnyElement {
+        if self.chief {
+            return crate::ui::chief_mark(size);
+        }
         crate::ui::agent_mark(
             &self.id,
             &self.provider,
@@ -293,6 +299,7 @@ fn agent_row(row: &AgentShown, place: &Place) -> Option<AgentRow> {
         snoozed_until: row.snoozed_until,
         settled_at: row.settled_at,
         turn: row.turn.clone(),
+        chief: row.chief,
     })
 }
 

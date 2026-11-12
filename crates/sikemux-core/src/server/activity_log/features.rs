@@ -37,6 +37,8 @@ const COMMANDS: &[&str] = &[
     "window.board",
     "window.goals",
     "window.hosts",
+    "window.playbook",
+    "chat.openWorker",
     "browser.tabNew",
     "browser.snip",
     "browser.width",
