@@ -144,9 +144,12 @@ struct LiveWork: Equatable {
 
     /// What a handoff's line says first: where the chat goes, or where it was forked from.
     static func handoffTitle(_ handoff: Handoff, to provider: String, core: String) -> String {
-        handoff.forkedFrom == nil
-            ? String(localized: "Hands over to \(Catalog.label(provider, core: core))")
-            : String(localized: "Forked from a \(Catalog.label(handoff.from, core: core)) chat")
+        if handoff.forkedFrom == nil {
+            let agent = Catalog.label(provider, core: core)
+            return String(localized: "Hands over to \(agent)")
+        }
+        let agent = Catalog.label(handoff.from, core: core)
+        return String(localized: "Forked from a \(agent) chat")
     }
 
     /// What a handoff holds, as the Mac's dock line says it.
