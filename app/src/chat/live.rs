@@ -1,6 +1,6 @@
 //! What is still going on under a chat's rows, stacked on its composer: the
 //! questions the agent waits on, its subagents at work, its background tasks,
-//! and the messages waiting their turn.
+//! the messages waiting their turn, and those share viewers wrote.
 
 use gpui_kit::base::Button as BaseButton;
 use gpui_kit::prelude::FluentBuilder;
@@ -11,6 +11,7 @@ use gpui_kit::{
 };
 use sikemux_core::server::call;
 use sikemux_core::server::chat::calls::QueuedParams;
+use sikemux_core::server::share::GuestMessageParams;
 use sikemux_core::server::triggers::TriggerParams;
 use sikemux_view::chat::{
     AsyncTask, ChatTrigger, QueuedMessage, SubagentCard, TaskState, TriggerWhen, WorkflowAgent,
@@ -220,6 +221,7 @@ fn elapsed(task: &AsyncTask) -> Option<String> {
 
 const RUNNING: &str = "dock";
 const QUEUED: &str = "queued";
+const GUESTS: &str = "guests";
 const TRIGGERS: &str = "triggers";
 
 /// A group of the dock: what its header says, on its own or within the line the folded dock
@@ -241,10 +243,14 @@ pub fn dock(
     asks: Vec<AnyElement>,
     cx: &mut Context<Workbench>,
 ) -> Option<AnyElement> {
+    let guests = guests(&agent.id, chat, cx);
     let queued = queued(&agent.id, chat, cx);
     let running = running(agent, chat, cx);
     let triggers = triggers(&agent.id, chat, cx);
-    let groups: Vec<Group> = [queued, running, triggers].into_iter().flatten().collect();
+    let groups: Vec<Group> = [guests, queued, running, triggers]
+        .into_iter()
+        .flatten()
+        .collect();
     if asks.is_empty() && groups.is_empty() {
         return None;
     }
@@ -832,19 +838,7 @@ fn queued(agent: &str, chat: &Chat, cx: &mut Context<Workbench>) -> Option<Group
     let steer = |ids: Vec<String>, label: &str, keys: bool, cx: &mut Context<Workbench>| {
         let agent = agent.to_owned();
         let id = SharedString::from(format!("steer:{}", ids.join(",")));
-        BaseButton::new(id)
-            .h(px(20.))
-            .px(px(7.))
-            .flex()
-            .items_center()
-            .gap(SPACE_1H)
-            .border_1()
-            .border_color(t.line)
-            .rounded(theme::RADIUS_1)
-            .bg(Hsla { a: 0.08, ..live })
-            .hover(move |button| button.bg(Hsla { a: 0.18, ..live }))
-            .text_size(crate::theme::ui_text(TEXT_3XS_H))
-            .text_color(t.text_primary)
+        tinted_button(id, label, live, &t)
             .on_click(cx.listener(move |bench, _, _, _| {
                 bench
                     .chat_target(&agent)
@@ -854,7 +848,6 @@ fn queued(agent: &str, chat: &Chat, cx: &mut Context<Workbench>) -> Option<Group
                         message: None,
                     });
             }))
-            .child(label.to_owned())
             .when(keys, |button| {
                 button.child(
                     div()
@@ -876,16 +869,9 @@ fn queued(agent: &str, chat: &Chat, cx: &mut Context<Workbench>) -> Option<Group
         .map(|message| {
             let steer_one =
                 steerable.then(|| steer(vec![message.id.clone()], "Steer", waiting.len() == 1, cx));
-            let (agent, id, danger) = (agent.to_owned(), message.id.clone(), t.danger);
-            let drop = BaseButton::new(SharedString::from(format!("drop:{id}")))
-                .accessibility_label(format!("Drop {} from the queue", queued_label(message)))
-                .size(px(18.))
-                .flex()
-                .items_center()
-                .justify_center()
-                .rounded(theme::RADIUS_1)
-                .text_color(t.text_disabled)
-                .hover(move |drop| drop.bg(Hsla { a: 0.16, ..danger }).text_color(danger))
+            let (agent, id) = (agent.to_owned(), message.id.clone());
+            let label = format!("Drop {} from the queue", queued_label(message));
+            let drop = remove_button(SharedString::from(format!("drop:{id}")), label, &t)
                 .on_click(cx.listener(move |bench, _, _, _| {
                     bench
                         .chat_target(&agent)
@@ -895,7 +881,6 @@ fn queued(agent: &str, chat: &Chat, cx: &mut Context<Workbench>) -> Option<Group
                             message: None,
                         });
                 }))
-                .child(ui::icon(Icon::Close, 10.).text_color(t.text_disabled))
                 .into_any_element();
             let icon = match message.text.is_empty() && !message.paths.is_empty() {
                 true => Icon::Image,
@@ -926,6 +911,103 @@ fn queued(agent: &str, chat: &Chat, cx: &mut Context<Workbench>) -> Option<Group
         key: QUEUED,
         words,
         action,
+        rows,
+    })
+}
+
+/// A small button of the dock, washed in `tint`.
+fn tinted_button(id: SharedString, label: &str, tint: Hsla, t: &Tokens) -> BaseButton {
+    BaseButton::new(id)
+        .h(px(20.))
+        .px(px(7.))
+        .flex()
+        .items_center()
+        .gap(SPACE_1H)
+        .border_1()
+        .border_color(t.line)
+        .rounded(theme::RADIUS_1)
+        .bg(Hsla { a: 0.08, ..tint })
+        .hover(move |button| button.bg(Hsla { a: 0.18, ..tint }))
+        .text_size(crate::theme::ui_text(TEXT_3XS_H))
+        .text_color(t.text_primary)
+        .child(label.to_owned())
+}
+
+/// The cross that takes a row out of the dock.
+fn remove_button(id: SharedString, label: String, t: &Tokens) -> BaseButton {
+    let danger = t.danger;
+    BaseButton::new(id)
+        .accessibility_label(label)
+        .size(px(18.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded(theme::RADIUS_1)
+        .text_color(t.text_disabled)
+        .hover(move |remove| remove.bg(Hsla { a: 0.16, ..danger }).text_color(danger))
+        .child(ui::icon(Icon::Close, 10.).text_color(t.text_disabled))
+}
+
+/// What viewers of the chat's share link wrote, waiting for the person to send each to the
+/// agent or dismiss it.
+fn guests(agent: &str, chat: &Chat, cx: &mut Context<Workbench>) -> Option<Group> {
+    let waiting = &chat.state.as_ref()?.guests;
+    if waiting.is_empty() {
+        return None;
+    }
+    let t = Tokens::get(cx).clone();
+    let accent = t.accent;
+    let icon = ui::icon(Icon::Link, 11.)
+        .text_color(t.text_tertiary)
+        .into_any_element();
+    let words = vec![counted(icon, format!("{} from guests", waiting.len()), &t)];
+    let rows = waiting
+        .iter()
+        .map(|message| {
+            let params = GuestMessageParams {
+                agent_id: agent.to_owned(),
+                id: message.id.clone(),
+            };
+            let (agent, sending) = (agent.to_owned(), params.clone());
+            let send = tinted_button(
+                SharedString::from(format!("guest-send:{}", message.id)),
+                "Send",
+                accent,
+                &t,
+            )
+            .on_click(cx.listener(move |bench, _, _, _| {
+                bench
+                    .chat_target(&agent)
+                    .call_typed::<call::SendGuestMessage>(sending.clone());
+            }));
+            let (agent, dismissing) = (params.agent_id.clone(), params);
+            let dismiss = remove_button(
+                SharedString::from(format!("guest-dismiss:{}", message.id)),
+                "Dismiss the guest's message".to_owned(),
+                &t,
+            )
+            .on_click(cx.listener(move |bench, _, _, _| {
+                bench
+                    .chat_target(&agent)
+                    .call_typed::<call::DismissGuestMessage>(dismissing.clone());
+            }));
+            let mark = ui::icon(Icon::Message, 12.)
+                .text_color(t.text_tertiary)
+                .into_any_element();
+            let end = div()
+                .flex()
+                .items_center()
+                .gap(SPACE_1H)
+                .child(send)
+                .child(dismiss)
+                .into_any_element();
+            work_row(&t, mark, one_line(&message.text), None, None, Some(end)).into_any_element()
+        })
+        .collect();
+    Some(Group {
+        key: GUESTS,
+        words,
+        action: None,
         rows,
     })
 }
