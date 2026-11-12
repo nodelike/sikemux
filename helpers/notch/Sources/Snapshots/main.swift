@@ -137,9 +137,23 @@ let agents = faces.isEmpty ? decoded.inbox.agents : decoded.inbox.agents.enumera
                snoozedUntil: nil, settledAt: nil)
 }
 /// The new welcome screen as staging shows it, drawn to a file for a call's evidence.
-func welcomePicture(file: String) -> String {
+func welcomePicture(file: String, now: Bool = false) -> String {
     let ink = Color(hex: "#18181b"), dim = Color(hex: "#71717a")
-    let page = VStack(alignment: .leading, spacing: 0) {
+    let today = VStack(alignment: .leading, spacing: 0) {
+        Text("ACME").font(.system(size: 13, weight: .bold)).tracking(2).foregroundStyle(ink).padding(.bottom, 22)
+        Text("Welcome to Acme Store").font(.system(size: 22, weight: .bold)).foregroundStyle(ink)
+        Text("Sign in to continue.").font(.system(size: 14)).foregroundStyle(dim).padding(.top, 4).padding(.bottom, 16)
+        Text("Email").font(.system(size: 14)).foregroundStyle(dim).frame(maxWidth: .infinity, alignment: .leading)
+            .padding(10).background(RoundedRectangle(cornerRadius: 7).stroke(Color(hex: "#d4d4d0")))
+        Text("Sign in").font(.system(size: 15, weight: .semibold)).foregroundStyle(.white).frame(maxWidth: .infinity)
+            .padding(.vertical, 11).background(RoundedRectangle(cornerRadius: 7).fill(Color(hex: "#3f3f46")))
+            .padding(.top, 10)
+    }
+    .padding(.horizontal, 26)
+    .padding(.vertical, 22)
+    .frame(width: 580, height: 330, alignment: .topLeading)
+    .background(Color(hex: "#f6f6f4"))
+    let page = now ? AnyView(today) : AnyView(VStack(alignment: .leading, spacing: 0) {
         Text("ACME").font(.system(size: 13, weight: .bold)).tracking(2).foregroundStyle(Color(hex: "#c2410c")).padding(.bottom, 16)
         HStack(spacing: 18) {
             Circle().fill(Color(hex: "#fdba74")).frame(width: 34, height: 34)
@@ -159,7 +173,7 @@ func welcomePicture(file: String) -> String {
     .padding(.horizontal, 26)
     .padding(.vertical, 22)
     .frame(width: 580, height: 330, alignment: .topLeading)
-    .background(Color(hex: "#fffaf5"))
+    .background(Color(hex: "#fffaf5")))
     let path = NSTemporaryDirectory() + "notch-snapshot-\(file).png"
     let image = MainActor.assumeIsolated { () -> CGImage? in
         let renderer = ImageRenderer(content: page)
@@ -225,7 +239,8 @@ let demoCalls = [
                          CallOption(id: "half", label: "Ship to half first", detail: nil, picture: nil),
                          CallOption(id: "wait", label: "Not yet", detail: nil, picture: nil)],
                pick: "all", against: "step 2 still has the old copy.",
-               evidence: [CallEvidence(what: "The welcome screen on staging", picture: welcomePicture(file: "welcome"))],
+               evidence: [CallEvidence(what: "Now", picture: welcomePicture(file: "welcome-now", now: true)),
+                          CallEvidence(what: "New", picture: welcomePicture(file: "welcome"))],
                action: "vercel deploy --prod", brief: nil,
                place: CallPlace(id: "production", name: "production"), canHandBack: false, multi: nil, secret: nil, raisedAt: now - 720_000, state: .open, answer: nil, outcome: nil),
     PersonCall(id: "m1", project: "/Users/me/storefront", kind: .money, asker: asker("a12", "Kite", "claude"), joined: nil, askedFor: nil,

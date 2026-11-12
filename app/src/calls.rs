@@ -564,25 +564,43 @@ fn card(
         !call.secret && call.options.iter().any(|option| option.picture.is_some());
     let pictures = match options_pictured {
         true => Some(strip(call, &chosen, cards, bench, &t)),
-        false => (call.evidence.iter())
-            .find_map(|evidence| Some((evidence.picture.as_deref()?, evidence.what.clone())))
-            .map(|(path, what)| {
-                let fill = match cards.update(cx, |cards, _| cards.ratio(path)) {
-                    Some(ratio) => Fill::Top(ratio),
-                    None => Fill::Cover,
-                };
-                picture(
-                    SharedString::from(format!("call-evidence-{}", call.id)),
-                    path,
-                    what,
-                    fill,
-                    bench,
-                    &t,
-                )
-                .w_full()
-                .h(px(EVIDENCE_HEIGHT))
-                .into_any_element()
-            }),
+        false => {
+            let shown: Vec<(&str, String)> = (call.evidence.iter())
+                .filter_map(|evidence| Some((evidence.picture.as_deref()?, evidence.what.clone())))
+                .take(2)
+                .collect();
+            let labelled = shown.len() > 1;
+            let width = match labelled {
+                true => (EVIDENCE_WIDTH - 6.) / 2.,
+                false => EVIDENCE_WIDTH,
+            };
+            (!shown.is_empty()).then(|| {
+                div()
+                    .w_full()
+                    .h(px(EVIDENCE_HEIGHT))
+                    .flex()
+                    .gap(px(6.))
+                    .children(shown.into_iter().enumerate().map(|(ix, (path, what))| {
+                        let fill = match cards.update(cx, |cards, _| cards.ratio(path)) {
+                            Some(ratio) => Fill::Top(ratio, width),
+                            None => Fill::Cover,
+                        };
+                        let label = labelled.then(|| picture_label(what.clone()));
+                        picture(
+                            SharedString::from(format!("call-evidence-{}-{ix}", call.id)),
+                            path,
+                            what,
+                            fill,
+                            bench,
+                            &t,
+                        )
+                        .w(px(width))
+                        .h_full()
+                        .children(label)
+                    }))
+                    .into_any_element()
+            })
+        }
     };
     let cursor = cards.read(cx).cursor(&call.id).filter(|_| call.multi);
     let rows = (call.options.iter()).enumerate().map(|(ix, option)| {
@@ -940,8 +958,9 @@ fn tick(on: bool, t: &Tokens) -> AnyElement {
 enum Fill {
     /// All of it covered, cut evenly at the edges.
     Cover,
-    /// Its full width from its top, as a page is read, given its width over its height.
-    Top(f32),
+    /// From its top, as a page is read, given its width over its height and the width it
+    /// fills: its full width, or wider when that would leave its place short.
+    Top(f32, f32),
 }
 
 /// A picture on the card, which opens full size.
@@ -968,9 +987,12 @@ fn picture(
             Fill::Cover => img(shown.source_at(px(PICTURE_SIZE)))
                 .size_full()
                 .object_fit(ObjectFit::Cover),
-            Fill::Top(ratio) => img(shown.source_at(px(PICTURE_SIZE)))
-                .w(px(EVIDENCE_WIDTH))
-                .h(px(EVIDENCE_WIDTH / ratio))
+            Fill::Top(ratio, width) => {
+                let height = (width / ratio).max(EVIDENCE_HEIGHT);
+                img(shown.source_at(px(PICTURE_SIZE)))
+                    .w(px(height * ratio))
+                    .h(px(height))
+            }
                 .object_fit(ObjectFit::Cover),
         })
         .on_click(move |_, window, cx| {
@@ -981,6 +1003,22 @@ fn picture(
                 })
                 .ok();
         })
+}
+
+/// A picture's name on its corner, such as Now and New on two evidence pages side by side.
+fn picture_label(text: String) -> gpui_kit::Div {
+    div()
+        .absolute()
+        .left(px(6.))
+        .bottom(px(6.))
+        .px(px(6.))
+        .py(px(2.))
+        .rounded(px(5.))
+        .bg(gpui_kit::black().opacity(0.62))
+        .text_color(gpui_kit::white())
+        .text_size(theme::ui_text(11.))
+        .font_weight(FontWeight::MEDIUM)
+        .child(text)
 }
 
 /// A taste call's pictures, one per option: the chosen option's leads, large, and the others

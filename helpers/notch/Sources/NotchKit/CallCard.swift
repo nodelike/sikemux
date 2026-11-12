@@ -100,8 +100,16 @@ struct CallCard: View {
             }
             if pictured {
                 strip.padding(.top, 12).padding(.bottom, 14)
-            } else if let path = call.evidence?.lazy.compactMap(\.picture).first {
-                evidence(path).padding(.top, 12).padding(.bottom, 14)
+            } else if let shown = call.evidence?.filter({ $0.picture != nil }).prefix(2), !shown.isEmpty {
+                HStack(spacing: 6) {
+                    ForEach(Array(shown.enumerated()), id: \.offset) { _, item in
+                        evidence(item.picture ?? "", width: shown.count > 1 ? (width - 6) / 2 : width)
+                            .overlay(alignment: .bottomLeading) {
+                                if shown.count > 1 { PictureLabel(text: item.what) }
+                            }
+                    }
+                }
+                .padding(.top, 12).padding(.bottom, 14)
             } else {
                 Color.clear.frame(height: 12)
             }
@@ -164,12 +172,13 @@ struct CallCard: View {
         }
     }
 
-    /// Evidence shows the page from its top, the card's full width.
-    private func evidence(_ path: String) -> some View {
+    /// Evidence shows the page from its top, the card's full width, or half of it for one of two.
+    private func evidence(_ path: String, width: CGFloat) -> some View {
         let ratio = CallPictures.image(path).map { $0.size.width / max(1, $0.size.height) } ?? 2
+        let height = max(148, width / ratio)
         return picture(path)
-            .frame(width: width, height: width / ratio)
-            .frame(width: width, height: 148, alignment: .top)
+            .frame(width: height * ratio, height: height)
+            .frame(width: width, height: 148, alignment: .topLeading)
             .clipShape(RoundedRectangle(cornerRadius: 8))
             .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.hairline, lineWidth: 1))
     }
@@ -474,6 +483,21 @@ struct CallsInList: View {
             .background(RoundedRectangle(cornerRadius: 14).fill(call.id == open ? Theme.raised : .clear))
             .padding(.bottom, 2)
         }
+    }
+}
+
+/// A picture's name on its corner, such as Now and New on two evidence pages side by side.
+struct PictureLabel: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(Theme.ui(11, .medium))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(RoundedRectangle(cornerRadius: 5).fill(.black.opacity(0.62)))
+            .padding(6)
     }
 }
 

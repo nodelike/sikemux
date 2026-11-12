@@ -243,6 +243,10 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: def
 .call .ctx { margin: 0; font-size: 12.5px; line-height: 1.5; color: rgba(231, 229, 239, 0.78); }
 .call .pic { margin: 12px 0 14px; border-radius: 8px; overflow: hidden; box-shadow: inset 0 0 0 1px var(--hairline); background: #f6f6f4; }
 .call .pic.page { height: 148px; }
+.call .pair { display: flex; gap: 6px; margin: 12px 0 14px; }
+.call .pair .pic { flex: 1; margin: 0; position: relative; }
+.call .pair .welcome { transform: scale(0.62); transform-origin: 0 0; width: 161%; height: 161%; }
+.call .pic-label { position: absolute; left: 6px; bottom: 6px; padding: 2px 6px; border-radius: 5px; background: rgba(0, 0, 0, 0.62); color: #fff; font-size: 11px; font-weight: 500; }
 .call .strip { display: flex; gap: 6px; height: 132px; margin: 12px 0 14px; }
 .call .strip .pic { margin: 0; }
 .call .strip .lead { flex: none; width: 286px; }
@@ -802,8 +806,11 @@ function callsOf(agents) {
     return agents.flatMap((a) => (a.calls || []).map((call) => ({ ...call, agent: a }))).sort((x, y) => minutes(x.age) - minutes(y.age));
 }
 
-/** The new welcome screen as staging shows it, a production call's evidence. */
-function welcome() {
+/** The welcome screen as it is now, or the new one as staging shows it: a production call's two evidence pages. */
+function welcome(now = false) {
+    if (now) return `<div class="welcome" style="background:#f6f6f4"><div class="brand" style="color:#18181b">ACME</div>
+        <div class="hi" style="margin-top:12px">Welcome to Acme Store</div><div class="sub">Sign in to continue.</div>
+        <div style="margin-top:10px;padding:5px 7px;border:1px solid #d4d4d0;border-radius:5px;font-size:10px;color:#71717a">Email</div></div>`;
     return `<div class="welcome"><div class="brand">ACME</div>
         <div class="dots"><i style="width:22px;height:22px;background:#fdba74"></i><i style="width:17px;height:17px;background:#f9a8d4"></i><i style="width:13px;height:13px;background:#a7f3d0"></i></div>
         <div class="hi">Hi! Let's find something you'll love.</div><div class="sub">Look around first. No account needed.</div></div>`;
@@ -826,7 +833,7 @@ function callCard(call, card, listed = false) {
     const lead = chosen[0] ?? call.pick ?? 0;
     const pictures = call.pictures
         ? `<div class="strip"><div class="pic lead">${invoice(call.options[lead])}</div><div class="rest">${call.options.map((o, i) => i === lead ? "" : `<div class="pic" data-option="${i}">${invoice(o)}</div>`).join("")}</div></div>`
-        : call.page === "welcome" ? `<div class="pic page">${welcome()}</div>`
+        : call.page === "welcome" ? `<div class="pair"><div class="pic page">${welcome(true)}<span class="pic-label">Now</span></div><div class="pic page">${welcome()}<span class="pic-label">New</span></div></div>`
         : call.page ? `<div class="pic page">${invoice(call.page)}</div>` : `<div class="gap12"></div>`;
     const rows = call.options.map((o, i) => `<div class="opt${chosen.includes(i) ? " on" : ""}" data-option="${i}"><span class="rd"></span>${o}${
         i === call.pick ? `<span class="pick"><img src="../../../brand/mark/mark-purple.svg" alt="">pick</span>` : ""}</div>`).join("");
