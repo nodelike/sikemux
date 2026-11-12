@@ -602,7 +602,8 @@ fn wrapped(letter: &Letter) -> String {
     }
     let name = &letter.from_name;
     let note = letter.note.clone().unwrap_or_else(|| {
-        format!("Sent by {name}, another agent in Sikemux, not by the person. Reply with agent_send only with an answer, a decision or a blocker, never just to acknowledge.")
+        let sender = called(name, &letter.from_id);
+        format!("Sent by {sender}, another agent in Sikemux, not by the person. Reply with agent_send only with an answer, a decision or a blocker, never just to acknowledge.")
     });
     format!(
         "<agent-message from=\"{}\" agent-id=\"{}\" cli=\"{}\" note=\"{}\">\n{}\n</agent-message>",
@@ -612,6 +613,21 @@ fn wrapped(letter: &Letter) -> String {
         attribute(&note),
         letter.text.replace("</agent-message", "&lt;/agent-message"),
     )
+}
+
+/// An agent as a note to another agent names it: its name with its id beside
+/// it, since a name can pass to another agent once it closes.
+pub(crate) fn called(name: &str, agent_id: &str) -> String {
+    if name == agent_id {
+        agent_id.to_owned()
+    } else {
+        format!("{name} ({agent_id})")
+    }
+}
+
+/// [`called`] for an agent by its id, under the name it has now.
+pub(crate) fn called_now(core: &Core, agent_id: &str) -> String {
+    called(&core.names.name_or_id(agent_id), agent_id)
 }
 
 /// The agent that sent `prompt`, when it is a message from another agent rather than from
@@ -633,10 +649,11 @@ pub(crate) fn task(
     reports: bool,
     text: String,
 ) -> String {
+    let lead = called(lead_name, lead_id);
     let answer = if reports {
-        format!("When your turn ends, your final answer goes to {lead_name} by itself. Message {lead_name} with agent_send if you need to ask it something first.")
+        format!("When your turn ends, your final answer goes to {lead} by itself. Message it with agent_send if you need to ask it something first.")
     } else {
-        format!("Your answers do not go to {lead_name} by themselves: send {lead_name} what it needs with agent_send when you are done.")
+        format!("Your answers do not go to {lead} by themselves: send it what it needs with agent_send when you are done.")
     };
     let brief = super::memory::brief(core, agent_id, Some(&text));
     wrapped(&Letter {
@@ -892,11 +909,12 @@ pub(crate) async fn send(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
             let target = match resolve(&core, &agents, &to, &project, &from) {
                 Ok(target) => target,
                 Err(why) => {
-                    let wanted = to.trim().trim_start_matches('@');
+                    let (wanted, _) = on_host(to.trim().trim_start_matches('@'));
                     let named = |agent: &Listed| {
                         agent.agent_id == wanted
                             || (agent.name.as_deref())
                                 .is_some_and(|name| name.eq_ignore_ascii_case(wanted))
+                                && super::roster::reaches(&core, agent, &project, &from)
                     };
                     return match core.names.closed_worker(&from, wanted) {
                         Some(ran) if answers.is_none() && !agents.iter().any(named) => {
@@ -1502,8 +1520,9 @@ pub(crate) async fn report_as(
             let agents = listed(&core);
             let target = agents.iter().find(|agent| agent.agent_id == lead).cloned();
             let name = name.unwrap_or_else(|| worker.clone());
+            let worker_called = called(&name, &worker);
             let note = format!(
-                "{name} is an agent you started, and this is how its turn ended, sent by Sikemux. Reply with agent_send to {name} if it needs more; once its work has landed and you need nothing more, close it with agent_close."
+                "{worker_called} is an agent you started, and this is how its turn ended, sent by Sikemux. Reply with agent_send to it if it needs more; once its work has landed and you need nothing more, close it with agent_close."
             );
             let mut letter = letter_from(&agents, MessageKind::Report, worker, text, Some(note));
             letter.from_name = name;

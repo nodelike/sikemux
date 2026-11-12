@@ -278,8 +278,8 @@ pub(crate) fn rows(core: &Core, project: Option<&str>, caller: &str) -> Vec<Valu
         .collect()
 }
 
-/// Closes agents the caller started, or that one of its workers started, or
-/// that no open agent leads, as the person closing their tabs would. Their chats stay in Recent.
+/// Closes agents the caller started, or that one of its workers started, or,
+/// by id, one that no open agent leads, as the person closing their tabs would. Their chats stay in Recent.
 pub(crate) async fn close(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, String> {
     let caller = request
         .agent_id
@@ -312,11 +312,21 @@ pub(crate) async fn close(core: &Arc<Core>, request: &HarnessRequest) -> Result<
             let orphan = (by_auto || !led.is_empty())
                 && !led.iter().any(|lead| core.agent_now(lead).open())
                 && !super::board::led_by_auto(&core, &target.agent_id);
-            if !orphan && !led.contains(&caller) {
-                return Err(format!(
-                    "{name} is the person's, or its lead or Auto still runs, so closing it is theirs to do"
-                )
-                .into());
+            let by_id = to.trim().trim_start_matches('@') == target.agent_id;
+            if !led.contains(&caller) {
+                if orphan && !by_id {
+                    return Err(format!(
+                        "No open agent leads {name} ({}); close it by that id if you mean it",
+                        target.agent_id
+                    )
+                    .into());
+                }
+                if !orphan {
+                    return Err(format!(
+                        "{name} is the person's, or its lead or Auto still runs, so closing it is theirs to do"
+                    )
+                    .into());
+                }
             }
             closing.push((target.agent_id, name));
         }
@@ -329,8 +339,9 @@ pub(crate) async fn close(core: &Arc<Core>, request: &HarnessRequest) -> Result<
     .map_err(|error| error.to_string())
 }
 
-/// The agent `to` names: an agent id, or a name, preferring the caller's
-/// project.
+/// The agent `to` names: an agent id, or a name held in the caller's project
+/// or on its team, preferring the caller's project. `Name on host` names the
+/// agent of that name on that host.
 pub(crate) fn resolve(
     core: &Core,
     agents: &[Listed],
@@ -359,17 +370,30 @@ pub(crate) fn resolve(
     if called.is_empty() && !yours.is_empty() {
         return Err("That agent is you".into());
     }
-    let here: Vec<&Listed> = called
+    let reachable: Vec<&Listed> = called
+        .iter()
+        .copied()
+        .filter(|agent| on.is_some() || reaches(core, agent, project, caller))
+        .collect();
+    let here: Vec<&Listed> = reachable
         .iter()
         .copied()
         .filter(|agent| agent.project == project)
         .collect();
-    match (here.as_slice(), called.as_slice()) {
-        ([agent], _) | ([], [agent]) => Ok((*agent).clone()),
-        ([], []) => Err(format!(
+    match (here.as_slice(), reachable.as_slice(), called.as_slice()) {
+        ([agent], _, _) | ([], [agent], _) => Ok((*agent).clone()),
+        ([], [], []) => Err(format!(
             "No open agent is called {wanted}; agent_list shows the agents you can message. One you started that closed is reopened by agent_send; any other is found by agent_sessions, or who_wrote for its commit, and reopened by agent_spawn with resume set to its sessionId"
         )),
-        (_, many) => Err(format!(
+        ([], [], elsewhere) => Err(format!(
+            "No agent in your project or on your team is called {wanted}. {}; pass its agent id if you mean it",
+            elsewhere
+                .iter()
+                .map(|agent| format!("{wanted} ({}) is in {}", agent.agent_id, agent.project))
+                .collect::<Vec<_>>()
+                .join(", ")
+        )),
+        (_, many, _) => Err(format!(
             "More than one agent is called {wanted}: {}. Pass the agent id instead",
             many.iter()
                 .map(|agent| match host_of(core, agent) {
@@ -380,4 +404,14 @@ pub(crate) fn resolve(
                 .join(", ")
         )),
     }
+}
+
+/// Whether a bare name from `caller` may mean `agent`: it works in the
+/// caller's project, or on the caller's team on any host.
+pub(crate) fn reaches(core: &Core, agent: &Listed, project: &str, caller: &str) -> bool {
+    let top = match (&agent.reach, &agent.parent) {
+        (Reach::Remote, Some(parent)) => core.names.team_of(parent),
+        _ => core.names.team_of(&agent.agent_id),
+    };
+    agent.project == project || top == core.names.team_of(caller)
 }

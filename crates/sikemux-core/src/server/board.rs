@@ -1796,6 +1796,12 @@ fn agent_view(core: &Core, board: &Board, card: &Card, full: bool) -> Value {
         "createdBy": card.creator_name(core),
     });
     let fields = view.as_object_mut().expect("a card is an object");
+    if let Some(owner) = card.owner_id() {
+        fields.insert("ownerId".into(), owner.into());
+    }
+    if let Some(maker) = card.maker_id() {
+        fields.insert("createdById".into(), maker.into());
+    }
     if !card.details.is_empty() {
         fields.insert("details".into(), text(&card.details).into());
     }
@@ -1866,7 +1872,7 @@ fn agent_view(core: &Core, board: &Board, card: &Card, full: bool) -> Value {
             .iter()
             .filter(|other| other.parent == Some(card.id))
             .map(|other| {
-                json!({ "card": other.id, "title": other.title, "status": other.status.words(), "owner": other.owner_name(core) })
+                json!({ "card": other.id, "title": other.title, "status": other.status.words(), "owner": other.owner_name(core), "ownerId": other.owner_id() })
             })
             .collect();
         if !under.is_empty() {
@@ -2209,8 +2215,12 @@ fn change_in(
         let holder = holder_for_agents(core, board, &before);
         if !only_ticks && !may_change(core, agent, holder) {
             let owner = before.owner_name(core).unwrap_or_default();
+            let called = match before.owner_id() {
+                Some(owner_id) => super::messages::called(&owner, owner_id),
+                None => owner.clone(),
+            };
             return Err(format!(
-                "#{id} is {owner}'s; message {owner} with agent_send to change it"
+                "#{id} is {owner}'s; message {called} with agent_send to change it"
             ));
         }
         if changes.status == Some(CardStatus::Progress) && before.status != CardStatus::Progress {

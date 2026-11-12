@@ -722,7 +722,7 @@ impl Collisions {
             return;
         }
         state.claim_notes.insert(key, now);
-        let name = |id: &str| core.names.name_or_id(id);
+        let name = |id: &str| super::messages::called_now(core, id);
         let (agent_name, holder_name) = (name(agent), name(&holder));
         let file = shown(path, project);
         let minutes = now.saturating_sub(held_at) / 60_000;
@@ -734,12 +734,12 @@ impl Collisions {
         tell(
             &mut state,
             agent,
-            format!("{holder_name} holds a short claim on {file}, {why}, which it last edited {ago}. Your edit went in, but agree with {holder_name} with agent_send before changing it further, so you do not regenerate or rewrite it over each other."),
+            format!("{holder_name} holds a short claim on {file}, {why}, which it last edited {ago}. Your edit went in, but agree with it with agent_send before changing it further, so you do not regenerate or rewrite it over each other."),
         );
         tell(
             &mut state,
             &holder,
-            format!("{agent_name} just edited {file}, {why} you hold a short claim on. Agree with {agent_name} with agent_send on which of you finishes it."),
+            format!("{agent_name} just edited {file}, {why} you hold a short claim on. Agree with it with agent_send on which of you finishes it."),
         );
         hit(&mut state, agent, &holder, file, now);
         state.publish = true;
@@ -1127,6 +1127,7 @@ fn warn(
         return;
     }
     let writer_name = name(writer);
+    let owner_called = super::messages::called_now(core, owner);
     tell(
         state,
         owner,
@@ -1135,7 +1136,7 @@ fn warn(
     tell(
         state,
         writer,
-        format!("You changed {lines} of {file}, where {owner_name} has uncommitted lines. {owner_name} has been told. Read the file again, and agree with {owner_name} with agent_send before you change those lines again."),
+        format!("You changed {lines} of {file}, where {owner_called} has uncommitted lines. It has been told. Read the file again, and agree with it with agent_send before you change those lines again."),
     );
     let leads: Vec<String> = [writer, owner]
         .iter()

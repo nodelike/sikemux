@@ -996,12 +996,17 @@ in the next agent session, not the running one. Claude names these skills
 
 ## agents: Other agents in the project
 
-Sikemux gives every agent it runs a name, a short word such as Otter or Maple.
-Every open agent in a project has its own name. An agent holds its name only
-while it is open: once it closes, the name is free for a new agent, and an
-agent opened again gets a new name, so a name in an old message may now mean
-another agent; an `agentId` never does. Sikemux picks the names, and only the
-person can rename an agent. Tabs and the rail show agents by name.
+Sikemux gives every agent it runs a name, a short word such as Otter or Maple,
+and an `agentId`. Both belong to the chat for life: close its tab and open the
+chat again, from Recent, a link, `agent_spawn` with `resume` or `agent_send`,
+and it comes back as the same agent, with its id, name, lead and account. A
+closed chat keeps its name, so a new agent gets a name no chat of the project
+holds, until the word list runs out and the longest-closed chat's name is taken
+again; that chat comes back under a fresh name, and so does one whose name an
+open agent took in the meantime. The `agentId` never changes, so notes from
+Sikemux give it beside the name, as `Otter (agent-1f…)`: use the id when you
+reply to an old message. Sikemux picks the names, and only the person can
+rename an agent. Tabs and the rail show agents by name.
 
 When a message names `@Otter`, it means the agent called Otter, not the person
 or a file. The message carries a note about each agent it names: its agent
@@ -1171,8 +1176,11 @@ agent of your team on another host, below, comes with `host` too, and its
 
 `agent_send` takes `to`, a name such as `Otter`, `Otter on studio` for one on
 another host, or an `agentId`, and `text`, at
-most 64 KB (65,536 bytes); put anything longer in a file and send its path. A name means the
-agent of that name in your project before one elsewhere. The message reaches
+most 64 KB (65,536 bytes); put anything longer in a file and send its path. A bare name means
+an open agent of that name in your project or on your team, the agents your top
+lead started, on any host, the one in your project first. A name held only
+outside both is refused with that agent's id and project: pass the id if you
+mean it. The message reaches
 the agent as text marked as yours, never as the person's, so it cannot approve
 a permission request or change a setting. `to: "team"` sends it to every other
 agent of your team, the lead and every agent started under it, and answers
@@ -1188,8 +1196,9 @@ named. The answer's `delivery` says what happened:
   that is working, so it gets the message when its turn ends, together with
   the others waiting. At most ten wait for one agent. An asleep agent that
   does not wake keeps it too, and gets it once it does.
-- `reopened`: an agent you started had closed, so Sikemux took up its session
-  again with the message as its task.
+- `reopened`: an agent you or one of your agents started had closed, named
+  by its name or its id, so Sikemux took up its session again, as the same
+  agent, with the message as its task.
 - `repeat`: you sent it the same text a moment ago, so it was not sent again.
 - `held`: you and the agent have messaged each other back and forth four
   times without either doing anything else, so Sikemux holds the message and
@@ -1273,7 +1282,9 @@ Everything above works across the link: its reports, its questions, which go
 to you and then to the person here, and your messages. Each time its turn
 ends, its new commits come back first, onto a branch in your checkout named
 for the host and it, such as `sikemux/studio/otter`, and its report names the
-branch. Merge what you want of it yourself; Sikemux never merges it. While the
+branch. A branch of that name that holds another worker's commits is never
+replaced: the next free name, such as `sikemux/studio/otter-2`, is used, and
+later landings of the same worker keep to its own branch. Merge what you want of it yourself; Sikemux never merges it. While the
 host does not answer, what you send it waits and goes once it is back, and you
 hear when it has been out of reach for a few minutes and when it is back. If
 the person removes the link, you hear that too.
@@ -1300,8 +1311,9 @@ pick.
 
 To resume one, call `agent_spawn` with `resume` set to its `sessionId` and
 `prompt` set to what it should do now. It reopens on the same CLI in the
-session's own project, in its own tab with a fresh name, as any agent you start
-does: in your permission mode, under the same limits, and it reports back to
+session's own project, in its own tab, as the agent that ran it, with its id
+and its name unless an open agent took the name meanwhile, and reports to you
+as any agent you start does: in your permission mode, under the same limits, and it reports back to
 you. It runs on your account when you run on the same CLI; a session saved on
 an account that keeps its sessions apart from that one is refused, and the
 person must open it from Recent. Leave out `cli` and `model` unless you mean them; `cli`
@@ -1385,9 +1397,10 @@ rather than waiting, and read its report when it arrives.
 
 `agent_close` takes `agents`, names or ids, and closes their tabs as the person
 would, stopping any that still work. Close only agents you started, or that one
-of them started, and only once their work is committed or handed on; their
-chats stay in Recent, and `agent_send` or `agent_spawn` with `resume` reopens
-one. A worktree an agent leaves behind stays until you remove it. When you have
+of them started, and only once their work is committed or handed on. A name
+closes only those; an agent no open agent leads any more is closed by its
+`agentId` alone. Their chats stay in Recent, and `agent_send` or `agent_spawn`
+with `resume` reopens one as the same agent. A worktree an agent leaves behind stays until you remove it. When you have
 as many agents open as you may, `agent_spawn` closes the oldest of yours that
 is done with its work committed and landed to make room, and says so. Do not
 wait for that: close each teammate yourself once its work has landed and you
@@ -1451,7 +1464,7 @@ Its question arrives as a message from it, with its choices and whether it
 waits for you, and its note names the question's id. You decide it: answer with
 `agent_send` to that agent, setting `answers` to that id and `why`; a message
 without `answers` leaves the question open. Raise it only as Who decides says,
-with `ask`, setting `for` to the agent's name and `question` to what the person
+with `ask`, setting `for` to the agent's id and `question` to what the person
 is deciding; that agent gets the person's answer and you get a copy, so carry
 on with your own work. The copy arrives as a `<question-answer>` whose `asker`
 is that agent.

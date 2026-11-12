@@ -185,10 +185,9 @@ fn note(core: &Core, caller: &str, id: &str) -> Option<String> {
     lines.push(format!("CLI: {cli}"));
     lines.push(format!("Status: {}", status(core, id)));
     lines.push(format!("Working on: {}", mate.title));
-    let to = if elsewhere.is_some() { id } else { &name };
-    lines.push(format!("To message it, call agent_send with to \"{to}\"."));
+    lines.push(format!("To message it, call agent_send with to \"{id}\"."));
     lines.push(format!(
-        "To read what it said, call agent_read with agent \"{to}\"."
+        "To read what it said, call agent_read with agent \"{id}\"."
     ));
     Some(lines.join("\n"))
 }

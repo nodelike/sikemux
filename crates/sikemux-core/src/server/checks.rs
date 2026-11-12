@@ -1235,7 +1235,7 @@ fn newly_told(core: &Core, project: &str, agent: &str) -> bool {
 }
 
 fn someone(core: &Core, agent: &str) -> String {
-    format!("@{}", core.names.name_or_id(agent))
+    format!("@{}", super::messages::called_now(core, agent))
 }
 
 /// Tells who should mend a failing check: the agent whose commit broke it when that is known,

@@ -1291,8 +1291,9 @@ fn for_lead(question: &Question) -> (String, String) {
         Some(_) => "its assumption stands and goes on the record".to_owned(),
         None => "you get it once more to decide, then it goes to the person as something you could not decide".to_owned(),
     };
+    let id = &question.agent_id;
     let note = format!(
-        "@{name}, an agent you started, asks you this. You decide it: answer with agent_send to {name}, setting answers to {} and why. {RAISE_RULE}, setting for to {name}. If your turn ends with neither, {if_silent}.",
+        "@{name} ({id}), an agent you started, asks you this. You decide it: answer with agent_send to {id}, setting answers to {} and why. {RAISE_RULE}, setting for to {id}. If your turn ends with neither, {if_silent}.",
         question.id
     );
     (text, note)
@@ -1305,8 +1306,9 @@ const RAISE_RULE: &str = "Raise it to the person only if it is irreversible or l
 fn for_lead_again(question: &Question) -> (String, String) {
     let (text, _) = for_lead(question);
     let name = &question.name;
+    let id = &question.agent_id;
     let note = format!(
-        "You ended your turn without answering @{name}, which is still waiting. Decide it now: answer with agent_send to {name}, setting answers to {} and why. {RAISE_RULE}, setting for to {name}. If this turn ends with neither, it goes to the person as something you could not decide.",
+        "You ended your turn without answering @{name} ({id}), which is still waiting. Decide it now: answer with agent_send to {id}, setting answers to {} and why. {RAISE_RULE}, setting for to {id}. If this turn ends with neither, it goes to the person as something you could not decide.",
         question.id
     );
     (text, note)
@@ -1634,6 +1636,22 @@ fn pass_on(
     let from = |question: &Question| {
         question.agent_id == wanted || question.name.eq_ignore_ascii_case(wanted)
     };
+    let mut askers: Vec<(&str, &str)> = (state.open.iter())
+        .filter(|question| from(question) && question.lead_id() == Some(lead_id))
+        .map(|question| (question.agent_id.as_str(), question.project.as_str()))
+        .collect();
+    askers.sort_unstable();
+    askers.dedup();
+    if askers.len() > 1 {
+        return Err(format!(
+            "More than one of your agents called {wanted} has a question waiting: {}. Set for to the agent id instead",
+            askers
+                .iter()
+                .map(|(id, project)| format!("{id} in {project}"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
     let Some(question) = state
         .open
         .iter_mut()
@@ -1844,8 +1862,8 @@ fn send_back(
     let asked = asked.join("\n");
     let why = match started_by {
         Some(other) => {
-            let other = core.names.name(other).unwrap_or_else(|| other.to_owned());
-            format!("A message from @{other} started that turn, so what it raises is between you and @{other}: settle it with agent_send, or decide it yourself if it is yours. {RAISE_RULE}, saying what is being decided so it makes sense on its own.")
+            let other = super::messages::called_now(core, other);
+            format!("A message from @{other} started that turn, so what it raises is between you and it: settle it with agent_send, or decide it yourself if it is yours. {RAISE_RULE}, saying what is being decided so it makes sense on its own.")
         }
         None if choosing => format!("A choice for the person goes through ask, never only in your reply, so it did not reach them. Decide it yourself if it is yours. {RAISE_RULE}, with a question that says what is being decided so it makes sense without your chat, a header of two or three words and the choice you recommend first, then end your turn without writing the choice out in your reply again."),
         None => format!("It says nothing without your chat, so it did not reach the person. Decide it yourself if it is yours. {RAISE_RULE}, saying what is being decided so it makes sense on its own."),

@@ -85,7 +85,9 @@ fn slices(core: &Core, board: &Board, goal: &Card, agent_id: &str) -> Option<Str
             let promise = (card.slice.as_ref()).map_or(card.title.as_str(), |slice| &slice.promise);
             let holder = match (card.owner_id(), card.owner_name(core)) {
                 (Some(owner), _) if owner == agent_id => "you".to_owned(),
-                (Some(_), Some(name)) => format!("@{name}"),
+                (Some(owner), Some(name)) => {
+                    format!("@{}", super::super::messages::called(&name, owner))
+                }
                 _ => "nobody yet".to_owned(),
             };
             format!(

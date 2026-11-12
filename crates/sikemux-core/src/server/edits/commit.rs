@@ -813,7 +813,10 @@ impl Planner<'_> {
         let leave = |by: BTreeSet<Option<usize>>, left: &mut Vec<Left>| {
             let open: Vec<String> = (by.iter().flatten())
                 .filter(|at| self.theirs(**at))
-                .map(|at| self.name(Some(*at)))
+                .map(|at| {
+                    let writer = &self.owners.authors[*at];
+                    crate::server::messages::called(&writer.name, &writer.agent_id)
+                })
                 .collect();
             let mut by: BTreeSet<String> = by.into_iter().map(|at| self.name(at)).collect();
             if by.is_empty() {
