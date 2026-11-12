@@ -39,6 +39,8 @@ pub enum Kind {
     /// Words drawn in the faint ink, as words the reader asked to see that were left out.
     Faint,
     InlineCode,
+    /// LaTeX math in a line of text, kept as written and drawn as Unicode.
+    Math,
     Link(SharedString),
     /// A name that could be a file, as the message wrote it.
     Path(SharedString),
@@ -61,6 +63,7 @@ impl Kind {
                 | Kind::Strike
                 | Kind::Faint
                 | Kind::InlineCode
+                | Kind::Math
                 | Kind::Link(_)
                 | Kind::Path(_)
                 | Kind::Break
@@ -168,6 +171,7 @@ impl Node {
         match &self.kind {
             Kind::Text => self.text.replace('|', "\\|"),
             Kind::InlineCode => format!("`{}`", self.text.replace('|', "\\|")),
+            Kind::Math => format!("${}$", self.text.replace('|', "\\|")),
             Kind::Strong => format!("**{}**", inner()),
             Kind::Emphasis => format!("*{}*", inner()),
             Kind::Strike => format!("~~{}~~", inner()),
@@ -325,6 +329,12 @@ impl Builder {
         let (marks, link) = match &node.kind {
             Kind::Text => return self.push(&node.text, marks),
             Kind::InlineCode => return self.push(&node.text, with(Marks::CODE)),
+            Kind::Math => {
+                return self.push(
+                    &crate::math_text::unicode(&node.text),
+                    with(Marks::EMPHASIS),
+                )
+            }
             Kind::Break => return self.push("\n", marks),
             Kind::FootnoteRef(n) => return self.push(&superscript(*n), marks),
             Kind::Image { alt, .. } => return self.push(alt, marks),
@@ -393,6 +403,7 @@ struct Element {
     align: Value,
     summary: SharedString,
     open: bool,
+    math: bool,
     href: SharedString,
     src: SharedString,
     alt: SharedString,
@@ -441,6 +452,7 @@ impl From<Wire> for Node {
             "strong" => Kind::Strong,
             "del" => Kind::Strike,
             "faint" => Kind::Faint,
+            "code" if element.math => Kind::Math,
             "code" => Kind::InlineCode,
             "a" => Kind::Link(element.href),
             "path" => Kind::Path(element.href),

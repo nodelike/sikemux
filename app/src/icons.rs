@@ -167,6 +167,7 @@ icons!(
     Swipe => "swipe",
     Table => "table",
     Tablet => "tablet",
+    Tag => "tag",
     Tabs => "tabs",
     Tap => "tap",
     Terminal => "terminal",

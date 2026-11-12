@@ -820,6 +820,8 @@ struct WorkspaceAgent: Codable, Hashable, Sendable {
     /// The model provider it runs on in place of its maker's account.
     var modelProvider: String?
     var effort: String?
+    /// The person's labels for it, lower case, which the rail filters chats by.
+    var tags: [String]?
     /// Never put to sleep while idle.
     var keepAlive: Bool?
     /// Stopped, and woken again on its saved conversation when opened.
@@ -2170,6 +2172,8 @@ struct AgentShown: Codable, Hashable, Sendable {
     var settledAt: Int?
     /// The core settled it by itself rather than the person, so a client offers Undo.
     var autoSettled: Bool?
+    /// The person's labels for it, lower case.
+    var tags: [String]?
 }
 
 /// Several agents shown as one: the group of the one that wants the person
@@ -3879,6 +3883,8 @@ enum MdElement: Codable, Hashable, Sendable {
 
     struct Code: Codable, Hashable, Sendable {
         var v: String
+        /// `v` is LaTeX math the message wrote between single dollar signs.
+        var math: Bool?
     }
 
     struct A: Codable, Hashable, Sendable {
@@ -4920,6 +4926,8 @@ struct Preferences: Codable, Hashable, Sendable {
     var uiTextScale: Double
     var terminalFontSize: Int
     var chatTextScale: Double
+    /// How wide a chat's messages and composer grow on a wide window.
+    var chatWidth: ChatWidth
     var editorTextScale: Double
     /// The theme the person picked, one of the curated, Ghostty or their own.
     var themeId: String
@@ -5040,6 +5048,19 @@ enum MidTurnSend: String, Codable, Hashable, Sendable {
     case steer
     /// The message waits for the turn to end.
     case queue
+    /// One added after this build.
+    case unknown
+
+    init(from decoder: any Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
+}
+
+/// How wide a chat's column grows: a reading width, a wider one, or the whole pane.
+enum ChatWidth: String, Codable, Hashable, Sendable {
+    case comfortable
+    case wide
+    case full
     /// One added after this build.
     case unknown
 
@@ -7120,6 +7141,8 @@ struct MarkdownOptions: Codable, Hashable, Sendable {
     /// Writes a link that shows its own address, to a pull request or issue, as GitHub
     /// writes a reference to one, such as `owner/repo#12`.
     var references: Bool?
+    /// Reads `$…$` as inline math and `$$…$$` as a block of math, kept as LaTeX.
+    var math: Bool?
 }
 
 /// What a phone wants to hear about from this host. The phone owns these

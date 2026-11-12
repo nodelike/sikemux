@@ -48,6 +48,8 @@ pub struct AgentMenu {
     faces_on: bool,
     snoozed: bool,
     settled: bool,
+    /// Every tag on this host's chats, in order.
+    tags: Vec<String>,
 }
 
 impl AgentMenu {
@@ -104,6 +106,11 @@ impl AgentMenu {
             faces_on: bench.shown().is_some_and(|view| view.face_style.on),
             snoozed: row.as_ref().is_some_and(|row| row.snoozed_until.is_some()),
             settled: row.as_ref().is_some_and(|row| row.settled_at.is_some()),
+            tags: (workspace.agents.iter())
+                .flat_map(|agent| agent.tags.iter().cloned())
+                .collect::<std::collections::BTreeSet<_>>()
+                .into_iter()
+                .collect(),
             agent,
         })
     }
@@ -225,6 +232,14 @@ impl AgentMenu {
                     })),
             );
         }
+        popup = crate::agents::tags::menu_item(
+            popup,
+            self.bench.clone(),
+            agent,
+            self.tags.clone(),
+            window,
+            cx,
+        );
         popup = crate::agents::settled::menu_items(
             popup,
             self.bench.clone(),

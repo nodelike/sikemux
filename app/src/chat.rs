@@ -59,6 +59,7 @@ use crate::{motion, syntax, theme, ui};
 mod attach;
 mod cards;
 pub mod changes;
+pub mod column;
 pub mod composer;
 mod composing;
 mod content;
@@ -71,6 +72,7 @@ mod installing;
 pub(crate) mod link;
 pub(crate) mod live;
 mod looks;
+mod math;
 mod mention;
 mod mermaid;
 mod moving;
@@ -87,6 +89,7 @@ pub(crate) use shown::{turn_picture, turn_picture_held};
 pub(crate) mod status;
 mod team;
 mod tools;
+mod visits;
 pub(crate) use installing::installs_moved;
 
 mod worktree;
@@ -606,6 +609,7 @@ pub struct Chats {
     /// Lets go of the chats out of sight once they have been for a while, counted from when
     /// the chat now in front came there.
     pub(crate) resting: Option<(Option<String>, gpui_kit::Task<()>)>,
+    pub(crate) visits: visits::Visits,
 }
 
 /// A chat the window shows: its rows in a transcript, how it stands, its
@@ -1212,6 +1216,12 @@ impl Chat {
         let style = self.looks.borrow().rescale(scale);
         self.transcript
             .update(cx, |transcript, cx| transcript.restyle(style, cx));
+    }
+
+    /// Lays its rows out again at the column width the person set.
+    pub fn widen(&self, cx: &mut App) {
+        self.transcript
+            .update(cx, |transcript, cx| transcript.remeasure(cx));
     }
 
     /// What the messages waiting behind the running turn say.

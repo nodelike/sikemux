@@ -203,6 +203,7 @@ impl Workbench {
             self.watch_worktree();
             self.close_chats(cx);
             self.open_chat(cx);
+            self.note_chat();
             self.rest_chats_later(cx);
             self.look_for_older(false, crate::pickers::recent::PAGE, cx);
             self.front_moved(cx);

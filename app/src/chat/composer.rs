@@ -478,7 +478,7 @@ impl RenderOnce for Composer {
                 div()
                     .relative()
                     .w_full()
-                    .max_w(px(WIDTH))
+                    .max_w(super::column::composer(cx))
                     .rounded(theme::RADIUS_4)
                     .when(yolo_on, |outer| {
                         outer.p(px(1.)).child(ui::yolo::edge(theme::RADIUS_4, &t))
@@ -569,7 +569,7 @@ pub fn notice_line(notice: Notice, cx: &App) -> gpui_kit::Div {
     let t = Tokens::get(cx).clone();
     let line = div()
         .w_full()
-        .max_w(px(WIDTH))
+        .max_w(super::column::composer(cx))
         .pb(SPACE_1H)
         .px(SPACE_2H)
         .flex()
@@ -701,7 +701,7 @@ fn context_line(strip: Strip, cx: &App) -> impl IntoElement {
     };
     let line = div()
         .w_full()
-        .max_w(px(WIDTH))
+        .max_w(super::column::composer(cx))
         .min_w_0()
         .pt(SPACE_1H)
         .px(SPACE_2)
@@ -846,9 +846,6 @@ fn shape(width: f32, aside: Option<AsideRoom>) -> (Room, bool) {
     let taken = aside.filter(|_| !labelled).map_or(0., |aside| aside.bare);
     (Room::of(width - taken), labelled)
 }
-
-/// The widest the composer draws.
-pub const WIDTH: f32 = 820.;
 
 /// YOLO or SAFE: whether the agent acts without asking. YOLO's letters run through the
 /// rainbow the app paints it with.

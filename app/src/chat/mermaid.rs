@@ -29,40 +29,15 @@ const MOST_PIXELS: f32 = 6_000_000.;
 /// What a block keeps between frames: its text as the chat last had it, the text it is drawn
 /// from once that stopped changing, the text a wait is under way for, and whether the person
 /// chose to see the text.
-struct Block {
+pub(super) struct Block {
     written: SharedString,
-    settled: Option<SharedString>,
+    pub(super) settled: Option<SharedString>,
     waiting: Option<SharedString>,
-    source: bool,
+    pub(super) source: bool,
 }
 
 pub(super) fn block(fence: Fence, running: bool, window: &mut Window, cx: &mut App) -> AnyElement {
-    let key = ElementId::NamedChild(Arc::new(fence.id.clone()), LANG.into());
-    let written = fence.code.clone();
-    let block = window.use_keyed_state(key, cx, |_, _| Block {
-        written: written.clone(),
-        settled: None,
-        waiting: None,
-        source: false,
-    });
-    let kept = block.read(cx);
-    let (unchanged, drawn) = (
-        kept.written == written,
-        kept.settled.as_ref() == Some(&written),
-    );
-    let waiting = kept.waiting.as_ref() == Some(&written);
-    if !unchanged || (!drawn && (!running || !waiting)) {
-        block.update(cx, |kept, _| {
-            kept.written = written.clone();
-            match running {
-                true => kept.waiting = Some(written.clone()),
-                false => kept.settled = Some(written.clone()),
-            }
-        });
-        if running && !waiting {
-            settle(&block, written.clone(), cx);
-        }
-    }
+    let block = kept(&fence, LANG, running, window, cx);
     let t = Tokens::get(cx).clone();
     let drawn = block.read(cx).settled.clone().and_then(|code| {
         let wanted = Wanted {
@@ -132,6 +107,44 @@ pub(super) fn block(fence: Fence, running: bool, window: &mut Window, cx: &mut A
             ),
         })
         .into_any_element()
+}
+
+/// What a block of `fence` keeps between frames, under `lang`: its text is taken as finished
+/// once the turn ends, or once it has stayed the same for a moment while the turn runs.
+pub(super) fn kept(
+    fence: &Fence,
+    lang: &'static str,
+    running: bool,
+    window: &mut Window,
+    cx: &mut App,
+) -> Entity<Block> {
+    let key = ElementId::NamedChild(Arc::new(fence.id.clone()), lang.into());
+    let written = fence.code.clone();
+    let block = window.use_keyed_state(key, cx, |_, _| Block {
+        written: written.clone(),
+        settled: None,
+        waiting: None,
+        source: false,
+    });
+    let kept = block.read(cx);
+    let (unchanged, drawn) = (
+        kept.written == written,
+        kept.settled.as_ref() == Some(&written),
+    );
+    let waiting = kept.waiting.as_ref() == Some(&written);
+    if !unchanged || (!drawn && (!running || !waiting)) {
+        block.update(cx, |kept, _| {
+            kept.written = written.clone();
+            match running {
+                true => kept.waiting = Some(written.clone()),
+                false => kept.settled = Some(written.clone()),
+            }
+        });
+        if running && !waiting {
+            settle(&block, written, cx);
+        }
+    }
+    block
 }
 
 /// Draws `written` once it has stayed the block's text for a moment.
@@ -239,11 +252,11 @@ fn hex(colour: Hsla) -> String {
     )
 }
 
-/// A diagram drawn, and its size on screen at full size.
+/// A drawing made, and its size on screen at full size.
 #[derive(Clone)]
-struct Drawing {
-    image: Arc<RenderImage>,
-    size: Size<Pixels>,
+pub(super) struct Drawing {
+    pub(super) image: Arc<RenderImage>,
+    pub(super) size: Size<Pixels>,
 }
 
 /// GPUI's loader for a diagram, which draws it off the main thread once for each text and look.
@@ -282,20 +295,23 @@ fn draw(wanted: &Wanted) -> Result<Drawing, String> {
         ..usvg::Options::default()
     };
     let tree = usvg::Tree::from_str(&svg, &options).map_err(|fault| fault.to_string())?;
-    // The whole drawing, even where it spills past the size it says it is.
+    picture(&tree, wanted.look.scale as f32 / 100.)
+}
+
+/// `tree` drawn at the screen's `scale`, with all its ink, even where it spills past the size
+/// it says it is.
+pub(super) fn picture(tree: &usvg::Tree, scale: f32) -> Result<Drawing, String> {
     let inked = tree.root().abs_stroke_bounding_box();
     let (left, top) = (inked.left().min(0.), inked.top().min(0.));
     let right = inked.right().max(tree.size().width());
     let bottom = inked.bottom().max(tree.size().height());
     let (width, height) = (right - left + 2., bottom - top + 2.);
-    let scale = (wanted.look.scale as f32 / 100.)
-        .min((MOST_PIXELS / (width * height)).sqrt())
-        .max(0.01);
+    let scale = scale.min((MOST_PIXELS / (width * height)).sqrt()).max(0.01);
     let mut pixmap = tiny_skia::Pixmap::new(
         (width * scale).ceil() as u32,
         (height * scale).ceil() as u32,
     )
-    .ok_or("The diagram is empty")?;
+    .ok_or("The drawing is empty")?;
     let place = tiny_skia::Transform::from_row(
         scale,
         0.,
@@ -304,10 +320,10 @@ fn draw(wanted: &Wanted) -> Result<Drawing, String> {
         (1. - left) * scale,
         (1. - top) * scale,
     );
-    resvg::render(&tree, place, &mut pixmap.as_mut());
+    resvg::render(tree, place, &mut pixmap.as_mut());
     let (columns, rows) = (pixmap.width(), pixmap.height());
     let mut pixels = image::RgbaImage::from_raw(columns, rows, pixmap.take())
-        .ok_or("The diagram could not be drawn")?;
+        .ok_or("The drawing could not be made")?;
     for pixel in pixels.as_chunks_mut::<4>().0 {
         gpui::swap_rgba_pa_to_bgra(pixel);
     }

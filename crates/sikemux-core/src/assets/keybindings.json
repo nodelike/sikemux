@@ -392,6 +392,22 @@
         "other": "Ctrl+Alt+KeyU"
     },
     {
+        "id": "chat.back",
+        "label": "Previous chat",
+        "detail": "Go back to the chat you had in front before this one; on a browser page, go back in the page",
+        "category": "Navigation",
+        "mac": "Meta+BracketLeft",
+        "other": "Ctrl+BracketLeft"
+    },
+    {
+        "id": "chat.forward",
+        "label": "Next chat",
+        "detail": "Go forward again through the chats you went back from; on a browser page, go forward in the page",
+        "category": "Navigation",
+        "mac": "Meta+BracketRight",
+        "other": "Ctrl+BracketRight"
+    },
+    {
         "id": "session.next",
         "label": "Next session",
         "detail": "Cycle forward through sessions; hold Control to keep choosing",
@@ -514,7 +530,7 @@
     {
         "id": "browser.back",
         "label": "Browser back",
-        "detail": "Go back in the active embedded browser tab",
+        "detail": "Go back in the active embedded browser tab, while it has the keys",
         "category": "Browser",
         "mac": "Meta+BracketLeft",
         "other": "Ctrl+BracketLeft"
@@ -522,7 +538,7 @@
     {
         "id": "browser.forward",
         "label": "Browser forward",
-        "detail": "Go forward in the active embedded browser tab",
+        "detail": "Go forward in the active embedded browser tab, while it has the keys",
         "category": "Browser",
         "mac": "Meta+BracketRight",
         "other": "Ctrl+BracketRight"

@@ -511,6 +511,14 @@ impl World {
                 )?;
                 self.chat = Some(chat);
             }
+            "tags" => {
+                let chat = (self.chat.clone()).ok_or_else(|| anyhow!("open a chat first"))?;
+                let tags: Vec<&str> = (0..).map_while(|at| step.text(at).ok()).collect();
+                self.call(
+                    "updateAgent",
+                    json!({ "agentId": chat, "patch": { "tags": tags } }),
+                )?;
+            }
             "title" => {
                 let chat = self
                     .chat

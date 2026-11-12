@@ -19,6 +19,7 @@ pub(crate) const OPTIONS: MarkdownOptions = MarkdownOptions {
     html_layout: true,
     references: false,
     file_paths: false,
+    math: false,
 };
 
 /// `text` as the tree the transcript draws.

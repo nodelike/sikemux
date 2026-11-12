@@ -479,6 +479,12 @@ impl<R: Row> Transcript<R> {
         cx.notify();
     }
 
+    /// Measures every row again, for a change to how wide rows draw.
+    pub fn remeasure(&mut self, cx: &mut Context<Self>) {
+        self.list.remeasure();
+        cx.notify();
+    }
+
     /// The rows as of the last frame drawn; changes pushed since are not in them yet.
     pub fn rows(&self) -> &[R] {
         &self.rows

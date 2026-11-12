@@ -24,12 +24,14 @@ const ANSWER: MarkdownOptions = MarkdownOptions {
     html_layout: false,
     references: true,
     file_paths: true,
+    math: true,
 };
 
 /// What the person sent reads as the agent's text does, but shows any markup they typed as they
 /// typed it.
 const TYPED: MarkdownOptions = MarkdownOptions {
     html_as_text: true,
+    math: false,
     ..ANSWER
 };
 

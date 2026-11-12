@@ -451,6 +451,9 @@ pub struct AgentShown {
     /// The core settled it by itself rather than the person, so a client offers Undo.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub auto_settled: bool,
+    /// The person's labels for it, lower case.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
 }
 
 /// Where an agent sits on its team: the lead heads it, the last worker ends it.

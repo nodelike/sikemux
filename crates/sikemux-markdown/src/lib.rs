@@ -11,6 +11,9 @@ mod sentences;
 mod url;
 
 pub use doc::{diff, Doc, MdChange, MdOp, Patch};
+
+/// The language a block of math is marked with, from `$$…$$` or a ```` ```math ```` fence.
+pub const MATH: &str = "math";
 pub use reference::name as reference;
 pub use sentences::unsourced;
 
@@ -47,6 +50,9 @@ pub struct MarkdownOptions {
     /// writes a reference to one, such as `owner/repo#12`.
     #[serde(default)]
     pub references: bool,
+    /// Reads `$…$` as inline math and `$$…$$` as a block of math, kept as LaTeX.
+    #[serde(default)]
+    pub math: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -124,6 +130,9 @@ pub enum MdElement {
     },
     Code {
         v: String,
+        /// `v` is LaTeX math the message wrote between single dollar signs.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        math: bool,
     },
     A {
         href: String,
@@ -209,6 +218,9 @@ fn read(text: &str, options: MarkdownOptions, skip: usize) -> (Vec<MdElement>, V
             | ParserOptions::ENABLE_STRIKETHROUGH
             | ParserOptions::ENABLE_TASKLISTS
             | ParserOptions::ENABLE_FOOTNOTES;
+    }
+    if options.math {
+        flags |= ParserOptions::ENABLE_MATH;
     }
     let mut builder = Builder {
         options,
@@ -375,7 +387,9 @@ fn plain_text(nodes: &[MdNode], out: &mut String) {
     for node in nodes {
         match node {
             MdNode::Text(text) => out.push_str(text),
-            MdNode::Element(MdElement::Code { v } | MdElement::Pre { v, .. }) => out.push_str(v),
+            MdNode::Element(MdElement::Code { v, .. } | MdElement::Pre { v, .. }) => {
+                out.push_str(v)
+            }
             MdNode::Element(
                 MdElement::P { c }
                 | MdElement::H { c, .. }
@@ -699,8 +713,17 @@ impl Builder {
             }
             Event::Code(code) => self.push_element(MdElement::Code {
                 v: code.into_string(),
+                math: false,
             }),
-            Event::InlineMath(math) | Event::DisplayMath(math) => self.push_text(&math),
+            Event::InlineMath(math) => self.push_element(MdElement::Code {
+                v: math.into_string(),
+                math: true,
+            }),
+            Event::DisplayMath(math) => self.push_element(MdElement::Pre {
+                lang: Some(MATH.to_owned()),
+                name: None,
+                v: format!("{}\n", math.trim()),
+            }),
             Event::Html(html) => self.push_text(&html),
             Event::InlineHtml(html) => {
                 if self.options.html_as_text {

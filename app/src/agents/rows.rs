@@ -56,6 +56,8 @@ pub struct AgentRow {
     pub turn: Option<sikemux_view::turn::TurnState>,
     /// It is its project's chief, @Chief.
     pub chief: bool,
+    /// The person's labels for it, lower case.
+    pub tags: Vec<String>,
 }
 
 impl AgentRow {
@@ -132,6 +134,9 @@ impl Workbench {
         };
         let filter = self.filter_text();
         rows.retain(|row| row.title.to_lowercase().contains(filter));
+        if let Some(tag) = &self.rails.tag {
+            rows.retain(|row| row.tags.contains(tag));
+        }
         rows
     }
 
@@ -300,6 +305,7 @@ fn agent_row(row: &AgentShown, place: &Place) -> Option<AgentRow> {
         settled_at: row.settled_at,
         turn: row.turn.clone(),
         chief: row.chief,
+        tags: row.tags.clone(),
     })
 }
 

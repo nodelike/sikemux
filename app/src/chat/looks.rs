@@ -8,7 +8,7 @@ pub(super) struct Looks {
     /// were designed, and at the chat's text size.
     pub(super) designed: Styles,
     pub(super) styles: RefCell<Styles>,
-    pub(super) scale: Cell<f32>,
+    pub(super) scale: Rc<Cell<f32>>,
     pub(super) line: Hsla,
     pub(super) bubble: Hsla,
     /// The bubble an agent's question to the person sits in.
@@ -169,6 +169,7 @@ impl Looks {
         agent: String,
         files: Rc<RefCell<files::Files>>,
     ) -> Looks {
+        let scale = Rc::new(Cell::new(1.));
         let mut mono = gpui_kit::font(theme::MONO);
         mono.fallbacks = Some(gpui_kit::FontFallbacks::from_fonts(vec![
             theme::MONO_ICONS.into()
@@ -207,6 +208,7 @@ impl Looks {
                 agent.clone(),
                 asks.clone(),
                 running.clone(),
+                scale.clone(),
             )),
             on_link: Some(Rc::new({
                 let (bench, agent) = (bench.clone(), agent.clone());
@@ -280,7 +282,7 @@ impl Looks {
         Looks {
             styles: RefCell::new(designed.clone()),
             designed,
-            scale: Cell::new(1.),
+            scale,
             line: Hsla { a: 0.8, ..t.line },
             bubble: theme::over(
                 Hsla {

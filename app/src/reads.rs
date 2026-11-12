@@ -433,6 +433,11 @@ impl Workbench {
                     for chat in self.chats.open.values_mut() {
                         chat.rescale(scale, cx);
                     }
+                    if crate::chat::column::set(preferences.chat_width, cx) {
+                        for chat in self.chats.open.values() {
+                            chat.widen(cx);
+                        }
+                    }
                     crate::ui::grain::set(&preferences, cx);
                     crate::theme::set_text_scale(preferences.ui_text_scale as f32, cx);
                     crate::see_through::set(&preferences, cx);

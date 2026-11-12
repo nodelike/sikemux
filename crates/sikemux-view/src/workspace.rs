@@ -450,6 +450,9 @@ pub struct WorkspaceAgent {
     pub model_provider: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effort: Option<String>,
+    /// The person's labels for it, lower case, which the rail filters chats by.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
     /// Never put to sleep while idle.
     #[serde(default)]
     pub keep_alive: bool,

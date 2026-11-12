@@ -264,7 +264,7 @@ pub(super) fn row(
     let after = (!ended.is_empty() || !finished.is_empty()).then(|| {
         div()
             .w_full()
-            .max_w(px(800.))
+            .max_w(super::column::rows(cx))
             .px(px(22.))
             .children(ended.into_iter().map(|turn| {
                 let key = format!("shown:{}", turn.turn);
@@ -287,7 +287,7 @@ pub(super) fn row(
         .child(
             div()
                 .w_full()
-                .max_w(px(800.))
+                .max_w(super::column::rows(cx))
                 .px(px(22.))
                 .map(|row| {
                     if user {

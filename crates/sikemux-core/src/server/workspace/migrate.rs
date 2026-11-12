@@ -232,6 +232,7 @@ fn from_app(saved: &mut Saved, app: &Value, earlier: &Earlier) {
             model: text(agent, "model"),
             model_provider: text(agent, "modelProvider"),
             effort: text(agent, "effort"),
+            tags: Vec::new(),
             keep_alive: agent["keepAlive"].as_bool().unwrap_or(false),
             asleep,
             worktree: agent

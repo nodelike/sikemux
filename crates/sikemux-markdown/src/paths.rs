@@ -279,7 +279,10 @@ pub fn names_whole_path(text: &str) -> bool {
 /// A name in prose, as a path holding its own words.
 pub fn path(raw: &str, code: bool) -> MdNode {
     let shown = if code {
-        MdNode::Element(MdElement::Code { v: raw.to_owned() })
+        MdNode::Element(MdElement::Code {
+            v: raw.to_owned(),
+            math: false,
+        })
     } else {
         MdNode::Text(raw.to_owned())
     };

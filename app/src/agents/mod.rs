@@ -55,6 +55,7 @@ pub mod review;
 pub mod rows;
 pub mod settled;
 pub mod setup;
+pub(crate) mod tags;
 mod terminal_pages;
 
 pub fn tab_rail(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
@@ -157,9 +158,16 @@ fn page_panel(bench: &Workbench, page: TabRailPage, cx: &mut Context<Workbench>)
     }
     let (copy, rows) = team_rows(bench, &agents, heads, cx);
     let moving = bench.pin_move.as_ref().filter(|_| cx.has_active_drag());
+    let tagged = bench.rails.tag.is_some();
     let pinned: Vec<_> = pins
         .iter()
         .enumerate()
+        .filter(|(_, pin)| {
+            !tagged
+                || held
+                    .iter()
+                    .any(|agent| pin.agent_id.as_deref() == Some(agent.id.as_str()))
+        })
         .map(|(index, pin)| {
             let row = match held
                 .iter()
@@ -175,7 +183,7 @@ fn page_panel(bench: &Workbench, page: TabRailPage, cx: &mut Context<Workbench>)
         .map(|project| bench.recent_of(&project.id))
         .unwrap_or_default()
         .into_iter()
-        .filter(|recent| !recent.pinned || bench.rails.all_projects)
+        .filter(|recent| !tagged && (!recent.pinned || bench.rails.all_projects))
         .map(|recent| recent_row(bench, recent, cx))
         .collect();
     if bench.has_older() && !recent.is_empty() && !bench.rails.folded(RECENT) {
@@ -217,7 +225,7 @@ fn page_panel(bench: &Workbench, page: TabRailPage, cx: &mut Context<Workbench>)
                     ),
                 )
                 .into_any_element()
-        } else if !bench.filter_text().is_empty() {
+        } else if !bench.filter_text().is_empty() || tagged {
             rail_empty(Icon::Search, "No chats match", None, cx)
         } else {
             rail_empty(
@@ -230,6 +238,7 @@ fn page_panel(bench: &Workbench, page: TabRailPage, cx: &mut Context<Workbench>)
     });
     page_body()
         .child(header(bench, cx))
+        .children(tags::pill(bench, cx))
         .children(bench.filter.as_ref().map(|filter| {
             div()
                 .flex_none()
@@ -349,7 +358,7 @@ pub(crate) fn folding(
 fn header(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
     header_frame(
         picker(bench, cx),
-        [
+        tags::button(bench, cx).into_iter().chain([
             IconButton::new("search", Icon::Search, "Filter recent chats")
                 .pressed(bench.filter.is_some())
                 .on_click(cx.listener(|bench, _, window, cx| {
@@ -362,7 +371,7 @@ fn header(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
                     crate::keymap::dispatch(actions::ChooseAgent::ID, window, cx)
                 })
                 .into_any_element(),
-        ],
+        ]),
         bench,
         cx,
     )

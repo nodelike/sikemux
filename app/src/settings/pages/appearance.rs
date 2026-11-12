@@ -15,7 +15,7 @@ use gpui_kit::{
     InteractiveElement, IntoElement, KeyBinding, ParentElement, PathPromptOptions, SharedString,
     StatefulInteractiveElement, Styled, Subscription, Window,
 };
-use sikemux_view::prefs::{PaneColours, PaneCoverage, PanePattern};
+use sikemux_view::prefs::{ChatWidth, PaneColours, PaneCoverage, PanePattern};
 use sikemux_view::theme::{ThemeSource, ThemeSummary};
 
 use crate::core::Target;
@@ -55,6 +55,12 @@ pub(in crate::settings) const INTERFACE: &[Entry] = &[
         "Text",
         "Text size",
         "font zoom scale larger smaller accessibility",
+    ),
+    row(
+        Interface,
+        "Text",
+        "Chat width",
+        "column wide full screen messages reading measure line length",
     ),
     section(Interface, "Panes", ""),
     row(
@@ -1035,6 +1041,28 @@ pub fn render(
             })
         })
     };
+    let chat_width = {
+        let this = this.clone();
+        let widths = [ChatWidth::Comfortable, ChatWidth::Wide, ChatWidth::Full];
+        ui::Segmented::new(
+            "chat-width",
+            vec![
+                (Icon::Message, SharedString::from("Comfortable")),
+                (Icon::Message, SharedString::from("Wide")),
+                (Icon::Message, SharedString::from("Full")),
+            ],
+            widths
+                .iter()
+                .position(|width| *width == preferences.chat_width)
+                .unwrap_or(0),
+        )
+        .on_select(move |chosen, _, cx| {
+            let width = widths[*chosen];
+            this.update(cx, |bench, _| {
+                crate::settings::set(bench, PreferenceChange::ChatWidth(width))
+            })
+        })
+    };
     let image = {
         let (choose, remove) = (this.clone(), this.clone());
         div()
@@ -1105,12 +1133,19 @@ pub fn render(
                     .child(shown),
             )
     };
-    let text = div().child(rows::row(
-        "Text size",
-        Some("Scales labels and controls without loosening the layout."),
-        text_size,
-        cx,
-    ));
+    let text = div()
+        .child(rows::row(
+            "Text size",
+            Some("Scales labels and controls without loosening the layout."),
+            text_size,
+            cx,
+        ))
+        .child(rows::row(
+            "Chat width",
+            Some("How wide a chat's messages and composer grow on a wide window."),
+            chat_width,
+            cx,
+        ));
     let interface = div()
         .child(rows::row(
             "Pane texture",

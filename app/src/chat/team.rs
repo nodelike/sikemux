@@ -200,7 +200,7 @@ pub(super) fn head(
     });
     div()
         .w_full()
-        .max_w(px(800.))
+        .max_w(super::column::rows(cx))
         .px(px(22.))
         .py(px(5.))
         .flex()

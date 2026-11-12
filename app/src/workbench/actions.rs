@@ -171,6 +171,9 @@ commands! {
     ReloadPage = "browser.reload" (OnPage) acts |bench, _, cx| bench.reload_front_page(cx);
     PageBack = "browser.back" (OnPage) acts |bench, _, cx| bench.step_front_page(-1, cx);
     PageForward = "browser.forward" (OnPage) acts |bench, _, cx| bench.step_front_page(1, cx);
+    /// The chat that was in front before this one; on a desk's page, ⌘[ goes back in the page.
+    ChatBack = "chat.back" acts |bench, _, cx| bench.step_chat(-1, cx);
+    ChatForward = "chat.forward" acts |bench, _, cx| bench.step_chat(1, cx);
     NewSimulator = "simulator.new" acts |bench, _, cx| {
         bench.front_simulator(cx);
         bench.parts.redraw_stage(cx);

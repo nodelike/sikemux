@@ -90,6 +90,7 @@ impl Rails {
             keeping: None,
             all_projects: false,
             all_harnesses: false,
+            tag: None,
             folded_teams: HashSet::new(),
             folded_groups: Vec::new(),
             seen: Default::default(),
@@ -144,6 +145,8 @@ pub struct Rails {
     pub(crate) all_projects: bool,
     /// The rail lists the recent chats of every agent, not one's.
     pub(crate) all_harnesses: bool,
+    /// The tag the agent rail lists only the chats of, when the person picked one.
+    pub(crate) tag: Option<String>,
     /// The leads whose teams the agent rail folds away.
     pub(crate) folded_teams: std::collections::HashSet<String>,
     /// The rail groups folded away, by key, such as `pinned`.

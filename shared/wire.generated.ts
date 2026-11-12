@@ -358,6 +358,8 @@ export interface WorkspaceAgent {
     /** The model provider it runs on in place of its maker's account. */
     modelProvider?: string;
     effort?: string;
+    /** The person's labels for it, lower case, which the rail filters chats by. */
+    tags?: string[];
     /** Never put to sleep while idle. */
     keepAlive?: boolean;
     /** Stopped, and woken again on its saved conversation when opened. */
@@ -1324,6 +1326,8 @@ export interface AgentShown {
     settledAt?: number;
     /** The core settled it by itself rather than the person, so a client offers Undo. */
     autoSettled?: boolean;
+    /** The person's labels for it, lower case. */
+    tags?: string[];
 }
 
 /**
@@ -2486,6 +2490,8 @@ export type MdElement =
     | {
           t: "code";
           v: string;
+          /** `v` is LaTeX math the message wrote between single dollar signs. */
+          math?: boolean;
       }
     | {
           t: "a";
@@ -3075,6 +3081,8 @@ export interface Preferences {
     uiTextScale: number;
     terminalFontSize: number;
     chatTextScale: number;
+    /** How wide a chat's messages and composer grow on a wide window. */
+    chatWidth: ChatWidth;
     editorTextScale: number;
     /** The theme the person picked, one of the curated, Ghostty or their own. */
     themeId: string;
@@ -3207,6 +3215,9 @@ export interface Preferences {
 }
 
 export type MidTurnSend = "steer" | "queue";
+
+/** How wide a chat's column grows: a reading width, a wider one, or the whole pane. */
+export type ChatWidth = "comfortable" | "wide" | "full";
 
 export interface Theme {
     id: string;
@@ -4610,6 +4621,8 @@ export interface MarkdownOptions {
      * writes a reference to one, such as `owner/repo#12`.
      */
     references?: boolean;
+    /** Reads `$…$` as inline math and `$$…$$` as a block of math, kept as LaTeX. */
+    math?: boolean;
 }
 
 /** What a call that takes nothing is sent; whatever a client sends reads as nothing. */

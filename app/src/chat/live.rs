@@ -331,7 +331,7 @@ pub fn dock(
             .child(
                 div()
                     .w_full()
-                    .max_w(px(super::composer::WIDTH))
+                    .max_w(super::column::composer(cx))
                     .px(SPACE_4)
                     .child(sheet),
             )

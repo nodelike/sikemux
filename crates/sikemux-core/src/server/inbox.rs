@@ -19,7 +19,7 @@ use sikemux_view::inbox::{
     InboxKind, InboxLook, InboxNeed, InboxRecording, InboxStalled, InboxTier, RemoteAgent,
     ShipHold, ShipKind, TeamLink,
 };
-use sikemux_view::workspace::{AgentFace, WorkspaceAgent};
+use sikemux_view::workspace::WorkspaceAgent;
 use sikemux_wire::protocol::{
     AgentGroup, AgentState, AgentStatus, ChatInfo, ChatState, SessionId, SessionInfo,
 };
@@ -212,6 +212,7 @@ fn agent_shown(agent_id: String, cli: String, title: String, status: AgentStatus
         snoozed_until: None,
         settled_at: None,
         auto_settled: false,
+        tags: Vec::new(),
     }
 }
 
@@ -1375,11 +1376,14 @@ pub(crate) fn view(core: &Core, chats: &[ChatInfo], sessions: &[SessionInfo]) ->
             Some(folder.to_string_lossy().into_owned())
         })
     };
-    let faces: HashMap<&str, &AgentFace> = (workspace_agents.iter())
-        .filter_map(|agent| Some((agent.id.as_str(), agent.face.as_ref()?)))
+    let records: HashMap<&str, &WorkspaceAgent> = (workspace_agents.iter())
+        .map(|agent| (agent.id.as_str(), agent))
         .collect();
     for agent in &mut listed {
-        agent.face = faces.get(agent.agent_id.as_str()).map(|&face| face.clone());
+        if let Some(record) = records.get(agent.agent_id.as_str()) {
+            agent.face = record.face.clone();
+            agent.tags = record.tags.clone();
+        }
     }
     let mut kept = kept_agents(core, &workspace_agents, &listed, called);
     for agent in kept
@@ -1479,6 +1483,7 @@ fn kept_agents(
             shown.name = agent.name.clone();
             shown.titled = agent.titled;
             shown.face = agent.face.clone();
+            shown.tags = agent.tags.clone();
             shown.project = Some(agent.project.clone());
             shown.project_name = called(&agent.project);
             shown

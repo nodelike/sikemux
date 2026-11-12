@@ -17,25 +17,30 @@ use gpui_transcript::{Fence, Fences};
 
 use tokio::sync::mpsc::UnboundedSender;
 
-use super::mermaid;
+use super::{math, mermaid};
 use crate::core::Ask;
 use crate::diagram::{Diagram, Kept, KeptKey};
 use crate::theme::{self, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2H, SPACE_3H};
 use crate::workbench::Workbench;
 
-/// Draws the ```dbml and ```mermaid blocks of `agent`'s chat.
+/// Draws the ```dbml, ```mermaid and math blocks of `agent`'s chat, the math at the chat's
+/// text `scale`.
 pub(super) fn fences(
     bench: WeakEntity<Workbench>,
     agent: String,
     asks: UnboundedSender<Ask>,
     running: Rc<Cell<bool>>,
+    scale: Rc<Cell<f32>>,
 ) -> Fences {
     Fences {
-        langs: Rc::from(["dbml", mermaid::LANG]),
+        langs: Rc::from(["dbml", mermaid::LANG, sikemux_markdown::MATH]),
         draw: Rc::new(move |fence, window, cx| {
-            match fence.lang.eq_ignore_ascii_case(mermaid::LANG) {
-                true => mermaid::block(fence, running.get(), window, cx),
-                false => block(fence, &bench, &agent, &asks, window, cx),
+            if fence.lang.eq_ignore_ascii_case(mermaid::LANG) {
+                mermaid::block(fence, running.get(), window, cx)
+            } else if fence.lang.eq_ignore_ascii_case(sikemux_markdown::MATH) {
+                math::block(fence, running.get(), scale.get(), window, cx)
+            } else {
+                block(fence, &bench, &agent, &asks, window, cx)
             }
         }),
     }

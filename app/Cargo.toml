@@ -47,6 +47,7 @@ gpui-terminal-grid = { path = "crates/gpui-terminal-grid" }
 gpui-transcript = { path = "crates/gpui-transcript" }
 lsp-types = "0.97"
 mermaid-svg = "0.7"
+latex-rust = { version = "3.0.3", default-features = false, features = ["std"] }
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
 percent-encoding = "2"
 # Already in the build through GPUI's SVG drawing.

@@ -282,6 +282,7 @@ pub(crate) fn new_agent(
         model: None,
         model_provider: None,
         effort: None,
+        tags: Vec::new(),
         keep_alive: false,
         asleep: false,
         worktree: None,
@@ -1066,6 +1067,7 @@ impl Workspaces {
             model: launch.model.clone(),
             model_provider: launch.model_provider.clone(),
             effort: launch.effort.clone(),
+            tags: Vec::new(),
             keep_alive: false,
             asleep: false,
             worktree,
@@ -1558,6 +1560,8 @@ pub struct AgentPatch {
     pub permission_mode: Option<PermissionMode>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub keep_alive: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tags: Option<Vec<String>>,
     #[serde(
         default,
         deserialize_with = "given",
@@ -1623,6 +1627,7 @@ impl AgentPatch {
         set(&mut agent.provider, self.provider);
         set(&mut agent.permission_mode, self.permission_mode);
         set(&mut agent.keep_alive, self.keep_alive);
+        set(&mut agent.tags, self.tags.map(tidy_tags));
         set(&mut agent.lead, self.lead);
         set(&mut agent.resume_id, self.resume_id);
         set(&mut agent.profile_id, self.profile_id);
@@ -1631,6 +1636,22 @@ impl AgentPatch {
         set(&mut agent.effort, self.effort);
         set(&mut agent.buddy, self.buddy);
     }
+}
+
+/// Tags as they are kept: trimmed, lower case, spaces as single spaces, each once.
+fn tidy_tags(tags: Vec<String>) -> Vec<String> {
+    let mut kept: Vec<String> = Vec::new();
+    for tag in tags {
+        let tag = tag
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .to_lowercase();
+        if !tag.is_empty() && !kept.contains(&tag) {
+            kept.push(tag);
+        }
+    }
+    kept
 }
 
 /// Changes some of an agent's fields; a null one is cleared.

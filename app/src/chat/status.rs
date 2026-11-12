@@ -187,10 +187,13 @@ impl Activity {
         };
         let key = SharedString::from(format!("turn:{}", cx.entity_id()));
         Some(
-            centred(turn_line::line(self.mark(cx), &said, key, buttons, cx).px(px(22.)))
-                .pt(SPACE_3)
-                .pb(px(END_SPACE))
-                .into_any_element(),
+            centred(
+                turn_line::line(self.mark(cx), &said, key, buttons, cx).px(px(22.)),
+                cx,
+            )
+            .pt(SPACE_3)
+            .pb(px(END_SPACE))
+            .into_any_element(),
         )
     }
 
@@ -313,6 +316,7 @@ impl Render for Activity {
                             .child(crate::ui::time::elapsed(seconds)),
                     )
                 }),
+            cx,
         )
         .pt(SPACE_3)
         .into_any_element()
@@ -530,7 +534,7 @@ pub(super) fn trouble(
                 bench.start_over(agent)
             }),
         ];
-        return Some(centred(failed(parts, buttons, cx)).into_any_element());
+        return Some(centred(failed(parts, buttons, cx), cx).into_any_element());
     }
     let error = head.error.clone()?;
     let failure = head.failure.as_ref();
@@ -601,7 +605,7 @@ pub(super) fn trouble(
         )
     });
     let row = failed(parts, buttons, cx);
-    Some(centred(div().flex().flex_col().child(row).children(details)).into_any_element())
+    Some(centred(div().flex().flex_col().child(row).children(details), cx).into_any_element())
 }
 
 /// What an empty chat says while its session is not ready, in the welcome's place: that it
@@ -664,7 +668,7 @@ pub(crate) fn connection_note(
                 |bench, agent| bench.start_over(agent),
             ))
         });
-    Some(centred(row).into_any_element())
+    Some(centred(row, cx).into_any_element())
 }
 
 /// A quiet button that says what Sikemux will do on its own, such as when it retries.
@@ -871,12 +875,12 @@ fn account_ways(
 }
 
 /// A line at the end of the rows, in the column the rows are read in.
-fn centred(line: Div) -> Div {
+fn centred(line: Div, cx: &App) -> Div {
     div()
         .w_full()
         .flex()
         .justify_center()
-        .child(line.w_full().max_w(px(800.)))
+        .child(line.w_full().max_w(super::column::rows(cx)))
 }
 
 fn now_ms() -> u64 {
@@ -951,6 +955,7 @@ pub(super) fn plan(
                 .flex_col()
                 .child(summary)
                 .children(shown),
+            cx,
         )
         .into_any_element(),
     )

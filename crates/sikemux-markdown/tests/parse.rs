@@ -11,6 +11,7 @@ const CHAT: MarkdownOptions = MarkdownOptions {
     html_layout: false,
     references: false,
     file_paths: false,
+    math: false,
 };
 
 fn blocks(text: &str, options: MarkdownOptions) -> Value {

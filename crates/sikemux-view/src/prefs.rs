@@ -68,6 +68,8 @@ pub struct Preferences {
     pub ui_text_scale: f64,
     pub terminal_font_size: u32,
     pub chat_text_scale: f64,
+    /// How wide a chat's messages and composer grow on a wide window.
+    pub chat_width: ChatWidth,
     pub editor_text_scale: f64,
     /// The theme the person picked, one of the curated, Ghostty or their own.
     pub theme_id: String,
@@ -221,6 +223,7 @@ preference_changes! {
     UiTextScale ui_text_scale: f64,
     TerminalFontSize terminal_font_size: u32,
     ChatTextScale chat_text_scale: f64,
+    ChatWidth chat_width: ChatWidth,
     EditorTextScale editor_text_scale: f64,
     ThemeId theme_id: String,
     CustomThemes custom_themes: Vec<crate::theme::Theme>,
@@ -351,6 +354,16 @@ pub enum PaneCoverage {
     Full,
 }
 
+/// How wide a chat's column grows: a reading width, a wider one, or the whole pane.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ChatWidth {
+    #[default]
+    Comfortable,
+    Wide,
+    Full,
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum RailDensity {
@@ -375,6 +388,7 @@ impl Default for Preferences {
             ui_text_scale: UI_TEXT_SCALES[0],
             terminal_font_size: DEFAULT_TERMINAL_FONT_SIZE,
             chat_text_scale: DEFAULT_TEXT_SCALE,
+            chat_width: ChatWidth::default(),
             editor_text_scale: DEFAULT_TEXT_SCALE,
             theme_id: DEFAULT_THEME_ID.to_owned(),
             custom_themes: Vec::new(),

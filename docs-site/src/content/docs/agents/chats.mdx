@@ -111,11 +111,17 @@ When an agent writes a database schema in a ` ```dbml ` code block, the chat dra
 
 When an agent writes a ` ```mermaid ` code block, such as a flowchart, a sequence, class, state or ER diagram, a pie chart or a Gantt chart, the chat draws it as a diagram in your theme's colours. It draws it once the agent has finished writing the block, which shows its text until then. A diagram wider than the chat shrinks to fit. **Source** shows the Mermaid text and **Diagram** the drawing again; the copy button copies the text. A block that isn't a diagram Mermaid can draw stays as text, with **Can't draw** above it, and pointing at that says why. On the phone, a Mermaid block shows as its text.
 
+## Math in a reply
+
+When an agent writes LaTeX math, the chat typesets it. A formula on its own between `$$` signs, or in a ` ```math ` code block, is drawn centred in your theme's ink once the agent has finished writing it; double-click it to see its LaTeX, and point at it for the copy button. A block that isn't math Sikemux can typeset stays as text, with **Can't typeset** above it, and pointing at that says why. Math between single `$` signs inside a sentence is written in its line as plain letters and symbols, such as `α² ≤ 1/n`, so it wraps with the words around it. On the phone, math shows as its LaTeX.
+
 ## Reactions and GIFs
 
 An agent can react to your message with an emoji, which shows on the corner of your bubble, and can send a GIF, which shows where it sent it with **Powered by KLIPY** beneath it. When a turn's work folds away, its GIFs stay in view above the reply. Neither shows up as a step in the chat, and the agent doesn't mention them. A message from another agent can get a reaction too.
 
 ## Long chats
+
+On a wide window, **Settings → Appearance → Chat width** lets a chat's messages and composer grow wider than their reading width: **Comfortable** keeps them to a reading column, **Wide** to half as wide again, and **Full** to the whole pane.
 
 A chat holds only the part of its transcript near what you're reading, so a long one stays quick. Scroll up and earlier turns come back as you reach them, and the find bar searches the whole chat. A chat that is asleep, as resumed tabs are until you select them, shows its history, scrolls and finds without starting its agent.
 
@@ -144,6 +150,14 @@ To change a chat's title, double-click it in its header or in the tab rail, type
 ## Earlier chats
 
 **Recent** in the tab rail lists the project's earlier chats, newest first. Scroll to its foot and older ones load, a page at a time, and the rail's search finds any of the project's saved chats by title, however old. ⌘⇧N lists them too, beside the agents already open: pinned first, then newest first, and typing narrows the list without reordering it. A chat that ran in a worktree is listed under its project and opens again in that worktree.
+
+## Going back to a chat
+
+⌘[ brings back the chat you had in front before this one, wherever it was, and ⌘] goes forward again, as a browser does through pages. A chat closed since is passed over. On a browser page that has the keys, the same keys go back and forward in the page instead.
+
+## Tags
+
+Right-click a chat and choose **Tags** to tag it: tick a tag already in use, or **New Tag…** to name one. Once any chat has a tag, a tag button sits in the tab rail's head; pick a tag there to list only its chats, with a pill under the head naming it. Click the pill, or the tag again, to see every chat. Tags stay with a chat while it is open.
 
 ## Pinned chats
 
