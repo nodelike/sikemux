@@ -1,9 +1,10 @@
 //! Removing the Cargo output of agent worktrees nothing builds in any more. A worktree's
 //! `target` starts as a copy-on-write clone of the main checkout's and drifts from it with each
 //! build, and that disk comes back only when the whole folder goes. So it goes whole: when the
-//! worktree's agent closes, when its agent has landed everything and ends its turn, and, least
+//! worktree settles, as its agent closes or has landed everything and ends its turn, and, least
 //! recently built first, while the disk is nearly full. The main checkout's is never touched,
-//! nor one Cargo is building in.
+//! nor one Cargo is building in. A worktree that settles also runs the project's
+//! `worktree.onSettle`.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -76,6 +77,7 @@ pub(crate) fn turn_ended(core: &Core, agent_id: &str) {
         return;
     }
     let agent_id = agent_id.to_owned();
+    let runtime = tokio::runtime::Handle::try_current().ok();
     in_background(core, move |core| {
         if !all_landed(&tree) {
             return;
@@ -83,6 +85,7 @@ pub(crate) fn turn_ended(core: &Core, agent_id: &str) {
         if clear(core, &tree.path, ClearedFor::Landed) {
             core.build_outputs.cleared.locked().insert(agent_id);
         }
+        settle(core, runtime, vec![tree]);
     });
 }
 
@@ -92,19 +95,32 @@ pub(crate) fn closed(core: &Core, trees: Vec<AgentWorktree>) {
         .filter_map(|id| core.workspaces.agent(&id))
         .map(|agent| agent.cwd)
         .collect();
-    let mut left: Vec<PathBuf> = trees
+    let mut left: Vec<AgentWorktree> = trees
         .into_iter()
-        .map(|tree| tree.path)
-        .filter(|path| !open.iter().any(|cwd| cwd.starts_with(path)))
+        .filter(|tree| !open.iter().any(|cwd| cwd.starts_with(&tree.path)))
         .collect();
-    left.sort();
-    left.dedup();
+    left.sort_by(|a, b| a.path.cmp(&b.path));
+    left.dedup_by(|a, b| a.path == b.path);
     if left.is_empty() {
         return;
     }
+    let runtime = tokio::runtime::Handle::try_current().ok();
     in_background(core, move |core| {
-        for path in left {
-            clear(core, &path, ClearedFor::Closed);
+        for tree in &left {
+            clear(core, &tree.path, ClearedFor::Closed);
+        }
+        settle(core, runtime, left);
+    });
+}
+
+/// Runs the project's `worktree.onSettle` in each of `trees`, one tree after another.
+fn settle(core: &Core, runtime: Option<tokio::runtime::Handle>, trees: Vec<AgentWorktree>) {
+    let (Some(runtime), Some(core)) = (runtime, core.arc()) else {
+        return;
+    };
+    runtime.spawn(async move {
+        for tree in trees {
+            super::agent::settle(core.clone(), tree.repo, tree.path).await;
         }
     });
 }

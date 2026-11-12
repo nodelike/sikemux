@@ -16,7 +16,7 @@ use crate::git::{main_checkout, Git};
 use crate::server::connection::blocking;
 use crate::server::custom_command::{self, CommandParams};
 use crate::server::{launching, tasks, Core, CoreResult};
-use crate::tasks::config::{self, ConfigLoad};
+use crate::tasks::config::{self, ConfigLoad, WorktreeHook};
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -436,6 +436,43 @@ pub(crate) async fn set_up(
             "The worktree setup in sikemux.json was not trusted, so it did not run".into(),
         );
     }
+    run_hooks(hooks, cwd).await
+}
+
+/// Runs `project`'s `worktree.onSettle` commands in the agent worktree at `tree` once nothing
+/// works there any more. They run only when the person already trusts its `sikemux.json`, as no
+/// one is there to ask.
+pub(crate) async fn settle(core: Arc<Core>, project: PathBuf, tree: PathBuf) {
+    let load = {
+        let project = project.clone();
+        blocking(move || Ok(config::load(&project))).await
+    };
+    let Ok(load) = load else {
+        return;
+    };
+    if tasks::config_needs(&core, &load).is_some() {
+        return;
+    }
+    let ConfigLoad::Valid { config, .. } = load else {
+        return;
+    };
+    let hooks = config
+        .worktree
+        .map(|worktree| worktree.on_settle)
+        .unwrap_or_default();
+    if hooks.is_empty() || !tree.is_dir() {
+        return;
+    }
+    if let Some(error) = run_hooks(hooks, &tree).await {
+        eprintln!(
+            "sikemux core: settling the worktree {} stopped: {error}",
+            tree.display()
+        );
+    }
+}
+
+/// Runs `hooks` in `cwd` one after another, stopping at the first that fails, and says why.
+async fn run_hooks(hooks: Vec<WorktreeHook>, cwd: &Path) -> Option<String> {
     for hook in hooks {
         let ran = custom_command::run(CommandParams {
             command: hook.command,

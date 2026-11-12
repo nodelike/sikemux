@@ -46,7 +46,7 @@ const MAX_ROLE_CHARTER_CHARS: usize = 4000;
 const MAX_ROLE_EVERY: u64 = 100_000;
 const TASK_FIELDS: &[&str] = &["id", "label", "command", "cwd", "env"];
 const PREVIEW_FIELDS: &[&str] = &["url", "command"];
-const WORKTREE_FIELDS: &[&str] = &["onCreate"];
+const WORKTREE_FIELDS: &[&str] = &["onCreate", "onSettle"];
 const HOOK_FIELDS: &[&str] = &["id", "label", "command"];
 const GENERATE_FIELDS: &[&str] = &["command", "outputs"];
 const MAX_OUTPUTS: usize = 50;
@@ -184,6 +184,9 @@ pub struct WorktreeHook {
 #[serde(rename_all = "camelCase")]
 pub struct WorktreeConfig {
     pub on_create: Vec<WorktreeHook>,
+    /// Run in an agent's worktree once nothing works there any more, such as to remove its
+    /// build output.
+    pub on_settle: Vec<WorktreeHook>,
 }
 
 /// What makes the files a project commits but builds from its other files,
@@ -540,10 +543,9 @@ pub fn trust_summary(config: &ProjectConfig) -> TrustSummary {
     let actions = config.actions.len();
     let tasks = config.tasks.len();
     let previews = usize::from(preview_command(config).is_some());
-    let hooks = config
-        .worktree
-        .as_ref()
-        .map_or(0, |worktree| worktree.on_create.len());
+    let hooks = config.worktree.as_ref().map_or(0, |worktree| {
+        worktree.on_create.len() + worktree.on_settle.len()
+    });
     let mut reasons = Vec::new();
     if actions > 0 {
         reasons.push(format!(
@@ -646,14 +648,14 @@ pub fn trust_commands(config: &ProjectConfig) -> Vec<TrustCommand> {
         label: "Preview".to_owned(),
         command: command.to_owned(),
     });
-    let hooks = config
-        .worktree
-        .iter()
-        .flat_map(|worktree| &worktree.on_create)
-        .map(|hook| TrustCommand {
-            label: format!("New worktree · {}", hook.label),
+    let hooks = config.worktree.iter().flat_map(|worktree| {
+        let created = (worktree.on_create.iter()).map(|hook| ("New worktree", hook));
+        let settled = (worktree.on_settle.iter()).map(|hook| ("Worktree settles", hook));
+        created.chain(settled).map(|(when, hook)| TrustCommand {
+            label: format!("{when} · {}", hook.label),
             command: hook.command.clone(),
-        });
+        })
+    });
     let reservoir = config.reservoir.iter().map(|command| TrustCommand {
         label: "Reservoir".to_owned(),
         command: command.clone(),
@@ -1177,23 +1179,32 @@ fn parse_worktree(value: Option<&Value>, errors: &mut Vec<ConfigError>) -> Optio
         return None;
     };
     reject_unknown_fields(record, WORKTREE_FIELDS, "$.worktree", errors);
-    let on_create = record.get("onCreate");
-    let Some(candidates) = on_create.and_then(Value::as_array) else {
-        let code = if on_create.is_none() {
-            ConfigErrorCode::MissingField
-        } else {
-            ConfigErrorCode::InvalidType
-        };
+    Some(WorktreeConfig {
+        on_create: parse_hooks(record, "onCreate", errors),
+        on_settle: parse_hooks(record, "onSettle", errors),
+    })
+}
+
+fn parse_hooks(
+    record: &Map<String, Value>,
+    field: &str,
+    errors: &mut Vec<ConfigError>,
+) -> Vec<WorktreeHook> {
+    let at = format!("$.worktree.{field}");
+    let Some(listed) = record.get(field) else {
+        return Vec::new();
+    };
+    let Some(candidates) = listed.as_array() else {
         errors.push(issue(
-            "$.worktree.onCreate",
-            code,
-            "onCreate must be an array.",
+            &at,
+            ConfigErrorCode::InvalidType,
+            format!("{field} must be an array."),
         ));
-        return None;
+        return Vec::new();
     };
     if candidates.len() > MAX_HOOKS {
         errors.push(issue(
-            "$.worktree.onCreate",
+            &at,
             ConfigErrorCode::LimitExceeded,
             format!("At most {MAX_HOOKS} worktree hooks are allowed."),
         ));
@@ -1201,7 +1212,7 @@ fn parse_worktree(value: Option<&Value>, errors: &mut Vec<ConfigError>) -> Optio
     let mut hooks = Vec::new();
     let mut ids = HashSet::new();
     for (index, candidate) in candidates.iter().take(MAX_HOOKS).enumerate() {
-        let path = format!("$.worktree.onCreate[{index}]");
+        let path = format!("{at}[{index}]");
         let Some(candidate) = candidate.as_object() else {
             errors.push(issue(
                 path,
@@ -1226,7 +1237,7 @@ fn parse_worktree(value: Option<&Value>, errors: &mut Vec<ConfigError>) -> Optio
             hooks.push(WorktreeHook { id, label, command });
         }
     }
-    Some(WorktreeConfig { on_create: hooks })
+    hooks
 }
 
 fn parse_check(
