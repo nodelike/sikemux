@@ -13,7 +13,6 @@ use sikemux_process::sync::Locked;
 
 use super::contract::{self, Contract};
 use super::elsewhere::{self, RunElsewhere};
-use super::environments::{Environment, Passes};
 use super::guard::{self, Burn};
 use super::lease::Stalled;
 use super::record::RunRecord;
@@ -23,6 +22,7 @@ use super::{blind, finish, goal, queue, risk, Board, Card, CardStatus, Owner, Te
 use crate::server::calls::given;
 use crate::server::connection::blocking;
 use crate::server::names::Starting;
+use crate::server::places::{Passes, Place};
 use crate::server::spawn::Ending;
 use crate::server::worktree::{self, AgentWorktree};
 use crate::server::{chat, messages, Core};
@@ -83,10 +83,12 @@ pub struct BoardSettings {
     /// Who reviews each change before it merges; none for any signed-in
     /// agent on another CLI than its builder's.
     pub reviewer: Option<ReviewerChoice>,
-    /// Where the project deploys, in the order its slices reach them. None
-    /// gives slices the usual ladder and holds every deploy for the person.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub environments: Vec<Environment>,
+    /// The project's places, as its place file keeps them, in the order its slices reach
+    /// those that give them a step.
+    #[serde(skip)]
+    pub places: Vec<Place>,
+    #[serde(skip)]
+    pub places_confirmed: Option<u64>,
     /// Whole dollars of Auto's spending in the project past which it starts no new cards.
     pub spend_ceiling: Option<u32>,
     /// The linked hosts cards go to past this host's places, by key, the first with room first.
@@ -95,26 +97,32 @@ pub struct BoardSettings {
 }
 
 impl BoardSettings {
-    fn environment(&self, name: &str) -> Option<&Environment> {
-        self.environments.iter().find(|known| known.name == name)
+    fn place(&self, name: &str) -> Option<&Place> {
+        self.places.iter().find(|known| known.shown.name == name)
     }
 
     pub(super) fn passes(&self, name: &str) -> Option<Passes> {
-        self.environment(name).map(|environment| environment.passes)
+        let confirmed = self.places_confirmed.is_some();
+        self.place(name).map(|place| place.passes(confirmed))
     }
 
-    /// What it means for the environment called `name`, in the core's words.
+    /// What it means for the place called `name`, in the core's words.
     pub(super) fn passes_words(&self, name: &str) -> String {
-        match self.environment(name) {
-            Some(environment) => environment.passes_words(),
+        match self.passes(name) {
+            Some(Passes::Nobody) => format!("{name} goes freely"),
+            Some(Passes::Check) => format!("{name} goes once the project's check passes"),
+            Some(Passes::Person) => format!("{name} waits for the person's yes"),
             None => format!("{name} is no longer one of the project's, so it waits for a person"),
         }
     }
 
-    /// Who passes the environment called `name`, under its step on a ladder.
+    /// Who passes the place called `name`, under its step on a ladder.
     pub(super) fn step_words(&self, name: &str) -> &'static str {
-        self.environment(name)
-            .map_or("A person", Environment::step_words)
+        match self.passes(name) {
+            Some(Passes::Nobody) => "Goes freely",
+            Some(Passes::Check) => "Once the check passes",
+            Some(Passes::Person) | None => "The person",
+        }
     }
 
     /// What a card's run record compares runs by.
@@ -129,9 +137,9 @@ impl BoardSettings {
         self.landing == Landing::Core
     }
 
-    /// Where a deploy's health is read after it, for the environment called `name`.
+    /// Where a deploy's health is read after it, for the place called `name`.
     pub(crate) fn health(&self, name: &str) -> Option<String> {
-        self.environment(name)?.health.clone()
+        self.place(name)?.health.clone()
     }
 }
 
@@ -146,7 +154,8 @@ impl Default for BoardSettings {
             landing: Landing::Core,
             landed: None,
             reviewer: None,
-            environments: Vec::new(),
+            places: Vec::new(),
+            places_confirmed: None,
             spend_ceiling: None,
             hosts: Vec::new(),
         }
@@ -205,8 +214,6 @@ pub struct BoardSettingsParams {
         skip_serializing_if = "Option::is_none"
     )]
     pub landed: Option<Option<Landed>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub environments: Option<Vec<Environment>>,
     #[serde(
         default,
         deserialize_with = "given",
@@ -285,9 +292,6 @@ impl BoardSettings {
         }
         if let Some(landed) = params.landed {
             settings.landed = landed;
-        }
-        if let Some(environments) = params.environments {
-            settings.environments = super::environments::checked(environments)?;
         }
         if let Some(spend_ceiling) = params.spend_ceiling {
             if spend_ceiling == Some(0) {

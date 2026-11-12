@@ -10,11 +10,28 @@
 //! as already taken of every slice built so far but those that waited for it.
 //! Version 5: a slice's notes became changes its owner ticks off; those
 //! written before were handled as messages, so they count as ticked.
+//! Version 6: environments became places, and the environments an earlier core kept for
+//! folders each project under that folder now keeps as its own.
 
 use serde_json::{json, Value};
 use sikemux_process::clock::epoch_ms;
 
-pub(super) fn carry_over(mut board: Value) -> Value {
+use crate::server::places::place::{from_environment, Place, StepPass};
+
+/// The environments set for folders, by folder, in the file an earlier core kept them in.
+pub(super) fn folder_environments(file: &std::path::Path) -> Vec<(String, Vec<Value>)> {
+    let Some(kept) = std::fs::read_to_string(file)
+        .ok()
+        .and_then(|text| serde_json::from_str::<serde_json::Map<String, Value>>(&text).ok())
+    else {
+        return Vec::new();
+    };
+    (kept.into_iter())
+        .filter_map(|(folder, listed)| Some((folder, listed.as_array()?.clone())))
+        .collect()
+}
+
+pub(super) fn carry_over(mut board: Value, folders: Option<&Vec<(String, Vec<Value>)>>) -> Value {
     let version = board.get("version").and_then(Value::as_u64).unwrap_or(0);
     if version < 1 {
         runs_off_their_stage(&mut board);
@@ -28,7 +45,81 @@ pub(super) fn carry_over(mut board: Value) -> Value {
     if version < 5 {
         notes_to_changes(&mut board);
     }
+    if version < 6 {
+        environments_to_places(&mut board, folders.map_or(&[][..], Vec::as_slice));
+    }
     board
+}
+
+/// Adds `place` to `places`, or joins it to the one of the same id, which takes the stricter
+/// of the two: production if either is, and a step that waits on the check if either does.
+fn stricter(places: &mut Vec<Place>, place: Place) {
+    let Some(kept) = places
+        .iter_mut()
+        .find(|kept| kept.shown.id == place.shown.id)
+    else {
+        places.push(place);
+        return;
+    };
+    kept.shown.production |= place.shown.production;
+    if kept.shown.production {
+        kept.shown.level = sikemux_view::places::Level::Mine;
+    }
+    kept.step = match (kept.step, place.step) {
+        (_, Some(StepPass::Check)) | (Some(StepPass::Check), _) if !kept.shown.production => {
+            Some(StepPass::Check)
+        }
+        (None, None) => None,
+        _ => Some(StepPass::Deploy),
+    };
+    for fact in place.recognise {
+        if !kept.recognise.contains(&fact) {
+            kept.recognise.push(fact);
+        }
+    }
+    kept.health = kept.health.take().or(place.health);
+}
+
+fn environments_to_places(board: &mut Value, folders: &[(String, Vec<Value>)]) {
+    let project = board["project"].as_str().unwrap_or_default().to_owned();
+    let inherited = (folders.iter())
+        .filter(|(folder, _)| std::path::Path::new(&project).starts_with(folder))
+        .flat_map(|(_, listed)| listed.iter());
+    let Some(settings) = board.get_mut("settings").and_then(Value::as_object_mut) else {
+        return;
+    };
+    let own = settings.remove("environments");
+    let mut places: Vec<Place> = Vec::new();
+    for environment in (own
+        .iter()
+        .flat_map(|own| own.as_array().into_iter().flatten()))
+    .chain(inherited)
+    {
+        match from_environment(environment) {
+            Some(place) => stricter(&mut places, place),
+            None => eprintln!(
+                "sikemux core: an environment of {project} was not carried over, as it named nothing to recognise it by: {environment}"
+            ),
+        }
+    }
+    if !places.is_empty() {
+        board["environmentsToPlaces"] = json!(places);
+    }
+    let Some(board) = board.as_object_mut() else {
+        return;
+    };
+    let Some(proposal) = board.remove("environmentsProposal") else {
+        return;
+    };
+    let proposed: Vec<Place> = (proposal["environments"].as_array().into_iter().flatten())
+        .filter_map(from_environment)
+        .collect();
+    if !proposed.is_empty() {
+        board.insert(
+            "placesProposal".into(),
+            json!({ "places": proposed, "why": proposal["why"], "by": proposal["by"], "at": proposal["at"] }),
+        );
+    }
 }
 
 fn notes_to_changes(board: &mut Value) {
@@ -130,5 +221,30 @@ fn runs_off_their_stage(board: &mut Value) {
             }
             _ => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Two environments with one id joined into the first, whose being no production stood.
+    #[test]
+    fn of_two_environments_with_one_id_the_stricter_wins() {
+        let board = json!({ "version": 5, "project": "/work/shop", "settings": { "environments": [
+            { "name": "Staging", "passes": "nobody", "recognise": [{ "kind": "rundeckJob", "path": "staging/*" }] },
+        ] } });
+        let folders = vec![(
+            "/work".to_owned(),
+            vec![
+                json!({ "name": "staging", "passes": "person", "recognise": [{ "kind": "rundeckJob", "path": "shared/*" }] }),
+            ],
+        )];
+        let carried = carry_over(board, Some(&folders));
+        let places: Vec<Place> =
+            serde_json::from_value(carried["environmentsToPlaces"].clone()).unwrap();
+        assert_eq!(places.len(), 1);
+        assert!(places[0].shown.production);
+        assert_eq!(places[0].recognise.len(), 2);
     }
 }

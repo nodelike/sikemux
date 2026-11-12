@@ -9,7 +9,7 @@
 //! one that goes is followed to its end and kept as evidence on the slice.
 
 use crate::server::changed::What;
-use std::collections::VecDeque;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -22,9 +22,10 @@ use sikemux_process::sync::Locked;
 use sikemux_view::inbox::{ShipHold, ShipKind};
 use sikemux_view::slice::Verdict;
 
-use super::board::environments::{Always, Goes};
 use super::board::{self, auto::Landing, DeployRan};
-use super::connection::blocking;
+use super::person_calls::Raise;
+use super::places::push::{self, Reach};
+use super::places::{self, work, Goes, Judged};
 use super::plugins::Provided;
 use super::repo_events::RepoEvent;
 use super::{messages, person_calls, plugins, questions, Core, CoreResult};
@@ -34,6 +35,7 @@ use crate::ship::{Looks, Ship, Target, ToolShip};
 use sikemux_view::calls::{
     CallAsker, CallKind, CallOption, CallOutcome, CallPlace, CallResult, CallState, PersonCall,
 };
+use sikemux_view::places::Recognise;
 
 /// More than an agent waits on at once; past this its oldest hold goes.
 const MAX_HOLDS_PER_AGENT: usize = 16;
@@ -44,6 +46,8 @@ const RUNDECK: &str = "sikemux.rundeck";
 const VERCEL: &str = "sikemux.vercel";
 /// Deploys let go whose end the core is still to hear of.
 const MAX_GOING: usize = 64;
+/// How long a deploy the shim follows may go unheard before its end counts as unseen.
+const GOING_AT_MOST: Duration = Duration::from_secs(60 * 60);
 /// How often a long deploy is looked at, and how long a look can take, before
 /// the core stops following it and says it did not see the end.
 const FOLLOW_LOOKS: usize = 60;
@@ -54,9 +58,19 @@ const HEALTH_TIMEOUT: Duration = Duration::from_secs(10);
 /// The end of what a deploy printed that its evidence keeps.
 const MAX_OUTPUT_CHARS: usize = 4000;
 
-#[derive(Default)]
 pub(crate) struct Ships {
     state: Mutex<State>,
+    /// When this core started: a production yes given before then passes nothing.
+    born: u64,
+}
+
+impl Default for Ships {
+    fn default() -> Self {
+        Self {
+            state: Mutex::default(),
+            born: epoch_ms(),
+        }
+    }
 }
 
 #[derive(Default)]
@@ -66,6 +80,24 @@ struct State {
     allowed: Vec<Allowed>,
     answered: VecDeque<Answered>,
     going: VecDeque<(u64, Deploy)>,
+    /// Production yeses already used, by call: one that covers an action once, or a deploy's
+    /// whose turn ended.
+    used: HashSet<String>,
+    /// A deploy's yes each agent heard, which covers that work's deploy until the end of the
+    /// turn it heard it in: the agent, the call, and whether that turn began.
+    covering: Vec<(String, String, bool)>,
+    /// When each agent last heard from the person in its own chat or terminal, after which a
+    /// no it was given may be asked again.
+    spoke: HashMap<String, u64>,
+    /// The settled call each deploy at a place at "tell me" was told by, by its key.
+    told: HashMap<String, String>,
+}
+
+/// A change at a place at "tell me", told once its deploy ends.
+#[derive(Clone)]
+pub(crate) struct Telling {
+    key: String,
+    raise: Raise,
 }
 
 /// A deploy let go toward one of the project's environments.
@@ -80,6 +112,11 @@ pub(crate) struct Deploy {
     by_person: bool,
     /// The commit its checkout was at as it went, which is what it deployed.
     head: Option<String>,
+    /// The call whose yes let it go, which hears how it ended.
+    call: Option<String>,
+    kind: ShipKind,
+    /// The person is told of it once it ends.
+    telling: Option<Telling>,
 }
 
 #[derive(Clone)]
@@ -102,12 +139,12 @@ struct Hold {
     /// The environment it lands in and why it waits, in a project with environments.
     environment: Option<String>,
     why: Option<String>,
-    /// What the person could always allow from now on.
-    let_go: Option<Always>,
     /// The Sikemux tool call held, which the core runs itself once the person allows it.
     call: Option<ToolCall>,
     /// The deploy it is, to follow once the person lets it go.
     deploy: Option<Deploy>,
+    /// The piece of work at a production place it waits for a yes on, whose call it is.
+    key: Option<String>,
 }
 
 /// A Sikemux tool an agent called, as it called it.
@@ -130,8 +167,6 @@ struct Allowed {
 enum Permit {
     /// Exactly this, from there.
     Exactly { ship: Ship, cwd: PathBuf },
-    /// One deploy to this environment of the project, by passing its gate.
-    Environment { project: String, name: String },
 }
 
 /// What waits on the person, as the inbox lists it.
@@ -160,11 +195,8 @@ impl Ships {
                     what: hold.ship.what.clone(),
                     environment: hold.environment.clone(),
                     why: hold.why.clone(),
-                    let_go: hold.let_go.as_ref().map(|always| always.covers.clone()),
-                    let_go_in: (hold.let_go.as_ref())
-                        .and_then(|always| always.folder.as_deref())
-                        .and_then(|folder| Path::new(folder).file_name())
-                        .map(|name| name.to_string_lossy().into_owned()),
+                    let_go: None,
+                    let_go_in: None,
                 },
                 writes_to: hold.ship.writes_to().map(str::to_owned),
                 agent_id: hold.agent_id.clone(),
@@ -194,17 +226,49 @@ impl Ships {
 
     /// The agent began a turn, in which what it heard it may do holds.
     pub(crate) fn turn_started(&self, agent_id: &str) {
-        for allowed in
-            (self.state.locked().allowed.iter_mut()).filter(|allowed| allowed.agent_id == agent_id)
-        {
+        let mut state = self.state.locked();
+        for allowed in (state.allowed.iter_mut()).filter(|allowed| allowed.agent_id == agent_id) {
             allowed.heard = true;
+        }
+        for (agent, _, heard) in state.covering.iter_mut() {
+            if agent == agent_id {
+                *heard = true;
+            }
         }
     }
 
-    /// The agent's turn ended, and with it what it was allowed in it.
+    /// The agent's turn ended, and with it what it was allowed in it and the deploys its yes
+    /// covered.
     pub(crate) fn turn_ended(&self, agent_id: &str) {
-        (self.state.locked().allowed)
-            .retain(|allowed| allowed.agent_id != agent_id || !allowed.heard);
+        let mut state = self.state.locked();
+        (state.allowed).retain(|allowed| allowed.agent_id != agent_id || !allowed.heard);
+        let ended: Vec<String> = (state.covering.iter())
+            .filter(|(agent, _, heard)| agent == agent_id && *heard)
+            .map(|(_, call, _)| call.clone())
+            .collect();
+        (state.covering).retain(|(agent, _, heard)| agent != agent_id || !heard);
+        let done: Vec<String> = (ended.into_iter())
+            .filter(|call| !state.covering.iter().any(|(_, other, _)| other == call))
+            .collect();
+        state.used.extend(done);
+    }
+
+    /// The person wrote to the agent in its own chat or terminal.
+    pub(crate) fn person_spoke(&self, agent_id: &str) {
+        (self.state.locked().spoke).insert(agent_id.to_owned(), epoch_ms());
+    }
+
+    /// Takes the yes of `call` for one action: once only for an action it covers once, so two
+    /// tries at the same moment can't both pass.
+    fn claim(&self, call: &str, once: bool) -> bool {
+        let mut state = self.state.locked();
+        if state.used.contains(call) {
+            return false;
+        }
+        if once {
+            state.used.insert(call.to_owned());
+        }
+        true
     }
 }
 
@@ -230,119 +294,552 @@ fn check_call(
     cwd: &Path,
     call: Option<ToolCall>,
 ) -> Result<Option<Deploy>, String> {
-    let project = core.workspaces.project_of(cwd);
-    let lands = matches!(ship.kind, ShipKind::Push | ShipKind::Merge)
-        && board::landing(core, &project) == Landing::Core;
-    if lands {
-        return Ok(None);
+    let project = (core.names.get(agent_id).map(|named| named.project))
+        .filter(|project| !project.is_empty())
+        .unwrap_or_else(|| core.workspaces.project_of(cwd));
+    let mut ship = ship;
+    if ship.kind == ShipKind::Push {
+        match push::reach(&ship.what, cwd) {
+            Reach::Branches => return Ok(None),
+            Reach::Project => {}
+            Reach::Tags(names) => {
+                if board::landing(core, &project) != Landing::Core {
+                    return hold(core, agent_id, &project, ship, cwd, call, None);
+                }
+                let name = match names.as_slice() {
+                    [name] => name.clone(),
+                    _ => String::new(),
+                };
+                let target = match (tag_places(core, &project), releases_on_tags(core, &project)) {
+                    (true, _) => Some(Target::Tag { name }),
+                    (false, true) => Some(Target::Package {
+                        registry: places::GITHUB_RELEASES.to_owned(),
+                    }),
+                    (false, false) => None,
+                };
+                if let Some(target) = target {
+                    ship = Ship {
+                        kind: ShipKind::Publish,
+                        target: Some(target),
+                        what: ship.what,
+                    };
+                }
+            }
+            Reach::Deploy { tool, app } => {
+                ship = Ship {
+                    kind: ShipKind::Deploy,
+                    target: Some(Target::Stage { tool, name: app }),
+                    what: ship.what,
+                };
+            }
+        }
     }
-    let judged = board::judge_ship(core, &project, &ship);
-    let environment = judged.environment.clone();
-    let why = judged.why.clone();
-    let deploy = |by_person: bool| {
-        let deploying = environment
-            .as_ref()
-            .filter(|_| ship.kind == ShipKind::Deploy);
-        deploying.map(|name| Deploy {
+    if matches!(ship.kind, ShipKind::Push | ShipKind::Merge) {
+        if board::landing(core, &project) == Landing::Core {
+            return Ok(None);
+        }
+        return hold(core, agent_id, &project, ship, cwd, call, None);
+    }
+    let name = core.names.name_or_id(agent_id);
+    let judged = places::judge(core, &project, &ship, &name);
+    let place = judged.place.as_ref().map(|place| place.name().to_owned());
+    let deploy = |why: String, call: Option<String>, telling: Option<Telling>| {
+        let followed = ship.kind == ShipKind::Deploy || call.is_some() || telling.is_some();
+        place.as_ref().filter(|_| followed).map(|name| Deploy {
             head: Git::quick(cwd).trimmed(&["rev-parse", "HEAD"]).ok(),
             agent_id: agent_id.to_owned(),
             project: project.clone(),
             environment: name.clone(),
             what: ship.what.clone(),
-            why: match by_person {
-                true => "You allowed it.".to_owned(),
-                false => why.clone().unwrap_or_default(),
-            },
-            by_person,
+            why,
+            by_person: call.is_some(),
+            call,
+            kind: ship.kind,
+            telling,
         })
     };
+    let why = judged.why.clone().unwrap_or_default();
     match judged.goes {
-        Goes::Freely => return Ok(deploy(false)),
+        Goes::Freely => Ok(deploy(why, None, None)),
+        Goes::Unplaced => {
+            places::saw(core, &project, &ship, agent_id);
+            Ok(None)
+        }
+        Goes::Tells => {
+            let told = judged.place.as_ref().expect("a place tells");
+            let (key, _) = key_of(told, &ship, work::of(cwd).as_deref(), call.is_some());
+            let raise = call_for(core, agent_id, &project, &ship, cwd, told, None);
+            Ok(deploy(why, None, Some(Telling { key, raise })))
+        }
         Goes::OnceChecked => {
             let head = Git::quick(cwd).trimmed(&["rev-parse", "HEAD"]).ok();
-            return match board::check_stands(core, &project, agent_id, head.as_deref()) {
-                Ok(()) => Ok(deploy(false)),
+            match board::check_stands(core, &project, agent_id, head.as_deref()) {
+                Ok(()) => Ok(deploy(why, None, None)),
                 Err(why) => Err(format!(
                     "Not yet: `{}` lands in {}, which goes once the project's check passes, and {why}. Run it again once it has; the person needn't be asked.",
                     ship.what,
-                    environment.as_deref().unwrap_or_default()
+                    place.as_deref().unwrap_or_default()
                 )),
-            };
+            }
         }
-        Goes::Holds => {}
+        Goes::Asks => {
+            let gated = judged.place.clone().expect("a place asks");
+            let work = work::of(cwd);
+            let (key, once) = key_of(&gated, &ship, work.as_deref(), call.is_some());
+            let yes = person_calls::find_key(core, &project, &key)
+                .filter(|call| passes(core, call))
+                .filter(|call| core.ship.claim(&call.id, once));
+            if let Some(yes) = yes {
+                if !once {
+                    let mut state = core.ship.state.locked();
+                    let covered = (state.covering.iter())
+                        .any(|(agent, call, _)| agent == agent_id && *call == yes.id);
+                    if !covered {
+                        state
+                            .covering
+                            .push((agent_id.to_owned(), yes.id.clone(), true));
+                    }
+                }
+                let why = format!("You said yes on the call \"{}\".", yes.question);
+                return Ok(deploy(why, Some(yes.id), None));
+            }
+            let asking = Asking {
+                place: &gated,
+                key,
+                once,
+                offered: judged.offered,
+                resolved_from: ship
+                    .target
+                    .as_ref()
+                    .and_then(Target::resolved_from)
+                    .map(str::to_owned),
+            };
+            gate(core, agent_id, &project, ship, cwd, asking, judged.why)
+        }
     }
+}
+
+/// What a yes at `place` is kept under for `ship`, and whether it covers the action once. A
+/// deploy of work with a fingerprint is covered with its retries, however spelled, at the same
+/// target; anything else, or work git can't fingerprint, only as the exact action.
+pub(crate) fn key_of(
+    place: &places::Place,
+    ship: &Ship,
+    work: Option<&str>,
+    tool: bool,
+) -> (String, bool) {
+    let target = (ship.target.as_ref())
+        .and_then(|target| serde_json::to_string(target).ok())
+        .unwrap_or_default();
+    let digest = |text: &str| {
+        use sha2::Digest;
+        let hash = sha2::Sha256::digest(text.as_bytes());
+        hex::encode(hash).get(..16).unwrap_or_default().to_owned()
+    };
+    let id = &place.shown.id;
+    match (ship.kind, work) {
+        (ShipKind::Deploy, Some(work)) if !tool => (
+            format!("place:{id}:work:{work}:to:{}", digest(&target)),
+            false,
+        ),
+        (_, work) => {
+            let work = work.unwrap_or_default();
+            let action = digest(&format!("{target}\n{}", ship.what));
+            (format!("place:{id}:work:{work}:action:{action}"), true)
+        }
+    }
+}
+
+/// Whether an answered call is a yes that still stands: picked as its allow option since this
+/// core started, not yet used, and its deploy not yet ended well.
+fn passes(core: &Core, call: &PersonCall) -> bool {
+    let yes = (call.answer.as_ref())
+        .is_some_and(|answer| said_yes(answer.option.as_deref()) && answer.at >= core.ship.born);
+    if core.ship.state.locked().used.contains(&call.id) {
+        return false;
+    }
+    let used = (call.outcome.as_ref()).is_some_and(|outcome| {
+        matches!(
+            outcome.result,
+            CallResult::NotShipped | CallResult::Withdrawn
+        )
+    });
+    yes && !used
+}
+
+fn refused(call: &PersonCall) -> bool {
+    (call.answer.as_ref()).is_some_and(|answer| {
+        !said_yes(answer.option.as_deref()) && answer.option.as_deref() != Some(NOT_PRODUCTION)
+    })
+}
+
+/// The option of a call at a place whose changes recur that says yes, and stops asking.
+pub(crate) const FROM_NOW_ON: &str = "allowFromNowOn";
+/// The option of a call at a target the tool's own config named that says it isn't production.
+pub(crate) const NOT_PRODUCTION: &str = "notProduction";
+
+fn said_yes(option: Option<&str>) -> bool {
+    matches!(option, Some(person_calls::HOLD_ALLOW | FROM_NOW_ON))
+}
+
+/// What a gate asks the person about: the place, the key its answer is kept under, whether a
+/// yes covers the action once, and whether the place was read from the tool's own config.
+struct Asking<'a> {
+    place: &'a places::Place,
+    key: String,
+    once: bool,
+    offered: bool,
+    resolved_from: Option<String>,
+}
+
+/// The call that puts a change of `ship` to the production place `place` to the person.
+fn call_for(
+    core: &Core,
+    agent_id: &str,
+    project: &str,
+    ship: &Ship,
+    cwd: &Path,
+    place: &places::Place,
+    key: Option<String>,
+) -> Raise {
+    call_asking(core, agent_id, project, ship, cwd, place, key, None)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn call_asking(
+    core: &Core,
+    agent_id: &str,
+    project: &str,
+    ship: &Ship,
+    cwd: &Path,
+    place: &places::Place,
+    key: Option<String>,
+    resolved_from: Option<&str>,
+) -> Raise {
+    let name = core.names.name_or_id(agent_id);
+    let subject = Git::quick(cwd)
+        .trimmed(&["log", "-1", "--format=%s"])
+        .ok()
+        .filter(|subject| !subject.is_empty());
+    let option = |id: &str, label: String| CallOption {
+        id: id.to_owned(),
+        label,
+        detail: None,
+        picture: None,
+    };
+    Raise {
+        project: project.to_owned(),
+        kind: CallKind::Production,
+        asker: CallAsker {
+            agent_id: agent_id.to_owned(),
+            cli: questions::cli_of(core, agent_id),
+            name: name.clone(),
+        },
+        asked_for: None,
+        question: format!("Change {} with @{name}'s work?", place.name()),
+        context: [
+            resolved_from.map(|from| format!("Sikemux read where it lands from {from}.")),
+            subject.map(|subject| format!("The work's latest commit: {subject}")),
+        ]
+        .into_iter()
+        .flatten()
+        .reduce(|one, other| format!("{one} {other}")),
+        options: [
+            Some(option(
+                person_calls::HOLD_ALLOW,
+                format!("Change {}", place.name()),
+            )),
+            place.recurs.then(|| {
+                let label = format!("Change {}, and from now on just tell me", place.name());
+                option(FROM_NOW_ON, label)
+            }),
+            resolved_from
+                .map(|_| option(NOT_PRODUCTION, format!("{} isn't production", place.name()))),
+            Some(option(person_calls::HOLD_REFUSE, "Not now".to_owned())),
+        ]
+        .into_iter()
+        .flatten()
+        .collect(),
+        pick: None,
+        against: None,
+        evidence: Vec::new(),
+        action: Some(ship.what.clone()),
+        brief: None,
+        place: Some(CallPlace {
+            id: place.shown.id.clone(),
+            name: place.name().to_owned(),
+        }),
+        key,
+    }
+}
+
+/// Whether the project keeps a place for tags it pushes.
+fn tag_places(core: &Core, project: &str) -> bool {
+    let (places, _) = places::current(core, project);
+    (places.iter())
+        .flat_map(|place| place.recognise.iter())
+        .any(|fact| matches!(fact, Recognise::Tag { .. }))
+}
+
+/// Whether a workflow the project keeps publishes a release, so a pushed tag can start one.
+fn releases_on_tags(core: &Core, project: &str) -> bool {
+    let releases = Recognise::Package {
+        registry: places::GITHUB_RELEASES.to_owned(),
+    };
+    let (places, _) = places::current(core, project);
+    places
+        .iter()
+        .any(|place| place.recognise.contains(&releases))
+}
+
+/// A change to the production place `place` waits for the person's yes on one call for this
+/// piece of work there, which every agent waiting on the same work there joins. A no holds for
+/// that work there until the work changes or the person writes to the agent again, with no
+/// second call. A call this agent waits on at the same place for work that has since changed
+/// is withdrawn.
+fn gate(
+    core: &Core,
+    agent_id: &str,
+    project: &str,
+    ship: Ship,
+    cwd: &Path,
+    asking: Asking<'_>,
+    why: Option<String>,
+) -> Result<Option<Deploy>, String> {
+    let Asking {
+        place,
+        key,
+        once,
+        offered,
+        resolved_from,
+    } = asking;
+    if let Some(no) = person_calls::find_key(core, project, &key).filter(refused) {
+        let answered = no.answer.as_ref().map_or(0, |answer| answer.at);
+        let spoke = core.ship.state.locked().spoke.get(agent_id).copied();
+        if spoke.is_none_or(|spoke| spoke <= answered) {
+            return Err(format!(
+                "Not yet: the person said no to changing {} with this work. Do not run it again, however it is spelled, unless the work changes or they tell you to; if your work needs it, say so in your answer.",
+                place.name()
+            ));
+        }
+    }
+    let stale: Vec<String> = (core.ship.state.locked().holds.iter())
+        .filter(|hold| hold.agent_id == agent_id)
+        .filter_map(|hold| hold.key.as_deref().map(|held| (hold, held)))
+        .filter(|(_, held)| *held != key && same_but_work(held, &key))
+        .map(|(hold, _)| hold.token.clone())
+        .collect();
+    for token in stale {
+        withdraw(
+            core,
+            agent_id,
+            &token,
+            "the work changed after it was raised",
+        );
+    }
+    let oldest = {
+        let state = core.ship.state.locked();
+        let mine: Vec<&Hold> = (state.holds.iter())
+            .filter(|hold| hold.agent_id == agent_id && hold.key.is_some())
+            .collect();
+        (mine.len() >= MAX_HOLDS_PER_AGENT)
+            .then(|| (mine[0].token.clone(), mine[0].ship.what.clone()))
+    };
+    if let Some((token, what)) = oldest {
+        withdraw(
+            core,
+            agent_id,
+            &token,
+            "it waited on more calls than Sikemux keeps",
+        );
+        let text = format!(
+            "Sikemux withdrew its call for `{what}`, the oldest of the calls you wait on, as you wait on more than it keeps. Run it again when you need it."
+        );
+        tell_soon(core, agent_id, text);
+    }
+    let raise = call_asking(
+        core,
+        agent_id,
+        project,
+        &ship,
+        cwd,
+        place,
+        Some(key.clone()),
+        resolved_from.as_deref().filter(|_| offered),
+    );
+    let id = person_calls::raise(core, raise);
+    if offered {
+        places::offer(core, project, &id, place.clone());
+    }
+    {
+        let mut state = core.ship.state.locked();
+
+        let waiting = (state.holds.iter())
+            .any(|hold| hold.agent_id == agent_id && hold.key.as_deref() == Some(key.as_str()));
+        if !waiting {
+            state.holds.push(Hold {
+                token: id,
+                agent_id: agent_id.to_owned(),
+                project: project.to_owned(),
+                cwd: cwd.to_owned(),
+                at: epoch_ms(),
+                environment: Some(place.name().to_owned()),
+                why: why.clone(),
+                deploy: None,
+                call: None,
+                key: Some(key),
+                ship: ship.clone(),
+            });
+        }
+    }
+    core.changed(What::Agents);
+    let covers = match once {
+        true => "it covers this action once, exactly as asked",
+        false => "it covers this work's deploy there, every command and retry, until the end of the turn in which you hear it",
+    };
+    let mut said = format!(
+        "Waits for the person: `{}` changes {}, a production place, so Sikemux put one call to them for it; agents waiting on the same work there share it. They answer it in Sikemux, on the notch or on their phone; nothing passes it on a timeout, and words typed in a chat never do. You will hear their answer. After a yes, run it again: {covers}. If the work changes first, the call is withdrawn and the next try asks again. Go on with other work meanwhile.",
+        ship.what,
+        place.name()
+    );
+    if ship.kind == ShipKind::ProductionWrite {
+        said = format!("{said} Each statement is its own call, so send the statements you need together in one call and the person answers once.");
+    }
+    if let Some(why) = why {
+        said = format!("{said} {why}");
+    }
+    Err(said)
+}
+
+/// Sends the agent `text` as from Sikemux, without waiting on it.
+fn tell_soon(core: &Core, agent_id: &str, text: String) {
+    let (Some(core), agent_id) = (core.arc(), agent_id.to_owned()) else {
+        return;
+    };
+    if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+        runtime.spawn(async move {
+            let _ = messages::for_person(&core, agent_id, text).await;
+        });
+    }
+}
+
+/// Whether two keys name the same action at the same place, whatever the work.
+fn same_but_work(one: &str, other: &str) -> bool {
+    let parts = |key: &str| {
+        let (place, rest) = key.split_once(":work:")?;
+        let (_, action) = rest.split_once(':')?;
+        Some((place.to_owned(), action.to_owned()))
+    };
+    parts(one).is_some_and(|one| Some(one) == parts(other))
+}
+
+/// Drops `agent_id`'s wait on the gate call `token`, and withdraws the call when nobody else
+/// waits on it, telling the others that joined it why.
+fn withdraw(core: &Core, agent_id: &str, token: &str, why: &str) {
+    let others: Vec<String> = {
+        let mut state = core.ship.state.locked();
+        state
+            .holds
+            .retain(|hold| !(hold.token == token && hold.agent_id == agent_id));
+        (state.holds.iter())
+            .filter(|hold| hold.token == token)
+            .map(|hold| hold.agent_id.clone())
+            .collect()
+    };
+    if !others.is_empty() {
+        return;
+    }
+    let outcome = CallOutcome {
+        result: CallResult::Withdrawn,
+        healthy: None,
+        roll_back: false,
+        at: epoch_ms(),
+    };
+    person_calls::set_outcome(core, token, outcome);
+    eprintln!("sikemux core: call {token} was withdrawn, as {why}");
+}
+
+/// Holds `ship` for the person, unless they allowed exactly it or a deploy to its place
+/// already, and tells the agent why.
+fn hold(
+    core: &Core,
+    agent_id: &str,
+    project: &str,
+    ship: Ship,
+    cwd: &Path,
+    call: Option<ToolCall>,
+    judged: Option<Judged>,
+) -> Result<Option<Deploy>, String> {
     let then = match call {
         Some(_) => "Do not call it again: once they allow it, Sikemux runs it and sends you what it answered.",
         None => "You will hear when they allow it, and then run exactly this again.",
     };
+    let why = judged.as_ref().and_then(|judged| judged.why.clone());
+    let place = (judged.as_ref())
+        .and_then(|judged| judged.place.as_ref())
+        .map(|place| place.name().to_owned());
     let mut said = format!(
-        "Held for the person: `{}` {}, so Sikemux asked them first: they answer it on its card in your chat or on Goals Home in Sikemux, on the notch, or in your chat on their phone. {then} Go on with other work meanwhile.",
+        "Held for the person: `{}` {}, so Sikemux asked them first: they answer it on its card in your chat in Sikemux, on the notch, or in your chat on their phone. {then} Go on with other work meanwhile.",
         ship.what,
         leaves(&ship)
     );
-    if let Some(why) = &judged.why {
+    if let Some(why) = &why {
         said = format!("{said} {why}");
     }
-    let let_go = deploy(true);
-    let unasked = board::always_offer(core, &project, &ship);
+    let allowed_deploy = (place.as_ref())
+        .filter(|_| ship.kind == ShipKind::Deploy)
+        .map(|name| Deploy {
+            head: Git::quick(cwd).trimmed(&["rev-parse", "HEAD"]).ok(),
+            agent_id: agent_id.to_owned(),
+            project: project.to_owned(),
+            environment: name.clone(),
+            what: ship.what.clone(),
+            why: "You allowed it.".to_owned(),
+            by_person: true,
+            call: None,
+            kind: ship.kind,
+            telling: None,
+        });
     {
         let mut state = core.ship.state.locked();
         let same =
             |agent: &str, held: &Ship, at: &Path| agent == agent_id && *held == ship && at == cwd;
-        let permits = |allowed: &Allowed| match &allowed.permit {
-            Permit::Exactly {
+        if let Some(at) = (state.allowed.iter()).position(|allowed| {
+            let Permit::Exactly {
                 ship: held,
                 cwd: at,
-            } => same(&allowed.agent_id, held, at),
-            Permit::Environment {
-                project: there,
-                name,
-            } => {
-                allowed.agent_id == agent_id
-                    && *there == project
-                    && environment.as_ref() == Some(name)
-            }
-        };
-        if let Some(at) = state.allowed.iter().position(permits) {
+            } = &allowed.permit;
+            same(&allowed.agent_id, held, at)
+        }) {
             let ran = state.allowed.remove(at).call;
             drop(state);
             if let Some(call) = ran {
                 person_calls::set_outcome(core, &call, went(CallResult::Shipped));
             }
-            return Ok(let_go);
+            return Ok(allowed_deploy);
         }
-        if state
-            .holds
-            .iter()
-            .any(|hold| same(&hold.agent_id, &hold.ship, &hold.cwd))
-        {
+        if (state.holds.iter()).any(|hold| same(&hold.agent_id, &hold.ship, &hold.cwd)) {
             return Err(said);
         }
-        let held = state
-            .holds
-            .iter()
+        let held = (state.holds.iter())
             .filter(|hold| hold.agent_id == agent_id)
             .count();
         if held >= MAX_HOLDS_PER_AGENT {
-            if let Some(oldest) = state
-                .holds
-                .iter()
-                .position(|hold| hold.agent_id == agent_id)
-            {
+            if let Some(oldest) = (state.holds.iter()).position(|hold| hold.agent_id == agent_id) {
                 state.holds.remove(oldest);
             }
         }
         state.holds.push(Hold {
             token: uuid::Uuid::new_v4().simple().to_string(),
             agent_id: agent_id.to_owned(),
-            project,
+            project: project.to_owned(),
             cwd: cwd.to_owned(),
             at: epoch_ms(),
-            environment: judged.environment,
-            why: judged.why,
-            let_go: unasked,
-            deploy: call.as_ref().and(let_go),
+            environment: place,
+            why,
+            deploy: call.as_ref().and(allowed_deploy),
             call,
+            key: None,
             ship,
         });
     }
@@ -392,13 +889,31 @@ pub(crate) async fn call(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
     Ok(match checked {
         Ok(None) => json!({ "allowed": true }),
         Ok(Some(deploy)) if follows => {
-            let mut state = core.ship.state.locked();
-            state.next += 1;
-            let went = state.next;
-            if state.going.len() >= MAX_GOING {
-                state.going.pop_front();
-            }
-            state.going.push_back((went, deploy));
+            let went = {
+                let mut state = core.ship.state.locked();
+                state.next += 1;
+                let went = state.next;
+                if state.going.len() >= MAX_GOING {
+                    if let Some((_, lost)) = state.going.pop_front() {
+                        let core = core.clone();
+                        tokio::spawn(async move { ended(core, lost, None, String::new()).await });
+                    }
+                }
+                state.going.push_back((went, deploy));
+                went
+            };
+            let waiting = core.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(GOING_AT_MOST).await;
+                let lost = {
+                    let mut state = waiting.ship.state.locked();
+                    let at = state.going.iter().position(|(id, _)| *id == went);
+                    at.and_then(|at| state.going.remove(at))
+                };
+                if let Some((_, deploy)) = lost {
+                    ended(waiting, deploy, None, String::new()).await;
+                }
+            });
             json!({ "allowed": true, "went": went.to_string() })
         }
         Ok(Some(deploy)) => {
@@ -497,6 +1012,15 @@ async fn tool_target(core: &Arc<Core>, name: &str, arguments: &Value) -> Option<
                 production: place["production"].as_bool()?,
             })
         }
+        "play_upload" => Some(Target::Package {
+            registry: "the app stores".to_owned(),
+        }),
+        "db_query" => Some(Target::Database {
+            name: arguments["database"]
+                .as_str()
+                .unwrap_or("production")
+                .to_owned(),
+        }),
         name if name.starts_with("jira_") => Some(Target::Connector {
             name: "Jira".to_owned(),
         }),
@@ -597,7 +1121,15 @@ pub(crate) async fn check_web_write(
     })
     .await
     .map_err(|error| error.to_string())?;
-    Ok(checked.err())
+    Ok(match checked {
+        Ok(Some(deploy)) => {
+            let core = core.clone();
+            tokio::spawn(async move { ended(core, deploy, None, String::new()).await });
+            None
+        }
+        Ok(None) => None,
+        Err(said) => Some(said),
+    })
 }
 
 /// How far a deploy tool's answer says it got.
@@ -728,8 +1260,15 @@ async fn health_of(address: &str) -> (Verdict, String) {
 
 /// A deploy reached its end: what ran, where and its result, with the project's
 /// health check on one that went well, is kept on the agent's slice.
-async fn ended(core: Arc<Core>, deploy: Deploy, verdict: Option<Verdict>, output: String) {
+pub(crate) async fn ended(
+    core: Arc<Core>,
+    deploy: Deploy,
+    verdict: Option<Verdict>,
+    output: String,
+) {
+    let ran_well = verdict;
     let mut verdict = verdict;
+    let mut healthy = None;
     let mut lines = vec![deploy.why.clone(), output];
     if verdict.is_none() {
         lines.push("Sikemux did not see how it ended.".to_owned());
@@ -737,9 +1276,37 @@ async fn ended(core: Arc<Core>, deploy: Deploy, verdict: Option<Verdict>, output
     if verdict == Some(Verdict::Passed) {
         if let Some(address) = board::health_of(&core, &deploy.project, &deploy.environment) {
             let (health, said) = health_of(&address).await;
+            healthy = Some(health == Verdict::Passed);
             verdict = Some(health);
             lines.push(said);
         }
+    }
+    let result = match ran_well {
+        Some(Verdict::Failed) => CallResult::Failed,
+        Some(_) => CallResult::Shipped,
+        None => CallResult::MayHaveRun,
+    };
+    let outcome = CallOutcome {
+        result,
+        healthy,
+        roll_back: result != CallResult::Failed,
+        at: epoch_ms(),
+    };
+    if let Some(call) = &deploy.call {
+        person_calls::set_outcome(&core, call, outcome.clone());
+    }
+    if let Some(telling) = deploy.telling.clone() {
+        let told = core.ship.state.locked().told.get(&telling.key).cloned();
+        match told {
+            Some(id) => person_calls::set_outcome(&core, &id, outcome),
+            None => {
+                let id = person_calls::told(&core, telling.raise, outcome);
+                core.ship.state.locked().told.insert(telling.key, id);
+            }
+        }
+    }
+    if deploy.kind != ShipKind::Deploy {
+        return;
     }
     let text: String = lines
         .iter()
@@ -761,6 +1328,112 @@ async fn ended(core: Arc<Core>, deploy: Deploy, verdict: Option<Verdict>, output
         agent: deploy.agent_id,
         ran,
     });
+}
+
+/// The person answered the call a production gate raised: each agent waiting on it hears
+/// so, and what waits for it is no longer held. A no holds for those agents until the end of
+/// the turn in which they hear it.
+pub(crate) async fn gate_answered(core: &Arc<Core>, call: &PersonCall, typed: Option<String>) {
+    let option = call
+        .answer
+        .as_ref()
+        .and_then(|answer| answer.option.clone());
+    {
+        let mut state = core.ship.state.locked();
+        let mut waiting: Vec<String> = (state.holds.iter())
+            .filter(|hold| hold.token == call.id)
+            .map(|hold| hold.agent_id.clone())
+            .collect();
+        waiting.extend(
+            std::iter::once(&call.asker)
+                .chain(&call.joined)
+                .map(|asker| asker.agent_id.clone()),
+        );
+        waiting.sort();
+        waiting.dedup();
+        state.holds.retain(|hold| hold.token != call.id);
+        if said_yes(option.as_deref()) {
+            for agent_id in waiting {
+                state.covering.push((agent_id, call.id.clone(), false));
+            }
+        }
+    }
+    let offered = places::take_offer(core, &call.project, &call.id)
+        .map(|place| (call.project.clone(), place));
+    core.changed(What::Agents);
+    let from = call.answer.as_ref().map(|answer| match answer.by {
+        sikemux_view::calls::CallClient::Device { .. } => "a paired phone".to_owned(),
+        _ => "Sikemux".to_owned(),
+    });
+    let keep =
+        |place: places::Place, production: bool, level: Option<sikemux_view::places::Level>| {
+            let project = call.project.clone();
+            places::kept_by_tap(core, &project, place, production, level, from.clone())
+        };
+    match option.as_deref() {
+        Some(NOT_PRODUCTION) => {
+            if let Some((_, place)) = offered {
+                keep(place, false, None);
+            }
+        }
+        Some(FROM_NOW_ON) => {
+            let place = offered
+                .map(|(_, place)| place)
+                .or_else(|| place_of(core, call));
+            if let Some(place) = place {
+                keep(place, true, Some(sikemux_view::places::Level::TellMe));
+            }
+        }
+        Some(person_calls::HOLD_ALLOW) => {
+            if let Some((_, place)) = offered {
+                keep(place, true, None);
+            }
+        }
+        _ => {}
+    }
+    let place = (call.place.as_ref()).map_or("the place", |place| place.name.as_str());
+    let action = call.action.as_deref().unwrap_or("it");
+    let mut text = match option.as_deref() {
+        Some(NOT_PRODUCTION) => format!(
+            "The person said {place} isn't production. Run `{action}` again now; Sikemux won't ask about it there again."
+        ),
+        Some(FROM_NOW_ON) => format!(
+            "The person said yes on the call \"{}\", and to just tell them from now on. Run `{action}` again now.",
+            call.question
+        ),
+        _ if said_yes(option.as_deref()) => format!(
+            "The person said yes on the call \"{}\". Run `{action}` again now: for a deploy the yes covers this work's deploy to {place}, every command and retry, until the end of the turn in which you hear it; anything else it covers once, exactly as asked.",
+            call.question
+        ),
+        _ => format!(
+            "The person said no on the call \"{}\". Do not change {place} with this work, however the command is spelled, unless the work changes or they tell you to; if your work needs it, say so in your answer.",
+            call.question
+        ),
+    };
+    if let Some(typed) = typed {
+        text = format!("{text}\nThey added: {typed}");
+    }
+    let askers = std::iter::once(&call.asker).chain(&call.joined);
+    let mut told: Vec<&str> = Vec::new();
+    for asker in askers {
+        if told.contains(&asker.agent_id.as_str()) {
+            continue;
+        }
+        told.push(&asker.agent_id);
+        let delivered = messages::for_person(core, asker.agent_id.clone(), text.clone()).await;
+        let heard = delivered
+            .is_ok_and(|told| matches!(told["delivery"].as_str(), Some("steered" | "newTurn")));
+        if heard {
+            core.ship.turn_started(&asker.agent_id);
+        }
+    }
+}
+
+/// The place a call was raised at, as the project keeps it.
+fn place_of(core: &Core, call: &PersonCall) -> Option<places::Place> {
+    let shown = call.place.as_ref()?;
+    let (kept, _) = places::current(core, &call.project);
+    kept.into_iter().find(|place| place.shown.id == shown.id)
 }
 
 #[derive(Deserialize, Serialize)]
@@ -853,93 +1526,10 @@ async fn permitted(
     }
 }
 
-/// The person passed the gate of `environment` while `agent` waits on it: its
-/// deploys held for there go once, and the gate passes when one has gone. False
-/// when none is held, so the gate is the person's to pass by itself.
-pub(crate) async fn allow_held(
-    core: &Arc<Core>,
-    agent: &str,
-    project: &str,
-    environment: &str,
-) -> bool {
-    let ids: Vec<String> = (core.ship.state.locked().holds.iter())
-        .filter(|hold| {
-            hold.agent_id == agent
-                && hold.project == project
-                && hold.environment.as_deref() == Some(environment)
-        })
-        .map(|hold| hold.token.clone())
-        .collect();
-    for id in &ids {
-        if let Ok(hold) = take(core, id) {
-            allow_hold(core, hold).await;
-        }
-    }
-    !ids.is_empty()
-}
-
-/// The person passed the gate of `environment` with nothing held: the agent may
-/// deploy there once.
-pub(crate) async fn permit_environment(
-    core: &Arc<Core>,
-    agent: &str,
-    project: &str,
-    environment: &str,
-) {
-    let permit = Permit::Environment {
-        project: project.to_owned(),
-        name: environment.to_owned(),
-    };
-    let text = format!(
-        "The person passed {environment}. Deploy there now if you haven't; one deploy may run, until this turn ends."
-    );
-    permitted(core, agent.to_owned(), permit, text, None).await;
-}
-
-/// The person always allows what the held action lands in, for its project or for every
-/// project in its folder. Each action held for there goes: a tool call runs, and a command's
-/// agent is told to run it again.
-pub(crate) async fn let_go(core: &Arc<Core>, params: HoldParams) -> CoreResult<()> {
-    let (project, always) = {
-        let state = core.ship.state.locked();
-        let hold = (state.holds.iter())
-            .find(|hold| hold.token == params.hold)
-            .ok_or("that action no longer waits on you")?;
-        let always = (hold.let_go.clone()).ok_or("this action can't be always allowed")?;
-        (hold.project.clone(), always)
-    };
-    let (allowing, there, kept) = (core.clone(), project.clone(), always.clone());
-    blocking(move || Ok(board::allow_always(&allowing, &there, &kept)?)).await?;
-    let covered = |held: &str| match &always.folder {
-        Some(folder) => Path::new(held).starts_with(folder),
-        None => held == project,
-    };
-    let held: Vec<(String, String, Ship)> = (core.ship.state.locked().holds.iter())
-        .filter(|hold| covered(&hold.project))
-        .map(|hold| (hold.token.clone(), hold.project.clone(), hold.ship.clone()))
-        .collect();
-    for (id, project, ship) in held {
-        if board::judge_ship(core, &project, &ship).goes != Goes::Freely {
-            continue;
-        }
-        if let Ok(mut hold) = take(core, &id) {
-            core.ship.remember(&hold, true);
-            if let Some(call) = hold.call.take() {
-                hold.deploy = check(core, &hold.agent_id, hold.ship.clone(), &hold.cwd)
-                    .ok()
-                    .flatten();
-                let allowed = format!("The person always allows {} now", always.covers);
-                run_held(core, hold, call, allowed);
-                continue;
-            }
-            let text = format!(
-                "The person always allows {} now. Run `{}` again now.",
-                always.covers, hold.ship.what
-            );
-            let _ = messages::for_person(core, hold.agent_id, text).await;
-        }
-    }
-    Ok(())
+/// A released client's "always allow". No hold offers it: a place that isn't production
+/// runs without asking, and a production place's level is set on the Playbook.
+pub(crate) async fn let_go(_core: &Arc<Core>, _params: HoldParams) -> CoreResult<()> {
+    Err("this action can't be always allowed; its place's level is set on the Playbook".into())
 }
 
 /// The person refuses the held action, and the agent is told not to take it.
@@ -972,6 +1562,7 @@ fn take(core: &Core, id: &str) -> CoreResult<Hold> {
 fn tell_calls(core: &Core) {
     let state = core.ship.state.locked();
     let wanted = (state.holds.iter())
+        .filter(|hold| hold.key.is_none())
         .map(|hold| (hold.token.clone(), held_call(core, hold)))
         .collect();
     person_calls::sync_holds(core, wanted);
@@ -1017,25 +1608,9 @@ fn held_call(core: &Core, hold: &Hold) -> PersonCall {
         detail,
         picture: None,
     };
-    let always = (hold.let_go.as_ref()).map(|always| {
-        option(
-            person_calls::HOLD_ALWAYS,
-            "Always allow it here".to_owned(),
-            Some(always.covers.clone()),
-        )
-    });
-    let options = [
-        Some(option(
-            person_calls::HOLD_ALLOW,
-            "Allow it once".to_owned(),
-            None,
-        )),
-        Some(option(
-            person_calls::HOLD_REFUSE,
-            "Not now".to_owned(),
-            None,
-        )),
-        always,
+    let options = vec![
+        option(person_calls::HOLD_ALLOW, "Allow it once".to_owned(), None),
+        option(person_calls::HOLD_REFUSE, "Not now".to_owned(), None),
     ];
     PersonCall {
         id: hold.token.clone(),
@@ -1051,7 +1626,7 @@ fn held_call(core: &Core, hold: &Hold) -> PersonCall {
         asked_for: None,
         question,
         context: hold.why.clone(),
-        options: options.into_iter().flatten().collect(),
+        options,
         pick: None,
         against: None,
         evidence: Vec::new(),
@@ -1086,9 +1661,9 @@ mod tests {
         let said = check_process(&core, "agent", "./deploy.sh", &[], project.path())
             .await
             .unwrap_err();
-        assert!(said.starts_with("Held for the person"), "{said}");
+        assert!(said.starts_with("Waits for the person"), "{said}");
         let waiting = core.ship.waiting();
         assert_eq!(waiting.len(), 1);
-        assert_eq!(waiting[0].hold.let_go.as_deref(), Some("./deploy.sh"));
+        assert_eq!(waiting[0].hold.environment.as_deref(), Some("./deploy.sh"));
     }
 }

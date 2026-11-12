@@ -624,7 +624,7 @@ async fn dispatch(
             let knowing = core.clone();
             let sites = tokio::task::spawn_blocking(move || {
                 let project = knowing.workspaces.project_of(Path::new(&project));
-                board::allowed_sites(&knowing, &project)
+                super::places::allowed_sites(&knowing, &project)
             })
             .await
             .map_err(|error| error.to_string())?;

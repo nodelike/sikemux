@@ -449,6 +449,11 @@ calls! { core, client, method, params;
     "answerCall" AnswerCall (sikemux_view::calls::AnswerCallParams) -> (): Full, counted => person_calls::answer(&core, &client.peer, params).await?,
     "callSeen" CallSeen (sikemux_view::calls::CallParams) -> (): Watch => person_calls::seen(&core, &client.peer, params)?,
     "callNotMine" CallNotMine (sikemux_view::calls::CallParams) -> (): Full, counted => person_calls::not_mine(&core, &client.peer, params).await?,
+    "places" PlacesRead (super::places::PlacesParams) -> sikemux_view::places::Places: Watch, any_program => super::places::read(&core, params).await?,
+    "setPlaceLevel" SetPlaceLevel (super::places::PlaceLevelParams) -> sikemux_view::places::Places: Full, counted => super::places::set_level(&core, &client.peer, params).await?,
+    "confirmPlaces" ConfirmPlaces (super::places::PlacesParams) -> sikemux_view::places::Places: Full, counted => super::places::confirm(&core, params).await?,
+    "addPlace" AddPlace (super::places::AddPlaceParams) -> sikemux_view::places::Places: Full, counted => super::places::add(&core, &client.peer, params).await?,
+    "countAsProduction" CountAsProduction (super::places::SeenParams) -> sikemux_view::places::Places: Full, counted => super::places::count_as_production(&core, &client.peer, params).await?,
     "checkWebWrite" CheckWebWrite (ship::WebWriteParams) -> Option<String>: Owner => ship::check_web_write(&core, params).await?,
     "agentMessages": Watch, any_program => answer(messages::agent_messages(&core, parse(params)?).await?),
     "agentMessageRows" AgentMessageRows (messages::AgentMessagesParams) -> messages::AgentMessageRows: Watch, any_program => {

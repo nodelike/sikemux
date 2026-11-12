@@ -8,8 +8,8 @@ use std::collections::{HashMap, HashSet};
 
 use sikemux_view::slice::{Gate, GoalEta, Slip, Wait, WaitOn};
 
-use super::environments::Step;
 use super::slice;
+use super::steps::Step;
 use super::{Board, Card};
 use crate::server::notify::GoalMoved;
 
@@ -51,10 +51,10 @@ impl Took {
         Self {
             built: took(Step::Gate(Gate::Built)),
             landed: took(Step::Gate(Gate::Landed)),
-            environments: (board.settings.environments.iter())
-                .filter_map(|environment| {
-                    let step = Step::Environment(environment.name.clone());
-                    Some((environment.name.clone(), took(step)?))
+            environments: (board.settings.places.iter())
+                .filter_map(|place| {
+                    let step = Step::Environment(place.shown.name.clone());
+                    Some((place.shown.name.clone(), took(step)?))
                 })
                 .collect(),
         }

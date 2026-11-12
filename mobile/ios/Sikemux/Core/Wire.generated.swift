@@ -5050,8 +5050,8 @@ struct ProjectBoard: Codable, Hashable, Sendable {
     var project: String
     var cards: [BoardCard]
     var settings: BoardSettings
-    /// Environments an agent proposed, waiting for the person's answer.
-    var environmentsProposal: EnvironmentsProposal?
+    /// Places an agent proposed, waiting for the person's answer.
+    var placesProposal: PlacesProposal?
     /// How many of its cards have an agent of Auto's at work.
     var running: Int
     var autoNote: String?
@@ -5059,8 +5059,6 @@ struct ProjectBoard: Codable, Hashable, Sendable {
     var problems: [String]?
     /// The triggers that add cards to it when their time comes, soonest first.
     var triggers: [ChatTrigger]
-    /// What it inherits from the folders above it, nearest first.
-    var inherited: [InheritedEnvironment]?
     /// When its drift audits run and what the latest found; none when it never had any.
     var audit: AuditView?
 }
@@ -6002,9 +6000,6 @@ struct BoardSettings: Codable, Hashable, Sendable {
     /// Who reviews each change before it merges; none for any signed-in
     /// agent on another CLI than its builder's.
     var reviewer: ReviewerChoice?
-    /// Where the project deploys, in the order its slices reach them. None
-    /// gives slices the usual ladder and holds every deploy for the person.
-    var environments: [WireEnvironment]?
     /// Whole dollars of Auto's spending in the project past which it starts no new cards.
     var spendCeiling: Int?
     /// The linked hosts cards go to past this host's places, by key, the first with room first.
@@ -6070,28 +6065,64 @@ struct ReviewerChoice: Codable, Hashable, Sendable {
     var model: String?
 }
 
-/// One environment of a project, in the order its ladder reaches them.
-struct WireEnvironment: Codable, Hashable, Sendable {
-    /// What its step is called and named by, one per project.
-    var name: String
-    var passes: Passes
-    var recognise: [Recognise]
-    /// An address that answers once a deploy there is healthy.
-    var health: String?
-    /// It only lets deploys go, and gives the project's slices no step.
-    var noStep: Bool?
+/// Places an agent proposed, for the person to accept or turn down.
+struct PlacesProposal: Codable, Hashable, Sendable {
+    var places: [Place]
+    var why: String
+    /// The agent that proposed them, by name.
+    var by: String
+    var at: Int
 }
 
-/// Who a deploy to an environment waits on.
-enum Passes: String, Codable, Hashable, Sendable {
-    /// Nobody: it just goes.
-    case nobody
-    /// The project's check passes, then it goes.
-    case check
-    /// It waits for the person to allow it once or pass its gate.
-    case person
-    /// As a person, and no setting loosens it.
-    case production
+/// One place, as clients show it.
+struct Place: Codable, Hashable, Sendable {
+    var id: String
+    /// In plain words, such as "acme.dev on Vercel".
+    var name: String
+    var kind: PlaceKind
+    var production: Bool
+    /// Only a production place's level decides anything.
+    var level: Level
+    /// Where the core found it, such as "vercel.json", "the Vercel connector" or "@Ada's
+    /// deploy"; none for one the person added.
+    var foundIn: String?
+    /// Who last set its level, and where; none while it has the level it was found with.
+    var saidBy: Learned?
+    /// Where the person set it, such as "Sikemux" or "a paired phone".
+    var saidFrom: String?
+    /// The level before that, which Undo puts back.
+    var was: Level?
+    var stats: PlaceStats?
+}
+
+/// What kind of place it is, which a client draws with that service's mark.
+enum PlaceKind: String, Codable, Hashable, Sendable {
+    case vercel
+    case github
+    case database
+    case aws
+    case kubernetes
+    case terraform
+    case rundeck
+    case site
+    case connector
+    case command
+    /// One added after this build.
+    case other
+
+    init(from decoder: any Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .other
+    }
+}
+
+/// How much agents may do at a production place without the person.
+enum Level: String, Codable, Hashable, Sendable {
+    /// Agents change it and report after.
+    case yours
+    /// Agents change it and the person is told at once.
+    case tellMe
+    /// A change waits for the person's yes on a call.
+    case mine
     /// One added after this build.
     case unknown
 
@@ -6100,110 +6131,13 @@ enum Passes: String, Codable, Hashable, Sendable {
     }
 }
 
-/// A hard fact that says a deploy lands in an environment.
-enum Recognise: Codable, Hashable, Sendable {
-    /// A Rundeck job's group/name path, where `*` stands for anything, such as `dev/*`.
-    case rundeckJob(RundeckJob)
-    case vercelTarget(VercelTarget)
-    case awsProfile(AwsProfile)
-    case kubeContext(KubeContext)
-    case terraformWorkspace(TerraformWorkspace)
-    /// A command of the project's own that lands there, by its leading words.
-    case command(Command)
-    /// One added after this build, by its `kind`.
-    case unknown(String)
-
-    struct RundeckJob: Codable, Hashable, Sendable {
-        var path: String
-    }
-
-    struct VercelTarget: Codable, Hashable, Sendable {
-        var production: Bool
-    }
-
-    struct AwsProfile: Codable, Hashable, Sendable {
-        var name: String
-    }
-
-    struct KubeContext: Codable, Hashable, Sendable {
-        var name: String
-    }
-
-    struct TerraformWorkspace: Codable, Hashable, Sendable {
-        var name: String
-    }
-
-    struct Command: Codable, Hashable, Sendable {
-        var words: String
-    }
-
-    private enum TagKey: String, CodingKey {
-        case tag = "kind"
-    }
-
-    init(from decoder: any Decoder) throws {
-        let tag = try decoder.container(keyedBy: TagKey.self).decode(String.self, forKey: .tag)
-        switch tag {
-        case "rundeckJob":
-            self = .rundeckJob(try RundeckJob(from: decoder))
-        case "vercelTarget":
-            self = .vercelTarget(try VercelTarget(from: decoder))
-        case "awsProfile":
-            self = .awsProfile(try AwsProfile(from: decoder))
-        case "kubeContext":
-            self = .kubeContext(try KubeContext(from: decoder))
-        case "terraformWorkspace":
-            self = .terraformWorkspace(try TerraformWorkspace(from: decoder))
-        case "command":
-            self = .command(try Command(from: decoder))
-        default:
-            self = .unknown(tag)
-        }
-    }
-
-    func encode(to encoder: any Encoder) throws {
-        let tag: String
-        switch self {
-        case .rundeckJob(let value):
-            try value.encode(to: encoder)
-            tag = "rundeckJob"
-        case .vercelTarget(let value):
-            try value.encode(to: encoder)
-            tag = "vercelTarget"
-        case .awsProfile(let value):
-            try value.encode(to: encoder)
-            tag = "awsProfile"
-        case .kubeContext(let value):
-            try value.encode(to: encoder)
-            tag = "kubeContext"
-        case .terraformWorkspace(let value):
-            try value.encode(to: encoder)
-            tag = "terraformWorkspace"
-        case .command(let value):
-            try value.encode(to: encoder)
-            tag = "command"
-        case .unknown(let value):
-            tag = value
-        }
-        var container = encoder.container(keyedBy: TagKey.self)
-        try container.encode(tag, forKey: .tag)
-    }
-}
-
-/// Environments an agent proposed, for the person to accept or turn down.
-struct EnvironmentsProposal: Codable, Hashable, Sendable {
-    var environments: [WireEnvironment]
-    var why: String
-    /// The agent that proposed them, by name.
-    var by: String
-    var at: Int
-}
-
-/// An environment a folder above a project holds, which the project inherits.
-struct InheritedEnvironment: Codable, Hashable, Sendable {
-    /// The folder's path.
-    var folder: String
-    var environment: WireEnvironment
+/// How the calls asked about a place went.
+struct PlaceStats: Codable, Hashable, Sendable {
+    var asked: Int
+    /// Answered as the call's pick.
+    var asPicked: Int
+    /// Answered against the pick.
+    var overruled: Int
 }
 
 struct AuditView: Codable, Hashable, Sendable {

@@ -53,6 +53,7 @@ pub(super) fn write_to_program(
         .filter(|_| agent::submits_line(&bytes))
     {
         core.harness.questions.typed(agent.agent_id());
+        core.ship.person_spoke(agent.agent_id());
         messages::worked(core, agent.agent_id());
     }
     if bytes.is_empty() {
@@ -321,6 +322,7 @@ pub(super) async fn run(
                 paths,
                 context,
             }) => {
+                core.ship.person_spoke(&agent_id);
                 let params = chat_calls::PromptChatParams {
                     agent_id,
                     message_id,

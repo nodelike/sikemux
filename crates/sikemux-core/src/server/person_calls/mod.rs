@@ -99,10 +99,7 @@ pub(crate) struct PersonCalls {
 }
 
 /// A call to put to the person, as [`raise`] takes it.
-#[expect(
-    dead_code,
-    reason = "the gates by place raise production calls through it"
-)]
+#[derive(Clone)]
 pub(crate) struct Raise {
     pub project: String,
     pub kind: CallKind,
@@ -738,10 +735,6 @@ fn settled_at(call: &PersonCall) -> u64 {
 
 /// Puts a call to the person, or joins `raise.asker` to the open call of the project with the
 /// same key. Answers the call's id, or why a production call could not be raised.
-#[expect(
-    dead_code,
-    reason = "the gates by place raise production calls through it"
-)]
 pub(crate) fn raise(core: &Core, raise: Raise) -> Result<String, String> {
     let id = {
         let mut book = core.person_calls.book.locked();
@@ -784,10 +777,6 @@ pub(crate) fn raise(core: &Core, raise: Raise) -> Result<String, String> {
 
 /// Puts a call the person is only told of, already settled with `outcome`: a production change
 /// at a place they asked to hear of, which ran. It never waits on them.
-#[expect(
-    dead_code,
-    reason = "the gates by place tell the person of a change through it"
-)]
 pub(crate) fn told(core: &Core, raise: Raise, outcome: CallOutcome) -> String {
     let (call, key, yes) = raise.into_call(uuid::Uuid::new_v4().simple().to_string());
     let id = call.id.clone();
@@ -814,10 +803,6 @@ pub(crate) fn told(core: &Core, raise: Raise, outcome: CallOutcome) -> String {
 }
 
 /// The newest call of `project` raised with `key`, open or not.
-#[expect(
-    dead_code,
-    reason = "the gates by place raise production calls through it"
-)]
 pub(crate) fn find_key(core: &Core, project: &str, key: &str) -> Option<PersonCall> {
     (core.person_calls.book.locked().iter())
         .filter(|kept| kept.call.project == project && kept.key.as_deref() == Some(key))
@@ -1054,12 +1039,12 @@ pub(crate) fn seen(core: &Core, peer: &Peer, params: CallParams) -> CoreResult<(
 
 /// Whether a production place may open on this answer. The gates by place decide it.
 fn may_pass(
-    _core: &Core,
-    _call: &PersonCall,
-    _peer: &Peer,
-    _option: Option<&str>,
+    core: &Core,
+    call: &PersonCall,
+    peer: &Peer,
+    option: Option<&str>,
 ) -> Result<(), String> {
-    Ok(())
+    super::places::may_pass(core, call, peer, option)
 }
 
 /// What the person's answer is, as the call keeps it, and what they typed with it. A secret is
@@ -1206,7 +1191,8 @@ async fn deliver(
 
 /// A production call the gates by place raised was answered.
 async fn call_answered(core: &Arc<Core>, call: &PersonCall, typed: Option<String>) {
-    tell_askers(core, call, typed).await;
+    super::places::call_answered(core, call);
+    ship::gate_answered(core, call, typed).await;
 }
 
 /// Tells every agent waiting on the call what the person answered.
@@ -1352,6 +1338,34 @@ pub(crate) async fn answer_questions(
     }
 }
 
+fn raised_by_gate(core: &Core, id: &str) -> bool {
+    (kept(&core.person_calls.book.locked(), id))
+        .is_some_and(|kept| kept.source == Source::Raised && kept.call.place.is_some())
+}
+
+/// A released client answers a production call a gate raised by its hold's id, which it
+/// could only have from drawing it.
+async fn answer_gate(core: &Arc<Core>, peer: &Peer, id: &str, option: &str) -> CoreResult<()> {
+    let client = client_of(peer).ok_or(NOT_A_CLIENT)?;
+    let call = call_of(core, id)?;
+    if !call.options.iter().any(|known| known.id == option) {
+        return Err("that is not one of the call's options".into());
+    }
+    may_pass(core, &call, peer, Some(option))?;
+    let given = CallAnswer {
+        option: Some(option.to_owned()),
+        options: Vec::new(),
+        note: None,
+        words: None,
+        by: client,
+        at: epoch_ms(),
+        waited_ms: epoch_ms().saturating_sub(call.raised_at),
+    };
+    let (call, source) = core.person_calls.take_answer(id, given)?;
+    core.person_calls.changed(core);
+    deliver(core, &call, &source, None).await
+}
+
 /// `allowShip`, `refuseShip` and `letShipGo`, from clients released before calls.
 pub(crate) async fn answer_hold(
     core: &Arc<Core>,
@@ -1359,6 +1373,9 @@ pub(crate) async fn answer_hold(
     params: ship::HoldParams,
     option: &str,
 ) -> CoreResult<()> {
+    if raised_by_gate(core, &params.hold) {
+        return answer_gate(core, peer, &params.hold, option).await;
+    }
     let source = Source::Hold(params.hold.clone());
     let taken = answered_before(core, peer, &source, |call, by| CallAnswer {
         option: Some(option.to_owned()),

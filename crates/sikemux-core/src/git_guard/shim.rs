@@ -372,17 +372,9 @@ fn run_program(program: &str, args: Vec<OsString>) -> i32 {
         .map(|arg| arg.to_string_lossy().into_owned())
         .collect();
     let mut watched = None;
-    if let Some(kind) = crate::ship::of_program(program, &words, &|_| None) {
-        let cwd = std::env::current_dir().unwrap_or_default();
-        let env = |name: &str| std::env::var(name).ok();
-        let ship = crate::ship::Ship {
-            kind,
-            target: crate::ship::target_of(program, &words, &env, &cwd),
-            what: std::iter::once(program.to_owned())
-                .chain(words.iter().cloned())
-                .collect::<Vec<_>>()
-                .join(" "),
-        };
+    let cwd = std::env::current_dir().unwrap_or_default();
+    let env = |name: &str| std::env::var(name).ok();
+    if let Some(ship) = crate::ship::of_invocation(program, &words, &env, &cwd) {
         match asked(&ship, &cwd, true) {
             Asked::Held(said) => {
                 eprintln!("{said}");
@@ -437,7 +429,12 @@ fn run(args: Vec<OsString>) -> i32 {
         return 1;
     }
     let alias = |name: &str| alias_of(&git, name);
-    if let Some(kind) = crate::ship::of_program("git", &words, &alias) {
+    if let Some(kind) = crate::ship::of_program(
+        "git",
+        &words,
+        &std::env::current_dir().unwrap_or_default(),
+        &alias,
+    ) {
         let ship = crate::ship::Ship {
             kind,
             what: std::iter::once("git".to_owned())

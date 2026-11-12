@@ -2,15 +2,15 @@
 
 use super::*;
 
-/// The ladder a card takes once it makes a promise, in a project with no environments. Whether
+/// The ladder a card takes once it makes a promise, in a project whose places give no steps. Whether
 /// the work looks right is asked once for its whole goal, not of each slice.
 pub(crate) const LADDER: [Gate; 2] = [Gate::Built, Gate::Landed];
 
-/// The ladder a project gives its slices: its environments, when it has them, take the place of
+/// The ladder a project gives its slices: its places' steps, when they give any, take the place of
 /// what follows Built.
 pub(crate) fn ladder_of(settings: &BoardSettings) -> Vec<Step> {
-    if (settings.environments.iter()).any(|environment| !environment.no_step) {
-        return ladder_steps(settings.landing == Landing::Person, &settings.environments);
+    if (settings.places.iter()).any(|place| place.step.is_some()) {
+        return ladder_steps(settings.landing == Landing::Person, &settings.places);
     }
     LADDER.iter().copied().map(Step::Gate).collect()
 }
@@ -62,7 +62,7 @@ pub(crate) fn passer(step: &Step, settings: &BoardSettings) -> Passer {
         },
         Step::Environment(name) => match settings.passes(name) {
             Some(Passes::Nobody | Passes::Check) => Passer::Core,
-            Some(Passes::Person | Passes::Production) | None => Passer::Person,
+            Some(Passes::Person) | None => Passer::Person,
         },
     }
 }

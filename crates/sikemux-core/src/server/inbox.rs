@@ -38,7 +38,7 @@ use sikemux_view::host_stats::HostAlertKind;
 use sikemux_view::slice::{Gate, Proof};
 use sikemux_view::turn::{TurnState, WorkAt};
 
-use super::board::environments::Step;
+use super::board::steps::Step;
 
 /// How each agent's turn stands, by agent, as one view worked it out.
 type Turned = HashMap<String, TurnState>;
@@ -1154,11 +1154,11 @@ fn needs(core: &Core, agents: &[Agent], sessions: &[SessionInfo]) -> Vec<InboxIt
         let mut item = item(
             format!("environments:{project}"),
             Case::ProposedEnvironments,
-            format!("{} proposes this project's environments", proposal.by),
+            format!("{} proposes places for this project", proposal.by),
             proposal.at,
         );
-        let steps: Vec<String> = (proposal.environments.iter())
-            .map(board::environments::Environment::passes_words)
+        let steps: Vec<String> = (proposal.places.iter())
+            .map(super::places::proposed_words)
             .collect();
         item.project = Some(project);
         item.detail = Some(clipped_line(

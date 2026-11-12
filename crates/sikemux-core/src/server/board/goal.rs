@@ -708,7 +708,7 @@ struct ToolDecide {
     person: bool,
     /// Not a decision of a goal: where the project deploys, for the person to accept.
     #[serde(default)]
-    environments: Option<Vec<super::Environment>>,
+    environments: Option<Vec<Value>>,
 }
 
 /// `board_decide`: records, corrects or retires a decision of the goal the
@@ -1179,7 +1179,7 @@ pub(crate) async fn person_answer_command(
             };
             card.updated_at = epoch_ms();
             super::slice::rebind(board);
-            let settled = super::environments::settle_cards(&core, &mut state, &project);
+            let settled = super::steps::settle_cards(&core, &mut state, &project);
             core.boards.save(&mut state, &project);
             (settled, told)
         };

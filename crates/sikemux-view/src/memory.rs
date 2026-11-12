@@ -7,7 +7,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Who said something, and in which chat turn.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Learned {
     /// The agent that said it; none for the person.

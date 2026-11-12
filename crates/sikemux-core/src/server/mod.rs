@@ -73,6 +73,7 @@ mod part;
 pub(crate) mod person_calls;
 pub mod pictures;
 pub mod playbook;
+pub mod places;
 pub mod plugins;
 pub mod ports;
 pub mod preferences;
@@ -434,6 +435,7 @@ pub(crate) struct Core {
     pub(crate) ship: ship::Ships,
     /// The decisions put to the person.
     pub(crate) person_calls: person_calls::PersonCalls,
+    pub(crate) places: places::store::Store,
     pub(crate) build_outputs: worktree::build_output::BuildOutputs,
     /// Builds agents start, taking turns.
     pub(crate) builds: builds::Builds,
@@ -606,6 +608,7 @@ impl Core {
             host_watch: host_stats::HostWatch::default(),
             names,
             boards: board::Boards::new(data_dir),
+            places: places::store::Store::new(data_dir),
             goal_summaries: goal_summary::Summaries::new(data_dir),
             goals: goals::Goals::default(),
             repo_events: repo_events::RepoEvents::default(),

@@ -37,7 +37,7 @@ use sikemux_view::slice::{
 };
 
 use super::auto::{BoardSettings, Landing};
-use super::environments::{ladder_steps, Passes, Step};
+use super::steps::{ladder_steps, Step};
 use super::{
     change_card, messages, project_at, project_view, send_notices, Board, By, Card, CardStatus,
     Changes, Checker, NoCheck, Notice, ProjectBoard, State,
@@ -45,6 +45,7 @@ use super::{
 use crate::git::Git;
 use crate::server::connection::blocking;
 use crate::server::edits::footer;
+use crate::server::places::Passes;
 use crate::server::repo_events::{RepoEvent, Told};
 use crate::server::Core;
 use crate::tasks::config::ProjectCheck;
@@ -2408,23 +2409,6 @@ pub(crate) async fn person_pass(
     params: BoardPassParams,
 ) -> Result<ProjectBoard, String> {
     let core = core.clone();
-    if let Some(environment) = params.environment.clone() {
-        let project = project_at(&core, &params.project)?;
-        let owner = {
-            let state = core.boards.state.locked();
-            (state.boards.get(&project))
-                .and_then(|board| board.card(params.card).ok()?.owner_id().map(str::to_owned))
-        };
-        let Some(owner) = owner else {
-            return pass_step(core, params).await;
-        };
-        if !crate::server::ship::allow_held(&core, &owner, &project, &environment).await {
-            let view = pass_step(core.clone(), params).await?;
-            crate::server::ship::permit_environment(&core, &owner, &project, &environment).await;
-            return Ok(view);
-        }
-        return Ok(project_view(&core, &project));
-    }
     if params.gate == Gate::LooksRight {
         return looked_right(core, params).await;
     }
@@ -2589,25 +2573,26 @@ fn reopen_change(
 
 #[cfg(test)]
 mod tests {
-    use super::super::environments::{Environment, Passes, Recognise};
     use super::*;
+    use crate::server::places::place::{new_place, StepPass};
+    use sikemux_view::places::Recognise;
 
     fn settings() -> BoardSettings {
-        let environment = |name: &str, passes| Environment {
-            name: name.to_owned(),
-            passes,
-            no_step: false,
-            recognise: vec![Recognise::RundeckJob {
+        let place = |name: &str, production, step| {
+            let fact = Recognise::RundeckJob {
                 path: format!("{name}/*"),
-            }],
-            health: None,
+            };
+            let mut place = new_place(name, production, vec![fact], None);
+            place.step = Some(step);
+            place
         };
         BoardSettings {
-            environments: vec![
-                environment("Dev", Passes::Nobody),
-                environment("Staging", Passes::Check),
-                environment("Production", Passes::Production),
+            places: vec![
+                place("Dev", false, StepPass::Deploy),
+                place("Staging", false, StepPass::Check),
+                place("Production", true, StepPass::Deploy),
             ],
+            places_confirmed: Some(1),
             ..BoardSettings::default()
         }
     }
@@ -2655,7 +2640,7 @@ mod tests {
     }
 
     #[test]
-    fn a_project_with_environments_takes_a_step_for_each_in_order() {
+    fn a_project_with_places_takes_a_step_for_each_that_gives_one() {
         let slice = Slice::new("It works.".to_owned(), Vec::new(), None, &settings());
         let names: Vec<&str> = slice.ladder.iter().map(gate_words).collect();
         assert_eq!(names, ["Built", "Dev", "Staging", "Production"]);
@@ -2739,7 +2724,7 @@ mod tests {
     }
 
     #[test]
-    fn a_client_that_knows_no_environments_cannot_pass_one_by_its_gate() {
+    fn a_client_that_knows_no_places_cannot_pass_one_by_its_gate() {
         let settings = settings();
         let mut slice = passed_built(&settings);
         deploy(&mut slice, "Dev", Some(Verdict::Passed));

@@ -42,7 +42,6 @@ mod commands;
 mod compare;
 mod contract;
 pub(crate) mod elsewhere;
-pub(crate) mod environments;
 mod eta;
 mod failing;
 mod finish;
@@ -63,6 +62,7 @@ mod review;
 mod risk;
 pub(crate) mod roles;
 mod slice;
+pub(crate) mod steps;
 pub(crate) mod tickets;
 mod tidy;
 mod wait;
@@ -76,8 +76,6 @@ pub use auto::{
     ReviewerChoice, RunHold, RunStage,
 };
 pub use contract::{CardContract, ContractState, ContractTerm};
-use environments::Step;
-pub use environments::{BoardProposalParams, Environment, EnvironmentsProposal, Passes, Recognise};
 pub(crate) use failing::ci_ruled;
 pub(crate) use finish::{ci_moved, waiting_on_ci};
 pub use goal::AssertParams;
@@ -92,6 +90,8 @@ pub(crate) use slice::{
 pub(crate) use slice::{turn_pictures, verdict_on, DeployRan};
 pub use slice::{BoardNoteParams, BoardPassParams};
 pub(crate) use wait::owners_on_check;
+use steps::Step;
+pub use steps::{BoardProposalParams, PlacesProposal};
 
 const FOLDER: &str = "boards";
 const MAX_CARDS: usize = 1000;
@@ -258,7 +258,7 @@ struct Card {
 
 /// Bumped by a change to what a board file holds that an earlier file needs
 /// carried over to, which `migrate` does.
-const VERSION: u32 = 5;
+const VERSION: u32 = 6;
 
 #[derive(Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -273,9 +273,13 @@ struct Board {
     /// What Auto's agents have reported spending here, all told.
     #[serde(default)]
     auto_spent_usd: f64,
-    /// Environments an agent proposed, until the person answers.
+    /// Places an agent proposed, until the person answers.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    environments_proposal: Option<environments::EnvironmentsProposal>,
+    places_proposal: Option<steps::PlacesProposal>,
+    /// The places an earlier core's environments became, until they are kept as the
+    /// project's own.
+    #[serde(default, rename = "environmentsToPlaces", skip_serializing)]
+    carried_over: Option<Vec<crate::server::places::Place>>,
     /// What its agents decided while working on no goal.
     #[serde(default, skip_serializing_if = "goal::Goal::is_none")]
     decided: goal::Goal,
@@ -357,7 +361,8 @@ impl Board {
             cards,
             settings,
             auto_spent_usd,
-            environments_proposal,
+            places_proposal,
+            carried_over: _,
             decided,
             roles,
             audits,
@@ -379,7 +384,7 @@ impl Board {
             cards: cards.clone(),
             settings: settings.clone(),
             auto_spent_usd: *auto_spent_usd,
-            environments_proposal: environments_proposal.clone(),
+            places_proposal: places_proposal.clone(),
             decided: decided.clone(),
             roles: roles.clone(),
             audits: audits.clone(),
@@ -636,9 +641,6 @@ struct State {
     roles: roles::Runs,
     /// Boards from before version 3, whose stalls `lease::clear_old_stalls` is yet to clear.
     old_stalls: Vec<String>,
-    /// Environments the person set for a folder, which every project under it inherits, by
-    /// the folder's path.
-    folders: BTreeMap<String, Vec<Environment>>,
 }
 
 /// What the core keeps about a card only while it runs, never saved. It goes
@@ -698,14 +700,30 @@ pub(crate) struct Boards {
     /// Offers cards, runs Auto and keeps tickets and the window up to date.
     pub(crate) wake: Wake,
     chat_goals: chat_goal::ChatGoals,
-    folders: kept::Kept,
     /// When this core started: an owner's lease runs from no earlier, since a restart
     /// stopped it and what it last did before then was not seen.
     born: u64,
 }
 
-/// The file in the data folder that holds the environments set for folders.
+/// The file in the data folder an earlier core kept the environments set for folders in,
+/// which each board under such a folder takes as its own places.
 const FOLDERS_FILE: &str = "folder-environments.json";
+
+/// The version whose boards keep places where earlier ones kept environments.
+const PLACES_VERSION: u32 = 6;
+
+/// Keeps the board file of `project` as an earlier core wrote it beside the one this core
+/// writes, under a name no core reads as a board.
+fn keep_before_places(folder: &Path, project: &str) {
+    let file = folder.join(kept::file_for(project));
+    let kept = file.with_extension("json.v5");
+    if kept.exists() {
+        return;
+    }
+    if let Err(error) = std::fs::copy(&file, &kept) {
+        eprintln!("sikemux core: {} was not kept: {error}", file.display());
+    }
+}
 
 /// The folder in the data folder that holds the screenshots kept as evidence.
 const EVIDENCE: &str = "evidence";
@@ -841,22 +859,33 @@ struct Notice {
 impl Boards {
     pub(crate) fn new(data_dir: Option<&Path>) -> Self {
         let folder = data_dir.map(|dir| dir.join(FOLDER));
-        let folders = kept::Kept::new(data_dir, FOLDERS_FILE);
-        let mut state = State {
-            folders: folders.load(),
-            ..State::default()
-        };
+        let mut state = State::default();
         let mut upgraded = Vec::new();
-        for mut board in kept::load_all_upgraded::<Board>(folder.as_deref(), migrate::carry_over) {
+        let folders = data_dir.map(|dir| dir.join(FOLDERS_FILE));
+        let inherited = folders.as_deref().map(migrate::folder_environments);
+        let carry_over = |board| migrate::carry_over(board, inherited.as_ref());
+        for mut board in kept::load_all_upgraded::<Board>(folder.as_deref(), carry_over) {
             if board.version < 3 {
                 state.old_stalls.push(board.project.clone());
             }
+            if let Some(places) = board.carried_over.take() {
+                crate::server::places::store::carried_over(data_dir, &board.project, places);
+            }
             if board.version < VERSION {
+                if let (Some(folder), true) = (&folder, board.version < PLACES_VERSION) {
+                    keep_before_places(folder, &board.project);
+                }
                 board.version = VERSION;
                 upgraded.push(board.project.clone());
             }
             state.dirty.insert(board.project.clone());
             state.boards.insert(board.project.clone(), board);
+        }
+        for kept in crate::server::places::store::read_all(data_dir) {
+            if let Some(board) = state.boards.get_mut(&kept.project) {
+                board.settings.places = kept.places;
+                board.settings.places_confirmed = kept.confirmed;
+            }
         }
         if let Some(Err(error)) = folder.as_deref().map(std::fs::create_dir_all) {
             eprintln!("sikemux core: boards will not be saved: {error}");
@@ -868,13 +897,28 @@ impl Boards {
             footers: slice::Footers::default(),
             wake: Wake::default(),
             chat_goals: chat_goal::ChatGoals::new(data_dir),
-            folders,
             born: epoch_ms(),
         };
         {
             let mut state = boards.state.locked();
             for project in upgraded {
                 boards.save(&mut state, &project);
+            }
+        }
+        if let Some(file) = folders.filter(|file| file.exists()) {
+            boards.writer.flush();
+            let kept = (boards.folder.as_ref())
+                .map(|folder| folder.join(format!("{FOLDERS_FILE}.v5")))
+                .map(|kept| std::fs::copy(&file, kept));
+            match kept {
+                Some(Err(error)) => {
+                    eprintln!("sikemux core: {} was not kept: {error}", file.display())
+                }
+                _ => {
+                    if let Err(error) = std::fs::remove_file(&file) {
+                        eprintln!("sikemux core: {} was not removed: {error}", file.display());
+                    }
+                }
             }
         }
         boards.wake.now();
@@ -900,17 +944,6 @@ impl Boards {
         });
         self.writer
             .hand(folder.join(kept::file_for(project)), board.saved(), prune);
-    }
-
-    /// Keeps the folders' environments, and tells clients of each board under `folder`.
-    fn save_folders(&self, state: &mut State, folder: &str) {
-        let under: Vec<String> = (state.boards.keys())
-            .filter(|project| Path::new(project).starts_with(folder))
-            .cloned()
-            .collect();
-        state.dirty.extend(under);
-        self.wake.now();
-        self.folders.save_soon(&state.folders);
     }
 
     /// A new file for a screenshot kept as evidence on card `id` of `project`,
@@ -1622,9 +1655,9 @@ pub struct ProjectBoard {
     pub project: String,
     pub cards: Vec<BoardCard>,
     pub settings: BoardSettings,
-    /// Environments an agent proposed, waiting for the person's answer.
+    /// Places an agent proposed, waiting for the person's answer.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub environments_proposal: Option<EnvironmentsProposal>,
+    pub places_proposal: Option<PlacesProposal>,
     /// How many of its cards have an agent of Auto's at work.
     pub running: usize,
     pub auto_note: Option<String>,
@@ -1633,21 +1666,9 @@ pub struct ProjectBoard {
     pub problems: Vec<String>,
     /// The triggers that add cards to it when their time comes, soonest first.
     pub triggers: Vec<sikemux_view::chat::ChatTrigger>,
-    /// What it inherits from the folders above it, nearest first.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub inherited: Vec<InheritedEnvironment>,
     /// When its drift audits run and what the latest found; none when it never had any.
     #[serde(default)]
     pub audit: Option<sikemux_view::audit::AuditView>,
-}
-
-/// An environment a folder above a project holds, which the project inherits.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct InheritedEnvironment {
-    /// The folder's path.
-    pub folder: String,
-    pub environment: Environment,
 }
 
 /// How a goal with no slices and no owner stands, as its card's column does.
@@ -1750,7 +1771,7 @@ fn short_name(core: &Core, board: &Board, card: &Card) -> Option<String> {
     }
 }
 
-fn board_view(core: &Core, state: &State, board: &Board) -> ProjectBoard {
+fn board_view(core: &Core, _state: &State, board: &Board) -> ProjectBoard {
     board.place_cards();
     let view = ProjectBoard {
         project: board.project.clone(),
@@ -1760,19 +1781,11 @@ fn board_view(core: &Core, state: &State, board: &Board) -> ProjectBoard {
             .map(|card| card_view(core, board, card))
             .collect(),
         settings: board.settings.clone(),
-        environments_proposal: board.environments_proposal.clone(),
+        places_proposal: board.places_proposal.clone(),
         running: auto::running(core, board),
         auto_note: (board.auto_note.clone()).or_else(|| board.reservoir_note.clone()),
         problems: Vec::new(),
         triggers: core.triggers.on_board(&board.project),
-        inherited: (inherited(state, &board.project).into_iter())
-            .flat_map(|(folder, environments)| {
-                environments.iter().map(|environment| InheritedEnvironment {
-                    folder: folder.clone(),
-                    environment: environment.clone(),
-                })
-            })
-            .collect(),
         audit: audit::view(core, board),
     };
     board.forget_places();
@@ -3444,14 +3457,13 @@ pub(crate) async fn person_settings(
                 .boards
                 .entry(project.clone())
                 .or_insert_with(|| Board::empty(&project));
-            let ladders_moved = board.settings.environments != settings.environments
-                || (!settings.environments.is_empty()
-                    && board.settings.landing != settings.landing);
+            let ladders_moved = board.settings.places != settings.places
+                || (!settings.places.is_empty() && board.settings.landing != settings.landing);
             board.settings = settings;
-            let mut settled = environments::Settled::default();
+            let mut settled = steps::Settled::default();
             if ladders_moved {
                 slice::settle_ladders(board);
-                settled = environments::settle_cards(&core, &mut state, &project);
+                settled = steps::settle_cards(&core, &mut state, &project);
             }
             core.boards.save(&mut state, &project);
             settled
@@ -3472,28 +3484,28 @@ pub(crate) async fn person_answer_proposal(
     let core = core.clone();
     blocking(move || {
         let project = project_at(&core, &params.project)?;
-        let settled = {
+        let accepted = {
             let mut state = core.boards.state.locked();
-            let settled =
-                environments::answer_proposal(&core, &mut state, &project, params.accept)?;
+            let accepted = steps::answer_proposal(&mut state, &project, params.accept)?;
             core.boards.save(&mut state, &project);
-            settled
+            accepted
         };
-        settled.later.run(&core);
-        send_notices(&core, settled.notices);
+        if !accepted.is_empty() {
+            crate::server::places::accepted(&core, &project, accepted)?;
+        }
         Ok(project_view(&core, &project))
     })
     .await
     .map_err(|error| error.to_string())
 }
 
-/// An agent proposes the project's environments for the person to accept; it
-/// can't set them.
+/// An agent proposes places for the project, given as environments, for the person to
+/// accept; it can't set them.
 pub(crate) fn propose_environments(
     core: &Core,
     project: &str,
     agent: &str,
-    environments: Vec<Environment>,
+    environments: Vec<Value>,
     why: &str,
 ) -> Result<Value, String> {
     let project = project_at(core, project)?;
@@ -3503,18 +3515,16 @@ pub(crate) fn propose_environments(
         .boards
         .entry(project.clone())
         .or_insert_with(|| Board::empty(&project));
-    environments::propose(board, environments, why, by)?;
+    steps::propose(board, environments, why, by)?;
     core.boards.save(&mut state, &project);
     Ok(
         json!({ "note": "The person sees this in Needs you. Nothing changes until they accept it." }),
     )
 }
 
-pub(crate) fn proposals(core: &Core) -> Vec<(String, EnvironmentsProposal)> {
+pub(crate) fn proposals(core: &Core) -> Vec<(String, PlacesProposal)> {
     (core.boards.state.locked().boards.iter())
-        .filter_map(|(project, board)| {
-            Some((project.clone(), board.environments_proposal.clone()?))
-        })
+        .filter_map(|(project, board)| Some((project.clone(), board.places_proposal.clone()?)))
         .collect()
 }
 
@@ -3547,152 +3557,60 @@ pub(crate) fn proposed_commands(core: &Core) -> Vec<ProposedCommand> {
     proposed
 }
 
-/// The environments set for the folders above `project`, nearest first, by folder.
-fn inherited<'a>(state: &'a State, project: &str) -> Vec<(&'a String, &'a Vec<Environment>)> {
-    (Path::new(project).ancestors().skip(1))
-        .filter_map(|folder| state.folders.get_key_value(folder.to_str()?))
-        .collect()
-}
-
-/// `project`'s own environments, then those it inherits, nearest first.
-fn levels<'a>(state: &'a State, project: &str) -> Vec<&'a [Environment]> {
-    let own = (state.boards.get(project)).map_or(&[][..], |board| &board.settings.environments);
-    let above = inherited(state, project).into_iter();
-    std::iter::once(own)
-        .chain(above.map(|(_, environments)| environments.as_slice()))
-        .collect()
-}
-
-pub(crate) fn judge_ship(
-    core: &Core,
-    project: &str,
-    ship: &crate::ship::Ship,
-) -> environments::Judged {
-    let state = core.boards.state.locked();
-    environments::judged_within(&levels(&state, project), ship)
-}
-
 /// What the person set to count as landed in `project`, when they did.
 pub(crate) fn landed_set(core: &Core, project: &str) -> Option<sikemux_view::turn::Landed> {
     let state = core.boards.state.locked();
     state.boards.get(project)?.settings.landed
 }
 
-/// `project`'s production by its nearest environments: the last of several, or the only one
-/// when its name says production. None when it has none, or one that is not production.
-fn production_of(state: &State, project: &str) -> (usize, Option<String>) {
-    let nearest = (levels(state, project).into_iter()).find(|level| !level.is_empty());
-    let ladder = nearest.unwrap_or_default();
-    let production = (ladder.last())
-        .filter(|last| ladder.len() > 1 || last.name.to_ascii_lowercase().contains("prod"))
-        .map(|last| last.name.clone());
-    (ladder.len(), production)
+/// Whether the place called `name` is one of `project`'s production places.
+pub(crate) fn is_production(core: &Core, project: &str, name: &str) -> bool {
+    let places = core.places.of(project).places;
+    (places.iter()).any(|place| place.shown.production && place.shown.name == name)
 }
 
-/// Whether `environment` is `project`'s production.
-pub(crate) fn is_production(core: &Core, project: &str, environment: &str) -> bool {
-    let state = core.boards.state.locked();
-    production_of(&state, project).1.as_deref() == Some(environment)
-}
-
-/// Whether `project` deploys somewhere before production, and to production at all, by its
-/// nearest environments.
+/// Whether `project` deploys somewhere that isn't production, and whether it has a
+/// production place, by its places.
 pub(crate) fn deploys_to(core: &Core, project: &str) -> (bool, bool) {
-    let state = core.boards.state.locked();
-    let (ladder, production) = production_of(&state, project);
-    let production = production.is_some();
-    (ladder > usize::from(production), production)
+    let places = core.places.of(project).places;
+    let production = places.iter().any(|place| place.shown.production);
+    let elsewhere = places.iter().any(|place| !place.shown.production);
+    (elsewhere, production)
 }
 
-/// The sites the person always allows agents in `project` to write to.
-pub(crate) fn allowed_sites(core: &Core, project: &str) -> Vec<String> {
-    let state = core.boards.state.locked();
-    let environments = levels(&state, project).into_iter().flatten();
-    (environments.filter(|environment| environment.passes == environments::Passes::Nobody))
-        .flat_map(|environment| environment.recognise.iter())
-        .filter_map(|fact| match fact {
-            Recognise::Command { words } => words.strip_prefix("site ").map(str::to_owned),
-            _ => None,
-        })
-        .collect()
-}
-
-/// The folder that holds `project` and others of the person's projects that `share` it,
-/// such as one product's repositories, which an allowance can cover. Never the home folder
-/// or the root.
-fn shared_folder(core: &Core, project: &str, share: &dyn Fn(&Path) -> bool) -> Option<String> {
-    let folder = Path::new(project).parent()?;
-    if folder.parent().is_none() || sikemux_process::paths::home().as_deref() == Some(folder) {
-        return None;
-    }
-    let canonical = |path: &Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_owned());
-    let others = (core.workspaces.project_paths().iter())
-        .map(|path| canonical(path))
-        .any(|path| path != Path::new(project) && path.starts_with(folder) && share(&path));
-    others.then(|| folder.to_string_lossy().into_owned())
-}
-
-/// What the person could always allow, of a deploy of `project` that holds: for every
-/// project in its folder when that folder holds others, else for it alone. A project's own
-/// command covers the folder only when another project there lists it too.
-pub(crate) fn always_offer(
+/// Takes `project`'s places as its slices' ladders read them, and moves on each open slice
+/// whose ladder, or who passes a step on it, changed.
+pub(crate) fn mirror_places(
     core: &Core,
     project: &str,
-    ship: &crate::ship::Ship,
-) -> Option<environments::Always> {
-    let writes = ship.written_place().is_some();
-    if ship.kind != sikemux_view::inbox::ShipKind::Deploy && !writes {
-        return None;
+    places: Vec<crate::server::places::Place>,
+    confirmed: Option<u64>,
+) {
+    let settled = {
+        let mut state = core.boards.state.locked();
+        let Some(board) = state.boards.get_mut(project) else {
+            return;
+        };
+        if board.settings.places == places && board.settings.places_confirmed == confirmed {
+            return;
+        }
+        let ladder = slice::ladder_of(&board.settings);
+        board.settings.places = places;
+        board.settings.places_confirmed = confirmed;
+        if slice::ladder_of(&board.settings) != ladder {
+            slice::settle_ladders(board);
+        }
+        let settled = steps::settle_cards(core, &mut state, project);
+        core.boards.save(&mut state, project);
+        settled
+    };
+    settled.later.run(core);
+    if let Some(core) = core.arc() {
+        send_notices(&core, settled.notices);
     }
-    let words: Vec<String> = ship.what.split_whitespace().map(str::to_owned).collect();
-    let lists_it = |path: &Path| {
-        ship.target.is_some()
-            || (crate::git_guard::shim::project_ships(path).iter())
-                .any(|listed| crate::ship::leads(listed, &words))
-    };
-    let folder = (!writes)
-        .then(|| shared_folder(core, project, &lists_it))
-        .flatten();
-    let ships = crate::git_guard::shim::project_ships(Path::new(project));
-    let state = core.boards.state.locked();
-    let levels = levels(&state, project);
-    let into = match &folder {
-        Some(folder) => state.folders.get(folder).map_or(&[][..], Vec::as_slice),
-        None => levels[0],
-    };
-    let always = environments::always_offer(&levels, into, ship, &ships)?;
-    Some(environments::Always { folder, ..always })
 }
 
-/// The person always allows what `always` covers from now on, which no agent can do:
-/// agents only propose environments.
-pub(crate) fn allow_always(
-    core: &Core,
-    project: &str,
-    always: &environments::Always,
-) -> Result<(), String> {
-    let mut state = core.boards.state.locked();
-    match &always.folder {
-        Some(folder) => {
-            let kept = state.folders.get(folder).cloned().unwrap_or_default();
-            let environments = environments::allowing(kept, always)?;
-            state.folders.insert(folder.clone(), environments);
-            core.boards.save_folders(&mut state, folder);
-        }
-        None => {
-            let board = state
-                .boards
-                .entry(project.to_owned())
-                .or_insert_with(|| Board::empty(project));
-            board.settings.environments =
-                environments::allowing(board.settings.environments.clone(), always)?;
-            core.boards.save(&mut state, project);
-        }
-    }
-    Ok(())
-}
-
-/// The folder environment the person removes, from a project under it.
+/// The folder environment a released client removes, from a project under it.
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ForgetInheritedParams {
@@ -3701,34 +3619,23 @@ pub struct ForgetInheritedParams {
     pub name: String,
 }
 
-/// The person removes an environment a folder holds, for every project under it.
+/// A released client removes an environment a folder held. Folders hold none now: each
+/// project keeps what it inherited as its own places.
 pub(crate) async fn person_forget_inherited(
     core: &Arc<Core>,
     params: ForgetInheritedParams,
 ) -> Result<ProjectBoard, String> {
+    let project = project_at(core, &params.project)?;
     let core = core.clone();
-    blocking(move || {
-        let project = project_at(&core, &params.project)?;
-        {
-            let mut state = core.boards.state.locked();
-            let kept = (state.folders.get_mut(&params.folder))
-                .ok_or("that folder holds no environments now")?;
-            kept.retain(|environment| environment.name != params.name);
-            if kept.is_empty() {
-                state.folders.remove(&params.folder);
-            }
-            core.boards.save_folders(&mut state, &params.folder);
-        }
-        Ok(project_view(&core, &project))
-    })
-    .await
-    .map_err(|error| error.to_string())
+    blocking(move || Ok(project_view(&core, &project)))
+        .await
+        .map_err(|error| error.to_string())
 }
 
-/// The address a deploy to `environment` of `project` is read healthy at.
-pub(crate) fn health_of(core: &Core, project: &str, environment: &str) -> Option<String> {
+/// The address a deploy to the place called `name` in `project` is read healthy at.
+pub(crate) fn health_of(core: &Core, project: &str, name: &str) -> Option<String> {
     let state = core.boards.state.locked();
-    state.boards.get(project)?.settings.health(environment)
+    state.boards.get(project)?.settings.health(name)
 }
 
 /// The person has Auto try a card it gave back to them again. Answers with
@@ -3850,7 +3757,6 @@ impl super::part::Part for Boards {
     fn flush(&self) {
         self.writer.flush();
         self.chat_goals.flush();
-        self.folders.flush();
     }
 }
 
