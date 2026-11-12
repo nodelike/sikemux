@@ -220,6 +220,7 @@ const MessagePart = memo(function MessagePart({
   if (part.kind === "agent_notice")
     return <AgentNoticePart notice={part.notice} />;
   if (part.kind === "account") return <AccountPart move={part.move} />;
+  if (part.kind === "rotation") return null;
   return <ContentPart part={part} />;
 });
 

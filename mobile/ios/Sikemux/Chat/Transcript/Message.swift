@@ -368,6 +368,8 @@ private struct PartView: View {
             AgentNoticeLine(notice: notice.notice)
         case .account(let account):
             AccountLine(move: account.move)
+        case .rotation:
+            EmptyView()
         case .tool(let tool):
             if let page = tool.page { PageCard(page: page) }
         case .unknown:
