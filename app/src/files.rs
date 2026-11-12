@@ -530,10 +530,13 @@ pub fn page(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement 
                         .gap(SPACE_0)
                         .opacity(0.6)
                         .child(action("files-find", Icon::Search, "Find a file").on_click(
-                            cx.listener(|bench, _, window, cx| {
-                                bench.toggle_finder(window, cx);
-                                cx.notify();
-                            }),
+                            |_, window, cx| {
+                                crate::keymap::dispatch(
+                                    crate::workbench::actions::OpenFile::ID,
+                                    window,
+                                    cx,
+                                )
+                            },
                         ))
                         .child(action("files-new", Icon::FilePlus, "New file").on_click(
                             cx.listener(|bench, _, window, cx| {

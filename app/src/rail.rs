@@ -1581,6 +1581,7 @@ fn account(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
                     crate::settings::close(bench, window, cx);
                 }
                 bench.show_workbench(cx);
+                keymap::count(actions::FocusHosts::ID.name(), cx);
                 bench.open_hosts(None);
             }),
         ),
@@ -1594,7 +1595,10 @@ fn account(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
             "Settings",
             Icon::Settings,
             settings_keys,
-            act(|bench, window, cx| bench.open_settings(Page::default(), window, cx)),
+            act(|bench, window, cx| {
+                keymap::count(actions::ToggleSettings::ID.name(), cx);
+                bench.open_settings(Page::default(), window, cx)
+            }),
         ),
     ];
     let sign_out = act(|bench, _, _| bench.sign_out());

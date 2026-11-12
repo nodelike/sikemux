@@ -631,6 +631,7 @@ pub(super) fn composer(
             on,
             held,
             Rc::new(move |_, cx| {
+                crate::keymap::count(crate::workbench::actions::ToggleYolo::ID.name(), cx);
                 this.update(cx, |bench, _| bench.toggle_yolo(&agent)).ok();
             }),
         );

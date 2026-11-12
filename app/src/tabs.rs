@@ -63,7 +63,7 @@ fn goals_toggle(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElem
     IconButton::new("goals-view", Icon::Steps, tip)
         .width(30.)
         .pressed(goals)
-        .on_click(cx.listener(|bench, _, _, cx| bench.toggle_goals_view(cx)))
+        .on_click(|_, window, cx| crate::keymap::dispatch(actions::ToggleGoals::ID, window, cx))
 }
 
 /// The strip in front while it holds a tab: a place with none shows no row at all, and nor
@@ -143,7 +143,9 @@ pub fn top_bar(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoEleme
                             )
                             .width(30.)
                             .pressed(!bench.rails.side_open && !bench.rails.tab_open)
-                            .on_click(cx.listener(|bench, _, _, cx| bench.toggle_focus_mode(cx))),
+                            .on_click(|_, window, cx| {
+                                crate::keymap::dispatch(actions::FocusMode::ID, window, cx)
+                            }),
                         ),
                 ),
         );

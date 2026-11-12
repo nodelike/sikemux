@@ -190,7 +190,7 @@ pub fn install(asks: mpsc::UnboundedSender<Ask>, cx: &mut App) {
     });
     cx.observe_keystrokes(|event, _, cx| {
         if let Some(action) = &event.action {
-            used(action.name(), cx);
+            count(action.name(), cx);
         }
     })
     .detach();
@@ -281,12 +281,14 @@ pub fn dispatch(id: CommandId, window: &mut Window, cx: &mut App) {
 /// [`dispatch`] for an id that comes from a table or a palette's row.
 pub fn dispatch_named(id: &str, window: &mut Window, cx: &mut App) {
     if let Ok(action) = cx.build_action(id, None) {
-        used(id, cx);
+        count(id, cx);
         window.dispatch_action(action, cx);
     }
 }
 
-fn used(id: &str, cx: &App) {
+/// Counts one use of command `id` for the usage report. Its keys and [`dispatch`] count by
+/// themselves; a control that runs the command on one agent rather than the one in front calls this.
+pub fn count(id: &str, cx: &App) {
     if shortcuts().iter().any(|shortcut| shortcut.id == id) {
         let used = crate::core::typed_call::<call::CommandUsed>(CommandUsed { id: id.to_owned() });
         let _ = cx.global::<Keymap>().used.send(used);

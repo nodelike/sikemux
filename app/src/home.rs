@@ -189,15 +189,16 @@ fn empty_stage(cx: &mut Context<Workbench>) -> impl IntoElement {
                 .child(
                     Button::new("empty-new-terminal", "New terminal", Variant::Outline)
                         .keys(hint(actions::NewTerminal::ID))
-                        .on_click(cx.listener(|bench, _, _, cx| bench.new_terminal(cx))),
+                        .on_click(|_, window, cx| {
+                            crate::keymap::dispatch(actions::NewTerminal::ID, window, cx)
+                        }),
                 )
                 .child(
                     Button::new("empty-open-file", "Open file", Variant::Outline)
                         .keys(hint(actions::OpenFile::ID))
-                        .on_click(cx.listener(|bench, _, window, cx| {
-                            bench.toggle_finder(window, cx);
-                            cx.notify();
-                        })),
+                        .on_click(|_, window, cx| {
+                            crate::keymap::dispatch(actions::OpenFile::ID, window, cx)
+                        }),
                 ),
         )
 }
@@ -467,9 +468,10 @@ fn pane_header(
             )
             .compact()
             .pressed(desk_open)
-            .on_click(
-                cx.listener(move |bench, _, _, cx| bench.toggle_desk(&tab, &view, &agent_id, cx)),
-            ),
+            .on_click(cx.listener(move |bench, _, _, cx| {
+                crate::keymap::count(actions::ToggleDesk::ID.name(), cx);
+                bench.toggle_desk(&tab, &view, &agent_id, cx)
+            })),
         )
 }
 

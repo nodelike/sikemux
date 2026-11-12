@@ -813,7 +813,10 @@ impl Workbench {
             match own {
                 Own::Model => composing.model_open = true,
                 Own::Clear => self.fresh_chat(agent),
-                Own::Yolo => self.toggle_yolo(agent),
+                Own::Yolo => {
+                    crate::keymap::count(crate::workbench::actions::ToggleYolo::ID.name(), cx);
+                    self.toggle_yolo(agent)
+                }
             }
             return cx.notify();
         }

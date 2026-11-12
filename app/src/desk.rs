@@ -1822,7 +1822,10 @@ fn snip_toggle(bench: &Workbench, agent: &str, cx: &Context<Workbench>) -> IconB
     IconButton::new("desk-snip", Icon::Snip, label)
         .glyph(13.)
         .pressed(bench.desks.read(cx).snipping(&agent))
-        .on_click(cx.listener(move |bench, _, _, cx| bench.toggle_snip(&agent, cx)))
+        .on_click(cx.listener(move |bench, _, _, cx| {
+            crate::keymap::count(crate::workbench::actions::Snip::ID.name(), cx);
+            bench.toggle_snip(&agent, cx)
+        }))
 }
 
 /// What the address bar shows for a page: a local file as its path, a blank page as nothing.
