@@ -17,6 +17,7 @@ use sikemux_view::memory::{
     FolderMemory, Knowledge, Learned, ListedRule, MemoryCheck, MemoryRule, MemoryView, Seeding,
     Stale,
 };
+use sikemux_view::playbook::Entry;
 
 use super::access::Peer;
 use super::board::goal::{self, learned};
@@ -38,7 +39,6 @@ pub(crate) use brief::{brief, for_chat};
 pub(crate) use check::settle;
 pub(crate) use promote::promote;
 pub(crate) use seed::{again as seed_again, keep as keep_seeded};
-pub(crate) use seed::{offers, seed_once};
 
 const FOLDER: &str = "memory";
 const MAX_FOLDERS: usize = 256;
@@ -201,6 +201,7 @@ impl crate::server::part::Part for Memory {
 /// stale or holds again.
 fn tell_clients(core: &Core, stale_moved: bool) {
     core.changed(What::Read(Topic::Memory));
+    core.changed(What::Read(Topic::Playbook));
     if stale_moved {
         core.changed(What::View);
     }
@@ -573,6 +574,55 @@ fn view(core: &Core, project: &str, peer: &Peer) -> MemoryView {
     MemoryView { folders, seeding }
 }
 
+/// What the Playbook lists for `project`: the person's rules, then what agents noted and the
+/// knowledge kept, nearest folder first. Sensitive entries show only in Sikemux's own window.
+pub(crate) fn for_playbook(core: &Core, project: &str, peer: &Peer) -> (Vec<Entry>, Vec<Entry>) {
+    let shows_sensitive = matches!(peer, Peer::App);
+    let state = core.memory.state.locked();
+    let (mut rules, mut notes) = (Vec::new(), Vec::new());
+    for held in state.applying(project) {
+        let folder = (held.folder != project).then(|| held.folder.clone());
+        for rule in held
+            .rules
+            .iter()
+            .filter(|rule| shows_sensitive || !rule.sensitive)
+        {
+            let kept = Entry {
+                id: rule.id,
+                text: rule.text.clone(),
+                learned: rule.learned.clone(),
+                knowledge: false,
+                stale: false,
+                sensitive: rule.sensitive,
+                folder: folder.clone(),
+            };
+            match rule.learned.agent {
+                None => rules.push(kept),
+                Some(_) => notes.push(kept),
+            }
+        }
+        for known in held
+            .knowledge
+            .iter()
+            .filter(|known| shows_sensitive || !known.sensitive)
+        {
+            notes.push(Entry {
+                id: known.id,
+                text: known.text.clone(),
+                learned: known.learned.clone(),
+                knowledge: true,
+                stale: known.stale.is_some(),
+                sensitive: known.sensitive,
+                folder: folder.clone(),
+            });
+        }
+    }
+    let newest = |kept: &Entry| std::cmp::Reverse(kept.learned.at);
+    rules.sort_by_key(newest);
+    notes.sort_by_key(newest);
+    (rules, notes)
+}
+
 /// Stale knowledge, for the inbox.
 pub(crate) struct StaleKnowledge {
     pub folder: String,
@@ -638,6 +688,8 @@ enum ToolAdd {
         #[serde(default)]
         sensitive: bool,
         folder: Option<String>,
+        #[serde(default)]
+        person: bool,
     },
     Knowledge {
         text: String,
@@ -676,19 +728,54 @@ fn goal_card(core: &Core, agent: &str) -> Result<u64, String> {
 }
 
 /// `memory_add`: a rule or knowledge for the agent's project, or a rule for
-/// the goal its live card sits under.
+/// the goal its live card sits under. A rule the person said in the message that started the
+/// turn is kept as theirs, and the chat says so with one line they can undo.
 pub(crate) async fn tool_add(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, String> {
     let agent = crate::server::caller::agent_of(request, "memory_add")?;
     let adding: ToolAdd = params(request.params.clone())?;
     let project = crate::server::caller::project_of(core, request);
     let core = core.clone();
     run(move || {
+        let mut by = learned(&core, Some(&agent));
         let new = match adding {
+            ToolAdd::Rule {
+                text,
+                person: true,
+                goal,
+                sensitive,
+                folder,
+            } => {
+                if goal {
+                    return Err(
+                        "person: true keeps the person's rule for the project; leave out goal"
+                            .into(),
+                    );
+                }
+                said_by_person(&core, &agent, &text)?;
+                by.with = (by.agent.take()).map(|agent| sikemux_view::memory::SaidTo {
+                    agent,
+                    name: by.name.take(),
+                });
+                let id = add(
+                    &core,
+                    &project,
+                    NewMemory::Rule {
+                        text,
+                        goal: None,
+                        sensitive,
+                        folder,
+                    },
+                    by,
+                )?;
+                say_kept(&core, &agent, &project, id);
+                return Ok(json!({ "note": format!("Kept as #{id}, as the person's rule.") }));
+            }
             ToolAdd::Rule {
                 text,
                 goal,
                 sensitive,
                 folder,
+                ..
             } => {
                 let goal = goal.then(|| goal_card(&core, &agent)).transpose()?;
                 NewMemory::Rule {
@@ -712,10 +799,53 @@ pub(crate) async fn tool_add(core: &Arc<Core>, request: &HarnessRequest) -> Resu
                 folder,
             },
         };
-        let note = keep(&core, &project, new, learned(&core, Some(&agent)))?;
+        let note = keep(&core, &project, new, by)?;
         Ok(json!({ "note": note }))
     })
     .await
+}
+
+/// Whether the person's own message started the agent's turn and holds most of the rule's
+/// longer words, so an agent cannot pass its own idea off as the person's.
+fn said_by_person(core: &Core, agent: &str, rule: &str) -> Result<(), String> {
+    const NOT_THEIRS: &str = "person: true is for a rule the person said in the message that started this turn; keep it without person";
+    let prompt = (core.chats.get(agent))
+        .and_then(|chat| chat.feed.turn_prompt())
+        .filter(|prompt| !prompt.contains("<agent-message"))
+        .ok_or(NOT_THEIRS)?;
+    let words = |text: &str| -> HashSet<String> {
+        (text.split(|c: char| !c.is_alphanumeric()))
+            .filter(|word| word.chars().count() >= 4)
+            .map(str::to_lowercase)
+            .collect()
+    };
+    let (said, rule) = (words(&prompt), words(rule));
+    let held = rule.iter().filter(|word| said.contains(*word)).count();
+    match !rule.is_empty() && held * 2 >= rule.len() {
+        true => Ok(()),
+        false => Err(NOT_THEIRS.into()),
+    }
+}
+
+/// The line in the agent's chat that says rule `id` was kept from the person's words.
+fn say_kept(core: &Core, agent: &str, project: &str, id: u64) {
+    let Some(chat) = core.chats.get(agent) else {
+        return;
+    };
+    let Some(start) = chat.feed.start() else {
+        return;
+    };
+    let rule = sikemux_view::chat::KeptRule {
+        id,
+        project: project.to_owned(),
+    };
+    chat.emit(
+        sikemux_fold::ChatEventKind::SessionUpdate,
+        json!({
+            "sessionId": start.session_id,
+            "update": sikemux_fold::update::rule_notice(rule),
+        }),
+    );
 }
 
 /// `memory_update`: corrects, disputes or retires an entry, or changes what

@@ -1586,9 +1586,12 @@ said each and when.
 
 `memory_add` keeps one thing, by `kind`:
 
-- `rule`: how agents work here, such as "shadows, never glows". `goal: true`
-  keeps it on the card of the goal your card sits under, for that goal's
-  agents only.
+- `rule`: how agents work here, such as "shadows, never glows". When the
+  person tells you how agents should always or never work here, in the message
+  that started your turn, keep it at once with `person: true`, in their words:
+  it is kept as their rule, and their chat shows one line with Undo. Never ask
+  whether to keep it. `goal: true` keeps it on the card of the goal your card
+  sits under, for that goal's agents only.
 - `knowledge`: how something is, such as "the service is called ai-service
   now". `about` names the paths and services it concerns, as whole words; it
   goes only to agents whose task or card names one of them, or to every agent

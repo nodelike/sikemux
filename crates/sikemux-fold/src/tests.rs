@@ -1358,6 +1358,7 @@ mod reducer {
                     title: "Fast mode turned off".into(),
                     description: Some("Usage limit.".into()),
                     goal: None,
+                    rule: None,
                 }
             ),
             other => panic!("expected an agent notice, got {other:?}"),

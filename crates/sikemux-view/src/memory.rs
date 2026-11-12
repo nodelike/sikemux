@@ -17,6 +17,17 @@ pub struct Learned {
     pub feed: Option<String>,
     pub turn: Option<u64>,
     pub at: u64,
+    /// For what the person said in a chat, the agent they said it to.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub with: Option<SaidTo>,
+}
+
+/// The agent the person said something to, and what it was called then.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaidTo {
+    pub agent: String,
+    pub name: Option<String>,
 }
 
 /// How agents must work here, such as "shadows, never glows".

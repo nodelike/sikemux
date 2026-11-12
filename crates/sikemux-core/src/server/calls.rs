@@ -289,6 +289,7 @@ calls! { core, client, method, params;
         blocking(move || Ok(super::ssh::hosts(&reading))).await?
     },
     "removeTrigger" RemoveTrigger (super::triggers::TriggerParams) -> bool: Full => super::triggers::remove(&core, params.trigger),
+    "holdTrigger" HoldTrigger (super::triggers::HoldTriggerParams) -> bool: Full => super::triggers::hold(&core, params),
     "cancelResume" CancelResume (agent_accounts::ChatAccountsParams) -> (): Full => super::chat::reset::cancel_by_person(&core, &params.agent_id),
     "setAgentAccounts": Owner => {
         agent_accounts::set(&core, parse(params)?).await?;
@@ -504,6 +505,7 @@ calls! { core, client, method, params;
     "triage" Triage (super::triage::TriageParams) -> sikemux_view::start::Triage: Full => {
         super::triage::triage(&core, params).await?
     },
+    "playbook" Playbook (super::playbook::PlaybookParams) -> sikemux_view::playbook::Playbook: Watch => super::playbook::read(&core, client.peer.clone(), params).await?,
     "memory" Memory (memory::MemoryParams) -> MemoryView: Watch, any_program => memory::person_view(&core, client.peer.clone(), params).await?,
     "memoryAdd" MemoryAdd (memory::MemoryAddParams) -> MemoryView: Full => memory::person_add(&core, client.peer.clone(), params).await?,
     "memoryUpdate" MemoryUpdate (memory::MemoryUpdateParams) -> MemoryView: Full => memory::person_update(&core, client.peer.clone(), params).await?,

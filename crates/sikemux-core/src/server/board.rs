@@ -2022,9 +2022,6 @@ fn add_card(
     }
     boards.save(&mut state, project);
     drop(state);
-    if matches!(by, By::Person) && goal {
-        super::memory::seed_once(core, project);
-    }
     let creator = match by {
         By::Agent(agent) => Some(agent.as_str()),
         By::Person | By::Auto(_) => holder,
@@ -3183,6 +3180,13 @@ pub(crate) fn project_view(core: &Core, project: &str) -> ProjectBoard {
     }
 }
 
+/// How `project`'s board runs on its own.
+pub(crate) fn settings_of(core: &Core, project: &str) -> BoardSettings {
+    (core.boards.state.locked().boards.get(project))
+        .map(|board| board.settings.clone())
+        .unwrap_or_default()
+}
+
 pub(crate) fn project_at(core: &Core, path: &str) -> Result<String, String> {
     if Path::new(path).is_absolute() && path.len() <= 4096 {
         Ok(core.workspaces.project_of(Path::new(path)))
@@ -3454,6 +3458,7 @@ pub(crate) async fn person_settings(
         };
         settled.later.run(&core);
         send_notices(&core, settled.notices);
+        core.changed(What::Read(super::changed::Topic::Playbook));
         Ok(project_view(&core, &project))
     })
     .await

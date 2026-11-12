@@ -47,6 +47,7 @@ pub(crate) fn learned(core: &Core, agent: Option<&str>) -> Learned {
         feed: chat.as_ref().map(|chat| chat.feed.id().to_owned()),
         turn: chat.as_ref().and_then(|chat| chat.feed.turn_start()),
         at: epoch_ms(),
+        with: None,
     }
 }
 

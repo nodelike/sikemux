@@ -15,9 +15,12 @@ use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 use sikemux_view::chat::{ChatTrigger, FiredRequest, RequestHeader, TriggerFired, TriggerWhen};
 use sikemux_view::turn::{TurnWait, TurnWaitKind};
+use sikemux_view::memory::Learned;
+use sikemux_view::playbook::RunsAlone;
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
+use super::board::goal::learned;
 use super::chat::reset::{calendar, when, WallClock, Zone};
 use super::kept::Kept;
 use super::messages;
@@ -73,9 +76,20 @@ struct Trigger {
     /// The command whose output, when it changes, is what makes a repeating trigger fire.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     check: Option<check::Check>,
+    /// When the person paused it; it skips its times until they resume it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    stopped: Option<u64>,
+    /// The agent that set it up, in which chat turn.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    set: Option<Learned>,
 }
 
 impl Trigger {
+    /// Whether it waits instead of firing: its chat is closed, or the person paused it.
+    fn rests(&self) -> bool {
+        self.paused.is_some() || self.stopped.is_some()
+    }
+
     /// Whether it prompts the open chat `agent_id`.
     fn prompts(&self, agent_id: &str) -> bool {
         self.board.is_none() && self.paused.is_none() && self.agent_id == agent_id
@@ -265,7 +279,7 @@ impl Triggers {
             let Some(due) = trigger.next_at.filter(|due| *due <= now) else {
                 return true;
             };
-            if trigger.paused.is_some() {
+            if trigger.rests() {
                 return true;
             }
             changed = true;
@@ -296,7 +310,7 @@ impl Triggers {
         let next = state
             .triggers
             .iter()
-            .filter(|trigger| trigger.paused.is_none())
+            .filter(|trigger| !trigger.rests())
             .filter_map(|trigger| trigger.next_at)
             .min();
         (firing, looking, next)
@@ -544,6 +558,7 @@ async fn look(core: Arc<Core>, id: u64) {
 /// Tells the clients of the trigger's chat or board what triggers it has now, and every
 /// device's view when the chat's next one fires.
 fn show(core: &Core, trigger: &Trigger) {
+    core.changed(What::Read(super::changed::Topic::Playbook));
     if let Some(project) = &trigger.board {
         super::board::triggers_changed(core, project);
         return;
@@ -669,6 +684,8 @@ pub(crate) async fn add(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
             paused: None,
             ci: ci.map(|(watch, _)| watch),
             check,
+            stopped: None,
+            set: Some(learned(core, Some(&agent_id))),
         };
         state.triggers.push(trigger.clone());
         Ok(trigger)
@@ -770,6 +787,63 @@ fn yours(trigger: &Trigger, agent_id: &str, project: &str) -> bool {
         Some(board) => board == project,
         None => trigger.prompts(agent_id),
     }
+}
+
+/// Pauses trigger `id` at the person's word, or resumes it. A repeating one skips the times
+/// that passed while it was paused; a one-off that came due fires once it is resumed.
+pub(crate) fn hold(core: &Arc<Core>, params: HoldTriggerParams) -> bool {
+    let now = epoch_ms();
+    let held = core.triggers.change(|state| {
+        let trigger = state
+            .triggers
+            .iter_mut()
+            .find(|trigger| trigger.id == params.trigger)?;
+        match params.paused {
+            true => trigger.stopped = trigger.stopped.or(Some(now)),
+            false if trigger.stopped.take().is_some() => {
+                if let Some(due) = trigger.next_at.filter(|due| *due <= now) {
+                    trigger.next_at = next_after(&trigger.when, due, now).or(Some(now));
+                }
+            }
+            false => {}
+        }
+        Some(trigger.clone())
+    });
+    let Some(trigger) = held else {
+        return false;
+    };
+    show(core, &trigger);
+    true
+}
+
+/// What runs in `project` with nobody asking: the triggers its chats and its board set,
+/// soonest first.
+pub(crate) fn for_playbook(core: &Core, project: &str) -> Vec<RunsAlone> {
+    let state = core.triggers.state.locked();
+    let mut lines: Vec<(Option<u64>, RunsAlone)> = state
+        .triggers
+        .iter()
+        .filter(|trigger| match &trigger.board {
+            Some(board) => board == project,
+            None => core
+                .names
+                .get(&trigger.agent_id)
+                .is_some_and(|named| named.project == project),
+        })
+        .map(|trigger| {
+            let line = RunsAlone::Trigger {
+                id: trigger.id,
+                title: trigger.title.clone(),
+                when: trigger.when.clone(),
+                next_at: trigger.next_at.filter(|_| trigger.ci.is_none()),
+                set: trigger.set.clone().map(Box::new),
+                paused: trigger.stopped,
+            };
+            (trigger.next_at, line)
+        })
+        .collect();
+    lines.sort_by_key(|(next, _)| next.unwrap_or(u64::MAX));
+    lines.into_iter().map(|(_, line)| line).collect()
 }
 
 /// Removes trigger `id` at the person's word, saying whether there was one.
@@ -932,7 +1006,7 @@ pub(crate) fn delivered(core: &Arc<Core>, delivery: HookDelivery) -> Result<(), 
         );
         return Ok(());
     };
-    if trigger.paused.is_some() {
+    if trigger.rests() {
         return Ok(());
     }
     let firing = Firing {
@@ -974,6 +1048,14 @@ fn fired_request(delivery: HookDelivery) -> FiredRequest {
 #[serde(rename_all = "camelCase")]
 pub struct TriggerParams {
     pub trigger: u64,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HoldTriggerParams {
+    pub trigger: u64,
+    /// True pauses it, false resumes it.
+    pub paused: bool,
 }
 
 impl super::part::Part for Triggers {

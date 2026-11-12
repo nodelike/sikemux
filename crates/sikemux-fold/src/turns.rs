@@ -21,13 +21,13 @@ fn is_reply(part: &ChatPart) -> bool {
     ) || matches!(part, ChatPart::AgentNotice { notice, .. } if notice.goal.is_some())
 }
 
-/// A page the agent showed, a GIF it sent, where a goal began or ended and a subagent still at
-/// work stay in view when the turn around them folds.
+/// A page the agent showed, a GIF it sent, where a goal began or ended, a rule kept from the
+/// person's words and a subagent still at work stay in view when the turn around them folds.
 fn outlives(part: &ChatPart) -> bool {
     match part {
         ChatPart::Tool { page, gif, .. } => page.is_some() || gif.is_some(),
         ChatPart::Subagent { subagent, .. } => subagent.state == SubagentState::Running,
-        ChatPart::AgentNotice { notice, .. } => notice.goal.is_some(),
+        ChatPart::AgentNotice { notice, .. } => notice.goal.is_some() || notice.rule.is_some(),
         _ => false,
     }
 }

@@ -5,7 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
-use sikemux_view::chat::{GoalMarker, StopReason};
+use sikemux_view::chat::{GoalMarker, KeptRule, StopReason};
 
 use crate::ChatEventKind;
 
@@ -328,6 +328,13 @@ pub fn notice(severity: &str, title: &str, description: Option<&str>) -> Value {
 pub fn goal_notice(title: &str, marker: GoalMarker) -> Value {
     let mut update = notice("info", title, None);
     update["goal"] = json!(marker);
+    update
+}
+
+/// The line in a chat that says a rule was kept from what the person said there.
+pub fn rule_notice(rule: KeptRule) -> Value {
+    let mut update = notice("info", "Kept as a rule", None);
+    update["rule"] = json!(rule);
     update
 }
 

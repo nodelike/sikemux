@@ -43,19 +43,6 @@ pub(super) fn settled(seeding: Option<Seeding>) -> Option<Seeding> {
     }
 }
 
-/// Starts the search of `project`'s past sessions, unless it ran before.
-/// The board calls it for each goal the person starts.
-pub(crate) fn seed_once(core: &Arc<Core>, project: &str) {
-    let ran =
-        (core.memory.state.locked().held.get(project)).is_some_and(|held| held.seeding.is_some());
-    if ran {
-        return;
-    }
-    if let Err(error) = begin(core, project) {
-        eprintln!("sikemux core: {project}'s past sessions were not read for rules: {error}");
-    }
-}
-
 /// Marks `project` as being read and starts reading it, unless it is already.
 fn begin(core: &Arc<Core>, project: &str) -> Result<(), String> {
     {
@@ -254,24 +241,4 @@ pub(crate) async fn again(
     begin(core, &project)?;
     let core = core.clone();
     run(move || Ok(view(&core, &project, &peer))).await
-}
-
-pub(crate) struct Offer {
-    pub project: String,
-    pub rules: Vec<SeededRule>,
-    pub at: u64,
-}
-
-pub(crate) fn offers(core: &Core) -> Vec<Offer> {
-    let state = core.memory.state.locked();
-    (state.held.values())
-        .filter_map(|held| match &held.seeding {
-            Some(Seeding::Offered { rules, at }) => Some(Offer {
-                project: held.folder.clone(),
-                rules: rules.clone(),
-                at: *at,
-            }),
-            _ => None,
-        })
-        .collect()
 }

@@ -310,6 +310,8 @@ enum Topic: String, Codable, Hashable {
     case stash
     /// The rules and knowledge the core keeps for a project or a folder above it.
     case memory
+    /// What a project's Playbook lists: its rules, places, landing or automation.
+    case playbook
     /// A goal's summary, or how writing the next one goes.
     case goalSummary
     /// What the `goals` call answers: its agents, their desks or what waits on the person.

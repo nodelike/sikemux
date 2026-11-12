@@ -2433,6 +2433,8 @@ export interface AgentNotice {
      * notice's title like any other.
      */
     goal?: GoalMarker;
+    /** The rule it says was kept from the person's words, which Undo retires. */
+    rule?: KeptRule;
 }
 
 export type NoticeSeverity = "info" | "warning" | "error";
@@ -2452,6 +2454,12 @@ export interface GoalMarker {
 
 /** What happened to a goal where its line sits. */
 export type GoalMoment = "started" | "step" | "done" | "stopped";
+
+/** A rule kept from what the person said in a chat. */
+export interface KeptRule {
+    id: number;
+    project: string;
+}
 
 /** A stretch of a sent message's text: its words, or a chip its draft wrote there. */
 export interface SentSpan {
@@ -3612,6 +3620,14 @@ export interface Learned {
     feed: string | null;
     turn: number | null;
     at: number;
+    /** For what the person said in a chat, the agent they said it to. */
+    with?: SaidTo;
+}
+
+/** The agent the person said something to, and what it was called then. */
+export interface SaidTo {
+    agent: string;
+    name: string | null;
 }
 
 /** A rule only a goal's own agents follow, kept on its card. */
@@ -3762,11 +3778,12 @@ export interface BoardSettings {
     hosts?: string[];
 }
 
-/**
- * Who passes a slice's Landed gate in a project, and so whether anything
- * lands before the person says.
- */
-export type Landing = "core" | "person";
+export interface Landing {
+    lands: Lands;
+}
+
+/** Who puts work on the project's branch. */
+export type Lands = "agents" | "person";
 
 export interface ReviewerChoice {
     /**

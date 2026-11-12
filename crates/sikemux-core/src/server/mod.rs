@@ -69,6 +69,7 @@ mod notify;
 pub mod open_files;
 mod part;
 pub(crate) mod person_calls;
+pub mod playbook;
 pub mod plugins;
 pub mod ports;
 pub mod preferences;

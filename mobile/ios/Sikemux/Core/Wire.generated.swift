@@ -4025,6 +4025,8 @@ struct AgentNotice: Codable, Hashable, Sendable {
     /// The goal it marks the start or the end of. A client that does not know it shows the
     /// notice's title like any other.
     var goal: GoalMarker?
+    /// The rule it says was kept from the person's words, which Undo retires.
+    var rule: KeptRule?
 }
 
 enum NoticeSeverity: String, Codable, Hashable, Sendable {
@@ -4066,6 +4068,12 @@ enum GoalMoment: String, Codable, Hashable, Sendable {
     init(from decoder: any Decoder) throws {
         self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
     }
+}
+
+/// A rule kept from what the person said in a chat.
+struct KeptRule: Codable, Hashable, Sendable {
+    var id: Int
+    var project: String
 }
 
 /// A stretch of a sent message's text: its words, or a chip its draft wrote there.
@@ -5729,6 +5737,14 @@ struct Learned: Codable, Hashable, Sendable {
     var feed: String?
     var turn: Int?
     var at: Int
+    /// For what the person said in a chat, the agent they said it to.
+    var with: SaidTo?
+}
+
+/// The agent the person said something to, and what it was called then.
+struct SaidTo: Codable, Hashable, Sendable {
+    var agent: String
+    var name: String?
 }
 
 /// A rule only a goal's own agents follow, kept on its card.
@@ -5898,14 +5914,15 @@ struct BoardSettings: Codable, Hashable, Sendable {
     var hosts: [String]?
 }
 
-/// Who passes a slice's Landed gate in a project, and so whether anything
-/// lands before the person says.
-enum Landing: String, Codable, Hashable, Sendable {
-    /// Sikemux, once the slice's commits are on the branch; Auto merges its
-    /// pull request itself once its checks pass and its reviewer approves.
-    case core
-    /// The person: nothing counts as landed until they pass it, and Auto
-    /// leaves its pull request open for them to merge.
+struct Landing: Codable, Hashable, Sendable {
+    var lands: Lands
+}
+
+/// Who puts work on the project's branch.
+enum Lands: String, Codable, Hashable, Sendable {
+    /// Agents land their own work once its checks pass.
+    case agents
+    /// Nothing counts as landed until the person lands it.
     case person
     /// One added after this build.
     case unknown

@@ -48,6 +48,8 @@ pub enum Topic {
     Stash,
     /// The rules and knowledge the core keeps for a project or a folder above it.
     Memory,
+    /// What a project's Playbook lists: its rules, places, landing or automation.
+    Playbook,
     /// A goal's summary, or how writing the next one goes.
     GoalSummary,
     /// What the `goals` call answers: its agents, their desks or what waits on the person.

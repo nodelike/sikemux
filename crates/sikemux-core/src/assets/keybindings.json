@@ -460,6 +460,14 @@
         "label": "Focus agent board",
         "detail": "Jump to the cards the project's agents work from",
         "category": "Navigation",
+        "mac": null,
+        "other": null
+    },
+    {
+        "id": "window.playbook",
+        "label": "Playbook",
+        "detail": "Open the project's Playbook: its rules, places, landing and what runs with nobody asking",
+        "category": "Navigation",
         "mac": "Meta+Alt+Digit6",
         "other": "Ctrl+Alt+Digit6"
     },

@@ -2267,6 +2267,9 @@ impl Fold {
             goal: update
                 .get("goal")
                 .and_then(|goal| serde_json::from_value(goal.clone()).ok()),
+            rule: update
+                .get("rule")
+                .and_then(|rule| serde_json::from_value(rule.clone()).ok()),
         };
         // A chat a usage limit stopped says when it resumes, or that it no longer will.
         if let Some(failure) = self
