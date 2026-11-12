@@ -620,6 +620,7 @@ impl Backend for Claude {
                     .filter(|effort| levels.contains(effort))
             })
             .unwrap_or_else(|| config::DEFAULT.to_owned());
+        let lifetimes = config::cache_lifetimes(&settings, &launch.env, routed);
         let claude = Self {
             launch: launch.clone(),
             running,
@@ -641,6 +642,13 @@ impl Backend for Claude {
         }
         if apply_effort {
             claude.apply_effort().await?;
+        }
+        if !lifetimes.is_empty() {
+            let _ = claude
+                .running
+                .control
+                .request(json!({ "subtype": "apply_flag_settings", "settings": lifetimes }))
+                .await;
         }
         if let Some(commands) = initialized.get("commands") {
             sink.update(&session_id, reader::available_commands(commands));

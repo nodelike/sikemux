@@ -2,7 +2,9 @@
 //! model thinks, read from the models the CLI lists when it starts.
 
 use crate::launch::claude_model;
-use serde_json::{json, Value};
+use std::collections::BTreeMap;
+
+use serde_json::{json, Map, Value};
 
 use super::super::json::text;
 use crate::acp::pickers;
@@ -28,6 +30,33 @@ const OWN_EFFORTS: &[(&str, &str)] = &[
 ];
 
 const DEFAULT_WINDOW: u64 = 200_000;
+
+/// How long Claude keeps a chat's prompt cached, where neither the person's settings nor their
+/// environment say: an hour for the conversation, which often waits minutes on the person, a
+/// build or a teammate, and five minutes for its subagents, whose requests come seconds apart.
+/// A provider other than Anthropic keeps its own default.
+pub(crate) fn cache_lifetimes(
+    settings: &Value,
+    env: &BTreeMap<String, String>,
+    routed: bool,
+) -> Map<String, Value> {
+    let set = |name: &str| {
+        env.contains_key(name)
+            || settings["env"].get(name).is_some()
+            || sikemux_process::user_environment::var(name).is_some()
+    };
+    let mut lifetimes = Map::new();
+    if !routed && settings.get("promptCacheTtl").is_none() && !set("CLAUDE_CODE_PROMPT_CACHE_TTL") {
+        lifetimes.insert("promptCacheTtl".into(), json!("1h"));
+    }
+    if settings.get("subagentPromptCacheTtl").is_none()
+        && !set("CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL")
+        && !set("ENABLE_PROMPT_CACHING_1H")
+    {
+        lifetimes.insert("subagentPromptCacheTtl".into(), json!("5m"));
+    }
+    lifetimes
+}
 
 pub(crate) fn permission_mode(mode: PermissionMode) -> &'static str {
     match mode {
