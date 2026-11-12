@@ -129,7 +129,7 @@ impl Render for AgentReview {
             .unwrap_or_else(|| "Agent".into());
         let mut body = div().flex().flex_col().gap(SPACE_2);
         let mut actions = div().flex().flex_wrap().gap(SPACE_1H).child(
-            Button::new("review-show", "Show agent", Variant::Outline).on_click(cx.listener(
+            Button::new("review-show", t!("Show agent"), Variant::Outline).on_click(cx.listener(
                 |review, _, window, cx| {
                     let agent = review.agent.clone();
                     review.then(window, cx, move |bench, _, cx| bench.open_agent(&agent, cx));
@@ -225,7 +225,7 @@ impl Render for AgentReview {
                 );
                 if let Some(url) = found.url.clone() {
                     actions = actions.child(
-                        Button::new("review-preview", "Open preview", Variant::Outline)
+                        Button::new("review-preview", t!("Open preview"), Variant::Outline)
                             .icon(Icon::Globe)
                             .on_click(cx.listener(move |review, _, window, cx| {
                                 let (agent, url) = (review.agent.clone(), url.clone());
@@ -239,7 +239,7 @@ impl Render for AgentReview {
                     actions = actions.child(
                         Button::new(
                             "review-failures",
-                            "Send failures to agent",
+                            t!("Send failures to agent"),
                             Variant::Primary,
                         )
                         .on_click(cx.listener(

@@ -94,19 +94,23 @@ pub fn render(
     let wide = |input: &Entity<InputState>| div().w(px(280.)).child(ui::Field::new(input));
     let body = div()
         .child(rows::row(
-            "Browser app",
-            Some("Must match a running app’s name. A trailing .app is fine."),
+            t!("Browser app"),
+            Some(t!(
+                "Must match a running app’s name. A trailing .app is fine."
+            )),
             wide(&fields.browser),
             cx,
         ))
         .child(rows::row(
-            "Workspace shortcut",
-            Some("Fired right after the link opens, to reach the desktop the browser lives on."),
+            t!("Workspace shortcut"),
+            Some(t!(
+                "Fired right after the link opens, to reach the desktop the browser lives on."
+            )),
             wide(&fields.shortcut),
             cx,
         ));
     vec![rows::section(
-        "Single sign-on",
+        t!("Single sign-on"),
         None,
         Some("Where an AWS or GCP sign-in URL opens, and where to go once it does.".into()),
         lit("Single sign-on"),

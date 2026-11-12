@@ -54,6 +54,7 @@ percent-encoding = "2"
 resvg = { version = "0.46", default-features = false, features = ["text", "system-fonts", "memmap-fonts"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sys-locale = "0.3"
 smallvec = "1"
 sikemux-browser = { path = "../crates/sikemux-browser" }
 sikemux-simulator = { path = "../crates/sikemux-simulator" }
@@ -94,6 +95,7 @@ x11rb = { version = "0.13", features = ["randr", "resource_manager"] }
 zbus = "5"
 
 [build-dependencies]
+serde_json = "1"
 # The same naga as GPUI's wgpu, only to translate the shaders while building.
 naga = { git = "https://github.com/gfx-rs/wgpu", rev = "3b3506ea31154edc04de64debda0e780cba2639c", features = ["wgsl-in", "msl-out"] }
 

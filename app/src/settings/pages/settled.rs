@@ -97,7 +97,7 @@ pub fn render(
         .pb(SPACE_2)
         .child(ui::Field::new(&fields.filter).icon(Icon::Search));
     let mut sections = vec![rows::section(
-        "Settled chats",
+        t!("Settled chats"),
         None,
         Some(
             "Chats you or Sikemux settled out of the rail. One comes back by itself when its agent asks you something, or when you write to it."

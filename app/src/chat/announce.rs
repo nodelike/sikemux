@@ -99,7 +99,7 @@ impl Announcer {
     fn message(&self, markdown: &str) -> String {
         let mut text = spoken(markdown);
         if text.chars().count() > LONGEST_READ {
-            text = text.chars().take(LONGEST_READ).collect::<String>() + "… More in the chat";
+            text = text.chars().take(LONGEST_READ).collect::<String>() + t!("… More in the chat");
         }
         match &self.name {
             Some(name) => format!("{name}: {text}"),
@@ -130,15 +130,15 @@ impl Render for Announcer {
 fn state_words(turn: &TurnState, was: Option<TurnPhase>) -> Option<String> {
     Some(match turn.state {
         TurnPhase::Working if was == Some(TurnPhase::NeedsYou) => return None,
-        TurnPhase::Working => "Working".into(),
-        TurnPhase::NeedsYou => "Needs you".into(),
+        TurnPhase::Working => t!("Working").into(),
+        TurnPhase::NeedsYou => t!("Needs you").into(),
         TurnPhase::Waiting => match &turn.wait {
-            Some(wait) if !wait.what.is_empty() => format!("Waiting for {}", wait.what),
-            _ => "Waiting".into(),
+            Some(wait) if !wait.what.is_empty() => t!("Waiting for {what}", what = wait.what),
+            _ => t!("Waiting").into(),
         },
-        TurnPhase::Done => "Done".into(),
-        TurnPhase::Stopped => "Stopped".into(),
-        TurnPhase::Failed => "Failed".into(),
+        TurnPhase::Done => t!("Done").into(),
+        TurnPhase::Stopped => t!("Stopped").into(),
+        TurnPhase::Failed => t!("Failed").into(),
         TurnPhase::Unknown => return None,
     })
 }

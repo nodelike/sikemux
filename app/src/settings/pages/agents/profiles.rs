@@ -212,7 +212,7 @@ pub fn render(
         .child({
             let this = this.clone();
             div().p(SPACE_2).child(
-                ui::Button::new("profile-new", "New profile", ui::Variant::Dashed)
+                ui::Button::new("profile-new", t!("New profile"), ui::Variant::Dashed)
                     .icon(Icon::Plus)
                     .on_click(move |_, window, cx| {
                         this.update(cx, |bench, cx| load(bench, None, window, cx))
@@ -311,7 +311,7 @@ pub fn render(
                 .p(SPACE_4)
                 .when(saved && !built_in, |actions| {
                     actions.child(
-                        ui::Button::new("profile-delete", "Delete", ui::Variant::Outline)
+                        ui::Button::new("profile-delete", t!("Delete"), ui::Variant::Outline)
                             .icon(Icon::Trash)
                             .on_click(move |_, window, cx| {
                                 let id = id.clone();
@@ -334,7 +334,7 @@ pub fn render(
                 ),
         );
     rows::section(
-        "Agent profiles",
+        t!("Agent profiles"),
         Some(format!("{} configured", profiles.len()).into()),
         Some("Which local executable a launch uses. Profiles never hold credentials.".into()),
         lit("Agent profiles"),

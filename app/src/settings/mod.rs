@@ -328,7 +328,7 @@ pub fn view(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> 
     let found = index::search(&settings.query, cx);
     let searching = !settings.query.trim().is_empty();
     let close_keys = crate::keymap::hint(actions::ToggleSettings::ID, cx)
-        .map_or_else(|| "Esc".to_owned(), |keys| format!("Esc / {keys}"));
+        .map_or_else(|| "Esc".to_owned(), |keys| t!("Esc / {keys}", keys = keys));
 
     let page_row = |page: Page| {
         let this = this.clone();
@@ -358,7 +358,13 @@ pub fn view(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> 
             } else {
                 t.text_tertiary
             }))
-            .child(div().flex_1().min_w_0().truncate().child(page.name()))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
+                    .child(crate::i18n::tr(page.name())),
+            )
     };
     let nav = index::GROUPS
         .iter()
@@ -377,7 +383,7 @@ pub fn view(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> 
                         .px(SPACE_2)
                         .pt(px(if at == 0 { 10. } else { 20. }))
                         .pb(px(5.))
-                        .child(ui::caps(group, cx))
+                        .child(ui::caps(crate::i18n::tr(group), cx))
                         .child(div().flex_1().h(px(1.)).bg(t.border)),
                 )
                 .children(
@@ -535,7 +541,10 @@ pub fn view(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> 
                 count => format!("{count} places match").into(),
             },
         ),
-        false => (settings.page.name().into(), settings.page.about().into()),
+        false => (
+            crate::i18n::tr(settings.page.name()).into(),
+            crate::i18n::tr(settings.page.about()).into(),
+        ),
     };
     let header = div().flex().items_start().gap(SPACE_3).pb(SPACE_0).child(
         div()
@@ -557,7 +566,7 @@ pub fn view(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> 
         ui::IconButton::new(
             "settings-close",
             Icon::Close,
-            format!("Close settings ({close_keys})"),
+            t!("Close settings ({close_keys})", close_keys = close_keys),
         )
         .on_click(move |_, window, cx| this.update(cx, |bench, cx| close(bench, window, cx)))
     };
@@ -597,7 +606,11 @@ pub fn view(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> 
                         div()
                             .text_size(crate::theme::ui_text(TEXT_2XS_H))
                             .text_color(t.text_tertiary)
-                            .child(format!("{} › {}", entry.page.name(), entry.section)),
+                            .child(format!(
+                                "{} › {}",
+                                crate::i18n::tr(entry.page.name()),
+                                crate::i18n::tr(entry.section)
+                            )),
                     )
             }))
             .into_any_element()],

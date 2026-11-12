@@ -70,27 +70,27 @@ pub struct Surface {
 pub const SURFACES: [Surface; 5] = [
     Surface {
         kind: PaneKind::Files,
-        label: "Files",
+        label: n!("Files"),
         command: actions::FocusFiles::ID,
     },
     Surface {
         kind: PaneKind::Terminal,
-        label: "Terminal",
+        label: n!("Terminal"),
         command: actions::FocusTerminal::ID,
     },
     Surface {
         kind: PaneKind::Agent,
-        label: "Agents",
+        label: n!("Agents"),
         command: actions::FocusAgents::ID,
     },
     Surface {
         kind: PaneKind::Git,
-        label: "Git",
+        label: n!("Git"),
         command: actions::FocusGit::ID,
     },
     Surface {
         kind: PaneKind::Search,
-        label: "Search",
+        label: n!("Search"),
         command: actions::FocusSearch::ID,
     },
 ];

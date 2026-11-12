@@ -735,7 +735,7 @@ pub fn view(editor: &Editor, this: &Entity<Workbench>, cx: &App) -> AnyElement {
         .child(div().text_size(crate::theme::ui_text(TEXT_2XS_H)).text_color(t.text_tertiary).child(hint))
         .child(grid)
         .child(rows::note(
-            "Any CSS colour works in the text box: use rgba(…) for a translucent wash. The picker sets hex.",
+            t!("Any CSS colour works in the text box: use rgba(…) for a translucent wash. The picker sets hex."),
             cx,
         ))
         .into_any_element()

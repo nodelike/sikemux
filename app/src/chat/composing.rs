@@ -1087,7 +1087,7 @@ impl Workbench {
             TextareaState::new(window, cx)
                 .auto_grow(1, 6)
                 .submit_on_enter(true)
-                .placeholder("Type or paste the answer")
+                .placeholder(t!("Type or paste the answer"))
         });
         let sending = {
             let owner = owner.to_owned();

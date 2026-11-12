@@ -1,6 +1,7 @@
 //! ⌘⇧P, the command deck: every command the window can do and the person's own
 //! commands, the ones used last first.
 
+use crate::i18n::tr;
 use crate::workbench::actions;
 use gpui_kit::{App, Context, SharedString, Window};
 use sikemux_core::server::call;
@@ -88,49 +89,49 @@ fn allow_language_servers(bench: &mut Workbench, allow: bool) {
 const STANDALONE: [Standalone; 8] = [
     Standalone {
         id: "project.language-servers.stop",
-        title: "Stop language servers for this project",
-        detail: "Stop them now and do not start them again",
-        category: "Project · Language servers",
+        title: n!("Stop language servers for this project"),
+        detail: n!("Stop them now and do not start them again"),
+        category: n!("Project · Language servers"),
         offered: |bench| language_servers_allowed(bench) == Some(true),
         run: |bench, _, _| allow_language_servers(bench, false),
     },
     Standalone {
         id: "project.language-servers.allow",
-        title: "Allow language servers for this project",
-        detail: "Start them when you open a file here",
-        category: "Project · Language servers",
+        title: n!("Allow language servers for this project"),
+        detail: n!("Start them when you open a file here"),
+        category: n!("Project · Language servers"),
         offered: |bench| language_servers_allowed(bench) == Some(false),
         run: |bench, _, _| allow_language_servers(bench, true),
     },
     Standalone {
         id: "support.diagnostics",
-        title: "Open runtime diagnostics",
-        detail: "Inspect redacted runtime and agent-detection health",
-        category: "Support",
+        title: n!("Open runtime diagnostics"),
+        detail: n!("Inspect redacted runtime and agent-detection health"),
+        category: n!("Support"),
         offered: |_| true,
         run: |bench, _, cx| crate::screens::experience::open_diagnostics(bench, cx),
     },
     Standalone {
         id: "support.whats-new",
-        title: "Open What’s New",
-        detail: "Review the latest Sikemux release notes",
-        category: "Support",
+        title: n!("Open What’s New"),
+        detail: n!("Review the latest Sikemux release notes"),
+        category: n!("Support"),
         offered: |_| true,
         run: |bench, _, cx| crate::screens::experience::open_whats_new(bench, cx),
     },
     Standalone {
         id: "support.onboarding",
-        title: "Show welcome",
-        detail: "Open the first-run screen",
-        category: "Support",
+        title: n!("Show welcome"),
+        detail: n!("Open the first-run screen"),
+        category: n!("Support"),
         offered: |_| true,
         run: |bench, _, cx| crate::screens::experience::open_welcome(bench, cx),
     },
     Standalone {
         id: "window.duplicate",
-        title: "Duplicate active terminal",
-        detail: "Clone the active window into a new terminal tab",
-        category: "Window",
+        title: n!("Duplicate active terminal"),
+        detail: n!("Clone the active window into a new terminal tab"),
+        category: n!("Window"),
         offered: |bench| bench.terminal_in_front().is_some(),
         run: |bench, _, _| {
             if let Some((strip, tab)) = bench.terminal_in_front() {
@@ -140,17 +141,17 @@ const STANDALONE: [Standalone; 8] = [
     },
     Standalone {
         id: "app.quit-and-stop-everything",
-        title: "Quit and Stop Everything",
-        detail: "Stop every terminal, terminal agent and process, then quit. Plain Quit leaves them running.",
-        category: "Application",
+        title: n!("Quit and Stop Everything"),
+        detail: n!("Stop every terminal, terminal agent and process, then quit. Plain Quit leaves them running."),
+        category: n!("Application"),
         offered: |_| true,
         run: |_, window, cx| keymap::dispatch(actions::QuitAndStopEverything::ID, window, cx),
     },
     Standalone {
         id: "agents.reload-manifests",
-        title: "Reload agent manifests",
-        detail: "Reload agent-state detection rules from disk",
-        category: "Agents",
+        title: n!("Reload agent manifests"),
+        detail: n!("Reload agent-state detection rules from disk"),
+        category: n!("Agents"),
         offered: |_| true,
         run: |bench, _, cx| bench.reload_manifests(cx),
     },
@@ -337,9 +338,11 @@ impl Workbench {
             .iter()
             .filter(|shortcut| cx.build_action(shortcut.id, None).is_ok())
             .map(|shortcut| {
-                Row::new(Pick::Builtin(shortcut.id).key(), shortcut.label)
-                    .meta(shortcut.category)
+                Row::new(Pick::Builtin(shortcut.id).key(), tr(shortcut.label))
+                    .meta(tr(shortcut.category))
                     .keys(keymap::hint_named(shortcut.id, cx))
+                    .also(tr(shortcut.detail))
+                    .also(shortcut.label)
                     .also(shortcut.detail)
                     .also(shortcut.category)
                     .also(shortcut.id)
@@ -350,8 +353,10 @@ impl Workbench {
                 .iter()
                 .filter(|command| (command.offered)(self))
                 .map(|command| {
-                    Row::new(Pick::Standalone(command.id).key(), command.title)
-                        .meta(command.category)
+                    Row::new(Pick::Standalone(command.id).key(), tr(command.title))
+                        .meta(tr(command.category))
+                        .also(tr(command.detail))
+                        .also(command.title)
                         .also(command.detail)
                         .also(command.category)
                 }),

@@ -34,7 +34,7 @@ pub fn render(
     cx: &App,
 ) -> AnyElement {
     let body: AnyElement = match &setup.found {
-        None => rows::note("Looking for agents…", cx),
+        None => rows::note(t!("Looking for agents…"), cx),
         Some(found) => list(bench, found, &Place::This, this, cx),
     };
     let ready = setup.found.as_ref().map(|found| {
@@ -59,7 +59,7 @@ pub fn render(
             .into_any_element()
     });
     let here = rows::section_with(
-        "Agents on this host",
+        t!("Agents on this host"),
         ready,
         update_all,
         Some("Install an agent here and it lands where its own updater expects, so it works in your terminal too.".into()),

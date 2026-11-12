@@ -209,7 +209,7 @@ pub fn side_rail(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoEle
                 .track_scroll(&bench.rails.keyed(Edge::Start).scroll)
                 .overflow_y_scroll()
                 .child(
-                    Group::new("Projects", empty)
+                    Group::new(t!("Projects"), empty)
                         .first()
                         .actions(
                             div()
@@ -219,10 +219,16 @@ pub fn side_rail(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoEle
                                 .children((listed.len() > 1).then(|| project_sort(bench, cx)))
                                 .child(actions(
                                     keymap::hint(actions::OpenProject::ID, cx),
-                                    [IconButton::new("add-project", Icon::Plus, "Open project")
-                                        .on_click(|_, window, cx| {
+                                    [IconButton::new(
+                                        "add-project",
+                                        Icon::Plus,
+                                        t!("Open project"),
+                                    )
+                                    .on_click(
+                                        |_, window, cx| {
                                             keymap::dispatch(actions::OpenProject::ID, window, cx)
-                                        })],
+                                        },
+                                    )],
                                     cx,
                                 )),
                         )
@@ -230,7 +236,7 @@ pub fn side_rail(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoEle
                         .children(projects),
                 )
                 .child(
-                    Group::new("Hosts", "no hosts")
+                    Group::new(t!("Hosts"), "no hosts")
                         .actions(actions(
                             keymap::hint(actions::OpenHost::ID, cx),
                             [
@@ -238,15 +244,14 @@ pub fn side_rail(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoEle
                                     .on_click(|_, window, cx| {
                                         keymap::dispatch(actions::FocusHosts::ID, window, cx)
                                     }),
-                                IconButton::new("edit-ssh", Icon::Pencil, "Edit ~/.ssh/config")
+                                IconButton::new("edit-ssh", Icon::Pencil, t!("Edit ~/.ssh/config"))
                                     .on_click(cx.listener(|bench, _, _, cx| {
                                         bench.edit_ssh_config(None, cx)
                                     })),
-                                IconButton::new("add-host", Icon::Plus, "Find a host").on_click(
-                                    |_, window, cx| {
+                                IconButton::new("add-host", Icon::Plus, t!("Find a host"))
+                                    .on_click(|_, window, cx| {
                                         keymap::dispatch(actions::OpenHost::ID, window, cx)
-                                    },
-                                ),
+                                    }),
                             ],
                             cx,
                         ))
@@ -254,25 +259,25 @@ pub fn side_rail(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoEle
                         .children(hosts(bench, cx)),
                 )
                 .child(
-                    Group::new("Mods", "no mods")
+                    Group::new(t!("Mods"), "no mods")
                         .actions(actions(
                             None,
-                            [
-                                IconButton::new("add-mod", Icon::Plus, "Make a mod with an agent")
-                                    .on_click(
-                                        cx.listener(|bench, _, _, cx| bench.ask_for_mod(None, cx)),
-                                    ),
-                            ],
+                            [IconButton::new(
+                                "add-mod",
+                                Icon::Plus,
+                                t!("Make a mod with an agent"),
+                            )
+                            .on_click(cx.listener(|bench, _, _, cx| bench.ask_for_mod(None, cx)))],
                             cx,
                         ))
                         .children(mods(bench, cx)),
                 )
                 .child(
-                    Group::new("Terminals", "no terminals")
+                    Group::new(t!("Terminals"), "no terminals")
                         .actions(actions(
                             None,
                             [
-                                IconButton::new("add-terminal", Icon::Plus, "New terminal")
+                                IconButton::new("add-terminal", Icon::Plus, t!("New terminal"))
                                     .on_click(
                                         cx.listener(|bench, _, _, cx| bench.new_loose_terminal(cx)),
                                     ),
@@ -296,7 +301,7 @@ fn hosts_overview(cx: &App) -> String {
 
 /// "Host details" at the top of a host's menu, opening the Hosts page on `host`.
 fn details_item(bench: WeakEntity<Workbench>, host: String) -> PopupMenuItem {
-    PopupMenuItem::new("Host details")
+    PopupMenuItem::new(t!("Host details"))
         .icon(Icon::Gauge)
         .on_click(move |_, _, cx| {
             let host = host.clone();
@@ -366,7 +371,7 @@ pub(crate) fn this_host_menu(
         };
         popup
             .item(
-                PopupMenuItem::new("New terminal here")
+                PopupMenuItem::new(t!("New terminal here"))
                     .icon(Icon::Terminal)
                     .on_click(move |_, _, cx| {
                         let _ = terminal.update(cx, |bench, cx| {
@@ -423,7 +428,7 @@ fn approval_item(
     host: Option<String>,
     approval: Option<bool>,
 ) -> PopupMenuItem {
-    PopupMenuItem::new("Require approval for new devices")
+    PopupMenuItem::new(t!("Require approval for new devices"))
         .icon(Icon::Shield)
         .checked(approval == Some(true))
         .disabled(approval.is_none())
@@ -560,7 +565,7 @@ fn hosts(bench: &Workbench, cx: &mut Context<Workbench>) -> Vec<AnyElement> {
                     let (bench, alias) = (bench_entity.clone(), alias.clone());
                     let edited = (bench.clone(), alias.clone());
                     let popup = popup.item(
-                        PopupMenuItem::new("New SSH terminal")
+                        PopupMenuItem::new(t!("New SSH terminal"))
                             .icon(Icon::Terminal)
                             .on_click(move |_, _, cx| {
                                 let _ = bench
@@ -576,7 +581,7 @@ fn hosts(bench: &Workbench, cx: &mut Context<Workbench>) -> Vec<AnyElement> {
                         None => popup,
                     };
                     popup.separator().item(
-                        PopupMenuItem::new("Edit in ~/.ssh/config")
+                        PopupMenuItem::new(t!("Edit in ~/.ssh/config"))
                             .icon(Icon::Pencil)
                             .on_click(move |_, _, cx| {
                                 let (bench, alias) = &edited;
@@ -627,7 +632,7 @@ fn dismiss_offer(
         .filter(|_| (host.setup.as_ref()).is_some_and(|setup| setup.problem.is_some()));
     move |bench: WeakEntity<Workbench>| {
         alias.clone().map(|alias| {
-            PopupMenuItem::new("Dismiss the failed set-up")
+            PopupMenuItem::new(t!("Dismiss the failed set-up"))
                 .icon(Icon::Close)
                 .on_click(move |_, _, cx| {
                     let _ = bench.update(cx, |bench, _| bench.dismiss_set_up(&alias));
@@ -667,7 +672,7 @@ pub(crate) fn account_host_menu(
             }
             if let Some(alias) = ssh.clone() {
                 popup = popup.item(
-                    PopupMenuItem::new("New SSH terminal")
+                    PopupMenuItem::new(t!("New SSH terminal"))
                         .icon(Icon::Terminal)
                         .on_click({
                             let bench = bench.clone();
@@ -696,18 +701,18 @@ pub(crate) fn account_host_menu(
             let named = name.clone();
             let popup = popup
                 .item(
-                    PopupMenuItem::new("New chat here")
+                    PopupMenuItem::new(t!("New chat here"))
                         .icon(Icon::Plus)
                         .disabled(!has_project)
                         .on_click(on(|bench, key, cx| bench.new_chat_on(key, cx))),
                 )
                 .item(
-                    PopupMenuItem::new("New terminal here")
+                    PopupMenuItem::new(t!("New terminal here"))
                         .icon(Icon::Terminal)
                         .on_click(on(|bench, key, cx| bench.new_terminal_on(key, cx))),
                 )
                 .item(
-                    PopupMenuItem::new("Files")
+                    PopupMenuItem::new(t!("Files"))
                         .icon(Icon::Folder)
                         .disabled(!has_project)
                         .on_click(on(|bench, key, cx| {
@@ -728,15 +733,20 @@ pub(crate) fn account_host_menu(
                 None => popup,
             };
             popup
-                .item(PopupMenuItem::new("Rename…").icon(Icon::Pencil).on_click({
-                    let (bench, key, named) = (bench.clone(), key.clone(), named.clone());
-                    move |_, _, cx| {
-                        let _ =
-                            bench.update(cx, |bench, cx| bench.rename_on_account(&key, &named, cx));
-                    }
-                }))
                 .item(
-                    ui::MenuRow::new("Remove from account")
+                    PopupMenuItem::new(t!("Rename…"))
+                        .icon(Icon::Pencil)
+                        .on_click({
+                            let (bench, key, named) = (bench.clone(), key.clone(), named.clone());
+                            move |_, _, cx| {
+                                let _ = bench.update(cx, |bench, cx| {
+                                    bench.rename_on_account(&key, &named, cx)
+                                });
+                            }
+                        }),
+                )
+                .item(
+                    ui::MenuRow::new(t!("Remove from account"))
                         .icon(Icon::Trash)
                         .danger(true)
                         .item(cx)
@@ -799,7 +809,7 @@ fn mods(bench: &Workbench, cx: &mut Context<Workbench>) -> Vec<AnyElement> {
                                 }),
                         )
                         .item(
-                            PopupMenuItem::new("Edit with an agent")
+                            PopupMenuItem::new(t!("Edit with an agent"))
                                 .icon(Icon::Sparkle)
                                 .on_click(move |_, _, cx| {
                                     let edited = Some(edited.clone());
@@ -808,7 +818,7 @@ fn mods(bench: &Workbench, cx: &mut Context<Workbench>) -> Vec<AnyElement> {
                                 }),
                         )
                         .separator()
-                        .item(PopupMenuItem::new("Remove").icon(Icon::Trash).on_click(
+                        .item(PopupMenuItem::new(t!("Remove")).icon(Icon::Trash).on_click(
                             move |_, _, cx| {
                                 let _ =
                                     removing.update(cx, |bench, cx| bench.remove_mod(&removed, cx));
@@ -868,7 +878,7 @@ fn masthead(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement 
         .border_color(t.border)
         .child(ui::icon(Icon::Logo, 14.).text_color(t.accent))
         .child(
-            ui::text("Sikemux", TEXT_SM, FontWeight::SEMIBOLD)
+            ui::text(t!("Sikemux"), TEXT_SM, FontWeight::SEMIBOLD)
                 .text_color(t.text_primary)
                 .ml(px(1.)),
         )
@@ -926,7 +936,7 @@ fn project_sort(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
     ui::menu_button(
         "project-sort",
         gpui_kit::Anchor::TopRight,
-        IconButton::new("project-sort-button", Icon::Sort, "Sort projects").small(),
+        IconButton::new("project-sort-button", Icon::Sort, t!("Sort projects")).small(),
         move |mut popup, _, cx| {
             popup = popup.label("Sort projects");
             for (sort, label) in [
@@ -1114,7 +1124,7 @@ fn project_menu(
             Some(front) => {
                 let front = front.clone();
                 popup.item(
-                    PopupMenuItem::new("Playbook")
+                    PopupMenuItem::new(t!("Playbook"))
                         .icon(Icon::Book)
                         .on_click(act(Rc::new(move |bench: &mut Workbench| {
                             bench.open_copy_settings(&front)
@@ -1163,13 +1173,13 @@ fn project_menu(
                 }
             };
             popup = popup.item(
-                PopupMenuItem::new("New Space…")
+                PopupMenuItem::new(t!("New Space…"))
                     .icon(Icon::Plus)
                     .on_click(new_space),
             );
         }
         popup.separator().item(
-            PopupMenuItem::new("No Space")
+            PopupMenuItem::new(t!("No Space"))
                 .icon(Icon::Move)
                 .checked(current.is_none())
                 .on_click(move_to(None)),
@@ -1271,7 +1281,12 @@ fn surfaces(
                 }
                 keymap::dispatch(command, window, cx);
             });
-            keyed.row(format!("surface-{index}"), surface.label, row, cx)
+            keyed.row(
+                format!("surface-{index}"),
+                crate::i18n::tr(surface.label),
+                row,
+                cx,
+            )
         });
     let playbook = crate::workbench::actions::FocusPlaybook::ID;
     let playbook = tree_row(
@@ -1347,7 +1362,7 @@ fn tree_row(
             16.,
             ui::icon(glyph, 13.).text_color(if lit { t.live } else { t.text_tertiary }),
         ))
-        .child(ui::text(label, TEXT_XS_H, FontWeight::MEDIUM).letter_spacing(0.01))
+        .child(ui::text(crate::i18n::tr(label), TEXT_XS_H, FontWeight::MEDIUM).letter_spacing(0.01))
         .when_some(keys, |row, keys| {
             let keys = ui::kbd(keys, cx).when(lit, |keys| keys.text_color(t.accent));
             row.child(
@@ -1369,7 +1384,7 @@ fn space_switch(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
         return div()
             .mb(SPACE_1H)
             .child(
-                Button::new("new-space", "New space", Variant::Dashed)
+                Button::new("new-space", t!("New space"), Variant::Dashed)
                     .icon(Icon::Plus)
                     .on_click(cx.listener(|bench, _, _, cx| bench.new_space(None, cx))),
             )
@@ -1446,13 +1461,15 @@ fn space_switch(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
             move |popup, _, _| {
                 let (made, edited) = (bench.clone(), bench.clone());
                 popup
-                    .item(PopupMenuItem::new("New Space…").icon(Icon::Plus).on_click(
-                        move |_, _, cx| {
-                            made.update(cx, |bench, cx| bench.new_space(None, cx));
-                        },
-                    ))
                     .item(
-                        PopupMenuItem::new("Edit Spaces…")
+                        PopupMenuItem::new(t!("New Space…"))
+                            .icon(Icon::Plus)
+                            .on_click(move |_, _, cx| {
+                                made.update(cx, |bench, cx| bench.new_space(None, cx));
+                            }),
+                    )
+                    .item(
+                        PopupMenuItem::new(t!("Edit Spaces…"))
                             .icon(Icon::Wrench)
                             .on_click(move |_, _, cx| {
                                 edited.update(cx, |bench, cx| bench.open_space_editor(cx));
@@ -1527,7 +1544,7 @@ fn space_menu(
         }))
         .separator()
         .item(
-            ui::MenuRow::new("Delete Space…")
+            ui::MenuRow::new(t!("Delete Space…"))
                 .icon(Icon::Trash)
                 .danger(true)
                 .item(cx)
@@ -1663,7 +1680,7 @@ fn account_item(label: &'static str, icon: Icon, hint: Option<SharedString>) -> 
 
 /// Settings, in the rail's foot until the person signs in and it moves into the account menu.
 fn settings_button() -> IconButton {
-    IconButton::new("settings", Icon::Settings, "Settings")
+    IconButton::new("settings", Icon::Settings, t!("Settings"))
         .glyph(14.)
         .width(28.)
         .on_click(|_, window, cx| keymap::dispatch(actions::ToggleSettings::ID, window, cx))
@@ -1713,7 +1730,7 @@ fn sign_in(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
     let (copy, button) = if bench.signing_in {
         (
             "Finish signing in in your browser.",
-            Button::new("sign-in", "Cancel", Variant::Outline).on_click(cx.listener(
+            Button::new("sign-in", t!("Cancel"), Variant::Outline).on_click(cx.listener(
                 |bench, _, _, cx| {
                     bench.cancel_sign_in();
                     cx.notify();
@@ -1723,7 +1740,7 @@ fn sign_in(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
     } else {
         (
             "Sign in to reach this host from your phone and other devices.",
-            Button::new("sign-in", "Sign in", Variant::Primary)
+            Button::new("sign-in", t!("Sign in"), Variant::Primary)
                 .icon(Icon::LogIn)
                 .on_click(cx.listener(|bench, _, _, cx| {
                     bench.sign_in();

@@ -153,7 +153,10 @@ fn capture(bench: &mut Workbench, keystroke: &Keystroke, cx: &mut Context<Workbe
         };
         return say(
             bench,
-            format!("Add {which}: Shift alone only changes what a key types."),
+            t!(
+                "Add {which}: Shift alone only changes what a key types.",
+                which = which
+            ),
             cx,
         );
     }
@@ -263,8 +266,8 @@ pub fn render(
         query.is_empty()
             || format!(
                 "{} {} {}",
-                shortcut.label,
-                shortcut.detail,
+                crate::i18n::tr(shortcut.label),
+                crate::i18n::tr(shortcut.detail),
                 keys_label(shortcut.keys(&overrides).as_deref())
             )
             .to_lowercase()
@@ -358,7 +361,7 @@ pub fn render(
     let changed = overrides.len();
     let reset_all = {
         let this = this.clone();
-        ui::Button::new("keycap-reset-all", "Reset all", ui::Variant::Outline)
+        ui::Button::new("keycap-reset-all", t!("Reset all"), ui::Variant::Outline)
             .icon(Icon::Refresh)
             .disabled(changed == 0)
             .on_click(move |_, _, cx| {
@@ -425,7 +428,7 @@ pub fn render(
         })
         .child(rows::note(system, cx));
     vec![rows::section(
-        "Shortcuts",
+        t!("Shortcuts"),
         Some(format!("{} commands · {changed} changed", shortcuts.len()).into()),
         Some("Select a keycap, then press a new combination. Conflicts are blocked.".into()),
         lit("Shortcuts"),

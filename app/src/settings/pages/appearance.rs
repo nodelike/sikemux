@@ -53,6 +53,12 @@ pub(in crate::settings) const INTERFACE: &[Entry] = &[
     row(
         Interface,
         "Text",
+        "Language",
+        "language locale translation español deutsch français 中文 日本語 한국어 русский português",
+    ),
+    row(
+        Interface,
+        "Text",
         "Text size",
         "font zoom scale larger smaller accessibility",
     ),
@@ -242,6 +248,7 @@ pub struct Fields {
     inks: Vec<Entity<ColorPickerState>>,
     opacity: Entity<SliderState>,
     blur: Entity<SliderState>,
+    language: rows::Choice,
     pub editor: Option<super::theme_editor::Editor>,
     /// The picture a theme is being drawn from, while it is read.
     pub reading: Option<super::theme_editor::Picture>,
@@ -373,7 +380,33 @@ pub(super) fn make(bench: &mut Workbench, window: &mut Window, cx: &mut Context<
         preferences.window_blur.min(60.) as f32,
         cx,
     );
+    let languages = crate::i18n::LANGUAGES;
+    let labels = [t!("Same as the system"), "English"]
+        .into_iter()
+        .chain(languages.iter().map(|language| language.name))
+        .collect::<Vec<_>>();
+    let chosen = match preferences.language.as_deref() {
+        None => 0,
+        Some(code) => (languages.iter())
+            .position(|language| language.code == code)
+            .map_or(1, |at| at + 2),
+    };
+    let language = rows::Choice::new(
+        labels,
+        chosen,
+        move |bench, at, _| {
+            let code = match at {
+                0 => None,
+                1 => Some("en".to_owned()),
+                at => Some(languages[at - 2].code.to_owned()),
+            };
+            crate::settings::set(bench, PreferenceChange::Language(code))
+        },
+        window,
+        cx,
+    );
     let fields = Fields {
+        language,
         search,
         query: SharedString::default(),
         tone: Tone::All,
@@ -483,15 +516,17 @@ fn picture_rows(
             ),
         )
         .child(rows::row(
-            "Colours",
-            Some("Theme dithers in the accent and text colour, Picture keeps its own."),
+            t!("Colours"),
+            Some(t!(
+                "Theme dithers in the accent and text colour, Picture keeps its own."
+            )),
             colours,
             cx,
         ))
         .when(preferences.pane_colours == PaneColours::Custom, |rows_of| {
             rows_of.child(rows::row(
-                "Inks",
-                Some("Dark, middle and light, in that order."),
+                t!("Inks"),
+                Some(t!("Dark, middle and light, in that order.")),
                 div()
                     .flex()
                     .gap(SPACE_2)
@@ -499,33 +534,33 @@ fn picture_rows(
                 cx,
             ))
         })
-        .child(rows::row("Pattern", None, pattern, cx))
+        .child(rows::row(t!("Pattern"), None, pattern, cx))
         .child(rows::row(
-            "Dot size",
+            t!("Dot size"),
             None,
             knob(&fields.dot_size, format!("{}pt", preferences.pane_dot_size)),
             cx,
         ))
         .child(rows::row(
-            "Contrast",
+            t!("Contrast"),
             None,
             knob(&fields.contrast, signed(preferences.pane_contrast)),
             cx,
         ))
         .child(rows::row(
-            "Brightness",
+            t!("Brightness"),
             None,
             knob(&fields.brightness, signed(preferences.pane_brightness)),
             cx,
         ))
         .child(rows::row(
-            "Glow",
-            Some("Light around the picture's bright parts."),
+            t!("Glow"),
+            Some(t!("Light around the picture's bright parts.")),
             knob(&fields.glow, format!("{:.2}", preferences.pane_glow)),
             cx,
         ))
         .child(rows::row(
-            "Glow size",
+            t!("Glow size"),
             None,
             knob(
                 &fields.glow_size,
@@ -533,7 +568,7 @@ fn picture_rows(
             ),
             cx,
         ))
-        .child(rows::row("Covers", None, coverage, cx))
+        .child(rows::row(t!("Covers"), None, coverage, cx))
 }
 
 /// Wears the theme `by` places from the one worn in the library as filtered, else its first or last.
@@ -1014,7 +1049,7 @@ pub fn render(
                 .pb(SPACE_2)
                 .child(list)
                 .when(found == 0, |grid| {
-                    grid.child(rows::note("No themes match.", cx))
+                    grid.child(rows::note(t!("No themes match."), cx))
                 }),
         );
 
@@ -1070,13 +1105,12 @@ pub fn render(
             .gap(SPACE_2)
             .when(!following_omarchy && has_pane_image, |buttons| {
                 buttons.child(
-                    ui::Button::new("pane-image-remove", "Remove", ui::Variant::Outline).on_click(
-                        move |_, _, cx| {
+                    ui::Button::new("pane-image-remove", t!("Remove"), ui::Variant::Outline)
+                        .on_click(move |_, _, cx| {
                             remove.update(cx, |bench, _| {
                                 crate::settings::set(bench, PreferenceChange::PaneImage(None))
                             })
-                        },
-                    ),
+                        }),
                 )
             })
             .when(!following_omarchy, |buttons| {
@@ -1135,21 +1169,27 @@ pub fn render(
     };
     let text = div()
         .child(rows::row(
-            "Text size",
-            Some("Scales labels and controls without loosening the layout."),
+            t!("Language"),
+            Some(t!("The language Sikemux's own words are in. What agents write stays as they wrote it.")),
+            fields.language.view(),
+            cx,
+        ))
+        .child(rows::row(
+            t!("Text size"),
+            Some(t!("Scales labels and controls without loosening the layout.")),
             text_size,
             cx,
         ))
         .child(rows::row(
-            "Chat width",
-            Some("How wide a chat's messages and composer grow on a wide window."),
+            t!("Chat width"),
+            Some(t!("How wide a chat's messages and composer grow on a wide window.")),
             chat_width,
             cx,
         ));
     let interface = div()
         .child(rows::row(
-            "Pane texture",
-            Some("The dithered grain behind each pane."),
+            t!("Pane texture"),
+            Some(t!("The dithered grain behind each pane.")),
             rows::switch(
                 "pane-texture",
                 PreferenceChange::PaneShader,
@@ -1159,7 +1199,7 @@ pub fn render(
             cx,
         ))
         .child(rows::row(
-            "Pane image",
+            t!("Pane image"),
             Some(if following_omarchy {
                 "Omarchy's background, dithered in place of the grain."
             } else {
@@ -1170,8 +1210,10 @@ pub fn render(
         ))
         .when(on_omarchy, |rows_of| {
             rows_of.child(rows::row(
-                "Follow Omarchy background",
-                Some("Panes show the background Omarchy is showing, and change when it does."),
+                t!("Follow Omarchy background"),
+                Some(t!(
+                    "Panes show the background Omarchy is showing, and change when it does."
+                )),
                 rows::switch(
                     "pane-image-follows-omarchy",
                     PreferenceChange::PaneImageFollowsOmarchy,
@@ -1182,8 +1224,10 @@ pub fn render(
             ))
         })
         .child(rows::row(
-            "Pane strength",
-            Some("How strongly the texture or picture shows. 1.00 is the default."),
+            t!("Pane strength"),
+            Some(t!(
+                "How strongly the texture or picture shows. 1.00 is the default."
+            )),
             knob(
                 &fields.strength,
                 format!("{:.2}", preferences.pane_strength),
@@ -1358,8 +1402,8 @@ pub fn render(
     };
     let buddies = div()
         .child(rows::row(
-            "Show buddies",
-            Some("Agents get a character in place of their harness logo."),
+            t!("Show buddies"),
+            Some(t!("Agents get a character in place of their harness logo.")),
             face_switch(
                 "buddies-on",
                 |on| FaceStyleChange {
@@ -1385,8 +1429,8 @@ pub fn render(
             shape_chips.into_any_element(),
         ))
         .child(rows::row(
-            "Animate faces",
-            Some("Faces move with what their agents are doing."),
+            t!("Animate faces"),
+            Some(t!("Faces move with what their agents are doing.")),
             face_switch(
                 "buddies-motion",
                 |motion| FaceStyleChange {
@@ -1400,8 +1444,8 @@ pub fn render(
 
     let window_section = div()
         .child(rows::row(
-            "Opacity",
-            Some("Solid at 1.00, translucent below it."),
+            t!("Opacity"),
+            Some(t!("Solid at 1.00, translucent below it.")),
             knob(
                 &fields.opacity,
                 format!("{:.2}", preferences.window_opacity),
@@ -1409,8 +1453,8 @@ pub fn render(
             cx,
         ))
         .child(rows::row(
-            "Background blur",
-            Some("0 is crisp; 20–40px gives a soft frosted effect."),
+            t!("Background blur"),
+            Some(t!("0 is crisp; 20–40px gives a soft frosted effect.")),
             knob(
                 &fields.blur,
                 format!("{}px", preferences.window_blur.round()),
@@ -1424,7 +1468,7 @@ pub fn render(
             sections.extend(current.map(|current| rows::card(lit("Wearing"), current, cx)));
             sections.extend(editing);
             sections.push(rows::section(
-                "Themes",
+                t!("Themes"),
                 Some(format!("{} built-in · {custom} yours", themes.len() - custom).into()),
                 None,
                 lit("Themes"),
@@ -1435,12 +1479,12 @@ pub fn render(
         }
         Page::Interface => {
             let mut sections = vec![
-                rows::section("Text", None, None, lit("Text"), text, cx),
-                rows::section("Panes", None, None, lit("Panes"), interface, cx),
+                rows::section(t!("Text"), None, None, lit("Text"), text, cx),
+                rows::section(t!("Panes"), None, None, lit("Panes"), interface, cx),
             ];
             if crate::settings::index::here(Page::Interface, "Window") {
                 sections.push(rows::section(
-                    "Window",
+                    t!("Window"),
                     None,
                     None,
                     lit("Window"),
@@ -1451,7 +1495,7 @@ pub fn render(
             sections
         }
         _ => vec![rows::section(
-            "Buddies",
+            t!("Buddies"),
             None,
             None,
             lit("Buddies"),

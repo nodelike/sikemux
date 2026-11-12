@@ -348,7 +348,7 @@ pub fn render(
                         ),
                     )
                     .child(
-                        ui::Button::new("root-add", "Add", ui::Variant::Outline)
+                        ui::Button::new("root-add", t!("Add"), ui::Variant::Outline)
                             .icon(Icon::Plus)
                             .disabled(empty)
                             .on_click(move |_, window, cx| {
@@ -394,12 +394,12 @@ pub fn render(
         .children(listed)
         .child(adding)
         .child(rows::note(
-            "Indexing a folder itself offers it in the picker even when it is not a repo — useful for a scratch directory.",
+            t!("Indexing a folder itself offers it in the picker even when it is not a repo — useful for a scratch directory."),
             cx,
         ));
     vec![
         rows::section(
-            "Project folders",
+            t!("Project folders"),
             Some(format!("{count} {}", if count == 1 { "folder" } else { "folders" }).into()),
             Some("Each folder is scanned for git repos, as deep as its depth allows.".into()),
             lit("Project folders"),
@@ -407,13 +407,15 @@ pub fn render(
             cx,
         ),
         rows::section(
-            "Startup",
+            t!("Startup"),
             None,
             None,
             lit("Startup"),
             rows::row(
-                "Restore agent tabs",
-                Some("Resumable tabs come back asleep and start only when selected."),
+                t!("Restore agent tabs"),
+                Some(t!(
+                    "Resumable tabs come back asleep and start only when selected."
+                )),
                 rows::switch(
                     "restore-agent-tabs",
                     PreferenceChange::RestoreAgentTabs,
@@ -425,7 +427,7 @@ pub fn render(
             cx,
         ),
         rows::section(
-            "Session transfer",
+            t!("Session transfer"),
             None,
             Some("Send the project in front to another host, with its chats and tabs.".into()),
             lit("Session transfer"),
@@ -448,7 +450,7 @@ fn transfer(
     cx: &App,
 ) -> AnyElement {
     let Some(project) = bench.project().cloned() else {
-        return rows::note("Open a project to send it to another host.", cx);
+        return rows::note(t!("Open a project to send it to another host."), cx);
     };
     let hosts: Vec<_> = bench
         .other_hosts()
@@ -457,7 +459,7 @@ fn transfer(
         .collect();
     if hosts.is_empty() {
         return rows::note(
-            "Sign in to your account on another Sikemux host to link it, then send projects there.",
+            t!("Sign in to your account on another Sikemux host to link it, then send projects there."),
             cx,
         );
     }
@@ -548,7 +550,7 @@ fn transfer(
         )
         .children(transfer.said.clone().map(|said| rows::note(said, cx)))
         .child(rows::note(
-            "Chats come along when their agent keeps them in files, as Claude and Codex do; the others stay here. A chat that came along starts on the other host's sign-in when you next send to it.",
+            t!("Chats come along when their agent keeps them in files, as Claude and Codex do; the others stay here. A chat that came along starts on the other host's sign-in when you next send to it."),
             cx,
         ));
     body.into_any_element()

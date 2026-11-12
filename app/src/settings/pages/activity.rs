@@ -297,7 +297,7 @@ fn shares(
 ) -> AnyElement {
     let t = Tokens::get(cx).clone();
     if shares.is_empty() {
-        return rows::note("Nothing recorded yet.", cx);
+        return rows::note(t!("Nothing recorded yet."), cx);
     }
     div()
         .children(shares.iter().map(|share| {
@@ -406,7 +406,7 @@ fn price_form(
                     actions.child(
                         ui::Button::new(
                             "price-published",
-                            "Use published price",
+                            t!("Use published price"),
                             ui::Variant::Outline,
                         )
                         .on_click(move |_, _, cx| {
@@ -418,11 +418,11 @@ fn price_form(
                     )
                 })
                 .child(
-                    ui::Button::new("price-cancel", "Cancel", ui::Variant::Outline)
+                    ui::Button::new("price-cancel", t!("Cancel"), ui::Variant::Outline)
                         .on_click(move |_, _, cx| cancel.update(cx, close_form)),
                 )
                 .child(
-                    ui::Button::new("price-save", "Save", ui::Variant::Primary)
+                    ui::Button::new("price-save", t!("Save"), ui::Variant::Primary)
                         .disabled(!valid)
                         .on_click(move |_, _, cx| {
                             save.update(cx, |bench, cx| {
@@ -449,7 +449,7 @@ fn models(
     let t = Tokens::get(cx).clone();
     let models = &summary.models;
     if models.is_empty() {
-        return rows::note("Nothing recorded yet.", cx);
+        return rows::note(t!("Nothing recorded yet."), cx);
     }
     let prices = &summary.pricing.overrides;
     div()
@@ -557,16 +557,16 @@ pub fn render(
         .and_then(|ms| chrono::Local.timestamp_millis_opt(ms).single())
         .map(|at| SharedString::from(format!("since {}", at.format("%b %-d, %Y"))));
     let overview = match totals {
-        _ if failed => rows::note("Activity could not be read.", cx),
+        _ if failed => rows::note(t!("Activity could not be read."), cx),
         Some(totals) if activity_view::is_empty(totals) => rows::note(
-            "Nothing yet. Start an agent and its sessions, turns, tokens and commits collect here.",
+            t!("Nothing yet. Start an agent and its sessions, turns, tokens and commits collect here."),
             cx,
         ),
         Some(totals) => div()
             .p(SPACE_4)
             .child(activity_view::overview(totals, cx))
             .into_any_element(),
-        None => rows::note("Reading activity…", cx),
+        None => rows::note(t!("Reading activity…"), cx),
     };
     let calendar = match summary {
         Some(summary) => div()
@@ -589,16 +589,16 @@ pub fn render(
         .children(summary.map(|summary| pricing_note(summary, cx)));
     vec![
         rows::section(
-            "Overview",
+            t!("Overview"),
             since,
             Some("Counted from agents run and commits made inside Sikemux. Work done elsewhere is never read.".into()),
             lit("Overview"),
             overview,
             cx,
         ),
-        rows::section("Calendar", None, None, lit("Calendar"), calendar, cx),
-        rows::section("By model", None, None, lit("By model"), by_model, cx),
-        rows::section("By agent", None, None, lit("By agent"), by_agent, cx),
-        rows::section("By project", None, None, lit("By project"), by_project, cx),
+        rows::section(t!("Calendar"), None, None, lit("Calendar"), calendar, cx),
+        rows::section(t!("By model"), None, None, lit("By model"), by_model, cx),
+        rows::section(t!("By agent"), None, None, lit("By agent"), by_agent, cx),
+        rows::section(t!("By project"), None, None, lit("By project"), by_project, cx),
     ]
 }

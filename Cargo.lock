@@ -9947,6 +9947,7 @@ dependencies = [
  "sikemux-voice",
  "sikemux-wire",
  "smallvec",
+ "sys-locale",
  "tempfile",
  "textmate-highlight",
  "tokio",

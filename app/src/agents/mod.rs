@@ -208,7 +208,7 @@ fn page_panel(bench: &Workbench, page: TabRailPage, cx: &mut Context<Workbench>)
         } else if project.is_none() {
             rail_empty(
                 Icon::Agent,
-                "No project open",
+                t!("No project open"),
                 Some((actions::OpenProject::ID, "open one")),
                 cx,
             )
@@ -217,21 +217,20 @@ fn page_panel(bench: &Workbench, page: TabRailPage, cx: &mut Context<Workbench>)
                 .flex()
                 .flex_col()
                 .items_center()
-                .child(rail_empty(Icon::Agent, "No agents set up", None, cx))
+                .child(rail_empty(Icon::Agent, t!("No agents set up"), None, cx))
                 .child(
-                    ui::Button::new("set-up-agent", "Set one up", ui::Variant::Outline).on_click(
-                        cx.listener(|bench, _, window, cx| {
+                    ui::Button::new("set-up-agent", t!("Set one up"), ui::Variant::Outline)
+                        .on_click(cx.listener(|bench, _, window, cx| {
                             bench.open_settings(crate::settings::Page::Installed, window, cx)
-                        }),
-                    ),
+                        })),
                 )
                 .into_any_element()
         } else if !bench.filter_text().is_empty() || tagged {
-            rail_empty(Icon::Search, "No chats match", None, cx)
+            rail_empty(Icon::Search, t!("No chats match"), None, cx)
         } else {
             rail_empty(
                 Icon::Agent,
-                "No agents yet",
+                t!("No agents yet"),
                 Some((actions::NewChat::ID, "start one")),
                 cx,
             )
@@ -311,22 +310,24 @@ fn page_panel(bench: &Workbench, page: TabRailPage, cx: &mut Context<Workbench>)
                 })
                 .when(!snoozed.is_empty(), |scroll| {
                     scroll.child(
-                        folding(Group::new("Snoozed", ""), SNOOZED, bench, cx).children(snoozed),
+                        folding(Group::new(t!("Snoozed"), ""), SNOOZED, bench, cx)
+                            .children(snoozed),
                     )
                 })
                 .when(!settled.is_empty(), |scroll| {
                     scroll.child(
-                        folding(Group::new("Settled", ""), SETTLED, bench, cx).children(settled),
+                        folding(Group::new(t!("Settled"), ""), SETTLED, bench, cx)
+                            .children(settled),
                     )
                 })
                 .when(!pinned.is_empty(), |scroll| {
                     scroll.child(
-                        folding(Group::new("Pinned", ""), PINNED, bench, cx).children(pinned),
+                        folding(Group::new(t!("Pinned"), ""), PINNED, bench, cx).children(pinned),
                     )
                 })
                 .when(!recent.is_empty(), |scroll| {
                     scroll.child(
-                        folding(Group::new("Recent", ""), RECENT, bench, cx)
+                        folding(Group::new(t!("Recent"), ""), RECENT, bench, cx)
                             .total(project.and_then(|project| bench.recent_total(project)))
                             .children(recent),
                     )
@@ -360,14 +361,14 @@ fn header(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
     header_frame(
         picker(bench, cx),
         tags::button(bench, cx).into_iter().chain([
-            IconButton::new("search", Icon::Search, "Filter recent chats")
+            IconButton::new("search", Icon::Search, t!("Filter recent chats"))
                 .pressed(bench.filter.is_some())
                 .on_click(cx.listener(|bench, _, window, cx| {
                     bench.toggle_filter(window, cx);
                     cx.notify();
                 }))
                 .into_any_element(),
-            IconButton::new("start-agent", Icon::Plus, "Choose agent")
+            IconButton::new("start-agent", Icon::Plus, t!("Choose agent"))
                 .on_click(|_, window, cx| {
                     crate::keymap::dispatch(actions::ChooseAgent::ID, window, cx)
                 })
@@ -435,7 +436,7 @@ fn picker(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
             harness_label(bench, launcher),
         ),
         None => {
-            return ui::text("Agents", TEXT_SM, FontWeight::SEMIBOLD)
+            return ui::text(t!("Agents"), TEXT_SM, FontWeight::SEMIBOLD)
                 .text_color(t.text_primary)
                 .into_any_element()
         }
@@ -507,7 +508,7 @@ fn picker(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
                     .on_click(move |_, window, cx| choose(&choice, window, cx))
             };
             popup = popup.item(item(
-                ui::MenuRow::new("All harnesses")
+                ui::MenuRow::new(t!("All harnesses"))
                     .mark(move || ui::icon(Icon::Inbox, 13.).text_color(glyph_ink)),
                 None,
                 cx,
@@ -632,12 +633,12 @@ fn recent_row(bench: &Workbench, recent: &RecentInfo, cx: &mut Context<Workbench
             };
             let popup = popup
                 .item(
-                    PopupMenuItem::new("Open")
+                    PopupMenuItem::new(t!("Open"))
                         .icon(Icon::Message)
                         .on_click(on(|bench, chat, cx| bench.resume_chat(chat, cx))),
                 )
                 .item(
-                    PopupMenuItem::new("Rename…")
+                    PopupMenuItem::new(t!("Rename…"))
                         .icon(Icon::Pencil)
                         .on_click(on(rename_recent)),
                 )
@@ -646,7 +647,7 @@ fn recent_row(bench: &Workbench, recent: &RecentInfo, cx: &mut Context<Workbench
                 return popup;
             }
             popup.separator().item(
-                ui::MenuRow::new("Delete…")
+                ui::MenuRow::new(t!("Delete…"))
                     .icon(Icon::Trash)
                     .danger(true)
                     .item(cx)
@@ -1488,7 +1489,7 @@ fn pages(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
 /// The Files page's head, with the copy switch while the project has more than one copy.
 fn files_header(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
     let t = Tokens::get(cx).clone();
-    let title = ui::text("Files", TEXT_XS, FontWeight::MEDIUM).text_color(t.text_primary);
+    let title = ui::text(t!("Files"), TEXT_XS, FontWeight::MEDIUM).text_color(t.text_primary);
     let chip = (bench.folded_in_front())
         .filter(|folded| folded.copies.len() > 1)
         .and_then(|folded| crate::copies::copy_chip("files-copy", bench, &folded, cx));
@@ -1538,7 +1539,7 @@ pub(crate) fn rail_empty(
                 .gap(SPACE_1)
                 .text_size(crate::theme::ui_text(TEXT_XS))
                 .text_color(t.text_tertiary)
-                .child("Press")
+                .child(t!("Press"))
                 .child(ui::kbd(keys, cx))
                 .child(format!("to {doing}")),
         )

@@ -153,8 +153,8 @@ impl Fields {
         let preferences = bench.preferences();
         let mid_turn = Choice::new(
             vec![
-                "Steer: the agent reads it in the running turn",
-                "Queue: it waits until the turn ends",
+                t!("Steer: the agent reads it in the running turn"),
+                t!("Queue: it waits until the turn ends"),
             ],
             match preferences.mid_turn_send {
                 MidTurnSend::Steer => 0,
@@ -170,7 +170,7 @@ impl Fields {
             cx,
         );
         let density = Choice::new(
-            vec!["Comfortable", "Compact"],
+            vec![t!("Comfortable"), t!("Compact")],
             match preferences.rail_density {
                 RailDensity::Comfortable => 0,
                 RailDensity::Compact => 1,
@@ -187,7 +187,11 @@ impl Fields {
             cx,
         );
         let screen_reader = Choice::new(
-            vec!["Status only", "Status and messages", "Everything"],
+            vec![
+                t!("Status only"),
+                t!("Status and messages"),
+                t!("Everything"),
+            ],
             READINGS
                 .iter()
                 .position(|reading| *reading == preferences.screen_reader)
@@ -309,7 +313,7 @@ pub fn boundary(
         .find(|(mode, _, _)| *mode == current)
         .map_or("Normal", |(_, name, _)| *name);
     rows::section(
-        "Launch boundary",
+        t!("Launch boundary"),
         Some(name.into()),
         Some("Offered before every launch. Providers without a matching CLI control fall back to their own settings.".into()),
         lit("Launch boundary"),
@@ -331,7 +335,7 @@ pub fn render(
     };
     let sleep = {
         let this = this.clone();
-        ui::Button::new("sleep-idle", "Sleep now", ui::Variant::Outline).on_click(
+        ui::Button::new("sleep-idle", t!("Sleep now"), ui::Variant::Outline).on_click(
             move |_, _, cx| {
                 this.update(cx, |bench, _| {
                     Target::here(&bench.asks).call_typed::<call::SleepIdleChats>(NoParams {});
@@ -342,48 +346,48 @@ pub fn render(
     let body = div()
         .child(rows::row_with(
             None,
-            "Sending while an agent works",
-            Some(format!("What ↵ does mid-turn. {keys} does the other.").into()),
+            t!("Sending while an agent works"),
+            Some(t!("What ↵ does mid-turn. {keys} does the other.", keys = keys).into()),
             fields.mid_turn.view(),
             cx,
         ))
         .child(rows::row(
-            "Rail density",
-            Some("Compact fits more sessions while keeping every state symbol visible."),
+            t!("Rail density"),
+            Some(t!("Compact fits more sessions while keeping every state symbol visible.")),
             fields.density.view(),
             cx,
         ))
         .child(rows::row(
-            "Screen reader",
-            Some("What VoiceOver hears of the chat in front while its turn runs. Messages are read once the agent moves on from them; the closing reply is left for you."),
+            t!("Screen reader"),
+            Some(t!("What VoiceOver hears of the chat in front while its turn runs. Messages are read once the agent moves on from them; the closing reply is left for you.")),
             fields.screen_reader.view(),
             cx,
         ))
         .children(fields.names.as_ref().map(|names| {
             rows::row(
-                "Agent names",
-                Some("What new agents are called. Open agents keep their names."),
+                t!("Agent names"),
+                Some(t!("What new agents are called. Open agents keep their names.")),
                 names.view(),
                 cx,
             )
         }))
         .child(rows::row(
-            "Builds at once",
-            Some("How many builds agents start run side by side. The rest wait their turn and say so. Automatic fits it to this host's cores and free memory."),
+            t!("Builds at once"),
+            Some(t!("How many builds agents start run side by side. The rest wait their turn and say so. Automatic fits it to this host's cores and free memory.")),
             fields.builds.view(),
             cx,
         ))
         .child(rows::row(
-            "Idle chats",
-            Some("Put every idle chat to sleep now, freeing its process."),
+            t!("Idle chats"),
+            Some(t!("Put every idle chat to sleep now, freeing its process.")),
             sleep,
             cx,
         ))
         .child(rows::note(
-            "Only confirmed native session IDs are written to disk. Startup commands and terminal output never are.",
+            t!("Only confirmed native session IDs are written to disk. Startup commands and terminal output never are."),
             cx,
         ));
-    rows::section("Chats", None, None, lit("Chats"), body, cx)
+    rows::section(t!("Chats"), None, None, lit("Chats"), body, cx)
 }
 
 /// Whether Sikemux says when an agent needs the person, and a test of it.
@@ -396,8 +400,8 @@ pub fn notifications(
     let preferences = bench.preferences();
     let body = div()
         .child(rows::row(
-            "Notify when an agent needs you",
-            Some("While Sikemux is in the background, a notification says when an agent asks for input or finishes."),
+            t!("Notify when an agent needs you"),
+            Some(t!("While Sikemux is in the background, a notification says when an agent asks for input or finishes.")),
             rows::switch(
                 "agent-notifications",
                 PreferenceChange::AgentNotifications,
@@ -407,8 +411,8 @@ pub fn notifications(
             cx,
         ))
         .child(rows::row(
-            "Notify when a goal moves",
-            Some("A short notification when slices land, a goal finishes or its ETA slips, and never for what you're looking at. What needs you always notifies."),
+            t!("Notify when a goal moves"),
+            Some(t!("A short notification when slices land, a goal finishes or its ETA slips, and never for what you're looking at. What needs you always notifies.")),
             rows::switch(
                 "goal-notifications",
                 PreferenceChange::GoalNotifications,
@@ -418,14 +422,21 @@ pub fn notifications(
             cx,
         ))
         .child(rows::row(
-            "Test notification",
-            Some("Sends one now, with its sound. The first one also has macOS ask whether Sikemux may notify you."),
+            t!("Test notification"),
+            Some(t!("Sends one now, with its sound. The first one also has macOS ask whether Sikemux may notify you.")),
             {
                 let this = this.clone();
-                ui::Button::new("notification-test", "Send test", ui::Variant::Outline)
+                ui::Button::new("notification-test", t!("Send test"), ui::Variant::Outline)
                     .on_click(move |_, _, cx| this.update(cx, |_, cx| crate::notifications::test(cx)))
             },
             cx,
         ));
-    rows::section("Notifications", None, None, lit("Notifications"), body, cx)
+    rows::section(
+        t!("Notifications"),
+        None,
+        None,
+        lit("Notifications"),
+        body,
+        cx,
+    )
 }

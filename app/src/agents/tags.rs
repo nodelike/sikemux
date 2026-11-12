@@ -71,27 +71,29 @@ pub(crate) fn menu_item(
         cx,
         ui::menu(move |mut menu, _, _| {
             let (bench_new, id_new, had_new) = (bench.clone(), id.clone(), had.clone());
-            menu = menu.item(PopupMenuItem::new("New Tag…").icon(Icon::Plus).on_click(
-                move |_, window, cx| {
-                    let (bench, id, had) = (bench_new.clone(), id_new.clone(), had_new.clone());
-                    window.defer(cx, move |_, cx| {
-                        let _ = bench.update(cx, |bench, cx| {
-                            bench.prompt(
-                                "New tag",
-                                "",
-                                move |bench, typed, _, _| {
-                                    let typed = typed.trim().to_lowercase();
-                                    if !typed.is_empty() && !had.contains(&typed) {
-                                        let tags = had.iter().cloned().chain([typed]).collect();
-                                        retag(bench, &id, tags);
-                                    }
-                                },
-                                cx,
-                            )
+            menu = menu.item(
+                PopupMenuItem::new(t!("New Tag…"))
+                    .icon(Icon::Plus)
+                    .on_click(move |_, window, cx| {
+                        let (bench, id, had) = (bench_new.clone(), id_new.clone(), had_new.clone());
+                        window.defer(cx, move |_, cx| {
+                            let _ = bench.update(cx, |bench, cx| {
+                                bench.prompt(
+                                    "New tag",
+                                    "",
+                                    move |bench, typed, _, _| {
+                                        let typed = typed.trim().to_lowercase();
+                                        if !typed.is_empty() && !had.contains(&typed) {
+                                            let tags = had.iter().cloned().chain([typed]).collect();
+                                            retag(bench, &id, tags);
+                                        }
+                                    },
+                                    cx,
+                                )
+                            });
                         });
-                    });
-                },
-            ));
+                    }),
+            );
             if !in_use.is_empty() {
                 menu = menu.separator();
             }
@@ -133,7 +135,7 @@ pub(crate) fn button(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<A
         ui::menu_button(
             "rail-tags",
             Anchor::TopRight,
-            IconButton::new("rail-tags-button", Icon::Tag, "Show one tag's chats")
+            IconButton::new("rail-tags-button", Icon::Tag, t!("Show one tag's chats"))
                 .pressed(chosen.is_some()),
             move |mut popup, _, cx| {
                 for (tag, count) in &in_use {

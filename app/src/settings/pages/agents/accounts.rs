@@ -209,14 +209,14 @@ fn account_row(
     let more = (signed_in || removable || !projects.is_empty()).then(|| {
         let (sign_out, remove, choose) = (this.clone(), this.clone(), this.clone());
         let (out_id, remove_id) = (id.clone(), id.clone());
-        let remove_label: SharedString = format!("Remove {name}").into();
+        let remove_label: SharedString = t!("Remove {name}", name = name).into();
         ui::menu_button(
             SharedString::from(format!("account-more-{id}")),
             Anchor::TopRight,
             ui::IconButton::new(
                 SharedString::from(format!("account-more-button-{id}")),
                 Icon::More,
-                format!("More for {name}"),
+                t!("More for {name}", name = name),
             ),
             move |mut popup, _, _| {
                 if signed_in {
@@ -323,8 +323,8 @@ pub fn smart(
     let this = this.clone();
     let row = rows::row_with(
         None,
-        "Smart accounts",
-        Some("Starts each chat on the account whose week ends soonest and moves on at a limit. Check each provider's terms first.".into()),
+        t!("Smart accounts"),
+        Some(t!("Starts each chat on the account whose week ends soonest and moves on at a limit. Check each provider's terms first.").into()),
         Switch::new("smart-accounts")
             .checked(bench.accounts.smart())
             .on_change(move |on: &bool, _, cx| {
@@ -333,7 +333,7 @@ pub fn smart(
             }),
         cx,
     );
-    rows::section("Rotation", None, None, lit("Rotation"), row, cx)
+    rows::section(t!("Rotation"), None, None, lit("Rotation"), row, cx)
 }
 
 pub fn render(
@@ -378,7 +378,7 @@ pub fn render(
         }))
         .child(add)
         .when(bench.accounts.book.is_none(), |body| {
-            body.child(rows::note("Reading accounts…", cx))
+            body.child(rows::note(t!("Reading accounts…"), cx))
         });
     rows::section(
         title.clone(),
@@ -480,28 +480,35 @@ pub fn dialog(
                         })
                 }))
             });
-            sign_in::Screen::new("account-dialog", mark, format!("Add a {label} account"))
-                .lede(format!("Sign in with {label}'s own login in your browser."))
-                .foot(FOOT)
-                .child(sign_in::Field::new("Name", &open.name))
-                .child(
-                    ui::Button::new(
-                        "account-dialog-go",
-                        format!("Continue with {label}"),
-                        ui::Variant::Primary,
-                    )
-                    .wide()
-                    .disabled(open.busy || empty)
-                    .on_click(on(this, move |bench, _, cx| {
-                        accounts::add(bench, brand.clone(), cx)
-                    })),
+            sign_in::Screen::new(
+                "account-dialog",
+                mark,
+                t!("Add a {label} account", label = label),
+            )
+            .lede(t!(
+                "Sign in with {label}'s own login in your browser.",
+                label = label
+            ))
+            .foot(FOOT)
+            .child(sign_in::Field::new("Name", &open.name))
+            .child(
+                ui::Button::new(
+                    "account-dialog-go",
+                    t!("Continue with {label}", label = label),
+                    ui::Variant::Primary,
                 )
-                .when_some(again, |screen, again| {
-                    screen
-                        .child(sign_in::or("or sign in again", cx))
-                        .child(again)
-                })
-                .child(cancel())
+                .wide()
+                .disabled(open.busy || empty)
+                .on_click(on(this, move |bench, _, cx| {
+                    accounts::add(bench, brand.clone(), cx)
+                })),
+            )
+            .when_some(again, |screen, again| {
+                screen
+                    .child(sign_in::or("or sign in again", cx))
+                    .child(again)
+            })
+            .child(cancel())
         }
         (Some(profile), Some(SignIn::Waiting { url, code })) => {
             let id = profile.id.clone();
@@ -515,11 +522,15 @@ pub fn dialog(
                         .gap(SPACE_3)
                         .child(sign_in::Field::new("Code from the page", field).mono())
                         .child(
-                            ui::Button::new("sign-in-send-code", "Send code", ui::Variant::Outline)
-                                .wide()
-                                .on_click(on(this, move |bench, _, cx| {
-                                    accounts::submit_code(bench, &id, cx)
-                                })),
+                            ui::Button::new(
+                                "sign-in-send-code",
+                                t!("Send code"),
+                                ui::Variant::Outline,
+                            )
+                            .wide()
+                            .on_click(on(this, move |bench, _, cx| {
+                                accounts::submit_code(bench, &id, cx)
+                            })),
                         )
                 }
                 None => sign_in::links()
@@ -539,7 +550,10 @@ pub fn dialog(
                 mark,
                 format!("Sign in to {}", profile.name),
             )
-            .lede(format!("Sign in with {label}'s own login in your browser."))
+            .lede(t!(
+                "Sign in with {label}'s own login in your browser.",
+                label = label
+            ))
             .foot(FOOT)
             .child(sign_in::waiting(
                 "account-dialog-waiting",
@@ -556,11 +570,14 @@ pub fn dialog(
                 mark,
                 format!("Sign in to {}", profile.name),
             )
-            .lede(format!("Sign in with {label}'s own login in your browser."))
+            .lede(t!(
+                "Sign in with {label}'s own login in your browser.",
+                label = label
+            ))
             .foot(FOOT)
             .child(sign_in::error(message.clone(), cx))
             .child(
-                ui::Button::new("sign-in-retry", "Try again", ui::Variant::Primary)
+                ui::Button::new("sign-in-retry", t!("Try again"), ui::Variant::Primary)
                     .wide()
                     .on_click(on(this, move |bench, _, cx| {
                         accounts::dismiss_failure(bench, &id);
@@ -630,7 +647,7 @@ fn signed_in(
                 .child(
                     ui::Button::new(
                         "account-dialog-switch",
-                        format!("Switch to {named}"),
+                        t!("Switch to {named}", named = named),
                         ui::Variant::Primary,
                     )
                     .wide()
@@ -650,7 +667,7 @@ fn signed_in(
                 )
         }
         None => screen.child(
-            ui::Button::new("account-dialog-done", "Done", ui::Variant::Primary)
+            ui::Button::new("account-dialog-done", t!("Done"), ui::Variant::Primary)
                 .wide()
                 .on_click(close()),
         ),

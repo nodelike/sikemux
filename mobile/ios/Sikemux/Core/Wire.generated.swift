@@ -5059,6 +5059,8 @@ struct Preferences: Codable, Hashable, Sendable {
     var railDensity: RailDensity
     /// What a screen reader hears of the chat in front while its turn runs.
     var screenReader: ScreenReader
+    /// The language the app's words are in, as a BCP 47 tag; none follows the system.
+    var language: String?
     /// The iOS Simulator is drawn inside a device's frame.
     var simulatorFrame: Bool
     /// The keys the person bound to actions in place of their defaults, by

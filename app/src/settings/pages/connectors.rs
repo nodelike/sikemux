@@ -236,7 +236,7 @@ fn rundeck_lists(lists: &RundeckLists, window: &mut Window, cx: &mut Context<Wor
             cx.spawn(async move |bench, cx| {
                 if let Err(error) = saved.await {
                     let _ = bench.update(cx, |bench, cx| {
-                        bench.notify(toast::error(format!("Rundeck: {error}")), cx)
+                        bench.notify(toast::error(t!("Rundeck: {error}", error = error)), cx)
                     });
                 }
             })
@@ -382,7 +382,7 @@ pub fn render(
         return Vec::new();
     };
     let body = match plugins.is_empty() {
-        true => rows::note("No connectors in this build.", cx),
+        true => rows::note(t!("No connectors in this build."), cx),
         false => div()
             .children(plugins.all().flat_map(|plugin| {
                 let (name, trouble) = summary(plugin, fields, cx);
@@ -404,7 +404,7 @@ pub fn render(
             .into_any_element(),
     };
     let vault = super::vault::section(&fields.vault, lit("Account vault"), this, cx);
-    let connectors = rows::section("Connectors", None, None, lit("Connectors"), body, cx);
+    let connectors = rows::section(t!("Connectors"), None, None, lit("Connectors"), body, cx);
     vault.into_iter().chain([connectors]).collect()
 }
 
@@ -588,7 +588,7 @@ fn aws_settings(fields: &Fields, this: &Entity<Workbench>, cx: &App) -> Vec<AnyE
                     let said = saved.await;
                     let _ = bench.update_in(cx, |bench, window, cx| {
                         if let Err(error) = said {
-                            bench.notify(toast::error(format!("AWS: {error}")), cx);
+                            bench.notify(toast::error(t!("AWS: {error}", error = error)), cx);
                         }
                         read(bench, window, cx);
                     });
@@ -740,7 +740,7 @@ fn change_database(
         let said = changed.await;
         let _ = bench.update_in(cx, |bench, window, cx| {
             if let Err(error) = said {
-                bench.notify(toast::error(format!("Database: {error}")), cx);
+                bench.notify(toast::error(t!("Database: {error}", error = error)), cx);
             }
             read(bench, window, cx);
         });
@@ -1048,10 +1048,10 @@ pub fn dialog(
     let mut screen = sign_in::Screen::new(
         "connector-sign-in",
         ui::picture(mark(&plugin.id), 26., t.text_primary),
-        format!("Sign in to {name}"),
+        t!("Sign in to {name}", name = name),
     )
     .lede(form.map_or_else(
-        || format!("Tools for your agents to use {name} for you."),
+        || t!("Tools for your agents to use {name} for you.", name = name),
         |form| form.lede.clone(),
     ))
     .foot(sign_in::KEPT);
@@ -1094,7 +1094,7 @@ pub fn dialog(
             .into_any_element(),
             false => ui::Button::new(
                 "connector-browser",
-                format!("Continue with {name}"),
+                t!("Continue with {name}", name = name),
                 ui::Variant::Primary,
             )
             .wide()

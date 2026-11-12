@@ -428,7 +428,7 @@ fn header(view: &View, agents: &[Agent], cx: &App) -> Div {
         .items_center()
         .gap(SPACE_2)
         .child(
-            ui::text("LIMITS", TEXT_2XS, FontWeight::MEDIUM)
+            ui::text(t!("LIMITS"), TEXT_2XS, FontWeight::MEDIUM)
                 .letter_spacing(0.08)
                 .text_color(t.text_tertiary),
         )
@@ -1064,7 +1064,7 @@ fn resets_list(
         .items_center()
         .gap(SPACE_2)
         .child(
-            ui::text("RESETS", TEXT_3XS, FontWeight::MEDIUM)
+            ui::text(t!("RESETS"), TEXT_3XS, FontWeight::MEDIUM)
                 .letter_spacing(0.08)
                 .text_color(t.text_tertiary),
         )
@@ -1195,10 +1195,10 @@ fn reset_row(
     };
     if !asking {
         let action = match busy {
-            true => ui::text("Resetting…", TEXT_2XS, FontWeight::MEDIUM)
+            true => ui::text(t!("Resetting…"), TEXT_2XS, FontWeight::MEDIUM)
                 .text_color(t.text_tertiary)
                 .into_any_element(),
-            false => ui::text("Use", TEXT_2XS, FontWeight::MEDIUM)
+            false => ui::text(t!("Use"), TEXT_2XS, FontWeight::MEDIUM)
                 .id(SharedString::from(format!(
                     "limits-use-{}",
                     reset_key(shown, kind)
@@ -1262,7 +1262,7 @@ fn reset_row(
                 .items_center()
                 .gap(SPACE_2)
                 .child(
-                    ui::text("Cancel", TEXT_2XS, FontWeight::NORMAL)
+                    ui::text(t!("Cancel"), TEXT_2XS, FontWeight::NORMAL)
                         .id(SharedString::from(format!(
                             "limits-cancel-{}",
                             reset_key(shown, kind)

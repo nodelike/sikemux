@@ -86,7 +86,7 @@ pub(super) fn permission(
         )
         .child(
             ui::text(
-                "Agent needs permission before this tool can continue.",
+                t!("Agent needs permission before this tool can continue."),
                 TEXT_2XS,
                 FontWeight::NORMAL,
             )
@@ -202,7 +202,7 @@ pub(super) fn kept(t: &Tokens) -> impl IntoElement {
         .text_size(crate::theme::ui_text(TEXT_2XS))
         .text_color(t.text_tertiary)
         .child(ui::icon(Icon::Shield, 12.).text_color(t.text_tertiary))
-        .child("Answer kept, sent with the rest")
+        .child(t!("Answer kept, sent with the rest"))
 }
 
 /// How much a hidden answer holds, so the person can see their typing and paste landed.
@@ -245,7 +245,7 @@ pub(super) fn secret(
     } else {
         Variant::Primary
     };
-    let done = Button::new("secret-done", "Done", variant)
+    let done = Button::new("secret-done", t!("Done"), variant)
         .disabled(held.is_empty() || chat.sending_answers())
         .on_click(cx.listener(move |bench, _, window, cx| bench.keep_secret(&agent, window, cx)));
     Some(

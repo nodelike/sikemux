@@ -3219,6 +3219,8 @@ export interface Preferences {
     railDensity: RailDensity;
     /** What a screen reader hears of the chat in front while its turn runs. */
     screenReader: ScreenReader;
+    /** The language the app's words are in, as a BCP 47 tag; none follows the system. */
+    language: string | null;
     /** The iOS Simulator is drawn inside a device's frame. */
     simulatorFrame: boolean;
     /**

@@ -340,7 +340,7 @@ impl RenderOnce for Composer {
             .clone();
         let aside_room = self.aside.as_ref().map(|(room, _)| *room);
         let (room, labelled) = shape(width.get(), aside_room);
-        let attach = IconButton::new("composer-attach", Icon::Plus, "Add files")
+        let attach = IconButton::new("composer-attach", Icon::Plus, t!("Add files"))
             .glyph(17.)
             .width(31.)
             .when_some(on_add, |button, on_add| {
@@ -813,7 +813,7 @@ fn stash_button(fresh: usize, open: bool, toggle: Act, room: Room, cx: &App) -> 
         } else {
             t.text_secondary
         }))
-        .when(room == Room::Full, |button| button.child("Stash"))
+        .when(room == Room::Full, |button| button.child(t!("Stash")))
         .when(fresh > 0, |button| {
             button.child(
                 div()
@@ -1219,7 +1219,7 @@ fn context_card(
                 .items_center()
                 .justify_between()
                 .child(
-                    ui::text("Context window", TEXT_XS, FontWeight::NORMAL)
+                    ui::text(t!("Context window"), TEXT_XS, FontWeight::NORMAL)
                         .text_color(t.text_secondary),
                 )
                 .child(

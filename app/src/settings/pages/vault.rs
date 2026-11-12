@@ -287,7 +287,7 @@ pub(super) fn section(
     let meta: Option<SharedString> = match shown.holders {
         0 => None,
         1 => Some("Sealed · 1 host holds the key".into()),
-        many => Some(format!("Sealed · {many} hosts hold the key").into()),
+        many => Some(t!("Sealed · {many} hosts hold the key", many = many).into()),
     };
     let quiet = |text: SharedString| {
         div()
@@ -313,13 +313,13 @@ pub(super) fn section(
                         .flex()
                         .gap(SPACE_2)
                         .child(
-                            ui::Button::new("vault-copy-recovery", "Copy", ui::Variant::Outline)
+                            ui::Button::new("vault-copy-recovery", t!("Copy"), ui::Variant::Outline)
                                 .on_click(move |_, _, cx| {
                                     cx.write_to_clipboard(ClipboardItem::new_string(copied.clone()))
                                 }),
                         )
                         .child(
-                            ui::Button::new("vault-saved-recovery", "I saved it", ui::Variant::Primary)
+                            ui::Button::new("vault-saved-recovery", t!("I saved it"), ui::Variant::Primary)
                                 .on_click(move |_, _, cx| {
                                     saving.update(cx, |bench, cx| saved_recovery(bench, cx))
                                 }),
@@ -328,7 +328,7 @@ pub(super) fn section(
                 .into_any_element()
         }
         (ShownStatus::Open, None) => rows::note(
-            "Sign-ins on this host move into the account's vault, sealed so the accounts server cannot read them. Each one says which hosts and projects may use it.",
+            t!("Sign-ins on this host move into the account's vault, sealed so the accounts server cannot read them. Each one says which hosts and projects may use it."),
             cx,
         ),
         (ShownStatus::Waiting, _) => {
@@ -346,7 +346,7 @@ pub(super) fn section(
                         .gap(SPACE_2)
                         .child(div().flex_1().child(ui::Field::new(input)))
                         .child(
-                            ui::Button::new("vault-recover", "Open the vault", ui::Variant::Primary)
+                            ui::Button::new("vault-recover", t!("Open the vault"), ui::Variant::Primary)
                                 .disabled(fields.busy)
                                 .on_click(move |_, window, cx| {
                                     restoring.update(cx, |bench, cx| recover(bench, window, cx))
@@ -369,7 +369,14 @@ pub(super) fn section(
             cx,
         ),
     };
-    Some(rows::section("Account vault", meta, None, lit, body, cx))
+    Some(rows::section(
+        t!("Account vault"),
+        meta,
+        None,
+        lit,
+        body,
+        cx,
+    ))
 }
 
 /// The sign-ins the vault holds for `plugin`, each under its connector's row.
@@ -558,9 +565,9 @@ fn last_use(
         .as_ref()
         .filter(|(open, _)| *open == sign_in.id)
         .map(|(_, read)| match read {
-            None => vec![rows::note("Reading the use log…", cx)],
+            None => vec![rows::note(t!("Reading the use log…"), cx)],
             Some(uses) if uses.is_empty() => {
-                vec![rows::note("No use in the last 30 days.", cx)]
+                vec![rows::note(t!("No use in the last 30 days."), cx)]
             }
             Some(uses) => uses
                 .iter()

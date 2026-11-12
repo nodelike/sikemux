@@ -349,16 +349,16 @@ impl Chat {
                 reason,
             } => {
                 let verb = match (connection, attempt) {
-                    (true, _) => "Reconnecting".to_owned(),
-                    (false, Some(attempt)) => format!("Retrying, attempt {attempt}"),
-                    (false, None) => "Retrying".to_owned(),
+                    (true, _) => t!("Reconnecting").to_owned(),
+                    (false, Some(attempt)) => t!("Retrying, attempt {attempt}", attempt = attempt),
+                    (false, None) => t!("Retrying").to_owned(),
                 };
                 Doing::on(verb, reason.clone().unwrap_or_default(), false)
             }
             ChatActivity::Call { row } => doing(row),
-            ChatActivity::Thinking => Doing::said("Thinking"),
-            ChatActivity::Starting => Doing::said("Starting agent"),
-            ChatActivity::Connecting => Doing::said("Connecting to agent session"),
+            ChatActivity::Thinking => Doing::said(t!("Thinking")),
+            ChatActivity::Starting => Doing::said(t!("Starting agent")),
+            ChatActivity::Connecting => Doing::said(t!("Connecting to agent session")),
         })
     }
 }
@@ -378,41 +378,41 @@ fn doing(row: &ToolRow) -> Doing {
     };
     match (row.intent, row.family) {
         (I::Run | I::Test | I::Build | I::Git | I::Commit, F::Shell) => {
-            Doing::on("Running", target, true)
+            Doing::on(t!("Running"), target, true)
         }
-        (I::Commit, _) => Doing::on("Committing", target, false),
+        (I::Commit, _) => Doing::on(t!("Committing"), target, false),
         (I::Wait, F::Waiting) if row.subject.is_some() => {
-            Doing::on("Waiting for", agent(subject), false)
+            Doing::on(t!("Waiting for"), agent(subject), false)
         }
-        (I::Wait, _) => Doing::on("Waiting", target, false),
-        (I::Message, _) => Doing::on("Messaging", agent(subject), false),
-        (I::Start, F::Agents) => Doing::on("Starting", agent(subject), false),
-        (I::Start, _) => Doing::on("Starting", subject, false),
-        (I::Read, F::Files | F::Shell) | (I::View, _) => Doing::on("Reading", subject, false),
-        (I::Search, F::Web) => Doing::on("Searching the web for", subject, false),
-        (I::Search, _) => Doing::on("Searching for", subject, true),
-        (I::List, _) => Doing::on("Listing", subject, false),
-        (I::Edit, _) => Doing::on("Editing", target, false),
-        (I::Write, _) => Doing::on("Writing", target, false),
-        (I::Open, _) => Doing::on("Opening", target, false),
-        (I::Click, F::Simulator) => Doing::on("Tapping", target, false),
-        (I::Click, _) => Doing::on("Clicking", target, false),
-        (I::Type, _) => Doing::on("Typing", target, false),
-        (I::Look, _) => Doing::said("Taking a screenshot"),
-        (I::Fetch, _) => Doing::on("Reading", target, false),
+        (I::Wait, _) => Doing::on(t!("Waiting"), target, false),
+        (I::Message, _) => Doing::on(t!("Messaging"), agent(subject), false),
+        (I::Start, F::Agents) => Doing::on(t!("Starting"), agent(subject), false),
+        (I::Start, _) => Doing::on(t!("Starting"), subject, false),
+        (I::Read, F::Files | F::Shell) | (I::View, _) => Doing::on(t!("Reading"), subject, false),
+        (I::Search, F::Web) => Doing::on(t!("Searching the web for"), subject, false),
+        (I::Search, _) => Doing::on(t!("Searching for"), subject, true),
+        (I::List, _) => Doing::on(t!("Listing"), subject, false),
+        (I::Edit, _) => Doing::on(t!("Editing"), target, false),
+        (I::Write, _) => Doing::on(t!("Writing"), target, false),
+        (I::Open, _) => Doing::on(t!("Opening"), target, false),
+        (I::Click, F::Simulator) => Doing::on(t!("Tapping"), target, false),
+        (I::Click, _) => Doing::on(t!("Clicking"), target, false),
+        (I::Type, _) => Doing::on(t!("Typing"), target, false),
+        (I::Look, _) => Doing::said(t!("Taking a screenshot")),
+        (I::Fetch, _) => Doing::on(t!("Reading"), target, false),
         _ => match &row.activity {
             Some(activity) => Doing::said(activity.clone()),
             None => Doing::said(match row.action {
-                ToolAction::Read => "Reading",
-                ToolAction::Edit => "Editing",
-                ToolAction::Delete => "Deleting",
-                ToolAction::Move => "Moving",
-                ToolAction::Search => "Searching",
-                ToolAction::Execute => "Running a command",
-                ToolAction::Think => "Thinking",
-                ToolAction::Fetch => "Fetching",
-                ToolAction::SwitchMode => "Switching mode",
-                ToolAction::Mcp | ToolAction::Other => "Working",
+                ToolAction::Read => t!("Reading"),
+                ToolAction::Edit => t!("Editing"),
+                ToolAction::Delete => t!("Deleting"),
+                ToolAction::Move => t!("Moving"),
+                ToolAction::Search => t!("Searching"),
+                ToolAction::Execute => t!("Running a command"),
+                ToolAction::Think => t!("Thinking"),
+                ToolAction::Fetch => t!("Fetching"),
+                ToolAction::SwitchMode => t!("Switching mode"),
+                ToolAction::Mcp | ToolAction::Other => t!("Working"),
             }),
         },
     }
@@ -602,7 +602,9 @@ pub(super) fn trouble(
                 format!("Retry at {}", turn_line::moment(at)),
                 |bench, agent| bench.account_call::<call::CancelResume>(agent),
             )
-            .tooltip("Sikemux sends your last message again then. Click to not send it.")
+            .tooltip(t!(
+                "Sikemux sends your last message again then. Click to not send it."
+            ))
             .into_any_element(),
             None => quiet(&this, &agent.id, "Retry".into(), |bench, agent| {
                 bench.account_call::<call::RetryFailed>(agent)
@@ -758,7 +760,7 @@ fn other_account(
     let (this, chat) = (this.clone(), agent.id.clone());
     let trigger = Button::new(
         "chat-other-account",
-        "Use another account",
+        t!("Use another account"),
         Variant::Outline,
     );
     Some(
@@ -940,7 +942,7 @@ pub(super) fn plan(
             motion::DETAIL_FOLD,
             ui::icon(Icon::Chevron, 10.).text_color(t.text_disabled),
         ))
-        .child("Plan")
+        .child(t!("Plan"))
         .child(format!("{done} of {}", plan.len()))
         .on_click({
             let agent = agent.clone();

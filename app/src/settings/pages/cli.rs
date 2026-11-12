@@ -157,7 +157,7 @@ pub fn render(
                 .justify_end()
                 .gap(SPACE_2)
                 .child(
-                    ui::Button::new("cli-refresh", "Refresh", ui::Variant::Outline)
+                    ui::Button::new("cli-refresh", t!("Refresh"), ui::Variant::Outline)
                         .icon(Icon::Refresh)
                         .on_click(move |_, _, cx| refresh.update(cx, read)),
                 )
@@ -207,9 +207,9 @@ pub fn render(
         .child("sikemux src/App.tsx:42:5")
         .child("sikemux open --wait README.md");
     vec![
-        rows::section("Shell integration", Some(label), Some(message), lit("Shell integration"), integration, cx),
+        rows::section(t!("Shell integration"), Some(label), Some(message), lit("Shell integration"), integration, cx),
         rows::section(
-            "Usage",
+            t!("Usage"),
             None,
             Some("Existing files open in an editor tab. Directories focus or create their workspace.".into()),
             lit("Usage"),

@@ -25,7 +25,7 @@ pub(in crate::settings) const ENTRIES: &[Entry] = &[
 /// What a mod reads and may change, as its row says it.
 fn about(shown: &ModInfo) -> SharedString {
     if let Some(problem) = &shown.problem {
-        return format!("Cannot show: {problem}").into();
+        return t!("Cannot show: {problem}", problem = problem).into();
     }
     let mut said = Vec::new();
     if !shown.reads.is_empty() {
@@ -110,7 +110,7 @@ pub fn render(
     let mods = list.map(|list| list.mods.as_slice()).unwrap_or_default();
     let body = match mods.is_empty() {
         true => rows::note(
-            "No mods yet. Ask an agent for one with the + beside Mods in the rail.",
+            t!("No mods yet. Ask an agent for one with the + beside Mods in the rail."),
             cx,
         ),
         false => div()
@@ -152,7 +152,7 @@ pub fn render(
         )
     }));
     vec![rows::section(
-        "Mods",
+        t!("Mods"),
         None,
         Some(
             folder
@@ -165,7 +165,7 @@ pub fn render(
         cx,
     ),
     rows::section(
-        "Examples",
+        t!("Examples"),
         None,
         Some("Mods Sikemux ships for you to copy into your mods folder and change.".into()),
         lit("Examples"),

@@ -163,7 +163,7 @@ pub fn top_bar(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoEleme
                     ),
             )
             .child(
-                IconButton::new("new-tab", Icon::Plus, "New tab")
+                IconButton::new("new-tab", Icon::Plus, t!("New tab"))
                     .glyph(13.)
                     .on_click(|_, window, cx| {
                         crate::keymap::dispatch(actions::NewTab::ID, window, cx)
@@ -564,26 +564,28 @@ impl TabMenu {
         let (strip, tab) = (self.strip.clone(), self.tab.clone());
         if self.kind == Some(PaneKind::Terminal) {
             let (strip, tab, label) = (strip.clone(), tab.clone(), self.label.to_string());
-            popup = popup.item(PopupMenuItem::new("Rename…").icon(Icon::Pencil).on_click(
-                on_bench(&self.bench, move |bench, cx| {
-                    let (strip, tab) = (strip.clone(), tab.clone());
-                    bench.prompt(
-                        "Rename tab",
-                        label.clone(),
-                        move |bench, name, _, _| {
-                            if !name.is_empty() {
-                                bench.rename_tab(&strip, &tab, &name);
-                            }
-                        },
-                        cx,
-                    );
-                }),
-            ));
+            popup = popup.item(
+                PopupMenuItem::new(t!("Rename…"))
+                    .icon(Icon::Pencil)
+                    .on_click(on_bench(&self.bench, move |bench, cx| {
+                        let (strip, tab) = (strip.clone(), tab.clone());
+                        bench.prompt(
+                            "Rename tab",
+                            label.clone(),
+                            move |bench, name, _, _| {
+                                if !name.is_empty() {
+                                    bench.rename_tab(&strip, &tab, &name);
+                                }
+                            },
+                            cx,
+                        );
+                    })),
+            );
         }
         if self.kind == Some(PaneKind::Terminal) && self.named {
             let (strip, tab) = (strip.clone(), tab.clone());
             popup = popup.item(
-                PopupMenuItem::new("Use Automatic Name")
+                PopupMenuItem::new(t!("Use Automatic Name"))
                     .icon(Icon::Rotate)
                     .on_click(on_bench(&self.bench, move |bench, _| {
                         bench.rename_tab(&strip, &tab, "")
@@ -599,7 +601,7 @@ impl TabMenu {
         if self.kind != Some(PaneKind::Agent) {
             let (strip, tab) = (strip.clone(), tab.clone());
             popup = popup.item(
-                PopupMenuItem::new("Duplicate")
+                PopupMenuItem::new(t!("Duplicate"))
                     .icon(Icon::SquarePlus)
                     .on_click(on_bench(&self.bench, move |bench, _| {
                         bench.duplicate_tab(&strip, &tab)
@@ -615,13 +617,13 @@ impl TabMenu {
         let others = self.others.clone();
         popup = popup
             .item(
-                PopupMenuItem::new("Close")
+                PopupMenuItem::new(t!("Close"))
                     .icon(Icon::Close)
                     .action(Box::new(crate::workbench::actions::CloseTab))
                     .on_click(close),
             )
             .item(
-                PopupMenuItem::new("Close Others")
+                PopupMenuItem::new(t!("Close Others"))
                     .icon(Icon::Close)
                     .disabled(others.is_empty())
                     .on_click(on_bench(&self.bench, move |bench, cx| {
@@ -672,14 +674,16 @@ impl TabMenu {
             let (copied, relative, revealed) = (path.clone(), relative.clone(), path.clone());
             popup = popup
                 .separator()
-                .item(PopupMenuItem::new("Copy Path").icon(Icon::Copy).on_click(
-                    move |_, window, cx| {
-                        cx.write_to_clipboard(ClipboardItem::new_string(copied.clone()));
-                        window.push_notification(toast::success("Copied path"), cx);
-                    },
-                ))
                 .item(
-                    PopupMenuItem::new("Copy Relative Path")
+                    PopupMenuItem::new(t!("Copy Path"))
+                        .icon(Icon::Copy)
+                        .on_click(move |_, window, cx| {
+                            cx.write_to_clipboard(ClipboardItem::new_string(copied.clone()));
+                            window.push_notification(toast::success("Copied path"), cx);
+                        }),
+                )
+                .item(
+                    PopupMenuItem::new(t!("Copy Relative Path"))
                         .icon(Icon::Copy)
                         .on_click(move |_, window, cx| {
                             cx.write_to_clipboard(ClipboardItem::new_string(relative.clone()));

@@ -198,7 +198,7 @@ pub fn menu_items(
     let popup = if snoozed {
         let (bench, id) = (bench.clone(), id.clone());
         popup.item(
-            PopupMenuItem::new("Wake Now")
+            PopupMenuItem::new(t!("Wake Now"))
                 .icon(Icon::Clock)
                 .on_click(move |_, _, cx| snooze(&bench, &Place::This, id.clone(), None, cx)),
         )
@@ -220,7 +220,7 @@ pub fn menu_items(
                 let (bench, id) = (bench.clone(), id.clone());
                 menu.separator()
                     .item(
-                        PopupMenuItem::new("Pick a Time…").on_click(move |_, _, cx| {
+                        PopupMenuItem::new(t!("Pick a Time…")).on_click(move |_, _, cx| {
                             let id = id.clone();
                             let _ = bench.update(cx, |bench, cx| {
                                 bench.prompt(

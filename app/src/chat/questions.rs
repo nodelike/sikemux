@@ -374,7 +374,7 @@ fn send_button(
             );
             cx.notify();
         }))
-        .child("Send")
+        .child(t!("Send"))
         .child(
             div()
                 .pl(SPACE_1H)
@@ -421,7 +421,7 @@ pub(super) fn asking(
                 };
                 bench.ask_answering(&agent, Answers::One(fine), cx);
             }))
-            .child("Fine")
+            .child(t!("Fine"))
     });
     let fold = {
         let agent = agent.to_owned();
@@ -752,7 +752,7 @@ pub(super) fn answered_questions(
             .text_color(looks.ink)
             .child(answered.question.to_owned());
         let said = if answered.secret {
-            Some(div().text_color(looks.quiet).child("Kept private"))
+            Some(div().text_color(looks.quiet).child(t!("Kept private")))
         } else {
             (!answered.answer.is_empty()).then(|| {
                 div()

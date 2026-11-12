@@ -43,15 +43,15 @@ use Page::*;
 /// The pages in the list on the left, under their groups. Account, Usage and About
 /// close it, outside any group.
 pub const GROUPS: [(&str, &[Page]); 6] = [
-    ("General", &[General, Keyboard, Notifications]),
-    ("Appearance", &[Theme, Interface, Buddies]),
+    (n!("General"), &[General, Keyboard, Notifications]),
+    (n!("Appearance"), &[Theme, Interface, Buddies]),
     (
-        "Agents",
+        n!("Agents"),
         &[Installed, Permissions, Chats, Settled, Skills, Helpers],
     ),
-    ("Models", &[Accounts, Plans, Providers, LocalModels]),
-    ("This Mac", MAC_ONLY),
-    ("Connect", &[Connectors, Mods, SignOn, Actions, Cli]),
+    (n!("Models"), &[Accounts, Plans, Providers, LocalModels]),
+    (n!("This Mac"), MAC_ONLY),
+    (n!("Connect"), &[Connectors, Mods, SignOn, Actions, Cli]),
 ];
 
 /// The pages below the groups, at the foot of the list.
@@ -69,108 +69,140 @@ impl Page {
     fn info(self) -> (&'static str, &'static str, Icon) {
         match self {
             Account => (
-                "Account",
-                "Your Sikemux account, which links your phone and hosts",
+                n!("Account"),
+                n!("Your Sikemux account, which links your phone and hosts"),
                 Icon::User,
             ),
             General => (
-                "General",
-                "Where projects come from and how a session starts",
+                n!("General"),
+                n!("Where projects come from and how a session starts"),
                 Icon::Settings,
             ),
             Keyboard => (
-                "Keyboard",
-                "Every shortcut, and the keys you gave it",
+                n!("Keyboard"),
+                n!("Every shortcut, and the keys you gave it"),
                 Icon::Keyboard,
             ),
             Notifications => (
-                "Notifications",
-                "How Sikemux tells you an agent needs you or a goal moved",
+                n!("Notifications"),
+                n!("How Sikemux tells you an agent needs you or a goal moved"),
                 Icon::Inbox,
             ),
             Theme => (
-                "Theme",
-                "One palette for the chrome, the editor and the terminal",
+                n!("Theme"),
+                n!("One palette for the chrome, the editor and the terminal"),
                 Icon::Contrast,
             ),
             Interface => (
-                "Interface",
-                "Text size, what shows behind each pane, and the window",
+                n!("Interface"),
+                n!("Text size, what shows behind each pane, and the window"),
                 Icon::Text,
             ),
             Buddies => (
-                "Buddies",
-                "Characters that stand in for agents' logos",
+                n!("Buddies"),
+                n!("Characters that stand in for agents' logos"),
                 Icon::Heart,
             ),
-            Installed => ("Installed", "The agent CLIs on this host", Icon::Agent),
+            Installed => (
+                n!("Installed"),
+                n!("The agent CLIs on this host"),
+                Icon::Agent,
+            ),
             Permissions => (
-                "Permissions",
-                "What agents may do before they ask",
+                n!("Permissions"),
+                n!("What agents may do before they ask"),
                 Icon::Shield,
             ),
-            Chats => ("Chats", "How chats behave while agents work", Icon::Message),
+            Chats => (
+                n!("Chats"),
+                n!("How chats behave while agents work"),
+                Icon::Message,
+            ),
             Settled => (
-                "Settled chats",
-                "Chats out of the rail, to find and bring back",
+                n!("Settled chats"),
+                n!("Chats out of the rail, to find and bring back"),
                 Icon::Check,
             ),
             Skills => (
-                "Skills",
-                "What every agent Sikemux starts can use",
+                n!("Skills"),
+                n!("What every agent Sikemux starts can use"),
                 Icon::Book,
             ),
             Helpers => (
-                "Helpers",
-                "The model agents start their helpers on",
+                n!("Helpers"),
+                n!("The model agents start their helpers on"),
                 Icon::Agents,
             ),
-            Accounts => ("Accounts", "Subscriptions agents sign in with", Icon::User),
+            Accounts => (
+                n!("Accounts"),
+                n!("Subscriptions agents sign in with"),
+                Icon::User,
+            ),
             Plans => (
-                "Coding plans",
-                "Monthly plans made for coding agents",
+                n!("Coding plans"),
+                n!("Monthly plans made for coding agents"),
                 Icon::Gauge,
             ),
             Providers => (
-                "API providers",
-                "Hosted models paid by the token",
+                n!("API providers"),
+                n!("Hosted models paid by the token"),
                 Icon::Network,
             ),
-            LocalModels => ("Local models", "Models served on this host", Icon::Cube),
-            Notch => ("Notch", "The island over the MacBook notch", Icon::Laptop),
-            Voice => ("Voice", "Dictation into agents and terminals", Icon::Mic),
+            LocalModels => (
+                n!("Local models"),
+                n!("Models served on this host"),
+                Icon::Cube,
+            ),
+            Notch => (
+                n!("Notch"),
+                n!("The island over the MacBook notch"),
+                Icon::Laptop,
+            ),
+            Voice => (
+                n!("Voice"),
+                n!("Dictation into agents and terminals"),
+                Icon::Mic,
+            ),
             Simulator => (
-                "Simulators",
-                "Letting agents drive iOS simulators and Android devices",
+                n!("Simulators"),
+                n!("Letting agents drive iOS simulators and Android devices"),
                 Icon::Tap,
             ),
             Connectors => (
-                "Connectors",
-                "The services your agents reach for you",
+                n!("Connectors"),
+                n!("The services your agents reach for you"),
                 Icon::Plug,
             ),
-            Mods => ("Mods", "Panels you and your agents made", Icon::Dashboard),
+            Mods => (
+                n!("Mods"),
+                n!("Panels you and your agents made"),
+                Icon::Dashboard,
+            ),
             SignOn => (
-                "Single sign-on",
-                "Cloud sign-ins started from Sikemux",
+                n!("Single sign-on"),
+                n!("Cloud sign-ins started from Sikemux"),
                 Icon::LogIn,
             ),
             Actions => (
-                "Actions",
-                "Your own commands, one keystroke away",
+                n!("Actions"),
+                n!("Your own commands, one keystroke away"),
                 Icon::Run,
             ),
             Cli => (
-                "Command line",
-                "The sikemux command in your shell",
+                n!("Command line"),
+                n!("The sikemux command in your shell"),
                 Icon::Terminal,
             ),
             Usage => (
-                "Usage",
-                "What your agents did, and what it cost",
+                n!("Usage"),
+                n!("What your agents did, and what it cost"),
                 Icon::Activity,
             ),
-            About => ("About", "Version, updates and privacy", Icon::InfoCircle),
+            About => (
+                n!("About"),
+                n!("Version, updates and privacy"),
+                Icon::InfoCircle,
+            ),
         }
     }
 

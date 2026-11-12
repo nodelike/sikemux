@@ -1,5 +1,7 @@
 //! The desktop UI on GPUI, a client of the core.
 
+#[macro_use]
+pub mod i18n;
 mod account_picker;
 mod accounts;
 mod activity_view;

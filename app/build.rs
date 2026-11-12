@@ -3,6 +3,53 @@ use std::path::Path;
 fn main() {
     faces();
     shaders();
+    strings();
+}
+
+/// The languages the app speaks besides English, as the catalog tags them, each named in itself.
+const LANGUAGES: [(&str, &str); 8] = [
+    ("es", "Español"),
+    ("zh-Hans", "简体中文"),
+    ("de", "Deutsch"),
+    ("fr", "Français"),
+    ("ja", "日本語"),
+    ("ko", "한국어"),
+    ("ru", "Русский"),
+    ("pt-BR", "Português (Brasil)"),
+];
+
+/// Turns the string catalog into a table per language of each English string and what it
+/// says there, sorted by the English for `i18n::tr`'s binary search.
+fn strings() {
+    let path = "locales/Localizable.xcstrings";
+    println!("cargo:rerun-if-changed={path}");
+    let catalog: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(path).expect("the string catalog"))
+            .expect("the string catalog is JSON");
+    let strings = catalog["strings"]
+        .as_object()
+        .expect("the catalog's strings");
+    let mut out = String::from("pub static LANGUAGES: &[Language] = &[\n");
+    for (code, name) in LANGUAGES {
+        let mut words: Vec<(&str, &str)> = strings
+            .iter()
+            .filter_map(|(english, entry)| {
+                let said = entry["localizations"][code]["stringUnit"]["value"].as_str()?;
+                Some((english.as_str(), said))
+            })
+            .collect();
+        words.sort();
+        out.push_str(&format!(
+            "    Language {{ code: {code:?}, name: {name:?}, words: &[\n"
+        ));
+        for (english, said) in words {
+            out.push_str(&format!("        ({english:?}, {said:?}),\n"));
+        }
+        out.push_str("    ] },\n");
+    }
+    out.push_str("];\n");
+    let out_path = Path::new(&std::env::var("OUT_DIR").expect("OUT_DIR")).join("strings.rs");
+    std::fs::write(out_path, out).expect("write strings.rs");
 }
 
 fn faces() {

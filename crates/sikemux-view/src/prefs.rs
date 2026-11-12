@@ -148,6 +148,8 @@ pub struct Preferences {
     pub rail_density: RailDensity,
     /// What a screen reader hears of the chat in front while its turn runs.
     pub screen_reader: ScreenReader,
+    /// The language the app's words are in, as a BCP 47 tag; none follows the system.
+    pub language: Option<String>,
     /// The iOS Simulator is drawn inside a device's frame.
     pub simulator_frame: bool,
     /// The keys the person bound to actions in place of their defaults, by
@@ -267,6 +269,7 @@ preference_changes! {
     WindowBlur window_blur: f64,
     RailDensity rail_density: RailDensity,
     ScreenReader screen_reader: ScreenReader,
+    Language language: Option<String>,
     SimulatorFrame simulator_frame: bool,
     KeybindingOverrides keybinding_overrides: BTreeMap<String, Option<String>>,
     SideRailOpen side_rail_open: bool,
@@ -449,6 +452,7 @@ impl Default for Preferences {
             window_blur: 0.0,
             rail_density: RailDensity::default(),
             screen_reader: ScreenReader::default(),
+            language: None,
             simulator_frame: true,
             keybinding_overrides: BTreeMap::new(),
             side_rail_open: true,

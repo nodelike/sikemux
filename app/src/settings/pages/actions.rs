@@ -184,7 +184,7 @@ pub fn render(
 
     let saved: AnyElement = match commands.is_empty() {
         true => rows::note(
-            "No custom actions yet. The built-ins are already searchable from the command deck.",
+            t!("No custom actions yet. The built-ins are already searchable from the command deck."),
             cx,
         ),
         false => div()
@@ -316,13 +316,13 @@ pub fn render(
         .gap(SPACE_2)
         .p(SPACE_4)
         .child(
-            ui::Button::new("action-new", "New", ui::Variant::Outline).on_click(
+            ui::Button::new("action-new", t!("New"), ui::Variant::Outline).on_click(
                 move |_, window, cx| fresh.update(cx, |bench, cx| load(bench, None, window, cx)),
             ),
         )
         .when(editing, |buttons| {
             buttons.child(
-                ui::Button::new("action-delete", "Delete", ui::Variant::Outline)
+                ui::Button::new("action-delete", t!("Delete"), ui::Variant::Outline)
                     .icon(Icon::Trash)
                     .on_click(move |_, window, cx| {
                         let id = id.clone();
@@ -334,7 +334,7 @@ pub fn render(
             )
         })
         .child(
-            ui::Button::new("action-save", "Save", ui::Variant::Primary)
+            ui::Button::new("action-save", t!("Save"), ui::Variant::Primary)
                 .icon(Icon::Check)
                 .disabled(!ready)
                 .on_click(move |_, window, cx| {
@@ -343,14 +343,14 @@ pub fn render(
         );
     let form = div()
         .child(rows::row(
-            "Name",
+            t!("Name"),
             None,
             div().w(px(320.)).child(ui::Field::new(&fields.title)),
             cx,
         ))
         .child(rows::row(
-            "Description",
-            Some("Shown under the name in the deck."),
+            t!("Description"),
+            Some(t!("Shown under the name in the deck.")),
             div().w(px(320.)).child(ui::Field::new(&fields.detail)),
             cx,
         ))
@@ -380,7 +380,7 @@ pub fn render(
 
     vec![
         rows::section(
-            "Your actions",
+            t!("Your actions"),
             Some(format!("{} saved", commands.len()).into()),
             Some("Shell commands that sit beside the built-in ones.".into()),
             lit("Your actions"),

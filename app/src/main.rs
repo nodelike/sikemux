@@ -35,6 +35,7 @@ fn main() {
     app.run(move |cx| {
         gpui_kit::init(cx);
         theme::install(cx);
+        sikemux_gpui::i18n::speak(None);
         memory::log(cx);
         cx.set_app_identity(core::IDENTIFIER, core::NAME);
         let behind = std::env::var_os(sikemux_process::vars::LAUNCH_BEHIND).is_some();

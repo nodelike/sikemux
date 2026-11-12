@@ -476,8 +476,8 @@ pub fn render(
         None => {
             let line = match (fields.overview.is_some(), skills.is_empty()) {
                 (false, _) => String::new(),
-                (true, true) => format!("None yet. They are kept in {library}"),
-                (true, false) => format!("Kept in {library}"),
+                (true, true) => t!("None yet. They are kept in {library}", library = library),
+                (true, false) => t!("Kept in {library}", library = library),
             };
             row(
                 "Add a skill".into(),
@@ -508,7 +508,7 @@ pub fn render(
     };
 
     let skills_section = rows::section(
-        "Skills",
+        t!("Skills"),
         (!skills.is_empty()).then(|| format!("{} in Sikemux", skills.len()).into()),
         Some("Skills every agent Sikemux starts can use, in a terminal or a chat. They live only in Sikemux: the same agents run elsewhere never see them. Agents can make them too, with the skills tool. A new skill loads in the next session.".into()),
         lit("Skills"),
@@ -534,7 +534,7 @@ pub fn render(
             let moving = fields.moving.as_deref() == Some(path.as_str());
             let line = match failed(&format!("move:{path}")) {
                 Some(message) => about(message, true, cx),
-                None if moving => about(format!("Moves it out of {folder}, so {agent} outside Sikemux no longer has it."), false, cx),
+                None if moving => about(t!("Moves it out of {folder}, so {agent} outside Sikemux no longer has it.", folder = folder, agent = agent), false, cx),
                 None => about(format!("{agent} · {}", skill.description), false, cx),
             };
             let controls: AnyElement = match moving {
@@ -563,7 +563,7 @@ pub fn render(
             row(name, line, controls, &t)
         });
         rows::section(
-            "Your own skills",
+            t!("Your own skills"),
             None,
             Some("Skills in each agent's global folder. Agents load these inside and outside Sikemux, and Sikemux leaves them alone unless you move one in.".into()),
             false,

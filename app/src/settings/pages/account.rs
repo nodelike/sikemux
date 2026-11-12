@@ -89,15 +89,14 @@ fn sign_in_panel(
     };
     let this = this.clone();
     let action = match waiting {
-        true => ui::Button::new("devices-cancel-sign-in", "Cancel", ui::Variant::Outline).on_click(
-            move |_, _, cx| {
+        true => ui::Button::new("devices-cancel-sign-in", t!("Cancel"), ui::Variant::Outline)
+            .on_click(move |_, _, cx| {
                 this.update(cx, |bench, cx| {
                     bench.cancel_sign_in();
                     cx.notify();
                 })
-            },
-        ),
-        false => ui::Button::new("devices-sign-in", "Sign in", ui::Variant::Primary)
+            }),
+        false => ui::Button::new("devices-sign-in", t!("Sign in"), ui::Variant::Primary)
             .on_click(move |_, _, cx| this.update(cx, |bench, _| bench.sign_in())),
     };
     div()
@@ -158,13 +157,17 @@ pub fn render(
                     .flex()
                     .gap(SPACE_2)
                     .child(
-                        ui::Button::new("account-delete", "Delete account…", ui::Variant::Outline)
-                            .on_click(move |_, _, cx| {
-                                delete.update(cx, |_, cx| cx.open_url(DELETE_ACCOUNT_URL))
-                            }),
+                        ui::Button::new(
+                            "account-delete",
+                            t!("Delete account…"),
+                            ui::Variant::Outline,
+                        )
+                        .on_click(move |_, _, cx| {
+                            delete.update(cx, |_, cx| cx.open_url(DELETE_ACCOUNT_URL))
+                        }),
                     )
                     .child(
-                        ui::Button::new("account-sign-out", "Sign out", ui::Variant::Outline)
+                        ui::Button::new("account-sign-out", t!("Sign out"), ui::Variant::Outline)
                             .on_click(move |_, _, cx| {
                                 leave.update(cx, |bench, _| bench.sign_out())
                             }),
@@ -175,7 +178,7 @@ pub fn render(
         }
     };
     vec![rows::section(
-        "Account",
+        t!("Account"),
         None,
         None,
         lit("Account"),

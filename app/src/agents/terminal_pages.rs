@@ -35,7 +35,7 @@ pub(crate) fn terminals_page(bench: &Workbench, cx: &mut Context<Workbench>) -> 
         if strips.is_empty() {
             rail_empty(
                 Icon::Terminal,
-                "No project open",
+                t!("No project open"),
                 Some((actions::OpenProject::ID, "open one")),
                 cx,
             )
@@ -148,7 +148,7 @@ pub(crate) fn ssh_page(
     let empty = rows.is_empty().then(|| {
         rail_empty(
             Icon::Terminal,
-            "No terminals open",
+            t!("No terminals open"),
             Some((actions::NewTerminal::ID, "start one")),
             cx,
         )

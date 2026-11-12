@@ -440,6 +440,9 @@ impl Workbench {
                     }
                     crate::ui::grain::set(&preferences, cx);
                     crate::theme::set_text_scale(preferences.ui_text_scale as f32, cx);
+                    if crate::i18n::speak(preferences.language.as_deref()) {
+                        cx.refresh_windows();
+                    }
                     crate::see_through::set(&preferences, cx);
                     crate::screens::experience::preferences_read(self, &preferences, cx);
                     self.preferences = Some(preferences);

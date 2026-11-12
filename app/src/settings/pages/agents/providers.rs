@@ -360,7 +360,7 @@ fn keyed_row(
                 .then_some(provider.openai.as_str())
                 .map(|url| {
                     let url = url.split_once("://").map_or(url, |(_, rest)| rest);
-                    format!("Added by you, at {url}")
+                    t!("Added by you, at {url}", url = url)
                 });
             Some(lines(
                 [
@@ -511,7 +511,7 @@ fn local_row(
             let host = (provider.openai.split("://").nth(1))
                 .and_then(|rest| rest.split('/').next())
                 .unwrap_or_default();
-            vec![format!("Nothing is answering at {host}.")]
+            vec![t!("Nothing is answering at {host}.", host = host)]
         }
         (true, true) => vec!["Running, with no models downloaded yet.".into()],
         (true, false) => [
@@ -729,14 +729,14 @@ fn helpers(bench: &Workbench, fields: &Fields, cx: &App) -> AnyElement {
     };
     let _ = bench;
     div()
-        .child(rows::row("Agent", None, agent.view(), cx))
+        .child(rows::row(t!("Agent"), None, agent.view(), cx))
         .children(
             paid.as_ref()
-                .map(|paid| rows::row("Paid by", None, paid.view(), cx)),
+                .map(|paid| rows::row(t!("Paid by"), None, paid.view(), cx)),
         )
         .when(fields.helper.is_some(), |body| {
             body.child(rows::row(
-                "Model",
+                t!("Model"),
                 None,
                 div()
                     .w(px(220.))
@@ -776,7 +776,7 @@ pub fn render(
         let adds = (kind == Kind::Api).then(|| {
             let this = this.clone();
             div().flex().px(SPACE_4).py(SPACE_2H).child(
-                ui::Button::new("provider-add-own", "Add provider", ui::Variant::Outline)
+                ui::Button::new("provider-add-own", t!("Add provider"), ui::Variant::Outline)
                     .icon(crate::icons::Icon::Plus)
                     .on_click(move |_, window, cx| {
                         this.update(cx, |bench, cx| {
@@ -819,7 +819,7 @@ pub fn render(
     let local = of_kind(Kind::Local);
     let running = connected(&local);
     rows::section(
-        "Local models",
+        t!("Local models"),
         (running > 0).then(|| format!("{running} running").into()),
         Some("Models served on this host by Ollama or LM Studio. They need no key, and nothing leaves this host.".into()),
         lit("Local models"),
@@ -828,7 +828,7 @@ pub fn render(
     )
         }
         _ => rows::section(
-        "Helpers",
+        t!("Helpers"),
         None,
         Some("Agents that other agents start without naming a model run as set here, and Claude Code's own subagents take this model when their chat runs where helpers do. The agent you build with keeps the model you pick.".into()),
         lit("Helpers"),
