@@ -36,6 +36,18 @@ const COMPACTING_MS: u64 = 10 * 60_000;
 /// Claude Code keeps the prompt cache an hour; idle this long, a compaction still reads it warm.
 const IDLE_COMPACT_MS: u64 = 50 * 60_000;
 const CACHE_MS: u64 = 60 * 60_000;
+
+/// How long the prompt cache lives: an hour, or in a debug build whatever `SIKEMUX_CACHE_MS`
+/// says, so a throwaway core can watch a cache expire in a minute.
+fn cache_ms() -> u64 {
+    static LIFE: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
+    *LIFE.get_or_init(|| {
+        cfg!(debug_assertions)
+            .then(|| std::env::var("SIKEMUX_CACHE_MS").ok()?.parse().ok())
+            .flatten()
+            .unwrap_or(CACHE_MS)
+    })
+}
 /// Below this a cold start costs less than a compaction would save.
 const IDLE_COMPACT_TOKENS: u64 = 40_000;
 /// A chat that is not capped keeps its whole session unless it is this big, as the person may
@@ -134,7 +146,7 @@ impl Meter {
     fn worth_compacting(&self, now: u64, big_from: u64) -> Option<u64> {
         let last = self.last_call_ms.load(Ordering::Acquire);
         let idle = now.saturating_sub(last);
-        let warm = last > 0 && idle < CACHE_MS;
+        let warm = last > 0 && idle < cache_ms();
         let big = self.context.load(Ordering::Acquire) >= big_from;
         (warm && big && !self.compacted.load(Ordering::Acquire)).then_some(idle)
     }
@@ -327,12 +339,12 @@ fn expired_cache(chat: &Chat, now: u64) -> Option<ExpiredCache> {
 fn expired_from(claude: bool, meter: KeptMeter, now: u64) -> Option<ExpiredCache> {
     let expired = claude
         && meter.last_call_ms > 0
-        && now.saturating_sub(meter.last_call_ms) >= CACHE_MS
+        && now.saturating_sub(meter.last_call_ms) >= cache_ms()
         && meter.context >= IDLE_COMPACT_UNCAPPED_TOKENS
         && !meter.compacted;
     expired.then_some(ExpiredCache {
         tokens: meter.context,
-        at: meter.last_call_ms + CACHE_MS,
+        at: meter.last_call_ms + cache_ms(),
         summarise: !meter.keeps_history,
     })
 }
