@@ -313,7 +313,7 @@ impl World {
                 None,
             ))?;
             if let Some(name) = agent["name"].as_str() {
-                self.call("renameAgent", json!({ "agentId": chat, "name": name }))?;
+                self.rename(&chat, name)?;
                 named.insert(name.to_owned(), chat.clone());
             }
             let prompt = match agent["state"].as_str() {
@@ -429,6 +429,20 @@ impl World {
         Ok(self.runtime.block_on(self.client.call(method, params))?)
     }
 
+    /// Names a chat that just started, once the core has written it in its book of names.
+    fn rename(&self, chat: &str, name: &str) -> anyhow::Result<()> {
+        let params = json!({ "agentId": chat, "name": name });
+        for _ in 0..50 {
+            match self.call("renameAgent", params.clone()) {
+                Err(error) if error.to_string().contains("not named that agent yet") => {
+                    std::thread::sleep(Duration::from_millis(100));
+                }
+                done => return done.map(|_| ()),
+            }
+        }
+        self.call("renameAgent", params).map(|_| ())
+    }
+
     pub(super) fn project(&self) -> anyhow::Result<&(String, PathBuf)> {
         self.project
             .as_ref()
@@ -464,6 +478,7 @@ impl World {
                 if let Ok(name) = step.text(0) {
                     self.call("renameAgent", json!({ "agentId": chat, "name": name }))?;
                     self.named.insert(name.to_owned(), chat.clone());
+                    self.rename(&chat, name)?;
                 }
                 self.chat = Some(chat);
             }

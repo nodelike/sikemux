@@ -24,7 +24,9 @@ use crate::theme::Tokens;
 use crate::toast;
 use crate::workbench::Workbench;
 
-/// How many pictures are kept as data the page can draw; the least recently used go first.
+/// How many pictures are kept as data beyond those a page in front shows; the least recently
+/// used go first. A picture a page in front shows is never let go, or the two would take turns
+/// pushing each other out.
 const KEPT_PICTURES: usize = 16;
 
 /// What the desks keep of the pins they draw.
@@ -61,11 +63,20 @@ impl Pictures {
         self.order.retain(|kept| kept != &id);
         self.order.push_back(id.clone());
         self.data.insert(id, data);
-        while self.order.len() > KEPT_PICTURES {
-            if let Some(oldest) = self.order.pop_front() {
-                self.data.remove(&oldest);
+    }
+
+    /// Lets go of the least recently used pictures past the bound, keeping every one in `shown`.
+    fn trim(&mut self, shown: &HashSet<String>) {
+        let mut spare = self.order.len().saturating_sub(shown.len() + KEPT_PICTURES);
+        let data = &mut self.data;
+        self.order.retain(|id| {
+            let drop = spare > 0 && !shown.contains(id);
+            if drop {
+                spare -= 1;
+                data.remove(id);
             }
-        }
+            !drop
+        });
     }
 
     fn forget(&mut self, id: &str) {
@@ -200,6 +211,7 @@ impl Workbench {
                 )
             })
             .collect();
+        let mut in_sight = HashSet::new();
         for (agent, front) in fronts {
             let Some(front) = front.filter(|front| !front.loading) else {
                 self.desks
@@ -217,6 +229,7 @@ impl Workbench {
                 .flat_map(|pin| pin.before.iter().chain(&pin.after).cloned())
                 .collect();
             for id in wanted {
+                in_sight.insert(id.clone());
                 self.fetch_pin_picture(id, cx);
             }
             let told = self.desks.update(cx, |desks, _| {
@@ -258,6 +271,8 @@ impl Workbench {
                 self.take_after_by_hand(pin, &engine, cx);
             }
         }
+        self.desks
+            .update(cx, |desks, _| desks.pins_shown.pictures.trim(&in_sight));
     }
 
     /// Asks the core for picture `id`, off the window's thread, unless it is kept or on its way.
