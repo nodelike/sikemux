@@ -90,7 +90,9 @@ function callDoing(row: ToolRow, say: Say): Doing {
             if (intent === "commit") return on(say("Committing {what}"), target);
             break;
         case "wait":
-            return family === "waiting" && row.subject !== undefined ? on(say("Waiting for {what}"), agent(subject)) : on(say("Waiting {what}"), target);
+            return family === "waiting" && row.subject !== undefined
+                ? on(say("Waiting for {what}"), agent(subject))
+                : on(say("Waiting {what}"), target);
         case "message":
             return on(say("Messaging {what}"), agent(subject));
         case "start":

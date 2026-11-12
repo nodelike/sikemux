@@ -240,8 +240,7 @@ export const CHIEF_OFFLINE = "Not connected to this host yet, so its chief can't
 export const assumed = (assumption: string, say: Say = english) => say("assumed {assumption}", { assumption });
 export const FINE = "Fine";
 export const CHANGE = "Change";
-export const couldNotRead = (problem: string, say: Say = english) =>
-    say("could not read this agent's questions: {problem}", { problem });
+export const couldNotRead = (problem: string, say: Say = english) => say("could not read this agent's questions: {problem}", { problem });
 
 // The call card
 
@@ -253,8 +252,7 @@ export const SECRET_FIELD = "Type or paste it…";
 export const GO_WITH_THIS = "Go with this";
 export const NOT_MINE = "Not mine";
 export const WHAT_RUNS = "What runs";
-export const kept = (name: string, say: Say = english) =>
-    say("Kept private: @{name} reads it, and it never shows in the chat.", { name });
+export const kept = (name: string, say: Say = english) => say("Kept private: @{name} reads it, and it never shows in the chat.", { name });
 /** Go with this while the host has not yet taken that this phone drew the call. */
 export const CONNECTING = "Connecting…";
 /** Which of an agent's waiting calls the card shows: `1 of 3`. */
@@ -265,8 +263,7 @@ export const pushFailed = (why: string, say: Say = english) => say("Your answer 
 /** How much a hidden answer holds, so the person can see their typing and paste landed. */
 export function hidden(text: string, say: Say = english): string {
     const lines = (text.endsWith("\n") ? text.slice(0, -1) : text).split("\n").length;
-    const characters =
-        text.length === 1 ? say("1 character hidden") : say("{count} characters hidden", { count: text.length });
+    const characters = text.length === 1 ? say("1 character hidden") : say("{count} characters hidden", { count: text.length });
     return lines > 1 ? say("{lines} lines, {characters}", { lines, characters }) : characters;
 }
 
@@ -280,8 +277,7 @@ export function pictureLabel(words: string): string | undefined {
 /** Said when an answer to a call carries context chips, which a call's answer does not take. */
 export const NO_CHIPS = "A call's answer takes words and files, not chips. Take the chips off, or send them to the agent.";
 /** The composer's chip while a call waits in the chat. */
-export const answering = (name: string, question: string, say: Say = english) =>
-    say("Answering @{name} · {question}", { name, question });
+export const answering = (name: string, question: string, say: Say = english) => say("Answering @{name} · {question}", { name, question });
 /** The composer's placeholder while a call waits in the chat. */
 export const typeYourAnswer = (name: string, say: Say = english) => say("Or type your answer to @{name}", { name });
 

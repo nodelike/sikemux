@@ -21,7 +21,8 @@ function* rustFiles(dir) {
 
 const call = /\b[tn]!\(\s*"((?:[^"\\]|\\.)*)"/g;
 const used = new Set();
-const searchEntry = /\b(?:section|row)\(\s*\w+,\s*"((?:[^"\\]|\\.)*)",\s*(?:"((?:[^"\\]|\\.)*)",\s*)?"/g;
+const searchEntry =
+  /\b(?:section|row)\(\s*\w+,\s*"((?:[^"\\]|\\.)*)",\s*(?:"((?:[^"\\]|\\.)*)",\s*)?"/g;
 for (const file of rustFiles(join(root, "app/src"))) {
   const source = readFileSync(file, "utf8");
   for (const [, literal] of source.matchAll(call)) {
@@ -29,16 +30,21 @@ for (const file of rustFiles(join(root, "app/src"))) {
   }
   if (file.includes("/settings/")) {
     for (const [, first, second] of source.matchAll(searchEntry)) {
-      for (const literal of [first, second]) if (literal) used.add(JSON.parse(`"${literal}"`));
+      for (const literal of [first, second])
+        if (literal) used.add(JSON.parse(`"${literal}"`));
     }
   }
 }
 
 const shortcuts = JSON.parse(
-  readFileSync(join(root, "crates/sikemux-core/src/assets/keybindings.json"), "utf8"),
+  readFileSync(
+    join(root, "crates/sikemux-core/src/assets/keybindings.json"),
+    "utf8",
+  ),
 );
 for (const shortcut of shortcuts) {
-  for (const said of [shortcut.label, shortcut.detail, shortcut.category]) if (said) used.add(said);
+  for (const said of [shortcut.label, shortcut.detail, shortcut.category])
+    if (said) used.add(said);
 }
 
 const catalog = JSON.parse(readFileSync(catalogPath, "utf8"));
@@ -49,13 +55,17 @@ const stale = next !== readFileSync(catalogPath, "utf8");
 
 if (check) {
   if (stale) {
-    console.error("✗ strings: app/locales/Localizable.xcstrings is stale; run pnpm strings:generate");
+    console.error(
+      "✗ strings: app/locales/Localizable.xcstrings is stale; run pnpm strings:generate",
+    );
     process.exit(1);
   }
-  const missing = [...used].filter(
-    (key) => languages.some((language) => !strings[key].localizations?.[language]),
+  const missing = [...used].filter((key) =>
+    languages.some((language) => !strings[key].localizations?.[language]),
   );
-  console.log(`✓ strings: ${used.size} strings, ${missing.length} not in every language`);
+  console.log(
+    `✓ strings: ${used.size} strings, ${missing.length} not in every language`,
+  );
 } else {
   if (stale) writeFileSync(catalogPath, next);
   console.log(`✓ strings: ${used.size} strings`);
