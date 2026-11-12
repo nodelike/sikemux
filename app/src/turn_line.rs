@@ -107,11 +107,10 @@ pub fn said(turn: &TurnState, maker: &str, now: u64) -> Option<Said> {
 pub enum Mark {
     /// The agent's own working mark.
     Working,
-    /// A ring that fills as the wait runs, `through` of the way once its length is known.
-    Waiting {
-        through: Option<f32>,
-    },
-    /// The timer of a wait that ends at a set time.
+    /// A ring that fills as a wait on CI or the checks runs, `through` of the way, once Sikemux
+    /// knows how long that takes.
+    Waiting { through: f32 },
+    /// The timer of any other wait.
     Timer,
     NeedsYou,
     Done,
@@ -124,14 +123,9 @@ pub enum Mark {
 pub fn mark(turn: &TurnState, now: u64) -> Option<Mark> {
     Some(match turn.state {
         TurnPhase::Working => Mark::Working,
-        TurnPhase::Waiting => match turn.wait.as_ref() {
-            Some(wait) if wait.kind == TurnWaitKind::Timer => Mark::Timer,
-            Some(wait) => Mark::Waiting {
-                through: wait.expected_ms.filter(|ms| *ms > 0).map(|expected| {
-                    (now.saturating_sub(wait.started_at) as f32 / expected as f32).min(1.)
-                }),
-            },
-            None => Mark::Waiting { through: None },
+        TurnPhase::Waiting => match turn.wait.as_ref().and_then(|wait| filling(wait, now)) {
+            Some(through) => Mark::Waiting { through },
+            None => Mark::Timer,
         },
         TurnPhase::NeedsYou => Mark::NeedsYou,
         TurnPhase::Done => Mark::Done,
@@ -141,18 +135,27 @@ pub fn mark(turn: &TurnState, now: u64) -> Option<Mark> {
     })
 }
 
-/// The time a row shows beside its mark: the minutes a known wait has left ("4m"), how long a
-/// call has waited on the person ("12m"), or when a timer goes off.
+/// How far a wait on CI or the checks has run, once Sikemux knows how long it takes; none for
+/// any other wait, which shows the timer.
+fn filling(wait: &TurnWait, now: u64) -> Option<f32> {
+    let expected = wait.expected_ms.filter(|ms| *ms > 0)?;
+    matches!(wait.kind, TurnWaitKind::Ci | TurnWaitKind::Check)
+        .then(|| (now.saturating_sub(wait.started_at) as f32 / expected as f32).min(1.))
+}
+
+/// The time a row shows beside its mark: the minutes a filling wait has left ("4m"), when a
+/// timer goes off, or how long a call has waited on the person ("12m").
 pub fn short(turn: &TurnState, now: u64) -> Option<String> {
     match turn.state {
         TurnPhase::Waiting => {
             let wait = turn.wait.as_ref()?;
-            match wait.kind {
-                TurnWaitKind::Timer => wait.until.map(ui::time::until),
-                _ => wait.expected_ms.map(|expected| {
+            match (filling(wait, now), wait.expected_ms, wait.until) {
+                (Some(_), Some(expected), _) => {
                     let left = (wait.started_at + expected).saturating_sub(now);
-                    format!("{}m", left.div_ceil(60_000).max(1))
-                }),
+                    Some(format!("{}m", left.div_ceil(60_000).max(1)))
+                }
+                (_, _, Some(until)) => Some(ui::time::until(until)),
+                _ => None,
             }
         }
         TurnPhase::NeedsYou => {

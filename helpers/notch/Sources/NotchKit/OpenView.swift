@@ -298,14 +298,13 @@ struct RowLine: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             ProjectLabel(project: entry.project).frame(maxWidth: 150, alignment: .trailing).fixedSize()
-            if entry.name != nil || entry.subagents > 0 || entry.tasks > 0 || entry.nextTrigger != nil || entry.mark != .idle {
+            if entry.name != nil || entry.subagents > 0 || entry.tasks > 0 || entry.mark != .idle {
                 HStack(spacing: 8) {
                     if let name = entry.name {
                         Text("@\(name)").font(Theme.ui(11)).foregroundStyle(Theme.inkFaint).lineLimit(1).fixedSize()
                     }
                     if entry.subagents > 0 { SubagentCount(count: entry.subagents) }
                     if entry.tasks > 0 { ShellCount(count: entry.tasks) }
-                    if let at = entry.nextTrigger { TriggerTime(at: at) }
                     TurnMark(mark: entry.mark, turn: entry.agent?.turn)
                 }
             }

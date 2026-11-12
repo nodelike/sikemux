@@ -271,6 +271,15 @@ pub fn view(
             );
         }
     }
+    if let Some(at) = agent.next_trigger {
+        facts.push(
+            fact(
+                Some(Icon::Timer),
+                format!("A trigger wakes it in {}", ui::time::until(at)).into_any_element(),
+            )
+            .into_any_element(),
+        );
+    }
     if let Some(project) = project {
         facts.push(
             fact(Some(Icon::Folder), project.to_owned().into_any_element()).into_any_element(),

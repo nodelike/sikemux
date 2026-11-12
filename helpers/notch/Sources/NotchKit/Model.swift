@@ -10,7 +10,8 @@ extension DeviceView {
 
 enum Mark: Hashable {
     case needs, working, done, failed, idle
-    /// A ring filling as the wait runs, and the timer of a wait that ends at a set time.
+    /// A ring filling as a wait on CI or the checks runs, once its length is known, and the
+    /// timer of any other wait.
     case waiting, timer
     /// A hollow ring: the turn stopped short.
     case stopped
@@ -20,13 +21,18 @@ enum Mark: Hashable {
     init?(turn: TurnState) {
         switch turn.state {
         case .working: self = .working
-        case .waiting: self = turn.wait?.kind == .timer ? .timer : .waiting
+        case .waiting: self = turn.wait.map(Mark.fills) == true ? .waiting : .timer
         case .needsYou: self = .needs
         case .done: self = .done
         case .failed: self = .failed
         case .stopped: self = .stopped
         case .unknown: return nil
         }
+    }
+
+    /// Whether a wait shows the ring: one on CI or the checks whose length is known.
+    static func fills(_ wait: TurnWait) -> Bool {
+        (wait.kind == .ci || wait.kind == .check) && (wait.expectedMs ?? 0) > 0
     }
 }
 
@@ -84,11 +90,6 @@ struct Entry: Identifiable, Equatable {
     /// Subagents, and shells or monitors, its agent still has going.
     var subagents: Int { agent?.subagents ?? 0 }
     var tasks: Int { agent?.tasks ?? 0 }
-    /// When a trigger next wakes its agent, shown only while the agent waits.
-    var nextTrigger: Date? {
-        guard [.idle, .done, .waiting, .stopped].contains(mark), let at = agent?.nextTrigger else { return nil }
-        return Date(timeIntervalSince1970: Double(at) / 1000)
-    }
     /// When its agent was last named with `@` or messaged by another agent.
     var calledAt: Int? { agent?.calledAt }
     var isChat: Bool { agentId != nil && session == nil && !provider.isEmpty }

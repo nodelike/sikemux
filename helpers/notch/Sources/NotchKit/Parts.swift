@@ -69,7 +69,7 @@ struct TurnMark: View {
 
     /// How far a known wait has run.
     static func through(_ turn: TurnState, now: Double) -> Double? {
-        guard turn.state == .waiting, let wait = turn.wait, let expected = wait.expectedMs, expected > 0 else { return nil }
+        guard turn.state == .waiting, let wait = turn.wait, Mark.fills(wait), let expected = wait.expectedMs else { return nil }
         return min(1, (now - Double(wait.startedAt)) / Double(expected))
     }
 
@@ -78,12 +78,11 @@ struct TurnMark: View {
         switch turn.state {
         case .waiting:
             guard let wait = turn.wait else { return nil }
-            if wait.kind == .timer {
-                return wait.until.map { TriggerTime.format(Date(timeIntervalSince1970: Double($0) / 1000), Date(timeIntervalSince1970: now / 1000)) }
+            if Mark.fills(wait), let expected = wait.expectedMs {
+                let left = max(0, Double(wait.startedAt + expected) - now)
+                return "\(max(1, Int((left / 60_000).rounded(.up))))m"
             }
-            guard let expected = wait.expectedMs else { return nil }
-            let left = max(0, Double(wait.startedAt + expected) - now)
-            return "\(max(1, Int((left / 60_000).rounded(.up))))m"
+            return wait.until.map { TriggerTime.format(Date(timeIntervalSince1970: Double($0) / 1000), Date(timeIntervalSince1970: now / 1000)) }
         case .needsYou:
             guard let call = turn.call else { return nil }
             return "\(max(1, Int((now - Double(call.waitingSince)) / 60_000)))m"

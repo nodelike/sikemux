@@ -147,7 +147,7 @@ pub fn mark_of(agent: &str, mark: Mark, cx: &App) -> AnyElement {
             let shown = match mark {
                 Mark::Working => Slot::new(twinkle, Twinkle { tint, scale }).into_any_element(),
                 Mark::Waiting { through } => super::ring(
-                    through.map(|through| (f64::from(through) * 100., tint)),
+                    Some((f64::from(through) * 100., tint)),
                     11. * scale,
                     1.6,
                     track,

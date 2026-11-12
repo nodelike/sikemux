@@ -1263,18 +1263,7 @@ const RECENT_ROW: &str = "recent-row";
 
 pub fn counts(agent: &AgentRow, cx: &App) -> Option<impl IntoElement> {
     let t = Tokens::get(cx).clone();
-    let mark =
-        (agent.turn.as_ref()).and_then(|turn| crate::turn_line::mark(turn, ui::time::now_ms()));
-    let waits = !matches!(
-        mark,
-        Some(
-            crate::turn_line::Mark::Working
-                | crate::turn_line::Mark::NeedsYou
-                | crate::turn_line::Mark::Timer
-        )
-    );
-    let trigger = agent.next_trigger.filter(|_| waits);
-    (agent.subagents > 0 || agent.tasks > 0 || trigger.is_some() || agent.build_queued).then(|| {
+    (agent.subagents > 0 || agent.tasks > 0 || agent.build_queued).then(|| {
         let count = |glyph: Icon, size: f32, color, value: u32| {
             div()
                 .flex()
@@ -1310,7 +1299,6 @@ pub fn counts(agent: &AgentRow, cx: &App) -> Option<impl IntoElement> {
             .when(agent.build_queued, |row| {
                 row.child(labelled(Icon::Hourglass, t.warn, "queued".into()))
             })
-            .children(trigger.map(|at| labelled(Icon::Timer, t.cmd, ui::time::until(at))))
     })
 }
 
