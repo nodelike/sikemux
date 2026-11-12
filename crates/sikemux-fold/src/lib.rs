@@ -497,6 +497,7 @@ fn failure_of(payload: &Value) -> Option<ChatFailure> {
             .map(str::to_owned),
         account: text_of(failure.get("account")).map(str::to_owned),
         resumes_at: None,
+        carry_on_with: None,
     })
 }
 
@@ -718,6 +719,7 @@ impl Fold {
         }
         if running {
             self.drop_suggestion();
+            self.drop_handoff();
         }
     }
 
@@ -873,6 +875,13 @@ impl Fold {
         self.take_in(index, kind, payload, at);
         if self.head.running {
             self.drop_suggestion();
+            self.drop_handoff();
+        }
+    }
+
+    fn drop_handoff(&mut self) {
+        if self.head.handoff.take().is_some() {
+            self.set_head("handoff");
         }
     }
 
@@ -1349,6 +1358,11 @@ impl Fold {
                 if let Some(message) = text_of(update.get("messageId")) {
                     self.rewind(message);
                 }
+            }
+            UpdateKind::HandoffPending => {
+                let handoff = update.get("handoff").cloned().unwrap_or_default();
+                self.head.handoff = serde_json::from_value(handoff).ok().flatten();
+                self.set_head("handoff");
             }
             UpdateKind::PromptSuggestion => {
                 let suggestion = text_of(update.get("suggestion"))
@@ -2453,6 +2467,10 @@ impl Fold {
         {
             if update.get("resumesAt").is_some() {
                 failure.resumes_at = update.get("resumesAt").and_then(Value::as_u64);
+                self.head_dirty.insert("failure");
+            }
+            if let Some(other) = text_of(update.get("carryOnWith")) {
+                failure.carry_on_with = Some(other.to_owned());
                 self.head_dirty.insert("failure");
             }
         }

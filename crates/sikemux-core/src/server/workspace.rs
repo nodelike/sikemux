@@ -1706,6 +1706,7 @@ pub(crate) fn close(core: &Core, agent_ids: &[String]) -> CoreResult<()> {
         core.names
             .note_look(&agent.id, agent.buddy.clone(), named(&agent));
         super::triggers::pause(core, &agent.id, core.workspaces.held_chat(&agent));
+        core.chats.handoffs.forget(&agent.id);
     }
     let trees: Vec<_> = (agent_ids.iter())
         .filter_map(|id| core.workspaces.agent(id)?.worktree)

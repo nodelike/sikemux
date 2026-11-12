@@ -383,7 +383,21 @@ fn candidates(book: &Book, provider: &str) -> Vec<(Profile, Option<usage::Readin
     if !book.smart {
         return Vec::new();
     }
-    let signed_in: Vec<Profile> = (book.clone().with_built_ins().profiles.into_iter())
+    let signed_in = signed_in(book, provider);
+    if signed_in.len() < 2 {
+        return Vec::new();
+    }
+    (signed_in.into_iter())
+        .map(|profile| {
+            let reading = usage::last_reading(provider, profile.config_path.as_deref());
+            (profile, reading)
+        })
+        .collect()
+}
+
+/// The person's accounts with `provider`'s agent that are signed in.
+fn signed_in(book: &Book, provider: &str) -> Vec<Profile> {
+    (book.clone().with_built_ins().profiles.into_iter())
         .filter(|profile| profile.provider == provider)
         .filter(|profile| {
             let env = account_environment(provider, profile.config_path.as_deref())
@@ -394,16 +408,43 @@ fn candidates(book: &Book, provider: &str) -> Vec<(Profile, Option<usage::Readin
                 Some(crate::agent_accounts::sign_in::SignIn::Account(_))
             )
         })
-        .collect();
-    if signed_in.len() < 2 {
-        return Vec::new();
-    }
-    (signed_in.into_iter())
+        .collect()
+}
+
+/// Another chat agent the person is signed in to with room for a chat in `cwd`, for a chat
+/// whose own agent has no usage left on any account it may use. An account not read yet counts
+/// as having room.
+pub(crate) fn other_agent_with_room(
+    book: &Book,
+    provider: &str,
+    cwd: &Path,
+) -> Option<&'static str> {
+    let now = sikemux_process::clock::epoch_ms();
+    let has_room = |agent: &AgentEntry| {
+        let readings: Vec<(Profile, Option<usage::Reading>)> = (signed_in(book, agent.kind)
+            .into_iter())
+        .filter(|profile| book.allowed_in(cwd, &profile.id))
         .map(|profile| {
-            let reading = usage::last_reading(provider, profile.config_path.as_deref());
+            let reading = usage::last_reading(agent.kind, profile.config_path.as_deref());
             (profile, reading)
         })
-        .collect()
+        .collect();
+        let offered: Vec<Candidate> = (readings.iter())
+            .map(|(profile, reading)| Candidate {
+                id: &profile.id,
+                usage: reading.as_ref().map(|reading| &reading.usage),
+                typical: None,
+                burn: usage::burn(agent.kind, profile.config_path.as_deref()),
+            })
+            .collect();
+        offered.iter().any(|candidate| candidate.usage.is_none())
+            || allocate::place(&offered, None, Aim::Headroom, now).is_some()
+    };
+    AGENTS
+        .iter()
+        .filter(|agent| agent.kind != provider && agent.usage && agent.chat.is_some())
+        .find(|agent| has_room(agent))
+        .map(|agent| agent.kind)
 }
 
 /// The account a chat of `provider` on `model` goes to while smart is on, and why: the one the

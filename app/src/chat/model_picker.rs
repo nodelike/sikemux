@@ -1,7 +1,7 @@
 //! A chat's model menu: the models its agent offers, searched from its own field, under its
-//! maker's name, then those of every connected provider the agent can run. Before the chat
-//! starts, the agents above the list move it to another agent, and a provider's model moves it
-//! onto that provider.
+//! maker's name, then those of every connected provider the agent can run. The agents above the
+//! list move the chat to another agent, handing over what it said once it has begun, and before
+//! it starts a provider's model moves it onto that provider.
 
 use std::rc::Rc;
 
@@ -628,57 +628,54 @@ impl Render for Menu {
             ui::found_mark(cx),
         );
         let this = cx.entity();
-        let agents: Vec<AnyElement> = match self.picked.locked {
-            true => Vec::new(),
-            false => self
-                .agents(cx)
-                .into_iter()
-                .map(|agent| {
-                    let pressed = agent.provider == self.picked.provider;
-                    let (moving, close, menu) =
-                        (self.picked.moving.clone(), self.close.clone(), this.clone());
-                    let going = Moving {
-                        provider: agent.provider.clone(),
-                        profile: agent.profile.clone(),
-                        model: None,
-                        model_provider: None,
-                    };
-                    let (installed, installing) = (agent.installed, agent.installing);
-                    chip(
-                        SharedString::from(format!("model-agent-{}", agent.provider)),
-                        &agent,
-                        pressed,
-                        &t,
-                        move |window, cx| {
-                            let provider = going.provider.clone();
-                            match (installed, installing) {
-                                (true, _) if !pressed => {
-                                    close(window, cx);
-                                    moving(going.clone(), window, cx);
-                                }
-                                (true, _) => {}
-                                (false, Some(Installing::Failed)) => {
-                                    close(window, cx);
-                                    let bench = menu.read(cx).bench.upgrade();
-                                    if let Some(bench) = bench {
-                                        bench.update(cx, |bench, cx| {
-                                            crate::agents::setup::show_install(
-                                                bench, &provider, window, cx,
-                                            )
-                                        });
-                                    }
-                                }
-                                (false, _) if menu.read(cx).here() => {
-                                    let bench = menu.read(cx).bench.clone();
-                                    install_agent(&bench, &provider, cx)
-                                }
-                                (false, _) => {}
+        let agents: Vec<AnyElement> = self
+            .agents(cx)
+            .into_iter()
+            .map(|agent| {
+                let pressed = agent.provider == self.picked.provider;
+                let (moving, close, menu) =
+                    (self.picked.moving.clone(), self.close.clone(), this.clone());
+                let going = Moving {
+                    provider: agent.provider.clone(),
+                    profile: agent.profile.clone(),
+                    model: None,
+                    model_provider: None,
+                };
+                let (installed, installing) = (agent.installed, agent.installing);
+                chip(
+                    SharedString::from(format!("model-agent-{}", agent.provider)),
+                    &agent,
+                    pressed,
+                    &t,
+                    move |window, cx| {
+                        let provider = going.provider.clone();
+                        match (installed, installing) {
+                            (true, _) if !pressed => {
+                                close(window, cx);
+                                moving(going.clone(), window, cx);
                             }
-                        },
-                    )
-                })
-                .collect(),
-        };
+                            (true, _) => {}
+                            (false, Some(Installing::Failed)) => {
+                                close(window, cx);
+                                let bench = menu.read(cx).bench.upgrade();
+                                if let Some(bench) = bench {
+                                    bench.update(cx, |bench, cx| {
+                                        crate::agents::setup::show_install(
+                                            bench, &provider, window, cx,
+                                        )
+                                    });
+                                }
+                            }
+                            (false, _) if menu.read(cx).here() => {
+                                let bench = menu.read(cx).bench.clone();
+                                install_agent(&bench, &provider, cx)
+                            }
+                            (false, _) => {}
+                        }
+                    },
+                )
+            })
+            .collect();
         let empty_own = options.iter().all(|row| row.group != 0);
         let note = match (typed.is_empty(), self.picked.pending) {
             (false, _)

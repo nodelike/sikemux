@@ -190,6 +190,7 @@ named_fields!(head_field, ChatHead {
     "ended" => ended,
     "activeTool" => active_tool,
     "suggestion" => suggestion,
+    "handoff" => handoff,
     "draft" => draft,
     "goal" => goal,
     "turn" => turn,

@@ -1048,6 +1048,11 @@ impl<B: Backend> Running<'_, B> {
         self.chat.begin_turn();
         if !crate::server::chat::prompt::is_command(&replay.text) {
             replay.context.extend(self.rotation_brief.take());
+            if let Some(core) = self.chat.core.upgrade() {
+                replay
+                    .context
+                    .extend(core.chats.handoffs.take(self.chat.agent_id()));
+            }
         }
         // A slash command takes what follows it as its arguments, so the brief waits for
         // the next message. Kept on the replay, it goes again with the message.
@@ -1145,6 +1150,9 @@ impl<B: Backend> Running<'_, B> {
         }
         if failed.failure.kind == FailureKind::Network && state.failed_prompt.is_some() {
             chat.offline_failed.store(true, Ordering::Release);
+        }
+        if failed.failure.kind == FailureKind::Limit {
+            crate::server::chat::handoff::offer_another_agent(chat, self.launch);
         }
         if let (FailureKind::Limit, Some(prompt)) =
             (failed.failure.kind, state.failed_prompt.clone())

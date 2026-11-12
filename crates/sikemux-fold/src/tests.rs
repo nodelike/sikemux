@@ -1595,6 +1595,7 @@ mod reducer {
                 details: None,
                 account: Some("personal".into()),
                 resumes_at: None,
+                carry_on_with: None,
             })
         );
         chat.status("starting");
@@ -1803,6 +1804,7 @@ mod acp_events {
                 details: None,
                 account: Some("Work".into()),
                 resumes_at: None,
+                carry_on_with: None,
             })
         );
     }

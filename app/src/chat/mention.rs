@@ -54,17 +54,19 @@ enum Own {
     Side,
     Model,
     Clear,
+    Fork,
     Yolo,
 }
 
 impl Own {
-    const ALL: [Own; 4] = [Own::Side, Own::Model, Own::Clear, Own::Yolo];
+    const ALL: [Own; 5] = [Own::Side, Own::Model, Own::Clear, Own::Fork, Own::Yolo];
 
     fn name(self) -> &'static str {
         match self {
             Own::Side => "side",
             Own::Model => "model",
             Own::Clear => "clear",
+            Own::Fork => "fork",
             Own::Yolo => "yolo",
         }
     }
@@ -478,6 +480,8 @@ impl Workbench {
                     .map(|_| "Ask aside, with this chat's context".to_owned()),
                 Own::Model => head.model.as_ref().map(|_| "Pick the model".to_owned()),
                 Own::Clear => saved.map(|_| "Start a fresh chat with this agent".to_owned()),
+                Own::Fork => (saved.is_some() && head.turned)
+                    .then(|| "Go on in a new chat that takes this one's words along".to_owned()),
                 Own::Yolo => yolo.map(|saved| match saved.permission_mode {
                     PermissionMode::Bypass => "Ask before acting again".to_owned(),
                     PermissionMode::WorkspaceWrite => "Act without asking".to_owned(),
@@ -827,6 +831,7 @@ impl Workbench {
                 Own::Side => {}
                 Own::Model => composing.model_open = true,
                 Own::Clear => self.fresh_chat(agent),
+                Own::Fork => self.fork_chat(agent, cx),
                 Own::Yolo => {
                     crate::keymap::count(crate::workbench::actions::ToggleYolo::ID.name(), cx);
                     self.toggle_yolo(agent)

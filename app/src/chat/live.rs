@@ -223,6 +223,7 @@ const RUNNING: &str = "dock";
 const QUEUED: &str = "queued";
 const GUESTS: &str = "guests";
 const TRIGGERS: &str = "triggers";
+const HANDOFF: &str = "handoff";
 
 /// A group of the dock: what its header says, on its own or within the line the folded dock
 /// draws, the button it offers, and its rows.
@@ -243,11 +244,12 @@ pub fn dock(
     asks: Vec<AnyElement>,
     cx: &mut Context<Workbench>,
 ) -> Option<AnyElement> {
+    let handoff = handoff(agent, chat, cx);
     let guests = guests(&agent.id, chat, cx);
     let queued = queued(&agent.id, chat, cx);
     let running = running(agent, chat, cx);
     let triggers = triggers(&agent.id, chat, cx);
-    let groups: Vec<Group> = [guests, queued, running, triggers]
+    let groups: Vec<Group> = [handoff, guests, queued, running, triggers]
         .into_iter()
         .flatten()
         .collect();
@@ -822,6 +824,77 @@ fn queued_label(message: &QueuedMessage) -> String {
         .chain(message.context.iter().map(|item| item.title.clone()))
         .collect::<Vec<_>>()
         .join(", ")
+}
+
+fn agent_label(provider: &str) -> &str {
+    sikemux_core::agent_catalog::agent(provider).map_or(provider, |agent| agent.label)
+}
+
+/// What the chat's next message hands to the agent that took it over, or that starts it as a
+/// fork, with a button to send it without.
+fn handoff(agent: &AgentRow, chat: &Chat, cx: &mut Context<Workbench>) -> Option<Group> {
+    let handoff = chat.state.as_ref()?.handoff.as_ref()?;
+    let t = Tokens::get(cx).clone();
+    let mut said = Vec::new();
+    if handoff.request {
+        said.push("first request".to_owned());
+    }
+    said.push(match handoff.exchanges {
+        1 => "the latest exchange".to_owned(),
+        count => format!("{count} latest exchanges"),
+    });
+    match handoff.commands {
+        0 => {}
+        1 => said.push("1 command".to_owned()),
+        count => said.push(format!("{count} commands")),
+    }
+    said.push(format!("~{}k tokens", handoff.tokens.div_ceil(1000)));
+    let lead = match handoff.forked_from {
+        Some(_) => format!("Forked from a {} chat", agent_label(&handoff.from)),
+        None => format!("Hands over to {}", agent_label(&agent.provider)),
+    };
+    let marks = div()
+        .flex()
+        .items_center()
+        .gap(SPACE_1)
+        .child(ui::mark(&handoff.from, 12.))
+        .when(handoff.forked_from.is_none(), |marks| {
+            marks
+                .child(div().text_color(t.text_disabled).child("→"))
+                .child(ui::mark(&agent.provider, 12.))
+        })
+        .into_any_element();
+    let words = vec![
+        counted(marks, lead, &t),
+        div()
+            .text_color(t.text_tertiary)
+            .child(said.join(" · "))
+            .into_any_element(),
+    ];
+    let id = agent.id.clone();
+    let leave_out = BaseButton::new(SharedString::from(format!("handoff-leave:{id}")))
+        .h(px(20.))
+        .px(px(7.))
+        .flex()
+        .items_center()
+        .border_1()
+        .border_color(t.line)
+        .rounded(theme::RADIUS_1)
+        .hover(|button| button.bg(t.surface_hover))
+        .text_size(crate::theme::ui_text(TEXT_3XS_H))
+        .text_color(t.text_secondary)
+        .on_click(cx.listener(move |bench, _, _, cx| {
+            bench.drop_handoff(&id);
+            cx.stop_propagation();
+        }))
+        .child("Leave out")
+        .into_any_element();
+    Some(Group {
+        key: HANDOFF,
+        words,
+        action: Some(leave_out),
+        rows: Vec::new(),
+    })
 }
 
 /// Messages the person sent while a turn runs, waiting for it to end; while it

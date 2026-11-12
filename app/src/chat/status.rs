@@ -569,6 +569,29 @@ pub(super) fn trouble(
         if can.contains(&Remedy::OtherAccount) {
             buttons.extend(other_account(bench, agent, failure, &this, cx));
         }
+        let carry_on_with = failure.and_then(|failure| failure.carry_on_with.clone());
+        if let Some(other) = carry_on_with {
+            let (this, chat) = (this.clone(), agent.id.clone());
+            let label = format!("Hand to {}", bench.agent_name(&other));
+            let button =
+                Button::new("chat-hand-off", label, Variant::Outline).on_click(move |_, _, cx| {
+                    let other = other.clone();
+                    this.update(cx, |bench, cx| {
+                        let to = crate::chat::model_picker::Moving {
+                            profile: bench
+                                .accounts
+                                .current(&other)
+                                .map(|profile| profile.id.clone()),
+                            provider: other,
+                            model: None,
+                            model_provider: None,
+                        };
+                        bench.hand_off(&chat, to, false, cx);
+                    })
+                    .ok();
+                });
+            buttons.push(button.into_any_element());
+        }
         let resumes = failure
             .and_then(|failure| failure.resumes_at)
             .filter(|at| *at > now_ms());

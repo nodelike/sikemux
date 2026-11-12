@@ -151,6 +151,8 @@ calls! { core, client, method, params;
     "resumeSession" ResumeSession (super::workspace::SessionChoice) -> super::launching::SessionTaken: Full, counted => super::launching::resume_session(&core, params).await?,
     "reopenAgent" ReopenAgent (AgentParams) -> super::launching::SessionTaken: Full, counted => super::launching::reopen_agent(&core, params.agent_id).await?,
     "openChief" OpenChief (super::chief::OpenChiefParams) -> super::chief::OpenedChief: Full, counted => super::chief::open(&core, params).await?,
+    "handOff" HandOff (super::chat::handoff::HandOffParams) -> super::chat::handoff::HandedOff: Full, counted => super::chat::handoff::hand_off(&core, params).await?,
+    "dropHandoff" DropHandoff (super::chat::handoff::DropHandoffParams) -> (): Full => super::chat::handoff::drop_handoff(&core, params)?,
     "rotationBrief" RotationBrief (super::chat::rotation::RotationBriefParams) -> super::chat::rotation::RotationBriefRead: Watch => super::chat::rotation::read(&core, params)?,
     "activitySummary" ActivitySummary (super::activity_log::ActivitySummaryParams) -> super::activity_log::ActivitySummary: Watch, any_program => super::activity_log::summary_for(&core, params).await?,
     "setActivityPrice" SetActivityPrice (super::activity_log::ActivityPriceParams) -> (): Owner => super::activity_log::set_price_for(&core, params)?,

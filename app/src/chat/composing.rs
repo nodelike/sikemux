@@ -593,7 +593,11 @@ pub(super) fn composer(
         let moving: crate::chat::model_picker::Move = {
             let (this, agent) = (this.clone(), agent.id.clone());
             Rc::new(move |to: crate::chat::model_picker::Moving, _, cx| {
-                this.update(cx, |bench, _| bench.move_chat(&agent, to)).ok();
+                this.update(cx, |bench, cx| match fresh {
+                    true => bench.move_chat(&agent, to),
+                    false => bench.hand_off(&agent, to, false, cx),
+                })
+                .ok();
             })
         };
         let started = head.is_some_and(|head| head.connection == ChatConnection::Ready);

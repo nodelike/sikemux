@@ -211,6 +211,67 @@ impl Replay {
             .collect()
     }
 
+    /// Every exchange with the person it holds, oldest first and whole, and the shell commands
+    /// the agent ran, each with whether it failed, once it has ended.
+    pub(in super::super) fn handed_over(&self) -> super::super::HandedOver {
+        let mut exchanges: Vec<(String, String)> = Vec::new();
+        let mut commands: Vec<(String, String, Option<bool>)> = Vec::new();
+        let mut open = false;
+        for entry in &self.entries {
+            let payload = &entry.event.payload;
+            match entry.event.kind {
+                ChatEventKind::Prompt => {
+                    open = payload.get("person") == Some(&Value::Bool(true));
+                    if open {
+                        let text = payload.get("text").and_then(Value::as_str);
+                        exchanges.push((text.unwrap_or_default().trim().to_owned(), String::new()));
+                    }
+                }
+                ChatEventKind::SessionUpdate if !self.work.in_subagent(payload) => {
+                    let Some(update) = payload.get("update") else {
+                        continue;
+                    };
+                    let text = |key: &str| update.get(key).and_then(Value::as_str);
+                    match UpdateKind::within(payload) {
+                        Some(UpdateKind::AgentMessageChunk) if open => {
+                            let said = update.pointer("/content/text").and_then(Value::as_str);
+                            if let (Some(said), Some((_, answer))) = (said, exchanges.last_mut()) {
+                                answer.push_str(said);
+                            }
+                        }
+                        Some(UpdateKind::ToolCall) if text("kind") == Some("execute") => {
+                            if let (Some(id), Some(title)) = (text("toolCallId"), text("title")) {
+                                commands.push((id.to_owned(), title.trim().to_owned(), None));
+                            }
+                        }
+                        Some(UpdateKind::ToolCallUpdate) => {
+                            let ended = match text("status") {
+                                Some("completed") => Some(false),
+                                Some("failed") => Some(true),
+                                _ => None,
+                            };
+                            let id = text("toolCallId");
+                            let ran = commands
+                                .iter_mut()
+                                .rev()
+                                .find(|(each, ..)| Some(each.as_str()) == id);
+                            if let (Some(ended), Some((.., failed))) = (ended, ran) {
+                                *failed = Some(ended);
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                _ => {}
+            }
+        }
+        exchanges.retain(|(asked, answered)| !asked.is_empty() || !answered.trim().is_empty());
+        let commands = commands
+            .into_iter()
+            .map(|(_, title, failed)| (title, failed));
+        (exchanges, commands.collect())
+    }
+
     /// What the agent wrote last in its latest turn: its text after its last
     /// tool call, or before it when it wrote nothing after.
     pub(in super::super) fn last_answer(&self) -> Option<String> {

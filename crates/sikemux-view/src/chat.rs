@@ -324,6 +324,10 @@ pub struct ChatHead {
     /// while a turn runs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub suggestion: Option<String>,
+    /// What the next message hands over to an agent that takes the chat over from another, or
+    /// starts it as a fork; none once sent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub handoff: Option<Handoff>,
     /// What the person has written and not sent, as the host keeps it for every app.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub draft: Option<ChatDraft>,
@@ -468,6 +472,10 @@ pub struct ChatFailure {
     /// When the core sends the stopped prompt again, once a usage limit resets, in Unix milliseconds.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resumes_at: Option<u64>,
+    /// Another agent with room to take the chat over, when every account of its own is out of
+    /// usage.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub carry_on_with: Option<String>,
 }
 
 /// How full the session's context window is, as the agent last reported it.
@@ -1792,6 +1800,27 @@ pub struct BriefCounts {
     pub calls: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub exchanges: Option<u32>,
+}
+
+/// What a chat hands its next agent: its words with the person, chosen to fit a budget, not
+/// written up by an agent.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Handoff {
+    /// The agent the chat comes from, such as `claude`.
+    pub from: String,
+    /// The chat it comes from, when it is another one this chat was forked from.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub forked_from: Option<String>,
+    /// About how many tokens it holds.
+    pub tokens: u64,
+    /// The chat's first request is in it.
+    pub request: bool,
+    /// Exchanges with the person it holds, and how many earlier ones it leaves out.
+    pub exchanges: u32,
+    pub left_out: u32,
+    /// Commands it reports the outcome of.
+    pub commands: u32,
 }
 
 /// The chat moved to another of the person's accounts.

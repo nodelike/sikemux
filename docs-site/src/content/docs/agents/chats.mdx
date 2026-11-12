@@ -19,7 +19,7 @@ What you typed but did not send comes with you. A draft in the composer waits at
 ## The composer
 
 - `↑` in an empty box brings back what you sent before, and `↓` goes forward again.
-- `/` at the start of a message lists Sikemux's own commands, then the session's commands and skills. `/side` opens a side chat (see below), `/model` opens the model picker, `/clear` starts a fresh chat with the same agent, account and model, and `/yolo` turns asking before acting off or on. A session command or skill you pick goes in as a chip, like a mention. A command the session doesn't have isn't sent: it stays in the draft, and the composer says so.
+- `/` at the start of a message lists Sikemux's own commands, then the session's commands and skills. `/side` opens a side chat (see below), `/model` opens the model picker, `/clear` starts a fresh chat with the same agent, account and model, `/fork` goes on in a new chat that takes this one's words along, and `/yolo` turns asking before acting off or on. A session command or skill you pick goes in as a chip, like a mention. A command the session doesn't have isn't sent: it stays in the draft, and the composer says so.
 - `@` names another agent, in this project or any other, or an earlier chat to open again. A closed agent keeps its name, so `@` finds it by that name and opens its chat again.
 - `#` hands over a GitHub, GitLab or Bitbucket issue, and `!` a pull request.
 - `+` attaches a file or folder from the project.
@@ -192,6 +192,12 @@ Right-click a chat and choose **Copy Link** for a `sikemux://` link that opens i
 Right-click an agent's tab or its row in the tab rail and choose **Move to Project…**, then pick the project. A chat that hasn't started yet can also move from the project name above its composer.
 
 A Claude Code or Codex chat that has already started moves too, with its history: Sikemux stops it, files its saved conversation under the new project, and resumes it there. Wait for it to finish its reply first. Other agents can move only before their first message.
+
+## Handing a chat to another agent
+
+A chat that has begun can go on with another agent: open the model menu under its composer and pick the agent from the row at the top, such as Codex for a Claude chat. Stop its turn first. The chat stays one conversation, with its history in view, and the new agent starts a fresh session. Your next message takes the chat's words along: your first request, the latest exchanges word for word, and how the commands it ran went, about 16,000 tokens at most. It is a selection, not a summary; what doesn't fit is left out, and the new agent can read the whole chat with Sikemux's tools. The agent's reasoning, tool results and attachments don't go along.
+
+Until you send, a line above the composer says what will go and about how many tokens; **Leave out** sends your message without it. `/fork` does the same into a new chat with the same agent and account, leaving this one as it is.
 
 ## Moving a new chat to another host
 

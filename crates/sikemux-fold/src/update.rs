@@ -41,6 +41,8 @@ pub enum UpdateKind {
     MessageRewound,
     /// What the agent predicts the person will send next, once a turn of theirs has ended.
     PromptSuggestion,
+    /// What the next message hands over to the agent that takes the chat over, or nothing more.
+    HandoffPending,
 }
 
 impl UpdateKind {
@@ -71,6 +73,7 @@ impl UpdateKind {
             Self::EarlierTurnsLost => "earlier_turns_lost",
             Self::MessageRewound => "message_rewound",
             Self::PromptSuggestion => "prompt_suggestion",
+            Self::HandoffPending => "handoff_pending",
         }
     }
 
@@ -101,6 +104,7 @@ impl UpdateKind {
             "earlier_turns_lost" => Self::EarlierTurnsLost,
             "message_rewound" => Self::MessageRewound,
             "prompt_suggestion" => Self::PromptSuggestion,
+            "handoff_pending" => Self::HandoffPending,
             _ => return None,
         })
     }
@@ -240,6 +244,11 @@ pub fn session_title(title: impl Serialize) -> Value {
 /// What the agent predicts the person will send next.
 pub fn prompt_suggestion(suggestion: &str) -> Value {
     json!({ "sessionUpdate": UpdateKind::PromptSuggestion, "suggestion": suggestion })
+}
+
+/// What the next message hands over, or `None` once nothing waits to be.
+pub fn handoff_pending(handoff: Option<&sikemux_view::chat::Handoff>) -> Value {
+    json!({ "sessionUpdate": UpdateKind::HandoffPending, "handoff": handoff })
 }
 
 /// How full the context window is.

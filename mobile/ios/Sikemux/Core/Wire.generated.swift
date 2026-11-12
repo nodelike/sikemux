@@ -2888,6 +2888,9 @@ struct ChatHead: Codable, Hashable, Sendable {
     /// What the agent predicts the person will send next, from the turn that ended last; none
     /// while a turn runs.
     var suggestion: String?
+    /// What the next message hands over to an agent that takes the chat over from another, or
+    /// starts it as a fork; none once sent.
+    var handoff: Handoff?
     /// What the person has written and not sent, as the host keeps it for every app.
     var draft: ChatDraft?
     /// The goal the chat works on now.
@@ -2930,6 +2933,9 @@ struct ChatFailure: Codable, Hashable, Sendable {
     var account: String?
     /// When the core sends the stopped prompt again, once a usage limit resets, in Unix milliseconds.
     var resumesAt: Int?
+    /// Another agent with room to take the chat over, when every account of its own is out of
+    /// usage.
+    var carryOnWith: String?
 }
 
 enum StopReason: String, Codable, Hashable, Sendable {
@@ -3532,6 +3538,24 @@ struct ResultRow: Codable, Hashable, Sendable {
     /// Its commits are on the project's branch, so `takeStep` with `undo` can take them out.
     var undo: Bool?
     var pages: [PageShown]?
+}
+
+/// What a chat hands its next agent: its words with the person, chosen to fit a budget, not
+/// written up by an agent.
+struct Handoff: Codable, Hashable, Sendable {
+    /// The agent the chat comes from, such as `claude`.
+    var from: String
+    /// The chat it comes from, when it is another one this chat was forked from.
+    var forkedFrom: String?
+    /// About how many tokens it holds.
+    var tokens: Int
+    /// The chat's first request is in it.
+    var request: Bool
+    /// Exchanges with the person it holds, and how many earlier ones it leaves out.
+    var exchanges: Int
+    var leftOut: Int
+    /// Commands it reports the outcome of.
+    var commands: Int
 }
 
 /// A chat's unsent draft: its text, what the apps keep beside it, and its revision, which a

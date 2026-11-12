@@ -7,6 +7,7 @@ pub mod calls;
 pub(crate) mod cap;
 pub(crate) mod feed;
 pub mod find;
+pub mod handoff;
 pub(crate) mod history;
 mod kept;
 pub(crate) mod mentions;

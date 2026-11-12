@@ -1848,6 +1848,11 @@ export interface ChatHead {
      * while a turn runs.
      */
     suggestion?: string;
+    /**
+     * What the next message hands over to an agent that takes the chat over from another, or
+     * starts it as a fork; none once sent.
+     */
+    handoff?: Handoff;
     /** What the person has written and not sent, as the host keeps it for every app. */
     draft?: ChatDraft;
     /** The goal the chat works on now. */
@@ -1877,6 +1882,11 @@ export interface ChatFailure {
     account?: string;
     /** When the core sends the stopped prompt again, once a usage limit resets, in Unix milliseconds. */
     resumesAt?: number;
+    /**
+     * Another agent with room to take the chat over, when every account of its own is out of
+     * usage.
+     */
+    carryOnWith?: string;
 }
 
 export type StopReason = "end_turn" | "max_tokens" | "max_turn_requests" | "refusal" | "cancelled";
@@ -2248,6 +2258,26 @@ export interface ResultRow {
     /** Its commits are on the project's branch, so `takeStep` with `undo` can take them out. */
     undo?: boolean;
     pages?: PageShown[];
+}
+
+/**
+ * What a chat hands its next agent: its words with the person, chosen to fit a budget, not
+ * written up by an agent.
+ */
+export interface Handoff {
+    /** The agent the chat comes from, such as `claude`. */
+    from: string;
+    /** The chat it comes from, when it is another one this chat was forked from. */
+    forkedFrom?: string;
+    /** About how many tokens it holds. */
+    tokens: number;
+    /** The chat's first request is in it. */
+    request: boolean;
+    /** Exchanges with the person it holds, and how many earlier ones it leaves out. */
+    exchanges: number;
+    leftOut: number;
+    /** Commands it reports the outcome of. */
+    commands: number;
 }
 
 /**

@@ -20,6 +20,7 @@ pub(crate) struct Chats {
     /// Where each chat is written down, for a core that starts after this one.
     pub(super) kept: Option<PathBuf>,
     pub(crate) resets: reset::LimitResumes,
+    pub(crate) handoffs: handoff::Handoffs,
     /// The feeds of chats asleep, their history kept on disk for clients to page and find
     /// through without waking anything.
     pub(super) resting: Mutex<Vec<Resting>>,

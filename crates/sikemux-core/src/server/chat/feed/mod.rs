@@ -211,6 +211,9 @@ fn line_of(path: &std::path::Path, text: &str) -> Option<u64> {
     Some(held[..at].matches('\n').count() as u64 + 1)
 }
 
+/// Every exchange with the person, and each shell command the agent ran with whether it failed.
+pub(crate) type HandedOver = (Vec<(String, String)>, Vec<(String, Option<bool>)>);
+
 impl Feed {
     /// With `history`, everything the chat says is also kept in a file there,
     /// for clients to page back through.
@@ -967,6 +970,15 @@ impl Feed {
         inner.replay.reload();
         self.account(&inner);
         inner.replay.exchanges(count, longest)
+    }
+
+    /// Every exchange with the person, whole, and the commands the agent ran with their
+    /// outcomes, for another agent taking the chat over.
+    pub(crate) fn handed_over(&self) -> HandedOver {
+        let mut inner = self.inner.locked();
+        inner.replay.reload();
+        self.account(&inner);
+        inner.replay.handed_over()
     }
 
     /// Where the turn in progress, or the last one, starts in the history.
