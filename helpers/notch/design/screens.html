@@ -285,6 +285,9 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: def
 .call .runs-cmd { margin-top: 6px; font-family: var(--mono); font-size: 12px; color: rgba(231, 229, 239, 0.78); user-select: text; }
 .call .foot { display: flex; align-items: center; gap: 2px; margin-top: 14px; }
 .call .wait { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--ink-faint); white-space: nowrap; overflow: hidden; }
+.call .goes { display: flex; align-items: flex-start; gap: 6px; margin-top: 14px; font-size: 11.5px; line-height: 16px; color: var(--ink-faint); }
+.call .goes svg { flex: none; margin-top: 2.5px; }
+.call .goes + .foot { justify-content: flex-end; margin-top: 8px; }
 .call .lnk { height: 26px; padding: 0 7px; display: inline-flex; align-items: center; gap: 4px; border-radius: 5px; font-size: 12px; font-weight: 500; color: rgba(231, 229, 239, 0.78); }
 .call .lnk:hover { background: var(--hover); color: var(--ink); }
 .call .go { height: 26px; padding: 0 11px; display: inline-flex; align-items: center; border-radius: 5px; font-size: 12px; font-weight: 500; background: var(--acc); color: var(--on-accent); }
@@ -665,6 +668,17 @@ const RADII = { closed: [6, 14], peek: [14, 22], open: [19, 24] };
 const SPRING = { open: [0.42, 0.8], close: [0.45, 1.0], hover: [0.38, 0.8] };
 
 /** Every open agent, in the order the app's rail lists them: what wants you first. An idle one has no tier. */
+/** An agent whose calls it goes on from, kept out of the other states' lists. */
+function goingOn() {
+    return { id: "a14", name: "Fern", type: "claude", title: "Error tracking for the server", project: "server", tier: "needs", state: "working", time: "0:04", clock: "4m",
+        what: "Needs you",
+        calls: [{ id: "g1", age: "4m", question: "Pay for the error tracker's team plan?", context: "The free plan keeps a week of errors; the team plan keeps ninety days.",
+                assumption: "the free plan", options: ["Pay for the team plan", "Stay on the free plan"], pick: 0, handBack: true,
+                against: "a week is enough while the server has few users." },
+                { id: "g2", age: "1m", question: "Which Stripe key do the staging payment tests take?", context: "The tests charge test cards on staging before bank transfer ships.",
+                assumption: "they run against the local mock until there is one", options: [] }] };
+}
+
 function freshAgents() {
     return [
         { id: "c1", chief: true, name: "Chief", type: "claude", title: "Friendlier welcome screen", project: "sikemux", tier: "progress", state: "working" },
@@ -847,9 +861,12 @@ function callCard(call, card, listed = false) {
     const runs = call.production && call.action
         ? `<div class="runs${card.runs ? " open" : ""}" data-runs>${GLYPH.chevronSmall}What runs</div>${card.runs ? `<div class="runs-cmd">${call.action}</div>` : ""}`
         : "";
-    const ready = chosen.length || card.typed;
+    const letsStand = call.assumption && !call.options.length;
+    const ready = chosen.length || card.typed || letsStand;
     // The sentence shows whole or not at all: beside Not mine, Open chat and Go with this, 418 points leave no room.
-    const wait = listed || !call.handBack ? `<span class="wait">${GLYPH.clock}Nothing happens until you answer</span>` : `<span class="wait"></span>`;
+    // What the asker goes on assuming takes its own line above the buttons instead.
+    const goes = call.assumption ? `<p class="goes">${GLYPH.clock}<span>Until you answer, @${call.agent.name} goes on assuming ${call.assumption}</span></p>` : "";
+    const wait = call.assumption ? "" : listed || !call.handBack ? `<span class="wait">${GLYPH.clock}Nothing happens until you answer</span>` : `<span class="wait"></span>`;
     return `<div class="call${listed ? " listed" : ""}" data-call="${call.id}">
         ${listed ? "" : `<div class="who"><span class="tile">${face(call.agent, "blocked")}</span><b>@${call.agent.name}</b><span class="sep">·</span>${call.agent.project}<span class="sep">·</span>${call.age}</div>`}
         <h4>${call.question}</h4>${call.context ? `<p class="ctx">${call.context}</p>` : ""}
@@ -857,7 +874,7 @@ function callCard(call, card, listed = false) {
         <div class="rows${lit ? " lit" : ""}">${rows}${field}</div>
         ${call.against ? `<p class="vs"><em>Against it:</em> ${call.against}</p>` : ""}
         ${runs}
-        <div class="foot">${wait}${
+        ${goes}<div class="foot">${wait}${
             call.handBack ? `<button class="lnk" data-not-mine>Not mine</button>` : ""}<button class="lnk">${GLYPH.message}Open chat</button><button class="go" data-go ${ready ? "" : "disabled"}>Go with this</button></div>
     </div>`;
 }
@@ -1434,6 +1451,12 @@ const SECTIONS = [
             { id: "P8", name: "Your own words", when: "The person clears the pick and types.",
               shows: "No row chosen, the field ringed in the accent with what was typed. Go with this sends it as the answer. A call asking for a password or a key opens in Sikemux instead, with Answer in Sikemux in place of Go with this.",
               leaves: "As P4.", opts: { agents: () => only(["a2", "a9"]), mode: "call", callId: "q1", cards: { q1: { chosen: [], typed: "Cents, and convert on import" } } } },
+            { id: "P11", name: "A call its asker goes on from", when: "An agent asks something it need not wait on, and goes on with what it assumes until the person answers.",
+              shows: "The same card, the footer's sentence saying what it assumes in its own words, after ours so its ending never runs into them: Until you answer, @Fern goes on assuming the free plan, with the clock, on its own line above the buttons. A call to production never goes on: its asker always waits.",
+              leaves: "As P4.", opts: { agents: () => [...only(["a2"]), goingOn()], mode: "call", callId: "g1" } },
+            { id: "P12", name: "A call with no options that goes on", when: "The asker goes on with an assumption and offers nothing to pick: only a call for access, such as a key, comes without options.",
+              shows: "Only the field, and Go with this ready with nothing typed: it lets the assumption stand, as Fine does on a phone. Typed words answer it instead.",
+              leaves: "As P4.", opts: { agents: () => [...only(["a2"]), goingOn()], mode: "call", callId: "g2" } },
             { id: "P2", name: "Finished", when: "An agent's turn ends: its inbox item goes from working to finished or to review.",
               shows: "One line either side of the camera: the agent's mark and Finished, then the task and a purple dot. A turn that ran into a problem says Failed, with a red dot.",
               leaves: "Shrinks to C4 after 3 s.", opts: { agents: () => only(["a2", "a4"]), mode: "peek-done", peekAgent: "a4" } },

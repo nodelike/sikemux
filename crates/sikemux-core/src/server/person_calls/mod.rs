@@ -137,6 +137,7 @@ impl Raise {
             asked_for: self.asked_for,
             question: self.question,
             context: self.context,
+            assumption: None,
             options: self.options,
             pick: self.pick,
             against: self.against,
@@ -735,7 +736,8 @@ fn raised_by(kept: &Kept, source: &Source) -> bool {
 }
 
 /// Whether two calls put the same decision: the same kind, in the same project, asking the same
-/// thing with the same options.
+/// thing with the same options, and both askers waiting or both going on, since letting an
+/// assumption stand answers only an asker that goes on.
 fn same_decision(one: &PersonCall, other: &PersonCall) -> bool {
     let plain = |text: &str| {
         let words = text.split_whitespace().collect::<Vec<_>>().join(" ");
@@ -751,6 +753,7 @@ fn same_decision(one: &PersonCall, other: &PersonCall) -> bool {
         && one.project == other.project
         && plain(&one.question) == plain(&other.question)
         && labels(one) == labels(other)
+        && one.assumption.is_some() == other.assumption.is_some()
 }
 
 /// Whether `agent_id` waits on a call to the person whose words are never kept.
@@ -1126,6 +1129,24 @@ fn answer_of(
         return Err("that call takes one option".into());
     }
     let picked = params.option.is_some() || !params.options.is_empty();
+    if params.fine {
+        if call.assumption.is_none() || !call.options.is_empty() {
+            return Err("only a call whose asker goes on with an assumption, and offers no options, can be let stand".into());
+        }
+        if picked || words.is_some() || note.is_some() {
+            return Err("letting the assumption stand takes no option or words".into());
+        }
+        let answer = CallAnswer {
+            option: None,
+            options: Vec::new(),
+            note: None,
+            words: None,
+            by: client,
+            at: epoch_ms(),
+            waited_ms: epoch_ms().saturating_sub(call.raised_at),
+        };
+        return Ok((answer, None));
+    }
     if picked && words.is_some() {
         return Err("answer with an option and a note, or in your own words".into());
     }
@@ -1211,6 +1232,10 @@ async fn deliver(
     match source {
         Source::Question(_) => {
             let index = |option: &String| call.options.iter().position(|known| known.id == *option);
+            let lets_stand = call.assumption.is_some()
+                && answer.option.is_none()
+                && answer.options.is_empty()
+                && typed.is_none();
             let mut reached = false;
             let mut failed = None;
             for id in core.person_calls().questions_of(&call.id) {
@@ -1221,6 +1246,7 @@ async fn deliver(
                     choice: answer.option.as_ref().and_then(index),
                     choices: (!answer.options.is_empty())
                         .then(|| answer.options.iter().filter_map(index).collect()),
+                    fine: lets_stand,
                     ..AnswerParams::default()
                 };
                 match questions::answer(core, params).await {

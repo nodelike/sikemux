@@ -30,7 +30,7 @@
     "PendingDevice": "id name platform expiresAt",
     "AgentQuestion": "id text choices viaNote",
     "QuestionChoice": "label",
-    "PersonCall": "id project kind asker joined askedFor question context options pick against evidence action brief place canHandBack multi secret raisedAt state answer outcome",
+    "PersonCall": "id project kind asker joined askedFor question context assumption options pick against evidence action brief place canHandBack multi secret raisedAt state answer outcome",
     "CallAsker": "agentId name cli chief",
     "CallOption": "id label detail picture",
     "CallEvidence": "what picture",

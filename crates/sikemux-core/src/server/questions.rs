@@ -67,6 +67,8 @@ const MAX_LABEL_CHARS: usize = 200;
 const MAX_DETAIL_CHARS: usize = 400;
 /// What the person needs to know to decide, beside the question.
 const MAX_CONTEXT_CHARS: usize = 600;
+/// The most of what an asker goes on with that its call shows, on one line.
+const MAX_ASSUMPTION_CHARS: usize = 120;
 /// The most a raised question shows to look at.
 const MAX_EVIDENCE: usize = 4;
 /// A question's title on the tab the person picks it by.
@@ -277,17 +279,15 @@ impl Question {
             || self.dialog.is_some()
             || self.from_host.is_some();
         let breaks = self.raise.as_ref().map(|raise| raise.breaks.clone());
-        let assumed = (self.assumption.as_ref()).map(|assumption| {
-            format!(
-                "@{} goes on assuming {assumption} until you answer.",
-                self.name
-            )
-        });
         let given = self.raise.as_ref().and_then(|raise| raise.context.clone());
         let (context, against) = match kind {
             CallKind::Access => (given.or(breaks), None),
-            _ => (given.or(assumed), breaks),
+            _ => (given, breaks),
         };
+        let assumption = (kind != CallKind::Production)
+            .then(|| self.assumption.as_deref())
+            .flatten()
+            .map(|assumption| clipped(&crate::text::one_line(assumption), MAX_ASSUMPTION_CHARS));
         let (options, pick) = call_options(&self.choices);
         PersonCall {
             id: self.id.clone(),
@@ -306,6 +306,7 @@ impl Question {
                 .and_then(|raise| raise.asked_for.clone()),
             question: self.text.clone(),
             context,
+            assumption,
             options,
             pick,
             against,
@@ -460,6 +461,7 @@ impl ReplyQuestion {
             asked_for: None,
             question: self.text.clone(),
             context: None,
+            assumption: None,
             options,
             pick,
             against: None,
@@ -1594,6 +1596,10 @@ pub(crate) async fn ask(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
     let mut raise = raised
         .then(|| raise_of(params, &text, &mut choices))
         .transpose()?;
+    let production = (raise.as_ref()).is_some_and(|raise| raise.reason == RaisedFor::Irreversible);
+    if production && !blocked {
+        return Err("A change to production waits for the person's answer; ask it with blocked: true, never going on with an assumption".into());
+    }
     if let Some(raise) = raise.as_mut() {
         let (reading, asker) = (core.clone(), agent_id.clone());
         raise.asked_for = super::connection::blocking(move || Ok(asked_for(&reading, &asker)))

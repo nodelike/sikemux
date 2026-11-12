@@ -229,13 +229,13 @@ func asker(_ id: String, _ name: String, _ cli: String) -> CallAsker { CallAsker
 let demoCalls = [
     PersonCall(id: "q1", project: "/Users/me/server", kind: .taste, asker: asker("a9", "Maple", "codex"), joined: nil, askedFor: nil,
                question: "Should amounts be stored in cents or as decimals?",
-               context: "The API sends decimals but the ledger table uses integers.",
+               context: "The API sends decimals but the ledger table uses integers.", assumption: nil,
                options: [CallOption(id: "1", label: "Cents", detail: nil, picture: nil), CallOption(id: "2", label: "Decimals", detail: nil, picture: nil)],
                pick: "1", against: "every import converts what the API sends.", evidence: nil, action: nil, brief: nil, place: nil,
                canHandBack: true, multi: nil, secret: nil, raisedAt: now - 60_000, state: .open, answer: nil, outcome: nil),
     PersonCall(id: "7", project: "/Users/me/storefront", kind: .production, asker: asker("a12", "Kite", "claude"), joined: nil, askedFor: nil,
                question: "Ship the new welcome screen to everyone?",
-               context: "You asked for a friendlier welcome screen. It's on staging, and sign-ups there held at 4.1% over two days.",
+               context: "You asked for a friendlier welcome screen. It's on staging, and sign-ups there held at 4.1% over two days.", assumption: nil,
                options: [CallOption(id: "all", label: "Ship it to everyone", detail: nil, picture: nil),
                          CallOption(id: "half", label: "Ship to half first", detail: nil, picture: nil),
                          CallOption(id: "wait", label: "Not yet", detail: nil, picture: nil)],
@@ -245,13 +245,13 @@ let demoCalls = [
                action: "vercel deploy --prod", brief: nil,
                place: CallPlace(id: "production", name: "production"), canHandBack: false, multi: nil, secret: nil, raisedAt: now - 720_000, state: .open, answer: nil, outcome: nil),
     PersonCall(id: "m1", project: "/Users/me/storefront", kind: .money, asker: asker("a12", "Kite", "claude"), joined: nil, askedFor: nil,
-               question: "Buy the display font, $40?", context: "The welcome screen's heading uses it. The licence covers the web and the app for good.",
+               question: "Buy the display font, $40?", context: "The welcome screen's heading uses it. The licence covers the web and the app for good.", assumption: nil,
                options: [CallOption(id: "buy", label: "Buy it", detail: "$40 once", picture: nil),
                          CallOption(id: "free", label: "Use a free font instead", detail: nil, picture: nil)],
                pick: "buy", against: "a free font is close enough that most people won't see the difference.", evidence: nil, action: nil, brief: nil,
                place: nil, canHandBack: true, multi: nil, secret: nil, raisedAt: now - 180_000, state: .open, answer: nil, outcome: nil),
     PersonCall(id: "w1", project: "/Users/me/server", kind: .production, asker: asker("a13", "Yuki", "claude"), joined: nil, askedFor: nil,
-               question: "Ship bank transfer on invoices to everyone?", context: nil,
+               question: "Ship bank transfer on invoices to everyone?", context: nil, assumption: nil,
                options: [CallOption(id: "allow", label: "Ship it to everyone", detail: nil, picture: nil),
                          CallOption(id: "tenth", label: "Ship to a tenth of customers first", detail: nil, picture: nil),
                          CallOption(id: "refuse", label: "Not yet", detail: nil, picture: nil)],
@@ -264,12 +264,30 @@ let demoCalls = [
                place: CallPlace(id: "production", name: "production"), canHandBack: false, multi: nil, secret: nil,
                raisedAt: now - 120_000, state: .open, answer: nil, outcome: nil),
     PersonCall(id: "t1", project: "/Users/me/server", kind: .taste, asker: asker("a9", "Maple", "codex"), joined: nil, askedFor: nil,
-               question: "What do we call the new way to pay?", context: "It sits beside Card on every invoice. Testers asked when the money arrives.",
+               question: "What do we call the new way to pay?", context: "It sits beside Card on every invoice. Testers asked when the money arrives.", assumption: nil,
                options: [CallOption(id: "1", label: "Bank transfer (2–3 days)", detail: nil, picture: invoicePicture("Bank transfer (2–3 days)", file: "name-1")),
                          CallOption(id: "2", label: "Pay by bank", detail: nil, picture: invoicePicture("Pay by bank", file: "name-2")),
                          CallOption(id: "3", label: "Bank transfer", detail: nil, picture: invoicePicture("Bank transfer", file: "name-3"))],
                pick: "1", against: "it is the longest, and on a phone it takes two lines beside Card.", evidence: nil, action: nil, brief: nil,
                place: nil, canHandBack: true, multi: nil, secret: nil, raisedAt: now - 3_600_000, state: .open, answer: nil, outcome: nil),
+]
+
+/// Fern's calls, which it goes on from: one about money with options, one for access without. Only the states that show
+/// them keep Fern.
+let goingOnCalls = [
+    PersonCall(id: "g1", project: "/Users/me/server", kind: .money, asker: asker("a14", "Fern", "claude"), joined: nil, askedFor: nil,
+               question: "Pay for the error tracker's team plan?", context: "The free plan keeps a week of errors; the team plan keeps ninety days.",
+               assumption: "the free plan",
+               options: [CallOption(id: "team", label: "Pay for the team plan", detail: "$26 a month", picture: nil),
+                         CallOption(id: "free", label: "Stay on the free plan", detail: nil, picture: nil)],
+               pick: "team", against: "a week is enough while the server has few users.", evidence: nil, action: nil, brief: nil,
+               place: nil, canHandBack: true, multi: nil, secret: nil, raisedAt: now - 240_000, state: .open, answer: nil, outcome: nil),
+    PersonCall(id: "g2", project: "/Users/me/server", kind: .access, asker: asker("a14", "Fern", "claude"), joined: nil, askedFor: nil,
+               question: "Which Stripe key do the staging payment tests take?",
+               context: "The tests charge test cards on staging before bank transfer ships.",
+               assumption: "they run against the local mock until there is one", options: [], pick: nil, against: nil, evidence: nil,
+               action: nil, brief: nil, place: nil, canHandBack: false, multi: nil, secret: nil, raisedAt: now - 60_000, state: .open,
+               answer: nil, outcome: nil),
 ]
 
 /// The workspace with each project standing as the core would put it, for the agents and calls shown.
@@ -303,9 +321,9 @@ func view(keeping ids: Set<String>?, load: HostLoad? = nil) -> DeviceView {
     guard let ids else { return full }
     let items = decoded.inbox.items.filter { $0.agentId.map(ids.contains) ?? ids.contains($0.id) }
     let agents = full.inbox.agents.filter { ids.contains($0.agentId) }
-    let calls = full.calls?.filter { ids.contains($0.asker.agentId) }
+    let calls = ((full.calls ?? []) + goingOnCalls).filter { ids.contains($0.asker.agentId) }
     return DeviceView(
-        workspace: standing(full.workspace, agents: agents, calls: calls ?? []),
+        workspace: standing(full.workspace, agents: agents, calls: calls),
         attentions: full.attentions.filter { ids.contains($0.agentId) },
         inbox: Inbox(
             items: items, working: items.filter { $0.kind == .working }.count,
@@ -448,6 +466,8 @@ render("P8-own-words", agents: ["a2", "a9"], height: 380, card: { store in
     store.drafts["q1"]?.typed = "Cents, and convert on import"
 }) { $0.mode = .call("q1") }
 render("P10-money-call", agents: ["a2", "a12"], height: 420) { $0.mode = .call("m1") }
+render("P11-going-on-call", agents: ["a2", "a14"], height: 460) { $0.mode = .call("g1") }
+render("P12-going-on-no-options", agents: ["a2", "a14"], height: 320) { $0.mode = .call("g2") }
 render("P9-what-runs", agents: ["a2", "a12"], height: 720, card: { $0.drafts["7"]?.actionOpen = true }) { $0.mode = .call("7") }
 render("P2-finished", agents: ["a2", "a4"]) { $0.mode = .peekDone("agent:a4") }
 render("P3-connect", agents: ["a2", "a3"], height: 240, devices: [PendingDevice(id: "d1", name: "Pixel 8", platform: "android", expiresAt: now + 112_000)]) {

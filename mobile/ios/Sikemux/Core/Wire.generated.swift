@@ -2352,6 +2352,9 @@ struct PersonCall: Codable, Hashable, Sendable {
     /// The decision, in one line.
     var question: String
     var context: String?
+    /// What the asker goes on with until the person answers, in its own words, one line; none
+    /// when it waits. Never on a production call.
+    var assumption: String?
     var options: [CallOption]
     /// The option the asker would take, by its id.
     var pick: String?
@@ -7624,6 +7627,8 @@ struct AnswerCallParams: Codable, Hashable, Sendable {
     var options: [String]?
     var note: String?
     var words: String?
+    /// Lets the assumption the asker goes on with stand, on a call that offers no options.
+    var fine: Bool?
     /// Files attached to the note or the words, by where the host keeps them.
     var paths: [String]?
 }

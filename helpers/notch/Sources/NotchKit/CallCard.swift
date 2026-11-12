@@ -29,13 +29,14 @@ final class CallDraft {
         chosen = now
     }
 
-    /// What answers the call as the card stands: the options chosen with the note, or the
-    /// person's own words alone.
+    /// What answers the call as the card stands: the options chosen with the note, the person's
+    /// own words alone, or, with neither, letting the asker's assumption stand.
     func answer(_ call: PersonCall) -> AnswerCallParams? {
         let words = typed.trimmingCharacters(in: .whitespacesAndNewlines)
         let text = words.isEmpty ? nil : words
         let now = chosen(in: call)
         if now.isEmpty {
+            if text == nil && call.letsStand { return AnswerCallParams(id: call.id, fine: true) }
             return text.map { AnswerCallParams(id: call.id, words: $0) }
         }
         if call.multi == true {
@@ -283,25 +284,40 @@ struct CallCard: View {
         }
     }
 
-    /// The sentence shows whole or not at all: where the buttons leave no room for it, the card goes without.
+    /// The sentence shows whole or not at all: where the buttons leave no room for it, the card goes
+    /// without. What the asker goes on assuming takes its own line above the buttons instead.
+    @ViewBuilder
     private var footer: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 2) {
-                HStack(spacing: 6) {
-                    IconView(icon: Icons.clock, size: 11)
-                    Text("Nothing happens until you answer")
+        if call.assumption != nil {
+            VStack(alignment: .leading, spacing: 8) {
+                sentence.fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 2) {
+                    Spacer(minLength: 0)
+                    buttons
                 }
-                .font(Theme.ui(11.5))
-                .foregroundStyle(Theme.inkFaint)
-                .fixedSize()
-                Spacer(minLength: 8)
-                buttons
             }
-            HStack(spacing: 2) {
-                Spacer(minLength: 0)
-                buttons
+        } else {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 2) {
+                    sentence.fixedSize()
+                    Spacer(minLength: 8)
+                    buttons
+                }
+                HStack(spacing: 2) {
+                    Spacer(minLength: 0)
+                    buttons
+                }
             }
         }
+    }
+
+    private var sentence: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            IconView(icon: Icons.clock, size: 11)
+            Text(waitsOrGoesOn)
+        }
+        .font(Theme.ui(11.5))
+        .foregroundStyle(Theme.inkFaint)
     }
 
     @ViewBuilder
@@ -313,8 +329,13 @@ struct CallCard: View {
         if call.secret == true {
             GoButton(title: "Answer in Sikemux", enabled: true) { store.focus(call.asker.agentId) }
         } else {
-            GoButton(title: "Go with this", enabled: (!chosen.isEmpty || typed) && !draft.sending, action: goWithThis)
+            GoButton(title: "Go with this", enabled: (!chosen.isEmpty || typed || call.letsStand) && !draft.sending, action: goWithThis)
         }
+    }
+
+    private var waitsOrGoesOn: String {
+        guard let assumption = call.assumption else { return "Nothing happens until you answer" }
+        return "Until you answer, @\(call.asker.name) goes on assuming \(assumption)"
     }
 
     private func goWithThis() {
@@ -541,4 +562,8 @@ private struct CallRow: View {
         .onHover { hovering = $0 }
         .opacity(hovering ? 0.85 : 1)
     }
+}
+
+extension PersonCall {
+    var letsStand: Bool { assumption != nil && options.isEmpty }
 }

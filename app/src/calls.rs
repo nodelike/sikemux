@@ -223,8 +223,9 @@ impl Cards {
         }
     }
 
-    /// What answers the call as the card stands: the options chosen with the note, or the
-    /// person's own words alone.
+    /// What answers the call as the card stands: the options chosen with the note, the person's
+    /// own words alone, or, on a call that goes on with an assumption and offers no options,
+    /// letting it stand.
     fn answer(&self, call: &PersonCall, cx: &App) -> Option<AnswerCallParams> {
         let held = self.held.get(&call.id)?;
         let typed = held.field.read(cx).value().trim().to_owned();
@@ -232,6 +233,11 @@ impl Cards {
         let chosen = self.chosen(call);
         let id = call.id.clone();
         match (call.multi, chosen.as_slice()) {
+            (_, []) if typed.is_none() && lets_stand(call) => Some(AnswerCallParams {
+                id,
+                fine: true,
+                ..AnswerCallParams::default()
+            }),
             (_, []) => typed.map(|words| AnswerCallParams {
                 id,
                 words: Some(words),
@@ -770,7 +776,7 @@ fn card(
         .then_some(call.action.as_ref())
         .flatten()
         .map(|action| what_runs(call, action, action_open, cards, &t));
-    let ready = !chosen.is_empty() || typed;
+    let ready = !chosen.is_empty() || typed || lets_stand(call);
     let go = {
         let (bench, id) = (bench.clone(), call.id.clone());
         Button::new(
@@ -823,30 +829,48 @@ fn card(
             bench.update(cx, |bench, cx| bench.not_mine(&id, cx)).ok();
         })
     });
-    let foot = div()
-        .mt(px(14.))
+    let sentence = div()
+        .flex()
+        .gap(SPACE_1H)
+        .text_size(theme::ui_text(11.5))
+        .line_height(relative(1.4))
+        .text_color(t.text_disabled)
+        .child(
+            div()
+                .h(theme::ui_text(11.5 * 1.4))
+                .flex()
+                .items_center()
+                .child(ui::icon(Icon::Clock, 11.).text_color(t.text_disabled)),
+        );
+    let buttons = div()
         .flex()
         .items_center()
         .gap(SPACE_1)
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .flex()
-                .items_center()
-                .gap(SPACE_1H)
-                .text_size(theme::ui_text(11.5))
-                .text_color(t.text_disabled)
-                .child(ui::icon(Icon::Clock, 11.).text_color(t.text_disabled))
-                .child(
-                    div()
-                        .truncate()
-                        .child(t!("Nothing happens until you answer")),
-                ),
-        )
         .children(not_mine)
         .children(open_chat)
         .child(go);
+    let foot = match &call.assumption {
+        Some(_) => div()
+            .mt(px(14.))
+            .flex()
+            .flex_col()
+            .gap(SPACE_2)
+            .child(sentence.child(div().min_w_0().child(waits_or_goes_on(call))))
+            .child(div().flex().justify_end().child(buttons)),
+        None => div()
+            .mt(px(14.))
+            .flex()
+            .items_center()
+            .gap(SPACE_1)
+            .child(
+                sentence
+                    .flex_1()
+                    .min_w_0()
+                    .items_center()
+                    .child(div().truncate().child(waits_or_goes_on(call))),
+            )
+            .child(buttons),
+    };
     div()
         .p(px(10.))
         .flex()
@@ -1584,4 +1608,20 @@ fn call_keys<E: InteractiveElement>(keyed: E, id: &str, bench: &WeakEntity<Workb
         .on_action(on(id, bench, |_: &NextChoice| Press::Down))
         .on_action(on(id, bench, |_: &Tick| Press::Tick))
         .on_action(on(id, bench, |_: &Confirm| Press::Pick))
+}
+
+fn lets_stand(call: &PersonCall) -> bool {
+    call.assumption.is_some() && call.options.is_empty()
+}
+
+fn waits_or_goes_on(call: &PersonCall) -> SharedString {
+    match &call.assumption {
+        Some(assumption) => t!(
+            "Until you answer, @{name} goes on assuming {assumption}",
+            name = call.asker.name,
+            assumption = assumption
+        )
+        .into(),
+        None => t!("Nothing happens until you answer").into(),
+    }
 }

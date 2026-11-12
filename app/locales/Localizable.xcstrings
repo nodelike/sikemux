@@ -109149,6 +109149,58 @@
         }
       }
     },
+    "Until you answer, @{name} goes on assuming {assumption}": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hasta que respondas, @{name} sigue suponiendo {assumption}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在你回答之前，@{name} 会继续假定{assumption}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bis du antwortest, geht @{name} weiter von {assumption} aus"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Jusqu'à ce que vous répondiez, @{name} continue en supposant {assumption}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "あなたが回答するまで、@{name} は「{assumption}」と仮定して進めます"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "내가 답할 때까지 @{name}은(는) {assumption}(이)라고 가정하고 진행함"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Пока вы не ответите, @{name} продолжает, считая, что {assumption}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Até você responder, @{name} segue supondo {assumption}"
+          }
+        }
+      }
+    },
     "Until you confirm, a change to any of them waits for your yes.": {
       "localizations": {
         "es": {

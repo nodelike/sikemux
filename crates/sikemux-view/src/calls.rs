@@ -192,6 +192,10 @@ pub struct PersonCall {
     pub question: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context: Option<String>,
+    /// What the asker goes on with until the person answers, in its own words, one line; none
+    /// when it waits. Never on a production call.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub assumption: Option<String>,
     pub options: Vec<CallOption>,
     /// The option the asker would take, by its id.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -240,6 +244,9 @@ pub struct AnswerCallParams {
     pub note: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub words: Option<String>,
+    /// Lets the assumption the asker goes on with stand, on a call that offers no options.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub fine: bool,
     /// Files attached to the note or the words, by where the host keeps them.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub paths: Vec<String>,

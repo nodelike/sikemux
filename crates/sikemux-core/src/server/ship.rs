@@ -1678,6 +1678,7 @@ fn held_call(core: &Core, hold: &Hold) -> PersonCall {
         asked_for: None,
         question,
         context: hold.why.clone(),
+        assumption: None,
         options,
         pick: None,
         against: None,

@@ -1474,6 +1474,11 @@ export interface PersonCall {
     /** The decision, in one line. */
     question: string;
     context?: string;
+    /**
+     * What the asker goes on with until the person answers, in its own words, one line; none
+     * when it waits. Never on a production call.
+     */
+    assumption?: string;
     options: CallOption[];
     /** The option the asker would take, by its id. */
     pick?: string;
@@ -5004,6 +5009,8 @@ export interface AnswerCallParams {
     options?: string[];
     note?: string;
     words?: string;
+    /** Lets the assumption the asker goes on with stand, on a call that offers no options. */
+    fine?: boolean;
     /** Files attached to the note or the words, by where the host keeps them. */
     paths?: string[];
 }
