@@ -167,6 +167,7 @@ enum PhoneCall {
     enum DropQueued {}
     enum EditMessage {}
     enum HandOff {}
+    enum KeepHistory {}
     enum LiveActivity {}
     enum MoveChatAccount {}
     enum OnScreen {}
@@ -356,6 +357,12 @@ extension PhoneCall.HandOff: PhoneCallable {
     static let method = "handOff"
     typealias Params = HandOffParams
     typealias Answer = ChatHandedOff
+}
+
+extension PhoneCall.KeepHistory: PhoneCallable {
+    static let method = "keepHistory"
+    typealias Params = KeepHistoryParams
+    typealias Answer = WireNull
 }
 
 extension PhoneCall.LiveActivity: PhoneCallable {
@@ -3062,6 +3069,9 @@ struct ChatHead: Codable, Hashable, Sendable {
     /// What the next message hands over to an agent that takes the chat over from another, or
     /// starts it as a fork; none once sent.
     var handoff: Handoff?
+    /// The chat's prompt cache has expired with a big history in it, so its next message reads
+    /// all of it again; none while the cache is warm.
+    var expiredCache: ExpiredCache?
     /// What the person has written and not sent, as the host keeps it for every app.
     var draft: ChatDraft?
     /// The goal the chat works on now.
@@ -3774,6 +3784,16 @@ struct Handoff: Codable, Hashable, Sendable {
     var leftOut: Int
     /// Commands it reports the outcome of.
     var commands: Int
+}
+
+/// A chat whose prompt cache has expired, and what its next message does about it.
+struct ExpiredCache: Codable, Hashable, Sendable {
+    /// The tokens the next message reads again.
+    var tokens: Int
+    /// When the cache expired, in Unix milliseconds.
+    var at: Int
+    /// The chat is summarised before the next message goes; off, it keeps its full history.
+    var summarise: Bool
 }
 
 /// A chat's unsent draft: its text, what the apps keep beside it, and its revision, which a
@@ -8035,6 +8055,12 @@ struct ChatHandedOff: Codable, Hashable, Sendable {
     /// The chat that carries on: the same one, or the fork.
     var agentId: String
     var project: String
+}
+
+struct KeepHistoryParams: Codable, Hashable, Sendable {
+    var agentId: String
+    /// Off, the chat is summarised before the next message.
+    var keep: Bool
 }
 
 /// The push token of the Live Activity the calling phone shows this host's agents in; none once it ended.

@@ -305,6 +305,7 @@ pub(crate) async fn serve(core: Arc<Core>) {
         ticker.tick().await;
         let now = epoch_ms();
         super::chat::cap::compact_idle(&core, now);
+        super::chat::cap::tell_expired(&core, now);
         for agent_id in due(&core, began, now) {
             if !super::chat::cap::compact_before_sleep(&core, &agent_id, now) {
                 sleep(&core, &agent_id);

@@ -744,6 +744,24 @@ impl<B: Backend> Running<'_, B> {
         self.rotation_brief = Some(brief.message);
     }
 
+    /// Summarises a big chat whose prompt cache expired before its message goes, unless the
+    /// person keeps the full history, so the message reads the summary rather than all of it.
+    async fn summarise_first(&mut self) {
+        const LOOK: std::time::Duration = std::time::Duration::from_millis(200);
+        if !cap::summarises_first(&self.chat) {
+            return;
+        }
+        cap::summarising(&self.chat);
+        if let Err(error) = self.backend.compact().await {
+            eprintln!("sikemux core: the chat goes as it is, as it was not summarised: {error}");
+            self.chat.meter.compaction_over();
+            return;
+        }
+        while self.chat.meter.compacting() {
+            tokio::time::sleep(LOOK).await;
+        }
+    }
+
     /// Writes down where the chat stands before the loop waits for what comes next.
     fn rest(&self) {
         self.chat.keep(self.state.progress());
@@ -1145,6 +1163,7 @@ impl<B: Backend> Running<'_, B> {
         }
         if !crate::server::chat::prompt::is_command(&replay.text) {
             self.rotate_if_due().await;
+            self.summarise_first().await;
         }
         self.send(replay).await;
         ControlFlow::Continue(())

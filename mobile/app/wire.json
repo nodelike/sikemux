@@ -27,6 +27,7 @@
     "dropQueued",
     "editMessage",
     "handOff",
+    "keepHistory",
     "liveActivity",
     "moveChatAccount",
     "onScreen",

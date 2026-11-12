@@ -85,6 +85,7 @@ struct Inner {
     goal: Option<ChatGoal>,
     /// What the chat's next message hands over, as the core keeps it.
     handoff: Option<sikemux_view::chat::Handoff>,
+    expired_cache: Option<sikemux_view::chat::ExpiredCache>,
     turn: Option<TurnState>,
     /// The chat is its project's chief.
     chief: bool,
@@ -249,6 +250,7 @@ impl Feed {
                 triggers: Vec::new(),
                 goal: None,
                 handoff: None,
+                expired_cache: None,
                 turn: None,
                 chief: false,
                 chief_hears: None,
@@ -339,6 +341,7 @@ impl Feed {
                 triggers: Vec::new(),
                 goal: None,
                 handoff: None,
+                expired_cache: None,
                 turn: None,
                 chief: false,
                 chief_hears: None,
@@ -424,6 +427,7 @@ impl Feed {
             fold.set_triggers(inner.triggers.clone());
             fold.set_goal(inner.goal.clone());
             fold.set_handoff(inner.handoff.clone());
+            fold.set_expired_cache(inner.expired_cache.clone());
             fold.set_turn(inner.turn.clone());
             fold.set_chief(inner.chief);
             fold.set_chief_hears(inner.chief_hears.clone());
@@ -742,6 +746,18 @@ impl Feed {
         inner.handoff.clone_from(&handoff);
         if let Some(fold) = inner.fold.as_mut() {
             fold.set_handoff(handoff);
+            self.flush_locked(&mut inner);
+        }
+    }
+
+    pub(crate) fn set_expired_cache(&self, expired: Option<sikemux_view::chat::ExpiredCache>) {
+        let mut inner = self.inner.locked();
+        if inner.expired_cache == expired {
+            return;
+        }
+        inner.expired_cache.clone_from(&expired);
+        if let Some(fold) = inner.fold.as_mut() {
+            fold.set_expired_cache(expired);
             self.flush_locked(&mut inner);
         }
     }

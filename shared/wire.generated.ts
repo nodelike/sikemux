@@ -1991,6 +1991,11 @@ export interface ChatHead {
      * starts it as a fork; none once sent.
      */
     handoff?: Handoff;
+    /**
+     * The chat's prompt cache has expired with a big history in it, so its next message reads
+     * all of it again; none while the cache is warm.
+     */
+    expiredCache?: ExpiredCache;
     /** What the person has written and not sent, as the host keeps it for every app. */
     draft?: ChatDraft;
     /** The goal the chat works on now. */
@@ -2467,6 +2472,16 @@ export interface Handoff {
     leftOut: number;
     /** Commands it reports the outcome of. */
     commands: number;
+}
+
+/** A chat whose prompt cache has expired, and what its next message does about it. */
+export interface ExpiredCache {
+    /** The tokens the next message reads again. */
+    tokens: number;
+    /** When the cache expired, in Unix milliseconds. */
+    at: number;
+    /** The chat is summarised before the next message goes; off, it keeps its full history. */
+    summarise: boolean;
 }
 
 /**
@@ -5301,6 +5316,12 @@ export interface ChatHandedOff {
     project: string;
 }
 
+export interface KeepHistoryParams {
+    agentId: string;
+    /** Off, the chat is summarised before the next message. */
+    keep: boolean;
+}
+
 /** The push token of the Live Activity the calling phone shows this host's agents in; none once it ended. */
 export interface ActivityParams {
     token: string | null;
@@ -5505,6 +5526,7 @@ export interface CoreCalls {
     dropQueued: { params: QueuedParams; answer: null };
     editMessage: { params: EditParams; answer: null };
     handOff: { params: HandOffParams; answer: ChatHandedOff };
+    keepHistory: { params: KeepHistoryParams; answer: null };
     liveActivity: { params: ActivityParams; answer: null };
     moveChatAccount: { params: MoveChatParams; answer: null };
     onScreen: { params: OnScreenParams; answer: null };

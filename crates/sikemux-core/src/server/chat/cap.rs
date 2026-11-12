@@ -18,7 +18,8 @@ use sikemux_view::turn::{TurnPhase, TurnState, TurnWait, TurnWaitKind};
 
 use super::{Chat, ChatCommand};
 use crate::server::messages::called_now;
-use crate::server::{inbox, person_calls, roster, Core};
+use crate::server::{inbox, person_calls, roster, Core, CoreResult};
+use sikemux_view::chat::ExpiredCache;
 
 /// Claude cuts what a compaction hook answers past this many characters.
 const HOOK_CHARS: usize = 10_000;
@@ -49,6 +50,8 @@ pub(crate) struct Meter {
     compacted: AtomicBool,
     /// When the core asked for the compaction still running, or 0.
     compacting_since: AtomicU64,
+    /// The person chose to keep the full history for the next message after the cache expired.
+    keeps_history: AtomicBool,
 }
 
 /// What a meter keeps while its chat sleeps or its core starts again.
@@ -80,6 +83,7 @@ impl Meter {
         self.last_call_ms.store(epoch_ms(), Ordering::Release);
         self.context.store(context, Ordering::Release);
         self.compacted.store(false, Ordering::Release);
+        self.keeps_history.store(false, Ordering::Release);
     }
 
     pub(crate) fn compacted(&self, context: u64) {
@@ -297,6 +301,68 @@ fn big_from(chat: &Chat) -> u64 {
     } else {
         IDLE_COMPACT_UNCAPPED_TOKENS
     }
+}
+
+/// A big Claude chat whose prompt cache has expired since its last call, uncompacted: its next
+/// message reads its whole history again unless the chat is summarised first, which it is
+/// unless the person keeps the full history.
+fn expired_cache(chat: &Chat, now: u64) -> Option<ExpiredCache> {
+    let last = chat.meter.last_call_ms();
+    let tokens = chat.meter.context();
+    let expired = chat.provider() == "claude"
+        && last > 0
+        && now.saturating_sub(last) >= CACHE_MS
+        && tokens >= IDLE_COMPACT_UNCAPPED_TOKENS
+        && !chat.meter.compacted.load(Ordering::Acquire)
+        && !chat.meter.compacting();
+    expired.then(|| ExpiredCache {
+        tokens,
+        at: last + CACHE_MS,
+        summarise: !chat.meter.keeps_history.load(Ordering::Acquire),
+    })
+}
+
+/// Tells each chat's clients whether its cache has expired.
+pub(crate) fn tell_expired(core: &Core, now: u64) {
+    for agent_id in core.chats().ids() {
+        if let Some(chat) = core.chats().get(&agent_id) {
+            chat.feed.set_expired_cache(expired_cache(&chat, now));
+        }
+    }
+}
+
+/// Whether the message about to go summarises the chat first.
+pub(crate) fn summarises_first(chat: &Chat) -> bool {
+    expired_cache(chat, epoch_ms()).is_some_and(|expired| expired.summarise)
+}
+
+/// The core is summarising the chat ahead of its next message.
+pub(crate) fn summarising(chat: &Chat) {
+    chat.meter.compacted.store(true, Ordering::Release);
+    chat.meter
+        .compacting_since
+        .store(epoch_ms(), Ordering::Release);
+    chat.feed.set_expired_cache(None);
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KeepHistoryParams {
+    pub agent_id: String,
+    /// Off, the chat is summarised before the next message.
+    pub keep: bool,
+}
+
+/// The person's switch for a chat whose cache expired: summarise it before the next message, or
+/// keep its full history.
+pub(crate) fn keep_history(core: &Core, params: KeepHistoryParams) -> CoreResult<()> {
+    let chat = core.chats().get(&params.agent_id).ok_or("no such chat")?;
+    chat.meter
+        .keeps_history
+        .store(params.keep, Ordering::Release);
+    chat.feed
+        .set_expired_cache(expired_cache(&chat, epoch_ms()));
+    Ok(())
 }
 
 /// Asks each big chat that has sat idle long enough to compact before its cache dies.

@@ -341,12 +341,28 @@ pub struct ChatHead {
     /// starts it as a fork; none once sent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub handoff: Option<Handoff>,
+    /// The chat's prompt cache has expired with a big history in it, so its next message reads
+    /// all of it again; none while the cache is warm.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expired_cache: Option<ExpiredCache>,
     /// What the person has written and not sent, as the host keeps it for every app.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub draft: Option<ChatDraft>,
     /// The goal the chat works on now.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub goal: Option<ChatGoal>,
+}
+
+/// A chat whose prompt cache has expired, and what its next message does about it.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExpiredCache {
+    /// The tokens the next message reads again.
+    pub tokens: u64,
+    /// When the cache expired, in Unix milliseconds.
+    pub at: u64,
+    /// The chat is summarised before the next message goes; off, it keeps its full history.
+    pub summarise: bool,
 }
 
 /// The goal a chat works on, as its composer shows it.

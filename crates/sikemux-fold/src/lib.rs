@@ -837,6 +837,13 @@ impl Fold {
         }
     }
 
+    pub fn set_expired_cache(&mut self, expired: Option<sikemux_view::chat::ExpiredCache>) {
+        if self.head.expired_cache != expired {
+            self.head.expired_cache = expired;
+            self.set_head("expiredCache");
+        }
+    }
+
     pub fn set_goal(&mut self, goal: Option<ChatGoal>) {
         if self.head.goal != goal {
             self.head.goal = goal;
