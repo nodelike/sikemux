@@ -1615,6 +1615,7 @@ pub fn install(cx: &mut App) {
 
 /// Shuts the desks that came back from the last run with no pages, files or terminals on them,
 /// once the terminals have been read, since only a tab closing in sight shuts a desk otherwise.
+/// Each waits until the frame being drawn ends, since shutting one draws the stage again.
 fn shut_desks_restored_empty(
     bench: &mut Workbench,
     engine: &BrowserManager,
@@ -1652,7 +1653,10 @@ fn shut_desks_restored_empty(
                 desks.strips.insert(agent.clone(), Arc::new(strip));
             });
         }
-        bench.shut_empty_desk(&agent, cx);
+        let this = cx.weak_entity();
+        cx.defer(move |cx| {
+            let _ = this.update(cx, |bench, cx| bench.shut_empty_desk(&agent, cx));
+        });
     }
 }
 
