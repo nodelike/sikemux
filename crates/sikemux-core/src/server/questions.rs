@@ -467,6 +467,9 @@ struct State {
     /// The rule each agent was last sent back to over what it offered, so the same rule does not
     /// send it back again until a turn ends offering nothing a rule is about.
     followed_rules: HashMap<String, String>,
+    /// The agents whose next turn leaves their questions open, as when the person wrote to one
+    /// while several of its calls waited.
+    kept_through_turn: HashSet<String>,
     /// The agents whose latest turn ended in questions they were sent back to, so the next such
     /// turn reaches the person.
     sent_back: HashSet<String>,
@@ -714,6 +717,12 @@ impl Questions {
         self.wake.now();
     }
 
+    /// The person wrote to `agent_id` while several of its calls waited, which their words
+    /// answer none of: its next turn leaves its questions open for the person.
+    pub(crate) fn keep_through_next_turn(&self, agent_id: &str) {
+        (self.state.locked().kept_through_turn).insert(agent_id.to_owned());
+    }
+
     /// The questions of `agent_id` the person answers by writing to it, which its next turn takes
     /// back: those it stopped for, and those its last reply asked.
     pub(crate) fn answered_by_writing(&self, agent_id: &str) -> Vec<String> {
@@ -866,6 +875,9 @@ impl Questions {
     /// call waiting for the person's approval, still do.
     pub(crate) fn turn_started(&self, agent_id: &str) {
         let mut state = self.state.locked();
+        if state.kept_through_turn.remove(agent_id) {
+            return;
+        }
         let (replies, open) = (state.reply_questions.len(), state.open.len());
         state
             .reply_questions

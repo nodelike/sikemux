@@ -553,6 +553,12 @@ fn same_decision(one: &PersonCall, other: &PersonCall) -> bool {
         && labels(one) == labels(other)
 }
 
+/// What the person types to a secret or an access call is never kept: it may be a password or a
+/// token.
+fn hides_words(call: &PersonCall) -> bool {
+    call.secret || call.kind == CallKind::Access
+}
+
 fn settled_at(call: &PersonCall) -> u64 {
     (call.outcome.as_ref().map(|outcome| outcome.at))
         .or(call.answer.as_ref().map(|answer| answer.at))
@@ -685,17 +691,18 @@ pub(crate) fn sync_holds(core: &Core, wanted: Vec<(String, PersonCall)>) {
 /// The longest answer typed in a chat that a call keeps.
 const MAX_WRITTEN_CHARS: usize = 2000;
 
-/// The person wrote to `agent_id` in its chat, which answers the calls of taste, money or access
-/// it waits on there. A production call is never answered by what is typed, and a secret is never
-/// typed in a chat.
-pub(crate) fn written(core: &Arc<Core>, agent_id: &str, text: &str) {
+/// The person wrote to `agent_id` in its chat. When exactly one call it waits on there can be
+/// answered by writing, one of taste, money or access its next turn takes back, that call is
+/// answered in the chat; with several, none is, and they stay open. The words reach only this
+/// chat, so a call other agents also wait on stays open for them. A production call is never
+/// answered by writing, and an access call never keeps what was typed.
+pub(crate) fn written(core: &Core, agent_id: &str, text: &str) {
     let questions = core.harness.questions.answered_by_writing(agent_id);
     if questions.is_empty() {
         return;
     }
-    let words = clipped(text.trim(), MAX_WRITTEN_CHARS);
     let mut book = core.person_calls.book.locked();
-    let answered: Vec<(String, u64)> = (book.iter())
+    let answerable: Vec<&Kept> = (book.iter())
         .filter(|kept| {
             let call = &kept.call;
             let asked = (std::iter::once(&kept.source).chain(&kept.also))
@@ -705,59 +712,51 @@ pub(crate) fn written(core: &Arc<Core>, agent_id: &str, text: &str) {
                 && call.kind != CallKind::Production
                 && !call.secret
         })
-        .map(|kept| (kept.call.id.clone(), kept.call.raised_at))
         .collect();
-    if answered.is_empty() {
+    let kept = match answerable.as_slice() {
+        [] => return,
+        [kept] => *kept,
+        _ => {
+            drop(book);
+            core.harness.questions.keep_through_next_turn(agent_id);
+            return;
+        }
+    };
+    let shared = std::iter::once(&kept.call.asker)
+        .chain(&kept.call.joined)
+        .any(|asker| asker.agent_id != agent_id);
+    if shared {
         return;
     }
-    let answered_ids: Vec<String> = answered.iter().map(|(id, _)| id.clone()).collect();
-    for (id, raised_at) in answered {
-        let answer = CallAnswer {
-            option: None,
-            options: Vec::new(),
-            note: None,
-            words: Some(words.clone()).filter(|words| !words.is_empty()),
-            by: CallClient::Chat,
-            at: epoch_ms(),
-            waited_ms: epoch_ms().saturating_sub(raised_at),
-        };
-        let write = |book: &mut Book, entry| core.person_calls.write(book, entry);
-        write(
-            &mut book,
-            Entry::Answered {
-                id: id.clone(),
-                answer,
-            },
-        );
-        write(
-            &mut book,
-            Entry::Came {
-                id,
-                outcome: outcome(CallResult::Heard),
-            },
-        );
-    }
+    let call = &kept.call;
+    let words = clipped(text.trim(), MAX_WRITTEN_CHARS);
+    let answer = CallAnswer {
+        option: None,
+        options: Vec::new(),
+        note: None,
+        words: Some(words).filter(|words| !words.is_empty() && call.kind != CallKind::Access),
+        by: CallClient::Chat,
+        at: epoch_ms(),
+        waited_ms: epoch_ms().saturating_sub(call.raised_at),
+    };
+    let id = call.id.clone();
+    let write = |book: &mut Book, entry| core.person_calls.write(book, entry);
+    write(
+        &mut book,
+        Entry::Answered {
+            id: id.clone(),
+            answer,
+        },
+    );
+    write(
+        &mut book,
+        Entry::Came {
+            id,
+            outcome: outcome(CallResult::Heard),
+        },
+    );
     drop(book);
     core.person_calls.changed(core);
-    let others: Vec<String> = (answered_ids.iter())
-        .flat_map(|id| core.person_calls.questions_of(id))
-        .filter(|id| !questions.contains(id))
-        .collect();
-    if others.is_empty() {
-        return;
-    }
-    let core = core.clone();
-    tokio::spawn(async move {
-        for id in others {
-            let answer = Some(words.clone()).filter(|words| !words.is_empty());
-            let params = AnswerParams {
-                id,
-                answer,
-                ..AnswerParams::default()
-            };
-            let _ = questions::answer(&core, params).await;
-        }
-    });
 }
 
 /// A client drew the call.
@@ -818,8 +817,8 @@ fn answer_of(
     let answer = CallAnswer {
         option: params.option.clone(),
         options: params.options.clone(),
-        note: note.filter(|_| !call.secret),
-        words: words.filter(|_| !call.secret),
+        note: note.filter(|_| !hides_words(call)),
+        words: words.filter(|_| !hides_words(call)),
         by: client,
         at: epoch_ms(),
         waited_ms: epoch_ms().saturating_sub(call.raised_at),
@@ -982,8 +981,8 @@ pub(crate) async fn answer_questions(
             &Source::Question(params.id.clone()),
             |call, by| {
                 let option = |index: usize| call.options.get(index).map(|option| option.id.clone());
-                let typed =
-                    (params.answer.clone()).filter(|text| !text.trim().is_empty() && !call.secret);
+                let typed = (params.answer.clone())
+                    .filter(|text| !text.trim().is_empty() && !hides_words(call));
                 let picked = params.choice.is_some() || params.choices.is_some();
                 CallAnswer {
                     option: params.choice.and_then(option),
