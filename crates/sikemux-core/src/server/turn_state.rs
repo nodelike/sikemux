@@ -203,7 +203,7 @@ fn done(core: &Core, work: Option<&Work>) -> TurnDone {
 /// production, and at all. The first that needs no call is the main one.
 fn next_steps(changes: WorkAt, (staging, production): (bool, bool)) -> Vec<NextStep> {
     let steps: Vec<TurnStep> = match changes {
-        WorkAt::None => Vec::new(),
+        WorkAt::None | WorkAt::Unknown => Vec::new(),
         WorkAt::Uncommitted => vec![TurnStep::Commit],
         WorkAt::Committed => vec![TurnStep::Push],
         WorkAt::Landed => [

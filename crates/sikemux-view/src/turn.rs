@@ -39,6 +39,9 @@ pub enum TurnPhase {
     /// Its turn ended with work left open and nothing set to wake it.
     Stopped,
     Failed,
+    /// A value a newer core sends.
+    #[serde(other)]
+    Unknown,
 }
 
 /// What a waiting agent waits on, and how long that usually takes.
@@ -66,6 +69,9 @@ pub enum TurnWaitKind {
     Timer,
     Process,
     Check,
+    /// A value a newer core sends.
+    #[serde(other)]
+    Unknown,
 }
 
 /// What the agent waits on the person for.
@@ -106,6 +112,9 @@ pub enum WorkAt {
     Landed,
     Staged,
     Shipped,
+    /// A value a newer core sends.
+    #[serde(other)]
+    Unknown,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -115,6 +124,9 @@ pub enum ChecksStand {
     Failed,
     /// No run of the project's check is kept for where the work is now.
     NotChecked,
+    /// A value a newer core sends.
+    #[serde(other)]
+    Unknown,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -138,6 +150,9 @@ pub enum TurnStep {
     TryIt,
     /// Tells a stopped agent to go on with what is left.
     CarryOn,
+    /// A value a newer core sends.
+    #[serde(other)]
+    Unknown,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -171,4 +186,42 @@ pub enum Remedy {
     Retry,
     Reconnect,
     SignIn,
+    /// A value a newer core sends.
+    #[serde(other)]
+    Unknown,
+}
+
+/// What counts as landed in a project.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Landed {
+    Committed,
+    Pushed,
+    Merged,
+    /// A value a newer core sends.
+    #[serde(other)]
+    Unknown,
+}
+
+/// What landing means in a project, and how its latest changes reached its branch.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LandedMeans {
+    pub means: Landed,
+    /// The person set it, rather than the core reading it from `history`.
+    pub chosen: bool,
+    /// None for a project with no commits on its branch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub history: Option<LandingHistory>,
+}
+
+/// How most of a project's latest changes reached its branch: `count` of the last `of` were
+/// `means`, such as 41 of the last 50 pushed straight to main.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LandingHistory {
+    pub means: Landed,
+    pub count: u32,
+    pub of: u32,
+    pub branch: String,
 }
