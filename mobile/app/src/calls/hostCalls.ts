@@ -121,10 +121,13 @@ export function choose(draft: ExternalValue<Draft>, call: PersonCall, option: st
 }
 
 /** What answers the call as the card stands: the options chosen with the note, or the person's own words alone. */
+/** A call with nothing to pick that its asker goes on with: Go with this, with nothing typed, lets it stand. */
+export const goesOnAsIs = (call: PersonCall) => !!call.assumption && call.options.length === 0;
+
 export function answerOf(draft: Draft, call: PersonCall): AnswerCallParams | undefined {
   const words = draft.typed.trim() || undefined;
   const chosen = chosenIn(draft, call);
-  if (!chosen.length) return words ? { id: call.id, words } : undefined;
+  if (!chosen.length) return words ? { id: call.id, words } : goesOnAsIs(call) ? { id: call.id, fine: true } : undefined;
   if (call.multi) return { id: call.id, options: chosen, note: words };
   return { id: call.id, option: chosen[0], note: words };
 }

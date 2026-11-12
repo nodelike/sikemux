@@ -250,6 +250,9 @@ export const SECRET_FIELD = "Type or paste it…";
 export const GO_WITH_THIS = "Go with this";
 export const NOT_MINE = "Not mine";
 export const WHAT_RUNS = "What runs";
+/** What the asker goes on with until the person answers, above Go with this. */
+export const goesOn = (name: string, assumption: string, say: Say = english) =>
+    say("Until you answer, @{name} goes on assuming {assumption}", { name, assumption });
 export const kept = (name: string, say: Say = english) => say("Kept private: @{name} reads it, and it never shows in the chat.", { name });
 /** Go with this while the host has not yet taken that this phone drew the call. */
 export const CONNECTING = "Connecting…";

@@ -743,5 +743,6 @@
   "~{rate} tok/s": "~{rate} tok/s",
   "“{label}”": "«{label}»",
   "… output truncated": "… salida recortada",
-  "{name} · guest": "{name} · invitado"
+  "{name} · guest": "{name} · invitado",
+  "Until you answer, @{name} goes on assuming {assumption}": "Hasta que respondas, @{name} sigue suponiendo {assumption}"
 }

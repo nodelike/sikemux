@@ -743,5 +743,6 @@
   "~{rate} tok/s": "约 {rate} tok/s",
   "“{label}”": "“{label}”",
   "… output truncated": "… 输出已截断",
-  "{name} · guest": "{name} · 访客"
+  "{name} · guest": "{name} · 访客",
+  "Until you answer, @{name} goes on assuming {assumption}": "在你回答之前，@{name} 会按「{assumption}」继续"
 }

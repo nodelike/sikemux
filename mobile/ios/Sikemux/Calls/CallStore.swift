@@ -33,10 +33,18 @@ final class CallDraft {
         let words = typed.trimmingCharacters(in: .whitespacesAndNewlines)
         let text = words.isEmpty ? nil : words
         let now = chosen(in: call)
-        if now.isEmpty { return text.map { AnswerCallParams(id: call.id, words: $0) } }
+        if now.isEmpty {
+            if let text { return AnswerCallParams(id: call.id, words: text) }
+            return call.goesOnAsIs ? AnswerCallParams(id: call.id, fine: true) : nil
+        }
         if call.multi == true { return AnswerCallParams(id: call.id, options: now, note: text) }
         return AnswerCallParams(id: call.id, option: now[0], note: text)
     }
+}
+
+extension PersonCall {
+    /// A call with nothing to pick that its asker goes on with: Go with this, with nothing typed, lets it stand.
+    var goesOnAsIs: Bool { assumption != nil && options.isEmpty }
 }
 
 /// The calls one host puts to the person, as its view lists them, with what the person has done on each card, and

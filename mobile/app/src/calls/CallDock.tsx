@@ -9,6 +9,7 @@ import {
   AGAINST_IT,
   CONNECTING,
   context as contextOf,
+  goesOn,
   GO_WITH_THIS,
   hidden,
   kept,
@@ -24,7 +25,7 @@ import {
 import { useT } from '@/i18n';
 import type { CallOption, PersonCall } from '@shared/wire.generated';
 import { AskerMark } from '@/calls/AskerMark';
-import { answer, answerOf, choose, chosenIn, draftOf, edit, focus, notMine, see, useKept } from '@/calls/hostCalls';
+import { answer, answerOf, choose, chosenIn, draftOf, edit, focus, goesOnAsIs, notMine, see, useKept } from '@/calls/hostCalls';
 import { useHostFile } from '@/chat/hostFiles';
 import { haptics } from '@/ui/haptics';
 import { Icon } from '@/ui/Icon';
@@ -82,7 +83,7 @@ export const CallDock = memo(function CallDock({
   const failed = held.failed[call.id];
   // The core asks only a production call to have been drawn before its answer counts.
   const seen = call.kind !== 'production' || held.seen.has(call.id);
-  const ready = (chosen.length > 0 || typed) && !draft.sending && canAnswer && seen;
+  const ready = (chosen.length > 0 || typed || goesOnAsIs(call)) && !draft.sending && canAnswer && seen;
 
   // Tells the host this phone drew the call, again whenever the connection changes.
   useEffect(() => {
@@ -222,6 +223,12 @@ export const CallDock = memo(function CallDock({
           </>
         ) : null}
         {failed ? <Text style={styles.failed}>{pushFailed(failed, t)}</Text> : null}
+        {call.assumption ? (
+          <View style={styles.goesOn}>
+            <Icon name="IconClock" size={13} color={colors.tertiary} />
+            <Text style={styles.goesOnText}>{goesOn(call.asker.name, call.assumption, t)}</Text>
+          </View>
+        ) : null}
         <Pressable
           onPress={go}
           disabled={!ready}
@@ -443,6 +450,8 @@ const makeStyles = (colors: Palette) => {
     hiddenSize: { marginTop: 8, fontFamily: fonts.ui, fontSize: 12.5, color: colors.inkDim },
     kept: { marginTop: 4, fontFamily: fonts.ui, fontSize: 12.5, color: colors.tertiary },
     failed: { marginTop: 10, fontFamily: fonts.ui, fontSize: 13, color: colors.danger },
+    goesOn: { marginTop: 12, flexDirection: 'row', alignItems: 'flex-start', gap: 6 },
+    goesOnText: { flex: 1, fontFamily: fonts.ui, fontSize: 13.5, lineHeight: 19, color: colors.tertiary },
     go: { marginTop: 12, height: 46, borderRadius: 12, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center' },
     goText: { fontFamily: fonts.uiSemibold, fontSize: 16, color: colors.ground },
     folded: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: ROW, marginTop: 4 },

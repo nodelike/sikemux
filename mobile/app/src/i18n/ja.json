@@ -743,5 +743,6 @@
   "~{rate} tok/s": "約 {rate} tok/s",
   "“{label}”": "「{label}」",
   "… output truncated": "… 出力は省略されました",
-  "{name} · guest": "{name} · ゲスト"
+  "{name} · guest": "{name} · ゲスト",
+  "Until you answer, @{name} goes on assuming {assumption}": "回答があるまで、@{name} は「{assumption}」と仮定して進めます"
 }

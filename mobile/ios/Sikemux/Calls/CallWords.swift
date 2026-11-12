@@ -209,6 +209,10 @@ enum CallWords {
     static let goWithThis = String(localized: "Go with this")
     static let notMine = String(localized: "Not mine")
     static let whatRuns = String(localized: "What runs")
+    /// What the asker goes on with until the person answers, above Go with this.
+    static func goesOn(_ name: String, _ assumption: String) -> String {
+        String(localized: "Until you answer, @\(name) goes on assuming \(assumption)")
+    }
     static func kept(_ name: String) -> String {
         String(localized: "Kept private: @\(name) reads it, and it never shows in the chat.")
     }

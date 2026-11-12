@@ -18,7 +18,12 @@ final class Assumptions {
 
     let core: String
     let agentId: String
-    private(set) var assumed: [AgentQuestion] = []
+    private var read: [AgentQuestion] = []
+    /// The assumptions to show: a question that raised a call shares its id, and its card already says it.
+    var assumed: [AgentQuestion] {
+        let calls = Set((Hub.shared.live(core).view?.calls ?? []).map(\.id))
+        return read.filter { !calls.contains($0.id) }
+    }
     /// The assumption whose answer the composer writes, after Change.
     private(set) var changing: AgentQuestion?
     private var sent: Set<String> = []
@@ -44,7 +49,7 @@ final class Assumptions {
             do {
                 let found = try await connection.call(PhoneCall.Questions.self, NoParams())
                 guard !Task.isCancelled else { return }
-                assumed = found.filter { $0.agentId == agentId && $0.state == .assumed && !sent.contains($0.id) }
+                read = found.filter { $0.agentId == agentId && $0.state == .assumed && !sent.contains($0.id) }
                 if let changing, !assumed.contains(where: { $0.id == changing.id }) { self.changing = nil }
             } catch {
                 if !Task.isCancelled { report(CallWords.couldNotRead(problem(error))) }
@@ -77,7 +82,7 @@ final class Assumptions {
     {
         guard let connection = Hub.shared.live(core).connection else { return false }
         sent.insert(question.id)
-        assumed.removeAll { $0.id == question.id }
+        read.removeAll { $0.id == question.id }
         if changing?.id == question.id { changing = nil }
         do {
             _ = try await connection.call(PhoneCall.AnswerQuestion.self, params)

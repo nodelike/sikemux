@@ -743,5 +743,6 @@
   "~{rate} tok/s": "~{rate} tok/s",
   "“{label}”": "„{label}“",
   "… output truncated": "… Ausgabe gekürzt",
-  "{name} · guest": "{name} · Gast"
+  "{name} · guest": "{name} · Gast",
+  "Until you answer, @{name} goes on assuming {assumption}": "Bis du antwortest, geht @{name} von {assumption} aus"
 }

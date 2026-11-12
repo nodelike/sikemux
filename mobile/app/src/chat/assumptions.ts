@@ -3,7 +3,7 @@ import type { ConnectionLike } from '@sikemux/native';
 
 import { couldNotRead } from '@shared/calls/words';
 import { useT } from '@/i18n';
-import type { AgentQuestion, AnswerParams, ChatContext } from '@shared/wire.generated';
+import type { AgentQuestion, AnswerParams, ChatContext, PersonCall } from '@shared/wire.generated';
 
 import { callHost, useHostCall } from '@/core/hostCalls';
 import { problem } from '@/core/problem';
@@ -32,6 +32,7 @@ export type Assumptions = {
  */
 export function useAssumptions(
   connection: ConnectionLike | undefined,
+  calls: readonly PersonCall[] | undefined,
   agentId: string,
   seen: string,
   onError: (problem: string) => void,
@@ -46,10 +47,13 @@ export function useAssumptions(
     if (read.problem) onError(couldNotRead(read.problem, t));
   }, [read.problem, onError, t]);
 
-  const assumed = useMemo(
-    () => all.filter((question) => question.agentId === agentId && question.state === 'assumed' && !sent.has(question.id)),
-    [all, agentId, sent],
-  );
+  // A question that raised a call shares its id, and its card already says what the agent assumed.
+  const assumed = useMemo(() => {
+    const raised = new Set((calls ?? []).map((call) => call.id));
+    return all.filter(
+      (question) => question.agentId === agentId && question.state === 'assumed' && !sent.has(question.id) && !raised.has(question.id),
+    );
+  }, [all, calls, agentId, sent]);
   const changing = assumed.find((question) => question.id === changingId) ?? null;
 
   const send = useCallback(

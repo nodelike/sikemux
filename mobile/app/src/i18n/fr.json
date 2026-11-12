@@ -743,5 +743,6 @@
   "~{rate} tok/s": "~{rate} tok/s",
   "“{label}”": "« {label} »",
   "… output truncated": "… sortie tronquée",
-  "{name} · guest": "{name} · invité"
+  "{name} · guest": "{name} · invité",
+  "Until you answer, @{name} goes on assuming {assumption}": "Jusqu’à votre réponse, @{name} part du principe suivant : {assumption}"
 }

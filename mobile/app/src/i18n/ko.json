@@ -743,5 +743,6 @@
   "~{rate} tok/s": "약 {rate} tok/s",
   "“{label}”": "‘{label}’",
   "… output truncated": "… 출력이 잘렸습니다",
-  "{name} · guest": "{name} · 게스트"
+  "{name} · guest": "{name} · 게스트",
+  "Until you answer, @{name} goes on assuming {assumption}": "답하기 전까지 @{name}은(는) {assumption}(으)로 가정하고 진행합니다"
 }

@@ -56,6 +56,15 @@ struct CallDock: View {
                     Text(CallWords.pushFailed(failed)).font(Theme.ui(13)).foregroundStyle(palette.danger).padding(
                         .top, 10)
                 }
+                if let assumption = call.assumption {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        IconView(icon: Icons.clock, size: 13)
+                        Text(CallWords.goesOn(call.asker.name, assumption))
+                    }
+                    .font(Theme.ui(13.5))
+                    .foregroundStyle(palette.tertiary)
+                    .padding(.top, 12)
+                }
                 goButton.padding(.top, 12)
                 folded
             }
@@ -280,7 +289,7 @@ struct CallDock: View {
 
     private var goButton: some View {
         let seen = call.kind != .production || calls.seen.contains(call.id)
-        let ready = (!chosen.isEmpty || typed) && !draft.sending && canAnswer && seen
+        let ready = (!chosen.isEmpty || typed || call.goesOnAsIs) && !draft.sending && canAnswer && seen
         return Button(action: goWithThis) {
             Text(seen ? CallWords.goWithThis : CallWords.connecting)
                 .font(Theme.ui(16, .semibold))

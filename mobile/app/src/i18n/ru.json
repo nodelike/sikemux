@@ -743,5 +743,6 @@
   "~{rate} tok/s": "~{rate} ток/с",
   "“{label}”": "«{label}»",
   "… output truncated": "… вывод обрезан",
-  "{name} · guest": "{name} · гость"
+  "{name} · guest": "{name} · гость",
+  "Until you answer, @{name} goes on assuming {assumption}": "Пока вы не ответите, @{name} исходит из того, что {assumption}"
 }

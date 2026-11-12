@@ -218,7 +218,13 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
   const liveShown = hasLiveWork(fresh) && chat.attached === 'live';
   const recalls = !watchOnly && (queued.length > 0 || state.messages.some((message) => message.role === 'user'));
   const strip = liveShown ? <LiveStrip work={work} provider={provider} onOpen={openLive} /> : null;
-  const assumptions = useAssumptions(connection, agentId, `${info?.activeAt}|${info?.unread}|${state.running}`, session.report);
+  const assumptions = useAssumptions(
+    connection,
+    live.snapshot?.calls,
+    agentId,
+    `${info?.activeAt}|${info?.unread}|${state.running}`,
+    session.report,
+  );
   const input = useRef<TextInput>(null);
   const keptCalls = useKept(core);
   // The hub keeps the host's calls as the same array while none changes, so typing beside a docked call does not
