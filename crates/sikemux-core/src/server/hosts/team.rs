@@ -49,6 +49,9 @@ pub(crate) struct Foreign {
     /// The commit its commits last came back to this host at.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub landed_head: Option<String>,
+    /// The branch here its commits come back on, kept across its reports.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
     /// The call that starts it there, while whether it started is not known yet.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pending: Option<String>,

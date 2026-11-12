@@ -1283,8 +1283,9 @@ to you and then to the person here, and your messages. Each time its turn
 ends, its new commits come back first, onto a branch in your checkout named
 for the host and it, such as `sikemux/studio/otter`, and its report names the
 branch. A branch of that name that holds another worker's commits is never
-replaced: the next free name, such as `sikemux/studio/otter-2`, is used, and
-later landings of the same worker keep to its own branch. Merge what you want of it yourself; Sikemux never merges it. While the
+replaced: the next free name, such as `sikemux/studio/otter-2`, is used. Each
+later landing of that worker goes on the same branch, unless something else
+moved or took it since, which gets the worker a free name again. Merge what you want of it yourself; Sikemux never merges it. While the
 host does not answer, what you send it waits and goes once it is back, and you
 hear when it has been out of reach for a few minutes and when it is back. If
 the person removes the link, you hear that too.

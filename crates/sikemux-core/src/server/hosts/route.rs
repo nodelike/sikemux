@@ -732,6 +732,7 @@ pub(super) fn hire_here(core: &Core, host: &str, params: HireParams) -> CoreResu
         repo: lead.repo,
         landed: None,
         landed_head: None,
+        branch: None,
         pending: None,
     });
     pin(core);

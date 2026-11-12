@@ -232,6 +232,20 @@ fn free_branch(repo: &Path, wanted: &str) -> Result<String, String> {
         })
 }
 
+/// Whether `branch` is gone, or still at the commit this worker's commits
+/// last came back at, so nobody else's commits are on it.
+fn still_own(repo: &Path, branch: &str, last_head: Option<&str>) -> bool {
+    match Git::quick(repo).trimmed(&[
+        "rev-parse",
+        "--verify",
+        "--quiet",
+        &format!("refs/heads/{branch}"),
+    ]) {
+        Err(_) => true,
+        Ok(tip) => last_head == Some(tip.as_str()),
+    }
+}
+
 fn fetch(repo: &Path, bundle: &Path, into: &str) -> Result<(), String> {
     Git::slow(repo)
         .trimmed(&["bundle", "verify", "--quiet", &bundle.to_string_lossy()])
@@ -985,7 +999,7 @@ pub(super) async fn land(
         return Err(refused(format!("{} is no longer there", repo.display())));
     }
     if worker.landed_head.as_deref() == Some(landing.head.as_str()) {
-        return Ok(json!({ "branch": worker.landed.map(|(branch, _)| branch) }));
+        return Ok(json!({ "branch": worker.branch }));
     }
     let body = match body {
         Some(body) => body,
@@ -1003,7 +1017,7 @@ pub(super) async fn land(
                 })?
         }
     };
-    let own = worker.landed.map(|(branch, _)| branch);
+    let (own, last_head) = (worker.branch, worker.landed_head);
     let wanted = format!(
         "sikemux/{}/{}",
         slug(&name_of(core, host)),
@@ -1012,8 +1026,8 @@ pub(super) async fn land(
     let landed = blocking(move || {
         Git::quick(&repo).trimmed(&["check-ref-format", "--branch", &wanted])?;
         let branch = match own {
-            Some(own) => own,
-            None => free_branch(&repo, &wanted)?,
+            Some(own) if still_own(&repo, &own, last_head.as_deref()) => own,
+            _ => free_branch(&repo, &wanted)?,
         };
         fetch(&repo, body.path(), &format!("refs/heads/{branch}"))?;
         Ok(branch)
@@ -1024,6 +1038,7 @@ pub(super) async fn land(
     core.hosts.team.update(&landing.agent_id, |worker| {
         worker.landed = Some((branch.clone(), count));
         worker.landed_head = Some(landing.head.clone());
+        worker.branch = Some(branch.clone());
     });
     Ok(json!({ "branch": branch }))
 }

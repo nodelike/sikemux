@@ -225,6 +225,7 @@ pub(crate) async fn hand_over(
         repo: Some(packed.repo.clone()),
         landed: None,
         landed_head: None,
+        branch: None,
         pending: Some(id.clone()),
     });
     pin(core);
@@ -518,6 +519,7 @@ pub(super) async fn start_here(
             repo: None,
             landed: None,
             landed_head: None,
+            branch: None,
             pending: None,
         });
         core.names.adopt(
