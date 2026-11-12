@@ -14,9 +14,9 @@ use sikemux_fold::trigger as fired;
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 use sikemux_view::chat::{ChatTrigger, FiredRequest, RequestHeader, TriggerFired, TriggerWhen};
-use sikemux_view::turn::{TurnWait, TurnWaitKind};
 use sikemux_view::memory::Learned;
 use sikemux_view::playbook::RunsAlone;
+use sikemux_view::turn::{TurnWait, TurnWaitKind};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
