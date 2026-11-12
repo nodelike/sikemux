@@ -25,7 +25,7 @@ enum ProviderSignIn {
         )
         guard let page = started.firstFactorVerification?.externalVerificationRedirectUrl.flatMap(URL.init(string:))
         else {
-            throw Clerk.Problem(code: nil, message: "Something went wrong; try again.")
+            throw Clerk.Problem(code: nil, message: String(localized: "Something went wrong; try again."))
         }
         let back = try await WebSheet.open(page, scheme: Config.urlScheme)
         let nonce = URLComponents(url: back, resolvingAgainstBaseURL: false)?
@@ -57,19 +57,24 @@ enum ProviderSignIn {
         guard signIn.firstFactorVerification?.status == .transferable else {
             throw Clerk.Problem(
                 code: nil,
-                message: "This account needs a sign-in step the app does not do yet; sign in on the web first.")
+                message: String(
+                    localized: "This account needs a sign-in step the app does not do yet; sign in on the web first."))
         }
         let (signUp, made) = try await Clerk.call(
             "POST", "v1/client/sign_ups", ["transfer": "true"], as: Clerk.SignUp.self)
         guard let session = signUp.createdSessionId else {
             throw Clerk.Problem(
-                code: nil, message: "The account needs more than this app asks for; finish signing up on the web.")
+                code: nil,
+                message: String(
+                    localized: "The account needs more than this app asks for; finish signing up on the web."))
         }
         try await Account.shared.activate(session: session, client: made)
     }
 
-    static let appleFailed =
-        "Apple did not sign you in. Check this iPhone is signed in to an Apple Account in Settings, then try again."
+    static let appleFailed = String(
+        localized:
+            "Apple did not sign you in. Check this iPhone is signed in to an Apple Account in Settings, then try again."
+    )
 }
 
 /// Apple's own sign-in sheet.

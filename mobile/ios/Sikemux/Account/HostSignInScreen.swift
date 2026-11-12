@@ -15,7 +15,7 @@ struct HostSignInScreen: View {
 
     @Environment(\.palette) private var palette
     @Environment(\.dismiss) private var dismiss
-    @State private var recent = RecentSignIn(elsewhere: "Add it at app.sikemux.com/host.")
+    @State private var recent = RecentSignIn(elsewhere: String(localized: "Add it at app.sikemux.com/host."))
     @State private var typed = ""
     @State private var step = Step.enter
     @State private var busy: Busy?
@@ -83,15 +83,17 @@ struct HostSignInScreen: View {
             case .android: "Android"
             case .macos: "macOS"
             case .linux: "Linux"
-            case .unknown: "A computer"
+            case .unknown: String(localized: "A computer")
             }
         return Screen {
             Nav(back: "Back", onBack: { step = .enter }, title: { EmptyView() }, end: { EmptyView() })
             ScrollView(showsIndicators: false) {
                 Prompt(
                     icon: host.platform == .linux ? Icons.desktop : Icons.laptop,
-                    title: "Add \(host.name) to your account?",
-                    detail: "\(platform) · \(host.channel.rawValue). Only add a computer you are setting up right now."
+                    title: String(localized: "Add \(host.name) to your account?"),
+                    detail: String(
+                        localized:
+                            "\(platform) · \(host.channel.rawValue). Only add a computer you are setting up right now.")
                 )
                 VStack(spacing: 12) {
                     Rows {
@@ -101,7 +103,8 @@ struct HostSignInScreen: View {
                             EmptyView()
                         }
                         Row(
-                            title: near.map { "From \($0)" } ?? "From an unknown place",
+                            title: near.map { String(localized: "From \($0)") }
+                                ?? String(localized: "From an unknown place"),
                             detail: host.requestedNear != nil ? host.requestedFrom : nil
                         ) {
                             IconView(icon: Icons.globe, size: 18).foregroundStyle(palette.secondary)
@@ -138,8 +141,8 @@ struct HostSignInScreen: View {
             Nav(back: "Devices", title: { EmptyView() }, end: { EmptyView() })
             Prompt(
                 icon: added ? Icons.check : Icons.close,
-                title: added ? "\(name) is on your account" : "Refused",
-                detail: added ? nil : "\(name) was not added."
+                title: added ? String(localized: "\(name) is on your account") : "Refused",
+                detail: added ? nil : String(localized: "\(name) was not added.")
             )
             ActionButton("Done") { dismiss() }
                 .padding(.horizontal, 24)
@@ -150,7 +153,7 @@ struct HostSignInScreen: View {
 
     private func asked(_ at: String) -> String {
         let ago = Format.ago(Format.date(iso: at))
-        return "Asked \(ago == "now" ? "just now" : ago)"
+        return ago == Format.ago(Date()) ? String(localized: "Asked just now") : String(localized: "Asked \(ago)")
     }
 
     private func look(_ code: String) {

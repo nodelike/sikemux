@@ -167,7 +167,7 @@ enum Clerk {
             throw Problem(
                 status: http?.statusCode,
                 code: first?.code,
-                message: first?.longMessage ?? first?.message ?? "Something went wrong; try again."
+                message: first?.longMessage ?? first?.message ?? String(localized: "Something went wrong; try again.")
             )
         }
         // A session's token comes bare; everything else comes as `response` beside the client it changed.

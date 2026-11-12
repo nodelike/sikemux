@@ -173,7 +173,7 @@ final class Notify {
             try await work.value
             syncProblem = nil
         } catch {
-            syncProblem = "Sikemux could not take this phone's address for them: \(problem(error))"
+            syncProblem = String(localized: "Sikemux could not take this phone's address for them: \(problem(error))")
             throw error
         }
     }
@@ -309,9 +309,11 @@ final class Notify {
         identifier: Card.answerCategory,
         actions: [
             UNNotificationAction(
-                identifier: CardAction.reject.rawValue, title: "Reject", options: [.foreground, .destructive]),
+                identifier: CardAction.reject.rawValue, title: String(localized: "Reject"),
+                options: [.foreground, .destructive]),
             UNNotificationAction(
-                identifier: CardAction.allow.rawValue, title: "Allow", options: [.foreground, .authenticationRequired]),
+                identifier: CardAction.allow.rawValue, title: String(localized: "Allow"),
+                options: [.foreground, .authenticationRequired]),
         ],
         intentIdentifiers: []
     )

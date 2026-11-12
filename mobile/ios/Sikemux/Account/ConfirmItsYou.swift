@@ -67,7 +67,7 @@ final class RecentSignIn {
                 as: Clerk.SessionVerification.self
             )
             guard result.status == .complete else {
-                return giveUp("This account also needs a second step to confirm it. \(elsewhere)")
+                return giveUp(String(localized: "This account also needs a second step to confirm it. \(elsewhere)"))
             }
         } catch {
             verify?.checking = false
@@ -81,7 +81,9 @@ final class RecentSignIn {
     }
 
     private func ask() async throws {
-        guard let session = Account.shared.sessionId else { throw Clerk.Problem(code: nil, message: "Sign in again.") }
+        guard let session = Account.shared.sessionId else {
+            throw Clerk.Problem(code: nil, message: String(localized: "Sign in again."))
+        }
         let (started, _) = try await Clerk.call(
             "POST", "v1/client/sessions/\(session)/verify", ["level": "first_factor"],
             as: Clerk.SessionVerification.self
@@ -91,14 +93,16 @@ final class RecentSignIn {
         if factors.contains(where: { $0.strategy == "password" }) {
             factor = .password
         } else if let email = factors.first(where: { $0.strategy == "email_code" && $0.emailAddressId != nil }) {
-            factor = .emailCode(to: email.safeIdentifier ?? "your email", emailAddressId: email.emailAddressId!)
+            factor = .emailCode(
+                to: email.safeIdentifier ?? String(localized: "your email"), emailAddressId: email.emailAddressId!)
             _ = try await Clerk.call(
                 "POST", "v1/client/sessions/\(session)/verify/prepare_first_factor",
                 ["strategy": "email_code", "email_address_id": email.emailAddressId!],
                 as: Clerk.SessionVerification.self
             )
         } else {
-            throw Clerk.Problem(code: nil, message: "This account can't confirm it's you in the app. \(elsewhere)")
+            throw Clerk.Problem(
+                code: nil, message: String(localized: "This account can't confirm it's you in the app. \(elsewhere)"))
         }
         try await withCheckedThrowingContinuation { continuation in
             waiting = continuation
@@ -127,7 +131,10 @@ struct ConfirmItsYou: View {
         Screen {
             Nav(back: "Back", onBack: recent.cancel, title: { EmptyView() }, end: { EmptyView() })
             if case .emailCode(let to, _) = verify.factor {
-                Prompt(icon: Icons.shield, title: "Confirm it's you", detail: "Sikemux sent a code to \(to).") {
+                Prompt(
+                    icon: Icons.shield, title: "Confirm it's you",
+                    detail: String(localized: "Sikemux sent a code to \(to).")
+                ) {
                     CodeEntry(
                         code: Binding(
                             get: { verify.entry },

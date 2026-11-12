@@ -92,18 +92,25 @@ private struct Reel: View {
 
     private static let lines = [
         Line(
-            provider: "claude", title: "Tighten the rail spacing", place: "sikemux", doing: "Editing…", state: .working),
+            provider: "claude", title: "Tighten the rail spacing", place: "sikemux",
+            doing: String(localized: "Editing…"), state: .working),
         Line(
-            provider: "codex", title: "Fix the flaky PTY replay test", place: "sikemux", doing: "Running a command…",
-            state: .working),
-        Line(provider: "claude", title: "Remote pairing screen", place: "sikemux", doing: "Needs input", state: .needs),
-        Line(
-            provider: "hermes", title: "Release notes for v0.4.3", place: "sikemux-front", doing: "Done", state: .done),
-        Line(
-            provider: "opencode", title: "Why does the shader dim the rail", place: "sikemux", doing: "Thinking…",
+            provider: "codex", title: "Fix the flaky PTY replay test", place: "sikemux",
+            doing: String(localized: "Running a command…"),
             state: .working),
         Line(
-            provider: "codex", title: "Download size on the hero", place: "sikemux-front", doing: "Reading…",
+            provider: "claude", title: "Remote pairing screen", place: "sikemux",
+            doing: String(localized: "Needs input"), state: .needs),
+        Line(
+            provider: "hermes", title: "Release notes for v0.4.3", place: "sikemux-front",
+            doing: String(localized: "Done"), state: .done),
+        Line(
+            provider: "opencode", title: "Why does the shader dim the rail", place: "sikemux",
+            doing: String(localized: "Thinking…"),
+            state: .working),
+        Line(
+            provider: "codex", title: "Download size on the hero", place: "sikemux-front",
+            doing: String(localized: "Reading…"),
             state: .working),
     ]
     private static let rowHeight: CGFloat = 56

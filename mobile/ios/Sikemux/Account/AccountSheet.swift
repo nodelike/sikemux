@@ -115,12 +115,12 @@ struct AccountSheet: View {
         return HStack(spacing: 12) {
             Avatar(size: 44)
             VStack(alignment: .leading, spacing: 0) {
-                Text(user?.name ?? user?.email ?? "Signed in")
+                Text(user?.name ?? user?.email ?? String(localized: "Signed in"))
                     .font(Theme.ui(16, .semibold)).tracking(-0.25).foregroundStyle(palette.ink).lineLimit(1)
                 if user?.name != nil, let email = user?.email {
                     Text(email).metaStyle(palette).lineLimit(1)
                 }
-                Text("Signed in with \(user?.providerName ?? "email")").metaStyle(palette)
+                Text("Signed in with \(user?.providerName ?? String(localized: "email"))").metaStyle(palette)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -135,9 +135,13 @@ struct AccountSheet: View {
             IconView(icon: Icons.phone, size: 18).foregroundStyle(palette.secondary)
             VStack(alignment: .leading, spacing: 0) {
                 Text(UIDevice.current.name).font(Theme.ui(15, .medium)).tracking(-0.15).foregroundStyle(palette.ink)
-                Text(
-                    "\(id == nil ? "This phone" : "This phone · ")\(Text(id.map { String($0.prefix(8)) } ?? "").font(Theme.mono(12)))"
-                )
+                Group {
+                    if let id {
+                        Text("This phone · \(Text(String(id.prefix(8))).font(Theme.mono(12)))")
+                    } else {
+                        Text("This phone")
+                    }
+                }
                 .metaStyle(palette)
                 if case .failed(let problem, _) = session.status {
                     Text("Not on your account yet: \(problem)").font(Theme.meta).foregroundStyle(palette.danger)
@@ -172,7 +176,8 @@ struct AccountSheet: View {
                 } catch {
                     let problem = error as? ApiProblem
                     unconfirmed =
-                        problem.map { $0.unreachable ? "Can't reach Sikemux" : $0.message } ?? "Can't reach Sikemux"
+                        problem.map { $0.unreachable ? String(localized: "Can't reach Sikemux") : $0.message }
+                        ?? String(localized: "Can't reach Sikemux")
                     return
                 }
             }
@@ -186,8 +191,10 @@ struct AccountSheet: View {
         return Locale(identifier: code).localizedString(forIdentifier: code)?.capitalized ?? code
     }()
 
-    private static let crashReports =
-        "When the app crashes or hits an error, sends what went wrong and where in the code, with the app version, phone model and system version, and a one-way hash of your account. Never your hosts, chats, prompts, files or projects."
+    private static let crashReports = String(
+        localized:
+            "When the app crashes or hits an error, sends what went wrong and where in the code, with the app version, phone model and system version, and a one-way hash of your account. Never your hosts, chats, prompts, files or projects."
+    )
 
     /// The installed release and the commit it was built from: `0.1.0-nightly.5 · cef3bae`.
     static let version: String = {
@@ -202,7 +209,7 @@ struct FarewellScreen: View {
     let farewell: Farewell
 
     var body: some View {
-        let restore = "Sign in again within \(Config.restorableDays) days to restore it."
+        let restore = String(localized: "Sign in again within \(Config.restorableDays) days to restore it.")
         let (icon, title, detail): (IconDef, String, String?) =
             switch farewell {
             case .removed: (Icons.phone, "This phone was removed from your account", nil)
@@ -274,7 +281,8 @@ struct UpdateRequiredScreen: View {
         PromptScreen(
             icon: Icons.download,
             title: "Update Sikemux",
-            detail: "This version, \(required.current), is too old. Install \(required.minimum) or later."
+            detail: String(
+                localized: "This version, \(required.current), is too old. Install \(required.minimum) or later.")
         ) {
             ActionButton("Get the update", kind: .primary) { UIApplication.shared.open(Config.updateLink) }
         }

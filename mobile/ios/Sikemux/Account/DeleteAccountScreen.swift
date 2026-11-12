@@ -4,7 +4,8 @@ import SwiftUI
 /// Deletes the account, after the person types the word and, when the server asks, proves it is them again.
 struct DeleteAccountScreen: View {
     @Environment(\.palette) private var palette
-    @State private var recent = RecentSignIn(elsewhere: "Delete it at app.sikemux.com/delete-account.")
+    @State private var recent = RecentSignIn(
+        elsewhere: String(localized: "Delete it at app.sikemux.com/delete-account."))
     @State private var typed = ""
     @State private var deleting = false
     @State private var problem: String?
@@ -14,9 +15,12 @@ struct DeleteAccountScreen: View {
 
     private var gone: [String] {
         [
-            "Hosts are signed out.",
-            "Phones, this one too, are signed out and removed from every host.",
-            "After \(Config.restorableDays) days your sign-in, device keys and history are erased, and backups \(Config.backupDays) days later.",
+            String(localized: "Hosts are signed out."),
+            String(localized: "Phones, this one too, are signed out and removed from every host."),
+            String(
+                localized:
+                    "After \(Config.restorableDays) days your sign-in, device keys and history are erased, and backups \(Config.backupDays) days later."
+            ),
         ]
     }
 

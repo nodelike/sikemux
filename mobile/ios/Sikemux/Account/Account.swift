@@ -88,7 +88,7 @@ final class Account {
         } else if let found = try await Clerk.client()?.sessions.first(where: { $0.id == id })?.user {
             user = found
         } else {
-            throw Clerk.Problem(code: nil, message: "Something went wrong; try again.")
+            throw Clerk.Problem(code: nil, message: String(localized: "Something went wrong; try again."))
         }
         if let jwt = known?.lastActiveToken?.jwt, let expires = Self.expiry(of: jwt) { cached = (jwt, expires) }
         keep(session: id, user: user)
@@ -96,7 +96,9 @@ final class Account {
 
     /// A session token for the accounts server, good for at least a few more seconds. `fresh` asks past the cache.
     func token(fresh: Bool = false) async throws -> String {
-        guard let session else { throw Clerk.Problem(status: 401, code: nil, message: "Sign in again.") }
+        guard let session else {
+            throw Clerk.Problem(status: 401, code: nil, message: String(localized: "Sign in again."))
+        }
         if !fresh, let cached, cached.expires.timeIntervalSinceNow > 10 { return cached.jwt }
         if let fetching { return try await fetching.value }
         let asking = Task { try await Clerk.token(session: session) }

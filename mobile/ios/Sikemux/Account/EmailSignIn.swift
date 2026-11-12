@@ -19,10 +19,10 @@ final class EmailSignIn {
     private var signIn: Clerk.SignIn?
     private var signUp: Clerk.SignUp?
 
-    private static let unsupportedSignIn =
-        "This account needs a sign-in step the app does not do yet; sign in on the web first."
-    private static let unsupportedSignUp =
-        "The account needs more than this app asks for; finish signing up on the web."
+    private static let unsupportedSignIn = String(
+        localized: "This account needs a sign-in step the app does not do yet; sign in on the web first.")
+    private static let unsupportedSignUp = String(
+        localized: "The account needs more than this app asks for; finish signing up on the web.")
 
     func reset() {
         signIn = nil

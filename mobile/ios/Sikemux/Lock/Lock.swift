@@ -61,7 +61,7 @@ final class Lock {
         guard locked, !asking, UIApplication.shared.applicationState == .active else { return }
         asking = true
         // A phone without a passcode has nothing to ask for, and anyone holding it already has everything on it.
-        switch await authenticate("Unlock Sikemux") {
+        switch await authenticate(String(localized: "Unlock Sikemux")) {
         case .passed, .noPasscode: open()
         case .failed:
             phase = .locked
@@ -72,7 +72,7 @@ final class Lock {
     /// Turns the lock on once the person passes the prompt, so it is known to work; answers why when it can't.
     func turnOn() async -> String? {
         asking = true
-        let result = await authenticate("Lock Sikemux")
+        let result = await authenticate(String(localized: "Lock Sikemux"))
         asking = false
         switch result {
         case .passed:
@@ -84,7 +84,7 @@ final class Lock {
             on = true
             Glances.changed()
             return nil
-        case .noPasscode: return "Set a passcode in Settings first"
+        case .noPasscode: return String(localized: "Set a passcode in Settings first")
         case .failed: return nil
         }
     }

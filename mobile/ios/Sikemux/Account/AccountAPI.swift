@@ -23,7 +23,7 @@ extension WireDevice: Identifiable {
 /// The accounts server's routes, signed in as the person.
 @MainActor
 enum AccountAPI {
-    static let offline = "Can't reach Sikemux. Check the phone is online."
+    static let offline = String(localized: "Can't reach Sikemux. Check the phone is online.")
 
     static func send<Answer: Decodable>(
         _ method: String,
@@ -76,7 +76,7 @@ enum AccountAPI {
         do {
             request.setValue("Bearer \(try await Account.shared.token())", forHTTPHeaderField: "Authorization")
         } catch {
-            throw ApiProblem(status: 401, code: .unauthorized, message: "Sign in again.")
+            throw ApiProblem(status: 401, code: .unauthorized, message: String(localized: "Sign in again."))
         }
         return request
     }
@@ -92,7 +92,7 @@ enum AccountAPI {
         throw ApiProblem(
             status: status,
             code: detail?.code,
-            message: detail?.message ?? "The accounts server answered \(status).",
+            message: detail?.message ?? String(localized: "The accounts server answered \(status)."),
             reverifyWithinMinutes: detail?.reverifyWithinMinutes
         )
     }

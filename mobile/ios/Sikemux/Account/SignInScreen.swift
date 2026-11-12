@@ -93,7 +93,7 @@ struct SignInScreen: View {
     private var detail: String? {
         switch step {
         case .email: nil
-        case .code: "Sikemux sent a code to \(email)."
+        case .code: String(localized: "Sikemux sent a code to \(email).")
         case .create: "At least 15 characters."
         default: email
         }

@@ -38,11 +38,13 @@ enum Joining {
         switch answer {
         case .denied where Date().timeIntervalSince(asked) >= TimeInterval(WireWaits.approvalTimeoutSeconds):
             throw JoinFailure(
-                title: "\(name) did not answer",
-                detail: "Nobody allowed this phone within \(WireWaits.approvalTimeoutSeconds / 60) minutes.")
+                title: String(localized: "\(name) did not answer"),
+                detail: String(
+                    localized: "Nobody allowed this phone within \(WireWaits.approvalTimeoutSeconds / 60) minutes."))
         case .denied:
             throw JoinFailure(
-                title: "\(name) said no", detail: "Someone at \(name) turned this phone down.", held: true)
+                title: String(localized: "\(name) said no"),
+                detail: String(localized: "Someone at \(name) turned this phone down."), held: true)
         case .refused(let reason):
             throw refusal(name, reason)
         case .allowed(let access):
@@ -57,45 +59,52 @@ enum Joining {
     /// Why the host refused a ticket, in the words sikemux_core::join::Refusal uses.
     private static func refusal(_ host: String, _ reason: String) -> JoinFailure {
         let why = [
-            "signed_out": "\(host) is not signed in to Sikemux. Sign it in, then try again.",
-            "wrong_account": "\(host) is signed in to a different account. Sign it in to this one, then try again.",
-            "revoked": "This phone was removed from your account. Sign in again.",
-            "expired": "Check the clock on \(host) and on this phone, then try again.",
-            "not_yet_valid": "Check the clock on \(host) and on this phone, then try again.",
-            "unknown_key": "\(host) does not trust this Sikemux server. Update it, then try again.",
+            "signed_out": String(localized: "\(host) is not signed in to Sikemux. Sign it in, then try again."),
+            "wrong_account": String(
+                localized: "\(host) is signed in to a different account. Sign it in to this one, then try again."),
+            "revoked": String(localized: "This phone was removed from your account. Sign in again."),
+            "expired": String(localized: "Check the clock on \(host) and on this phone, then try again."),
+            "not_yet_valid": String(localized: "Check the clock on \(host) and on this phone, then try again."),
+            "unknown_key": String(localized: "\(host) does not trust this Sikemux server. Update it, then try again."),
         ]
         return JoinFailure(
-            title: "\(host) couldn't let this phone in",
-            detail: why[reason] ?? "It turned down the invitation (\(reason)). Try again."
+            title: String(localized: "\(host) couldn't let this phone in"),
+            detail: why[reason] ?? String(localized: "It turned down the invitation (\(reason)). Try again.")
         )
     }
 
     private static func ticketFailure(_ host: String, _ error: Error) -> JoinFailure {
         guard let problem = error as? ApiProblem else {
-            return JoinFailure(title: "Sikemux couldn't invite this phone", detail: Sikemux.problem(error))
+            return JoinFailure(
+                title: String(localized: "Sikemux couldn't invite this phone"), detail: Sikemux.problem(error))
         }
         if problem.status == 404 {
             return JoinFailure(
-                title: "\(host) is no longer on your account", detail: "Sign it in to this account, then try again.")
+                title: String(localized: "\(host) is no longer on your account"),
+                detail: String(localized: "Sign it in to this account, then try again."))
         }
         if problem.status == 429 {
-            return JoinFailure(title: "Too many tries", detail: "Wait a minute, then try again.")
+            return JoinFailure(
+                title: String(localized: "Too many tries"), detail: String(localized: "Wait a minute, then try again."))
         }
         if problem.unreachable {
-            return JoinFailure(title: "Can't reach Sikemux", detail: "Check the phone is online, then try again.")
+            return JoinFailure(
+                title: String(localized: "Can't reach Sikemux"),
+                detail: String(localized: "Check the phone is online, then try again."))
         }
-        return JoinFailure(title: "Sikemux couldn't invite this phone", detail: problem.message)
+        return JoinFailure(title: String(localized: "Sikemux couldn't invite this phone"), detail: problem.message)
     }
 
     private static func dialFailure(_ host: String, _ error: Error) -> JoinFailure {
         switch error as? MobileError {
         case .Connection:
             return JoinFailure(
-                title: "Can't reach \(host)", detail: "It may be asleep, offline, or have remote access turned off.")
+                title: String(localized: "Can't reach \(host)"),
+                detail: String(localized: "It may be asleep, offline, or have remote access turned off."))
         case .Invalid(let message):
-            return JoinFailure(title: "Sikemux's invitation didn't fit", detail: message)
+            return JoinFailure(title: String(localized: "Sikemux's invitation didn't fit"), detail: message)
         default:
-            return JoinFailure(title: "Connecting stopped", detail: Sikemux.problem(error))
+            return JoinFailure(title: String(localized: "Connecting stopped"), detail: Sikemux.problem(error))
         }
     }
 }
@@ -153,7 +162,9 @@ final class HostJoins {
         running.removeValue(forKey: core)?.cancel()
         stop(
             core,
-            JoinFailure(title: "Forgotten on this phone", detail: "Try again to use it here.", held: true))
+            JoinFailure(
+                title: String(localized: "Forgotten on this phone"),
+                detail: String(localized: "Try again to use it here."), held: true))
     }
 
     private func join(_ host: WireDevice) {
@@ -172,7 +183,8 @@ final class HostJoins {
                 running[host.key] = nil
                 stop(
                     host.key,
-                    error as? JoinFailure ?? JoinFailure(title: "Connecting stopped", detail: Sikemux.problem(error)))
+                    error as? JoinFailure
+                        ?? JoinFailure(title: String(localized: "Connecting stopped"), detail: Sikemux.problem(error)))
             }
         }
     }
