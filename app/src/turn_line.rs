@@ -166,6 +166,7 @@ pub fn step_label(step: TurnStep) -> Option<&'static str> {
         TurnStep::RollBack => "Roll back",
         TurnStep::TryIt => "Try it",
         TurnStep::CarryOn => "Carry on",
+        TurnStep::Undo => "Undo",
         TurnStep::Unknown => return None,
     })
 }
