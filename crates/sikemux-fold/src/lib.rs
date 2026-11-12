@@ -35,11 +35,11 @@ use sikemux_wire::protocol::PermissionMode;
 use sikemux_view::chat::{
     AccountMove, AgentNotice, AsyncTask, ChatCapabilities, ChatCommandInfo, ChatConnection,
     ChatDraft, ChatFailure, ChatGoal, ChatHead, ChatMessage, ChatPart, ChatRole, ChatTrigger,
-    Compactions, ContentBlock, ContextUsage, FailureKind, LetterKind, MoveReason, NoticeSeverity,
-    NoticeState, PermissionAsk, PermissionKind, PermissionOption, PlanEntry, QueuedMessage,
-    Retrying, SentContext, SessionEnded, StopReason, SubagentCard, SubagentState, TaskNotice,
-    TaskState, TaskUsage, ToolDetail, ToolStatus, TurnStart, Unsourced, UsageCost, WhyChip,
-    WorkflowAgent, WHY_URI,
+    Compactions, ContentBlock, ContextUsage, FailureKind, GuestMessage, LetterKind, MoveReason,
+    NoticeSeverity, NoticeState, PermissionAsk, PermissionKind, PermissionOption, PlanEntry,
+    QueuedMessage, Retrying, SentContext, SessionEnded, StopReason, SubagentCard, SubagentState,
+    TaskNotice, TaskState, TaskUsage, ToolDetail, ToolStatus, TurnStart, Unsourced, UsageCost,
+    WhyChip, WorkflowAgent, WHY_URI,
 };
 use sikemux_view::shown::{ResultRow, TurnShown};
 use sikemux_view::turn::TurnState;
@@ -742,6 +742,13 @@ impl Fold {
     pub fn set_queued(&mut self, queued: Vec<QueuedMessage>) {
         self.head.queued = queued;
         self.set_head("queued");
+    }
+
+    pub fn set_guests(&mut self, guests: Vec<GuestMessage>) {
+        if self.head.guests != guests {
+            self.head.guests = guests;
+            self.set_head("guests");
+        }
     }
 
     pub fn set_triggers(&mut self, triggers: Vec<ChatTrigger>) {

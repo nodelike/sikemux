@@ -2,9 +2,10 @@
 //! of the core that attaches to one chat as a phone would, seals what it
 //! hears with the key in the link, and hands it to the accounts server, which
 //! passes it to the signed-in people watching. Viewers never reach the core:
-//! the one thing they may do is ask, sealed, for an older page of the chat, what
-//! one of its tool calls changed and printed, or a picture pasted into it, and
-//! the core decides what to answer.
+//! they may ask, sealed, for an older page of the chat, what one of its tool
+//! calls changed and printed, or a picture pasted into it, and the core decides
+//! what to answer. They may also write a message, which waits in the chat until
+//! the person sends or dismisses it.
 
 mod link;
 mod seal;
@@ -40,6 +41,8 @@ const MAX_LIFETIME_MS: u64 = 7 * 24 * 60 * 60_000;
 const PAGE_TURNS: u32 = 20;
 /// The largest pasted picture a viewer is sent.
 const MAX_FILE_BYTES: u64 = 4 * 1024 * 1024;
+/// The longest message a viewer may write.
+const MAX_GUEST_CHARS: usize = 10_000;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -307,6 +310,16 @@ pub(crate) fn stop(core: &Arc<Core>, id: &str) -> CoreResult<()> {
         .remove(id)
         .ok_or("that share has already ended")?;
     chat::detach(core, running.client.id, &running.stored.agent_id);
+    let agent_id = &running.stored.agent_id;
+    let still_shared = inner
+        .running
+        .values()
+        .any(|other| &other.stored.agent_id == agent_id);
+    if !still_shared {
+        if let Some(feed) = core.chats.heard(agent_id) {
+            feed.clear_guests();
+        }
+    }
     let refused = running.state == ShareState::Refused;
     let stored = running.stored.clone();
     drop(running);
@@ -523,6 +536,7 @@ async fn answer(core: Arc<Core>, id: String, viewer: String, sealed: String) -> 
             }
             Err(error) => Some(error.to_string()),
         },
+        ShareAsk::Message { text, .. } => guest_wrote(&core, &agent_id, text).err(),
     };
     reply.error = failed;
     let sealed = seal.seal(&serde_json::to_vec(&reply).ok()?)?;
@@ -533,6 +547,54 @@ async fn answer(core: Arc<Core>, id: String, viewer: String, sealed: String) -> 
             sealed,
         }),
     ))
+}
+
+/// Keeps a viewer's message in the chat for the person to send or dismiss.
+fn guest_wrote(core: &Core, agent_id: &str, text: String) -> Result<(), String> {
+    let text = text.trim();
+    if text.is_empty() {
+        return Err("the message is empty".into());
+    }
+    if text.chars().count() > MAX_GUEST_CHARS {
+        return Err(format!(
+            "a message holds up to {MAX_GUEST_CHARS} characters"
+        ));
+    }
+    let feed = core
+        .chats
+        .heard(agent_id)
+        .ok_or("this chat is not running on its host right now")?;
+    if !feed.add_guest(text.to_owned()) {
+        return Err("too many messages wait for the sharer already".into());
+    }
+    Ok(())
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GuestMessageParams {
+    pub agent_id: String,
+    pub id: String,
+}
+
+/// Sends a viewer's waiting message to the agent as the person's own.
+pub(crate) async fn send_guest(core: &Arc<Core>, params: GuestMessageParams) -> CoreResult<()> {
+    let guest = core
+        .chats
+        .heard(&params.agent_id)
+        .and_then(|feed| feed.take_guest(&params.id))
+        .ok_or("that message is no longer waiting")?;
+    chat::calls::prompt_chat(
+        core,
+        chat::calls::PromptChatParams::new(params.agent_id, guest.text),
+    )
+    .await
+}
+
+pub(crate) fn dismiss_guest(core: &Core, params: GuestMessageParams) {
+    if let Some(feed) = core.chats.heard(&params.agent_id) {
+        feed.take_guest(&params.id);
+    }
 }
 
 /// A picture pasted into a chat, in base64. Viewers may see only those, never

@@ -1811,6 +1811,8 @@ export interface ChatHead {
     runningSubagents: SubagentCard[];
     /** What the person sent mid-turn, waiting to go out once the turn ends. */
     queued: QueuedMessage[];
+    /** What viewers of the chat's share link wrote, waiting for the person to send or dismiss. */
+    guests?: GuestMessage[];
     /** The triggers that send this chat a message when their time comes. */
     triggers?: ChatTrigger[];
     /** The host no longer keeps the turns before the first row. */
@@ -2147,6 +2149,17 @@ export interface Tracked {
 }
 
 export type TrackedKind = "issue" | "pull";
+
+/**
+ * A message a viewer of the chat's share link wrote, which reaches the agent only once the
+ * person sends it.
+ */
+export interface GuestMessage {
+    id: string;
+    text: string;
+    /** When it came, in epoch ms. */
+    at: number;
+}
 
 export interface SessionEnded {
     /** `requested`, `exited` after it was up, or `failed` before it got there. */
@@ -4546,6 +4559,12 @@ export type ShareAsk =
           type: "file";
           id: number;
           path: string;
+      }
+    /** A message for the agent, which waits until the person sends or dismisses it. */
+    | {
+          type: "message";
+          id: number;
+          text: string;
       };
 
 /** The host's answer to the question numbered `id`: one of the rest, or `error`. */
@@ -4903,6 +4922,11 @@ export interface MadeAgentWorktree {
     setupError: string | null;
 }
 
+export interface GuestMessageParams {
+    agentId: string;
+    id: string;
+}
+
 export interface QueuedParams {
     agentId: string;
     ids: string[];
@@ -5039,6 +5063,7 @@ export interface CoreCalls {
     codeHostTrackedContext: { params: TrackedContextParams; answer: PluginOutcome };
     createAgentWorktree: { params: AgentWorktreeParams; answer: MadeAgentWorktree };
     discardFailed: { params: ChatAccountsParams; answer: null };
+    dismissGuestMessage: { params: GuestMessageParams; answer: null };
     dropQueued: { params: QueuedParams; answer: null };
     editMessage: { params: EditParams; answer: null };
     moveChatAccount: { params: MoveChatParams; answer: null };
@@ -5051,6 +5076,7 @@ export interface CoreCalls {
     removeStash: { params: StashItemParams; answer: null };
     requireApproval: { params: NoParams; answer: ApprovalSetting };
     retryFailed: { params: ChatAccountsParams; answer: null };
+    sendGuestMessage: { params: GuestMessageParams; answer: null };
     setDraft: { params: SetDraftParams; answer: null };
     setRequireApproval: { params: ApprovalSetting; answer: RemoteStatus };
     setWorktreeDefault: { params: WorktreeDefaultParams; answer: null };

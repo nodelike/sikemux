@@ -15,8 +15,8 @@ use sikemux_process::sync::Locked;
 
 use sikemux_process::clock::epoch_ms;
 use sikemux_view::chat::{
-    ChatChange, ChatDraft, ChatGoal, ChatPage, ChatTrigger, PlanEntry, PlanStatus, QueuedMessage,
-    SentContext, ToolDetail,
+    ChatChange, ChatDraft, ChatGoal, ChatPage, ChatTrigger, GuestMessage, PlanEntry, PlanStatus,
+    QueuedMessage, SentContext, ToolDetail,
 };
 use sikemux_view::shown::{ResultRow, TurnShown};
 use sikemux_view::turn::TurnState;
@@ -45,6 +45,8 @@ const SETTLE: Duration = Duration::from_secs(1);
 pub(crate) const MAX_REPLAY_BYTES: usize = 8 * 1024 * 1024;
 pub(crate) const MAX_REPLAY_EVENTS: usize = 20_000;
 const MAX_PAGE_TURNS: usize = 100;
+/// The most share viewers' messages that wait for the person at once.
+const MAX_GUESTS: usize = 10;
 const PAGE_BYTES: u64 = 1024 * 1024;
 /// Where a chat taken up on a session it never ran numbers its first event, leaving the
 /// numbers below it for what it reads further back.
@@ -91,6 +93,8 @@ struct Inner {
     holding: bool,
     /// What the person sent while the agent was at work, oldest first.
     queued: Vec<Queued>,
+    /// What viewers of the chat's share link wrote, oldest first.
+    guests: Vec<GuestMessage>,
     triggers: Vec<ChatTrigger>,
     goal: Option<ChatGoal>,
     turn: Option<TurnState>,
@@ -241,6 +245,7 @@ impl Feed {
                 closed: false,
                 holding: false,
                 queued: Vec::new(),
+                guests: Vec::new(),
                 triggers: Vec::new(),
                 goal: None,
                 turn: None,
@@ -326,6 +331,7 @@ impl Feed {
                 closed: false,
                 holding: false,
                 queued: Vec::new(),
+                guests: Vec::new(),
                 triggers: Vec::new(),
                 goal: None,
                 turn: None,
@@ -407,6 +413,7 @@ impl Feed {
             // The events kept may no longer reach back to where a long turn started.
             fold.set_running(inner.replay.in_turn);
             fold.set_queued(queued_view(&inner.queued));
+            fold.set_guests(inner.guests.clone());
             fold.set_triggers(inner.triggers.clone());
             fold.set_goal(inner.goal.clone());
             fold.set_turn(inner.turn.clone());
@@ -593,6 +600,45 @@ impl Feed {
             inner.queued.clear();
             self.queue_changed(&mut inner);
         }
+    }
+
+    /// Keeps a share viewer's message for the person to send or dismiss, unless as many already
+    /// wait.
+    pub(crate) fn add_guest(&self, text: String) -> bool {
+        let mut inner = self.inner.locked();
+        if inner.guests.len() >= MAX_GUESTS {
+            return false;
+        }
+        inner.guests.push(GuestMessage {
+            id: uuid::Uuid::new_v4().to_string(),
+            text,
+            at: epoch_ms(),
+        });
+        self.guests_changed(&mut inner);
+        true
+    }
+
+    pub(crate) fn take_guest(&self, id: &str) -> Option<GuestMessage> {
+        let mut inner = self.inner.locked();
+        let at = inner.guests.iter().position(|guest| guest.id == id)?;
+        let taken = inner.guests.remove(at);
+        self.guests_changed(&mut inner);
+        Some(taken)
+    }
+
+    pub(crate) fn clear_guests(&self) {
+        let mut inner = self.inner.locked();
+        if !inner.guests.is_empty() {
+            inner.guests.clear();
+            self.guests_changed(&mut inner);
+        }
+    }
+
+    fn guests_changed(&self, inner: &mut Inner) {
+        if let Some(fold) = inner.fold.as_mut() {
+            fold.set_guests(inner.guests.clone());
+        }
+        self.flush_locked(inner);
     }
 
     /// The chat's triggers changed; clients already hearing the chat are told.

@@ -83,12 +83,20 @@ pub enum ShareAsk {
         id: u64,
         path: PathBuf,
     },
+    /// A message for the agent, which waits until the person sends or dismisses it.
+    Message {
+        id: u64,
+        text: String,
+    },
 }
 
 impl ShareAsk {
     pub fn id(&self) -> u64 {
         match self {
-            Self::Page { id, .. } | Self::ToolDetail { id, .. } | Self::File { id, .. } => *id,
+            Self::Page { id, .. }
+            | Self::ToolDetail { id, .. }
+            | Self::File { id, .. }
+            | Self::Message { id, .. } => *id,
         }
     }
 }

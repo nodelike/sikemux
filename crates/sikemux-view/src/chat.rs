@@ -289,6 +289,9 @@ pub struct ChatHead {
     pub running_subagents: Vec<SubagentCard>,
     /// What the person sent mid-turn, waiting to go out once the turn ends.
     pub queued: Vec<QueuedMessage>,
+    /// What viewers of the chat's share link wrote, waiting for the person to send or dismiss.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub guests: Vec<GuestMessage>,
     /// The triggers that send this chat a message when their time comes.
     #[serde(default)]
     pub triggers: Vec<ChatTrigger>,
@@ -662,6 +665,17 @@ pub struct QueuedMessage {
     pub text: String,
     pub paths: Vec<String>,
     pub context: Vec<SentContext>,
+}
+
+/// A message a viewer of the chat's share link wrote, which reaches the agent only once the
+/// person sends it.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GuestMessage {
+    pub id: String,
+    pub text: String,
+    /// When it came, in epoch ms.
+    pub at: u64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

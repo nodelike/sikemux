@@ -168,6 +168,8 @@ calls! { core, client, method, params;
     "chatToolDetail" ChatToolDetail (chat_calls::ToolDetailParams) -> ToolDetail: Watch, any_program => {
         super::chat::tool_detail(&core, &params.agent_id, &params.tool_call_id)?
     },
+    "sendGuestMessage" SendGuestMessage (share::GuestMessageParams) -> (): Full, counted => share::send_guest(&core, params).await?,
+    "dismissGuestMessage" DismissGuestMessage (share::GuestMessageParams) -> (): Full => share::dismiss_guest(&core, params),
     "dropQueued" DropQueued (chat_calls::QueuedParams) -> (): Full => {
         super::chat::queue::remove(&core, &params.agent_id, &params.ids)?
     },

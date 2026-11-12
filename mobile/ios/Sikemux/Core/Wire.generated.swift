@@ -161,6 +161,7 @@ enum PhoneCall {
     enum CodeHostTrackedContext {}
     enum CreateAgentWorktree {}
     enum DiscardFailed {}
+    enum DismissGuestMessage {}
     enum DropQueued {}
     enum EditMessage {}
     enum MoveChatAccount {}
@@ -173,6 +174,7 @@ enum PhoneCall {
     enum RemoveStash {}
     enum RequireApproval {}
     enum RetryFailed {}
+    enum SendGuestMessage {}
     enum SetDraft {}
     enum SetRequireApproval {}
     enum SetWorktreeDefault {}
@@ -311,6 +313,12 @@ extension PhoneCall.DiscardFailed: PhoneCallable {
     typealias Answer = WireNull
 }
 
+extension PhoneCall.DismissGuestMessage: PhoneCallable {
+    static let method = "dismissGuestMessage"
+    typealias Params = GuestMessageParams
+    typealias Answer = WireNull
+}
+
 extension PhoneCall.DropQueued: PhoneCallable {
     static let method = "dropQueued"
     typealias Params = QueuedParams
@@ -380,6 +388,12 @@ extension PhoneCall.RequireApproval: PhoneCallable {
 extension PhoneCall.RetryFailed: PhoneCallable {
     static let method = "retryFailed"
     typealias Params = ChatAccountsParams
+    typealias Answer = WireNull
+}
+
+extension PhoneCall.SendGuestMessage: PhoneCallable {
+    static let method = "sendGuestMessage"
+    typealias Params = GuestMessageParams
     typealias Answer = WireNull
 }
 
@@ -2836,6 +2850,8 @@ struct ChatHead: Codable, Hashable, Sendable {
     var runningSubagents: [SubagentCard]
     /// What the person sent mid-turn, waiting to go out once the turn ends.
     var queued: [QueuedMessage]
+    /// What viewers of the chat's share link wrote, waiting for the person to send or dismiss.
+    var guests: [GuestMessage]?
     /// The triggers that send this chat a message when their time comes.
     var triggers: [ChatTrigger]?
     /// The host no longer keeps the turns before the first row.
@@ -3370,6 +3386,15 @@ enum TrackedKind: String, Codable, Hashable, Sendable {
     init(from decoder: any Decoder) throws {
         self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
     }
+}
+
+/// A message a viewer of the chat's share link wrote, which reaches the agent only once the
+/// person sends it.
+struct GuestMessage: Codable, Hashable, Sendable {
+    var id: String
+    var text: String
+    /// When it came, in epoch ms.
+    var at: Int
 }
 
 struct SessionEnded: Codable, Hashable, Sendable {
@@ -6991,6 +7016,8 @@ enum ShareAsk: Codable, Hashable, Sendable {
     case toolDetail(ToolDetailPayload)
     /// A picture pasted into the chat.
     case file(File)
+    /// A message for the agent, which waits until the person sends or dismisses it.
+    case message(Message)
     /// One added after this build, by its `type`.
     case unknown(String)
 
@@ -7010,6 +7037,11 @@ enum ShareAsk: Codable, Hashable, Sendable {
         var path: String
     }
 
+    struct Message: Codable, Hashable, Sendable {
+        var id: Int
+        var text: String
+    }
+
     private enum TagKey: String, CodingKey {
         case tag = "type"
     }
@@ -7023,6 +7055,8 @@ enum ShareAsk: Codable, Hashable, Sendable {
             self = .toolDetail(try ToolDetailPayload(from: decoder))
         case "file":
             self = .file(try File(from: decoder))
+        case "message":
+            self = .message(try Message(from: decoder))
         default:
             self = .unknown(tag)
         }
@@ -7040,6 +7074,9 @@ enum ShareAsk: Codable, Hashable, Sendable {
         case .file(let value):
             try value.encode(to: encoder)
             tag = "file"
+        case .message(let value):
+            try value.encode(to: encoder)
+            tag = "message"
         case .unknown(let value):
             tag = value
         }
@@ -7576,6 +7613,11 @@ struct MadeAgentWorktree: Codable, Hashable, Sendable {
     var cwd: String
     /// Why the project's worktree setup did not all finish, when it did not.
     var setupError: String?
+}
+
+struct GuestMessageParams: Codable, Hashable, Sendable {
+    var agentId: String
+    var id: String
 }
 
 struct QueuedParams: Codable, Hashable, Sendable {
