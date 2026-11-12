@@ -336,6 +336,18 @@ pub(crate) fn raise(core: &Core, raise: Raise) -> String {
     id
 }
 
+/// The newest call of `project` raised with `key`, open or not.
+#[expect(
+    dead_code,
+    reason = "the gates by place raise production calls through it"
+)]
+pub(crate) fn find_key(core: &Core, project: &str, key: &str) -> Option<PersonCall> {
+    (core.person_calls.calls.locked().iter())
+        .filter(|kept| kept.call.project == project && kept.key.as_deref() == Some(key))
+        .max_by_key(|kept| kept.call.raised_at)
+        .map(|kept| kept.call.clone())
+}
+
 /// Says what came of an answered call, such as that it shipped and its place stayed healthy.
 #[expect(
     dead_code,
@@ -505,22 +517,34 @@ async fn deliver(
                 let _ = messages::for_person(core, call.asker.agent_id.clone(), text).await;
             }
         }
-        Source::Raised => {
-            let label = (answer.option.as_ref())
-                .and_then(|id| call.options.iter().find(|option| option.id == *id))
-                .map(|option| option.label.clone());
-            let said = [label, typed]
-                .into_iter()
-                .flatten()
-                .collect::<Vec<_>>()
-                .join("\n\n");
-            let text = format!("The person answered \"{}\":\n{said}", call.question);
-            for asker in std::iter::once(&call.asker).chain(&call.joined) {
-                let _ = messages::for_person(core, asker.agent_id.clone(), text.clone()).await;
-            }
-        }
+        Source::Raised if call.place.is_some() => call_answered(core, call, typed).await,
+        Source::Raised => tell_askers(core, call, typed).await,
     }
     Ok(())
+}
+
+/// A production call the gates by place raised was answered.
+async fn call_answered(core: &Arc<Core>, call: &PersonCall, typed: Option<String>) {
+    tell_askers(core, call, typed).await;
+}
+
+/// Tells every agent waiting on the call what the person answered.
+async fn tell_askers(core: &Arc<Core>, call: &PersonCall, typed: Option<String>) {
+    let Some(answer) = &call.answer else {
+        return;
+    };
+    let label = (answer.option.as_ref())
+        .and_then(|id| call.options.iter().find(|option| option.id == *id))
+        .map(|option| option.label.clone());
+    let said = [label, typed]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    let text = format!("The person answered \"{}\":\n{said}", call.question);
+    for asker in std::iter::once(&call.asker).chain(&call.joined) {
+        let _ = messages::for_person(core, asker.agent_id.clone(), text.clone()).await;
+    }
 }
 
 /// The option of a held action that lets it run once.

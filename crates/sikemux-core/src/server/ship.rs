@@ -945,6 +945,15 @@ fn tell_calls(core: &Core) {
     person_calls::sync_holds(core, wanted);
 }
 
+/// A place's id made from its name: lowercase letters and digits, words joined by `-`.
+fn slug(name: &str) -> String {
+    let lower = name.to_lowercase();
+    let words = lower
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|word| !word.is_empty());
+    words.collect::<Vec<_>>().join("-")
+}
+
 fn held_call(core: &Core, hold: &Hold) -> PersonCall {
     let name = core.names.name_or_id(&hold.agent_id);
     let question = match (hold.ship.kind, hold.ship.writes_to(), &hold.environment) {
@@ -1004,7 +1013,7 @@ fn held_call(core: &Core, hold: &Hold) -> PersonCall {
         action: Some(hold.ship.what.clone()),
         brief: None,
         place: (hold.environment.clone()).map(|name| CallPlace {
-            id: name.clone(),
+            id: slug(&name),
             name,
         }),
         can_hand_back: false,
