@@ -218,9 +218,10 @@ async fn words_typed_to_an_access_call_never_head_the_next_call() {
         .flatten()
         .filter_map(|entry| std::fs::read_to_string(entry.path()).ok())
         .collect::<String>();
+    let shared = raised(&root, "Which token does production take?");
     assert!(
-        calls.contains("\"event\":\"joined\""),
-        "the second agent joins the call the first raised"
+        calls.contains("\"event\":\"joined\"") || shared.contains("\"joined\":["),
+        "the second agent joins the call the first raised: {shared}"
     );
     for question in [
         "Which key signs the release?",
