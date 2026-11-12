@@ -213,7 +213,8 @@ fn fitted(mut layout: Layout, workspace: &Workspace, sessions: &[SessionInfo]) -
             .as_ref()
             .is_some_and(|active| strip.tabs.iter().any(|tab| &tab.id == active));
         if !active_shown {
-            strip.active = strip.tabs.first().map(|tab| tab.id.clone());
+            strip.active = latest_in(strip, &layout.recent)
+                .or_else(|| strip.tabs.first().map(|tab| tab.id.clone()));
         }
     }
     let active_shown = layout
@@ -223,6 +224,7 @@ fn fitted(mut layout: Layout, workspace: &Workspace, sessions: &[SessionInfo]) -
     if !active_shown {
         layout.active_project = workspace.projects.first().map(|project| project.id.clone());
     }
+    let recent = &layout.recent;
     layout.hosts.retain(|_, strip| {
         strip
             .tabs
@@ -232,7 +234,8 @@ fn fitted(mut layout: Layout, workspace: &Workspace, sessions: &[SessionInfo]) -
             .as_ref()
             .is_some_and(|active| strip.tabs.iter().any(|tab| &tab.id == active))
         {
-            strip.active = strip.tabs.first().map(|tab| tab.id.clone());
+            strip.active =
+                latest_in(strip, recent).or_else(|| strip.tabs.first().map(|tab| tab.id.clone()));
         }
         !strip.tabs.is_empty()
     });
@@ -252,7 +255,8 @@ fn fitted(mut layout: Layout, workspace: &Workspace, sessions: &[SessionInfo]) -
         .as_ref()
         .is_some_and(|active| terminals.tabs.iter().any(|tab| &tab.id == active))
     {
-        terminals.active = terminals.tabs.first().map(|tab| tab.id.clone());
+        terminals.active = latest_in(terminals, &layout.recent)
+            .or_else(|| terminals.tabs.first().map(|tab| tab.id.clone()));
     }
     layout.terminals_in_front &= !terminals.tabs.is_empty();
     if layout.terminals_in_front {
@@ -499,6 +503,68 @@ fn tab(id: String, kind: PaneKind, target: String) -> Tab {
 /// Changes the layout as clients see it now, keeps it and tells them.
 /// An edit a paired device asked for moves only what it has in front; the tabs it opens,
 /// closes or moves change for everyone.
+/// The latest tab the person had in front that `strip` still shows.
+fn latest_in(strip: &sikemux_view::layout::ProjectLayout, recent: &[String]) -> Option<String> {
+    recent
+        .iter()
+        .find(|id| strip.tabs.iter().any(|tab| &tab.id == *id))
+        .cloned()
+}
+
+/// The strip that shows tab `id`.
+fn strip_of(layout: &Layout, id: &str) -> Option<At> {
+    let holds =
+        |strip: &sikemux_view::layout::ProjectLayout| strip.tabs.iter().any(|tab| tab.id == id);
+    if holds(&layout.terminals) {
+        return Some(At::terminals());
+    }
+    (layout.projects.iter().find(|(_, strip)| holds(strip)))
+        .map(|(project, _)| At::project(project))
+        .or_else(|| {
+            (layout.hosts.iter().find(|(_, strip)| holds(strip))).map(|(alias, _)| At::host(alias))
+        })
+}
+
+fn front_tab(layout: &Layout) -> Option<&String> {
+    if layout.chosen_host.is_some() {
+        return None;
+    }
+    let strip = match (&layout.active_host, layout.terminals_in_front) {
+        (_, true) => Some(&layout.terminals),
+        (Some(host), false) => layout.hosts.get(host),
+        (None, false) => layout.projects.get(layout.active_project.as_ref()?),
+    };
+    strip?.active.as_ref()
+}
+
+const RECENT_TABS: usize = 32;
+
+/// Puts the tab in front at the head of the tabs the person had in front, forgetting closed ones.
+fn remember_front(layout: &mut Layout) {
+    let front = front_tab(layout).cloned();
+    let mut recent = std::mem::take(&mut layout.recent);
+    if let Some(front) = front {
+        recent.retain(|id| id != &front);
+        recent.insert(0, front);
+    }
+    recent.retain(|id| strip_of(layout, id).is_some());
+    recent.truncate(RECENT_TABS);
+    layout.recent = recent;
+}
+
+/// Brings forward the latest tab the person had in front that is still open, in whichever strip.
+fn bring_back_latest(layout: &mut Layout) {
+    let Some((at, id)) =
+        (layout.recent.iter()).find_map(|id| strip_of(layout, id).map(|at| (at, id.clone())))
+    else {
+        return;
+    };
+    if let Ok(strip) = strip_at(layout, &at) {
+        strip.active = Some(id);
+        bring_forward(layout, &at);
+    }
+}
+
 fn edit<T>(core: &Core, change: impl FnOnce(&mut Layout) -> CoreResult<T>) -> CoreResult<T> {
     let workspace = core.workspace_view();
     let sessions = core.session_infos();
@@ -512,6 +578,9 @@ fn edit<T>(core: &Core, change: impl FnOnce(&mut Layout) -> CoreResult<T>) -> Co
             front.lay_over(&mut layout);
         }
         let answer = change(&mut layout)?;
+        if device.is_none() {
+            remember_front(&mut layout);
+        }
         if let Some(device) = device {
             fronts.insert(device, Front::of(&layout));
             Front::of(&shared).lay_over(&mut layout);
@@ -783,6 +852,8 @@ fn close(core: &Arc<Core>, at: &At, tabs: &[String]) -> CoreResult<()> {
         if !strip.tabs.iter().any(closing) {
             return Ok((Vec::new(), Vec::new()));
         }
+        let front = in_front(layout, at);
+        let strip = strip_at(layout, at)?;
         let active = strip
             .active
             .as_ref()
@@ -806,6 +877,9 @@ fn close(core: &Arc<Core>, at: &At, tabs: &[String]) -> CoreResult<()> {
                 .tabs
                 .get(kept_before_active.min(strip.tabs.len().saturating_sub(1)))
                 .map(|tab| tab.id.clone());
+            if front {
+                bring_back_latest(layout);
+            }
         }
         terminals.retain(|target| !terminal_shown(layout, target));
         Ok((agents, terminals))

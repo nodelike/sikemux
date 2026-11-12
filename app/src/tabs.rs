@@ -898,7 +898,8 @@ impl Workbench {
     }
 
     /// The tab in front in `strip`. While the one in front is closing, it is the one the core
-    /// brings forward in its place, the next open tab after it, else the nearest before it.
+    /// brings forward in its place: the latest open one the person had in front, else the next
+    /// open tab after it, else the nearest before it.
     pub fn front_tab(&self, strip: &Strip) -> Option<&LayoutTab> {
         let layout = self.layout_of(strip)?;
         let tabs = layout.tabs.as_slice();
@@ -907,12 +908,22 @@ impl Workbench {
             .active
             .as_deref()
             .and_then(|id| tabs.iter().position(|tab| tab.id == id));
+        let recent = self
+            .shown()
+            .map_or(&[][..], |view| view.layout.recent.as_slice());
+        let latest = || {
+            recent
+                .iter()
+                .find_map(|id| tabs.iter().find(|tab| &tab.id == id).filter(open))
+        };
         match active {
             Some(at) if open(&&tabs[at]) => Some(&tabs[at]),
-            Some(at) => tabs[at..]
-                .iter()
-                .find(open)
-                .or_else(|| tabs[..at].iter().rev().find(open)),
+            Some(at) => latest().or_else(|| {
+                tabs[at..]
+                    .iter()
+                    .find(open)
+                    .or_else(|| tabs[..at].iter().rev().find(open))
+            }),
             None => tabs.iter().find(open),
         }
     }

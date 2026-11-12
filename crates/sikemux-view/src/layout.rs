@@ -31,6 +31,10 @@ pub struct Layout {
     /// are shown instead of this host's; none while they are on this host or an SSH host.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chosen_host: Option<String>,
+    /// The tabs the person had in front, by id, the latest first, so closing the one in front
+    /// brings back the one they were on before it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub recent: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

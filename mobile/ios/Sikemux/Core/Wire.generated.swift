@@ -903,6 +903,8 @@ struct ConfigChoice: Codable, Hashable, Sendable {
     var description: String?
     /// The choice the agent takes when none is made, which a picker marks.
     var isDefault: Bool?
+    /// The agent offers a newer release of this model, so a picker folds it away.
+    var superseded: Bool?
 }
 
 /// What the app draws behind its panes.
@@ -2478,6 +2480,9 @@ struct WireLayout: Codable, Hashable, Sendable {
     /// The account's other host the person is on, by its key, whose own projects and tabs
     /// are shown instead of this host's; none while they are on this host or an SSH host.
     var chosenHost: String?
+    /// The tabs the person had in front, by id, the latest first, so closing the one in front
+    /// brings back the one they were on before it.
+    var recent: [String]?
 }
 
 struct ProjectLayout: Codable, Hashable, Sendable {
