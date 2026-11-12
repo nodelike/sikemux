@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::server::parts::Parts;
+use crate::server::ServerCore;
 
 /// Signing in starts the live connection to the account and turns remote
 /// access on, forgetting every device that joined through another account.

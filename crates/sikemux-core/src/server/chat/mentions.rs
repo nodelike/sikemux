@@ -2,8 +2,11 @@
 //! only who it names, as a context item with no text, and the core writes the note.
 //! An earlier chat the person names is opened again first, in a tab of its own.
 
+use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
+use crate::server::device_view::DeviceViewCore;
 use crate::server::parts::Parts;
+use crate::server::ServerCore;
 use std::sync::Arc;
 
 use crate::server::connection::blocking;

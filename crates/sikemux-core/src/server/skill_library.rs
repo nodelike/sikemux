@@ -2,6 +2,7 @@
 //! the person's own global skills beside it, which Sikemux never changes
 //! unless asked to move one in. Any client manages them through these calls.
 
+use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};

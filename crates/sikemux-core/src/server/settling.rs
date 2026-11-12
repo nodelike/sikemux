@@ -2,6 +2,7 @@
 //! time; the core settles one the person has seen, that has been quiet a while and left
 //! nothing uncommitted. Either comes back by itself once the agent needs the person.
 
+use crate::server::device_view::DeviceViewCore;
 use crate::server::parts::Parts;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;

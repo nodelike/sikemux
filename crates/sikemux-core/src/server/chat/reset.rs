@@ -2,6 +2,7 @@
 //! send its stopped prompt again. Each waits on a timer of its own, and the
 //! list is kept on disk so a core that restarts goes on waiting.
 
+use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
 use sikemux_fold::update::notice;

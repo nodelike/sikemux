@@ -5,6 +5,7 @@
 //! the places Sikemux installs it. The question never prompts: with no key the SSH config
 //! already offers, it answers that ssh needs signing in to.
 
+use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
 use std::collections::{HashMap, HashSet};

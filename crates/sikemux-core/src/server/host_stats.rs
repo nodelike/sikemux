@@ -3,6 +3,8 @@
 //! when the page opens and alerts can start; what each agent uses is read only while a client
 //! watches the page, which a `hostStats` read for more than now does for a while.
 
+use crate::server::changed::ChangedCore;
+use crate::server::device_view::DeviceViewCore;
 use crate::server::parts::Parts;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::hash::{DefaultHasher, Hash, Hasher};

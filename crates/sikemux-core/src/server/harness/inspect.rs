@@ -1,7 +1,9 @@
 //! What `workspace_inspect` answers: the project as the core knows it, with the panes the window shows.
 
 use super::*;
+use crate::server::device_view::DeviceViewCore;
 use crate::server::parts::Parts;
+use crate::server::ServerCore;
 
 const LISTED_FINISHED_RUNS: usize = 8;
 const FINISHED_COMMAND_CHARS: usize = 160;

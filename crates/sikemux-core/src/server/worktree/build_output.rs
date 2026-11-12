@@ -7,6 +7,7 @@
 //! settles, as its agent closes or has landed everything and gone to sleep, also runs the
 //! project's `worktree.onSettle`.
 
+use crate::server::changed::ChangedCore;
 use crate::server::parts::Parts;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -513,6 +514,7 @@ fn set_aside(tree: &Path, output: &Path, index: usize) -> std::io::Result<PathBu
 #[cfg(all(test, any(target_os = "macos", target_os = "linux")))]
 mod tests {
     use super::*;
+    use crate::server::ServerCore;
     use sikemux_process::user_environment::command;
     use sikemux_wire::protocol::BuildIdentity;
     use std::process::Child;

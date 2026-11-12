@@ -2,7 +2,9 @@
 //! with a newer binary in the same process, restarting it from its own, and
 //! stopping everything.
 
+use crate::server::part::PartCore;
 use crate::server::parts::Parts;
+use crate::server::ServerCore;
 use std::io::Read;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};

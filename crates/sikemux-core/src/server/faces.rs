@@ -4,6 +4,7 @@
 //! agent's group, which clients already have.
 
 use super::Core;
+use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
 use std::path::Path;

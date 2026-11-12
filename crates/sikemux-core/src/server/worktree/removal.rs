@@ -2,6 +2,7 @@
 //! removing it would cost, so it can ask the person; then it removes it with
 //! their answers, and the agent goes back to the main checkout.
 
+use crate::server::agent_now::AgentNowCore;
 use crate::server::parts::Parts;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;

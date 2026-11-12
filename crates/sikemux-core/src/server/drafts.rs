@@ -3,6 +3,7 @@
 //! for: `git:<repository>`, `chat:<agent>`. Beside its text a draft can hold `extra`,
 //! JSON only the apps read, such as a message's attachments.
 
+use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
 use std::collections::BTreeMap;

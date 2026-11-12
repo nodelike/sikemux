@@ -2,8 +2,11 @@
 //! same ones. Agents' tabs follow the workspace: a new agent gets a tab at the
 //! end of its project's strip, and a tab goes once nothing it shows is left.
 
+use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
+use crate::server::device_view::DeviceViewCore;
 use crate::server::parts::Parts;
+use crate::server::ServerCore;
 use sikemux_view::layout::At;
 use sikemux_view::layout::OpenTab;
 use std::collections::{BTreeMap, HashMap, HashSet};

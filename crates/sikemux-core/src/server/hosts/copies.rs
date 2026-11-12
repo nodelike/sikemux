@@ -3,6 +3,7 @@
 //! told it, so it can show one project for each repository, with a copy on each host that
 //! holds one.
 
+use crate::server::changed::ChangedCore;
 use crate::server::parts::Parts;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};

@@ -2,8 +2,11 @@
 //! saved session. Whichever view it is in, what the person had typed comes
 //! with it. An agent at work stays where it is.
 
+use crate::server::activity::ActivityCore;
+use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
+use crate::server::ServerCore;
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};

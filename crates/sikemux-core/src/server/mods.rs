@@ -19,6 +19,7 @@ pub fn change_prompt(name: &str, folder: &str, id: &str, asked: &str) -> String 
     )
 }
 
+use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
 use std::collections::{BTreeMap, BTreeSet};

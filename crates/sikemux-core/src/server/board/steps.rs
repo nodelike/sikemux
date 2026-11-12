@@ -178,6 +178,7 @@ pub(super) fn settle_cards(core: &Core, state: &mut State, project: &str) -> Set
 #[cfg(test)]
 mod tests {
     use crate::server::parts::Parts;
+    use crate::server::ServerCore;
     use serde_json::json;
     use sikemux_process::sync::Locked;
 

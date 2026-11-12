@@ -1,8 +1,10 @@
 //! The Hosts group every client shows: the hosts linked with this one, and
 //! the SSH hosts a terminal is open to, each with how it is reached.
 
+use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
+use crate::server::ServerCore;
 use std::collections::BTreeMap;
 use std::sync::atomic::Ordering;
 

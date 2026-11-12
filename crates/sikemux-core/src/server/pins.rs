@@ -4,6 +4,7 @@
 //! failed turn leaves it open with nobody on it. Pins live per project in a file of lines, each
 //! the whole pin after a change, the last one counting, and their pictures by id beside it.
 
+use crate::server::changed::ChangedCore;
 use crate::server::parts::Parts;
 use std::collections::{HashMap, HashSet};
 use std::io::Write;

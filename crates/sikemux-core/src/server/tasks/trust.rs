@@ -1,6 +1,7 @@
 //! Whether the person trusts a project's stated tasks and checks, and asking when not.
 
 use super::*;
+use crate::server::changed::ChangedCore;
 use crate::server::parts::Parts;
 
 pub(super) fn config_ask(

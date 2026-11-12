@@ -1,7 +1,9 @@
 //! What an agent just did, told once to both the person's unread marks and
 //! the phones' notifications, for chats and agents in terminals alike.
 
+use crate::server::changed::ChangedCore;
 use crate::server::parts::Parts;
+use crate::server::ServerCore;
 use std::sync::Arc;
 
 use super::follow::Happened;
@@ -22,9 +24,38 @@ pub(crate) enum Activity<'a> {
     Problem(&'a str),
 }
 
-impl Core {
+/// Telling everything that follows an agent what it just did.
+pub(crate) trait ActivityCore {
     /// Every consumer of what an agent does hears of it here, in this order.
-    pub(crate) fn note_activity(&self, agent_id: &str, activity: Activity<'_>) {
+    fn note_activity(&self, agent_id: &str, activity: Activity<'_>);
+
+    fn came_to_rest(&self, agent_id: &str);
+
+    /// How a turn, or the agent, ended: Auto moves its card on, and a worker's lead is sent how
+    /// it ended.
+    fn note_ending(self: &Arc<Self>, agent_id: &str, ending: Ending);
+
+    /// A lead on a linked host ended a turn, so what it was handed goes on to the person.
+    fn note_linked_turn_ended(&self, agent_id: &str);
+
+    /// The agent stopped running, whether it ended by itself or was closed.
+    fn note_agent_gone(&self, agent_id: &str);
+
+    /// Whether the agent's turns are told to a lead still here, who reads them
+    /// in the person's place.
+    fn reports_to_open_lead(&self, agent_id: &str) -> bool;
+
+    /// The agent's chat went to sleep. Here it stopped running as for
+    /// [`Self::note_agent_gone`]; teammates on other hosts hear it sleeps, and wakes for them.
+    fn note_agent_asleep(&self, agent_id: &str);
+
+    fn journal_agent(&self, agent_id: &str, happened: Happened);
+
+    fn journal_here(&self, agent_id: &str, happened: Happened);
+}
+
+impl ActivityCore for Core {
+    fn note_activity(&self, agent_id: &str, activity: Activity<'_>) {
         let moves_turn = !matches!(activity, Activity::Working);
         match activity {
             Activity::Started => {
@@ -115,37 +146,29 @@ impl Core {
         }
     }
 
-    /// How a turn, or the agent, ended: Auto moves its card on, and a worker's lead is sent how
-    /// it ended.
-    pub(crate) fn note_ending(self: &Arc<Self>, agent_id: &str, ending: Ending) {
+    fn note_ending(self: &Arc<Self>, agent_id: &str, ending: Ending) {
         super::board::auto::turn_ended(self, agent_id, &ending);
         let ignored = super::board::offers::offer_turn_ignored(self, agent_id);
         super::spawn::report_to_lead(self, agent_id, ending, ignored);
     }
 
-    /// A lead on a linked host ended a turn, so what it was handed goes on to the person.
-    pub(crate) fn note_linked_turn_ended(&self, agent_id: &str) {
+    fn note_linked_turn_ended(&self, agent_id: &str) {
         super::questions::turn_ended(self, agent_id);
     }
 
-    /// The agent stopped running, whether it ended by itself or was closed.
-    pub(crate) fn note_agent_gone(&self, agent_id: &str) {
+    fn note_agent_gone(&self, agent_id: &str) {
         self.journal_agent(agent_id, Happened::Gone);
         super::pictures::tidy(self, true);
         self.changed(What::Agents);
     }
 
-    /// Whether the agent's turns are told to a lead still here, who reads them
-    /// in the person's place.
     fn reports_to_open_lead(&self, agent_id: &str) -> bool {
         self.names()
             .reports_to(agent_id)
             .is_some_and(|lead| self.open_agents().contains(&lead))
     }
 
-    /// The agent's chat went to sleep. Here it stopped running as for
-    /// [`Self::note_agent_gone`]; teammates on other hosts hear it sleeps, and wakes for them.
-    pub(crate) fn note_agent_asleep(&self, agent_id: &str) {
+    fn note_agent_asleep(&self, agent_id: &str) {
         self.journal_here(agent_id, Happened::Gone);
         super::worktree::build_output::slept(self, agent_id);
         super::hosts::route::asleep(self, agent_id);

@@ -3,6 +3,7 @@
 //! the plugins read; this module keeps it in step with the vault, decides who may use each
 //! entry, logs every use, and hands on the access tokens of the sign-ins this host refreshes.
 
+use crate::server::changed::ChangedCore;
 use crate::server::parts::Parts;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::{Arc, Mutex, Weak};

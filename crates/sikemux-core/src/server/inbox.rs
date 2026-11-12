@@ -3,6 +3,7 @@
 //! to review, then finished work, then work under way. Built from what the
 //! core already keeps; only how each agent's latest turn went is kept here.
 
+use crate::server::device_view::DeviceViewCore;
 use crate::server::parts::Parts;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet};

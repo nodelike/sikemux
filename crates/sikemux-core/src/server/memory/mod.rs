@@ -5,6 +5,7 @@
 //! knowledge it can; knowledge that no longer holds is marked stale, stays
 //! out of briefs and waits in the inbox until someone corrects or retires it.
 
+use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
 use std::collections::{BTreeMap, HashMap, HashSet};

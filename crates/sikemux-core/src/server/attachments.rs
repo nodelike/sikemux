@@ -5,6 +5,7 @@
 use super::access::{Needs, Peer};
 use super::connection::blocking;
 use crate::server::parts::Parts;
+use crate::server::ServerCore;
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File, OpenOptions};
 use std::io::{ErrorKind, Write};

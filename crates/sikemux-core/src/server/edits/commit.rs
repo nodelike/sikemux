@@ -1236,6 +1236,7 @@ fn merge(top: &Path, shared: &str, before: Option<&str>, committed: &str) -> Opt
 mod tests {
     use super::*;
     use crate::server::edits::tests_git::git_in;
+    use crate::server::ServerCore;
 
     #[test]
     fn a_line_others_may_have_written_does_not_split_an_agents_change() {

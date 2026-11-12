@@ -17,7 +17,9 @@ impl crate::server::part::Part for Notifier {
 #[cfg(test)]
 mod tests;
 
+use crate::server::device_view::DeviceViewCore;
 use crate::server::parts::Parts;
+use crate::server::ServerCore;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::{Arc, Mutex, OnceLock};

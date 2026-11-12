@@ -11,6 +11,7 @@
 mod culprit;
 mod report;
 
+use crate::server::changed::ChangedCore;
 use crate::server::parts::Parts;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};

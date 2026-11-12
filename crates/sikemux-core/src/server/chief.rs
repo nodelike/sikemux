@@ -7,6 +7,7 @@
 //! The core keeps, for each chief, what its next turn hears and what the person is shown in its
 //! chat: never what the person typed, which is read back from the chats' own records.
 
+use crate::server::device_view::DeviceViewCore;
 use crate::server::parts::Parts;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;

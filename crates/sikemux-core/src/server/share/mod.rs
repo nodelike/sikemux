@@ -10,6 +10,7 @@
 mod link;
 mod seal;
 
+use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
 use std::borrow::Cow;

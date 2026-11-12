@@ -3,6 +3,7 @@
 //! counts what a chat does and, once it looks like real work, tells the chat's agent, which
 //! decides whether to track it as a goal.
 
+use crate::server::agent_now::AgentNowCore;
 use crate::server::parts::Parts;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;

@@ -4,6 +4,7 @@
 //! the person. Real progress is a check passing on new commits or a criterion newly met.
 //! A landing ends the run, so nothing needs counting after one.
 
+use crate::server::agent_now::AgentNowCore;
 use crate::server::parts::Parts;
 use std::collections::{BTreeMap, BTreeSet};
 

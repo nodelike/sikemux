@@ -1,6 +1,7 @@
 //! Which release of each agent's CLI this host has, which its chats run, and the newest
 //! out, and the agent's own updater, run at the person's asking one agent at a time.
 
+use crate::server::changed::ChangedCore;
 use crate::server::parts::Parts;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

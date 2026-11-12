@@ -2,8 +2,11 @@
 //! the board starts an agent of its own in a git worktree of its own, a
 //! few at once, and ships its work when its turn ends.
 
+use crate::server::agent_now::AgentNowCore;
+use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
+use crate::server::ServerCore;
 use std::cmp::Reverse;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};

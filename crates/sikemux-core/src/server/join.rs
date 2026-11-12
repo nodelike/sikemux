@@ -156,6 +156,7 @@ pub(super) async fn serve(core: Arc<Core>, connection: Connection) {
 
 #[cfg(test)]
 mod tests {
+    use crate::server::ServerCore;
     use std::time::Duration;
 
     use iroh::endpoint::presets;

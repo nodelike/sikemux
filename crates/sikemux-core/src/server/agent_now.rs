@@ -2,6 +2,7 @@
 //! a chat here, a terminal here, or on a linked host.
 
 use crate::server::parts::Parts;
+use crate::server::ServerCore;
 use std::sync::Arc;
 
 use sikemux_wire::protocol::{AgentState, AgentStatus};
@@ -15,8 +16,13 @@ pub(crate) struct AgentNow<'a> {
     id: &'a str,
 }
 
-impl Core {
-    pub(crate) fn agent_now<'a>(&'a self, id: &'a str) -> AgentNow<'a> {
+/// Reading what one agent is doing now.
+pub(crate) trait AgentNowCore {
+    fn agent_now<'a>(&'a self, id: &'a str) -> AgentNow<'a>;
+}
+
+impl AgentNowCore for Core {
+    fn agent_now<'a>(&'a self, id: &'a str) -> AgentNow<'a> {
         AgentNow { core: self, id }
     }
 }

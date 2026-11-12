@@ -2,6 +2,7 @@
 //! behind it, and the launch a chat gets from them.
 
 use super::*;
+use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
 use sikemux_view::workspace::{ConfigChoice, ConfigPicker};

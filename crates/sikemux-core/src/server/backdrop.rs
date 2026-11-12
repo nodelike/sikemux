@@ -1,7 +1,9 @@
 //! What devices draw behind their panes: the host's grain, and the picture in its place, taken
 //! from the person's preferences so that no app has to send it.
 
+use crate::server::changed::ChangedCore;
 use crate::server::parts::Parts;
+use crate::server::ServerCore;
 use sikemux_view::prefs::{PaneColours, Preferences};
 use sikemux_view::theme::UiTokens;
 use sikemux_view::workspace::BackdropLook;

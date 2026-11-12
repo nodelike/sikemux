@@ -139,6 +139,9 @@ pub use calls::call;
 pub use entry::main;
 pub use turn_state::TakeStepParams;
 
+use crate::server::changed::ChangedCore;
+use crate::server::device_view::DeviceViewCore;
+use crate::server::part::PartCore;
 use std::collections::{HashMap, HashSet};
 use std::fs::{DirBuilder, File, OpenOptions};
 use std::os::fd::AsRawFd;
@@ -444,6 +447,126 @@ impl Core {
         }
     }
 
+    /// This core, for work that outlives the call it starts in.
+    pub(crate) fn arc(&self) -> Option<Arc<Core>> {
+        self.me.upgrade()
+    }
+
+    /// Milliseconds on this core's clock, which session times are stamped in.
+    pub(crate) fn uptime_ms(&self) -> u64 {
+        self.started.elapsed().as_millis() as u64
+    }
+}
+
+/// What a running core does with its sessions, its clients and its own stopping.
+pub(crate) trait ServerCore {
+    #[cfg(test)]
+    fn new(build: BuildIdentity, data_dir: Option<&Path>) -> Result<Arc<Self>, ServerError>;
+
+    /// Brings the data folder up to date and puts what agents find first on their PATH in
+    /// place, then builds the core, so nothing it starts, the chats taken up from an earlier
+    /// core included, runs without its checks.
+    fn open(
+        config: ServerConfig,
+        listening: Listening,
+        uptime_ms: u64,
+    ) -> Result<Arc<Self>, ServerError>;
+
+    /// A core whose clock reads `uptime_ms` already: a core that replaced an earlier one keeps
+    /// its clock, so the times the earlier one stamped on sessions still mean the same moment.
+    fn built(
+        config: ServerConfig,
+        listening: Listening,
+        uptime_ms: u64,
+    ) -> Result<Arc<Self>, ServerError>;
+
+    /// The preferences as devices draw them, with Omarchy's background as the pane image
+    /// while it is followed. The picture the person chose stays saved underneath.
+    fn shown_preferences(&self) -> sikemux_view::prefs::Preferences;
+
+    /// Resolves the person's theme again, for apps, devices and programs' colour queries.
+    fn theme_changed(&self);
+
+    fn manifest_dir(&self) -> Option<PathBuf>;
+
+    fn clients(&self) -> Vec<Arc<ClientConn>>;
+
+    fn manifest_report(&self) -> ManifestReloadReport;
+
+    /// Rebuilds the detection rules from the bundled ones and the person's
+    /// directory. Blocks while it reads the directory.
+    fn configure_manifests(&self, directory: Option<PathBuf>) -> CoreResult<ManifestReloadReport>;
+
+    fn reload_manifests(&self) -> CoreResult<ManifestReloadReport>;
+
+    fn running_agents(&self) -> HashSet<String>;
+
+    /// The agents that keep their names: those running here and those the
+    /// workspace holds, asleep or not.
+    fn open_agents(&self) -> HashSet<String>;
+
+    /// The agent's name, given now when it has none. A closed agent opening again under its
+    /// id comes back as itself, with the buddy it wore, which it answers too. Reads and writes
+    /// the disk, so it belongs on a blocking thread.
+    fn name_agent(
+        &self,
+        agent_id: &str,
+        cwd: &Path,
+        provider: Option<&str>,
+        resume_id: Option<&str>,
+    ) -> (names::AgentName, Option<names::Returned>);
+
+    /// Each ssh terminal's config host and how it reaches it.
+    fn ssh_links(&self) -> Vec<(String, Option<sikemux_pty::shell_protocol::SshLink>)>;
+
+    fn agent_session(&self, agent_id: &str) -> Option<Arc<Session>>;
+
+    fn session(&self, id: SessionId) -> Option<Arc<Session>>;
+
+    fn all_sessions(&self) -> Vec<Arc<Session>>;
+
+    /// The lowest rail number no running loose terminal has, taken now.
+    fn take_rail_number(&self) -> u32;
+
+    fn insert_session(&self, session: Arc<Session>);
+
+    fn remove_session(&self, session: &Arc<Session>) -> bool;
+
+    fn take_session_for_kill(&self, id: SessionId) -> Option<Arc<Session>>;
+
+    fn running_sessions(&self) -> usize;
+
+    fn is_idle(&self) -> bool;
+
+    fn client_conn(&self, id: ClientId) -> Option<Arc<ClientConn>>;
+
+    fn register_client(&self, client: Arc<ClientConn>);
+
+    fn unregister_client(self: &Arc<Self>, client: &ClientConn);
+
+    /// Ends the connections of one paired device, or of every one.
+    fn close_device_clients(&self, id: Option<&str>);
+
+    fn permit(&self, peer: &access::Peer, needs: access::Needs) -> CoreResult<()>;
+
+    fn schedule_task_output_notice(self: &Arc<Self>, id: SessionId, delay: Duration);
+
+    /// Drops the oldest exited sessions nobody is watching once there are too
+    /// many or they have been kept long enough.
+    fn reclaim_exited_sessions(&self, now: u64);
+
+    /// Puts every chat to sleep and stops every session. Only reaping a killed process can
+    /// hang, so each session is reaped on a thread of its own within `STOP_STEP_LIMIT`, and one
+    /// still unreaped then is reported gone without its status, so every exit is still recorded.
+    fn drain(self: &Arc<Self>);
+
+    fn begin_shutdown(&self);
+
+    /// Puts every chat to sleep and stops every session, off the async threads.
+    async fn stop_everything(self: &Arc<Self>);
+}
+
+impl ServerCore for Core {
     #[cfg(test)]
     fn new(build: BuildIdentity, data_dir: Option<&Path>) -> Result<Arc<Self>, ServerError> {
         sikemux_process::user_environment::search_path_only_from_now();
@@ -459,9 +582,6 @@ impl Core {
         Self::built(config, listening, 0)
     }
 
-    /// Brings the data folder up to date and puts what agents find first on their PATH in
-    /// place, then builds the core, so nothing it starts, the chats taken up from an earlier
-    /// core included, runs without its checks.
     fn open(
         config: ServerConfig,
         listening: Listening,
@@ -474,8 +594,6 @@ impl Core {
         Self::built(config, listening, uptime_ms)
     }
 
-    /// A core whose clock reads `uptime_ms` already: a core that replaced an earlier one keeps
-    /// its clock, so the times the earlier one stamped on sessions still mean the same moment.
     fn built(
         config: ServerConfig,
         listening: Listening,
@@ -594,19 +712,7 @@ impl Core {
         Ok(core)
     }
 
-    /// This core, for work that outlives the call it starts in.
-    pub(crate) fn arc(&self) -> Option<Arc<Core>> {
-        self.me.upgrade()
-    }
-
-    /// Milliseconds on this core's clock, which session times are stamped in.
-    pub(crate) fn uptime_ms(&self) -> u64 {
-        self.started.elapsed().as_millis() as u64
-    }
-
-    /// The preferences as devices draw them, with Omarchy's background as the pane image
-    /// while it is followed. The picture the person chose stays saved underneath.
-    pub(crate) fn shown_preferences(&self) -> sikemux_view::prefs::Preferences {
+    fn shown_preferences(&self) -> sikemux_view::prefs::Preferences {
         let mut preferences = self.preferences().get();
         if preferences.pane_image_follows_omarchy {
             if let Some(background) = self.look().omarchy_background() {
@@ -616,15 +722,14 @@ impl Core {
         preferences
     }
 
-    /// Resolves the person's theme again, for apps, devices and programs' colour queries.
-    pub(crate) fn theme_changed(&self) {
+    fn theme_changed(&self) {
         let omarchy = self.look().omarchy();
         self.look()
             .set(themes::palette(&self.preferences().get(), omarchy.as_ref()));
         self.changed(What::View);
     }
 
-    pub(crate) fn manifest_dir(&self) -> Option<PathBuf> {
+    fn manifest_dir(&self) -> Option<PathBuf> {
         self.manifest_folder().locked().clone()
     }
 
@@ -632,21 +737,16 @@ impl Core {
         self.connections().locked().values().cloned().collect()
     }
 
-    pub(crate) fn manifest_report(&self) -> ManifestReloadReport {
+    fn manifest_report(&self) -> ManifestReloadReport {
         self.detection().read_locked().report()
     }
 
-    /// Rebuilds the detection rules from the bundled ones and the person's
-    /// directory. Blocks while it reads the directory.
-    pub(crate) fn configure_manifests(
-        &self,
-        directory: Option<PathBuf>,
-    ) -> CoreResult<ManifestReloadReport> {
+    fn configure_manifests(&self, directory: Option<PathBuf>) -> CoreResult<ManifestReloadReport> {
         *self.manifest_folder().locked() = directory;
         self.reload_manifests()
     }
 
-    pub(crate) fn reload_manifests(&self) -> CoreResult<ManifestReloadReport> {
+    fn reload_manifests(&self) -> CoreResult<ManifestReloadReport> {
         let directory = self.manifest_folder().locked().clone();
         let manifests = |error: sikemux_pty::agent_detection::ManifestError| {
             CoreError::from(format!("agent detection manifests: {error}"))
@@ -667,7 +767,7 @@ impl Core {
         Ok(report)
     }
 
-    pub(crate) fn running_agents(&self) -> HashSet<String> {
+    fn running_agents(&self) -> HashSet<String> {
         let mut running: HashSet<String> = self.chats().ids().into_iter().collect();
         running.extend(self.all_sessions().iter().filter_map(|session| {
             session
@@ -678,18 +778,13 @@ impl Core {
         running
     }
 
-    /// The agents that keep their names: those running here and those the
-    /// workspace holds, asleep or not.
-    pub(crate) fn open_agents(&self) -> HashSet<String> {
+    fn open_agents(&self) -> HashSet<String> {
         let mut open = self.running_agents();
         open.extend(self.workspaces().agent_ids());
         open
     }
 
-    /// The agent's name, given now when it has none. A closed agent opening again under its
-    /// id comes back as itself, with the buddy it wore, which it answers too. Reads and writes
-    /// the disk, so it belongs on a blocking thread.
-    pub(crate) fn name_agent(
+    fn name_agent(
         &self,
         agent_id: &str,
         cwd: &Path,
@@ -718,8 +813,7 @@ impl Core {
         (named, reopened)
     }
 
-    /// Each ssh terminal's config host and how it reaches it.
-    pub(crate) fn ssh_links(&self) -> Vec<(String, Option<sikemux_pty::shell_protocol::SshLink>)> {
+    fn ssh_links(&self) -> Vec<(String, Option<sikemux_pty::shell_protocol::SshLink>)> {
         self.all_sessions()
             .iter()
             .filter(|session| session.is_running())
@@ -727,7 +821,7 @@ impl Core {
             .collect()
     }
 
-    pub(crate) fn agent_session(&self, agent_id: &str) -> Option<Arc<Session>> {
+    fn agent_session(&self, agent_id: &str) -> Option<Arc<Session>> {
         self.all_sessions().into_iter().find(|session| {
             session
                 .agent
@@ -736,7 +830,7 @@ impl Core {
         })
     }
 
-    pub(crate) fn session(&self, id: SessionId) -> Option<Arc<Session>> {
+    fn session(&self, id: SessionId) -> Option<Arc<Session>> {
         self.sessions().locked().get(&id).cloned()
     }
 
@@ -744,7 +838,6 @@ impl Core {
         self.sessions().locked().values().cloned().collect()
     }
 
-    /// The lowest rail number no running loose terminal has, taken now.
     fn take_rail_number(&self) -> u32 {
         let mut taken = self.rail_numbers().locked();
         let number = (1..).find(|number| !taken.contains(number)).unwrap_or(0);
@@ -763,7 +856,7 @@ impl Core {
         }
     }
 
-    pub(crate) fn remove_session(&self, session: &Arc<Session>) -> bool {
+    fn remove_session(&self, session: &Arc<Session>) -> bool {
         let removed = {
             let mut sessions = self.sessions().locked();
             let current = sessions
@@ -808,7 +901,7 @@ impl Core {
             && !board::auto::has_work(self.boards())
     }
 
-    pub(crate) fn client_conn(&self, id: ClientId) -> Option<Arc<ClientConn>> {
+    fn client_conn(&self, id: ClientId) -> Option<Arc<ClientConn>> {
         self.connections().locked().get(&id).cloned()
     }
 
@@ -829,8 +922,7 @@ impl Core {
         self.changed(What::View);
     }
 
-    /// Ends the connections of one paired device, or of every one.
-    pub(crate) fn close_device_clients(&self, id: Option<&str>) {
+    fn close_device_clients(&self, id: Option<&str>) {
         for client in self.clients() {
             let closing = match id {
                 Some(id) => client.peer.is_device(id),
@@ -842,7 +934,7 @@ impl Core {
         }
     }
 
-    pub(crate) fn permit(&self, peer: &access::Peer, needs: access::Needs) -> CoreResult<()> {
+    fn permit(&self, peer: &access::Peer, needs: access::Needs) -> CoreResult<()> {
         let standing = match peer {
             access::Peer::App | access::Peer::Local | access::Peer::Share { .. } => None,
             access::Peer::Device { id } => self.remote().standing_of(id),
@@ -850,7 +942,7 @@ impl Core {
         access::permit(peer, standing, needs)
     }
 
-    pub(crate) fn schedule_task_output_notice(self: &Arc<Self>, id: SessionId, delay: Duration) {
+    fn schedule_task_output_notice(self: &Arc<Self>, id: SessionId, delay: Duration) {
         let core = self.clone();
         tokio::spawn(async move {
             tokio::time::sleep(delay).await;
@@ -861,9 +953,7 @@ impl Core {
         });
     }
 
-    /// Drops the oldest exited sessions nobody is watching once there are too
-    /// many or they have been kept long enough.
-    pub(crate) fn reclaim_exited_sessions(&self, now: u64) {
+    fn reclaim_exited_sessions(&self, now: u64) {
         let sessions = self.all_sessions();
         let candidates = sessions
             .iter()
@@ -884,9 +974,6 @@ impl Core {
         }
     }
 
-    /// Puts every chat to sleep and stops every session. Only reaping a killed process can
-    /// hang, so each session is reaped on a thread of its own within `STOP_STEP_LIMIT`, and one
-    /// still unreaped then is reported gone without its status, so every exit is still recorded.
     fn drain(self: &Arc<Self>) {
         lifecycle::sleep_all(self);
         let sessions: Vec<Arc<Session>> = self
@@ -936,7 +1023,6 @@ impl Core {
         self.shutdown.send_replace(true);
     }
 
-    /// Puts every chat to sleep and stops every session, off the async threads.
     async fn stop_everything(self: &Arc<Self>) {
         let draining = self.clone();
         let _ = connection::blocking(move || {

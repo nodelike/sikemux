@@ -1,8 +1,10 @@
 //! What each device is shown of this host, built from the core's state and
 //! sent again whenever anything in it changes.
 
+use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
+use crate::server::ServerCore;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -41,13 +43,71 @@ pub(crate) struct DeviceViews {
     shown_load: Mutex<Option<sikemux_view::device::HostLoad>>,
 }
 
-impl Core {
-    pub(crate) fn view_watched(&self) {
-        self.device_view().watched.notify_one();
-    }
+/// Building and sending the view of this host that devices show.
+pub(crate) trait DeviceViewCore {
+    fn view_watched(&self);
 
     /// Tells [`Seen`] the agents each phone shows: the chats and terminals it
     /// has open while its app is in front.
+    fn show_phones(&self);
+
+    /// Every session, with what the app calls its agent and whether the
+    /// person has seen what the agent last did.
+    fn session_infos(&self) -> Vec<sikemux_wire::protocol::SessionInfo>;
+
+    /// Whether what the agent is doing waits on the person, as Needs you lists it.
+    fn needs_person(&self, agent_id: &str) -> bool;
+
+    /// The chats under the app's names, most recently active first, with
+    /// whether the person has seen what each last did.
+    fn chat_infos(&self) -> Vec<sikemux_wire::protocol::ChatInfo>;
+
+    /// The chats and sessions, each agent numbered in the order it wants the
+    /// person.
+    fn ranked_infos(
+        &self,
+    ) -> (
+        Vec<sikemux_wire::protocol::ChatInfo>,
+        Vec<sikemux_wire::protocol::SessionInfo>,
+    );
+
+    /// The workspace's agents as clients are sent them, each under its name and in its face.
+    fn workspace_agents(&self) -> Vec<sikemux_view::workspace::WorkspaceAgent>;
+
+    /// The workspace as a client asks for it, with how each project stands.
+    fn workspace_view_standing(&self) -> sikemux_view::workspace::Workspace;
+
+    /// The workspace as clients are sent it, each agent under its name and
+    /// in its face. How each project stands is left out: it costs the turns of every agent.
+    fn workspace_view(&self) -> sikemux_view::workspace::Workspace;
+
+    /// The view `device` is sent, or every client without a front of its own, and whether
+    /// anything in it moves by itself.
+    fn device_view_frame(&self, device: Option<&str>) -> Option<(Vec<u8>, bool)>;
+
+    /// The clients sent the device view: every paired device, and local clients that asked.
+    fn view_watchers(&self) -> Vec<Arc<ClientConn>>;
+
+    /// Whether a client that shows this host's load watches the view: the app on this host, or
+    /// another host's app joined as a device. Phones show no load.
+    fn shows_load(&self) -> bool;
+
+    /// Whether what the rows show of `load` moved since the view last went out.
+    fn load_moved(&self, load: &sikemux_view::device::HostLoad) -> bool;
+
+    /// Sends every paired device what it shows of this host, when that changed since they were
+    /// last sent it. Answers whether anything in the view moves by itself.
+    fn publish_device_view(&self) -> bool;
+
+    /// A device that just connected starts from the whole view.
+    fn send_device_view(&self, client: &ClientConn);
+}
+
+impl DeviceViewCore for Core {
+    fn view_watched(&self) {
+        self.device_view().watched.notify_one();
+    }
+
     fn show_phones(&self) {
         let phones: Vec<_> = self
             .clients()
@@ -77,9 +137,7 @@ impl Core {
         }
     }
 
-    /// Every session, with what the app calls its agent and whether the
-    /// person has seen what the agent last did.
-    pub(crate) fn session_infos(&self) -> Vec<sikemux_wire::protocol::SessionInfo> {
+    fn session_infos(&self) -> Vec<sikemux_wire::protocol::SessionInfo> {
         let mut sessions: Vec<_> = self
             .all_sessions()
             .iter()
@@ -106,7 +164,6 @@ impl Core {
         sessions
     }
 
-    /// Whether what the agent is doing waits on the person, as Needs you lists it.
     fn needs_person(&self, agent_id: &str) -> bool {
         self.harness().questions.asks_person(agent_id)
             || self.ship().holds(agent_id)
@@ -116,9 +173,7 @@ impl Core {
                 .is_some_and(|feed| feed.has_guests())
     }
 
-    /// The chats under the app's names, most recently active first, with
-    /// whether the person has seen what each last did.
-    pub(crate) fn chat_infos(&self) -> Vec<sikemux_wire::protocol::ChatInfo> {
+    fn chat_infos(&self) -> Vec<sikemux_wire::protocol::ChatInfo> {
         let mut chats = self.workspaces().listed(self.chats().list());
         for chat in &mut chats {
             chat.name = self.names().name(&chat.agent_id);
@@ -134,9 +189,7 @@ impl Core {
         chats
     }
 
-    /// The chats and sessions, each agent numbered in the order it wants the
-    /// person.
-    pub(crate) fn ranked_infos(
+    fn ranked_infos(
         &self,
     ) -> (
         Vec<sikemux_wire::protocol::ChatInfo>,
@@ -154,16 +207,14 @@ impl Core {
         (chats, sessions)
     }
 
-    /// The workspace's agents as clients are sent them, each under its name and in its face.
-    pub(crate) fn workspace_agents(&self) -> Vec<sikemux_view::workspace::WorkspaceAgent> {
+    fn workspace_agents(&self) -> Vec<sikemux_view::workspace::WorkspaceAgent> {
         let mut agents = self.workspaces().view().agents;
         self.names().fill(&mut agents);
         self.faces().fill(&mut agents);
         agents
     }
 
-    /// The workspace as a client asks for it, with how each project stands.
-    pub(crate) fn workspace_view_standing(&self) -> sikemux_view::workspace::Workspace {
+    fn workspace_view_standing(&self) -> sikemux_view::workspace::Workspace {
         let mut workspace = self.workspace_view();
         let turns = super::turn_state::all(self);
         let calls = super::person_calls::shown(self);
@@ -171,9 +222,7 @@ impl Core {
         workspace
     }
 
-    /// The workspace as clients are sent it, each agent under its name and
-    /// in its face. How each project stands is left out: it costs the turns of every agent.
-    pub(crate) fn workspace_view(&self) -> sikemux_view::workspace::Workspace {
+    fn workspace_view(&self) -> sikemux_view::workspace::Workspace {
         let preferences = self.preferences().get();
         let mut workspace = self.workspaces().view();
         workspace.palette = self.look().tokens_by_name();
@@ -215,8 +264,6 @@ impl Core {
         workspace
     }
 
-    /// The view `device` is sent, or every client without a front of its own, and whether
-    /// anything in it moves by itself.
     fn device_view_frame(&self, device: Option<&str>) -> Option<(Vec<u8>, bool)> {
         let (chats, sessions) = self.ranked_infos();
         let moving = chats.iter().any(|chat| {
@@ -286,7 +333,6 @@ impl Core {
         Some((frame, moving))
     }
 
-    /// The clients sent the device view: every paired device, and local clients that asked.
     fn view_watchers(&self) -> Vec<Arc<ClientConn>> {
         self.clients()
             .into_iter()
@@ -294,9 +340,7 @@ impl Core {
             .collect()
     }
 
-    /// Whether a client that shows this host's load watches the view: the app on this host, or
-    /// another host's app joined as a device. Phones show no load.
-    pub(crate) fn shows_load(&self) -> bool {
+    fn shows_load(&self) -> bool {
         self.view_watchers()
             .iter()
             .any(|client| match &client.peer {
@@ -308,13 +352,10 @@ impl Core {
             })
     }
 
-    /// Whether what the rows show of `load` moved since the view last went out.
-    pub(crate) fn load_moved(&self, load: &sikemux_view::device::HostLoad) -> bool {
+    fn load_moved(&self, load: &sikemux_view::device::HostLoad) -> bool {
         *self.device_view().shown_load.locked() != Some(host_stats::shown_load(load))
     }
 
-    /// Sends every paired device what it shows of this host, when that changed since they were
-    /// last sent it. Answers whether anything in the view moves by itself.
     fn publish_device_view(&self) -> bool {
         let devices = self.view_watchers();
         if devices.is_empty() {
@@ -344,8 +385,7 @@ impl Core {
         moving
     }
 
-    /// A device that just connected starts from the whole view.
-    pub(crate) fn send_device_view(&self, client: &ClientConn) {
+    fn send_device_view(&self, client: &ClientConn) {
         let _last = self.device_view().sent.locked();
         if let Some((frame, _)) = self.device_view_frame(client.peer.device_id().as_deref()) {
             client.send(frame.into());

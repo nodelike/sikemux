@@ -1,6 +1,7 @@
 //! The builds agents start take turns: as many build at once as the host's
 //! cores and memory take, and the rest wait in the order they asked.
 
+use crate::server::changed::ChangedCore;
 use crate::server::parts::Parts;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};

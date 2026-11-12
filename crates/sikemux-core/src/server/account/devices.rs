@@ -1,6 +1,8 @@
 //! The person's devices and hosts on the account, as this host sees and changes them.
 
+use crate::server::changed::ChangedCore;
 use crate::server::parts::Parts;
+use crate::server::ServerCore;
 use std::sync::Arc;
 
 use reqwest::Method;

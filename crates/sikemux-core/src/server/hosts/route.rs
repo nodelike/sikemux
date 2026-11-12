@@ -4,8 +4,12 @@
 //! team does is told to the hosts its teammates run on, which journal it for
 //! `agent_wait` and show it.
 
+use crate::server::activity::ActivityCore;
+use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
+use crate::server::device_view::DeviceViewCore;
 use crate::server::parts::Parts;
+use crate::server::ServerCore;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;

@@ -2,6 +2,7 @@
 //! history, and those the person pinned.
 
 use super::*;
+use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::names::RanSession;
 use crate::server::parts::Parts;

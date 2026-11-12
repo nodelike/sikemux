@@ -2,6 +2,7 @@
 //! Codex on this host, through each CLI's own login. The page a sign-in opens
 //! goes to every client, so the person can finish it from any device.
 
+use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
 use std::collections::{BTreeMap, HashMap};

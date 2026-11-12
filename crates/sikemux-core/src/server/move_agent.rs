@@ -4,6 +4,7 @@
 //! terminal agent starts again there when it is next shown.
 
 use crate::server::parts::Parts;
+use crate::server::ServerCore;
 use std::path::PathBuf;
 use std::sync::Arc;
 

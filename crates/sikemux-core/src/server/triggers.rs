@@ -4,6 +4,7 @@
 //! instead of at a time. A chat's triggers pause while it is closed and go on when it is taken up
 //! again.
 
+use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
 use std::collections::VecDeque;

@@ -5,8 +5,10 @@
 //! reads from the pipe and approves for the account; the host is then noted as reached at the
 //! alias, and asked afresh what it runs.
 
+use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
+use crate::server::ServerCore;
 use std::sync::Arc;
 use std::time::Duration;
 

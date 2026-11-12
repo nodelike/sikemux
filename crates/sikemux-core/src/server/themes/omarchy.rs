@@ -2,7 +2,9 @@
 //! writes the current theme's colours to a folder it replaces on every switch,
 //! so Sikemux offers one theme, Omarchy, that follows it.
 
+use crate::server::changed::ChangedCore;
 use crate::server::parts::Parts;
+use crate::server::ServerCore;
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;

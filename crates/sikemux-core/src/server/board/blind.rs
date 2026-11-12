@@ -6,8 +6,12 @@
 //! builder's, and no agent may reach it or be reached by it. Each round gets
 //! a fresh one.
 
+use crate::server::activity::ActivityCore;
+use crate::server::agent_now::AgentNowCore;
+use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
+use crate::server::ServerCore;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 

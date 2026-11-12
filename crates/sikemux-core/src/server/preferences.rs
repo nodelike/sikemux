@@ -2,8 +2,10 @@
 //! the same choices. Each one's default is `Preferences::default()`.
 
 use super::changed::Topic;
+use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
+use crate::server::ServerCore;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::path::Path;

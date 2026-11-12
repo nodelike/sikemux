@@ -1,7 +1,11 @@
 //! What the core does with each request a client sends, and whether it may: one rule, run once,
 //! before anything runs. The connection itself is in `connection.rs`.
 
+use crate::server::activity::ActivityCore;
+use crate::server::changed::ChangedCore;
+use crate::server::device_view::DeviceViewCore;
 use crate::server::parts::Parts;
+use crate::server::ServerCore;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 

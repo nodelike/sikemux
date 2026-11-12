@@ -6,6 +6,7 @@
 //! after its last change, kept in [`Priors`].
 
 use crate::server::parts::Parts;
+use crate::server::ServerCore;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, Weak};

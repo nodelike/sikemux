@@ -3,6 +3,7 @@
 //! changes to one topic and project goes out as one notice.
 
 use crate::server::parts::Parts;
+use crate::server::ServerCore;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -46,8 +47,20 @@ pub(crate) enum What<'a> {
     ChatState(&'a Event),
 }
 
-impl Core {
-    pub(crate) fn changed(&self, what: What<'_>) {
+/// Saying that the core's state changed.
+pub(crate) trait ChangedCore {
+    fn changed(&self, what: What<'_>);
+
+    /// The view is built afresh, and with it what the inbox is made from may have moved.
+    fn view_moved(&self);
+
+    fn read_changed(&self, topic: Topic, project: Option<&str>, paths: Option<Vec<String>>);
+
+    fn tell(&self, event: &Event);
+}
+
+impl ChangedCore for Core {
+    fn changed(&self, what: What<'_>) {
         match what {
             What::View => self.view_moved(),
             What::ViewNow => {
@@ -73,7 +86,6 @@ impl Core {
         }
     }
 
-    /// The view is built afresh, and with it what the inbox is made from may have moved.
     fn view_moved(&self) {
         self.device_view().stale.notify_one();
         self.hosts().copies.wake.now();

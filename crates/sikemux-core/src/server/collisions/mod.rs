@@ -11,6 +11,7 @@ mod fragile;
 mod merge;
 mod watch;
 
+use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
 use sikemux_fold::UpdateKind;

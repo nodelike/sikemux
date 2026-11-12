@@ -4,7 +4,10 @@
 //! in a row, or too many, go to the person once, with the reason. What is tried and what is
 //! due sits on the run, so a core that restarts carries on from the card.
 
+use crate::server::activity::ActivityCore;
+use crate::server::agent_now::AgentNowCore;
 use crate::server::parts::Parts;
+use crate::server::ServerCore;
 use std::path::Path;
 use std::sync::Arc;
 

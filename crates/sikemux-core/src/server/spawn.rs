@@ -4,8 +4,12 @@
 //! the new agent's turn ends, its final answer goes back to the agent that
 //! started it.
 
+use crate::server::activity::ActivityCore;
+use crate::server::agent_now::AgentNowCore;
+use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
+use crate::server::ServerCore;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};

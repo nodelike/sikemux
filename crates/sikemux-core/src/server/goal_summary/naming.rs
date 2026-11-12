@@ -3,6 +3,8 @@
 //! title that agent's chat got. Nothing waits for
 //! it: until it comes, the goal goes by the first clause of what the person asked.
 
+use crate::server::agent_now::AgentNowCore;
+use crate::server::changed::ChangedCore;
 use crate::server::parts::Parts;
 use std::sync::Arc;
 

@@ -2,6 +2,8 @@
 //! behind a queued build. Its lead hears of it once; with no lead awake to
 //! hear, the person sees it with what else needs them.
 
+use crate::server::changed::ChangedCore;
+use crate::server::device_view::DeviceViewCore;
 use crate::server::parts::Parts;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};

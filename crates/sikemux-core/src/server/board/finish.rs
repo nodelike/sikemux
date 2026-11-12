@@ -4,7 +4,9 @@
 //! anything more goes back to the person. While it waits for review, its
 //! agent is handed reviewers' comments and its replies are posted for it.
 
+use crate::server::activity::ActivityCore;
 use crate::server::parts::Parts;
+use crate::server::ServerCore;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 

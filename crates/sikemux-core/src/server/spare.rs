@@ -3,7 +3,9 @@
 //! opens on a prompt instead of waiting on the person's rc files. At most one
 //! runs, and one nobody takes is stopped after a while.
 
+use crate::server::device_view::DeviceViewCore;
 use crate::server::parts::Parts;
+use crate::server::ServerCore;
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};

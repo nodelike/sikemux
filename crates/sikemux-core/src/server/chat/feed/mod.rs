@@ -1394,6 +1394,7 @@ fn reported_cost(payload: &Value) -> Option<f64> {
 mod tests {
     use super::replay::tests::{asks, text, turn, update};
     use super::*;
+    use crate::server::ServerCore;
     use sikemux_fold::UpdateKind;
     use sikemux_wire::protocol::{ChatAttachment, ChatMark, Event, ServerMessage};
 

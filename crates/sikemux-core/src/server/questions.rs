@@ -6,6 +6,9 @@
 //! The person answers in the asker's chat, the notch or Sikemux's rail, and the
 //! first answer reaches the asker as a message.
 
+use crate::server::activity::ActivityCore;
+use crate::server::agent_now::AgentNowCore;
+use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
 use std::collections::{HashMap, HashSet};

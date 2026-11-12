@@ -9,8 +9,10 @@ mod darwin;
 #[cfg(target_os = "linux")]
 mod linux;
 
+use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
+use crate::server::ServerCore;
 use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
 use std::path::Path;

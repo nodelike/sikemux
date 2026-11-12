@@ -28,6 +28,8 @@ mod turn;
 mod usage;
 
 use crate::server::access::Peer;
+use crate::server::activity::ActivityCore;
+use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
 use sikemux_fold::update::{notice, turn_answer};

@@ -3,6 +3,7 @@
 //! agent to the session it starts, keeps titles in step with the ones the CLI
 //! saves, and writes a name the person gave back into the CLI's own session.
 
+use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
 use std::collections::{HashMap, HashSet};

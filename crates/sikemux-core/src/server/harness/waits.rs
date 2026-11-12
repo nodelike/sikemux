@@ -191,6 +191,7 @@ pub(super) async fn plugins_wait(harness: &Harness, params: &Value) -> Result<Va
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::server::ServerCore;
 
     /// 70 calls since 2026-11-03 failed with "cursor must be nonempty text": a note from
     /// `process_start` tells agents to wait on its `executionId`, and they had no cursor to pass.

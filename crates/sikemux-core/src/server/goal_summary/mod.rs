@@ -12,6 +12,7 @@ mod pulls;
 
 pub(crate) use naming::{chat_titled, name_new, name_unnamed};
 
+use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
 use std::collections::HashMap;

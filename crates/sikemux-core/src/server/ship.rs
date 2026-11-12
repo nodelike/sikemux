@@ -8,6 +8,8 @@
 //! deploy to an environment the project marked safe goes without asking, and
 //! one that goes is followed to its end and kept as evidence on the slice.
 
+use crate::server::agent_now::AgentNowCore;
+use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -1699,6 +1701,7 @@ fn held_call(core: &Core, hold: &Hold) -> PersonCall {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::server::ServerCore;
 
     /// `"ship": ["./deploy.sh"]` in a QA project's sikemux.json, and `./deploy.sh` ran with no
     /// hold once the agent started it with process_start.

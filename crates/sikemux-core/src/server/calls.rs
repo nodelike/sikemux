@@ -2,7 +2,9 @@
 //! device gains a method here without its native code changing, so one a
 //! released app calls is never removed or renamed.
 
+use crate::server::device_view::DeviceViewCore;
 use crate::server::parts::Parts;
+use crate::server::ServerCore;
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};

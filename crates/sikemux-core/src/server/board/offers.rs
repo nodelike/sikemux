@@ -1,7 +1,9 @@
 //! The board offers an idle agent its team's free cards, and tells a turn that only ignored
 //! the offer from one worth reporting.
 
+use crate::server::agent_now::AgentNowCore;
 use crate::server::parts::Parts;
+use crate::server::ServerCore;
 use std::sync::Arc;
 
 use super::*;

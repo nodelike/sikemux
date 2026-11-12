@@ -1,6 +1,7 @@
 //! How the board follows a project's commits, landings and checks, in the order they happened, and what it does to the slices they are about.
 
 use super::*;
+use crate::server::changed::ChangedCore;
 use crate::server::parts::Parts;
 
 /// The card `agent` works now on `board`, when that is a slice in progress.

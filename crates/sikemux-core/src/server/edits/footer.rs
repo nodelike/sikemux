@@ -3,6 +3,7 @@
 //! agent's own `git commit` through the git shim.
 
 use crate::server::parts::Parts;
+use crate::server::ServerCore;
 use std::cell::Cell;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

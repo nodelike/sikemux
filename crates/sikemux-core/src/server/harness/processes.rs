@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::server::parts::Parts;
+use crate::server::ServerCore;
 
 pub(crate) async fn stop_run(core: &Arc<Core>, execution_id: &str) -> Result<Run, String> {
     let kill = core

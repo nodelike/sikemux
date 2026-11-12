@@ -2,6 +2,7 @@
 //! one by its URL. Both go in the folder the person keeps projects in. A clone becomes a project
 //! at once and comes down in the background, its progress in the project's `cloning`.
 
+use crate::server::changed::ChangedCore;
 use crate::server::parts::Parts;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

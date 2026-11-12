@@ -5,7 +5,9 @@
 //! turn the network cut short, or one the person keeps alive, is never put to sleep. A terminal agent that crashes comes back on
 //! its saved session below its last screen, unless it crashes again at once.
 
+use crate::server::activity::ActivityCore;
 use crate::server::parts::Parts;
+use crate::server::ServerCore;
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::sync::atomic::Ordering;

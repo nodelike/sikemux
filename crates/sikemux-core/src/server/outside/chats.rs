@@ -1,6 +1,7 @@
 //! What an outside program may do with chats, as the person would in the app: list them, read
 //! one, wait for it, and with full access start one, send it a message or stop its turn.
 
+use crate::server::device_view::DeviceViewCore;
 use crate::server::parts::Parts;
 use std::sync::Arc;
 use std::time::Duration;

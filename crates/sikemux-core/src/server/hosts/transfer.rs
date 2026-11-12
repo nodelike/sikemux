@@ -7,7 +7,10 @@
 //! otherwise none closes here and the other host drops the ones it took, so no chat is left
 //! resumable on both. A move whose uncommitted changes did not go sends no chat.
 
+use crate::server::agent_now::AgentNowCore;
+use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
+use crate::server::device_view::DeviceViewCore;
 use crate::server::parts::Parts;
 use std::collections::HashMap;
 use std::io::{Read, Write};

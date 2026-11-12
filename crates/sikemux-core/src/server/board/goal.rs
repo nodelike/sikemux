@@ -12,6 +12,8 @@
 //! What agents settle among themselves goes in its goal's log, or the project's
 //! when they work on no goal, where the person can overrule it.
 
+use crate::server::agent_now::AgentNowCore;
+use crate::server::changed::ChangedCore;
 use crate::server::parts::Parts;
 use std::collections::HashSet;
 use std::sync::Arc;

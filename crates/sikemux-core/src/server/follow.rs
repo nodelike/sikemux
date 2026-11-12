@@ -4,6 +4,7 @@
 //! misses nothing that happened between two waits.
 
 use crate::server::parts::Parts;
+use crate::server::ServerCore;
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;

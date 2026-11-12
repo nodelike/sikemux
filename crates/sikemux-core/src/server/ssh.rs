@@ -1,8 +1,10 @@
 //! The hosts in the person's SSH config, each with how its terminals are
 //! reaching it, and a watch on the config that tells clients when it changes.
 
+use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
+use crate::server::ServerCore;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Weak;

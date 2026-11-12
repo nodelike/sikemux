@@ -11,6 +11,7 @@ pub(crate) mod push;
 pub(crate) mod store;
 pub(crate) mod work;
 
+use crate::server::changed::ChangedCore;
 use crate::server::parts::Parts;
 use std::path::Path;
 use std::sync::Arc;

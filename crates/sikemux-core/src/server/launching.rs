@@ -3,8 +3,10 @@
 //! chats alike. Every chat, however it starts, passes through here or
 //! [`own_tools`].
 
+use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
+use crate::server::ServerCore;
 use serde::{Deserialize, Serialize};
 use sikemux_view::prefs::PreferenceChange;
 use std::collections::BTreeMap;

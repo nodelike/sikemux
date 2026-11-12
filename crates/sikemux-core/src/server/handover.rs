@@ -12,6 +12,7 @@
 //! one stopped while the agent works on.
 
 use crate::server::parts::Parts;
+use crate::server::ServerCore;
 use std::collections::{HashMap, HashSet};
 use std::fs::{DirBuilder, File, OpenOptions};
 use std::io::Write;

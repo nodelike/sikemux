@@ -6,7 +6,9 @@
 //! bring it back by itself. A plain card under another loses such an owner too, and goes back to
 //! Open with a line naming who left it, as nobody is asked to bring a plain card's owner back.
 
+use crate::server::agent_now::AgentNowCore;
 use crate::server::parts::Parts;
+use crate::server::ServerCore;
 use std::collections::HashSet;
 use std::sync::Arc;
 

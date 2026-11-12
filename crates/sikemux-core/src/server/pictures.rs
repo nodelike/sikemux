@@ -5,7 +5,9 @@
 //! shown, never proven. The core takes only a page something already serves on this machine;
 //! only the person's Try it starts the project's process, as one they can see and stop.
 
+use crate::server::changed::ChangedCore;
 use crate::server::parts::Parts;
+use crate::server::ServerCore;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};

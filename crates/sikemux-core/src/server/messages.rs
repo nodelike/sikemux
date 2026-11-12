@@ -4,8 +4,10 @@
 //! A busy chat takes it into its turn when it can; an agent that cannot gets
 //! the messages waiting for it together once its turn ends.
 
+use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
+use crate::server::ServerCore;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::Path;

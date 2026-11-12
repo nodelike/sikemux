@@ -3,8 +3,10 @@
 //! board whose promise is what they typed. Its Built gate needs the project's
 //! check to pass on its work, run by the core.
 
+use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
+use crate::server::ServerCore;
 use std::path::Path;
 use std::sync::Arc;
 

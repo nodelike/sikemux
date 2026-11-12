@@ -197,6 +197,7 @@ fn bring_up_to_date(
 mod tests {
     use super::*;
     use crate::server::edits::tests_git::git_in;
+    use crate::server::ServerCore;
 
     #[test]
     fn stale_outputs_are_committed_on_top_and_reach_the_project_checkout() {

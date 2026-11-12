@@ -33,7 +33,20 @@ pub(crate) fn on_wake(
     tokio::spawn(wake::serve(core.clone(), of, work))
 }
 
-impl Core {
+/// Walking every part of the core.
+pub(crate) trait PartCore {
+    fn parts(&self) -> [&dyn Part; 34];
+
+    /// Every feature's tasks, to end when the core stops.
+    fn start_parts(self: &Arc<Self>) -> Vec<JoinHandle<()>>;
+
+    /// Waits until everything every feature changed is on disk.
+    fn flush_parts(&self);
+
+    fn tell_parts_client_gone(self: &Arc<Self>, client: ClientId);
+}
+
+impl PartCore for Core {
     fn parts(&self) -> [&dyn Part; 34] {
         [
             self.harness(),
@@ -73,22 +86,20 @@ impl Core {
         ]
     }
 
-    /// Every feature's tasks, to end when the core stops.
-    pub(super) fn start_parts(self: &Arc<Self>) -> Vec<JoinHandle<()>> {
+    fn start_parts(self: &Arc<Self>) -> Vec<JoinHandle<()>> {
         self.parts()
             .iter()
             .flat_map(|part| part.start(self))
             .collect()
     }
 
-    /// Waits until everything every feature changed is on disk.
-    pub(crate) fn flush_parts(&self) {
+    fn flush_parts(&self) {
         for part in self.parts() {
             part.flush();
         }
     }
 
-    pub(super) fn tell_parts_client_gone(self: &Arc<Self>, client: ClientId) {
+    fn tell_parts_client_gone(self: &Arc<Self>, client: ClientId) {
         for part in self.parts() {
             part.client_gone(self, client);
         }

@@ -1,6 +1,7 @@
 //! Letting devices in: join tickets, the person's answer to each new device, and what each may do.
 
 use super::*;
+use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
 

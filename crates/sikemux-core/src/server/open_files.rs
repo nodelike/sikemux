@@ -2,6 +2,7 @@
 //! and dependency folders as much as anywhere, and names in a `files` change
 //! when one moves on disk, so an editor reads it again.
 
+use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
 use std::collections::{HashMap, HashSet};

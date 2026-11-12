@@ -1,6 +1,8 @@
 //! Every agent the core runs or the app holds, merged once: chats, terminals, those asleep and
 //! those on linked hosts. What the agents' tools list, read and close comes from here.
 
+use crate::server::agent_now::AgentNowCore;
+use crate::server::device_view::DeviceViewCore;
 use crate::server::parts::Parts;
 use std::collections::HashMap;
 use std::sync::Arc;

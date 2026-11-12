@@ -3,6 +3,7 @@
 //! keeps each list a connection shows, reads it again while one does, and
 //! tells clients when it changed, so no client keeps time of its own.
 
+use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
 use std::collections::{HashMap, HashSet};

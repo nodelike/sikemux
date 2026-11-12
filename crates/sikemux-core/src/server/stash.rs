@@ -4,6 +4,7 @@
 //! until the person attaches it from a composer.
 
 use super::remote_image::PictureData;
+use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
 use std::collections::{HashMap, HashSet};

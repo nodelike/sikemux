@@ -1,6 +1,8 @@
 //! Delivering a stashed item into a chat's draft, as the account says one arrived.
 
 use super::*;
+use crate::server::changed::ChangedCore;
+use crate::server::device_view::DeviceViewCore;
 use crate::server::parts::Parts;
 
 /// The items being put in a chat's draft right now, so an event and a catch-up that both

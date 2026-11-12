@@ -2,6 +2,7 @@
 //! project. Its first message tells it what the other chat has been saying, and the other
 //! chat is never told.
 
+use crate::server::changed::ChangedCore;
 use crate::server::parts::Parts;
 use std::sync::Arc;
 

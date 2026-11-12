@@ -5,6 +5,7 @@
 //! board's slices took at that gate before. The board tells clients again
 //! whenever a wait starts, ends, or runs past its estimate.
 
+use crate::server::agent_now::AgentNowCore;
 use crate::server::parts::Parts;
 use std::collections::{HashMap, VecDeque};
 

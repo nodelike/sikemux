@@ -3,6 +3,9 @@
 //! What it reads of a turn is kept with the turn by `inbox::Turns`, through a restart; where git
 //! said the chat's work was is read off the view's path when a turn ends and on each commit.
 
+use crate::server::agent_now::AgentNowCore;
+use crate::server::changed::ChangedCore;
+use crate::server::device_view::DeviceViewCore;
 use crate::server::parts::Parts;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};

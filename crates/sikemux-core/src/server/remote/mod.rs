@@ -1141,6 +1141,7 @@ impl Remote {
 mod tests {
     use super::*;
     use crate::server::parts::Parts;
+    use crate::server::ServerCore;
 
     /// Hosts that update keep the digest their last build took, over that
     /// build's shape of the file; they come back with their account, devices

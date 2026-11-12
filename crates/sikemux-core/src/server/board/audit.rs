@@ -4,7 +4,9 @@
 //! findings sit on the board where anyone, Auto too, can take them up. That card, its findings
 //! and the earlier findings done since make the project's health digest.
 
+use crate::server::changed::ChangedCore;
 use crate::server::parts::Parts;
+use crate::server::ServerCore;
 use std::path::Path;
 use std::sync::Arc;
 

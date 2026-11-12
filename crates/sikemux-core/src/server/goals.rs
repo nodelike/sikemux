@@ -2,8 +2,11 @@
 //! desks, what comes next and by when. The window owns the browser and the editors, so it tells
 //! the core what its desks hold.
 
+use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
+use crate::server::device_view::DeviceViewCore;
 use crate::server::parts::Parts;
+use crate::server::ServerCore;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::hash::{Hash, Hasher};

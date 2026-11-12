@@ -6,6 +6,7 @@
 //! core has no app around it: root puts the new core in place, once no chat
 //! is in a turn, and the core hands itself over to it.
 
+use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
 use std::path::{Path, PathBuf};

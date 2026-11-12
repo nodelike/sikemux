@@ -1,6 +1,7 @@
 //! The worktree a chat agent or a worker is given, and the setup the project
 //! asks for in it.
 
+use crate::server::changed::ChangedCore;
 use crate::server::parts::Parts;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
