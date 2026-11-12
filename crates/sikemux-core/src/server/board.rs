@@ -2497,7 +2497,7 @@ fn change_in(
     if after.status == CardStatus::Open && before.status != CardStatus::Open {
         offered.retain(|(other, card, _)| !(other == project && *card == id));
     }
-    let mut view = agent_view(core, board, &after, true);
+    let mut view = agent_view(core, board, &after, false);
     if let (Some(note), Some(fields)) = (note, view.as_object_mut()) {
         fields.insert("note".into(), note.into());
     }
@@ -2750,7 +2750,7 @@ pub(crate) async fn update(core: &Arc<Core>, request: &HarnessRequest) -> Result
                     let state = core.boards.state.locked();
                     let board = state.boards.get(&project).ok_or("the board is gone")?;
                     return Ok((
-                        agent_view(&core, board, board.card(id)?, true),
+                        agent_view(&core, board, board.card(id)?, false),
                         Vec::new(),
                         true,
                     ));
