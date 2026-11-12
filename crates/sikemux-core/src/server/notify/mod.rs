@@ -937,8 +937,11 @@ fn guest_wrote(core: &Core, agent_id: &str, guest: &GuestMessage) -> Option<Draf
         guest.at,
         PERMISSION_LIFE_MS,
     );
-    let who = guest.name.as_deref().unwrap_or("A guest");
-    draft.title = clipped_line(&format!("{who} wrote to {}", named.agent), MAX_TITLE_CHARS);
+    let who = match &guest.name {
+        Some(name) => format!("{name} (guest)"),
+        None => "A guest".to_owned(),
+    };
+    draft.title = clipped_line(&format!("{who} wrote to @{}", named.agent), MAX_TITLE_CHARS);
     draft.body = clipped_line(&guest.text, MAX_BODY_CHARS);
     draft.detail = Some(clipped_line(
         &named.whereabouts(core, true),
