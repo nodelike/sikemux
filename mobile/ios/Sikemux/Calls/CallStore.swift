@@ -134,11 +134,11 @@ final class HostCalls {
         }
     }
 
-    /// Answers the call waiting in a chat with what the person typed in its composer, with the files they sent. A
-    /// call that came from a question keeps the files; one raised by the core takes the words alone.
+    /// Answers the call waiting in a chat with what the person typed in its composer, with the files they sent.
     func answer(_ call: PersonCall, written: WrittenAnswer) async -> Bool {
         guard let connection = Hub.shared.live(core).connection else { return false }
         do {
+            // A call that takes typed words always comes from a question, which answerQuestion answers with files.
             if written.paths.isEmpty {
                 _ = try await connection.call(
                     PhoneCall.AnswerCall.self, AnswerCallParams(id: call.id, words: written.answer))

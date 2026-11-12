@@ -18,7 +18,12 @@ struct DeviceAgents: View {
         // The open agents in the order the host lists them on every device: the main list, what wants the person
         // first, then the snoozed and then the settled ones.
         let agents = view.inbox.agents.filter { listed(scope, provider, project: $0.project, type: $0.cli) }
-        let open = agents.filter { $0.snoozedUntil == nil && $0.settledAt == nil }
+        let chiefs = provider != nil ? [] : chiefProjects
+        let chiefIds = Set(chiefs.map(\.id))
+        let open = agents.filter { agent in
+            agent.snoozedUntil == nil && agent.settledAt == nil
+                && !(agent.chief == true && agent.project.map(chiefIds.contains) == true)
+        }
         let snoozed = agents.filter { $0.snoozedUntil != nil && $0.settledAt == nil }
         let settled = agents.filter { $0.settledAt != nil }
         let workers = view.inbox.remoteAgents
@@ -34,8 +39,14 @@ struct DeviceAgents: View {
         MinuteClock { now in
             VStack(spacing: 0) {
                 AwayNoteView()
-                if !open.isEmpty || !strays.isEmpty {
+                if !chiefs.isEmpty || !open.isEmpty || !strays.isEmpty {
                     Rows {
+                        ForEach(chiefs, id: \.id) { project in
+                            ChiefRow(
+                                core: core, project: project,
+                                shown: view.inbox.agents.first { $0.chief == true && $0.project == project.id },
+                                mixed: scope == nil, now: now)
+                        }
                         ForEach(open, id: \.agentId) { agent in
                             row(agent, now: now)
                             ForEach(workers.filter { $0.lead == agent.agentId }, id: \.agentId) {
@@ -56,6 +67,13 @@ struct DeviceAgents: View {
                 }
             }
         }
+    }
+
+    /// The projects whose chief leads the list: the one in view, or with every project shown, each that has a chief
+    /// or agents at work.
+    private var chiefProjects: [ProjectInfo] {
+        if let scope { return [scope] }
+        return view.workspace.projects.filter { $0.chief != nil || ($0.agents ?? 0) > 0 }
     }
 
     @ViewBuilder

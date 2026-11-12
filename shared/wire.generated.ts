@@ -4840,6 +4840,15 @@ export interface MoveChatParams {
     accountId: string;
 }
 
+export interface OpenChiefParams {
+    /** The project, by id. */
+    project: string;
+}
+
+export interface OpenedChief {
+    agentId: string;
+}
+
 export interface ProjectEntriesParams {
     project: string;
     query?: string;
@@ -4949,6 +4958,7 @@ export interface CoreCalls {
     editMessage: { params: EditParams; answer: null };
     letShipGo: { params: HoldParams; answer: null };
     moveChatAccount: { params: MoveChatParams; answer: null };
+    openChief: { params: OpenChiefParams; answer: OpenedChief };
     pairing: { params: NoParams; answer: RemotePairing };
     preferences: { params: NoParams; answer: Preferences };
     projectEntries: { params: ProjectEntriesParams; answer: ProjectEntry[] };

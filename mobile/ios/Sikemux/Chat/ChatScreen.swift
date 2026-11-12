@@ -357,7 +357,8 @@ private struct ChatPane: View {
     }
 }
 
-/// Below the last row: what waits to be sent, what the agent is doing or how its turn stands, and what went wrong.
+/// Below the last row: what waits to be sent, what the agent is doing or how its turn stands, what went wrong, and
+/// what it went on assuming.
 private struct TranscriptFooter: View {
     let session: ChatSession
     let core: String
@@ -385,6 +386,16 @@ private struct TranscriptFooter: View {
                     docked: HostCalls.of(core).waiting(for: agentId) != nil, onLook: { focus.request() })
             }
             Trouble(session: session, provider: provider, hostName: hostName, canAct: reachable)
+            let assumptions = Assumptions.of(core, agentId)
+            ForEach(assumptions.assumed, id: \.id) { question in
+                AssumedLine(
+                    question: question, canAnswer: canAct,
+                    onFine: { assumptions.fine(question, report: session.report) },
+                    onChange: {
+                        assumptions.change(question)
+                        focus.request()
+                    })
+            }
         }
         .padding(.bottom, 28)
     }

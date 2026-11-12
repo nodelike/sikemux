@@ -188,6 +188,27 @@ enum CallWords {
         call.brief.map { "\($0.tried) \($0.shows) \($0.cannotUndo)" } ?? call.context
     }
 
+    // MARK: The chief
+
+    /// The chief's row, with its project beside it where projects share the list.
+    static func chief(_ project: String?) -> String { project.map { "@Chief · \($0)" } ?? "@Chief" }
+    /// Under the chief's row: its team.
+    static func chiefTeam(_ agents: Int) -> String? {
+        switch agents {
+        case 0: nil
+        case 1: "1 agent"
+        default: "\(agents) agents"
+        }
+    }
+
+    // MARK: An assumption
+
+    /// After the agent's name: what it went on assuming.
+    static func assumed(_ assumption: String) -> String { "assumed \(assumption)" }
+    static let fine = "Fine"
+    static let change = "Change"
+    static func couldNotRead(_ problem: String) -> String { "could not read this agent's questions: \(problem)" }
+
     // MARK: The calls tab
 
     static let calls = "Calls"

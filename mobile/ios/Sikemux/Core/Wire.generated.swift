@@ -169,6 +169,7 @@ enum PhoneCall {
     enum EditMessage {}
     enum LetShipGo {}
     enum MoveChatAccount {}
+    enum OpenChief {}
     enum Pairing {}
     enum Preferences {}
     enum ProjectEntries {}
@@ -362,6 +363,12 @@ extension PhoneCall.MoveChatAccount: PhoneCallable {
     static let method = "moveChatAccount"
     typealias Params = MoveChatParams
     typealias Answer = WireNull
+}
+
+extension PhoneCall.OpenChief: PhoneCallable {
+    static let method = "openChief"
+    typealias Params = OpenChiefParams
+    typealias Answer = OpenedChief
 }
 
 extension PhoneCall.Pairing: PhoneCallable {
@@ -7495,6 +7502,15 @@ struct EditParams: Codable, Hashable, Sendable {
 struct MoveChatParams: Codable, Hashable, Sendable {
     var agentId: String
     var accountId: String
+}
+
+struct OpenChiefParams: Codable, Hashable, Sendable {
+    /// The project, by id.
+    var project: String
+}
+
+struct OpenedChief: Codable, Hashable, Sendable {
+    var agentId: String
 }
 
 struct ProjectEntriesParams: Codable, Hashable, Sendable {
