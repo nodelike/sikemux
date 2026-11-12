@@ -12,9 +12,9 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use gpui_kit::{
-    canvas, div, img, px, AnyElement, App, AsyncWindowContext, FocusHandle, FontWeight, Global,
-    Image, ImageFormat, InteractiveElement, IntoElement, KeyDownEvent, ObjectFit, ParentElement,
-    SharedString, Styled, StyledImage, Window,
+    canvas, div, img, px, AnyElement, App, AsyncWindowContext, DispatchPhase, FocusHandle,
+    FontWeight, Global, Image, ImageFormat, InteractiveElement, IntoElement, KeyDownEvent,
+    ObjectFit, ParentElement, ScrollEvent, SharedString, Styled, StyledImage, Window,
 };
 use gpui_native_view::native_view;
 use serde_json::{json, Value};
@@ -62,7 +62,7 @@ struct Apps {
     next_view: u64,
     /// Views are being made, one each time the person rests.
     warming: bool,
-    /// When a card last moved, as the chat scrolled or its agent wrote.
+    /// When the person last scrolled a chat with apps, or an agent wrote in one.
     moved: Option<Instant>,
     /// Whether a turn is running in each chat that drew an app.
     turns: Vec<Weak<Cell<bool>>>,
@@ -181,6 +181,25 @@ fn label(title: &str) -> SharedString {
         Some((server, tool)) => format!("{server} · {tool}").into(),
         None => title.to_owned().into(),
     }
+}
+
+/// Notes each scroll in a chat while the window has apps, as the input a view for apps waits
+/// out, however it reaches the window.
+pub(super) fn scrolls(cx: &mut App) -> Option<AnyElement> {
+    if apps(cx).shown.is_empty() {
+        return None;
+    }
+    let watch = canvas(
+        |_, _, _| {},
+        |_, _, window, _| {
+            window.on_mouse_event(|_: &ScrollEvent, phase, _, cx| {
+                if phase == DispatchPhase::Capture {
+                    apps(cx).moved = Some(Instant::now());
+                }
+            });
+        },
+    );
+    Some(watch.absolute().size_0().into_any_element())
 }
 
 pub(super) fn app(
