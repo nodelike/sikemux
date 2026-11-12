@@ -2,65 +2,36 @@
 //! they outlive the window. `sikemux core` runs [`server`]; the app talks to
 //! it with [`client`].
 
-pub mod accounts;
+pub use sikemux_corekit::accounts;
 pub mod acp;
 #[cfg(unix)]
 pub mod agent_accounts;
-#[cfg(unix)]
-mod agent_shell;
-mod android_sdk;
 #[rustfmt::skip]
 pub mod agent_catalog;
 mod agent_ops;
-mod backoff;
-pub mod build;
-pub mod cli;
 #[cfg(unix)]
-pub mod client;
+mod agent_shell;
+use sikemux_corekit::{android_sdk, backoff, flights, text};
+pub use sikemux_corekit::{
+    build, cli, frozen, fuzzy, host_update, release_feed, releases, tasks, trailers,
+};
+#[cfg(unix)]
+pub use sikemux_corekit::{client, join, push, timeout, waiting};
 #[cfg(unix)]
 pub mod files;
-mod flights;
-pub mod frozen;
-pub mod fuzzy;
 #[cfg(unix)]
 pub mod git;
 #[cfg(unix)]
 pub mod git_guard;
 pub mod harness;
-pub mod host_update;
-#[cfg(unix)]
-pub mod join;
 #[cfg(unix)]
 pub mod launch;
 pub use sikemux_base::{download, http, pages, runtime};
-#[cfg(unix)]
-pub mod push;
-pub mod release_feed;
-pub mod releases;
-#[cfg(unix)]
 #[cfg(unix)]
 pub mod server;
 #[cfg(unix)]
 pub mod sessions;
 mod ship;
 pub mod skills;
-pub mod tasks;
-mod text;
-#[cfg(unix)]
-pub mod timeout;
-pub mod trailers;
-#[cfg(unix)]
-pub mod waiting;
 
-use std::path::PathBuf;
-
-pub const SOCKET_ENV: &str = sikemux_process::vars::CORE_SOCKET;
-
-/// `~/.config/sikemux/core.sock`, or `core.dev.sock` in debug builds, unless
-/// `SIKEMUX_CORE_SOCKET` names another path.
-pub fn default_socket_path() -> Option<PathBuf> {
-    if let Some(path) = sikemux_process::paths::env_path(SOCKET_ENV) {
-        return Some(path);
-    }
-    sikemux_process::paths::config_file("core", "sock")
-}
+pub use sikemux_corekit::{default_socket_path, SOCKET_ENV};

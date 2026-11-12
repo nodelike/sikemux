@@ -9,10 +9,10 @@ use sikemux_process::sync::Locked;
 use tokio::sync::OnceCell;
 
 /// The work under way, by what it answers.
-pub(crate) type Flights<K, T> = Mutex<HashMap<K, Arc<OnceCell<T>>>>;
+pub type Flights<K, T> = Mutex<HashMap<K, Arc<OnceCell<T>>>>;
 
 /// What `key` names, worked out once however many ask while it is under way.
-pub(crate) async fn shared<K: Hash + Eq + Clone, T: Clone>(
+pub async fn shared<K: Hash + Eq + Clone, T: Clone>(
     flights: &Flights<K, T>,
     key: K,
     work: impl Future<Output = T>,

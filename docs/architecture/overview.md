@@ -10,27 +10,27 @@ the core sends.
 
 One word for each idea, in the interface, docs and the core's messages.
 
-| Word                      | Means                                                                                               |
-| ------------------------- | --------------------------------------------------------------------------------------------------- |
-| host                      | Anything running the core: a server, a Mac mini, a laptop. "This host", never "this computer".      |
-| device                    | What the person holds to reach hosts: a phone, a laptop, a browser.                                 |
-| app                       | The software on a device: the desktop app, phone app, web app and the notch.                        |
-| pair                      | A device on another account joins a host, once the host's owner allows it.                          |
-| link                      | Every host on one account works for the others ([ADR 0018](./0018-the-account-is-the-trust.md)).    |
+| Word                      | Means                                                                                                                         |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| host                      | Anything running the core: a server, a Mac mini, a laptop. "This host", never "this computer".                                |
+| device                    | What the person holds to reach hosts: a phone, a laptop, a browser.                                                           |
+| app                       | The software on a device: the desktop app, phone app, web app and the notch.                                                  |
+| pair                      | A device on another account joins a host, once the host's owner allows it.                                                    |
+| link                      | Every host on one account works for the others ([ADR 0018](./0018-the-account-is-the-trust.md)).                              |
 | project                   | A repository, with a copy on each host that holds one ([ADR 0023](./0023-projects-are-repositories-with-a-copy-per-host.md)). |
-| you                       | Devices on the host's own account with full access, which act as the person. In code, "the person". |
-| full access               | Can run any command on the host as the person.                                                      |
-| watch                     | Can read, answer questions and allow permissions, but not start or drive anything.                  |
-| shared device             | Someone else's device paired with a host. It never acts as the person.                              |
-| agent, lead, worker, team | One running agent CLI; one that started others; one another started; all of them.                   |
-| board, card, Auto         | Where work waits; one piece of work; what carries a card to merged.                                 |
-| sandbox                   | Where one card's work runs: a worktree or a virtual machine.                                        |
-| trigger, event            | A rule that adds work when something happens; one time it happened.                                 |
-| inbox, digest             | What waits on the person; what happened while they were away.                                       |
-| vault                     | The account's encrypted store of keys, plugin sign-ins and site sign-ins.                           |
-| agent sign-in             | An agent CLI's own login, kept on each host and never in the vault.                                 |
-| site sign-in              | A website login the host's browser loads for agents allowed that site.                              |
-| take over                 | Drive a host's browser tab from any device, to sign in or pass a check.                             |
+| you                       | Devices on the host's own account with full access, which act as the person. In code, "the person".                           |
+| full access               | Can run any command on the host as the person.                                                                                |
+| watch                     | Can read, answer questions and allow permissions, but not start or drive anything.                                            |
+| shared device             | Someone else's device paired with a host. It never acts as the person.                                                        |
+| agent, lead, worker, team | One running agent CLI; one that started others; one another started; all of them.                                             |
+| board, card, Auto         | Where work waits; one piece of work; what carries a card to merged.                                                           |
+| sandbox                   | Where one card's work runs: a worktree or a virtual machine.                                                                  |
+| trigger, event            | A rule that adds work when something happens; one time it happened.                                                           |
+| inbox, digest             | What waits on the person; what happened while they were away.                                                                 |
+| vault                     | The account's encrypted store of keys, plugin sign-ins and site sign-ins.                                                     |
+| agent sign-in             | An agent CLI's own login, kept on each host and never in the vault.                                                           |
+| site sign-in              | A website login the host's browser loads for agents allowed that site.                                                        |
+| take over                 | Drive a host's browser tab from any device, to sign in or pass a check.                                                       |
 
 Never "Mac", "computer", "machine" or "node" for a host, "client" for a device, or "session" for a
 website login, which would read as a chat or terminal session.
@@ -187,6 +187,7 @@ any `NSView`, and `document.rs` draws PDFs in PDFKit and office files in Quick L
 | Crate                | Purpose                                                                                                                                                                                    |
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `sikemux-core`       | The core: its socket server, terminals, tasks, chat agents, the harness and tool endpoint, updating in place                                                                               |
+| `sikemux-corekit`    | What the core is built on that needs no running core: the accounts client, the command line's protocol, tasks and releases                                                                 |
 | `sikemux-host`       | The `sikemux` executable: the launcher, the tools MCP server and the core with the built-in plugins                                                                                        |
 | `sikemux-base`       | What the core shares with the browser, simulator and voice crates: HTTP clients, pinned downloads, the async runtime, page building and the CLI endpoint's protocol                        |
 | `sikemux-wire`       | What the phone's Rust decodes: frames, requests, answers and events. The phone links it, so it holds data and nothing that acts on it                                                      |
@@ -297,7 +298,7 @@ matching `:generate` script and commit what it writes:
 | Check                            | What it compares                                                                                                                        |
 | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
 | `wire:check`                     | The types clients read the core's JSON with (TypeScript for the phone and web app, Swift for the notch) against the Rust that writes it |
-| `agent-tools:check`              | `crates/sikemux-base/src/cli/methods.rs` against `tools/tools.json`                                                                   |
+| `agent-tools:check`              | `crates/sikemux-base/src/cli/methods.rs` against `tools/tools.json`                                                                     |
 | `agent-catalog:check`            | The core's Rust copy of the agents' catalog against `sikemux-core/src/assets/agent-catalog.json`                                        |
 | `docs:reference:check`           | The docs site's reference pages against the shortcuts, CLI help and tools                                                               |
 | `grammars:check`, `syntax:check` | The grammar list and the GPUI app's highlighting bundle                                                                                 |

@@ -9853,6 +9853,7 @@ dependencies = [
  "sha2 0.11.0",
  "sikemux-base",
  "sikemux-client",
+ "sikemux-corekit",
  "sikemux-fold",
  "sikemux-grid",
  "sikemux-keychain",
@@ -9876,6 +9877,42 @@ dependencies = [
  "webpki-roots",
  "workspace-hack",
  "zstd",
+]
+
+[[package]]
+name = "sikemux-corekit"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "futures-util",
+ "globset",
+ "hex",
+ "iroh",
+ "libc",
+ "memchr",
+ "minisign-verify",
+ "quick-xml 0.42.0",
+ "regex",
+ "reqwest",
+ "ring",
+ "semver",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "sikemux-base",
+ "sikemux-client",
+ "sikemux-process",
+ "sikemux-view",
+ "sikemux-wire",
+ "tempfile",
+ "time",
+ "tokio",
+ "tokio-rustls",
+ "tokio-websockets",
+ "toml 1.1.6+spec-1.1.0",
+ "url",
+ "uuid",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -13445,6 +13482,7 @@ dependencies = [
  "aho-corasick",
  "bitflags 2.13.2",
  "block2 0.6.2",
+ "bstr",
  "cc",
  "crc32fast",
  "crossbeam-utils",
@@ -13491,6 +13529,7 @@ dependencies = [
  "serde",
  "serde_core",
  "serde_json",
+ "simdutf8",
  "slab",
  "smallvec",
  "subtle",

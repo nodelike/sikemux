@@ -2,13 +2,13 @@ use std::time::Duration;
 
 /// How long to wait before trying again after failures in a row: anywhere
 /// from nothing to `first` doubled for each failure but the first, at most `cap`.
-pub(crate) struct Backoff {
+pub struct Backoff {
     pub first: Duration,
     pub cap: Duration,
 }
 
 impl Backoff {
-    pub(crate) fn after(&self, failures: u32) -> Duration {
+    pub fn after(&self, failures: u32) -> Duration {
         let ceiling = self
             .first
             .saturating_mul(1u32 << failures.saturating_sub(1).min(16))

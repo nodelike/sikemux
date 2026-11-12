@@ -7,7 +7,7 @@ pub mod host;
 pub mod live;
 pub mod share;
 #[cfg(unix)]
-pub(crate) mod socket;
+pub mod socket;
 pub mod vault;
 
 pub mod protocol;

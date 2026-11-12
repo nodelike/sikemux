@@ -11,6 +11,7 @@ host-addresses-file = []
 
 [dependencies]
 sikemux-base = { path = "../sikemux-base" }
+sikemux-corekit = { path = "../sikemux-corekit" }
 sikemux-process = { path = "../sikemux-process" }
 sikemux-fold = { path = "../sikemux-fold" }
 sikemux-markdown = { path = "../sikemux-markdown" }
@@ -70,6 +71,7 @@ webpki-roots = "1"
 zstd = { version = "0.14.3", default-features = false }
 
 [dev-dependencies]
+sikemux-corekit = { path = "../sikemux-corekit", features = ["testing"] }
 tempfile = "3"
 
 [lints.clippy]

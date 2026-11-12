@@ -145,7 +145,7 @@ try {
         include: (definition) => PHONE_RUST.has(definition.name),
       },
     ),
-    [join(repo, "crates/sikemux-core/src/accounts/protocol.rs")]: rust(
+    [join(repo, "crates/sikemux-corekit/src/accounts/protocol.rs")]: rust(
       definitions,
       {
         include: (definition) =>
@@ -155,7 +155,7 @@ try {
     ),
   };
   for (const [file, { module, imports }] of CORE_ONLY)
-    outputs[join(repo, "crates/sikemux-core/src/accounts", module)] = rust(
+    outputs[join(repo, "crates/sikemux-corekit/src/accounts", module)] = rust(
       definitions,
       {
         include: (definition) => definition.file === file,

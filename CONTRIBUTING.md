@@ -76,7 +76,7 @@ Every phone screen is drawn first in `mobile/design/screens.src.html`, with the 
 
 `server/` holds the backend behind phone sign-in and the device list: the API at api.sikemux.com and the web app at app.sikemux.com. Like `mobile/`, it is a pnpm workspace of its own. [ADR 0009](docs/architecture/0009-accounts-and-backend.md) records the design.
 
-- `server/protocol` is the contract. Its JSON Schema in `schema/` and the routes in `routes.json` generate the TypeScript types, a bundled schema the API validates with, an OpenAPI document, and the Rust types: those the phone names in `crates/sikemux-wire/src/accounts/protocol.rs`, the rest in `crates/sikemux-core/src/accounts/`. Change the schema, then run `pnpm protocol:generate`; never edit the generated files. Every definition needs an example in `fixtures/`, which both the TypeScript and the Rust tests read.
+- `server/protocol` is the contract. Its JSON Schema in `schema/` and the routes in `routes.json` generate the TypeScript types, a bundled schema the API validates with, an OpenAPI document, and the Rust types: those the phone names in `crates/sikemux-wire/src/accounts/protocol.rs`, the rest in `crates/sikemux-corekit/src/accounts/`. Change the schema, then run `pnpm protocol:generate`; never edit the generated files. Every definition needs an example in `fixtures/`, which both the TypeScript and the Rust tests read.
 - `server/api` is the API (Hono on Node, Postgres through Kysely). Schema changes are numbered SQL files in `api/migrations`; a shipped one is never edited, only followed by a new one.
 - `server/app` is the web app (Vite and React).
 - `server/deploy` is what runs it on the server: the systemd unit, the Caddy sites, the one-time setup and the script that installs a release.

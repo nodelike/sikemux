@@ -5,7 +5,7 @@ use sikemux_process::{android_sdk, paths, user_environment};
 /// Puts the Android SDK's `adb` and `emulator` at the end of the PATH in `env`,
 /// an agent's variables, and names the SDK in `ANDROID_HOME` for Gradle when
 /// the person's shell names none.
-pub(crate) fn extend(env: &mut Vec<(String, String)>) {
+pub fn extend(env: &mut Vec<(String, String)>) {
     let Some(root) = android_sdk::root(paths::config_dir().as_deref()) else {
         return;
     };

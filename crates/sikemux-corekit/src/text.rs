@@ -1,6 +1,6 @@
 /// `text` trimmed, cut to at most `max` characters with an ellipsis when it
 /// is longer.
-pub(crate) fn clipped(text: &str, max: usize) -> String {
+pub fn clipped(text: &str, max: usize) -> String {
     let text = text.trim();
     if text.chars().count() <= max {
         return text.to_owned();
@@ -11,7 +11,7 @@ pub(crate) fn clipped(text: &str, max: usize) -> String {
 }
 
 /// The first line of `text` with anything in it, [`clipped`].
-pub(crate) fn clipped_line(text: &str, max: usize) -> String {
+pub fn clipped_line(text: &str, max: usize) -> String {
     let line = text
         .lines()
         .find(|line| !line.trim().is_empty())
@@ -21,7 +21,7 @@ pub(crate) fn clipped_line(text: &str, max: usize) -> String {
 
 /// Text someone gave to keep, trimmed; refused when empty or longer than
 /// `max` characters, naming `key`.
-pub(crate) fn to_keep(text: &str, key: &str, max: usize) -> Result<String, String> {
+pub fn to_keep(text: &str, key: &str, max: usize) -> Result<String, String> {
     let text = text.trim();
     if text.is_empty() {
         return Err(format!("{key} must say something"));

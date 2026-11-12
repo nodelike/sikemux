@@ -17,7 +17,7 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 pub(crate) const CHALLENGE_WAIT: Duration = Duration::from_secs(10);
 /// How often the server pings until its `ready` says. Two of these without
 /// a frame means the connection is dead even if the network has not said so.
-pub(crate) const HEARTBEAT: Duration = Duration::from_secs(25);
+pub const HEARTBEAT: Duration = Duration::from_secs(25);
 /// Another connection with this key took over, which happens while a core
 /// hands over to its replacement. Coming straight back would push it off.
 const REPLACED_WAIT: Duration = Duration::from_secs(60);
@@ -29,7 +29,7 @@ const RECONNECT: Backoff = Backoff {
     cap: Duration::from_secs(5 * 60),
 };
 
-pub(crate) type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
+pub type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
 fn connector() -> &'static Connector {
     static CONNECTOR: OnceLock<Connector> = OnceLock::new();
@@ -39,7 +39,7 @@ fn connector() -> &'static Connector {
     })
 }
 
-pub(crate) async fn connect(url: &str) -> Option<Socket> {
+pub async fn connect(url: &str) -> Option<Socket> {
     let builder = ClientBuilder::new().uri(url).ok()?.connector(connector());
     match tokio::time::timeout(CONNECT_TIMEOUT, builder.connect()).await {
         Ok(Ok((socket, _))) => Some(socket),
@@ -48,14 +48,14 @@ pub(crate) async fn connect(url: &str) -> Option<Socket> {
 }
 
 /// Whether `message` went out.
-pub(crate) async fn send(socket: &mut Socket, message: &impl Serialize) -> bool {
+pub async fn send(socket: &mut Socket, message: &impl Serialize) -> bool {
     let Ok(text) = serde_json::to_string(message) else {
         return false;
     };
     socket.send(Message::text(text)).await.is_ok()
 }
 
-pub(crate) enum Frame<T> {
+pub enum Frame<T> {
     Server(T),
     /// With the close code, when the server sent one.
     Closed(Option<u16>),
@@ -63,10 +63,7 @@ pub(crate) enum Frame<T> {
 }
 
 /// The next frame, or closed when none came within `wait`.
-pub(crate) async fn next_frame<T: DeserializeOwned>(
-    socket: &mut Socket,
-    wait: Duration,
-) -> Frame<T> {
+pub async fn next_frame<T: DeserializeOwned>(socket: &mut Socket, wait: Duration) -> Frame<T> {
     let message = match tokio::time::timeout(wait, socket.next()).await {
         Ok(Some(Ok(message))) => message,
         _ => return Frame::Closed(None),
@@ -82,7 +79,7 @@ pub(crate) async fn next_frame<T: DeserializeOwned>(
 
 /// The nonce of the challenge the server opens with, which `nonce` picks out
 /// of its first message, or none when the connection closed first.
-pub(crate) async fn challenge<T: DeserializeOwned>(
+pub async fn challenge<T: DeserializeOwned>(
     socket: &mut Socket,
     nonce: impl Fn(T) -> Option<String>,
 ) -> Option<String> {
@@ -100,23 +97,23 @@ pub(crate) async fn challenge<T: DeserializeOwned>(
 }
 
 /// How long the server may go silent, from the heartbeat its `ready` named.
-pub(crate) fn silence(heartbeat_ms: i64) -> Duration {
+pub fn silence(heartbeat_ms: i64) -> Duration {
     u64::try_from(heartbeat_ms).map_or(HEARTBEAT, Duration::from_millis) * 2
 }
 
-pub(crate) fn asked_wait(reconnect_after_ms: i64) -> Duration {
+pub fn asked_wait(reconnect_after_ms: i64) -> Duration {
     Duration::from_millis(u64::try_from(reconnect_after_ms).unwrap_or_default())
 }
 
 /// A close the server chose that asks the host to wait before coming back.
-pub(crate) enum Closed {
+pub enum Closed {
     /// A newer connection with the same key took over.
     Replaced,
     OverLimit,
 }
 
 /// How long to wait after the server closed as `closed`, beyond what it asked.
-pub(crate) fn wait_after(closed: Closed, asked: Option<Duration>) -> Option<Duration> {
+pub fn wait_after(closed: Closed, asked: Option<Duration>) -> Option<Duration> {
     match closed {
         Closed::Replaced => Some(REPLACED_WAIT),
         Closed::OverLimit => Some(asked.unwrap_or_default().max(OVER_LIMIT_WAIT)),
@@ -125,12 +122,12 @@ pub(crate) fn wait_after(closed: Closed, asked: Option<Duration>) -> Option<Dura
 
 /// Failed connections in a row, for how long to wait before the next.
 #[derive(Default)]
-pub(crate) struct Failures(u32);
+pub struct Failures(u32);
 
 impl Failures {
     /// The wait before connecting again after a connection ended: at least
     /// `asked`, and counted afresh when the connection had come up.
-    pub(crate) fn wait(&mut self, asked: Option<Duration>, came_up: bool) -> Duration {
+    pub fn wait(&mut self, asked: Option<Duration>, came_up: bool) -> Duration {
         if came_up {
             self.0 = 0;
         }
@@ -139,7 +136,7 @@ impl Failures {
     }
 
     /// Something changed, such as the network coming back: start over.
-    pub(crate) fn forget(&mut self) {
+    pub fn forget(&mut self) {
         self.0 = 0;
     }
 }

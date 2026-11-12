@@ -17,6 +17,7 @@ publish = false
 [dependencies]
 aho-corasick = { version = "1" }
 bitflags = { version = "2", default-features = false, features = ["serde"] }
+bstr = { version = "1" }
 crossbeam-utils = { version = "0.8" }
 digest = { version = "0.11", features = ["alloc", "mac", "oid"] }
 form_urlencoded = { version = "1" }
@@ -81,6 +82,7 @@ rusqlite = { version = "0.41", features = ["bundled", "column_decltype"] }
 rustix = { version = "1", features = ["event", "fs", "net", "pipe", "process", "termios", "time"] }
 security-framework = { version = "3", features = ["OSX_10_15"] }
 security-framework-sys = { version = "2", features = ["OSX_10_15"] }
+simdutf8 = { version = "0.1", default-features = false, features = ["aarch64_neon", "public_imp", "std"] }
 smallvec = { version = "1", default-features = false, features = ["const_new"] }
 tokio-util = { version = "0.7", features = ["codec", "io-util", "rt"] }
 toml_datetime = { version = "1", default-features = false, features = ["serde", "std"] }

@@ -5,7 +5,7 @@ on:
     branches: [main]
     paths: &paths
       - "server/**"
-      - "crates/sikemux-core/src/accounts/**"
+      - "crates/sikemux-corekit/src/accounts/**"
       - "crates/sikemux-wire/src/accounts/**"
       # A shared chat's page draws with shared/ and its fonts, the core's themes and markdown, and the mark.
       - "shared/**"

@@ -123,7 +123,7 @@ impl Outbox {
         self.state.locked().waiting.iter().cloned().collect()
     }
 
-    pub(crate) fn take(&self) -> Vec<LivePush> {
+    pub fn take(&self) -> Vec<LivePush> {
         let now = epoch_ms();
         let mut state = self.state.locked();
         let mut taken = Vec::new();

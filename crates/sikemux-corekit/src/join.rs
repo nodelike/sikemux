@@ -210,13 +210,13 @@ pub fn check(
 }
 
 /// The shared vector the server's tests check too, and a signer with its key.
-#[cfg(test)]
-pub(crate) mod vector {
+#[cfg(any(test, feature = "testing"))]
+pub mod vector {
     use ring::signature::Ed25519KeyPair;
 
     use super::*;
 
-    pub(crate) struct Vector {
+    pub struct Vector {
         signer: Ed25519KeyPair,
         pub public: [u8; 32],
         pub pem: String,
@@ -224,7 +224,7 @@ pub(crate) mod vector {
         pub ticket: JoinTicket,
     }
 
-    pub(crate) fn vector() -> Vector {
+    pub fn vector() -> Vector {
         let vector: serde_json::Value =
             serde_json::from_str(include_str!("../../../server/protocol/vectors/join.json"))
                 .unwrap();

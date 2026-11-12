@@ -131,7 +131,7 @@
   root install, scripts or checks. Run `pnpm check` in `server/`.
 - The protocol is generated from `server/protocol/schema`. Change the schema and run
   `pnpm protocol:generate`; the TypeScript, the OpenAPI document and the Rust in
-  `sikemux-wire` and `sikemux-core` (each one's `accounts/protocol.rs`, with the core's other
+  `sikemux-wire` and `sikemux-corekit` (each one's `accounts/protocol.rs`, with the core's other
   generated modules beside it) are build output that CI compares against it. Within `/v1` the
   schema only grows: never remove or rename a field, route or enum value a released app
   reads.
