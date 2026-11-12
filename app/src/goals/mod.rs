@@ -33,7 +33,7 @@ use sikemux_view::layout::PaneKind;
 use sikemux_view::memory::{MemoryView, Seeding};
 use sikemux_view::slice::{
     CheckRun, Decision, Gate, GateState, GateView, GoalSummaryParams, GoalSummaryView, Need,
-    Passer, SavedChat, SliceState, SliceView, Wait, WaitOn,
+    Passer, SliceState, SliceView, Wait, WaitOn,
 };
 use sikemux_wire::protocol::NoticeGoal;
 use tokio::sync::mpsc::UnboundedSender;
@@ -816,6 +816,16 @@ impl GoalsPane {
     /// Opens agent `agent`'s chat here, bringing its tab to the front behind the goals. An agent
     /// that runs in a terminal has no chat, so its tab shows with the workbench in their place.
     fn open_agent(&mut self, agent: &str, cx: &mut Context<Self>) {
+        self.open_agent_at(agent, None, cx);
+    }
+
+    /// As [`Self::open_agent`], at the row `around` of the chat's feed when given.
+    fn open_agent_at(
+        &mut self,
+        agent: &str,
+        around: Option<(String, u64)>,
+        cx: &mut Context<Self>,
+    ) {
         let Some(bench) = self.bench.upgrade() else {
             return;
         };
@@ -824,9 +834,21 @@ impl GoalsPane {
         }
         let brought = bench.update(cx, |bench, cx| bench.bring_agent(agent, cx));
         cx.spawn(async move |pane, cx| {
-            if let Some(agent) = brought.await {
-                let _ = pane.update(cx, |pane, cx| pane.expect_chat(agent, cx));
-            }
+            let Some(agent) = brought.await else {
+                return;
+            };
+            let _ = pane.update(cx, |pane, cx| {
+                if let Some((feed, around)) = around {
+                    let _ = pane.bench.update(cx, |bench, _| {
+                        bench.ask_chat(crate::core::ChatAsk::Around {
+                            agent: agent.clone(),
+                            feed,
+                            around,
+                        });
+                    });
+                }
+                pane.expect_chat(agent, cx);
+            });
         })
         .detach();
     }
@@ -953,68 +975,16 @@ impl GoalsPane {
     }
 
     /// Opens agent `agent`'s chat here, at a moment the core placed in it or at its latest rows.
-    /// Once the agent has closed, its saved session opens again instead.
+    /// Once the agent has closed, its chat opens again.
     fn open_chat_at(
         &mut self,
         agent: &str,
         feed: Option<&str>,
         index: Option<u64>,
-        saved: Option<&SavedChat>,
         cx: &mut Context<Self>,
     ) {
-        let open = self.bench.upgrade().is_some_and(|bench| {
-            let bench = bench.read(cx);
-            (bench.projects().iter()).any(|project| {
-                bench
-                    .agents_of(&project.id)
-                    .iter()
-                    .any(|row| row.id == agent)
-            })
-        });
-        if let Some(saved) = saved.filter(|_| !open) {
-            return self.reopen(saved, cx);
-        }
-        self.open_agent(agent, cx);
-        if let (Some(feed), Some(around)) = (feed, index) {
-            let _ = self.bench.update(cx, |bench, _| {
-                bench.ask_chat(crate::core::ChatAsk::Around {
-                    agent: agent.to_owned(),
-                    feed: feed.to_owned(),
-                    around,
-                });
-            });
-        }
-    }
-
-    /// Opens a saved session again in the project the view shows, as a chat here.
-    fn reopen(&mut self, saved: &SavedChat, cx: &mut Context<Self>) {
-        let Some(project) = self.here.clone() else {
-            return;
-        };
-        let target = core::Target::here(&self.asks);
-        let taken = target.request_typed::<call::ResumeSession>(SessionChoice {
-            provider: saved.provider.clone(),
-            session_id: saved.session.clone(),
-            project: project.clone().into(),
-            cwd: Some(project.clone().into()),
-            title: Some(String::new()),
-        });
-        cx.spawn(async move |pane, cx| {
-            let taken = taken.await;
-            let _ = pane.update(cx, |pane, cx| match taken {
-                Ok(taken) => {
-                    let agent = taken.agent_id;
-                    target.call_typed::<call::OpenTab>(OpenTab::new(
-                        sikemux_view::layout::At::project(&taken.project),
-                        PaneKind::Agent,
-                        agent.clone(),
-                    ));
-                    pane.expect_chat(agent, cx);
-                }
-                Err(error) => pane.said(&format!("The chat did not open: {error}"), cx),
-            });
-        })
-        .detach();
+        let around = feed.zip(index).map(|(feed, at)| (feed.to_owned(), at));
+        self.open_agent_at(agent, around, cx);
     }
 
     /// Does `then` with the workbench in place of the goals.

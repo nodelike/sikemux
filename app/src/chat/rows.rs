@@ -606,6 +606,7 @@ pub(super) fn letters(
                     Some(trigger) => trigger_named(&trigger.title, Tokens::get(cx)),
                     None => {
                         let (bench, agent) = (looks.bench.clone(), letter.agent_id.clone());
+                        let chat = looks.agent.clone();
                         let name = div()
                             .id(SharedString::from(format!("{id}:from")))
                             .font_weight(FontWeight::SEMIBOLD)
@@ -615,7 +616,10 @@ pub(super) fn letters(
                             .child(format!("@{}", letter.name))
                             .on_click(move |_, _, cx| {
                                 bench
-                                    .update(cx, |bench, cx| bench.open_agent(&agent, cx))
+                                    .update(cx, |bench, cx| {
+                                        let from = bench.chat_target(&chat);
+                                        bench.open_agent_from(&agent, from, cx)
+                                    })
                                     .ok();
                             });
                         div()

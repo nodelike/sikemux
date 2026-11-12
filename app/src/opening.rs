@@ -558,31 +558,47 @@ impl Workbench {
     }
 
     /// Brings the tab of the agent `id` to the front, in its project, opening one when none
-    /// shows it, with the workbench in place of the goals.
+    /// shows it, with the workbench in place of the goals. A closed agent's chat opens again on
+    /// this host.
     pub fn open_agent(&mut self, id: &str, cx: &mut Context<Self>) {
+        self.open_agent_from(id, Target::here(&self.asks), cx);
+    }
+
+    /// As [`Self::open_agent`], for an agent named by a record of the core `from`, which opens
+    /// its chat again when it has closed.
+    pub fn open_agent_from(&mut self, id: &str, from: Target, cx: &mut Context<Self>) {
         self.show_workbench(cx);
-        self.bring_agent(id, cx).detach();
+        self.bring_agent_from(id, from, cx).detach();
     }
 
     /// Brings the tab of the agent `id` to the front, in its project, opening one when none
-    /// shows it. A closed agent's chat opens again. Answers with the agent the tab shows.
+    /// shows it. A closed agent's chat opens again on this host. Answers with the agent the tab
+    /// shows.
     pub fn bring_agent(&mut self, id: &str, cx: &mut Context<Self>) -> Task<Option<String>> {
+        self.bring_agent_from(id, Target::here(&self.asks), cx)
+    }
+
+    fn bring_agent_from(
+        &mut self,
+        id: &str,
+        from: Target,
+        cx: &mut Context<Self>,
+    ) -> Task<Option<String>> {
         match self.bring_open_agent(id) {
             true => Task::ready(Some(id.to_owned())),
-            false => self.reopen_agent(id, cx),
+            false => Self::reopen_agent(id, from, cx),
         }
     }
 
-    /// Opens the chat of the closed agent `id` again and brings its tab forward, answering with
-    /// the agent it opened as.
-    pub fn reopen_agent(&self, id: &str, cx: &mut Context<Self>) -> Task<Option<String>> {
-        let target = self.target();
-        let taken = target.request_typed::<call::ReopenAgent>(AgentParams {
+    /// Asks the core `on` to open the chat of the closed agent `id` again and brings its tab
+    /// forward, answering with the agent it opened as.
+    fn reopen_agent(id: &str, on: Target, cx: &mut Context<Self>) -> Task<Option<String>> {
+        let taken = on.request_typed::<call::ReopenAgent>(AgentParams {
             agent_id: id.to_owned(),
         });
         cx.spawn(async move |bench, cx| match taken.await {
             Ok(taken) => {
-                target.call_typed::<call::OpenTab>(OpenTab::new(
+                on.call_typed::<call::OpenTab>(OpenTab::new(
                     At::project(&taken.project),
                     PaneKind::Agent,
                     taken.agent_id.clone(),

@@ -57,11 +57,8 @@ impl GoalsPane {
     fn open_source(&mut self, link: &SourceLink, cx: &mut Context<Self>) {
         match link {
             SourceLink::Chat {
-                agent,
-                feed,
-                index,
-                saved,
-            } => self.open_chat_at(agent, feed.as_deref(), *index, saved.as_ref(), cx),
+                agent, feed, index, ..
+            } => self.open_chat_at(agent, feed.as_deref(), *index, cx),
             SourceLink::Commit { sha } => self.open_commit(sha, cx),
             SourceLink::Evidence { card, evidence } => {
                 self.go(At::Slice(*card), cx);
