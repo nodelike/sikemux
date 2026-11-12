@@ -628,31 +628,77 @@ pub(crate) fn results(
 mod tests {
     use super::*;
 
+    fn set(project: String, agent: &str) -> Set {
+        Set {
+            project,
+            agent: agent.to_owned(),
+            turn: 1,
+            page: "/".to_owned(),
+            at: 1,
+            shots: Vec::new(),
+        }
+    }
+
+    fn git(dir: &Path, args: &[&str]) {
+        let ran = std::process::Command::new("git")
+            .args(args)
+            .current_dir(dir)
+            .output()
+            .expect("git runs");
+        assert!(ran.status.success(), "git {args:?}: {ran:?}");
+    }
+
+    /// A set kept for an agent in the project's own checkout, and one for an agent in a checkout
+    /// of its own, both stay when a tidy runs with neither agent open.
     #[tokio::test(flavor = "multi_thread")]
     async fn a_kept_set_survives_a_tidy() {
         let dir = tempfile::tempdir().expect("temp dir");
         let (data, folder) = (dir.path().join("data"), dir.path().join("shop"));
         std::fs::create_dir_all(&folder).expect("project folder");
+        git(&folder, &["init", "-q", "-b", "main"]);
+        git(
+            &folder,
+            &[
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "commit",
+                "-q",
+                "--allow-empty",
+                "-m",
+                "first",
+            ],
+        );
+        let own = dir.path().join("shop-own");
+        git(
+            &folder,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                own.to_str().expect("a path"),
+                "-b",
+                "own",
+            ],
+        );
         let core = Core::new(
             sikemux_wire::protocol::BuildIdentity::default(),
             Some(&data),
         )
         .expect("core");
-        let added = super::super::workspace::add_project(
+        super::super::workspace::add_project(
             &core,
-            super::super::workspace::AddProjectParams::at(folder),
+            super::super::workspace::AddProjectParams::at(folder.clone()),
         )
         .await
         .expect("project");
-        core.pictures.keep(Set {
-            project: added.path.to_string_lossy().into_owned(),
-            agent: "agent-a".to_owned(),
-            turn: 1,
-            page: "/".to_owned(),
-            at: 1,
-            shots: Vec::new(),
-        });
+        core.pictures
+            .keep(set(core.workspaces.project_of(&folder), "agent-a"));
+        core.pictures
+            .keep(set(core.workspaces.project_of(&own), "agent-b"));
         tidy(&core, true);
         assert_eq!(core.pictures.turns_of("agent-a").len(), 1);
+        assert_eq!(core.pictures.turns_of("agent-b").len(), 1);
     }
 }
