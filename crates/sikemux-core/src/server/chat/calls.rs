@@ -142,6 +142,7 @@ pub(crate) fn prompt_awake(core: &Arc<Core>, params: PromptChatParams) -> CoreRe
         context,
     } = params;
     core.workspaces.person_said(&agent_id);
+    crate::server::person_calls::written(core, &agent_id, &text);
     if core.workspaces.in_terminal(&agent_id) {
         crate::server::messages::from_person(core, &agent_id, text)
     } else {

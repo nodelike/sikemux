@@ -4,7 +4,12 @@
 //! card from the device view and answers it with `answerCall`, and the answer reaches whatever
 //! raised the call. A production call passes only on a client that drew it, by its button.
 
+mod log;
+
+use std::path::Path;
 use std::sync::{Arc, Mutex};
+
+use serde::{Deserialize, Serialize};
 
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
@@ -13,17 +18,20 @@ use sikemux_view::calls::{
     CallOption, CallOutcome, CallParams, CallPlace, CallResult, CallState, PersonCall,
 };
 
+use self::log::{CallLog, Entry};
 use super::access::Peer;
 use super::changed::What;
 use super::questions::AnswerParams;
 use super::{messages, questions, ship, Core, CoreResult};
+use crate::text::clipped;
 
 /// How long an answered or closed call stays in the device view.
 const SHOWN_AFTER_MS: u64 = 24 * 60 * 60 * 1000;
 const MAX_SHOWN_CLOSED: usize = 64;
 
 /// What raised a call, which its answer goes back to.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", tag = "from", content = "id")]
 pub(crate) enum Source {
     /// A question an agent put to the person, by the question's id.
     Question(String),
@@ -42,9 +50,12 @@ struct Kept {
     seen: Vec<(CallClient, u64)>,
 }
 
-#[derive(Default)]
+/// Every call open, and those settled lately, as their entries left them.
+type Book = Vec<Kept>;
+
 pub(crate) struct PersonCalls {
-    calls: Mutex<Vec<Kept>>,
+    book: Mutex<Book>,
+    log: CallLog,
 }
 
 /// A call to put to the person, as [`raise`] takes it.
@@ -130,7 +141,148 @@ fn waits_on(call: &PersonCall, agent_id: &str) -> bool {
     call.asker.agent_id == agent_id || call.joined.iter().any(|asker| asker.agent_id == agent_id)
 }
 
+fn outcome(result: CallResult) -> CallOutcome {
+    CallOutcome {
+        result,
+        healthy: None,
+        roll_back: false,
+        at: epoch_ms(),
+    }
+}
+
+fn kept<'a>(book: &'a Book, id: &str) -> Option<&'a Kept> {
+    book.iter().find(|kept| kept.call.id == id)
+}
+
+fn open<'a>(book: &'a Book, id: &str) -> CoreResult<&'a Kept> {
+    Ok(kept(book, id)
+        .filter(|kept| kept.call.state == CallState::Open)
+        .ok_or(GONE)?)
+}
+
+/// What `entry` changes of the calls kept.
+fn apply(book: &mut Book, entry: Entry) {
+    let id = entry.id().to_owned();
+    if let Entry::Raised { call, source, key } = entry {
+        let now = epoch_ms();
+        book.retain(|kept| {
+            kept.call.id != id
+                && (kept.call.state == CallState::Open
+                    || now.saturating_sub(settled_at(&kept.call)) < SHOWN_AFTER_MS)
+        });
+        let seen = Vec::new();
+        book.push(Kept {
+            call: *call,
+            source,
+            key,
+            seen,
+        });
+        return;
+    }
+    let Some(kept) = book.iter_mut().find(|kept| kept.call.id == id) else {
+        return;
+    };
+    let call = &mut kept.call;
+    match entry {
+        Entry::Raised { .. } => {}
+        Entry::Joined { asker, .. } => {
+            if !waits_on(call, &asker.agent_id) {
+                call.joined.push(asker);
+            }
+        }
+        Entry::Shown { by, at, .. } => {
+            if !kept.seen.iter().any(|(seer, _)| *seer == by) {
+                kept.seen.push((by, at));
+            }
+        }
+        Entry::Answered { answer, .. } => {
+            call.state = CallState::Answered;
+            call.answer = Some(answer);
+        }
+        Entry::Reopened { .. } => {
+            call.state = CallState::Open;
+            call.answer = None;
+            call.outcome = None;
+        }
+        Entry::Came { outcome, .. } => {
+            if call.state == CallState::Open {
+                call.state = CallState::Closed;
+            }
+            call.outcome = Some(outcome);
+        }
+    }
+}
+
+/// Entries that write each of the project's open calls down again whole.
+fn still_open(book: &Book, project: &str) -> Vec<Entry> {
+    let open = book
+        .iter()
+        .filter(|kept| kept.call.project == project && kept.call.state == CallState::Open);
+    open.flat_map(|kept| {
+        let raised = Entry::Raised {
+            call: Box::new(kept.call.clone()),
+            source: kept.source.clone(),
+            key: kept.key.clone(),
+        };
+        let shown = kept.seen.iter().map(|(by, at)| Entry::Shown {
+            id: kept.call.id.clone(),
+            by: by.clone(),
+            at: *at,
+        });
+        std::iter::once(raised).chain(shown)
+    })
+    .collect()
+}
+
 impl PersonCalls {
+    /// Takes up the calls the files kept. One raised by an action held before the core started,
+    /// or by a question `question_open` no longer knows, closes unanswered.
+    pub(crate) fn new(data_dir: Option<&Path>, question_open: impl Fn(&str) -> bool) -> Self {
+        let log = CallLog::new(data_dir);
+        let mut book = Book::new();
+        for entry in log.read_all() {
+            apply(&mut book, entry);
+        }
+        let calls = Self {
+            book: Mutex::new(Book::new()),
+            log,
+        };
+        let dead: Vec<String> = (book.iter())
+            .filter(|kept| kept.call.state == CallState::Open)
+            .filter(|kept| match &kept.source {
+                Source::Hold(_) => true,
+                Source::Question(id) => !question_open(id),
+                Source::Raised => false,
+            })
+            .map(|kept| kept.call.id.clone())
+            .collect();
+        *calls.book.locked() = book;
+        for id in dead {
+            calls.write(
+                &mut calls.book.locked(),
+                Entry::Came {
+                    id,
+                    outcome: outcome(CallResult::Withdrawn),
+                },
+            );
+        }
+        calls
+    }
+
+    /// Writes `entry` down in its project's file and applies it.
+    fn write(&self, book: &mut Book, entry: Entry) {
+        let project = match &entry {
+            Entry::Raised { call, .. } => Some(call.project.clone()),
+            entry => kept(book, entry.id()).map(|kept| kept.call.project.clone()),
+        };
+        let Some(project) = project else {
+            return;
+        };
+        self.log
+            .append(&project, &entry, || still_open(book, &project));
+        apply(book, entry);
+    }
+
     fn changed(&self, core: &Core) {
         core.changed(What::View);
     }
@@ -139,11 +291,11 @@ impl PersonCalls {
     /// closed lately, newest first.
     pub(crate) fn shown(&self) -> Vec<PersonCall> {
         let now = epoch_ms();
-        let calls = self.calls.locked();
-        let open = (calls.iter())
+        let book = self.book.locked();
+        let open = (book.iter())
             .filter(|kept| kept.call.state == CallState::Open)
             .map(|kept| kept.call.clone());
-        let mut closed: Vec<PersonCall> = (calls.iter())
+        let mut closed: Vec<PersonCall> = (book.iter())
             .filter(|kept| kept.call.state != CallState::Open)
             .filter(|kept| now.saturating_sub(settled_at(&kept.call)) < SHOWN_AFTER_MS)
             .map(|kept| kept.call.clone())
@@ -159,8 +311,8 @@ impl PersonCalls {
         reason = "the turn state shows an agent's top call through it"
     )]
     pub(crate) fn of_agent(&self, agent_id: &str) -> Option<AgentCall> {
-        let calls = self.calls.locked();
-        let open: Vec<&PersonCall> = (calls.iter())
+        let book = self.book.locked();
+        let open: Vec<&PersonCall> = (book.iter())
             .map(|kept| &kept.call)
             .filter(|call| call.state == CallState::Open && waits_on(call, agent_id))
             .collect();
@@ -183,118 +335,103 @@ impl PersonCalls {
         project: &str,
         matches: impl Fn(&PersonCall) -> bool,
     ) -> Option<PersonCall> {
-        (self.calls.locked().iter())
+        (self.book.locked().iter())
             .map(|kept| &kept.call)
             .find(|call| call.project == project && matches(call))
             .cloned()
     }
 
-    fn insert(&self, call: PersonCall, source: Source, key: Option<String>) {
-        let mut calls = self.calls.locked();
-        let now = epoch_ms();
-        calls.retain(|kept| {
-            kept.call.state == CallState::Open
-                || now.saturating_sub(settled_at(&kept.call)) < SHOWN_AFTER_MS
-        });
-        calls.push(Kept {
-            call,
-            source,
-            key,
-            seen: Vec::new(),
-        });
-    }
-
-    /// Puts the calls `source_of` names among `wanted` to the person, and closes the open calls
-    /// it names that are no longer wanted. A call already open keeps what it was raised with.
+    /// Puts the calls `owns` names among `wanted` to the person, and closes the open calls it
+    /// names that are no longer wanted. A call already raised keeps what it was raised with, and
+    /// one closed unanswered opens again.
     fn sync(&self, core: &Core, owns: impl Fn(&Source) -> bool, wanted: Vec<(Source, PersonCall)>) {
-        let now = epoch_ms();
-        let mut moved = false;
-        {
-            let mut calls = self.calls.locked();
-            for kept in calls.iter_mut() {
-                let still = wanted.iter().any(|(source, _)| *source == kept.source);
-                if kept.call.state == CallState::Open && owns(&kept.source) && !still {
-                    kept.call.state = CallState::Closed;
-                    kept.call.outcome = Some(CallOutcome {
-                        result: CallResult::Withdrawn,
-                        healthy: None,
-                        roll_back: false,
-                        at: now,
-                    });
-                    moved = true;
-                }
-            }
-            drop(calls);
-            for (source, call) in wanted {
-                let mut calls = self.calls.locked();
-                match calls.iter_mut().find(|kept| kept.source == source) {
-                    Some(kept) if kept.call.state == CallState::Closed => {
-                        kept.call.state = CallState::Open;
-                        kept.call.outcome = None;
-                        moved = true;
-                    }
-                    Some(_) => {}
-                    None => {
-                        drop(calls);
-                        self.insert(call, source, None);
-                        moved = true;
-                    }
-                }
+        let mut entries = Vec::new();
+        let mut book = self.book.locked();
+        for kept in book.iter() {
+            let still = wanted.iter().any(|(source, _)| *source == kept.source);
+            if kept.call.state == CallState::Open && owns(&kept.source) && !still {
+                let id = kept.call.id.clone();
+                entries.push(Entry::Came {
+                    id,
+                    outcome: outcome(CallResult::Withdrawn),
+                });
             }
         }
+        for (source, call) in wanted {
+            match book.iter().find(|kept| kept.source == source) {
+                Some(kept) if kept.call.state == CallState::Closed => {
+                    let id = kept.call.id.clone();
+                    entries.push(Entry::Reopened { id, at: epoch_ms() });
+                }
+                Some(_) => {}
+                None => entries.push(Entry::Raised {
+                    call: Box::new(call),
+                    source,
+                    key: None,
+                }),
+            }
+        }
+        let moved = !entries.is_empty();
+        for entry in entries {
+            self.write(&mut book, entry);
+        }
+        drop(book);
         if moved {
             self.changed(core);
         }
     }
 
     fn seen_by(&self, id: &str, client: &CallClient) -> bool {
-        (self.calls.locked().iter())
-            .find(|kept| kept.call.id == id)
+        kept(&self.book.locked(), id)
             .is_some_and(|kept| kept.seen.iter().any(|(seer, _)| seer == client))
     }
 
     fn source_of(&self, id: &str) -> Option<Source> {
-        (self.calls.locked().iter())
-            .find(|kept| kept.call.id == id)
-            .map(|kept| kept.source.clone())
+        kept(&self.book.locked(), id).map(|kept| kept.source.clone())
     }
 
     fn id_of(&self, source: &Source) -> Option<String> {
-        (self.calls.locked().iter())
+        (self.book.locked().iter())
             .find(|kept| kept.source == *source && kept.call.state == CallState::Open)
             .map(|kept| kept.call.id.clone())
     }
 
     /// Takes the person's answer to the open call `id`, which waits for what came of it.
     fn take_answer(&self, id: &str, answer: CallAnswer) -> CoreResult<(PersonCall, Source)> {
-        let mut calls = self.calls.locked();
-        let kept = (calls.iter_mut())
-            .find(|kept| kept.call.id == id && kept.call.state == CallState::Open)
-            .ok_or(GONE)?;
-        kept.call.state = CallState::Answered;
-        kept.call.answer = Some(answer);
+        let mut book = self.book.locked();
+        open(&book, id)?;
+        self.write(
+            &mut book,
+            Entry::Answered {
+                id: id.to_owned(),
+                answer,
+            },
+        );
+        let kept = kept(&book, id).ok_or(GONE)?;
         Ok((kept.call.clone(), kept.source.clone()))
     }
 
     /// The answer could not reach what raised the call, so it waits on the person again.
     fn reopen(&self, id: &str) {
-        let mut calls = self.calls.locked();
-        if let Some(kept) = calls.iter_mut().find(|kept| kept.call.id == id) {
-            kept.call.state = CallState::Open;
-            kept.call.answer = None;
-        }
+        let mut book = self.book.locked();
+        self.write(
+            &mut book,
+            Entry::Reopened {
+                id: id.to_owned(),
+                at: epoch_ms(),
+            },
+        );
     }
 
     fn settle(&self, id: &str, result: CallResult) {
-        let mut calls = self.calls.locked();
-        if let Some(kept) = calls.iter_mut().find(|kept| kept.call.id == id) {
-            kept.call.outcome = Some(CallOutcome {
-                result,
-                healthy: None,
-                roll_back: false,
-                at: epoch_ms(),
-            });
-        }
+        let mut book = self.book.locked();
+        self.write(
+            &mut book,
+            Entry::Came {
+                id: id.to_owned(),
+                outcome: outcome(result),
+            },
+        );
     }
 }
 
@@ -311,27 +448,67 @@ fn settled_at(call: &PersonCall) -> u64 {
     reason = "the gates by place raise production calls through it"
 )]
 pub(crate) fn raise(core: &Core, raise: Raise) -> String {
-    let joined = {
-        let mut calls = core.person_calls.calls.locked();
-        let same = (calls.iter_mut()).find(|kept| {
+    let id = {
+        let mut book = core.person_calls.book.locked();
+        let same = book.iter().find(|kept| {
             kept.call.state == CallState::Open
                 && kept.call.project == raise.project
                 && kept.key.is_some()
                 && kept.key == raise.key
         });
-        same.map(|kept| {
-            if !waits_on(&kept.call, &raise.asker.agent_id) {
-                kept.call.joined.push(raise.asker.clone());
+        match same.map(|kept| kept.call.id.clone()) {
+            Some(id) => {
+                let asker = raise.asker;
+                let joined = Entry::Joined {
+                    id: id.clone(),
+                    asker,
+                    at: epoch_ms(),
+                };
+                core.person_calls.write(&mut book, joined);
+                id
             }
-            kept.call.id.clone()
-        })
+            None => {
+                let (call, key) = raise.into_call(uuid::Uuid::new_v4().simple().to_string());
+                let id = call.id.clone();
+                let raised = Entry::Raised {
+                    call: Box::new(call),
+                    source: Source::Raised,
+                    key,
+                };
+                core.person_calls.write(&mut book, raised);
+                id
+            }
+        }
     };
-    let id = joined.unwrap_or_else(|| {
-        let (call, key) = raise.into_call(uuid::Uuid::new_v4().simple().to_string());
-        let id = call.id.clone();
-        core.person_calls.insert(call, Source::Raised, key);
-        id
-    });
+    core.person_calls.changed(core);
+    id
+}
+
+/// Puts a call the person is only told of, already settled with `outcome`: a production change
+/// at a place they asked to hear of, which ran. It never waits on them.
+#[expect(
+    dead_code,
+    reason = "the gates by place tell the person of a change through it"
+)]
+pub(crate) fn told(core: &Core, raise: Raise, outcome: CallOutcome) -> String {
+    let (call, key) = raise.into_call(uuid::Uuid::new_v4().simple().to_string());
+    let id = call.id.clone();
+    {
+        let mut book = core.person_calls.book.locked();
+        let raised = Entry::Raised {
+            call: Box::new(call),
+            source: Source::Raised,
+            key,
+        };
+        core.person_calls.write(&mut book, raised);
+        core.person_calls.write(
+            &mut book,
+            Entry::Came {
+                id: id.clone(),
+                outcome,
+            },
+        );
+    }
     core.person_calls.changed(core);
     id
 }
@@ -342,7 +519,7 @@ pub(crate) fn raise(core: &Core, raise: Raise) -> String {
     reason = "the gates by place raise production calls through it"
 )]
 pub(crate) fn find_key(core: &Core, project: &str, key: &str) -> Option<PersonCall> {
-    (core.person_calls.calls.locked().iter())
+    (core.person_calls.book.locked().iter())
         .filter(|kept| kept.call.project == project && kept.key.as_deref() == Some(key))
         .max_by_key(|kept| kept.call.raised_at)
         .map(|kept| kept.call.clone())
@@ -354,10 +531,16 @@ pub(crate) fn find_key(core: &Core, project: &str, key: &str) -> Option<PersonCa
     reason = "the gates by place raise production calls through it"
 )]
 pub(crate) fn set_outcome(core: &Core, id: &str, outcome: CallOutcome) {
-    let mut calls = core.person_calls.calls.locked();
-    if let Some(kept) = calls.iter_mut().find(|kept| kept.call.id == id) {
-        kept.call.outcome = Some(outcome);
-        drop(calls);
+    let mut book = core.person_calls.book.locked();
+    if kept(&book, id).is_some() {
+        core.person_calls.write(
+            &mut book,
+            Entry::Came {
+                id: id.to_owned(),
+                outcome,
+            },
+        );
+        drop(book);
         core.person_calls.changed(core);
     }
 }
@@ -378,15 +561,75 @@ pub(crate) fn sync_holds(core: &Core, wanted: Vec<(String, PersonCall)>) {
     (core.person_calls).sync(core, |source| matches!(source, Source::Hold(_)), wanted);
 }
 
+/// The longest answer typed in a chat that a call keeps.
+const MAX_WRITTEN_CHARS: usize = 2000;
+
+/// The person wrote to `agent_id` in its chat, which answers the calls of taste, money or access
+/// it waits on there. A production call is never answered by what is typed, and a secret is never
+/// typed in a chat.
+pub(crate) fn written(core: &Core, agent_id: &str, text: &str) {
+    let questions = core.harness.questions.answered_by_writing(agent_id);
+    if questions.is_empty() {
+        return;
+    }
+    let words = clipped(text.trim(), MAX_WRITTEN_CHARS);
+    let mut book = core.person_calls.book.locked();
+    let answered: Vec<(String, u64)> = (book.iter())
+        .filter(|kept| {
+            let call = &kept.call;
+            let asked = matches!(&kept.source, Source::Question(id) if questions.contains(id));
+            asked
+                && call.state == CallState::Open
+                && call.kind != CallKind::Production
+                && !call.secret
+        })
+        .map(|kept| (kept.call.id.clone(), kept.call.raised_at))
+        .collect();
+    if answered.is_empty() {
+        return;
+    }
+    for (id, raised_at) in answered {
+        let answer = CallAnswer {
+            option: None,
+            options: Vec::new(),
+            note: None,
+            words: Some(words.clone()).filter(|words| !words.is_empty()),
+            by: CallClient::Chat,
+            at: epoch_ms(),
+            waited_ms: epoch_ms().saturating_sub(raised_at),
+        };
+        let write = |book: &mut Book, entry| core.person_calls.write(book, entry);
+        write(
+            &mut book,
+            Entry::Answered {
+                id: id.clone(),
+                answer,
+            },
+        );
+        write(
+            &mut book,
+            Entry::Came {
+                id,
+                outcome: outcome(CallResult::Heard),
+            },
+        );
+    }
+    drop(book);
+    core.person_calls.changed(core);
+}
+
 /// A client drew the call.
 pub(crate) fn seen(core: &Core, peer: &Peer, params: CallParams) -> CoreResult<()> {
-    let client = client_of(peer).ok_or(NOT_A_CLIENT)?;
-    let mut calls = core.person_calls.calls.locked();
-    let kept = (calls.iter_mut())
-        .find(|kept| kept.call.id == params.id)
-        .ok_or(GONE)?;
-    if !kept.seen.iter().any(|(seer, _)| *seer == client) {
-        kept.seen.push((client, epoch_ms()));
+    let by = client_of(peer).ok_or(NOT_A_CLIENT)?;
+    let mut book = core.person_calls.book.locked();
+    let kept = kept(&book, &params.id).ok_or(GONE)?;
+    if !kept.seen.iter().any(|(seer, _)| *seer == by) {
+        let shown = Entry::Shown {
+            id: params.id,
+            by,
+            at: epoch_ms(),
+        };
+        core.person_calls.write(&mut book, shown);
     }
     Ok(())
 }
@@ -443,10 +686,7 @@ fn answer_of(
 }
 
 fn call_of(core: &Core, id: &str) -> CoreResult<PersonCall> {
-    Ok((core.person_calls.calls.locked().iter())
-        .find(|kept| kept.call.id == id && kept.call.state == CallState::Open)
-        .map(|kept| kept.call.clone())
-        .ok_or(GONE)?)
+    Ok(open(&core.person_calls.book.locked(), id)?.call.clone())
 }
 
 /// The person answers a call from the app, the notch or a phone. A production call is answered

@@ -19,7 +19,9 @@ use sikemux_process::sync::Locked;
 
 use crate::cli::protocol::HarnessRequest;
 use crate::text::clipped;
-use sikemux_view::calls::{CallAsker, CallKind, CallOption, CallState, PersonCall};
+use sikemux_view::calls::{
+    CallAsker, CallBrief, CallEvidence, CallKind, CallOption, CallState, PersonCall,
+};
 use sikemux_view::inbox::{InboxRaised, RaisedFor};
 use sikemux_view::questions::{AgentQuestion, QuestionChoice, QuestionState};
 use sikemux_wire::protocol::ChatContext;
@@ -59,6 +61,10 @@ const MAX_QUESTION_BYTES: usize = 8 * 1024;
 const MAX_CHOICES: usize = 9;
 const MAX_LABEL_CHARS: usize = 200;
 const MAX_DETAIL_CHARS: usize = 400;
+/// What the person needs to know to decide, beside the question.
+const MAX_CONTEXT_CHARS: usize = 600;
+/// The most a raised question shows to look at.
+const MAX_EVIDENCE: usize = 4;
 /// A question's title on the tab the person picks it by.
 const MAX_HEADER_CHARS: usize = 40;
 const MAX_ANSWER_BYTES: usize = 64 * 1024;
@@ -108,6 +114,16 @@ pub(crate) struct Raise {
     pick: Option<String>,
     /// What breaks if that is wrong, or what stays stuck without the access.
     breaks: String,
+    /// What the person asked for, in their words, which heads the call.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    asked_for: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    context: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    evidence: Vec<CallEvidence>,
+    /// What a weighty call says first.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    brief: Option<CallBrief>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -234,17 +250,16 @@ impl Question {
             || self.dialog.is_some()
             || self.from_host.is_some();
         let breaks = self.raise.as_ref().map(|raise| raise.breaks.clone());
+        let assumed = (self.assumption.as_ref()).map(|assumption| {
+            format!(
+                "@{} goes on assuming {assumption} until you answer.",
+                self.name
+            )
+        });
+        let given = self.raise.as_ref().and_then(|raise| raise.context.clone());
         let (context, against) = match kind {
-            CallKind::Access => (breaks, None),
-            _ => (
-                (self.assumption.as_ref()).map(|assumption| {
-                    format!(
-                        "@{} goes on assuming {assumption} until you answer.",
-                        self.name
-                    )
-                }),
-                breaks,
-            ),
+            CallKind::Access => (given.or(breaks), None),
+            _ => (given.or(assumed), breaks),
         };
         let (options, pick) = call_options(&self.choices);
         PersonCall {
@@ -257,15 +272,18 @@ impl Question {
                 cli: self.cli.clone(),
             },
             joined: Vec::new(),
-            asked_for: None,
+            asked_for: self
+                .raise
+                .as_ref()
+                .and_then(|raise| raise.asked_for.clone()),
             question: self.text.clone(),
             context,
             options,
             pick,
             against,
-            evidence: Vec::new(),
+            evidence: (self.raise.as_ref()).map_or_else(Vec::new, |raise| raise.evidence.clone()),
             action: None,
-            brief: None,
+            brief: self.raise.as_ref().and_then(|raise| raise.brief.clone()),
             place: None,
             can_hand_back: kind == CallKind::Taste && !only_theirs,
             multi: self.multi,
@@ -572,10 +590,14 @@ impl Questions {
             .as_deref()
             .and_then(|dir| std::fs::read_dir(dir).ok())
         {
-            let shown: HashSet<String> = (record.open.iter())
+            let chosen = (record.open.iter())
                 .flat_map(|question| question.choices.iter())
-                .filter_map(|choice| choice.picture.clone())
-                .collect();
+                .filter_map(|choice| choice.picture.clone());
+            let evidence = (record.open.iter())
+                .filter_map(|question| question.raise.as_ref())
+                .flat_map(|raise| raise.evidence.iter())
+                .filter_map(|evidence| evidence.picture.clone());
+            let shown: HashSet<String> = chosen.chain(evidence).collect();
             for entry in entries.flatten() {
                 if !shown.contains(&*entry.path().to_string_lossy()) {
                     let _ = std::fs::remove_file(entry.path());
@@ -624,6 +646,31 @@ impl Questions {
 
     /// Copies the picture each choice names, a path from `folder`, into the core's own folder,
     /// pointing the choice at the copy. Nothing is copied unless every picture can be.
+    /// Copies the pictures of the raise's evidence, as [`Self::keep_pictures`] copies choices'.
+    fn keep_evidence(&self, folder: &str, raise: &mut Option<Raise>) -> Result<(), String> {
+        let Some(raise) = raise.as_mut() else {
+            return Ok(());
+        };
+        let mut shown: Vec<QuestionChoice> = (raise.evidence.iter())
+            .map(|evidence| QuestionChoice {
+                label: evidence.what.clone(),
+                detail: None,
+                picture: evidence.picture.clone(),
+                recommended: false,
+            })
+            .collect();
+        self.keep_pictures(folder, &mut shown)?;
+        for (evidence, kept) in raise.evidence.iter_mut().zip(shown) {
+            evidence.picture = kept.picture;
+        }
+        Ok(())
+    }
+
+    /// Whether `path` is one of the pictures questions show, which any paired device may open.
+    pub(crate) fn keeps_picture(&self, path: &Path) -> bool {
+        (self.pictures.as_deref()).is_some_and(|dir| super::attachments::is_kept(dir, path))
+    }
+
     fn keep_pictures(&self, folder: &str, choices: &mut [QuestionChoice]) -> Result<(), String> {
         let given: Vec<std::path::PathBuf> = (choices.iter())
             .filter_map(|choice| choice.picture.as_deref())
@@ -665,6 +712,27 @@ impl Questions {
     fn shown_changed(&self, state: &mut State) {
         state.dirty = true;
         self.wake.now();
+    }
+
+    /// The questions of `agent_id` the person answers by writing to it, which its next turn takes
+    /// back: those it stopped for, and those its last reply asked.
+    pub(crate) fn answered_by_writing(&self, agent_id: &str) -> Vec<String> {
+        let state = self.state.locked();
+        let stopped = (state.open.iter()).filter(|question| {
+            question.agent_id == agent_id
+                && question.blocked
+                && question.asks_person()
+                && question.approval.is_none()
+        });
+        let replied =
+            (state.reply_questions.iter()).filter(|question| question.agent_id == agent_id);
+        (stopped.map(|question| question.id.clone()))
+            .chain(replied.map(|question| question.id.clone()))
+            .collect()
+    }
+
+    pub(crate) fn is_open(&self, id: &str) -> bool {
+        (self.state.locked().open.iter()).any(|question| question.id == id)
     }
 
     pub(crate) fn blocks_on_person(&self, agent_id: &str) -> bool {
@@ -1090,17 +1158,66 @@ fn raise_of(
     if breaks.is_none() {
         missing.push("breaks: what breaks if that is wrong".to_owned());
     }
+    let asked_for = text_param(params, "askedFor", MAX_LABEL_CHARS)?;
+    let context = text_param(params, "context", MAX_CONTEXT_CHARS)?;
+    let evidence = evidence_of(params.get("evidence"))?;
+    let brief = brief_of(params.get("brief"))?;
     match (reason, breaks) {
         (Some(reason), Some(breaks)) if missing.is_empty() => Ok(Raise {
             reason,
             pick,
             breaks,
+            asked_for,
+            context,
+            evidence,
+            brief,
         }),
         _ => Err(format!(
             "A decision raised to the person has to stand alone, and this one is missing:\n- {}\nIf none of {REASONS} is the reason, decide it yourself.",
             missing.join("\n- ")
         )),
     }
+}
+
+/// What a raised question shows to look at before deciding.
+fn evidence_of(value: Option<&Value>) -> Result<Vec<CallEvidence>, String> {
+    let list = match value {
+        None | Some(Value::Null) => return Ok(Vec::new()),
+        Some(Value::Array(list)) => list,
+        Some(_) => return Err("evidence must be a list".into()),
+    };
+    if list.len() > MAX_EVIDENCE {
+        return Err(format!(
+            "evidence takes at most {MAX_EVIDENCE} things to look at"
+        ));
+    }
+    (list.iter())
+        .map(|item| {
+            let what = text_param(item, "what", MAX_DETAIL_CHARS)?
+                .ok_or("each piece of evidence needs what: what it shows, in words")?;
+            let picture = text_param(item, "picture", 4096)?;
+            Ok(CallEvidence { what, picture })
+        })
+        .collect()
+}
+
+/// The brief of a weighty decision, which needs all three of its parts.
+fn brief_of(value: Option<&Value>) -> Result<Option<CallBrief>, String> {
+    let brief = match value {
+        None | Some(Value::Null) => return Ok(None),
+        Some(brief @ Value::Object(_)) => brief,
+        Some(_) => return Err("brief must be an object".into()),
+    };
+    let part = |key: &str| {
+        text_param(brief, key, MAX_DETAIL_CHARS)?.ok_or_else(|| {
+            format!("brief needs {key}: what was tried, what the evidence shows and what can't be undone")
+        })
+    };
+    Ok(Some(CallBrief {
+        tried: part("tried")?,
+        shows: part("shows")?,
+        cannot_undo: part("cannotUndo")?,
+    }))
 }
 
 /// Marks the choice `ask` was given as `pick` as the one recommended.
@@ -1366,8 +1483,10 @@ pub(crate) async fn ask(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
     let header = text_param(params, "header", MAX_QUESTION_BYTES)?
         .map(|header| clipped(&header, MAX_HEADER_CHARS));
     if let Some(worker) = text_param(params, "for", 200)? {
-        let raise = raise_of(params, &text, &mut choices)?;
+        let mut raise = Some(raise_of(params, &text, &mut choices)?);
         (core.harness.questions).keep_pictures(&request.project, &mut choices)?;
+        (core.harness.questions).keep_evidence(&request.project, &mut raise)?;
+        let raise = raise.ok_or("the decision could not be raised")?;
         if let Some(foreign) = foreign_worker(core, &agent_id, &worker)? {
             let choices = serde_json::to_value(&choices).map_err(|error| error.to_string())?;
             return super::hosts::route::pass_on(core, &agent_id, &foreign, text, choices, raise)
@@ -1414,11 +1533,12 @@ pub(crate) async fn ask(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
     let raised = !secret
         && reachable_lead(core, &agent_id).is_none()
         && (params.get("reason").is_some() || (blocked && raises(core, &agent_id)));
-    let raise = raised
+    let mut raise = raised
         .then(|| raise_of(params, &text, &mut choices))
         .transpose()?;
     mark_pick(params, &mut choices)?;
     (core.harness.questions).keep_pictures(&request.project, &mut choices)?;
+    (core.harness.questions).keep_evidence(&request.project, &mut raise)?;
     let question = open(
         core,
         &agent_id,

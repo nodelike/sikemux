@@ -553,6 +553,8 @@ impl Core {
         let hosts = hosts::Hosts::new(data_dir);
         names.pin(hosts.team.ids());
         let harness = harness::Harness::new(data_dir, |agent_id| names.get(agent_id).is_some());
+        let person_calls =
+            person_calls::PersonCalls::new(data_dir, |id| harness.questions.is_open(id));
         let core = Arc::new_cyclic(|me| Self {
             me: me.clone(),
             started,
@@ -583,7 +585,7 @@ impl Core {
             settling: settling::Settling::default(),
             lifecycle: lifecycle::Lifecycle::default(),
             ship: ship::Ships::default(),
-            person_calls: person_calls::PersonCalls::default(),
+            person_calls,
             build_outputs: Default::default(),
             builds: builds::Builds::default(),
             session_watch: session_watch::SessionWatch::default(),

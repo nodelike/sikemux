@@ -1905,6 +1905,71 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 400
+        },
+        "askedFor": {
+          "description": "Raising: what the person asked for, in their words",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "context": {
+          "description": "Raising: what they need to know to decide",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 600
+        },
+        "evidence": {
+          "description": "Raising: what to look at before deciding",
+          "type": "array",
+          "maxItems": 4,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "what": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 400
+              },
+              "picture": {
+                "description": "Path of an image showing it",
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096
+              }
+            },
+            "required": [
+              "what"
+            ]
+          }
+        },
+        "brief": {
+          "description": "Raising something that can't be taken back",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "tried": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 400
+            },
+            "shows": {
+              "description": "What the evidence shows",
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 400
+            },
+            "cannotUndo": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 400
+            }
+          },
+          "required": [
+            "tried",
+            "shows",
+            "cannotUndo"
+          ]
         }
       },
       "required": [

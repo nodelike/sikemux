@@ -226,7 +226,7 @@ pub(crate) async fn chat_file(
             blocking(move || Ok(is_kept(&dir, &path))).await?
         }
         None => false,
-    };
+    } || core.harness.questions.keeps_picture(Path::new(&path));
     if !kept {
         core.permit(peer, Needs::Full).map_err(|_| {
             CoreError::from("this device can open only the pictures pasted into chats")

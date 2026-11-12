@@ -1060,6 +1060,14 @@ agents it started, and only what follows reaches the person.
   and the person's card leads with them. For choices drawn on one mockup page,
   give each its own element and take each picture with `page_preview` and
   `selector`, so a card shows that choice and nothing around it.
+- A raise becomes a call: one card the person answers on the Mac, the notch or
+  their phone. Head it with `askedFor`, what the person asked for in their own
+  words, and give `context` (a line or two they need), `evidence` (up to four
+  things to look at, each `what` with an optional `picture`), and for something
+  that can't be taken back, such as a cutover or a public release, a `brief`
+  with `tried`, `shows` and `cannotUndo`. No ids, hashes, commands or tool names
+  in any of them. The person may answer with your pick, another choice, a note,
+  their own words, or hand a taste call back to you; nothing times out.
 - A question ending your reply can show away from this chat, so it must say what
   is being decided, never only "Is that okay?".
 - A choice for the person always goes through `ask`, never only in your reply.
