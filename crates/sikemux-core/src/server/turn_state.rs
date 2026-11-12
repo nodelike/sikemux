@@ -5,9 +5,10 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
+use sikemux_process::sync::Locked;
 use sikemux_view::calls::CallResult;
 use sikemux_view::chat::FailureKind;
 use sikemux_view::inbox::AgentShown;
@@ -392,10 +393,10 @@ fn landed(
     }
 }
 
-/// The agent's own turn line, in words for it, sent with the person's next message so it knows
-/// where its work stands as the person sees it. None while it works or waits on the person.
-pub(crate) fn told(turn: &TurnState) -> Option<ChatContext> {
-    let line = match turn.state {
+/// How a turn that ended stands, in words for agents: the agent's own line, and another agent's
+/// in `agent_list`. None while it works or waits on the person, which its status says already.
+pub(crate) fn line(turn: &TurnState) -> Option<String> {
+    Some(match turn.state {
         TurnPhase::Done => {
             let done = turn.done.as_ref()?;
             let changes = match done.changes {
@@ -412,36 +413,67 @@ pub(crate) fn told(turn: &TurnState) -> Option<ChatContext> {
                 ChecksStand::Failed => "checks failed",
                 ChecksStand::NotChecked | ChecksStand::Unknown => "not checked",
             };
-            format!("Done, {changes}, {checks}.")
+            format!("done, {changes}, {checks}")
         }
-        TurnPhase::Stopped => match turn
-            .stopped
-            .as_ref()
-            .and_then(|stopped| stopped.left.as_ref())
-        {
-            Some(left) => {
-                format!("Stopped with this left open: {left}. Nothing is set to wake you.")
+        TurnPhase::Stopped => {
+            match (turn.stopped.as_ref()).and_then(|stopped| stopped.left.as_ref()) {
+                Some(left) => {
+                    format!("stopped with this left open: {left}; nothing is set to wake it")
+                }
+                None => "stopped before it finished; nothing is set to wake it".to_owned(),
             }
-            None => "Stopped before it finished. Nothing is set to wake you.".to_owned(),
-        },
+        }
         TurnPhase::Failed => {
-            let said = turn
-                .failed
-                .as_ref()
-                .and_then(|failed| failed.said.as_deref());
-            format!("Failed: {}", said.unwrap_or("the turn did not finish"))
+            let said = (turn.failed.as_ref()).and_then(|failed| failed.said.as_deref());
+            format!("failed: {}", said.unwrap_or("the turn did not finish"))
         }
         TurnPhase::Waiting => {
             let wait = turn.wait.as_ref()?;
-            format!("Waiting on {}.", wait.what)
+            let on = match wait.kind {
+                TurnWaitKind::Ci => "CI",
+                TurnWaitKind::Deploy => "a deploy",
+                TurnWaitKind::Agent => return Some(format!("waiting on @{}", wait.what)),
+                TurnWaitKind::Timer => "a timer",
+                TurnWaitKind::Process => "a process",
+                TurnWaitKind::Check | TurnWaitKind::Unknown => "the project's check",
+            };
+            match wait.what.is_empty() {
+                true => format!("waiting on {on}"),
+                false => format!("waiting on {on}: {}", wait.what),
+            }
         }
         TurnPhase::Working | TurnPhase::NeedsYou | TurnPhase::Unknown => return None,
-    };
+    })
+}
+
+/// The agent's own line, sent with the person's next message so it knows where its work stands
+/// as the person sees it.
+pub(crate) fn told(turn: &TurnState) -> Option<ChatContext> {
     Some(ChatContext {
         uri: format!("{FOR_AGENT_URI}turn"),
         title: "Your last turn".to_owned(),
-        text: format!("How your last turn stands, as the person sees it: {line}"),
+        text: format!(
+            "How your last turn stands, as the person sees it: {}.",
+            line(turn)?
+        ),
     })
+}
+
+/// Each agent's turn as the view last worked it out, for the core's other readers.
+#[derive(Default)]
+pub(crate) struct Latest(Mutex<HashMap<String, TurnState>>);
+
+impl Latest {
+    pub(crate) fn keep(&self, agents: &[AgentShown]) {
+        let kept = (agents.iter())
+            .filter_map(|agent| Some((agent.agent_id.clone(), agent.turn.clone()?)))
+            .collect();
+        *self.0.locked() = kept;
+    }
+
+    pub(crate) fn of(&self, agent_id: &str) -> Option<TurnState> {
+        self.0.locked().get(agent_id).cloned()
+    }
 }
 
 #[derive(Serialize, Deserialize)]

@@ -35,6 +35,7 @@ use sikemux_fold::AgentNeed;
 use sikemux_view::chat::{FailureKind, TeamNeedKind};
 use sikemux_view::host_stats::HostAlertKind;
 use sikemux_view::slice::{Gate, Proof};
+use sikemux_view::turn::{TurnPhase, WorkAt};
 
 use super::board::environments::Step;
 
@@ -965,13 +966,19 @@ fn agent_item(core: &Core, agent: &Agent, working: bool) -> InboxItem {
     } else {
         let mut handoff = handoff(core, &agent.id);
         handoff.result = card.as_ref().and_then(|card| card.result.clone());
+        let turn = core.turns.of(&agent.id);
+        let phase = turn.as_ref().map(|turn| turn.state);
+        let uncommitted = (turn.as_ref().and_then(|turn| turn.done.as_ref()))
+            .map_or(handoff.uncommitted, |done| {
+                done.changes == WorkAt::Uncommitted
+            });
         let (case, what) = match &problem {
-            Some(problem) => (Case::Failed(problem.fault), "Ran into a problem".to_owned()),
-            None if handoff.uncommitted => (Case::Changes, DONE_UNCOMMITTED.to_owned()),
-            None if card.as_ref().is_some_and(|card| card.done) => {
-                (Case::Finished, "Done".to_owned())
+            Some(problem) if phase.is_none_or(|phase| phase == TurnPhase::Failed) => {
+                (Case::Failed(problem.fault), "Ran into a problem".to_owned())
             }
-            None if handoff.edited > 0 => (
+            _ if uncommitted => (Case::Changes, DONE_UNCOMMITTED.to_owned()),
+            _ if card.as_ref().is_some_and(|card| card.done) => (Case::Finished, "Done".to_owned()),
+            _ if handoff.edited > 0 => (
                 Case::Changes,
                 format!(
                     "Finished, changed {} {}",
@@ -979,7 +986,7 @@ fn agent_item(core: &Core, agent: &Agent, working: bool) -> InboxItem {
                     if handoff.edited == 1 { "file" } else { "files" }
                 ),
             ),
-            None => (Case::Finished, "Finished".to_owned()),
+            _ => (Case::Finished, "Finished".to_owned()),
         };
         let mut item = item(
             format!("agent:{}", agent.id),
@@ -1269,6 +1276,9 @@ pub(crate) fn view(core: &Core, chats: &[ChatInfo], sessions: &[SessionInfo]) ->
     for agent in &mut shown {
         agent.chief = chiefs.contains(&agent.agent_id);
         agent.turn = turn_state::of(core, &gathered, &agent.agent_id, agent.status);
+    }
+    core.turns.keep(&shown);
+    for agent in &mut shown {
         if let Some((place, _)) = places.get(&agent.agent_id) {
             super::settling::show(agent, place, now);
         }
@@ -1325,9 +1335,7 @@ pub(crate) fn view(core: &Core, chats: &[ChatInfo], sessions: &[SessionInfo]) ->
         agent.snoozed_until.is_none() && (agent.settled_at.is_none() || item.need.is_some())
     });
     for agent in &mut listed {
-        agent.failed = (view.items.iter()).any(|item| {
-            item.kind == InboxKind::Failed && item.agent_id.as_ref() == Some(&agent.agent_id)
-        });
+        agent.failed = (agent.turn.as_ref()).is_some_and(|turn| turn.state == TurnPhase::Failed);
     }
     for item in &mut view.items {
         let agent = (listed.iter()).find(|agent| item.agent_id.as_ref() == Some(&agent.agent_id));

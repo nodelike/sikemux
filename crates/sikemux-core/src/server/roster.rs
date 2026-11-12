@@ -248,6 +248,7 @@ pub(crate) fn rows(core: &Core, project: Option<&str>, caller: &str) -> Vec<Valu
                 "cli": agent.cli,
                 "title": agent.title,
                 "status": status,
+                "turn": core.turns.of(&agent.agent_id).as_ref().and_then(super::turn_state::line),
                 "lastActive": since(agent.active_at, now),
                 "canMessage": agent.reach != Reach::Stopped
                     && agent.agent_id != caller
