@@ -206,6 +206,32 @@ fn bundled_ref(repo: &Path, bundle: &Path) -> Result<String, String> {
         .ok_or_else(|| "the bundle holds no branch".to_owned())
 }
 
+/// `wanted`, or `wanted-2` and on when a branch of that name is there already,
+/// so a worker's commits never replace another's that nobody merged.
+fn free_branch(repo: &Path, wanted: &str) -> Result<String, String> {
+    (1..100)
+        .map(|n| match n {
+            1 => wanted.to_owned(),
+            n => format!("{wanted}-{n}"),
+        })
+        .find(|branch| {
+            Git::quick(repo)
+                .trimmed(&[
+                    "show-ref",
+                    "--verify",
+                    "--quiet",
+                    &format!("refs/heads/{branch}"),
+                ])
+                .is_err()
+        })
+        .ok_or_else(|| {
+            format!(
+                "{} already has too many branches named {wanted}",
+                repo.display()
+            )
+        })
+}
+
 fn fetch(repo: &Path, bundle: &Path, into: &str) -> Result<(), String> {
     Git::slow(repo)
         .trimmed(&["bundle", "verify", "--quiet", &bundle.to_string_lossy()])
@@ -977,21 +1003,23 @@ pub(super) async fn land(
                 })?
         }
     };
-    let branch = format!(
+    let own = worker.landed.map(|(branch, _)| branch);
+    let wanted = format!(
         "sikemux/{}/{}",
         slug(&name_of(core, host)),
         slug(&worker.name)
     );
-    let landed = {
-        let branch = branch.clone();
-        blocking(move || {
-            Git::quick(&repo).trimmed(&["check-ref-format", "--branch", &branch])?;
-            fetch(&repo, body.path(), &format!("refs/heads/{branch}"))?;
-            Ok(())
-        })
-        .await
-    };
-    landed.map_err(|error| Refusal::retry(error.to_string()))?;
+    let landed = blocking(move || {
+        Git::quick(&repo).trimmed(&["check-ref-format", "--branch", &wanted])?;
+        let branch = match own {
+            Some(own) => own,
+            None => free_branch(&repo, &wanted)?,
+        };
+        fetch(&repo, body.path(), &format!("refs/heads/{branch}"))?;
+        Ok(branch)
+    })
+    .await;
+    let branch = landed.map_err(|error| Refusal::retry(error.to_string()))?;
     let count = landing.count;
     core.hosts.team.update(&landing.agent_id, |worker| {
         worker.landed = Some((branch.clone(), count));
