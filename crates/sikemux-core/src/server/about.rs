@@ -2,6 +2,7 @@
 //! release's notes and who made it, and which of the tools Sikemux works with
 //! the host has.
 
+use crate::server::parts::Parts;
 use sikemux_view::prefs::PreferenceChange;
 use std::collections::HashMap;
 
@@ -44,7 +45,7 @@ pub struct WhatsNew {
 }
 
 pub(crate) fn whats_new(core: &Core) -> WhatsNew {
-    let preferences = core.preferences.get();
+    let preferences = core.preferences().get();
     let version = core.config.build.version.clone();
     WhatsNew {
         unseen: preferences.onboarding_complete && preferences.last_seen_version != version,
@@ -55,9 +56,9 @@ pub(crate) fn whats_new(core: &Core) -> WhatsNew {
 /// A first run has nothing new to show, so finishing the introduction counts
 /// the release running as seen.
 pub(crate) fn introduced(core: &Core) -> CoreResult<()> {
-    let preferences = core.preferences.get();
+    let preferences = core.preferences().get();
     if preferences.onboarding_complete && preferences.last_seen_version.is_empty() {
-        core.preferences.change(PreferenceChange::LastSeenVersion(
+        core.preferences().change(PreferenceChange::LastSeenVersion(
             core.config.build.version.clone(),
         ));
     }

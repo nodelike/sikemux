@@ -105,7 +105,7 @@ impl State {
 
 /// Whether the person turned rotation on.
 pub(crate) fn on(core: &Core) -> bool {
-    core.preferences.get().chief_rotation
+    core.preferences().get().chief_rotation
 }
 
 /// Whether rotation may touch the chat at all now: a capped Claude chat with the switch on, not

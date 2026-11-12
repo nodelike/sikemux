@@ -1799,7 +1799,7 @@ async fn handed(
         Reach::Chat | Reach::Terminal => {}
         Reach::Asleep if notice => held = Some("is asleep"),
         Reach::Asleep
-            if !core.window.is_open() && core.hosts().team.get(&letter.from_id).is_none() =>
+            if !core.window().is_open() && core.hosts().team.get(&letter.from_id).is_none() =>
         {
             held = Some("is asleep while Sikemux is closed")
         }
@@ -2286,7 +2286,7 @@ pub(crate) fn settle(core: &Arc<Core>) {
             .agent(&agent_id)
             .is_some_and(|agent| agent.asleep || agent.terminal)
         {
-            if !core.window.is_open() || core.workspaces().held(&agent_id) {
+            if !core.window().is_open() || core.workspaces().held(&agent_id) {
                 continue;
             }
             let failed = mailbox.state.locked().wake_failed.get(&agent_id).copied();

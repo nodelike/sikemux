@@ -284,7 +284,7 @@ pub(super) async fn look(core: Arc<Core>, id: u64) {
         return;
     };
     if let (Some(since), CiEnded::Passed | CiEnded::Failed) = (watch.running_since, how) {
-        core.waits
+        core.waits()
             .took(&watch.waits_on(), epoch_ms().saturating_sub(since));
     }
     core.notify().send(Signal::CiEnded {

@@ -284,7 +284,7 @@ async fn serve(core: Arc<Core>, stream: TcpStream, secret: &str, port: u16) {
             authenticate(protocol, &token, secret).map(|()| CliServerResponse::Pong {
                 protocol: CLI_PROTOCOL_VERSION,
                 version: core.config.build.version.clone(),
-                window: core.window.is_open(),
+                window: core.window().is_open(),
             })
         }
         CliClientCommand::Harness {
@@ -411,7 +411,7 @@ async fn open(
     let call = match serde_json::to_value(&request)
         .map_err(|error| error.to_string())
         .and_then(|request| {
-            core.window
+            core.window()
                 .call(WindowCall::Open { request }, "open files", wait, None)
         }) {
         Ok(call) => call,
@@ -431,7 +431,7 @@ async fn open(
     let outcome = match accepted {
         Ok(outcome) => outcome,
         Err(message) => {
-            core.window.forget(call_id);
+            core.window().forget(call_id);
             write(writer, &CliServerResponse::Error { message }).await;
             return;
         }
@@ -446,7 +446,7 @@ async fn open(
     )
     .await;
     if !sent || !wait {
-        core.window.forget(call_id);
+        core.window().forget(call_id);
         return;
     }
     let reason = match call.closed.await {

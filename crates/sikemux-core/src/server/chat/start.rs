@@ -547,7 +547,7 @@ pub(crate) fn adopt(
         .map_err(|error| error.to_string())?;
     chat.set_current(live.current);
     if let Some(kept) = live.model_grant {
-        chat.hold_model_grant(core.model_proxy.restore(kept));
+        chat.hold_model_grant(core.model_proxy().restore(kept));
     }
     if let Some(version) = &live.cli_version {
         chat.note_cli_version(version);

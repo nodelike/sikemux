@@ -1280,7 +1280,7 @@ fn gone(core: &Core, agent_id: &str) -> bool {
 /// window that wakes it. The window may not have said yet which chats it holds.
 fn reachable(core: &Core, agent_id: &str) -> bool {
     core.agent_now(agent_id).running()
-        || (core.window.is_open()
+        || (core.window().is_open()
             && !core.workspaces().closed(agent_id)
             && core.workspaces().published(agent_id) != Some(false))
 }
@@ -3042,7 +3042,7 @@ async fn left_to_asker(core: &Arc<Core>, question: &Question) {
 /// Sends the window the open questions when they changed, or when a window
 /// opened that has not had them.
 fn tell_window(core: &Arc<Core>) {
-    let window = core.window.client_id();
+    let window = core.window().client_id();
     let (open, answered, reply_questions) = {
         let mut state = core.harness().questions.state.locked();
         if !state.dirty && state.told_window == window {
@@ -3071,7 +3071,7 @@ fn tell_window(core: &Arc<Core>) {
         "method": "agent.questions",
         "params": { "questions": views },
     });
-    let Ok(call) = core.window.call(
+    let Ok(call) = core.window().call(
         WindowCall::Harness { request },
         "show agents' questions",
         false,
@@ -3086,7 +3086,7 @@ fn tell_window(core: &Arc<Core>) {
             .await
             .is_err()
         {
-            core.window.forget(id);
+            core.window().forget(id);
         }
     });
 }

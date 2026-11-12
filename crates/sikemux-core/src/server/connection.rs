@@ -53,7 +53,7 @@ impl ClientConn {
         frames: mpsc::UnboundedSender<Arc<[u8]>>,
     ) -> Arc<Self> {
         Arc::new(Self {
-            id: core.next_client_id.fetch_add(1, Ordering::Relaxed),
+            id: core.next_client_id().fetch_add(1, Ordering::Relaxed),
             peer,
             pid,
             frames,
@@ -370,10 +370,10 @@ async fn read_requests(
                     }
                 }
                 Ok(ClientMessage::WindowReply { call_id, answer }) => {
-                    core.window.answer(client.id, call_id, answer);
+                    core.window().answer(client.id, call_id, answer);
                 }
                 Ok(ClientMessage::WindowOpenClosed { call_id }) => {
-                    core.window.open_closed(client.id, call_id);
+                    core.window().open_closed(client.id, call_id);
                 }
                 Ok(ClientMessage::Hello { .. }) => client.send_message(&ServerMessage::Error {
                     request_id: None,

@@ -70,7 +70,7 @@ pub(super) fn carry(core: &Arc<Core>, data_dir: Option<&Path>) {
     let prefs = &app["prefs"];
     if !preferences_carried {
         for (key, value) in prefs.as_object().into_iter().flatten() {
-            let _ = core.preferences.carry(key, value.clone());
+            let _ = core.preferences().carry(key, value.clone());
         }
     }
     done.insert(PREFERENCES_STEP.to_owned());

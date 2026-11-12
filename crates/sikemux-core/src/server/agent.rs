@@ -1,4 +1,5 @@
 use crate::server::changed::What;
+use crate::server::parts::Parts;
 use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -408,7 +409,7 @@ pub(crate) fn asks_now(core: &Core, session: &Session) -> bool {
 fn screen_now(core: &Core, session: &Session) -> Option<AgentDetection> {
     let kind = session.agent.as_ref()?.kind?;
     let (recent, title) = screen_text(session);
-    let registry = core.detection.read_locked();
+    let registry = core.detection().read_locked();
     Some(registry.detect(kind, detection_input(&recent, &title)))
 }
 
@@ -442,7 +443,7 @@ pub(crate) fn poll(core: &Core, session: &Session, now: u64) {
         return;
     }
     let detection = core
-        .detection
+        .detection()
         .read_locked()
         .detect(kind, detection_input(&recent, &title));
     if detection.skip_state_update {
@@ -494,7 +495,7 @@ pub(crate) async fn explain_of(core: Arc<Core>, agent_id: String) -> CoreResult<
     let target = core
         .agent_session(&agent_id)
         .ok_or("invalid argument: agent has no live terminal")?;
-    blocking(move || explain(&core.detection.read_locked(), &target)).await
+    blocking(move || explain(&core.detection().read_locked(), &target)).await
 }
 
 fn explain(registry: &ManifestRegistry, session: &Session) -> CoreResult<DetectionExplain> {

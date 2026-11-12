@@ -4,13 +4,14 @@
 //! closes, as the core does.
 
 use super::Core;
+use crate::server::parts::Parts;
 
 /// Starts or stops the helper, as the person's Notch preferences say.
 pub(crate) fn follow(core: &Core) {
     #[cfg(target_os = "macos")]
     {
         let socket = core.config.socket.clone();
-        let enabled = core.preferences.get().notch.enabled;
+        let enabled = core.preferences().get().notch.enabled;
         tokio::task::spawn_blocking(move || {
             if let Err(error) = mac::configure(&socket, enabled) {
                 eprintln!("sikemux core: the notch did not start: {error}");

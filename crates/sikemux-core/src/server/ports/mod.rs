@@ -143,7 +143,7 @@ impl Ports {
 
 /// Whether a client that asked is still connected.
 fn watched(core: &Core) -> bool {
-    !core.ports.state.locked().watchers.is_empty()
+    !core.ports().state.locked().watchers.is_empty()
 }
 
 fn address_rank(address: &IpAddr) -> u8 {
@@ -321,7 +321,7 @@ pub(crate) fn listening_now(_core: &Core) -> Vec<ListeningPort> {
 /// Looks again and tells clients when what listens changed.
 fn look(core: &Core) -> Vec<ListeningPort> {
     let found = listening_now(core);
-    let mut state = core.ports.state.locked();
+    let mut state = core.ports().state.locked();
     if state.found != found {
         state.found = found.clone();
         drop(state);
@@ -352,7 +352,7 @@ pub(crate) fn settle(core: &Arc<Core>) {
     tokio::task::spawn_blocking(move || {
         look(&looking);
         if anything_runs(&looking) {
-            looking.ports.wake.at(epoch_ms() + LOOK_AGAIN_MS);
+            looking.ports().wake.at(epoch_ms() + LOOK_AGAIN_MS);
         }
     });
 }
@@ -405,9 +405,9 @@ pub(crate) async fn project_ports(
     client: ClientId,
     project: Option<String>,
 ) -> CoreResult<Vec<ProjectPort>> {
-    let first = core.ports.state.locked().watchers.insert(client);
+    let first = core.ports().state.locked().watchers.insert(client);
     if first {
-        core.ports.wake.at(epoch_ms() + LOOK_AGAIN_MS);
+        core.ports().wake.at(epoch_ms() + LOOK_AGAIN_MS);
     }
     let core = core.clone();
     blocking(move || {
@@ -455,7 +455,7 @@ impl crate::server::part::Part for Ports {
     fn start(&self, core: &Arc<Core>) -> Vec<tokio::task::JoinHandle<()>> {
         vec![crate::server::part::on_wake(
             core,
-            |core| &core.ports.wake,
+            |core| &core.ports().wake,
             settle,
         )]
     }

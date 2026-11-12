@@ -97,7 +97,7 @@ impl Notifier {
 /// these off.
 pub(super) fn tell(core: &Core, now: u64) {
     let gathered = std::mem::take(&mut core.notify().state.locked().goals);
-    if !core.preferences.get().goal_notifications {
+    if !core.preferences().get().goal_notifications {
         return;
     }
     let Some(((project, card), _)) = gathered.first_key_value() else {
@@ -108,7 +108,7 @@ pub(super) fn tell(core: &Core, now: u64) {
         card: *card,
     };
     let draft = draft(core, &gathered, now);
-    core.window.tell(Event::Notice {
+    core.window().tell(Event::Notice {
         title: draft.title.clone(),
         body: draft.body.clone(),
         agent_id: String::new(),

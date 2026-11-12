@@ -186,7 +186,7 @@ pub(crate) async fn run_custom(
             project_action(core, project, action).await?
         }
         (None, Some(id)) => core
-            .preferences
+            .preferences()
             .get()
             .custom_commands
             .into_iter()

@@ -142,10 +142,10 @@ pub(super) async fn run(
                 tokio::spawn(shutdown(core, client, request_id, stop_all));
             }
             Request::RegisterWindow => {
-                core.window.register(client.clone());
+                core.window().register(client.clone());
                 core.hosts().wake.now();
                 super::notch::follow(&core);
-                core.usage_wake.notify_one();
+                core.usage_wake().notify_one();
                 crate::waiting::wake(&core.config.socket);
                 core.changed(What::Agents);
                 client.answer::<ask::RegisterWindow>(request_id, Ok(()));
@@ -472,7 +472,7 @@ pub(super) async fn run(
                 client.answer::<ask::PublishOnScreen>(request_id, Ok(()));
             }
             Request::FocusAgent(ask::FocusAgent { agent_id }) => {
-                let shown = core.window.focus(agent_id);
+                let shown = core.window().focus(agent_id);
                 let result = if shown {
                     Ok(())
                 } else {

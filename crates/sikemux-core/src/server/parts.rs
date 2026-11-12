@@ -1,7 +1,18 @@
 //! What each feature of the core keeps for as long as the core runs, and how the rest reads it:
 //! `core.boards()`, never a field.
 
-use std::sync::{Arc, Mutex};
+use std::collections::{BTreeSet, HashMap};
+use std::path::PathBuf;
+use std::sync::atomic::AtomicU64;
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
+
+use sikemux_pty::agent_detection::ManifestRegistry;
+use sikemux_wire::protocol::SessionId;
+use tokio::sync::Notify;
+
+use super::connection::{ClientConn, ClientId};
+use super::session::Session;
+use super::{changed, model_proxy, ports, preferences, streams, themes, waits, window, Capacity};
 
 use super::{
     account, activity_log, board, builds, chat, checks, chief, codehost, collisions, device_view,
@@ -13,6 +24,28 @@ use super::{
 };
 
 pub(crate) struct Fields {
+    pub(super) sessions: Mutex<HashMap<SessionId, Arc<Session>>>,
+    pub(super) next_session_id: AtomicU64,
+    pub(super) capacity: Arc<Capacity>,
+    pub(super) connections: Mutex<HashMap<ClientId, Arc<ClientConn>>>,
+    pub(super) next_client_id: AtomicU64,
+    pub(super) detection: RwLock<ManifestRegistry>,
+    pub(super) manifest_folder: Mutex<Option<PathBuf>>,
+    pub(super) window: window::Window,
+    pub(super) model_proxy: model_proxy::ModelProxy,
+    pub(super) waits: waits::Waits,
+    pub(super) changes: changed::Changes,
+    pub(super) ports: ports::Ports,
+    /// Rings when a window opens, so the day's usage counts it at once.
+    pub(super) usage_wake: Notify,
+    /// The rail numbers running loose terminals have.
+    pub(super) rail_numbers: Mutex<BTreeSet<u32>>,
+    /// Watches the SSH config once a client has listed its hosts.
+    pub(super) ssh_watch: OnceLock<Option<::notify::RecommendedWatcher>>,
+    pub(super) preferences: preferences::Prefs,
+    /// Answers in parts on the connections that asked for them.
+    pub(super) streams: streams::Streams,
+    pub(super) look: themes::Look,
     pub(super) harness: harness::Harness,
     pub(super) updating: upgrade::Updating,
     pub(super) tools: Mutex<Option<tools::ToolEndpoint>>,
@@ -87,6 +120,24 @@ pub(crate) struct Fields {
 }
 
 pub(crate) trait Parts {
+    fn sessions(&self) -> &Mutex<HashMap<SessionId, Arc<Session>>>;
+    fn next_session_id(&self) -> &AtomicU64;
+    fn capacity(&self) -> &Arc<Capacity>;
+    fn connections(&self) -> &Mutex<HashMap<ClientId, Arc<ClientConn>>>;
+    fn next_client_id(&self) -> &AtomicU64;
+    fn detection(&self) -> &RwLock<ManifestRegistry>;
+    fn manifest_folder(&self) -> &Mutex<Option<PathBuf>>;
+    fn window(&self) -> &window::Window;
+    fn model_proxy(&self) -> &model_proxy::ModelProxy;
+    fn waits(&self) -> &waits::Waits;
+    fn changes(&self) -> &changed::Changes;
+    fn ports(&self) -> &ports::Ports;
+    fn usage_wake(&self) -> &Notify;
+    fn rail_numbers(&self) -> &Mutex<BTreeSet<u32>>;
+    fn ssh_watch(&self) -> &OnceLock<Option<::notify::RecommendedWatcher>>;
+    fn preferences(&self) -> &preferences::Prefs;
+    fn streams(&self) -> &streams::Streams;
+    fn look(&self) -> &themes::Look;
     fn harness(&self) -> &harness::Harness;
     fn updating(&self) -> &upgrade::Updating;
     fn tools(&self) -> &Mutex<Option<tools::ToolEndpoint>>;
@@ -148,6 +199,78 @@ pub(crate) trait Parts {
 }
 
 impl Parts for Core {
+    fn sessions(&self) -> &Mutex<HashMap<SessionId, Arc<Session>>> {
+        &self.parts.sessions
+    }
+
+    fn next_session_id(&self) -> &AtomicU64 {
+        &self.parts.next_session_id
+    }
+
+    fn capacity(&self) -> &Arc<Capacity> {
+        &self.parts.capacity
+    }
+
+    fn connections(&self) -> &Mutex<HashMap<ClientId, Arc<ClientConn>>> {
+        &self.parts.connections
+    }
+
+    fn next_client_id(&self) -> &AtomicU64 {
+        &self.parts.next_client_id
+    }
+
+    fn detection(&self) -> &RwLock<ManifestRegistry> {
+        &self.parts.detection
+    }
+
+    fn manifest_folder(&self) -> &Mutex<Option<PathBuf>> {
+        &self.parts.manifest_folder
+    }
+
+    fn window(&self) -> &window::Window {
+        &self.parts.window
+    }
+
+    fn model_proxy(&self) -> &model_proxy::ModelProxy {
+        &self.parts.model_proxy
+    }
+
+    fn waits(&self) -> &waits::Waits {
+        &self.parts.waits
+    }
+
+    fn changes(&self) -> &changed::Changes {
+        &self.parts.changes
+    }
+
+    fn ports(&self) -> &ports::Ports {
+        &self.parts.ports
+    }
+
+    fn usage_wake(&self) -> &Notify {
+        &self.parts.usage_wake
+    }
+
+    fn rail_numbers(&self) -> &Mutex<BTreeSet<u32>> {
+        &self.parts.rail_numbers
+    }
+
+    fn ssh_watch(&self) -> &OnceLock<Option<::notify::RecommendedWatcher>> {
+        &self.parts.ssh_watch
+    }
+
+    fn preferences(&self) -> &preferences::Prefs {
+        &self.parts.preferences
+    }
+
+    fn streams(&self) -> &streams::Streams {
+        &self.parts.streams
+    }
+
+    fn look(&self) -> &themes::Look {
+        &self.parts.look
+    }
+
     fn harness(&self) -> &harness::Harness {
         &self.parts.harness
     }

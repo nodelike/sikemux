@@ -213,7 +213,7 @@ pub struct WorktreeDefaultParams {
 
 /// The only way a running core changes a preference: sets it and does what follows from it.
 pub(crate) fn set(core: &Core, change: PreferenceChange) -> CoreResult<Preferences> {
-    core.preferences.change(change.clone());
+    core.preferences().change(change.clone());
     match change {
         PreferenceChange::Notch(_) => super::notch::follow(core),
         PreferenceChange::UpdateChannel(_) => core.updates().check_soon(),
@@ -234,7 +234,7 @@ pub(crate) fn set(core: &Core, change: PreferenceChange) -> CoreResult<Preferenc
 }
 
 pub(crate) fn set_worktree_default(core: &Core, params: WorktreeDefaultParams) -> CoreResult<()> {
-    let mut defaults = core.preferences.get().agent_worktree_defaults;
+    let mut defaults = core.preferences().get().agent_worktree_defaults;
     match params.on {
         true => defaults.insert(params.project, true),
         false => defaults.remove(&params.project),

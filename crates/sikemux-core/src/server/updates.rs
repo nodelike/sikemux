@@ -183,7 +183,7 @@ fn is_host() -> bool {
 /// purpose and a stable release would not pass.
 fn channel(core: &Core) -> UpdateChannel {
     match (
-        core.preferences.get().update_channel,
+        core.preferences().get().update_channel,
         BuildChannel::of_release(&core.config.build.version),
     ) {
         (UpdateChannel::Stable, BuildChannel::Nightly)

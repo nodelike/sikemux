@@ -284,7 +284,8 @@ async fn look(core: &Arc<Core>) {
             continue;
         };
         if let Some(on) = park.waits_on() {
-            core.waits.took(&on, epoch_ms().saturating_sub(park.since));
+            core.waits()
+                .took(&on, epoch_ms().saturating_sub(park.since));
         }
         trigger.prompt = format!("{}\n\n{said}", trigger.prompt);
         tokio::spawn(fire(

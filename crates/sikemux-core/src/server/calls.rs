@@ -373,7 +373,7 @@ calls! { core, client, method, params;
     "fileWindow" FileWindow (super::search::WindowParams) -> super::search::FileWindow: Full => {
         blocking(move || super::search::window(params).map_err(CoreError::from)).await?
     },
-    "streamCancel" StreamCancel (super::streams::StreamParams) -> (): Watch => core.streams.cancel(client.id, params.stream),
+    "streamCancel" StreamCancel (super::streams::StreamParams) -> (): Watch => core.streams().cancel(client.id, params.stream),
     "projectRoots" ProjectRoots (super::project_roots::ScanParams) -> Vec<super::project_roots::RootEntry>: Full => {
         blocking(move || super::project_roots::scan(params).map_err(CoreError::from)).await?
     },

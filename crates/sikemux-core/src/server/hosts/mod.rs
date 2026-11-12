@@ -991,7 +991,7 @@ pub(crate) fn settle(core: &Arc<Core>) {
     let now = epoch_ms();
     let mut next = None;
     let mut redial = Vec::new();
-    let window = core.window.is_open();
+    let window = core.window().is_open();
     let mut tell = Vec::new();
     let mut flushes = Vec::new();
     {

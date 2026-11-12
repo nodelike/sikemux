@@ -393,7 +393,7 @@ fn inbox(core: &Core, now: u64) {
         .notify_targets()
         .map(|(_, targets)| targets.into_iter().map(|target| target.device_id).collect())
         .unwrap_or_default();
-    if !core.window.is_open() && phones.is_empty() {
+    if !core.window().is_open() && phones.is_empty() {
         return;
     }
     let items = super::inbox::told(core);
@@ -1180,7 +1180,7 @@ const APP: &str = "";
 
 fn alert_all(core: &Core, draft: &Draft, now: u64) {
     if draft.kind != NotificationKind::Pairing && due(core, APP, draft, now) {
-        let told = core.window.tell(Event::Notice {
+        let told = core.window().tell(Event::Notice {
             title: draft.title.clone(),
             body: draft.body.clone(),
             agent_id: draft.agent_id.clone(),

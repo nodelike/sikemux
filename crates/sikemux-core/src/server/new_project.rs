@@ -118,7 +118,7 @@ fn inside_work_tree(dir: &Path) -> bool {
 /// this host's projects sit in, else the home folder. Never inside a git working tree, where a
 /// new repository would land as a stray one in someone else's.
 pub(crate) fn projects_folder(core: &Core) -> Option<PathBuf> {
-    let roots = (core.preferences.get().project_roots.into_iter())
+    let roots = (core.preferences().get().project_roots.into_iter())
         .map(|root| sikemux_process::paths::expand_home(&root.path))
         .filter(|root| root.is_dir());
     let mut parents: Vec<PathBuf> = (core.workspaces().project_paths().into_iter())

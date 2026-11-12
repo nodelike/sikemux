@@ -126,7 +126,7 @@ async fn project_repo(core: &Core, project: String) -> Result<status::ProjectRep
         });
     }
     let chosen = core
-        .preferences
+        .preferences()
         .get()
         .default_git_repos
         .get(&project)
@@ -534,7 +534,7 @@ fn set_identities(core: &Core, identities: Vec<(PathBuf, Option<String>)>) {
     if renamed.is_empty() {
         return;
     }
-    let preferences = core.preferences.get();
+    let preferences = core.preferences().get();
     let moved = |keyed: &std::collections::BTreeMap<String, String>| {
         let mut keyed = keyed.clone();
         for (old, new) in &renamed {

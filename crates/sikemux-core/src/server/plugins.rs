@@ -413,7 +413,7 @@ pub(crate) fn stream(
             params,
         },
     } = call;
-    let stream = core.streams.open(connection, id)?;
+    let stream = core.streams().open(connection, id)?;
     let core = core.clone();
     tokio::spawn(async move {
         let items = stream.clone();

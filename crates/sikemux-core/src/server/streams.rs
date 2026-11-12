@@ -5,6 +5,7 @@
 //! rather than anything piling up or being dropped.
 
 use super::Core;
+use crate::server::parts::Parts;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
@@ -186,7 +187,7 @@ pub(crate) fn search_stream(
     client: &ClientConn,
     params: SearchStreamParams,
 ) -> CoreResult<Value> {
-    let stream = core.streams.open(
+    let stream = core.streams().open(
         super::connection::connection_of(core, client)?,
         params.stream,
     )?;

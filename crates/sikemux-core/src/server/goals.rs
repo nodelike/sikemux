@@ -342,7 +342,7 @@ impl Placed<'_> {
 /// The desks that count now, by agent, each terminal saying whether it still runs.
 fn held_desks(core: &Core) -> BTreeMap<String, AgentDesk> {
     let mut desks = match &*core.goals().desks.locked() {
-        Some((client, desks)) if core.clients.locked().contains_key(client) => desks.clone(),
+        Some((client, desks)) if core.connections().locked().contains_key(client) => desks.clone(),
         _ => BTreeMap::new(),
     };
     for terminal in desks.values_mut().flat_map(|desk| &mut desk.terminals) {

@@ -11,6 +11,7 @@ pub(crate) use omarchy::{
 };
 
 use super::{Core, CoreResult};
+use crate::server::parts::Parts;
 use serde::{Deserialize, Serialize};
 use std::sync::{Mutex, OnceLock};
 
@@ -683,16 +684,16 @@ pub(crate) fn palette_for(core: &Core, params: ThemeParams) -> Palette {
         Some(theme_id) => palette(
             &Preferences {
                 theme_id,
-                ..core.preferences.get()
+                ..core.preferences().get()
             },
-            core.look.omarchy().as_ref(),
+            core.look().omarchy().as_ref(),
         ),
-        None => core.look.palette(),
+        None => core.look().palette(),
     }
 }
 
 pub(crate) fn listed(core: &Core) -> Vec<ThemeSummary> {
-    summaries(&core.preferences.get(), core.look.omarchy().as_ref())
+    summaries(&core.preferences().get(), core.look().omarchy().as_ref())
 }
 
 impl super::part::Part for Look {

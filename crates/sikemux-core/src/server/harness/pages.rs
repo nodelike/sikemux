@@ -43,7 +43,7 @@ pub(super) async fn show_page(
         .as_deref()
         .is_none_or(|agent_id| core.chats().get(agent_id).is_some());
     let mut on_desk = false;
-    if core.window.is_open() {
+    if core.window().is_open() {
         let card = in_chat && tab;
         request.params = json!({ "id": page.id, "desk": !in_chat || tab, "picture": card });
         let shown = forward(core, request).await;

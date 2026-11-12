@@ -386,7 +386,7 @@ impl Chat {
     /// of its own in place of the slots. The token of any agent before it stops working.
     pub(super) fn with_model_token(&self, launch: &ChatLaunch) -> Result<ChatLaunch, String> {
         let granted = match self.core.upgrade() {
-            Some(core) => core.model_proxy.grant_chat(&core, launch)?,
+            Some(core) => core.model_proxy().grant_chat(&core, launch)?,
             None => None,
         };
         let (grant, resolved) = match granted {

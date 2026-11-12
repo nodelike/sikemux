@@ -399,7 +399,7 @@ impl PendingStart {
             self.session.frames.clone(),
         ));
         tokio::spawn(read_output(core.clone(), self.session));
-        core.ports.changed();
+        core.ports().changed();
     }
 }
 
@@ -436,7 +436,7 @@ pub(crate) fn spawn_session(core: &Arc<Core>, launch: PreparedLaunch) -> CoreRes
         return Err(super::upgrade::UPDATING.into());
     }
     core.reclaim_exited_sessions(core.uptime_ms());
-    let capacity_permit = core.capacity.try_acquire()?;
+    let capacity_permit = core.capacity().try_acquire()?;
     let PreparedLaunch {
         cols,
         rows,
@@ -505,7 +505,7 @@ pub(crate) fn spawn_session(core: &Arc<Core>, launch: PreparedLaunch) -> CoreRes
     // stays open and the same until the AsyncFd is dropped.
     let io = unsafe { AsyncFd::register(io_file) }.map_err(std::io::Error::from)?;
 
-    let id = core.next_session_id.fetch_add(1, Ordering::Relaxed);
+    let id = core.next_session_id().fetch_add(1, Ordering::Relaxed);
     if owner.wants_rail_number(kind) {
         owner.rail_number = Some(core.take_rail_number());
     }
@@ -516,7 +516,7 @@ pub(crate) fn spawn_session(core: &Arc<Core>, launch: PreparedLaunch) -> CoreRes
     );
     let mut screen = Screen::new(rows, cols, shell_metadata_enabled);
     if let Some(carried) = carried.as_ref() {
-        screen.process(&carried.prelude, &core.look.terminal_colors());
+        screen.process(&carried.prelude, &core.look().terminal_colors());
     }
     let (session, input_jobs) = Session::assemble(
         SessionParts {
@@ -572,8 +572,8 @@ fn carried_screen(core: &Core, continuation: &Continuation) -> Option<CarriedScr
         return None;
     }
     let mut screen = from.screen.locked();
-    screen.process(RESET_MODES, &core.look.terminal_colors());
-    screen.process(b"\x1b[r", &core.look.terminal_colors());
+    screen.process(RESET_MODES, &core.look().terminal_colors());
+    screen.process(b"\x1b[r", &core.look().terminal_colors());
     let (rows, cols) = screen.terminal.size();
     let cursor_row = screen.terminal.cursor().0;
     let last_written = screen.terminal.last_written_row();
@@ -863,9 +863,9 @@ pub(crate) fn report_exit(core: &Core, session: &Session, status: Option<&ExitSt
         killed: session.killed.load(Ordering::Acquire),
     }));
     drop(screen);
-    core.ports.changed();
+    core.ports().changed();
     if let Some(number) = session.owner.rail_number {
-        core.rail_numbers.locked().remove(&number);
+        core.rail_numbers().locked().remove(&number);
     }
     if session.owner.ssh_host.is_some() {
         super::ssh::moved(core);
@@ -940,7 +940,7 @@ fn broadcast_output(core: &Arc<Core>, session: &Session, bytes: &[u8]) {
         .as_mut()
         .map(|shell| shell.process_for_events(bytes, output_now_ms))
         .unwrap_or_default();
-    let replies = screen.process(bytes, &core.look.terminal_colors());
+    let replies = screen.process(bytes, &core.look().terminal_colors());
     if let Some(agent) = session.agent.as_ref() {
         agent.note_parsed();
     }
@@ -998,7 +998,7 @@ pub(crate) fn reset_modes(core: &Core, session: &Session) -> CoreResult<()> {
     session
         .screen
         .locked()
-        .process(RESET_MODES, &core.look.terminal_colors());
+        .process(RESET_MODES, &core.look().terminal_colors());
     session.frames.notify.notify_one();
     Ok(())
 }
@@ -1008,7 +1008,7 @@ pub(crate) fn clear(core: &Core, session: &Session) {
         .screen
         .locked()
         .terminal
-        .clear(&core.look.terminal_colors());
+        .clear(&core.look().terminal_colors());
     session.frames.notify.notify_one();
 }
 
@@ -1196,7 +1196,7 @@ fn send_frames(core: &Core, session: &Session) -> Option<Instant> {
     let mut screen = session.screen.locked();
     if let Some(deadline) = screen.terminal.sync_deadline() {
         if deadline <= now {
-            let replies = screen.end_sync(&core.look.terminal_colors());
+            let replies = screen.end_sync(&core.look().terminal_colors());
             reply_to_program(session, replies);
         } else {
             next = Some(deadline);

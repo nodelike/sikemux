@@ -174,12 +174,12 @@ impl Core {
     /// The workspace as clients are sent it, each agent under its name and
     /// in its face. How each project stands is left out: it costs the turns of every agent.
     pub(crate) fn workspace_view(&self) -> sikemux_view::workspace::Workspace {
-        let preferences = self.preferences.get();
+        let preferences = self.preferences().get();
         let mut workspace = self.workspaces().view();
-        workspace.palette = self.look.tokens_by_name();
+        workspace.palette = self.look().tokens_by_name();
         workspace.backdrop.look = Some(super::backdrop::look(
             &preferences,
-            &self.look.palette().tokens,
+            &self.look().palette().tokens,
         ));
         workspace.disabled_plugins = super::plugins::disabled_in(self.config.plugins);
         self.names().fill(&mut workspace.agents);
@@ -386,7 +386,7 @@ pub(super) async fn serve(core: Arc<Core>) {
             }
         }
         core.show_phones();
-        let now = core.window.client_id();
+        let now = core.window().client_id();
         if now != window {
             window = now;
             core.changed(What::Agents);

@@ -85,7 +85,7 @@ impl Core {
         if shown_on_devices(topic) {
             self.view_moved();
         }
-        self.changes.changed(topic, project, paths);
+        self.changes().changed(topic, project, paths);
     }
 
     fn tell(&self, event: &Event) {
@@ -192,9 +192,9 @@ impl Changes {
 
 pub(crate) async fn serve(core: Arc<Core>) {
     loop {
-        core.changes.notify.notified().await;
+        core.changes().notify.notified().await;
         tokio::time::sleep(GATHER).await;
-        let pending = std::mem::take(&mut *core.changes.pending.locked());
+        let pending = std::mem::take(&mut *core.changes().pending.locked());
         for ((topic, project), paths) in pending {
             core.changed(What::Event(&Event::Changed {
                 topic: topic.to_json(),

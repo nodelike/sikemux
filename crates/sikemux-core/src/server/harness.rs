@@ -477,7 +477,7 @@ pub(crate) async fn answer_of(
         Ok(Ok(result)) => result,
         Ok(Err(_)) => Err(WINDOW_GONE.into()),
         Err(_) => {
-            core.window.forget(call.id);
+            core.window().forget(call.id);
             Err(late)
         }
     }
@@ -486,7 +486,7 @@ pub(crate) async fn answer_of(
 pub(crate) async fn forward(core: &Core, request: HarnessRequest) -> Result<Value, String> {
     let method = methods::of(&request.method);
     let pinned = request.agent_id.as_deref().filter(|_| method.pinned);
-    let call = core.window.call(
+    let call = core.window().call(
         WindowCall::Harness {
             request: serde_json::to_value(&request).map_err(|error| error.to_string())?,
         },

@@ -102,7 +102,7 @@ pub(crate) async fn terminal_agent(
     };
     spawn.env.extend(launch.env);
     let grant = core
-        .model_proxy
+        .model_proxy()
         .grant(core, &mut listed, &mut [], None)
         .inspect_err(|error| eprintln!("sikemux core: {error}"))
         .ok()
@@ -773,7 +773,7 @@ fn not_started() -> ChatStart {
 /// Keeps the kind of agent a chat was started as, so a project with no agent of its own
 /// starts its next chat as that kind.
 fn remember_kind(core: &Core, kind: &str) {
-    if core.preferences.get().last_agent_type.as_deref() == Some(kind) {
+    if core.preferences().get().last_agent_type.as_deref() == Some(kind) {
         return;
     }
     if let Err(error) =

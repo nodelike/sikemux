@@ -189,16 +189,16 @@ pub(crate) async fn serve(core: Arc<Core>, data_dir: PathBuf) {
     loop {
         tokio::select! {
             _ = every_hour.tick() => {}
-            _ = core.usage_wake.notified() => {}
+            _ = core.usage_wake().notified() => {}
         }
-        let preferences = core.preferences.get();
+        let preferences = core.preferences().get();
         if !preferences.share_usage_data {
             if let Err(error) = pass_over_activity(&data_dir).await {
                 eprintln!("sikemux core: {error}");
             }
         }
         let Some(channel) =
-            reported_channel(install, &preferences, core.window.is_open(), host.channel)
+            reported_channel(install, &preferences, core.window().is_open(), host.channel)
         else {
             continue;
         };

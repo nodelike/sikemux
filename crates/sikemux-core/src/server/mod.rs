@@ -139,7 +139,7 @@ pub use calls::call;
 pub use entry::main;
 pub use turn_state::TakeStepParams;
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::fs::{DirBuilder, File, OpenOptions};
 use std::os::fd::AsRawFd;
 use std::os::unix::fs::{DirBuilderExt, FileExt, OpenOptionsExt, PermissionsExt};
@@ -420,31 +420,9 @@ pub(crate) struct Core {
     me: Weak<Core>,
     /// When this core's clock reads zero, which session times count from.
     started: Instant,
-    sessions: Mutex<HashMap<SessionId, Arc<Session>>>,
-    next_session_id: AtomicU64,
-    capacity: Arc<Capacity>,
-    clients: Mutex<HashMap<ClientId, Arc<ClientConn>>>,
-    next_client_id: AtomicU64,
     shutdown: watch::Sender<bool>,
     pub(crate) config: ServerConfig,
-    pub(crate) detection: RwLock<ManifestRegistry>,
-    manifest_dir: Mutex<Option<PathBuf>>,
-    pub(crate) window: window::Window,
     pub(crate) listening: Listening,
-    pub(crate) model_proxy: model_proxy::ModelProxy,
-    pub(crate) waits: waits::Waits,
-    pub(crate) changes: changed::Changes,
-    pub(crate) ports: ports::Ports,
-    /// Rings when a window opens, so the day's usage counts it at once.
-    pub(crate) usage_wake: Notify,
-    /// The rail numbers running loose terminals have.
-    rail_numbers: Mutex<BTreeSet<u32>>,
-    /// Watches the SSH config once a client has listed its hosts.
-    pub(crate) ssh_watch: OnceLock<Option<::notify::RecommendedWatcher>>,
-    pub(crate) preferences: preferences::Prefs,
-    /// Answers in parts on the connections that asked for them.
-    pub(crate) streams: streams::Streams,
-    pub(crate) look: themes::Look,
     /// What each feature keeps, read through [`parts::Parts`].
     parts: parts::Fields,
 }
@@ -525,31 +503,31 @@ impl Core {
         let core = Arc::new_cyclic(|me| Self {
             me: me.clone(),
             started,
-            sessions: Mutex::new(HashMap::new()),
-            next_session_id: AtomicU64::new(first_session_id()),
-            capacity: Arc::new(Capacity {
-                active: AtomicUsize::new(0),
-                limit: MAX_ACTIVE_SESSIONS,
-            }),
-            clients: Mutex::new(HashMap::new()),
-            next_client_id: AtomicU64::new(1),
             shutdown: watch::channel(false).0,
             config,
-            detection: RwLock::new(detection),
-            manifest_dir: Mutex::new(None),
-            window: window::Window::new(first_session_id()),
             listening,
-            model_proxy: model_proxy::ModelProxy::default(),
-            waits: waits::Waits::new(data_dir),
-            changes: changed::Changes::default(),
-            ports: ports::Ports::default(),
-            usage_wake: Notify::new(),
-            rail_numbers: Mutex::default(),
-            ssh_watch: OnceLock::new(),
-            preferences: preferences::Prefs::new(data_dir),
-            streams: streams::Streams::default(),
-            look: themes::Look::default(),
             parts: parts::Fields {
+                sessions: Mutex::new(HashMap::new()),
+                next_session_id: AtomicU64::new(first_session_id()),
+                capacity: Arc::new(Capacity {
+                    active: AtomicUsize::new(0),
+                    limit: MAX_ACTIVE_SESSIONS,
+                }),
+                connections: Mutex::new(HashMap::new()),
+                next_client_id: AtomicU64::new(1),
+                detection: RwLock::new(detection),
+                manifest_folder: Mutex::new(None),
+                window: window::Window::new(first_session_id()),
+                model_proxy: model_proxy::ModelProxy::default(),
+                waits: waits::Waits::new(data_dir),
+                changes: changed::Changes::default(),
+                ports: ports::Ports::default(),
+                usage_wake: Notify::new(),
+                rail_numbers: Mutex::default(),
+                ssh_watch: OnceLock::new(),
+                preferences: preferences::Prefs::new(data_dir),
+                streams: streams::Streams::default(),
+                look: themes::Look::default(),
                 harness,
                 updating: upgrade::Updating::default(),
                 tools: Mutex::new(None),
@@ -629,9 +607,9 @@ impl Core {
     /// The preferences as devices draw them, with Omarchy's background as the pane image
     /// while it is followed. The picture the person chose stays saved underneath.
     pub(crate) fn shown_preferences(&self) -> sikemux_view::prefs::Preferences {
-        let mut preferences = self.preferences.get();
+        let mut preferences = self.preferences().get();
         if preferences.pane_image_follows_omarchy {
-            if let Some(background) = self.look.omarchy_background() {
+            if let Some(background) = self.look().omarchy_background() {
                 preferences.pane_image = Some(background);
             }
         }
@@ -640,22 +618,22 @@ impl Core {
 
     /// Resolves the person's theme again, for apps, devices and programs' colour queries.
     pub(crate) fn theme_changed(&self) {
-        let omarchy = self.look.omarchy();
-        self.look
-            .set(themes::palette(&self.preferences.get(), omarchy.as_ref()));
+        let omarchy = self.look().omarchy();
+        self.look()
+            .set(themes::palette(&self.preferences().get(), omarchy.as_ref()));
         self.changed(What::View);
     }
 
     pub(crate) fn manifest_dir(&self) -> Option<PathBuf> {
-        self.manifest_dir.locked().clone()
+        self.manifest_folder().locked().clone()
     }
 
     fn clients(&self) -> Vec<Arc<ClientConn>> {
-        self.clients.locked().values().cloned().collect()
+        self.connections().locked().values().cloned().collect()
     }
 
     pub(crate) fn manifest_report(&self) -> ManifestReloadReport {
-        self.detection.read_locked().report()
+        self.detection().read_locked().report()
     }
 
     /// Rebuilds the detection rules from the bundled ones and the person's
@@ -664,12 +642,12 @@ impl Core {
         &self,
         directory: Option<PathBuf>,
     ) -> CoreResult<ManifestReloadReport> {
-        *self.manifest_dir.locked() = directory;
+        *self.manifest_folder().locked() = directory;
         self.reload_manifests()
     }
 
     pub(crate) fn reload_manifests(&self) -> CoreResult<ManifestReloadReport> {
-        let directory = self.manifest_dir.locked().clone();
+        let directory = self.manifest_folder().locked().clone();
         let manifests = |error: sikemux_pty::agent_detection::ManifestError| {
             CoreError::from(format!("agent detection manifests: {error}"))
         };
@@ -678,7 +656,7 @@ impl Core {
             None => ManifestRegistry::bundled().map_err(manifests)?,
         };
         let report = replacement.reload().map_err(manifests)?;
-        *self.detection.write_locked() = replacement;
+        *self.detection().write_locked() = replacement;
         // The screens may be unchanged while the rules are not, so every agent
         // is read again on the next poll.
         for session in self.all_sessions() {
@@ -759,16 +737,16 @@ impl Core {
     }
 
     pub(crate) fn session(&self, id: SessionId) -> Option<Arc<Session>> {
-        self.sessions.locked().get(&id).cloned()
+        self.sessions().locked().get(&id).cloned()
     }
 
     fn all_sessions(&self) -> Vec<Arc<Session>> {
-        self.sessions.locked().values().cloned().collect()
+        self.sessions().locked().values().cloned().collect()
     }
 
     /// The lowest rail number no running loose terminal has, taken now.
     fn take_rail_number(&self) -> u32 {
-        let mut taken = self.rail_numbers.locked();
+        let mut taken = self.rail_numbers().locked();
         let number = (1..).find(|number| !taken.contains(number)).unwrap_or(0);
         taken.insert(number);
         number
@@ -776,10 +754,10 @@ impl Core {
 
     fn insert_session(&self, session: Arc<Session>) {
         if let Some(number) = session.rail_number() {
-            self.rail_numbers.locked().insert(number);
+            self.rail_numbers().locked().insert(number);
         }
         let ssh = session.ssh_link().is_some();
-        self.sessions.locked().insert(session.id, session);
+        self.sessions().locked().insert(session.id, session);
         if ssh {
             ssh::moved(self);
         }
@@ -787,7 +765,7 @@ impl Core {
 
     pub(crate) fn remove_session(&self, session: &Arc<Session>) -> bool {
         let removed = {
-            let mut sessions = self.sessions.locked();
+            let mut sessions = self.sessions().locked();
             let current = sessions
                 .get(&session.id)
                 .is_some_and(|current| Arc::ptr_eq(current, session));
@@ -803,7 +781,7 @@ impl Core {
     }
 
     fn take_session_for_kill(&self, id: SessionId) -> Option<Arc<Session>> {
-        let mut sessions = self.sessions.locked();
+        let mut sessions = self.sessions().locked();
         let session = sessions.get(&id)?.clone();
         // A killed task keeps its snapshot and output log for later reads.
         if !session.is_task() {
@@ -815,7 +793,7 @@ impl Core {
     }
 
     fn running_sessions(&self) -> usize {
-        self.sessions
+        self.sessions()
             .locked()
             .values()
             .filter(|s| s.is_running() && !self.spares().is_spare(s.id))
@@ -824,25 +802,25 @@ impl Core {
 
     fn is_idle(&self) -> bool {
         !self.remote().is_enabled()
-            && self.clients.locked().is_empty()
+            && self.connections().locked().is_empty()
             && self.running_sessions() == 0
             && self.chats().count() == 0
             && !board::auto::has_work(self.boards())
     }
 
     pub(crate) fn client_conn(&self, id: ClientId) -> Option<Arc<ClientConn>> {
-        self.clients.locked().get(&id).cloned()
+        self.connections().locked().get(&id).cloned()
     }
 
     fn register_client(&self, client: Arc<ClientConn>) {
-        self.clients.locked().insert(client.id, client);
+        self.connections().locked().insert(client.id, client);
         self.view_watched();
     }
 
     fn unregister_client(self: &Arc<Self>, client: &ClientConn) {
         client.close();
         self.tell_parts_client_gone(client.id);
-        self.clients.locked().remove(&client.id);
+        self.connections().locked().remove(&client.id);
         for (stream, id) in client.take_streams() {
             if let Some(session) = self.session(id) {
                 session::detach(&session, stream);
@@ -912,7 +890,7 @@ impl Core {
     fn drain(self: &Arc<Self>) {
         lifecycle::sleep_all(self);
         let sessions: Vec<Arc<Session>> = self
-            .sessions
+            .sessions()
             .locked()
             .drain()
             .map(|(_, session)| session)

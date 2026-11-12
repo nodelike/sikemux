@@ -442,7 +442,7 @@ async fn not_a_page(url: &str) -> Option<String> {
 /// Takes the page the agent's checkout serves at each width, for its turn that began at `turn`
 /// with its work at `head`, once per turn, off the caller's path; nothing when nothing serves it.
 pub(crate) fn take(core: &Core, agent_id: &str, project: &str, turn: u64, head: Option<String>) {
-    if !core.window.is_open() || core.pictures().taken(agent_id, turn) {
+    if !core.window().is_open() || core.pictures().taken(agent_id, turn) {
         return;
     }
     if !core

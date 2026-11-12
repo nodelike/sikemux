@@ -1485,7 +1485,7 @@ pub struct MoveProjectParams {
 /// Moves a project to `index` of the list as clients show it. A list sorted by recency or by
 /// when projects were added becomes the order the person drags from then on.
 pub(crate) fn move_project(core: &Core, params: MoveProjectParams) -> CoreResult<()> {
-    if core.preferences.get().project_sort != ProjectSort::Manual {
+    if core.preferences().get().project_sort != ProjectSort::Manual {
         let shown: Vec<String> = (core.workspace_view().projects.into_iter())
             .map(|project| project.id)
             .collect();
@@ -1692,7 +1692,7 @@ pub(crate) fn close_agents(core: &Core, params: CloseAgentsParams) -> CoreResult
 /// Closes every agent left from before a fresh start, unless the person keeps their tabs
 /// open across one. Their chats stay in Recent, with their triggers paused.
 pub(crate) fn restore(core: &Core) {
-    if core.preferences.get().restore_agent_tabs {
+    if core.preferences().get().restore_agent_tabs {
         return;
     }
     let agents: Vec<String> = core.workspaces().agent_ids().into_iter().collect();

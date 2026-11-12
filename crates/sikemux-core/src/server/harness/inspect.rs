@@ -9,7 +9,7 @@ const FINISHED_COMMAND_CHARS: usize = 160;
 pub(super) async fn inspect(core: &Arc<Core>, request: HarnessRequest) -> Result<Value, String> {
     let project = request.project.clone();
     let agent_id = request.agent_id.clone();
-    let window_open = core.window.is_open();
+    let window_open = core.window().is_open();
     let layout = if window_open {
         forward(core, request).await.ok()
     } else {

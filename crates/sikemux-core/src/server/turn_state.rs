@@ -313,7 +313,7 @@ pub(crate) fn of(
 fn wait_of(core: &Core, gathered: &Gathered, agent_id: &str, rested_at: u64) -> Option<TurnWait> {
     let set = core
         .triggers()
-        .wait_of(agent_id, rested_at, |on| core.waits.expected(on));
+        .wait_of(agent_id, rested_at, |on| core.waits().expected(on));
     if set
         .as_ref()
         .is_some_and(|wait| wait.kind == TurnWaitKind::Ci)

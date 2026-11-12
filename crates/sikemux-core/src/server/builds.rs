@@ -166,7 +166,7 @@ impl Turn {
 
     /// Where it stands now, sized by the person's limit, else the host's.
     pub(crate) fn place(&self) -> Place {
-        let chosen = self.core.preferences.get().build_runs as usize;
+        let chosen = self.core.preferences().get().build_runs as usize;
         let place = self.core.builds().place(self.id, |building| match chosen {
             0 => host_limit(building),
             chosen => chosen,

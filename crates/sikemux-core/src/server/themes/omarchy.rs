@@ -2,6 +2,7 @@
 //! writes the current theme's colours to a folder it replaces on every switch,
 //! so Sikemux offers one theme, Omarchy, that follows it.
 
+use crate::server::parts::Parts;
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -140,8 +141,8 @@ pub(super) async fn follow(core: Arc<Core>) {
 async fn switched(core: Arc<Core>, current: PathBuf) {
     // Mid-switch the folder can be gone; the last theme stays until the new one is in place.
     if let Ok(Some(theme)) = blocking(move || Ok(read_from(&current))).await {
-        if core.look.set_omarchy(theme) {
-            if core.preferences.get().theme_id == THEME_ID {
+        if core.look().set_omarchy(theme) {
+            if core.preferences().get().theme_id == THEME_ID {
                 core.theme_changed();
             }
             core.changed(What::Read(Topic::Preferences));
@@ -170,17 +171,17 @@ async fn wear_background_off_thread(core: &Arc<Core>) {
 /// Shows Omarchy's current background in panes. One that cannot be read yet, or is a video,
 /// leaves the last picture up.
 fn wear_background(core: &Arc<Core>) {
-    if !core.preferences.get().pane_image_follows_omarchy {
+    if !core.preferences().get().pane_image_follows_omarchy {
         return;
     }
     let (Some(current), Some(data_dir)) = (current(), core.config.data_dir.as_deref()) else {
         return;
     };
-    let _copying = core.look.copying_omarchy_background.locked();
+    let _copying = core.look().copying_omarchy_background.locked();
     let Some(background) = copy_background(&current, &data_dir.join(BACKGROUND_COPIES)) else {
         return;
     };
-    if core.look.set_omarchy_background(background) {
+    if core.look().set_omarchy_background(background) {
         backdrop::follow(core);
         core.changed(What::Read(Topic::Preferences));
     }

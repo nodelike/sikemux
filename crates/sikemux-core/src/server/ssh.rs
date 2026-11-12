@@ -2,6 +2,7 @@
 //! reaching it, and a watch on the config that tells clients when it changes.
 
 use crate::server::changed::What;
+use crate::server::parts::Parts;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Weak;
@@ -183,7 +184,7 @@ fn watch(core: &Core) {
         return;
     };
     let weak: Weak<Core> = core.me.clone();
-    core.ssh_watch.get_or_init(|| {
+    core.ssh_watch().get_or_init(|| {
         let mut watcher =
             notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
                 let touches_config = event.is_ok_and(|event| {

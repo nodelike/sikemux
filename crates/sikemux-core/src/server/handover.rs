@@ -283,9 +283,9 @@ pub(crate) fn replace_process(core: &Core, binary: &Path, handed: &mut [HandOver
         manifest_dir: core.manifest_dir(),
         tools,
         next_session_id: core
-            .next_session_id
+            .next_session_id()
             .load(std::sync::atomic::Ordering::Acquire),
-        next_call_id: core.window.call_mark(),
+        next_call_id: core.window().call_mark(),
         agent_sequence: agent::sequence_mark(),
         sessions: records,
         harness: serde_json::to_value(core.harness().record()).unwrap_or(Value::Null),
@@ -325,7 +325,7 @@ pub(crate) fn replace_process(core: &Core, binary: &Path, handed: &mut [HandOver
         command.arg("--tools-fd").arg(tools.fd.to_string());
         keep.push(tools.fd);
     }
-    if let Some(fd) = core.model_proxy.listener_fd() {
+    if let Some(fd) = core.model_proxy().listener_fd() {
         command.arg("--model-proxy-fd").arg(fd.to_string());
         keep.push(fd);
     }
@@ -692,7 +692,7 @@ fn adopt_session(
 ) -> Result<(), String> {
     let io = terminal_io(record.fd, inherited)?;
     let permit = core
-        .capacity
+        .capacity()
         .try_acquire()
         .map_err(|error| error.to_string())?;
     let replay = std::fs::read(blob_path(directory, record.id, "replay")).unwrap_or_else(|error| {
@@ -761,7 +761,7 @@ fn adopt_session(
             setup: record.setup,
             model_grant: record
                 .model_grant
-                .map(|kept| core.model_proxy.restore(kept)),
+                .map(|kept| core.model_proxy().restore(kept)),
         },
         io,
         Box::new(child),
@@ -783,7 +783,7 @@ fn adopt_bare(
 ) -> Result<(), String> {
     let io = terminal_io(fd, inherited)?;
     let permit = core
-        .capacity
+        .capacity()
         .try_acquire()
         .map_err(|error| error.to_string())?;
     let (rows, cols) = window_size(fd).unwrap_or((DEFAULT_ROWS, DEFAULT_COLS));
@@ -884,9 +884,9 @@ pub(crate) async fn resume(recovery: Recovery, build: BuildIdentity) -> Result<(
     let mut live_chats = Vec::new();
     if let Some(state) = state {
         from = format!("{} {}", state.from_build.version, state.from_build.commit);
-        core.next_session_id
+        core.next_session_id()
             .fetch_max(state.next_session_id, std::sync::atomic::Ordering::AcqRel);
-        core.window.continue_calls(state.next_call_id);
+        core.window().continue_calls(state.next_call_id);
         agent::continue_sequence(state.agent_sequence);
         if state.manifest_dir.is_some() {
             let configuring = core.clone();
@@ -952,7 +952,7 @@ pub(crate) async fn resume(recovery: Recovery, build: BuildIdentity) -> Result<(
         if inherited.claim(fd, libc::S_IFSOCK) {
             // SAFETY: the descriptor was handed over open and claimed once, so the
             // proxy is its only owner.
-            if let Err(error) = unsafe { core.model_proxy.adopt(&core, fd) } {
+            if let Err(error) = unsafe { core.model_proxy().adopt(&core, fd) } {
                 eprintln!("sikemux core: the model proxy was not kept in the update: {error}");
             }
         }
