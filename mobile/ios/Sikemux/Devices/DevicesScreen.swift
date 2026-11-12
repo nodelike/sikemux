@@ -109,7 +109,7 @@ private struct DeviceCard: View {
         let view = status.online ? live.view : nil
         let working = view?.inbox.working ?? 0
         let background = (view?.inbox.rollup?.subagents ?? 0) + (view?.inbox.rollup?.tasks ?? 0)
-        let busy = (view?.inbox.agents ?? []).filter { $0.group == .working || $0.background }
+        let busy = (view?.inbox.agents ?? []).filter { $0.turn?.state == .working || $0.background }
         let work = [working > 0 ? "\(working) working" : nil, background > 0 ? "\(background) in the background" : nil]
             .compactMap { $0 }.joined(separator: " · ")
         let state =
@@ -152,8 +152,10 @@ private struct DeviceCard: View {
                     HStack(spacing: 10) {
                         HStack(spacing: -5) {
                             ForEach(busy.prefix(4), id: \.agentId) { agent in
-                                AgentFaceView(agentId: agent.agentId, provider: agent.cli, group: agent.group, size: 18)
-                                    .frame(width: 18, height: 18)
+                                AgentFaceView(
+                                    agentId: agent.agentId, provider: agent.cli, turn: agent.turn?.state, size: 18
+                                )
+                                .frame(width: 18, height: 18)
                             }
                         }
                         Text(work)

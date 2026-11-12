@@ -46,6 +46,7 @@
     "snoozeAgents",
     "snoozePresets",
     "stashPrompt",
-    "steerQueued"
+    "steerQueued",
+    "takeStep"
   ]
 }

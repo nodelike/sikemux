@@ -166,6 +166,13 @@
   .dot.warn::after { content: ""; position: absolute; inset: -4px; border-radius: 999px; border: 1.5px solid var(--warn); animation: ping 0.52s cubic-bezier(0.2, 0.6, 0.3, 1) 2 forwards; opacity: 0; }
   @keyframes ping { 0% { transform: scale(.6); opacity: .9; } 100% { transform: scale(1.8); opacity: 0; } }
   .dot.acc { background: var(--acc); }
+  .dot.bad { background: var(--danger); }
+  .dot.hollow { background: none; border: 1.5px solid var(--ink-dim); width: 7px; height: 7px; }
+  .turn-mins { font-size: 12px; font-weight: 500; font-variant-numeric: tabular-nums; color: var(--ink-dim); margin-right: 4px; flex: none; }
+  .turn-mins.warn { color: var(--warn); }
+  .call-end { flex: none; font-size: 12.5px; color: var(--text-tertiary); margin-left: 8px; }
+  .calls-none { color: var(--ink-faint); font-size: 14px; padding: 18px 4px; }
+  .wait-ring { width: 11px; height: 11px; border-radius: 999px; flex: none; background: conic-gradient(var(--cmd) calc(var(--share) * 1turn), color-mix(in srgb, var(--cmd) 30%, transparent) 0); -webkit-mask: radial-gradient(circle, transparent 3.9px, #000 4.1px); mask: radial-gradient(circle, transparent 3.9px, #000 4.1px); }
   .dot.live { background: var(--live); }
   .dot.idle { background: var(--gray-700); }
   .dot.off { border: 1.5px solid var(--gray-700); }
@@ -485,6 +492,47 @@
   .tucked b { font-family: var(--ui); font-size: 13.5px; font-weight: 600; color: var(--ink); margin-right: 6px; }
   .tucked .open { font-weight: 600; color: var(--ink); }
 
+  /* ---------- a call docked on its asker's chat, and the turn's last line ---------- */
+  .call { margin: 0 0 8px; padding: 12px; border: 1px solid var(--border-strong); border-radius: 16px; background: var(--surface-overlay); }
+  .call-who { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--text-tertiary); }
+  .call-who > span:first-child { flex: none; display: grid; width: 20px; height: 20px; }
+  .call-who b { font-weight: 500; color: var(--text-secondary); }
+  .call-who i { font-style: normal; color: var(--ink-faint); }
+  .call-q { margin-top: 8px; font-size: 17px; font-weight: 600; letter-spacing: -0.012em; line-height: 1.3; color: var(--ink); }
+  .call-ctx { margin-top: 2px; font-size: 14px; line-height: 1.4; color: var(--text-tertiary); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .call-evidence { margin-top: 10px; height: 96px; border-radius: 10px; border: 1px solid var(--border); background: linear-gradient(180deg, color-mix(in oklab, var(--acc) 18%, var(--bg)) 0 22px, var(--surface-raised) 22px); display: flex; align-items: flex-start; padding: 3px 10px; font-size: 11px; color: var(--text-tertiary); }
+  .call-opts { margin-top: 12px; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  .call-opt { display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 8px 14px; border-bottom: 1px solid var(--border); font-size: 15.5px; color: var(--ink); }
+  .call-opt.on { background: var(--surface-active); }
+  .call-lbl { flex: 1; display: flex; flex-direction: column; gap: 1px; }
+  .call-lbl em { font-style: normal; font-size: 12.5px; color: var(--text-tertiary); }
+  .call-radio { width: 18px; height: 18px; border-radius: 999px; border: 1.5px solid var(--ink-faint); flex: none; }
+  .call-radio.on { border: 5px solid var(--acc); background: #fff; }
+  .call-pick { display: flex; align-items: center; gap: 5px; font-size: 12.5px; color: var(--text-tertiary); }
+  .call-pick .ico { color: var(--acc); }
+  .call-field { display: flex; align-items: center; gap: 12px; height: 44px; padding: 0 14px; background: color-mix(in oklab, var(--bg-dim) 60%, transparent); font-size: 15.5px; color: var(--ink-faint); }
+  .call-field .sec-dots { letter-spacing: 0.1em; color: var(--ink-dim); }
+  .call-against { margin-top: 10px; font-size: 13.5px; color: var(--text-secondary); }
+  .call-against span { color: var(--text-tertiary); }
+  .call-extras { margin-top: 6px; display: flex; align-items: center; min-height: 32px; font-size: 13px; color: var(--text-tertiary); }
+  .call-runs { display: flex; align-items: center; gap: 6px; }
+  .call-runs.open .ico { transform: rotate(90deg); }
+  .call-notmine { margin-left: auto; font-weight: 500; color: var(--text-secondary); }
+  .call-cmd { font-family: var(--mono); font-size: 12px; line-height: 1.5; color: var(--text-secondary); word-break: break-all; }
+  .call-kept { margin-top: 8px; font-size: 12.5px; color: var(--text-tertiary); }
+  .call-go { margin-top: 12px; height: 46px; border-radius: 12px; background: var(--acc); color: var(--bg); font-size: 16px; font-weight: 600; display: grid; place-items: center; }
+  .turn-line { display: flex; align-items: center; gap: 8px; min-height: 32px; margin: 10px 0 4px; font-size: 12.5px; }
+  .turn-line > .tl-mark { flex: none; display: grid; place-items: center; width: 16px; height: 16px; }
+  .turn-line .tl-timer { color: var(--cmd); display: grid; }
+  .turn-words { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+  .turn-words b { font-size: 13px; font-weight: 500; flex: none; }
+  .turn-words b.done { color: var(--acc); } .turn-words b.wait { color: var(--cmd); } .turn-words b.needs { color: var(--warn); } .turn-words b.stopped { color: var(--text-secondary); } .turn-words b.working { color: var(--ink); }
+  .turn-words i { font-style: normal; color: var(--ink-faint); flex: none; }
+  .turn-words .p1 { color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .turn-words .p2 { color: var(--text-tertiary); flex: none; }
+  .turn-line .step { flex: none; height: 32px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface-raised); color: var(--ink); font-size: 13.5px; font-weight: 500; display: grid; place-items: center; }
+  .turn-states { margin-top: 14px; padding-top: 6px; border-top: 1px dashed var(--border); }
+  .turn-line .step.go { background: var(--ink); border-color: var(--ink); color: var(--bg); }
   .docked { margin: 0 0 8px; padding: 12px; border: 1px solid var(--border-strong); border-radius: 16px; background: var(--surface-overlay); }
   .docked-head { display: flex; gap: 10px; align-items: flex-start; color: var(--ink); }
   .docked-head .ico { margin-top: 2px; }
@@ -641,7 +689,7 @@
   .host-tabs > span { flex: 1; min-height: 34px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; border-radius: 9px; font-size: 14px; font-weight: 600; letter-spacing: -0.01em; color: var(--text-secondary); }
   .host-tabs > span.on { color: var(--text-primary); background: var(--surface-active); }
   .host-tabs .tab-ico { display: grid; }
-  .host-tabs .tab-ico.agents { color: var(--acc); } .host-tabs .tab-ico.terminals { color: var(--warn); } .host-tabs .tab-ico.board { color: var(--live); }
+  .host-tabs .tab-ico.agents { color: var(--acc); } .host-tabs .tab-ico.terminals { color: var(--warn); } .host-tabs .tab-ico.calls { color: var(--warn); }
   .host-tabs .count { font-style: normal; font-size: 11px; font-weight: 600; color: var(--bg); background: var(--ink); border-radius: 999px; padding: 0 5px; line-height: 16px; }
   /* the project filter and New chat sit in the bar beside ⋯ */
   .nav .host-project { display: inline-flex; align-items: center; gap: 5px; min-width: 44px; height: 44px; justify-content: center; font-size: 13px; font-weight: 500; color: var(--text-secondary); }
@@ -864,6 +912,7 @@
   .notif .b b { font-weight: 600; }
   .notif .b .m { font-family: var(--mono); font-size: 13px; opacity: .85; }
   .notif .acts { display: flex; gap: 8px; margin-top: 10px; }
+  .notif .acts.col { flex-direction: column; gap: 6px; }
   .notif .acts span { flex: 1; text-align: center; padding: 8px 0; border-radius: 12px; background: rgba(255,255,255,.12); font-size: 14px; font-weight: 500; font-family: var(--kbd); }
 
   .toggle { width: 51px; height: 31px; border-radius: 999px; background: var(--live); position: relative; flex: none; }
@@ -1694,23 +1743,23 @@
 <!-- ================================================================ -->
 <section class="flow on-host">
   <h2>A device</h2>
-  <p>A device names its host in the top bar, where Devices was: ‹ and the host's name with its live dot, then New chat (+) and ⋯ at the right. The big title over the host's backdrop is the project in view, or All projects, with a chevron: a tap opens the project picker. Under it, a quiet line says the channel and what runs. Under that, Agents, Terminals and Board as one segmented control, each with its icon in its own colour: the agent mark in the accent, the terminal in amber, the board in green. Then the host's open agents in one list, straight on the ground, ranked by the host's core the same way the Mac's rail and the notch list them, and its recent chats under them. Running agents keep the rail's green squares.</p>
+  <p>A device names its host in the top bar, where Devices was: ‹ and the host's name with its live dot, then New chat (+) and ⋯ at the right. The big title over the host's backdrop is the project in view, or All projects, with a chevron: a tap opens the project picker. Under it, a quiet line says the channel and what runs. Under that, Agents, Terminals and Calls as one segmented control, each with its icon in its own colour: the agent mark in the accent, the terminal and the call in amber. Then the host's open agents in one list, straight on the ground, ranked by the host's core the same way the Mac's rail and the notch list them, and its recent chats under them. Running agents keep the rail's green squares.</p>
   <div class="phones">
     <figure><div class="phone"><div class="island"></div>
       <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
       <div class="screen">
         <div class="nav"><span class="back">{{IconChevron:18}}<b class="host">MacBook Pro</b><i class="live"></i></span><span style="flex:1"></span><span class="new-chat">{{IconPlus:20}}</span><span class="icon-btn">{{IconMore:18}}</span></div>
         <div class="host-head"><h1 class="pick">All projects<span class="ch">{{IconChevron:16}}</span></h1><div class="where">5 agents · 2 terminals</div></div>
-        <div class="host-bar"><div class="host-tabs"><span class="on"><span class="tab-ico agents">{{IconAgent:15}}</span>Agents <i class="count">2</i></span><span><span class="tab-ico terminals">{{IconTerminal:15}}</span>Terminals</span><span><span class="tab-ico board">{{IconBoard:15}}</span>Board</span></div></div>
+        <div class="host-bar"><div class="host-tabs"><span class="on"><span class="tab-ico agents">{{IconAgent:15}}</span>Agents</span><span><span class="tab-ico terminals">{{IconTerminal:15}}</span>Terminals</span><span><span class="tab-ico calls">{{IconMessage:15}}</span>Calls <i class="count">2</i></span></div></div>
         <div class="pad grow">
           <div class="rows">
-            <div class="row"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Remote pairing screen</div></div><span class="row-name">@Otter</span><span class="status-slot"><span class="dot warn"></span></span></div>
-            <div class="row"><span class="mark codex">{{IconCodex:20}}</span><div class="body"><div class="t">Move the ledger import</div></div><span class="row-name">@Maple</span><span class="status-slot"><span class="dot warn"></span></span></div>
+            <div class="row"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Remote pairing screen</div></div><span class="row-name">@Otter</span><span class="turn-mins warn">4m</span><span class="status-slot"><span class="dot warn"></span></span></div>
+            <div class="row"><span class="mark codex">{{IconCodex:20}}</span><div class="body"><div class="t">Move the ledger import</div></div><span class="row-name">@Maple</span><span class="turn-mins warn">12m</span><span class="status-slot"><span class="dot warn"></span></span></div>
             <div class="row"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Download size on the hero</div></div><span class="row-name">@Birch</span><span class="trigger">{{IconTimer:11}}18m</span><span class="status-slot"><span class="dot acc"></span></span></div>
             <div class="row lead"><span class="mark codex">{{IconCodex:20}}</span><div class="body"><div class="t">Fix the flaky PTY replay test</div></div><span class="row-name">@Flint</span><span class="collided">{{IconMerge:11}}</span><span class="status-slot"><span class="loader"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></span></div>
             <div class="row last"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Tighten the rail spacing</div></div><span class="row-name">@Cedar</span><span class="collided">{{IconMerge:11}}</span><span class="status-slot"><span class="loader"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></span></div>
-            <div class="row"><span class="mark codex">{{IconCodex:20}}</span><div class="body"><div class="t">Regenerate the API reference</div></div><span class="row-name">@Pike</span><span class="status-slot"><span class="loader"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></span></div>
-            <div class="row"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Watch the release build</div></div><span class="row-name">@Heron</span><span class="shells">{{IconCommand:11}}2</span><span class="collided claim">{{IconMerge:11}}</span><span class="status-slot"></span></div>
+            <div class="row"><span class="mark codex">{{IconCodex:20}}</span><div class="body"><div class="t">Regenerate the API reference</div></div><span class="row-name">@Pike</span><span class="turn-mins">6m</span><span class="status-slot"><span class="wait-ring" style="--share:0.55"></span></span></div>
+            <div class="row"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Watch the release build</div></div><span class="row-name">@Heron</span><span class="shells">{{IconCommand:11}}2</span><span class="collided claim">{{IconMerge:11}}</span><span class="status-slot"><span class="dot hollow"></span></span></div>
           </div>
           <div class="glabel">Recent</div>
           <div class="rows">
@@ -1720,7 +1769,7 @@
         </div>
       </div>
       <div class="home-bar"></div></div>
-      <figcaption><b>Agents</b><div class="note">The host's open agents in one list, with no labels, in the order its core ranks them for the Mac's rail: what wants you first, then what finished and you have not seen, then what is working, then the rest. The phone draws them as they come and never sorts them itself. A row is one line, as the Mac's rail draws it: the agent's mark, its title, the name Sikemux gave it small and dim at the row's end, then its counts and state. An agent's teammates sit under it on the rail's spine, each turning off it on a tick, the last one on a corner, as the core orders them. The list starts a little below the tabs. The end shows how many subagents and shells it still has running, and, while it is not working or waiting on you, how long until a trigger it set wakes it (⏱ 18m beside the pink timer, counting down each minute), then its state: the rail's squares while it works, an amber dot when it needs you, an accent dot when it finished and you have not looked, and nothing when it is idle. Nothing is answered on the row; tapping it opens the chat, where permissions and questions wait. Agents running in terminals sit in the same list and open Terminals. An agent that just changed lines another agent had uncommitted carries the Mac rail's red merge mark beside its counts, and so does the other; a lockfile, migration or generated file two agents edited at once marks both in amber instead. The mark says with whom and in which file to a screen reader, and goes after ten minutes or once the agent commits that file. Under the open agents, Recent lists the saved chats the host's rail lists as recent: the first ten, Show more for the rest; tapping one resumes it on the host and opens it, and a phone that can only watch is told so under the list. The tab's count is what needs you. The project picker and the agent filter narrow both lists. The header scrolls with the list: once the big title passes under the top bar, the bar reads host / project with the chevron, which still opens the picker, and the Agents / Terminals / Board control stays pinned beneath it, floating on the backdrop, and rows fade out as they slide under it and into the home bar.</div></figcaption>
+      <figcaption><b>Agents</b><div class="note">The host's open agents in one list, with no labels, in the order its core ranks them for the Mac's rail: what wants you first, then what finished and you have not seen, then what is working, then the rest. The phone draws them as they come and never sorts them itself. A row is one line, as the Mac's rail draws it: the agent's mark, its title, the name Sikemux gave it small and dim at the row's end, then its counts and state. An agent's teammates sit under it on the rail's spine, each turning off it on a tick, the last one on a corner, as the core orders them. The list starts a little below the tabs. The end shows how many subagents and shells it still has running, and, while it is not working or waiting on you, how long until a trigger it set wakes it (⏱ 18m beside the pink timer, counting down each minute), then its state, one mark per row, as the core says it and the Mac's rail draws it: the rail's squares while it works; a pink ring filling as a wait runs, with the minutes left beside it (6m while CI runs, as on @Pike); an amber dot with how long a call has waited on you; the purple dot once done; red once it failed; a hollow dot once it stopped with nothing set to wake it; and nothing when it is idle. The phone works out none of these itself. Nothing is answered on the row; tapping it opens the chat, where permissions and questions wait. Agents running in terminals sit in the same list and open Terminals. An agent that just changed lines another agent had uncommitted carries the Mac rail's red merge mark beside its counts, and so does the other; a lockfile, migration or generated file two agents edited at once marks both in amber instead. The mark says with whom and in which file to a screen reader, and goes after ten minutes or once the agent commits that file. Under the open agents, Recent lists the saved chats the host's rail lists as recent: the first ten, Show more for the rest; tapping one resumes it on the host and opens it, and a phone that can only watch is told so under the list. The Calls tab's count is the calls open in the project in view. The project picker and the agent filter narrow both lists. The header scrolls with the list: once the big title passes under the top bar, the bar reads host / project with the chevron, which still opens the picker, and the Agents / Terminals / Calls control stays pinned beneath it, floating on the backdrop, and rows fade out as they slide under it and into the home bar.</div></figcaption>
     </figure>
 
     <figure><div class="phone"><div class="island"></div>
@@ -1728,7 +1777,7 @@
       <div class="screen">
         <div class="nav"><span class="back">{{IconChevron:18}}<b class="host">MacBook Pro</b><i class="live"></i></span><span style="flex:1"></span><span class="new-chat">{{IconPlus:20}}</span><span class="icon-btn">{{IconMore:18}}</span></div>
         <div class="host-head"><h1 class="pick">All projects<span class="ch">{{IconChevron:16}}</span></h1><div class="where">7 agents</div></div>
-        <div class="host-bar"><div class="host-tabs"><span class="on"><span class="tab-ico agents">{{IconAgent:15}}</span>Agents <i class="count">1</i></span><span><span class="tab-ico terminals">{{IconTerminal:15}}</span>Terminals</span><span><span class="tab-ico board">{{IconBoard:15}}</span>Board</span></div></div>
+        <div class="host-bar"><div class="host-tabs"><span class="on"><span class="tab-ico agents">{{IconAgent:15}}</span>Agents</span><span><span class="tab-ico terminals">{{IconTerminal:15}}</span>Terminals</span><span><span class="tab-ico calls">{{IconMessage:15}}</span>Calls <i class="count">1</i></span></div></div>
         <div class="pad grow">
           <div class="rows">
             <div class="row"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Remote pairing screen</div></div><span class="row-name">@Otter</span><span class="status-slot"><span class="dot warn"></span></span></div>
@@ -1783,7 +1832,7 @@
       <div class="screen">
         <div class="nav"><span class="back">{{IconChevron:18}}<b class="host">MacBook Pro</b><i class="live"></i></span><span style="flex:1"></span><span class="new-chat">{{IconPlus:20}}</span><span class="icon-btn">{{IconMore:18}}</span></div>
         <div class="host-head"><h1 class="pick">All projects<span class="ch">{{IconChevron:16}}</span></h1><div class="where">7 agents</div></div>
-        <div class="host-bar"><div class="host-tabs"><span class="on"><span class="tab-ico agents">{{IconAgent:15}}</span>Agents</span><span><span class="tab-ico terminals">{{IconTerminal:15}}</span>Terminals</span><span><span class="tab-ico board">{{IconBoard:15}}</span>Board</span></div></div>
+        <div class="host-bar"><div class="host-tabs"><span class="on"><span class="tab-ico agents">{{IconAgent:15}}</span>Agents</span><span><span class="tab-ico terminals">{{IconTerminal:15}}</span>Terminals</span><span><span class="tab-ico calls">{{IconMessage:15}}</span>Calls</span></div></div>
         <div class="pad grow">
           <div class="rows">
             <div class="row"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Tighten the rail spacing</div></div><span class="row-name">@Cedar</span><span class="status-slot"></span></div>
@@ -1806,7 +1855,7 @@
       <div class="screen">
         <div class="nav"><span class="back">{{IconChevron:18}}<b class="host">MacBook Pro</b><i class="live"></i></span><span style="flex:1"></span><span class="new-chat">{{IconPlus:20}}</span><span class="icon-btn">{{IconMore:18}}</span></div>
         <div class="host-head"><h1 class="pick">All projects<span class="ch">{{IconChevron:16}}</span></h1><div class="where">4 agents</div></div>
-        <div class="host-bar"><div class="host-tabs"><span class="on"><span class="tab-ico agents">{{IconAgent:15}}</span>Agents <i class="count">1</i></span><span><span class="tab-ico terminals">{{IconTerminal:15}}</span>Terminals</span><span><span class="tab-ico board">{{IconBoard:15}}</span>Board</span></div></div>
+        <div class="host-bar"><div class="host-tabs"><span class="on"><span class="tab-ico agents">{{IconAgent:15}}</span>Agents</span><span><span class="tab-ico terminals">{{IconTerminal:15}}</span>Terminals</span><span><span class="tab-ico calls">{{IconMessage:15}}</span>Calls <i class="count">1</i></span></div></div>
         <div class="pad grow">
           <div class="rows">
             <div class="row"><span class="mark" data-buddy="buddies mochi 0 waiting"></span><div class="body"><div class="t">Remote pairing screen</div></div><span class="row-name">@Otter</span><span class="status-slot"><span class="dot warn"></span></span></div>
@@ -1825,7 +1874,7 @@
       <div class="screen">
         <div class="nav"><span class="back">{{IconChevron:18}}<b class="host">MacBook Pro</b><i class="live"></i></span><span style="flex:1"></span><span class="new-chat">{{IconPlus:20}}</span><span class="icon-btn">{{IconMore:18}}</span></div>
         <div class="host-head"><h1 class="pick">All projects<span class="ch">{{IconChevron:16}}</span></h1><div class="where">2 agents</div></div>
-        <div class="host-bar"><div class="host-tabs"><span class="on"><span class="tab-ico agents">{{IconAgent:15}}</span>Agents <i class="count">1</i></span><span><span class="tab-ico terminals">{{IconTerminal:15}}</span>Terminals</span><span><span class="tab-ico board">{{IconBoard:15}}</span>Board</span></div></div>
+        <div class="host-bar"><div class="host-tabs"><span class="on"><span class="tab-ico agents">{{IconAgent:15}}</span>Agents</span><span><span class="tab-ico terminals">{{IconTerminal:15}}</span>Terminals</span><span><span class="tab-ico calls">{{IconMessage:15}}</span>Calls <i class="count">1</i></span></div></div>
         <div class="pad grow">
           <div class="rows">
             <div class="row"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Move the ledger to cents</div></div><span class="row-name">@Cedar</span><span class="status-slot"><span class="loader"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></span></div>
@@ -1844,7 +1893,7 @@
       <div class="screen">
         <div class="nav"><span class="back">{{IconChevron:18}}<b class="host">MacBook Pro</b><i class="live"></i></span><span style="flex:1"></span><span class="new-chat">{{IconPlus:20}}</span><span class="icon-btn">{{IconMore:18}}</span></div>
         <div class="host-head"><h1 class="pick">All projects<span class="ch">{{IconChevron:16}}</span></h1><div class="where">3 agents · 2 terminals</div></div>
-        <div class="host-bar"><div class="host-tabs"><span><span class="tab-ico agents">{{IconAgent:15}}</span>Agents <i class="count">1</i></span><span class="on"><span class="tab-ico terminals">{{IconTerminal:15}}</span>Terminals</span></div></div>
+        <div class="host-bar"><div class="host-tabs"><span><span class="tab-ico agents">{{IconAgent:15}}</span>Agents</span><span class="on"><span class="tab-ico terminals">{{IconTerminal:15}}</span>Terminals</span><span><span class="tab-ico calls">{{IconMessage:15}}</span>Calls <i class="count">1</i></span></div></div>
         <div class="pad grow">
           <div class="glabel">sikemux</div>
           <div class="rows">
@@ -1866,7 +1915,7 @@
       <div class="screen">
         <div class="nav"><span class="back">{{IconChevron:18}}<b class="host">MacBook Pro</b><i class="live"></i></span><span style="flex:1"></span><span class="new-chat">{{IconPlus:20}}</span><span class="icon-btn">{{IconMore:18}}</span></div>
         <div class="host-head"><h1 class="pick">All projects<span class="ch">{{IconChevron:16}}</span></h1></div>
-        <div class="host-bar"><div class="host-tabs"><span class="on"><span class="tab-ico agents">{{IconAgent:15}}</span>Agents</span><span><span class="tab-ico terminals">{{IconTerminal:15}}</span>Terminals</span><span><span class="tab-ico board">{{IconBoard:15}}</span>Board</span></div></div>
+        <div class="host-bar"><div class="host-tabs"><span class="on"><span class="tab-ico agents">{{IconAgent:15}}</span>Agents</span><span><span class="tab-ico terminals">{{IconTerminal:15}}</span>Terminals</span><span><span class="tab-ico calls">{{IconMessage:15}}</span>Calls</span></div></div>
         <div class="pad grow">
           <div class="empty-state"><span class="prompt-glyph small">{{IconAgent:20}}</span>No agents running.</div>
         </div>
@@ -1910,7 +1959,7 @@
       <div class="screen">
         <div class="nav"><span class="back">{{IconChevron:18}}<b class="host">MacBook Pro</b><i class="off"></i></span><span style="flex:1"></span><span class="new-chat">{{IconPlus:20}}</span><span class="icon-btn">{{IconMore:18}}</span></div>
         <div class="host-head"><div class="where"><i class="off"></i>Reconnecting…</div><h1>MacBook Pro</h1></div>
-        <div class="host-bar"><div class="host-tabs"><span class="on"><span class="tab-ico agents">{{IconAgent:15}}</span>Agents <i class="count">1</i></span><span><span class="tab-ico terminals">{{IconTerminal:15}}</span>Terminals</span></div></div>
+        <div class="host-bar"><div class="host-tabs"><span class="on"><span class="tab-ico agents">{{IconAgent:15}}</span>Agents</span><span><span class="tab-ico terminals">{{IconTerminal:15}}</span>Terminals</span><span><span class="tab-ico calls">{{IconMessage:15}}</span>Calls <i class="count">1</i></span></div></div>
         <div class="pad grow" style="opacity:.5">
           <div class="rows">
             <div class="row"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Remote pairing screen</div></div><span class="row-name">@Otter</span><span class="status-slot"><span class="dot warn"></span></span></div>
@@ -2099,43 +2148,32 @@
 
 <!-- ================================================================ -->
 <section class="flow on-host">
-  <h2>The board</h2>
-  <p>Each project's board, the one agents plan their work on and Auto runs, read on the phone. Board joins Agents and Terminals on the host's bar. It only reads: cards move on the Mac, or by the agents themselves.</p>
+  <h2>The calls</h2>
+  <p>Calls take the board's place on the host's bar: Agents, Terminals and Calls. A call is anything an agent cannot settle without the person, a question, a choice of taste, money, access or a step to production, which the core raises once and every app shows the same. The board stays on the Mac.</p>
   <div class="phones">
 
     <figure><div class="phone"><div class="island"></div>
       <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
       <div class="screen">
-        <div class="nav"><span class="back">{{IconChevron:18}}<b class="host">MacBook Pro</b><i class="live"></i></span><span style="flex:1"></span>sikemux</span><span class="new-chat">{{IconPlus:20}}</span><span class="icon-btn">{{IconMore:18}}</span></div>
+        <div class="nav"><span class="back">{{IconChevron:18}}<b class="host">MacBook Pro</b><i class="live"></i></span><span style="flex:1"></span><span class="new-chat">{{IconPlus:20}}</span><span class="icon-btn">{{IconMore:18}}</span></div>
         <div class="host-head"><h1 class="pick">sikemux<span class="ch">{{IconChevron:16}}</span></h1><div class="where">5 agents · 2 terminals</div></div>
-        <div class="host-bar"><div class="host-tabs"><span><span class="tab-ico agents">{{IconAgent:15}}</span>Agents <i class="count">2</i></span><span><span class="tab-ico terminals">{{IconTerminal:15}}</span>Terminals</span><span class="on"><span class="tab-ico board">{{IconBoard:15}}</span>Board</span></div></div>
+        <div class="host-bar"><div class="host-tabs"><span><span class="tab-ico agents">{{IconAgent:15}}</span>Agents</span><span><span class="tab-ico terminals">{{IconTerminal:15}}</span>Terminals</span><span class="on"><span class="tab-ico calls">{{IconMessage:15}}</span>Calls <i class="count">2</i></span></div></div>
         <div class="pad grow">
-          <div class="glabel">Triggers <span class="n">1</span></div>
           <div class="rows">
-            <div class="row"><span class="mark" style="color:var(--cmd)">{{IconTimer:18}}</span><div class="body"><div class="t">Morning issue triage</div><div class="s">weekdays · next Thu 9:00 AM</div></div></div>
+            <div class="row"><span class="mark codex">{{IconCodex:20}}</span><div class="body"><div class="t">Should amounts be stored in cents or as decimals?</div></div><span class="call-end">sikemux</span><span class="turn-mins warn">12m</span></div>
+            <div class="row"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Ship the pairing screen to production?</div></div><span class="call-end">sikemux</span><span class="turn-mins warn">4m</span></div>
           </div>
-          <div class="glabel">Needs you <span class="n">1</span></div>
+          <div class="glabel">Answered</div>
           <div class="rows">
-            <div class="row"><span class="mark codex">{{IconCodex:20}}</span><div class="body"><div class="t">Store amounts in cents</div><div class="s asked"><b>@Maple</b> asks: Should amounts be stored in cents or as decimals? The API sends decimals but the ledger table uses integers.</div><div class="s"><b>@Maple</b> · <span class="m">PROJ-14</span> Story</div></div><span class="status-slot"><span class="dot warn"></span></span></div>
-          </div>
-          <div class="glabel">In progress <span class="n">3</span></div>
-          <div class="rows">
-            <div class="row"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Round invoice totals once</div><div class="s asked">Lark, on codex, reviews it blind</div><div class="s"><b>@Comet</b> · <span class="m">PROJ-16</span> Bug</div></div><span class="status-slot"><span class="loader"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></span></div>
-            <div class="row"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Move the ledger import</div><div class="s"><b>@Otter</b> · <span class="m">PROJ-12</span> Epic · <span class="m">1/3</span></div></div><span class="status-slot"><span class="loader"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></span></div>
-            <div class="row"><span class="mark codex">{{IconCodex:20}}</span><div class="body"><div class="t">Backfill the old invoices</div><div class="s"><b>@Wren</b> · under <span class="m">PROJ-12</span> · ⛓ after Move the ledger…</div></div><span class="status-slot"><span class="loader"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></span></div>
-          </div>
-          <div class="glabel">Open <span class="n">1</span></div>
-          <div class="rows">
-            <div class="row"><span class="mark nobody"><span class="hollow"></span></span><div class="body"><div class="t">Show amounts in the account currency</div><div class="s asked">Done when: every total shows in the account's currency with its symbol, and the ledger still stores cents.</div><div class="s">Nobody yet · <span class="m">PROJ-15</span> Story</div></div><span class="status-slot"></span></div>
-          </div>
-          <div class="glabel">Done <span class="n">1</span></div>
-          <div class="rows">
-            <div class="row done"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Migration for the amounts table</div><div class="s"><b>@Comet</b> · under <span class="m">PROJ-12</span></div></div><span class="status-slot"><span class="check-done">{{IconCheck:13}}</span></span></div>
+            <div class="row"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Ship the web fix to production?</div></div><span class="call-end">shipped · healthy</span></div>
+            <div class="row"><span class="mark codex">{{IconCodex:20}}</span><div class="body"><div class="t">Which empty state for the inbox?</div></div><span class="call-end">“Quiet line”</span></div>
+            <div class="row"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Paste the staging database password</div></div><span class="call-end">answered, kept private</span></div>
+            <div class="row"><span class="mark codex">{{IconCodex:20}}</span><div class="body"><div class="t">Retry the flaky upload test once more?</div></div><span class="call-end">handed back</span></div>
           </div>
         </div>
       </div>
       <div class="home-bar"></div></div>
-      <figcaption><b>One project</b><div class="note">The board's triggers come first, each with the Mac's pink timer, what it is for, and how often it fires and when next; each time one fires it adds a card, as if you added it, which Auto carries when it is on. They are removed on the Mac. The Mac's four columns become groups, Needs you first: a card whose agent waits on your answer, with the question in two lines, or one Auto handed back. Then In progress, Open and Done. A card leads with its owner's mark and its title; the line under it names the owner, then the ticket key and its type, or the ticket it is filed under, its cards done out of those under it, and the card it waits for. The end shows the owner's state as the agents list does, and a check once it is done. A card nobody has taken yet says so. While Auto has an agent on another CLI review a card before it merges, the card stays In progress and reads that agent's name and CLI in two lines above its owner's. Otherwise a card with acceptance criteria, which only the person writes on the Mac, shows them there as Done when:, read only. Tapping a card whose agent is still open opens its chat. Cards the Mac's board has put aside in Later are left out, as there, and so are the cards under a card in its count.</div></figcaption>
+      <figcaption><b>Calls</b><div class="note">The calls the host puts to the person, in the project in view: those open first, newest first, each one line, the asker's mark and the question, then the project and how long it has waited in amber. The project's chief asks with Sikemux's S in the accent. Then Answered, the calls settled lately, each saying at its end what came of it: shipped · healthy, not shipped, it failed, may have run, Sikemux restarted, handed back, went on without you, answered, kept private, in your words, as picked, or the option chosen in quotes. A row opens its asker's chat, where an open call docks above the composer to be answered. The tab's count is the calls open here. The phone keeps no list of its own: it shows what the host's view sends.</div></figcaption>
     </figure>
 
     <figure><div class="phone"><div class="island"></div>
@@ -2143,42 +2181,18 @@
       <div class="screen">
         <div class="nav"><span class="back">{{IconChevron:18}}<b class="host">MacBook Pro</b><i class="live"></i></span><span style="flex:1"></span><span class="new-chat">{{IconPlus:20}}</span><span class="icon-btn">{{IconMore:18}}</span></div>
         <div class="host-head"><h1 class="pick">All projects<span class="ch">{{IconChevron:16}}</span></h1><div class="where">5 agents · 2 terminals</div></div>
-        <div class="host-bar"><div class="host-tabs"><span><span class="tab-ico agents">{{IconAgent:15}}</span>Agents <i class="count">2</i></span><span><span class="tab-ico terminals">{{IconTerminal:15}}</span>Terminals</span><span class="on"><span class="tab-ico board">{{IconBoard:15}}</span>Board</span></div></div>
+        <div class="host-bar"><div class="host-tabs"><span><span class="tab-ico agents">{{IconAgent:15}}</span>Agents</span><span><span class="tab-ico terminals">{{IconTerminal:15}}</span>Terminals</span><span class="on"><span class="tab-ico calls">{{IconMessage:15}}</span>Calls</span></div></div>
         <div class="pad grow">
-          <div class="glabel">Boards</div>
+          <div class="calls-none">Nothing waits on you.</div>
+          <div class="glabel">Answered</div>
           <div class="rows">
-            <div class="row"><span class="mark folder">{{IconFolder:18}}</span><div class="body"><div class="t">sikemux</div><div class="s">1 needs you · 2 in progress · 1 open · 1 done</div></div><span class="status-slot"><span class="dot warn"></span></span></div>
-            <div class="row"><span class="mark folder">{{IconFolder:18}}</span><div class="body"><div class="t">sikemux-front</div><div class="s">3 open</div></div><span class="status-slot"></span></div>
+            <div class="row"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Deploy the docs to staging?</div></div><span class="call-end">not shipped</span></div>
+            <div class="row"><span class="mark codex">{{IconCodex:20}}</span><div class="body"><div class="t">Rename the ledger column now or after the import?</div></div><span class="call-end">went on without you</span></div>
           </div>
         </div>
       </div>
       <div class="home-bar"></div></div>
-      <figcaption><b>All projects</b><div class="note">Unscoped, each project with cards is one row counting its cards by group, with the amber dot when one needs you. Tapping it scopes the device to that project, as the picker does.</div></figcaption>
-    </figure>
-
-    <figure><div class="phone"><div class="island"></div>
-      <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
-      <div class="screen">
-        <div class="nav"><span class="back">{{IconChevron:18}}<b class="host">MacBook Pro</b><i class="live"></i><span class="sl">/</span><b class="host">sikemux</b><span class="ch">{{IconChevron:12}}</span></span><span style="flex:1"></span><span class="new-chat">{{IconPlus:20}}</span><span class="icon-btn">{{IconMore:18}}</span></div>
-        <div class="host-bar"><div class="host-tabs"><span><span class="tab-ico agents">{{IconAgent:15}}</span>Agents <i class="count">2</i></span><span><span class="tab-ico terminals">{{IconTerminal:15}}</span>Terminals</span><span class="on"><span class="tab-ico board">{{IconBoard:15}}</span>Board</span></div></div>
-        <div class="pad grow">
-          <div class="glabel">Done <span class="n">1</span></div>
-          <div class="rows">
-            <div class="row done"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Migration for the amounts table</div><div class="s"><b>@Comet</b> · under <span class="m">PROJ-12</span></div></div><span class="status-slot"><span class="check-done">{{IconCheck:13}}</span></span></div>
-          </div>
-          <div class="glabel">Between agents</div>
-          <div class="rows">
-            <div class="row"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">@Otter to @Flint</div><div class="s">Message · Read mid-turn</div></div><span class="ago">1m</span></div>
-            <div class="row"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">@Comet to @Otter</div><div class="s">Question · <span class="held">Waiting</span></div></div><span class="ago">3m</span></div>
-            <div class="row"><span class="mark codex">{{IconCodex:20}}</span><div class="body"><div class="t">@Flint to @Otter</div><div class="s">Report · Started a turn</div></div><span class="ago">9m</span></div>
-            <div class="row"><span class="mark codex">{{IconCodex:20}}</span><div class="body"><div class="t">@Maple to @Flint</div><div class="s">Answer · Delivered after waiting</div></div><span class="ago">14m</span></div>
-            <div class="row"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">@Otter to @Comet</div><div class="s">Message · <span class="failed">Dropped unread</span></div></div><span class="ago">31m</span></div>
-            <div class="row"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">@Otter to @Maple</div><div class="s">Message · <span class="failed">Refused</span></div></div><span class="ago">52m</span></div>
-          </div>
-        </div>
-      </div>
-      <div class="home-bar"></div></div>
-      <figcaption><b>Between agents</b><div class="note">Under a project's cards, the messages its agents sent each other, newest first: the sender's mark, who sent it to whom, what it was and what became of it, and how long ago it was sent. A message that waited and then got through is one row. One still waiting, or taken back to wait again, reads Waiting in the warning colour; one refused or dropped unread reads in red. The host keeps no text of them, so a row only tells; it opens nothing. The newest twenty show, and the list reads again whenever the host logs another.</div></figcaption>
+      <figcaption><b>Nothing open</b><div class="note">With no call open, the tab says Nothing waits on you. and carries no count; what was answered stays under it. Unscoped, every project's calls show, each row naming its project.</div></figcaption>
     </figure>
 
   </div>
@@ -2195,7 +2209,7 @@
       <div class="screen">
         <div class="nav"><span class="back">{{IconChevron:18}}<b class="host">MacBook Pro</b><i class="live"></i></span><span style="flex:1"></span><span class="new-chat">{{IconPlus:20}}</span><span class="icon-btn">{{IconMore:18}}</span></div>
         <div class="host-head"><h1 class="pick">All projects<span class="ch">{{IconChevron:16}}</span></h1><div class="where">Dev · 4 agents · 3 terminals</div></div>
-        <div class="host-bar"><div class="host-tabs"><span class="on"><span class="tab-ico agents">{{IconAgent:15}}</span>Agents <i class="count">1</i></span><span><span class="tab-ico terminals">{{IconTerminal:15}}</span>Terminals</span></div></div>
+        <div class="host-bar"><div class="host-tabs"><span class="on"><span class="tab-ico agents">{{IconAgent:15}}</span>Agents</span><span><span class="tab-ico terminals">{{IconTerminal:15}}</span>Terminals</span><span><span class="tab-ico calls">{{IconMessage:15}}</span>Calls <i class="count">1</i></span></div></div>
         <div class="pad grow">
           <div class="rows">
             <div class="row"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Remote pairing screen</div><div class="s"><span class="place">{{IconFolder:11}}</span>sikemux</div></div><span class="row-name">@Otter</span><span class="status-slot"><span class="dot warn"></span></span></div>
@@ -2214,7 +2228,7 @@
       <div class="screen">
         <div class="nav"><span class="back">{{IconChevron:18}}<b class="host">MacBook Pro</b><i class="live"></i></span><span style="flex:1"></span></div>
         <div class="host-head"><h1 class="pick">All projects<span class="ch">{{IconChevron:16}}</span></h1><div class="where">Dev · 4 agents · 3 terminals</div></div>
-        <div class="host-bar"><div class="host-tabs"><span class="on"><span class="tab-ico agents">{{IconAgent:15}}</span>Agents <i class="count">1</i></span><span><span class="tab-ico terminals">{{IconTerminal:15}}</span>Terminals</span></div></div>
+        <div class="host-bar"><div class="host-tabs"><span class="on"><span class="tab-ico agents">{{IconAgent:15}}</span>Agents</span><span><span class="tab-ico terminals">{{IconTerminal:15}}</span>Terminals</span><span><span class="tab-ico calls">{{IconMessage:15}}</span>Calls <i class="count">1</i></span></div></div>
         <div class="scrim"></div>
         <div class="sheet project-sheet scope-sheet">
           <div class="grabber"></div>
@@ -2238,7 +2252,7 @@
       <div class="screen">
         <div class="nav"><span class="back">{{IconChevron:18}}<b class="host">MacBook Pro</b><i class="live"></i></span><span style="flex:1"></span><span class="new-chat">{{IconPlus:20}}</span><span class="icon-btn">{{IconMore:18}}</span></div>
         <div class="host-head"><h1 class="pick">sikemux<span class="claude">{{IconClaude:14}}</span><span class="ch">{{IconChevron:16}}</span></h1><div class="where">Dev · 4 agents · 3 terminals</div></div>
-        <div class="host-bar"><div class="host-tabs"><span class="on"><span class="tab-ico agents">{{IconAgent:15}}</span>Agents <i class="count">1</i></span><span><span class="tab-ico terminals">{{IconTerminal:15}}</span>Terminals</span></div></div>
+        <div class="host-bar"><div class="host-tabs"><span class="on"><span class="tab-ico agents">{{IconAgent:15}}</span>Agents</span><span><span class="tab-ico terminals">{{IconTerminal:15}}</span>Terminals</span><span><span class="tab-ico calls">{{IconMessage:15}}</span>Calls <i class="count">1</i></span></div></div>
         <div class="pad grow">
           <div class="rows">
             <div class="row"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Remote pairing screen</div></div><span class="row-name">@Otter</span><span class="status-slot"><span class="dot warn"></span></span></div>
@@ -2264,7 +2278,7 @@
       <div class="screen">
         <div class="nav"><span class="back">{{IconChevron:18}}<b class="host">MacBook Pro</b><i class="live"></i></span><span style="flex:1"></span>sikemux</span><span class="new-chat">{{IconPlus:20}}</span><span class="icon-btn">{{IconMore:18}}</span></div>
         <div class="host-head"><h1 class="pick">sikemux<span class="ch">{{IconChevron:16}}</span></h1><div class="where">Dev · 4 agents · 3 terminals</div></div>
-        <div class="host-bar"><div class="host-tabs"><span class="on"><span class="tab-ico agents">{{IconAgent:15}}</span>Agents <i class="count">1</i></span><span><span class="tab-ico terminals">{{IconTerminal:15}}</span>Terminals</span></div></div>
+        <div class="host-bar"><div class="host-tabs"><span class="on"><span class="tab-ico agents">{{IconAgent:15}}</span>Agents</span><span><span class="tab-ico terminals">{{IconTerminal:15}}</span>Terminals</span><span><span class="tab-ico calls">{{IconMessage:15}}</span>Calls <i class="count">1</i></span></div></div>
         <div class="pad grow">
           <div class="rows">
             <div class="row"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Remote pairing screen</div></div><span class="row-name">@Otter</span><span class="status-slot"><span class="dot warn"></span></span></div>
@@ -2329,6 +2343,41 @@
     <figure><div class="phone"><div class="island"></div>
       <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
       <div class="screen">
+        <div class="nav"><span class="back">{{IconChevron:18}}</span><span class="mid"><span class="codex">{{IconCodex:17}}</span><span class="named"><b>@Flint</b><i>·</i><em>Fix the flaky PTY replay test</em></span></span><span class="icon-btn">{{IconMoreVertical:16}}</span></div>
+        <div class="chat">
+          <div class="msg-user">Good. Run the whole terminal suite, then commit it.</div>
+          <div class="prose">Every terminal test passes, 41 of them, and the fix is committed as fix(pty): drop channel bytes inside the snapshot.</div>
+          <div class="tools">
+            <span class="tools-sum">3 tool calls <span class="time">7s</span>{{IconChevron:11}}</span>
+          </div>
+          <div class="turn-line"><span class="tl-mark"><span class="dot acc"></span></span><span class="turn-words"><b class="done">Done</b><i>·</i><span class="p1">committed</span><i>·</i><span class="p2">41 tests pass</span></span><span class="step go">Push</span></div>
+          <div class="turn-states">
+            <div class="turn-line"><span class="tl-mark"><span class="tl-timer">{{IconTimer:14}}</span></span><span class="turn-words"><b class="wait">Waiting on CI</b><i>·</i><span class="p1">4 of ~7 min</span></span></div>
+            <div class="turn-line"><span class="tl-mark"><span class="dot acc"></span></span><span class="turn-words"><b class="done">Done</b><i>·</i><span class="p1">landed</span><i>·</i><span class="p2">checks pass</span></span><span class="step go">Deploy to staging</span></div>
+            <div class="turn-line"><span class="tl-mark"><span class="dot acc"></span></span><span class="turn-words"><b class="done">Done</b><i>·</i><span class="p1">on staging</span></span><span class="step">Ship to production…</span></div>
+            <div class="turn-line"><span class="tl-mark"><span class="dot hollow"></span></span><span class="turn-words"><b class="stopped">Stopped</b><i>·</i><span class="p1">nothing set to wake it</span></span><span class="step">Carry on</span></div>
+          </div>
+        </div>
+        <div class="composer-wrap">
+          <div class="composer">
+            <div class="ta ph">Message @Flint</div>
+            <div class="bar">
+              <span class="ib">{{IconPlus:18}}</span>
+              <span class="yolo on">{{IconShieldBolt:13}}<b>yolo</b></span>
+              <span class="picker model"><span class="codex">{{IconCodex:16}}</span>GPT-5.5<span class="ch">{{IconChevron:10}}</span></span>
+              <span class="spacer"></span>
+              <span class="send off">{{IconArrowUp:16}}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="home-bar"></div></div>
+      <figcaption><b>The turn's last line</b><div class="note">A chat's last line is how its turn stands, in the Mac's words, after the state's mark, one set everywhere (the agent's working squares, the pink timer of a wait, the amber dot of a call, the purple dot once done, a hollow ring once stopped): Done · committed · 41 tests pass; Waiting on CI · 4 of ~7 min; Waiting on @Otter; Waiting until 14:30; Needs you · the question · 12 min; Stopped · nothing set to wake it. The word takes its mark's colour (purple done, pink waiting, amber needs you, grey stopped, the ink for Working, which shows only while the agent names the step it is on; while it names none, the live line says what it is doing, as before). The next step sits on the same row as a button, the one the core marks primary filled: Commit, Push, Deploy to staging, Roll back, Try it; Stopped offers Carry on, and Needs you offers Look. A step to production, Ship to production…, raises its call, which docks on the chat to be answered. A failed turn's line is the trouble card's, as before. The rows under the first line here show the other states one after another; a chat shows one. A watching phone shows the line without its buttons.</div></figcaption>
+    </figure>
+
+    <figure><div class="phone"><div class="island"></div>
+      <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
+      <div class="screen">
         <div class="nav"><span class="back">{{IconChevron:18}}</span><span class="mid"><span class="claude">{{IconClaude:17}}</span><span class="named"><b>@Otter</b><i>·</i><em>Remote pairing screen</em></span></span><span class="icon-btn">{{IconMoreVertical:16}}</span></div>
         <div class="chat">
           <div class="prose">The pairing screen builds and the Devices page shows the waiting phone. Before I commit, I want the settings tests green.</div>
@@ -2367,9 +2416,9 @@
     <figure><div class="phone"><div class="island"></div>
       <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
       <div class="screen">
-        <div class="nav"><span class="back">{{IconChevron:18}}</span><span class="mid"><span class="claude">{{IconClaude:17}}</span><span class="named"><b>@Otter</b><i>·</i><em>Ship the web fix to dev</em></span></span><span class="icon-btn">{{IconMoreVertical:16}}</span></div>
+        <div class="nav"><span class="back">{{IconChevron:18}}</span><span class="mid"><span class="claude">{{IconClaude:17}}</span><span class="named"><b>@Otter</b><i>·</i><em>Ship the pairing screen</em></span></span><span class="icon-btn">{{IconMoreVertical:16}}</span></div>
         <div class="chat">
-          <div class="prose">The fix is on main and CI is green. Deploying it to dev so you can try it.</div>
+          <div class="prose">The fix is on main and CI is green on it. Shipping it needs your go.</div>
           <div class="tools">
             <span class="tools-sum open">2 tool calls <span class="time">1s</span>{{IconChevron:11}}</span>
             <div class="tools-body">
@@ -2377,13 +2426,16 @@
               <div class="tool"><span class="tick"></span><span class="k-edit">{{IconPencil:12}}</span><span class="kind k-edit">edit</span><span class="target">PairingQr.tsx</span><span class="end"><span class="add">+18</span><span class="del">−4</span></span></div>
             </div>
           </div>
+
         </div>
         <div class="composer-wrap">
-          <div class="docked">
-            <div class="docked-head">{{IconShieldBolt:16}}<div><b>Deploy?</b><span>Sikemux held this until you allow it</span></div></div>
-            <div class="dock-cmd long">rundeck_run {"job":"dev/backend/marketingiq-web","options":{"BRANCH":"main"}}</div>
-            <div class="docked-acts"><span class="go">Always allow dev/*</span></div>
-            <div class="docked-acts"><span>Refuse</span><span>Allow once</span></div>
+          <div class="call">
+            <div class="call-who"><span class="claude">{{IconClaude:20}}</span><b>@Otter</b><i>·</i><span>4m ago</span></div>
+            <div class="call-q">Ship the pairing screen to production?</div>
+            <div class="call-ctx">Tried on staging for an hour with no errors. It changes how every phone pairs. A rollback takes about four minutes.</div><div class="call-evidence"><span>staging · Devices</span></div>
+            <div class="call-opts"><div class="call-opt on"><span class="call-radio on"></span><span class="call-lbl"><span>Ship it to everyone</span></span><span class=call-pick>{{Logo:13}}pick</span></div><div class="call-opt"><span class="call-radio"></span><span class="call-lbl"><span>Ship to half first</span></span></div><div class="call-opt"><span class="call-radio"></span><span class="call-lbl"><span>Not yet</span></span></div><div class="call-field">{{IconPencil:13}}<span>Add a note…</span></div></div>
+            <div class="call-against"><span>Against it:</span> new phones pair through the QR only until the app updates.</div><div class="call-extras"><span class="call-runs open">{{IconChevron:11}}What runs</span></div><div class="call-cmd">vercel deploy --prod</div>
+            <div class="call-go">Go with this</div>
           </div>
           <div class="composer">
             <div class="ta ph">Send to steer this turn</div>
@@ -2391,16 +2443,14 @@
               <span class="ib">{{IconPlus:18}}</span>
               <span class="yolo">{{IconShield:13}}<b style="font-weight:560">safe</b></span>
               <span class="picker model"><span class="claude">{{IconClaude:16}}</span>Opus 4.6<span class="ch">{{IconChevron:10}}</span></span>
-              <span class="picker">High<span class="ch">{{IconChevron:10}}</span></span>
-              <span class="ring"><i class="ctx claude" style="--p:42"></i></span>
               <span class="spacer"></span>
-              <span class="send"><i></i></span>
+              <span class="send off">{{IconArrowUp:16}}</span>
             </div>
           </div>
         </div>
       </div>
       <div class="home-bar"></div></div>
-      <figcaption><b>An action held for you</b><div class="note">An agent's push, merge, deploy or write that leaves the host waits in the same card above the composer, titled by what it does (Push commits?, Deploy?, Publish?), with the exact command or tool call. Where the host offers to always allow what it lands in, such as dev/* or Vercel previews, that leads, white, on a row of its own so a long name fits; Refuse and Allow once sit under it. Otherwise Allow once is the white one. Allowing a tool call runs it on the host and the agent gets what it answered. Several waiting page like permission requests. A permission request, when there is one, comes first. A watch-only phone doesn't show it.</div></figcaption>
+      <figcaption><b>A step to production</b><div class="note">An agent's push, merge, deploy or write that leaves the host is a call too, docked the same way. A step to production adds its brief as the context (what was tried, what it shows, what cannot be undone), the evidence's picture from its top, the point against it, and What runs folded: a tap shows the exact command or tool call in the code face. Not mine sits at the right of that row on a call that can be handed back to the asker's lead, which a step to production never is. Nothing typed in the composer answers a step to production, so the composer keeps no chip and sends to the agent as usual. An agent's own permission prompt keeps its dock, Deny and Allow, and comes first when both wait.</div></figcaption>
     </figure>
 
     <figure><div class="phone"><div class="island"></div>
@@ -2742,21 +2792,23 @@
       <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
       <div class="screen">
         <div class="nav"><span class="back">{{IconChevron:18}}</span><span class="mid"><span class="codex">{{IconCodex:17}}</span><span class="named"><b>@Maple</b><i>·</i><em>Move the ledger import</em></span></span><span class="icon-btn">{{IconMoreVertical:16}}</span></div>
-        <div class="chat" style="justify-content:flex-start">
+        <div class="chat">
           <div class="from"><div class="from-head"><span class="claude">{{IconClaude:17}}</span><b>@Otter</b><span class="when">11:40</span></div><div class="msg-theirs">Take PROJ-12: move the ledger import onto the new amounts table. Ask me if anything about the data is unclear.</div></div>
           <div class="work"><span class="work-sum"><span class="codex">{{IconCodex:17}}</span>Worked for 41s <span class="calls">· 6 tool calls</span>{{IconChevron:10}}</span></div>
-          <div class="ask-who"><span class="codex">{{IconCodex:14}}</span><span><b>@Maple</b> asks you · @Otter raised this</span><span class="ticket">PROJ-12</span><span class="fold">{{IconChevron:10}}</span></div>
-          <div class="prose" style="margin-top:0">Should amounts be stored in cents or as decimals? The API sends decimals but the ledger table uses integers.</div>
-          <div class="ask-options">
-            <div class="ask-option pressed"><span class="key radio"></span><span>Cents<span class="rec">recommended</span> <span class="why">integers, no rounding errors</span></span></div>
-            <div class="ask-option"><span class="key radio"></span><span>Decimals <span class="why">same as the API</span></span></div>
-            <div class="ask-option other"><span class="key">{{IconPencil:12}}</span><span>Something else…</span></div>
-          </div>
+          <div class="turn-line"><span class="tl-mark"><span class="dot warn"></span></span><span class="turn-words"><b class="needs">Needs you</b><i>·</i><span class="p2">12 min</span></span></div>
         </div>
         <div class="composer-wrap">
+          <div class="call">
+            <div class="call-who"><span class="codex">{{IconCodex:20}}</span><b>@Maple</b><i>·</i><span>12m ago</span></div>
+            <div class="call-q">Should amounts be stored in cents or as decimals?</div>
+            <div class="call-ctx">The API sends decimals but the ledger table uses integers.</div>
+            <div class="call-opts"><div class="call-opt on"><span class="call-radio on"></span><span class="call-lbl"><span>Cents</span><em>integers, no rounding errors</em></span><span class=call-pick>{{Logo:13}}pick</span></div><div class="call-opt"><span class="call-radio"></span><span class="call-lbl"><span>Decimals</span><em>same as the API</em></span></div><div class="call-field">{{IconPencil:13}}<span>Add a note…</span></div></div>
+            
+            <div class="call-go">Go with this</div>
+          </div>
           <div class="composer">
             <div class="answering"><span class="codex">{{IconCodex:13}}</span><span>Answering @Maple · Should amounts be stored in cents or as decimals?</span><i class="x">{{IconClose:10}}</i></div>
-            <div class="ta ph">Answer @Maple</div>
+            <div class="ta ph">Or type your answer to @Maple</div>
             <div class="bar">
               <span class="ib">{{IconPlus:18}}</span>
               <span class="yolo on">{{IconShieldBolt:13}}<b>yolo</b></span>
@@ -2768,72 +2820,10 @@
         </div>
       </div>
       <div class="home-bar"></div></div>
-      <figcaption><b>An agent asks you</b><div class="note">An agent asked the person something with ask, or its lead passed the question on. It reads as the agent's prose under one small line naming who asks, and why it reached the person rather than its lead, with the ticket of the board card the agent works at the end, then its answers as rows with the Mac's ring before each, lit under a finger as the Mac's tool rows are. An answer the agent marked as the one it would pick carries a faint recommended after its words. No card and no warning colour: it is part of the conversation. Tapping an answer sends it; the first answer anywhere wins and the rows go from every screen. The chevron at the end of the asking line folds the question into one line, as below. While a question is open the composer carries an Answering @Maple chip, so whatever is typed answers it. A watching phone shows the question without the rows.</div></figcaption>
+      <figcaption><b>A call, docked</b><div class="note">An agent's question is a call now, and so is anything else it cannot settle without the person. The oldest call an agent waits on docks on its chat above the composer, as the Mac's call card does, a little tighter: who asks and how long ago, the question, its context in two lines, then the options in one block of 44-point rows with a ring before each. The asker's pick is chosen to start with and carries the S and pick; a tap chooses another and a tap on the chosen one clears it. The block's last row is the note field, or with nothing chosen the person's own answer. Go with this runs across the card's foot and sends answerCall. There is no Open chat: the chat is open. The composer carries Answering @Maple · the question, and reads Or type your answer to @Maple, so whatever is sent answers the call; × takes the chip off and the composer sends normal messages again. The card tells the host it was seen as it draws. The first answer anywhere wins and the card goes from every screen. Over the docked card the chat's last line says only Needs you and how long the call has waited; where no card docks, it also says the question and offers Look. In the chief's chat, the card's asker is @Chief with Sikemux's S. A watching phone shows the card without the means to answer.</div></figcaption>
     </figure>
 
-    <figure><div class="phone"><div class="island"></div>
-      <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
-      <div class="screen">
-        <div class="nav"><span class="back">{{IconChevron:18}}</span><span class="mid"><span class="codex">{{IconCodex:17}}</span><span class="named"><b>@Maple</b><i>·</i><em>Move the ledger import</em></span></span><span class="icon-btn">{{IconMoreVertical:16}}</span></div>
-        <div class="chat" style="justify-content:flex-start">
-          <div class="prose">The import reads cleanly now. Three things decide how the old rows move over.</div>
-          <div class="ask-who"><span class="codex">{{IconCodex:14}}</span><span><b>@Maple</b> asks you</span><span class="ticket">PROJ-12</span><span class="fold">{{IconChevron:10}}</span></div>
-          <div class="ask-tabs">
-            <span class="ask-tab">{{IconCheck:11}}Amounts</span>
-            <span class="ask-tab on"><span class="n">2</span>Old rows</span>
-            <span class="ask-tab"><span class="n">3</span>Rounding</span>
-          </div>
-          <div class="prose" style="margin-top:0">Which of the old rows should move over? <span class="ask-pick">Pick any.</span></div>
-          <div class="ask-options">
-            <div class="ask-option chosen"><span class="key tick on">{{IconCheck:10}}</span><span>Paid invoices<span class="rec">recommended</span></span></div>
-            <div class="ask-option chosen"><span class="key tick on">{{IconCheck:10}}</span><span>Refunds <span class="why">kept as negative amounts</span></span></div>
-            <div class="ask-option"><span class="key tick"></span><span>Drafts <span class="why">never sent to anyone</span></span></div>
-            <div class="ask-option other"><span class="key">{{IconPencil:12}}</span><span>Something else…</span></div>
-          </div>
-          <div class="ask-send"><span class="chip off">Send</span></div>
-        </div>
-        <div class="composer-wrap">
-          <div class="composer">
-            <div class="answering"><span class="codex">{{IconCodex:13}}</span><span>Answering @Maple · Which of the old rows should move over?</span><i class="x">{{IconClose:10}}</i></div>
-            <div class="ta ph">Answer @Maple</div>
-            <div class="bar">
-              <span class="ib">{{IconPlus:18}}</span>
-              <span class="yolo on">{{IconShieldBolt:13}}<b>yolo</b></span>
-              <span class="picker model"><span class="codex">{{IconCodex:16}}</span>GPT-5.5<span class="ch">{{IconChevron:10}}</span></span>
-              <span class="spacer"></span>
-              <span class="send off">{{IconArrowUp:16}}</span>
-            </div>
-          </div>
-        </div>
-      </div>
-      <div class="home-bar"></div></div>
-      <figcaption><b>Several questions at once</b><div class="note">An agent asked several things together, as Claude's question tool and ask both can. A row of tabs sits under the asking line, one for each question, named by the two or three words the agent gave it, else Question 1, 2 and so on, with its number until it has an answer and a check after. Tapping a tab shows that question. Picking an answer holds it and moves on to the next question still without one; nothing is sent until each has an answer, and then Send under the rows sends them all together, so the agent reads every answer in one message. A question that takes several answers says Pick any. after its words, and its rows carry ticks instead of rings: a tap ticks or unticks, and Send sends what is ticked, even when it is the only question. A lone question that takes one answer still sends on the tap. Something else… writes the question's answer in the composer, and once sent there it shows as its own lit row under a pencil, held with the rest. A secret is typed into its own field as before and held too, saying Answer kept, sent with the rest. While the answers go, the rows leave; if the host does not take them, the questions come back with every answer still picked, to send again.</div></figcaption>
-    </figure>
 
-    <figure><div class="phone"><div class="island"></div>
-      <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
-      <div class="screen">
-        <div class="nav"><span class="back">{{IconChevron:18}}</span><span class="mid"><span class="codex">{{IconCodex:17}}</span><span class="named"><b>@Maple</b><i>·</i><em>Move the ledger import</em></span></span><span class="icon-btn">{{IconMoreVertical:16}}</span></div>
-        <div class="chat" style="justify-content:flex-start">
-          <div class="prose">The import reads cleanly now. Three things decide how the old rows move over.</div>
-          <div class="ask-folded"><span>QUESTIONS</span><span class="count">3</span><span class="peek">Amounts · Old rows · Rounding</span>{{IconChevron:10}}</div>
-        </div>
-        <div class="composer-wrap">
-          <div class="composer">
-            <div class="ta ph">Send to queue behind the running turn</div>
-            <div class="bar">
-              <span class="ib">{{IconPlus:18}}</span>
-              <span class="yolo on">{{IconShieldBolt:13}}<b>yolo</b></span>
-              <span class="picker model"><span class="codex">{{IconCodex:16}}</span>GPT-5.5<span class="ch">{{IconChevron:10}}</span></span>
-              <span class="spacer"></span>
-              <span class="send off">{{IconArrowUp:16}}</span>
-            </div>
-          </div>
-        </div>
-      </div>
-      <div class="home-bar"></div></div>
-      <figcaption><b>Questions folded away</b><div class="note">The chevron at the end of the asking line folds the questions into one dim line at the end of the chat: QUESTIONS, how many, and their names. While they are folded the composer has no Answering chip and sends normal messages. A tap on the line opens them again, with the answers already picked still held, and a new question arriving first opens them by itself.</div></figcaption>
-    </figure>
 
     <figure><div class="phone"><div class="island"></div>
       <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
@@ -2845,48 +2835,7 @@
             <div class="msg-user">UTC, and show local time only in the app</div>
           </div>
           <div class="prose">Dates go into the ledger in UTC now. Next, the amounts.</div>
-          <div class="ask-assumed">{{IconCheck:13}}<span><b>@Maple</b> assumed old invoices keep their decimals</span><span>·</span><span class="act">Fine</span><span class="act">Change</span></div>
-          <div class="ask-who"><span class="codex">{{IconCodex:14}}</span><span><b>@Maple</b> asks you</span><span class="fold">{{IconChevron:10}}</span></div>
-          <div class="prose" style="margin-top:0">Should amounts be stored in cents or as decimals?</div>
-          <div class="ask-options">
-            <div class="ask-option"><span class="key radio"></span><span>Cents<span class="rec">recommended</span> <span class="why">integers, no rounding errors</span></span></div>
-            <div class="ask-option"><span class="key radio"></span><span>Decimals <span class="why">same as the API</span></span></div>
-            <div class="ask-option other pressed"><span class="key">{{IconPencil:12}}</span><span>Something else… <span class="why">answering below</span></span></div>
-          </div>
-        </div>
-        <div class="composer-wrap">
-          <div class="composer">
-            <div class="answering"><span class="codex">{{IconCodex:13}}</span><span>Answering @Maple · Should amounts be stored in cents or as decimals?</span><i class="x">{{IconClose:10}}</i></div>
-            <div class="ta">Cents, but convert at the API edge so nothing else changes</div>
-            <div class="bar">
-              <span class="ib">{{IconPlus:18}}</span>
-              <span class="yolo on">{{IconShieldBolt:13}}<b>yolo</b></span>
-              <span class="picker model"><span class="codex">{{IconCodex:16}}</span>GPT-5.5<span class="ch">{{IconChevron:10}}</span></span>
-              <span class="spacer"></span>
-              <span class="send">{{IconArrowUp:16}}</span>
-            </div>
-          </div>
-        </div>
-      </div>
-      <div class="home-bar"></div></div>
-      <figcaption><b>Answering in your own words</b><div class="note">Something else… takes the keyboard to the composer, whose Answering @Maple chip says that what is sent next answers the question rather than starting a turn of its own; × takes the chip off and the composer sends normal messages again. Once answered, the question and its answer read as the conversation they were: the question in the asker's bubble at the left, with its mark beside the first of a run, and the answer in the person's own bubble at the right under it, with any files sent with it above that bubble. A private answer's bubble says Kept private. Another agent's question says @who asked above it. This is also how it reads in the transcript afterwards. A question the agent went on without, on an assumption it stated, is one dim line under a check: Fine tells it the assumption holds, and Change opens the composer with the chip to answer it.</div></figcaption>
-    </figure>
-
-    <figure><div class="phone"><div class="island"></div>
-      <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
-      <div class="screen">
-        <div class="nav"><span class="back">{{IconChevron:18}}</span><span class="mid"><span class="codex">{{IconCodex:17}}</span><span class="named"><b>@Maple</b><i>·</i><em>Move the ledger import</em></span></span><span class="icon-btn">{{IconMoreVertical:16}}</span></div>
-        <div class="chat" style="justify-content:flex-start">
-          <div class="qa">
-            <div class="asked"><span class="mk first codex">{{IconCodex:16}}</span><div class="msg-theirs">What is the API token for the ledger sandbox?</div></div>
-            <div class="msg-user kept">Kept private</div>
-          </div>
-          <div class="prose">The sandbox import ran clean. One more for the staging copy.</div>
-          <div class="ask-who"><span class="codex">{{IconCodex:14}}</span><span><b>@Maple</b> asks you</span><span class="ticket">PROJ-12</span></div>
-          <div class="prose" style="margin-top:0">What is the password for the staging database? I need it to check the migrated amounts.</div>
-          <div class="ask-secret"><span class="field"></span><span class="chip">Send</span></div>
-          <div class="ask-secret-size">12 characters hidden</div>
-          <div class="ask-private">{{IconLock:12}}<span>Kept private. Maple reads it from a file only your account can open, and it never shows in the chat.</span></div>
+          <div class="turn-line"><span class="tl-mark"><span class="loader"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></span><span class="turn-words"><b class="working">Working</b><i>·</i><span class="p1">converting amounts at the API edge</span><i>·</i><span class="p2">48s</span></span></div>
         </div>
         <div class="composer-wrap">
           <div class="composer">
@@ -2902,7 +2851,40 @@
         </div>
       </div>
       <div class="home-bar"></div></div>
-      <figcaption><b>A secret question</b><div class="note">Empty, the field reads "Type or paste the answer". The agent asked for something secret, such as a password or a token, so the question came straight to the person. Under its words sits a field with Send beside it that grows with its lines, so a multi-line paste such as a private key or an env file keeps its line breaks. Its text is never drawn: a line under it says how many lines and characters it holds. Below that is a dim line under a lock saying the answer stays private: the agent reads it from a file only the person's account can open, and it never shows in the chat. The field is never the composer, so the composer keeps no Answering chip and no draft of it, and nothing is corrected, suggested or saved to the keyboard or the password manager. Any answers the agent offered still sit above it as rows. Once sent, the question and its answer read as a conversation, the answer's bubble saying Kept private, here and in the transcript afterwards, never its text. A watching phone shows the question without the field.</div></figcaption>
+      <figcaption><b>Once answered</b><div class="note">Once answered, a call and its answer read as the conversation they were: the question in the asker's bubble at the left, with its mark beside the first of a run, and the answer in the person's own bubble at the right under it, with any files sent with it above that bubble. A private answer's bubble says Kept private. Another agent's question says @who asked above it. This is also how it reads in the transcript afterwards.</div></figcaption>
+    </figure>
+
+    <figure><div class="phone"><div class="island"></div>
+      <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
+      <div class="screen">
+        <div class="nav"><span class="back">{{IconChevron:18}}</span><span class="mid"><span class="claude">{{IconClaude:17}}</span><span class="named"><b>@Comet</b><i>·</i><em>Run the amounts migration</em></span></span><span class="icon-btn">{{IconMoreVertical:16}}</span></div>
+        <div class="chat">
+          <div class="prose">The staging database refuses the old password. I need the new one to run the migration.</div>
+          <div class="turn-line"><span class="tl-mark"><span class="dot warn"></span></span><span class="turn-words"><b class="needs">Needs you</b><i>·</i><span class="p2">1 min</span></span></div>
+        </div>
+        <div class="composer-wrap">
+          <div class="call">
+            <div class="call-who"><span class="claude">{{IconClaude:20}}</span><b>@Comet</b><i>·</i><span>1m ago</span></div>
+            <div class="call-q">Paste the staging database password</div>
+            
+            <div class="call-opts"><div class="call-field">{{IconPencil:13}}<span><span class="sec-dots">••••••••••••</span></span></div></div>
+            <div class="call-kept">Kept private: it never shows in the chat.</div>
+            <div class="call-go">Go with this</div>
+          </div>
+          <div class="composer">
+            <div class="ta ph">Send to steer this turn</div>
+            <div class="bar">
+              <span class="ib">{{IconPlus:18}}</span>
+              <span class="yolo on">{{IconShieldBolt:13}}<b>yolo</b></span>
+              <span class="picker model"><span class="claude">{{IconClaude:16}}</span>Opus 4.6<span class="ch">{{IconChevron:10}}</span></span>
+              <span class="spacer"></span>
+              <span class="send off">{{IconArrowUp:16}}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="home-bar"></div></div>
+      <figcaption><b>A secret, asked</b><div class="note">A call for a secret, such as a password or a token, takes it in a hidden field as the block's only row, and says under it that it is kept private: the agent reads it from a file only the person's account can open, and it never shows in the chat. Nothing is corrected, suggested or saved to the keyboard or the password manager. The composer never answers it, so it keeps no chip. Once sent, the answer's bubble says Kept private, here and in the transcript afterwards.</div></figcaption>
     </figure>
 
     <figure><div class="phone"><div class="island"></div>
@@ -4537,7 +4519,7 @@ expected 1 write, got 2</div>
 <!-- ================================================================ -->
 <section class="flow">
   <h2>Away from the app</h2>
-  <p>An agent stops to ask while the phone is in a pocket. The host seals what happened with a key only this phone has, and Sikemux passes it on without being able to read it. By default a host notifies only while nobody is at it.</p>
+  <p>An agent stops to ask, or a call waits, while the phone is in a pocket. The host seals what happened with a key only this phone has, and Sikemux passes it on without being able to read it. By default a host notifies only while nobody is at it.</p>
   <div class="phones">
 
     <figure><div class="phone" style="background:#000"><div class="island"></div>
@@ -4552,6 +4534,33 @@ expected 1 write, got 2</div>
       </div>
       <div class="home-bar" style="background:#fff"></div></div>
       <figcaption><b>Notification</b><div class="note">Allow or Reject straight from the lock screen; Allow asks for the phone's lock first. On an iPhone both open the app on the chat and answer from there, since iOS gives an app in the background too little time to reach the computer. "Always allow" is left to the chat, where you can see what you would be allowing. Tapping the card opens the chat. A request answered on the computer or another phone takes its card away.</div></figcaption>
+    </figure>
+
+    <figure><div class="phone" style="background:#000"><div class="island"></div>
+      <div class="status" style="color:#fff"><span></span><span class="bars"><i></i><i></i></span></div>
+      <div class="lock">
+        <div class="clock"><div>Friday 2 October</div><div>9:41</div></div>
+        <div class="notif">
+          <div class="h"><span class="appicon">{{Logo:15}}</span>SIKEMUX<span class="t">now</span></div>
+          <div class="b"><b>Which empty state for the inbox?</b><br>@Maple on sikemux · MacBook Pro</div>
+          <div class="acts col"><span>Quiet line</span><span>Count only</span><span>Something else…</span></div>
+        </div>
+      </div>
+      <div class="home-bar" style="background:#fff"></div></div>
+      <figcaption><b>A call, away</b><div class="note">A call reaches the lock screen in its own words: the question as the title, who asks and where under it. Held down, a call of taste offers its options as buttons, the asker's pick first, and Something else… opens a field with Reply to type an answer in. A button opens the app, which sends answerCall over its own connection to the host, or one of its own when it has none, and the card goes once the answer is in; the first answer anywhere wins. Tapping the card opens the asker's chat with the call docked. Only the newest two dozen calls keep their buttons; an older card still opens the app.</div></figcaption>
+    </figure>
+
+    <figure><div class="phone" style="background:#000"><div class="island"></div>
+      <div class="status" style="color:#fff"><span></span><span class="bars"><i></i><i></i></span></div>
+      <div class="lock">
+        <div class="clock"><div>Friday 2 October</div><div>9:41</div></div>
+        <div class="notif">
+          <div class="h"><span class="appicon">{{Logo:15}}</span>SIKEMUX<span class="t">now</span></div>
+          <div class="b"><b>Ship the pairing screen to production?</b><br>@Otter on sikemux · MacBook Pro</div>
+        </div>
+      </div>
+      <div class="home-bar" style="background:#fff"></div></div>
+      <figcaption><b>A step to production, away</b><div class="note">Only a call of taste brings its options to the card; a step to production, like every other call, carries no buttons: tapping it opens the app on the asker's chat, where the call docks with its brief, its evidence and what runs, to be read before it is answered.</div></figcaption>
     </figure>
 
     <figure><div class="phone" style="background:#000"><div class="island"></div>

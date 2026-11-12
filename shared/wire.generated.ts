@@ -4913,6 +4913,11 @@ export interface StashedPrompt {
     id: string;
 }
 
+export interface TakeStepParams {
+    agentId: string;
+    step: TurnStep;
+}
+
 /** The core's calls that name what they take and answer, by method. */
 export interface CoreCalls {
     agentCatalog: { params: NoParams; answer: CatalogAgent[] };
@@ -4962,4 +4967,5 @@ export interface CoreCalls {
     snoozePresets: { params: NoParams; answer: SnoozePreset[] };
     stashPrompt: { params: StashPromptParams; answer: StashedPrompt };
     steerQueued: { params: QueuedParams; answer: null };
+    takeStep: { params: TakeStepParams; answer: null };
 }

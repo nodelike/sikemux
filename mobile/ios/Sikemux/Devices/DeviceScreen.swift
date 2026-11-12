@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// One host: its agents, terminals and board, scoped to a project, with New chat for a phone with full access.
+/// One host: its agents, terminals and the calls it puts to the person, scoped to a project, with New chat for a phone with full access.
 struct DeviceScreen: View {
     let core: String
     var linkedTab: Route.DeviceTab?
@@ -115,7 +115,7 @@ private struct DeviceContent: View {
         _ view: DeviceView, live: HostLive, device: PairedDevice?, status: HostStatus, hostName: String
     ) -> some View {
         let scope = view.project(id: device?.project)
-        let asking = scope.map { view.needs(in: $0) } ?? view.inbox.items.filter { $0.tier == .needs }.count
+        let calling = HostCalls.of(core).open(in: scope).count
         let providers = Self.providers(view, scope)
         let provider = filter.flatMap { providers.contains($0) ? $0 : nil }
         let filtering = tab == .agents && providers.count > 1
@@ -144,7 +144,7 @@ private struct DeviceContent: View {
                     Group {
                         switch tab {
                         case .terminals: Terminals(view: view, scope: scope)
-                        case .board: BoardTab(core: core, live: live, view: view, scope: scope, onScope: scopeTo)
+                        case .calls: CallsTab(core: core, view: view, scope: scope)
                         default:
                             DeviceAgents(
                                 core: core, view: view, scope: scope, provider: provider,
@@ -172,7 +172,7 @@ private struct DeviceContent: View {
                 }
             }
 
-            HostTabs(tab: tab, asking: asking, onSwitch: switchTo)
+            HostTabs(tab: tab, calling: calling, onSwitch: switchTo)
                 .onGeometryChange(for: CGFloat.self) {
                     $0.size.height
                 } action: {
@@ -382,18 +382,18 @@ private struct HostHead: View {
     }
 }
 
-/// Agents, Terminals and Board as one segmented control, each with its icon in its own colour.
+/// Agents, Terminals and Calls as one segmented control, each with its icon in its own colour.
 private struct HostTabs: View {
     @Environment(\.palette) private var palette
     let tab: Route.DeviceTab
-    let asking: Int
+    let calling: Int
     let onSwitch: (Route.DeviceTab) -> Void
 
     var body: some View {
         HStack(spacing: 2) {
-            segment(.agents, "Agents", Icons.agent, palette.accent, count: asking)
+            segment(.agents, "Agents", Icons.agent, palette.accent)
             segment(.terminals, "Terminals", Icons.terminal, palette.warn)
-            segment(.board, "Board", Icons.board, palette.live)
+            segment(.calls, CallWords.calls, Icons.message, palette.warn, count: calling)
         }
         .padding(3)
         .background {

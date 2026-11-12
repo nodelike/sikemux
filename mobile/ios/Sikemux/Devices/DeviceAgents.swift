@@ -90,8 +90,10 @@ private struct ChatRow: View {
             onPress: { Router.shared.push(.chat(core: core, agent: shown.agentId)) },
             onLongPress: onHold,
             mark: {
-                AgentFaceView(agentId: shown.agentId, provider: shown.cli, group: shown.group, size: 20).opacity(
-                    away ? 0.55 : 1)
+                AskerMark(
+                    agentId: shown.agentId, provider: shown.cli, chief: shown.chief == true, turn: shown.turn?.state
+                )
+                .opacity(away ? 0.55 : 1)
             },
             end: {
                 if away {
@@ -102,7 +104,7 @@ private struct ChatRow: View {
                     if shown.subagents > 0 { SubagentCount(count: shown.subagents) }
                     if shown.tasks > 0 { ShellCount(count: shown.tasks) }
                     Trigger(shown: shown, now: now)
-                    AgentStateMark(group: shown.group)
+                    TurnMark(turn: shown.turn, now: now)
                 }
             },
             after: {
@@ -125,15 +127,17 @@ private struct TerminalAgentRow: View {
             title: shown.title, name: away ? nil : shown.name, dim: away,
             onPress: onOpen, onLongPress: onHold,
             mark: {
-                AgentFaceView(agentId: shown.agentId, provider: shown.cli, group: shown.group, size: 20).opacity(
-                    away ? 0.55 : 1)
+                AskerMark(
+                    agentId: shown.agentId, provider: shown.cli, chief: shown.chief == true, turn: shown.turn?.state
+                )
+                .opacity(away ? 0.55 : 1)
             },
             end: {
                 if snoozed, let until = shown.snoozedUntil.map(Format.date(millis:)) {
                     WakeTime(at: until, now: now)
                 } else if !away {
                     Trigger(shown: shown, now: now)
-                    AgentStateMark(group: shown.group)
+                    TurnMark(turn: shown.turn, now: now)
                 }
             })
     }
@@ -191,7 +195,9 @@ private struct Trigger: View {
     let now: Date
 
     var body: some View {
-        if let at = shown.nextTrigger.map(Format.date(millis:)), shown.group != .working, shown.group != .blocked {
+        if let at = shown.nextTrigger.map(Format.date(millis:)), shown.turn?.state != .working,
+            shown.turn?.state != .needsYou
+        {
             TriggerTime(at: at, now: now)
         }
     }

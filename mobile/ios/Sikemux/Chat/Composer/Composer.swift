@@ -40,7 +40,6 @@ struct Composer: View {
     @State private var adding: Adding?
     @State private var configuring = false
     @State private var focused = false
-    @State private var holds = Holds()
     @State private var mentions: MentionSearch?
     @State private var prompt = PromptStash()
     /// The send button was held to stash the prompt, so the lift that ends the hold sends nothing.
@@ -76,10 +75,6 @@ struct Composer: View {
 
     private var composerShape: RoundedRectangle { RoundedRectangle(cornerRadius: 10, style: .continuous) }
 
-    private var holdsHere: [ShipHold] {
-        (Hub.shared.live(core).view?.inbox.items ?? []).filter { $0.agentId == session.agentId }.compactMap(\.hold)
-    }
-
     private var dock: AnyView? {
         let requests = session.permissions
         if !requests.isEmpty {
@@ -87,12 +82,12 @@ struct Composer: View {
                 PermissionDock(
                     requests: requests, provider: provider, answering: session.answering, onAnswer: session.answer))
         }
-        let holds = holdsHere
-        if holds.isEmpty || watchOnly { return nil }
+        let calls = HostCalls.of(core)
+        guard let call = calls.waiting(for: session.agentId) else { return nil }
         return AnyView(
-            HoldDock(holds: holds, answering: self.holds.answering) { hold, how in
-                self.holds.answer(hold, how, core: core, report: session.report)
-            })
+            CallDock(
+                core: core, call: call, draft: calls.draft(call), canAnswer: !watchOnly && !offline,
+                report: session.report))
     }
 
     @ViewBuilder
@@ -322,7 +317,7 @@ struct Composer: View {
     private func answering(_ question: ComposerQuestion) -> some View {
         HStack(spacing: 7) {
             AgentMark(provider: question.cli, size: 13)
-            Text("Answering @\(question.name) · \(question.text)").font(Theme.ui(12)).foregroundStyle(palette.inkDim)
+            Text(CallWords.answering(question.name, question.text)).font(Theme.ui(12)).foregroundStyle(palette.inkDim)
                 .lineLimit(1)
             Button(action: question.onRemove) {
                 IconView(icon: Icons.close, size: 10)

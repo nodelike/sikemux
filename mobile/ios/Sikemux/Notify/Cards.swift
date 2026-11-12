@@ -57,9 +57,15 @@ enum Cards {
         }
     }
 
-    /// Opens the chat a tapped card is about, and sends the answer when it was Allow or Reject.
-    fileprivate static func tapped(_ card: Card, action: CardAction?, tag: String) {
+    /// Opens the chat a tapped card is about, and sends the answer when it was Allow or Reject, an answer to a call,
+    /// or the person's own words to one.
+    fileprivate static func tapped(_ card: Card, action identifier: String, typed: String?, tag: String) {
         if let url = URL(string: card.url) { Router.shared.open(url) }
+        if let call = card.callId, let answer = answer(call, identifier, typed) {
+            Task { await answerCall(tag: tag, card: card, answer) }
+            return
+        }
+        let action = CardAction(rawValue: identifier)
         let option =
             switch action {
             case .allow: card.allowOptionId
@@ -68,6 +74,36 @@ enum Cards {
             }
         guard let option, let request = card.requestId else { return }
         Task { await answer(tag: tag, card: card, request: request, option: option) }
+    }
+
+    private static func answer(_ call: String, _ identifier: String, _ typed: String?) -> AnswerCallParams? {
+        if identifier.hasPrefix(CallPush.option) {
+            return AnswerCallParams(id: call, option: String(identifier.dropFirst(CallPush.option.count)))
+        }
+        let words = typed?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return identifier == CallPush.words && !words.isEmpty ? AnswerCallParams(id: call, words: words) : nil
+    }
+
+    /// Answers a call as `answer` does a permission. The first answer anywhere wins, so a call already settled
+    /// takes the card away too.
+    private static func answerCall(tag: String, card: Card, _ params: AnswerCallParams) async {
+        do {
+            if let held = Hub.shared.openConnections.first(where: { $0.core == card.hostKey })?.connection {
+                _ = try await held.call(PhoneCall.AnswerCall.self, params)
+            } else {
+                try await BackgroundTime.run("Answering from a notification") {
+                    try await Identity.shared.whileJoining { device in
+                        let connection = try await device.connect(core: card.hostKey, listener: QuietListener())
+                        defer { connection.close() }
+                        _ = try await connection.call(PhoneCall.AnswerCall.self, params)
+                    }
+                }
+            }
+        } catch {
+            print("sikemux: could not answer the call from the notification: \(error)")
+            return
+        }
+        await DeliveredCards.remove([tag])
     }
 
     /// Answers over the connection the app already holds to the host, or else over one of its own that keeps the
@@ -150,7 +186,9 @@ extension AppDelegate: @preconcurrency UNUserNotificationCenterDelegate {
         let request = response.notification.request
         if let card = Card.kept(in: request.content.userInfo) {
             let tag = Push.collapseId(request.content.userInfo) ?? request.identifier
-            Cards.tapped(card, action: CardAction(rawValue: response.actionIdentifier), tag: tag)
+            Cards.tapped(
+                card, action: response.actionIdentifier,
+                typed: (response as? UNTextInputNotificationResponse)?.userText, tag: tag)
         }
         done()
     }

@@ -14,16 +14,15 @@ struct ChatBottom: View {
 
     var body: some View {
         let rows = session.rows
-        let questions = ChatQuestions.of(context.core, context.agentId)
-        let composing = context.watchOnly ? nil : questions.composing
-        let info = Hub.shared.live(context.core).view?.chats.first { $0.agentId == context.agentId }
+        let calls = HostCalls.of(context.core)
+        let composing = context.watchOnly ? nil : calls.composing(for: context.agentId)
         Composer(
             session: session,
             core: context.core,
             provider: context.provider,
             running: rows.running && !session.stoppingTurn,
             steers: context.steers,
-            placeholder: composing.map { "Answer @\($0.name)" } ?? placeholder(rows),
+            placeholder: composing.map { CallWords.typeYourAnswer($0.asker.name) } ?? placeholder(rows),
             modeLocked: rows.running || !session.permissions.isEmpty || rows.head.connection != .ready
                 || context.offline,
             watchOnly: context.watchOnly,
@@ -32,11 +31,11 @@ struct ChatBottom: View {
             onSent: context.onSent,
             strip: context.strip,
             onRecent: !context.watchOnly && RecentSheet.offered(rows) ? { focus.recent = true } : nil,
-            question: composing.map { asked in
+            question: composing.map { call in
                 ComposerQuestion(
-                    name: asked.name, cli: asked.cli, text: asked.text,
-                    onRemove: questions.stopComposing,
-                    onAnswer: { written in questions.hold(asked, written) { session.setDraft(written.answer) } }
+                    name: call.asker.name, cli: call.asker.cli, text: call.question,
+                    onRemove: { calls.stopComposing(call) },
+                    onAnswer: { written in await calls.answer(call, written: written) }
                 )
             },
             focus: focus,
@@ -48,10 +47,6 @@ struct ChatBottom: View {
                 session.setDraft(text)
                 focus.recent = false
             }
-        }
-        .onAppear { questions.report = session.report }
-        .onChange(of: "\(info?.activeAt ?? 0)|\(info?.unread ?? false)|\(rows.running)", initial: true) { _, seen in
-            questions.read(seen)
         }
     }
 

@@ -5,7 +5,7 @@ import Observation
 /// `/device/<core>?tab=terminals`, `/device/<core>/chat/<agent>`, `/device/<core>/new?project=…`.
 enum Route: Hashable {
     enum DeviceTab: String {
-        case agents, terminals, recent, board
+        case agents, terminals, recent, calls
     }
 
     case device(core: String, tab: DeviceTab? = nil)

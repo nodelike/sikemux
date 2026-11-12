@@ -357,7 +357,7 @@ private struct ChatPane: View {
     }
 }
 
-/// Below the last row: what waits to be sent, what the agent is doing, what went wrong, and questions.
+/// Below the last row: what waits to be sent, what the agent is doing or how its turn stands, and what went wrong.
 private struct TranscriptFooter: View {
     let session: ChatSession
     let core: String
@@ -369,16 +369,22 @@ private struct TranscriptFooter: View {
 
     var body: some View {
         let rows = session.rows
+        let namedStep = rows.head.turn?.on != nil
         let activity =
             session.stoppingTurn
-            ? Doing("Stopping") : session.permissions.isEmpty ? ChatWords.doing(rows.head.activity) : nil
+            ? Doing("Stopping")
+            : session.permissions.isEmpty && !namedStep ? ChatWords.doing(rows.head.activity) : nil
+        let reachable = canAct && session.attached == .live && Hub.shared.live(core).isOpen
         VStack(alignment: .leading, spacing: 0) {
             if !rows.queued.isEmpty { QueuedLines(held: rows.queued) }
-            if let activity { ActivityLine(provider: provider, doing: activity, since: session.turnSince) }
-            Trouble(
-                session: session, provider: provider, hostName: hostName,
-                canAct: canAct && session.attached == .live && Hub.shared.live(core).isOpen)
-            ChatQuestionsFooter(core: core, agentId: agentId, session: session, canAnswer: canAct, focus: focus)
+            if let activity {
+                ActivityLine(provider: provider, doing: activity, since: session.turnSince)
+            } else if let turn = rows.head.turn {
+                TurnLine(
+                    core: core, agentId: agentId, provider: provider, turn: turn, canAct: reachable,
+                    docked: HostCalls.of(core).waiting(for: agentId) != nil, onLook: { focus.request() })
+            }
+            Trouble(session: session, provider: provider, hostName: hostName, canAct: reachable)
         }
         .padding(.bottom, 28)
     }

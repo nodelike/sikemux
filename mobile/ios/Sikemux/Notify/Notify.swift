@@ -37,7 +37,11 @@ final class Notify {
 
     private init() {
         recall()
-        UNUserNotificationCenter.current().setNotificationCategories([Self.answers])
+        nonisolated(unsafe) let answers = Self.answers
+        UNUserNotificationCenter.current().getNotificationCategories { held in
+            let calls = CallPush.categories(held, adding: nil).filter { $0.identifier != answers.identifier }
+            UNUserNotificationCenter.current().setNotificationCategories(calls.union([answers]))
+        }
         NotificationCenter.default.addObserver(
             forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main
         ) { _ in

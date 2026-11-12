@@ -7,7 +7,15 @@ final class NotificationService: UNNotificationServiceExtension {
         _ request: UNNotificationRequest,
         withContentHandler contentHandler: @escaping (UNNotificationContent) -> Void
     ) {
-        contentHandler(Self.content(for: request.content) ?? request.content)
+        nonisolated(unsafe) let shown = Self.content(for: request.content) ?? request.content
+        guard let category = Card.kept(in: shown.userInfo)?.callCategory else { return contentHandler(shown) }
+        // A call's buttons are registered before its card shows, which then finds them.
+        nonisolated(unsafe) let call = category
+        nonisolated(unsafe) let show = contentHandler
+        UNUserNotificationCenter.current().getNotificationCategories { held in
+            UNUserNotificationCenter.current().setNotificationCategories(CallPush.categories(held, adding: call))
+            show(shown)
+        }
     }
 
     static func content(for pushed: UNNotificationContent) -> UNNotificationContent? {

@@ -187,6 +187,7 @@ enum PhoneCall {
     enum SnoozePresets {}
     enum StashPrompt {}
     enum SteerQueued {}
+    enum TakeStep {}
 }
 
 extension PhoneCall.AgentCatalog: PhoneCallable {
@@ -468,6 +469,12 @@ extension PhoneCall.StashPrompt: PhoneCallable {
 extension PhoneCall.SteerQueued: PhoneCallable {
     static let method = "steerQueued"
     typealias Params = QueuedParams
+    typealias Answer = WireNull
+}
+
+extension PhoneCall.TakeStep: PhoneCallable {
+    static let method = "takeStep"
+    typealias Params = TakeStepParams
     typealias Answer = WireNull
 }
 
@@ -7561,4 +7568,9 @@ struct StashPromptParams: Codable, Hashable, Sendable {
 
 struct StashedPrompt: Codable, Hashable, Sendable {
     var id: String
+}
+
+struct TakeStepParams: Codable, Hashable, Sendable {
+    var agentId: String
+    var step: TurnStep
 }
