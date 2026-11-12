@@ -22,7 +22,7 @@ struct LeftOutLine: View {
                 HStack(spacing: 6) {
                     Text(Self.line(count))
                     Text("·")
-                    Button(shown ? "Hide" : "Show", action: toggle)
+                    Button(shown ? String(localized: "Hide") : String(localized: "Show"), action: toggle)
                         .buttonStyle(.plain)
                         .foregroundStyle(palette.secondary)
                         .accessibilityValue(shown ? "Shown" : "")
@@ -43,7 +43,9 @@ struct LeftOutLine: View {
     }
 
     static func line(_ count: Int) -> String {
-        count == 1 ? "1 sentence with no source left out" : "\(count) sentences with no source left out"
+        count == 1
+            ? String(localized: "1 sentence with no source left out")
+            : String(localized: "\(count) sentences with no source left out")
     }
 
     private func toggle() {

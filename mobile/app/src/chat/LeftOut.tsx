@@ -9,6 +9,7 @@ import { problem } from '@/core/problem';
 import { connectionOf, liveOf } from '@/devices/hub';
 import { HostContext } from '@/chat/hostFiles';
 import { AgentContext } from '@/chat/transcriptContext';
+import { useT } from '@/i18n';
 import { fonts, type Palette, useColors, useStyles } from '@/ui/theme';
 
 /** Each text part's tree with its left-out sentences back in place, by part id. */
@@ -43,6 +44,7 @@ export function useRestored(agentId: string, messageId: string): Restored | null
  */
 export function LeftOut({ message }: { message: ChatMessage }) {
   const colors = useColors();
+  const t = useT();
   const styles = useStyles(makeStyles);
   const core = useContext(HostContext);
   const agentId = useContext(AgentContext);
@@ -68,10 +70,10 @@ export function LeftOut({ message }: { message: ChatMessage }) {
   return (
     <View style={styles.wrap}>
       <View style={styles.line}>
-        <Text style={styles.words}>{leftOutLine(count)}</Text>
+        <Text style={styles.words}>{leftOutLine(count, t)}</Text>
         <Text style={styles.words}>·</Text>
         <Pressable onPress={toggle} hitSlop={10} accessibilityRole="button" accessibilityState={{ expanded: !!restored }}>
-          <Text style={[styles.words, { color: colors.secondary }]}>{restored ? HIDE : SHOW}</Text>
+          <Text style={[styles.words, { color: colors.secondary }]}>{t(restored ? HIDE : SHOW)}</Text>
         </Pressable>
       </View>
       {restored?.size === 0

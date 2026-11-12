@@ -80,6 +80,9 @@ export const CallDock = memo(function CallDock({
   const runs = call.kind === 'production' ? call.action : undefined;
   const at = queue.findIndex((each) => each.id === call.id);
   const context = contextOf(call);
+  // What a step to production, or anything that can't be undone, rests on is read whole; any other call's opens on a tap.
+  const whole = call.kind === 'production' || !!call.brief?.cannotUndo;
+  const [contextOpen, setContextOpen] = useState(false);
   const failed = held.failed[call.id];
   // The core asks only a production call to have been drawn before its answer counts.
   const seen = call.kind !== 'production' || held.seen.has(call.id);
@@ -109,7 +112,10 @@ export const CallDock = memo(function CallDock({
         </View>
         <Text style={styles.question}>{call.question}</Text>
         {context ? (
-          <Text style={styles.context} numberOfLines={2}>
+          <Text
+            style={styles.context}
+            numberOfLines={whole || contextOpen ? undefined : 2}
+            onPress={whole ? undefined : () => setContextOpen(!contextOpen)}>
             {context}
           </Text>
         ) : null}

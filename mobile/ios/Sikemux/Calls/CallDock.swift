@@ -19,6 +19,7 @@ struct CallDock: View {
     var inPlace = false
     @FocusState private var fieldFocused: Bool
     @State private var secretFocused = false
+    @State private var contextOpen = false
 
     private static let row: CGFloat = 44
 
@@ -38,7 +39,13 @@ struct CallDock: View {
                     .foregroundStyle(palette.ink)
                     .padding(.top, 8)
                 if let context = CallWords.context(call) {
-                    Text(context).font(Theme.ui(14)).foregroundStyle(palette.tertiary).lineLimit(2).padding(.top, 2)
+                    // What a step to production, or anything that can't be undone, rests on is read whole; any
+                    // other call's opens on a tap.
+                    let whole = call.kind == .production || call.brief?.cannotUndo.isEmpty == false
+                    Text(context).font(Theme.ui(14)).foregroundStyle(palette.tertiary)
+                        .lineLimit(whole || contextOpen ? nil : 2)
+                        .padding(.top, 2)
+                        .onTapGesture { if !whole { contextOpen.toggle() } }
                 }
                 ForEach(Array((call.evidence ?? []).filter { $0.picture == nil }.enumerated()), id: \.offset) {
                     Text($0.element.what).font(Theme.ui(14)).foregroundStyle(palette.tertiary).padding(.top, 4)

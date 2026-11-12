@@ -274,7 +274,7 @@ enum CallWords {
     static let whileAway = String(localized: "While you were away")
     /// How long the person was away, `back - since`.
     static func awayFor(_ milliseconds: Int) -> String {
-        let total = max(1, Int((Double(milliseconds) / 60_000).rounded()))
+        let total = max(0, milliseconds) / 60_000
         let (hours, minutes) = (total / 60, total % 60)
         if hours == 0 { return String(localized: "\(minutes) min") }
         if minutes == 0 { return String(localized: "\(hours) h") }
@@ -307,7 +307,7 @@ enum CallWords {
             String(localized: "Saturday"),
         ]
         let day = days[Calendar.current.component(.weekday, from: at) - 1]
-        let time = at.formatted(Date.FormatStyle().hour(.twoDigits(amPM: .omitted)).minute(.twoDigits))
+        let time = at.formatted(date: .omitted, time: .shortened)
         return String(localized: "\(day) · \(time)")
     }
     /// The chief's count of a week, as the Mac words it.

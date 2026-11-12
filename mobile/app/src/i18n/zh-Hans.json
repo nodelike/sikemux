@@ -776,5 +776,9 @@
   "Decisions like this come to you from now on": "今后此类决定交给你",
   "Answer it in the card below": "请在下方卡片中回答",
   "Answer them in the card below": "请在下方卡片中逐个回答",
-  "{first} {second}": "{first}{second}"
+  "{first} {second}": "{first}{second}",
+  "1 sentence with no source left out": "1 句话未标注来源",
+  "{count} sentences with no source left out": "{count} 句话未标注来源",
+  "Show": "显示",
+  "Hide": "隐藏"
 }

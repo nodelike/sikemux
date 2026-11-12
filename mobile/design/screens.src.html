@@ -547,6 +547,11 @@
   .call-who i { font-style: normal; color: var(--ink-faint); }
   .call-q { margin-top: 8px; font-size: 17px; font-weight: 600; letter-spacing: -0.012em; line-height: 1.3; color: var(--ink); }
   .call-ctx { margin-top: 2px; font-size: 14px; line-height: 1.4; color: var(--text-tertiary); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .left-out { display: flex; align-items: center; gap: 6px; margin: 6px 0 4px; font-size: 12.5px; color: var(--text-tertiary); }
+  .left-out i { font-style: normal; }
+  .left-out b { font-weight: 400; color: var(--text-secondary); }
+  .prose .faint { color: var(--text-tertiary); }
+  .call-ctx.whole { display: block; -webkit-line-clamp: unset; }
   .call-who .call-place { margin-left: auto; font-size: 13px; color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
   .call-goes { display: flex; align-items: flex-start; gap: 6px; margin-top: 12px; font-size: 13.5px; line-height: 1.4; color: var(--text-tertiary); }
   .call-goes > span:first-child, .call-goes svg { flex: none; margin-top: 2px; }
@@ -2577,9 +2582,9 @@
         </div>
         <div class="composer-wrap">
           <div class="call">
-            <div class="call-who"><span class="claude">{{IconClaude:20}}</span><b>@Otter</b><i>·</i><span>4m ago</span></div>
+            <div class="call-who"><span class="claude">{{IconClaude:20}}</span><b>@Otter</b><i>·</i><span>4m</span></div>
             <div class="call-q">Ship the pairing screen to production?</div>
-            <div class="call-ctx">Tried on staging for an hour with no errors. It changes how every phone pairs. A rollback takes about four minutes.</div><div class="call-pair"><div class="call-page now"><b>Pair a phone</b><i>Scan the code on your Mac</i><span class="pic-label">Now</span></div><div class="call-page"><b>Add this phone</b><i>Sign in with your account</i><span class="pic-label">New</span></div></div>
+            <div class="call-ctx whole">Tried on staging for an hour with no errors, pairing twelve phones and two Macs. It changes how every phone pairs, and phones on the old app keep the QR code only. Phones paired while it is out stay paired if it is rolled back, which takes about four minutes.</div><div class="call-pair"><div class="call-page now"><b>Pair a phone</b><i>Scan the code on your Mac</i><span class="pic-label">Now</span></div><div class="call-page"><b>Add this phone</b><i>Sign in with your account</i><span class="pic-label">New</span></div></div>
             <div class="call-opts"><div class="call-opt on"><span class="call-radio on"></span><span class="call-lbl"><span>Ship it to everyone</span></span><span class=call-pick>{{Logo:13}}pick</span></div><div class="call-opt"><span class="call-radio"></span><span class="call-lbl"><span>Ship to half first</span></span></div><div class="call-opt"><span class="call-radio"></span><span class="call-lbl"><span>Not yet</span></span></div><div class="call-field">{{IconPencil:13}}<span>Add a note…</span></div></div>
             <div class="call-against"><span>Against it:</span> new phones pair through the QR only until the app updates.</div><div class="call-extras"><span class="call-runs open">{{IconChevron:11}}What runs</span></div><div class="call-cmd">vercel deploy --prod</div>
             <div class="call-go">Go with this</div>
@@ -2597,7 +2602,7 @@
         </div>
       </div>
       <div class="home-bar"></div></div>
-      <figcaption><b>A step to production</b><div class="note">An agent's push, merge, deploy or write that leaves the host is a call too, docked the same way. A step to production adds its brief as the context (what was tried, what it shows, what cannot be undone), the evidence's pictures from their top, two side by side with their names on a corner (Now, New), the point against it, and What runs folded: a tap shows the exact command or tool call in the code face. Not mine sits at the right of that row on a call that can be handed back to the asker's lead, which a step to production never is. Nothing typed in the composer answers a step to production, so the composer keeps no chip and sends to the agent as usual. An agent's own permission prompt keeps its dock, Deny and Allow, and comes first when both wait.</div></figcaption>
+      <figcaption><b>A step to production</b><div class="note">An agent's push, merge, deploy or write that leaves the host is a call too, docked the same way. A step to production adds its brief as the context (what was tried, what it shows, what cannot be undone), drawn whole, as it is on any call with something that can't be undone, the card scrolling if it must; any other call's context stops at two lines and opens to full on a tap, the evidence's pictures from their top, two side by side with their names on a corner (Now, New), the point against it, and What runs folded: a tap shows the exact command or tool call in the code face. Not mine sits at the right of that row on a call that can be handed back to the asker's lead, which a step to production never is. Nothing typed in the composer answers a step to production, so the composer keeps no chip and sends to the agent as usual. An agent's own permission prompt keeps its dock, Deny and Allow, and comes first when both wait.</div></figcaption>
     </figure>
 
     <figure><div class="phone"><div class="island"></div>
@@ -2946,7 +2951,7 @@
         </div>
         <div class="composer-wrap">
           <div class="call">
-            <div class="call-who"><span class="codex">{{IconCodex:20}}</span><b>@Maple</b><i>·</i><span>12m ago</span><span class="call-place">1 of 2</span></div>
+            <div class="call-who"><span class="codex">{{IconCodex:20}}</span><b>@Maple</b><i>·</i><span>12m</span><span class="call-place">1 of 2</span></div>
             <div class="call-q">Should amounts be stored in cents or as decimals?</div>
             <div class="call-ctx">The API sends decimals but the ledger table uses integers.</div>
             <div class="call-opts"><div class="call-opt on"><span class="call-radio on"></span><span class="call-lbl"><span>Cents</span><em>integers, no rounding errors</em></span><span class=call-pick>{{Logo:13}}pick</span></div><div class="call-opt"><span class="call-radio"></span><span class="call-lbl"><span>Decimals</span><em>same as the API</em></span></div><div class="call-field">{{IconPencil:13}}<span>Add a note…</span></div></div>
@@ -3004,15 +3009,15 @@
             <div class="away-sec">Needs you 3</div>
             <div class="away-calls"><span class="pip"></span><span>Answer them in the card below</span></div>
             <div class="away-sec">Decided for you 2</div>
-            <div class="away-row"><span class="ico">{{IconCheck:14}}</span><div class="txt"><b>Bank transfer is a tab beside Card on every invoice, shown first on phones</b><span>3 of 5 tests chose it · @Grimmjow</span></div><span class="act">Overrule</span></div>
+            <div class="away-row"><span class="ico">{{IconCheck:14}}</span><div class="txt"><b>Bank transfer is a tab beside Card on every invoice, shown first on phones</b><span>3 of 5 tests chose it</span></div><span class="act">Overrule</span></div>
             <div class="away-row struck"><span class="ico">{{IconCheck:14}}</span><div class="txt"><b>Tax rules wait for the cart totals to land</b><span>@Crusch builds on the new rounding</span></div></div>
             <div class="away-sec">Landed 1</div>
-            <div class="away-row"><span class="ico">{{IconClaude:16}}</span><div class="txt"><b>Fix the cart totals so every discount, coupon and shipping rule rounds once</b><span>@Gilda · 40m ago</span></div><span class="open">{{IconChevron:12}}</span></div>
+            <div class="away-row"><span class="ico">{{IconClaude:16}}</span><div class="txt"><b>Fix the cart totals so every discount, coupon and shipping rule rounds once</b><span>@Gilda · 40m</span></div><span class="open">{{IconChevron:12}}</span></div>
           </div>
         </div>
         <div class="composer-wrap">
           <div class="call">
-            <div class="call-who"><span class="claude">{{IconClaude:20}}</span><b>@Gilda</b><i>·</i><span>3m ago</span><span class="call-place">1 of 3</span></div>
+            <div class="call-who"><span class="claude">{{IconClaude:20}}</span><b>@Gilda</b><i>·</i><span>3m</span><span class="call-place">1 of 3</span></div>
             <div class="call-q">Which colour should the totals use?</div>
             <div class="call-opts"><div class="call-opt on"><span class="call-radio on"></span><span class="call-lbl"><span>Blue</span></span><span class=call-pick>{{Logo:13}}pick</span></div><div class="call-opt"><span class="call-radio"></span><span class="call-lbl"><span>Red</span></span></div><div class="call-field">{{IconPencil:13}}<span>Add a note…</span></div></div>
             <div class="call-goes">{{IconClock:13}}<span>Until you answer, @Gilda goes on assuming blue</span></div>
@@ -3043,15 +3048,15 @@
             <div class="away-sec">Needs you 3</div>
             <div class="away-calls"><span class="pip"></span><span>Answer them in the card below</span></div>
             <div class="away-sec">Decided for you 2</div>
-            <div class="away-row"><span class="ico">{{IconCheck:14}}</span><div class="txt"><b>Bank transfer is a tab beside Card on every invoice, shown first on phones</b><span>3 of 5 tests chose it · @Grimmjow</span></div><span class="act">Overrule</span></div>
+            <div class="away-row"><span class="ico">{{IconCheck:14}}</span><div class="txt"><b>Bank transfer is a tab beside Card on every invoice, shown first on phones</b><span>3 of 5 tests chose it</span></div><span class="act">Overrule</span></div>
             <div class="away-row struck"><span class="ico">{{IconCheck:14}}</span><div class="txt"><b>Tax rules wait for the cart totals to land</b><span>@Crusch builds on the new rounding</span></div></div>
             <div class="away-sec">Landed 1</div>
-            <div class="away-row"><span class="ico">{{IconClaude:16}}</span><div class="txt"><b>Fix the cart totals so every discount, coupon and shipping rule rounds once</b><span>@Gilda · 40m ago</span></div><span class="open">{{IconChevron:12}}</span></div>
+            <div class="away-row"><span class="ico">{{IconClaude:16}}</span><div class="txt"><b>Fix the cart totals so every discount, coupon and shipping rule rounds once</b><span>@Gilda · 40m</span></div><span class="open">{{IconChevron:12}}</span></div>
           </div>
         </div>
         <div class="composer-wrap">
           <div class="call">
-            <div class="call-who"><span class="claude">{{IconClaude:20}}</span><b>@Gilda</b><i>·</i><span>3m ago</span><span class="call-place">1 of 3</span></div>
+            <div class="call-who"><span class="claude">{{IconClaude:20}}</span><b>@Gilda</b><i>·</i><span>3m</span><span class="call-place">1 of 3</span></div>
             <div class="call-q">Which colour should the totals use?</div>
             <div class="call-opts"><div class="call-opt on"><span class="call-radio on"></span><span class="call-lbl"><span>Blue</span></span><span class=call-pick>{{Logo:13}}pick</span></div><div class="call-opt"><span class="call-radio"></span><span class="call-lbl"><span>Red</span></span></div><div class="call-field">{{IconPencil:13}}<span>Add a note…</span></div></div>
             <div class="call-goes">{{IconClock:13}}<span>Until you answer, @Gilda goes on assuming blue</span></div>
@@ -3130,7 +3135,7 @@
         </div>
         <div class="composer-wrap">
           <div class="call">
-            <div class="call-who"><span class="acc-mark">{{Logo:20}}</span><b>@Chief</b><i>·</i><span>2m ago</span></div>
+            <div class="call-who"><span class="acc-mark">{{Logo:20}}</span><b>@Chief</b><i>·</i><span>2m</span></div>
             <div class="call-q">Should the release notes call out the new prices?</div>
             <div class="call-opts"><div class="call-opt on"><span class="call-radio on"></span><span class="call-lbl"><span>Call them out</span></span><span class=call-pick>{{Logo:13}}pick</span></div><div class="call-opt"><span class="call-radio"></span><span class="call-lbl"><span>Leave them</span></span></div><div class="call-field">{{IconPencil:13}}<span>Add a note…</span></div></div>
             <div class="call-go">Go with this</div>
@@ -3192,7 +3197,7 @@
         </div>
         <div class="composer-wrap">
           <div class="call">
-            <div class="call-who"><span class="claude">{{IconClaude:20}}</span><b>@Comet</b><i>·</i><span>1m ago</span></div>
+            <div class="call-who"><span class="claude">{{IconClaude:20}}</span><b>@Comet</b><i>·</i><span>1m</span></div>
             <div class="call-q">Paste the staging database password</div>
             
             <div class="call-opts"><div class="call-field">{{IconPencil:13}}<span><span class="sec-dots">••••••••••••</span></span></div></div>
@@ -3969,6 +3974,35 @@ expected 1 write, got 2</div>
       <div class="home-bar"></div></div>
       <figcaption><b>Reading an answer</b><div class="note">Your message is a clean bubble with no edge: a soft fill the accent warms, 16px corners with its tail at the bottom right, and 14px text. Messages sent one after another sit 4px apart with the time only under the last; a tap still opens a message's strip. An answer reads like an article, as on the Mac: ## headings stand at 18px with room above, ### headings are small spaced capitals, bullets take the accent and numbered steps read 01, 02 in mono. Links are lavender and underlined, and a link to GitHub, Bitbucket, Jira, GitLab, Linear, Vercel, Slack, AWS, Grok, Apple or Google Play carries that service's mark. Only a --- the agent wrote draws a rule. Where a goal starts or ends is a milestone line at the left: its mark, its state in its colour (Goal, Goal done, Goal stopped), its name, and at the right its steps with how many are done and, once it ended, how long it took. Under the composer, with no frame or divider, sits where the chat runs: the project and the branch at the left, the host before them only when the account has more than one, and at the right the account's mark when its agent has more than one here, so the branch keeps its whole name. The host, project and branch are split by a thin slash, as on the Mac. When some of an answer's sentences rested on no source and were left out, a quiet line under it says how many, as the Mac does: "2 sentences with no source left out · Show". Show asks the host for the answer with them back where they stood, in the faint ink, and Hide takes them out again. When the host cannot put them back, for an answer too big for one page or a refusal, Show lists them under the answer instead, faint, as the share page always does, since it cannot ask the host.</div></figcaption>
     </figure>
+    <figure><div class="phone"><div class="island"></div>
+      <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
+      <div class="screen">
+        <div class="nav"><span class="back">{{IconChevron:18}}</span><span class="mid"><span class="claude">{{IconClaude:17}}</span><span class="named"><b>@Birch</b><i>·</i><em>Why checkout is slow</em></span></span><span class="icon-btn">{{IconMoreVertical:16}}</span></div>
+        <div class="chat">
+          <div class="msg-user">Why is checkout slow on phones?</div>
+          <div class="msg-time">21:12</div>
+          <div class="prose">The cart page loads every product image at full size before it draws. On a phone that is 4.2 MB before Pay shows.</div>
+          <div class="left-out"><span>2 sentences with no source left out</span><i>·</i><b>Show</b></div>
+          <div class="msg-user">And on the Mac?</div>
+          <div class="msg-time">21:13</div>
+          <div class="prose">The same page, but the Mac's connection hides it. <span class="faint">Most people buy on their phones in the evening.</span> Resizing the images on upload fixes both.</div>
+          <div class="left-out"><span>1 sentence with no source left out</span><i>·</i><b>Hide</b></div>
+        </div>
+        <div class="composer-wrap">
+          <div class="composer">
+            <div class="ta ph">Ask about this project</div>
+            <div class="bar">
+              <span class="ib">{{IconPlus:18}}</span>
+              <span class="yolo on">{{IconShieldBolt:13}}<b>yolo</b></span>
+              <span class="picker model"><span class="claude">{{IconClaude:16}}</span>Opus 5.5<span class="ch">{{IconChevron:10}}</span></span>
+              <span class="spacer"></span>
+              <span class="send off">{{IconArrowUp:16}}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="home-bar"></div></div>
+      <figcaption><b>Sentences with no source</b><div class="note">When Sikemux leaves sentences out of an answer because they rest on no source, a quiet line under the answer says how many, as the Mac does: "2 sentences with no source left out · Show". Show asks the host for the answer with them back where they stood, in the faint ink, and the line says Hide, which takes them out again (the second answer). When the host cannot put them back (an answer too big for one page, a refusal, no connection, or no host, as in a shared chat), Show lists them under the answer instead, faint. The words are in all eight languages.</div></figcaption></figure>
 
     <figure><div class="phone"><div class="island"></div>
       <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>

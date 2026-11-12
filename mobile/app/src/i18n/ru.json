@@ -776,5 +776,9 @@
   "Decisions like this come to you from now on": "Теперь такие решения приходят к вам",
   "Answer it in the card below": "Ответьте на него в карточке ниже",
   "Answer them in the card below": "Ответьте на них в карточке ниже",
-  "{first} {second}": "{first} {second}"
+  "{first} {second}": "{first} {second}",
+  "1 sentence with no source left out": "1 предложение без источника пропущено",
+  "{count} sentences with no source left out": "пропущено предложений без источника: {count}",
+  "Show": "Показать",
+  "Hide": "Скрыть"
 }

@@ -776,5 +776,9 @@
   "Decisions like this come to you from now on": "今後こうした決定はあなたに回ります",
   "Answer it in the card below": "下のカードで回答してください",
   "Answer them in the card below": "下のカードで回答してください",
-  "{first} {second}": "{first}{second}"
+  "{first} {second}": "{first}{second}",
+  "1 sentence with no source left out": "出典のない文 1 件を除外",
+  "{count} sentences with no source left out": "出典のない文 {count} 件を除外",
+  "Show": "表示",
+  "Hide": "隠す"
 }

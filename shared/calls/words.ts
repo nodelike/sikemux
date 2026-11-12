@@ -239,7 +239,7 @@ export const sendToTold = (name: string, say: Say = english) => say("Send to @{n
 export const WHILE_AWAY = "While you were away";
 /** How long the person was away, `back - since`. */
 export function awayFor(ms: number, say: Say = english): string {
-    const total = Math.max(1, Math.round(ms / MINUTE));
+    const total = Math.floor(Math.max(0, ms) / MINUTE);
     const hours = Math.floor(total / 60);
     const minutes = total % 60;
     if (!hours) return say("{minutes} min", { minutes });

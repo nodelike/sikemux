@@ -776,5 +776,9 @@
   "Decisions like this come to you from now on": "앞으로 이런 결정은 당신에게 갑니다",
   "Answer it in the card below": "아래 카드에서 답하세요",
   "Answer them in the card below": "아래 카드에서 답하세요",
-  "{first} {second}": "{first} {second}"
+  "{first} {second}": "{first} {second}",
+  "1 sentence with no source left out": "출처가 없는 문장 1개 제외됨",
+  "{count} sentences with no source left out": "출처가 없는 문장 {count}개 제외됨",
+  "Show": "보기",
+  "Hide": "숨기기"
 }

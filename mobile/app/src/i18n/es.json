@@ -776,5 +776,9 @@
   "Decisions like this come to you from now on": "A partir de ahora, las decisiones como esta te llegan a ti",
   "Answer it in the card below": "Respóndela en la tarjeta de abajo",
   "Answer them in the card below": "Respóndelas en la tarjeta de abajo",
-  "{first} {second}": "{first} {second}"
+  "{first} {second}": "{first} {second}",
+  "1 sentence with no source left out": "1 frase sin ninguna fuente omitida",
+  "{count} sentences with no source left out": "{count} frases sin ninguna fuente omitida",
+  "Show": "Mostrar",
+  "Hide": "Ocultar"
 }
