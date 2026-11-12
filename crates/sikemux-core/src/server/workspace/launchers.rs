@@ -181,6 +181,7 @@ fn catalog_efforts(provider: &str) -> Option<ConfigPicker> {
                 label: pickers::level_name(effort),
                 description: None,
                 is_default: false,
+                superseded: false,
             })
             .collect(),
     })

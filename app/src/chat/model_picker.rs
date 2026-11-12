@@ -13,7 +13,7 @@ use gpui_kit::{
     IntoElement, ParentElement, Render, ScrollHandle, SharedString, StatefulInteractiveElement,
     Styled, Subscription, WeakEntity, Window,
 };
-use sikemux_view::workspace::ConfigPicker;
+use sikemux_view::workspace::{ConfigChoice, ConfigPicker};
 
 use crate::agents::setup::Installing;
 use crate::core;
@@ -100,6 +100,8 @@ enum Act {
     Set(String),
     Move(Moving),
     AddProvider,
+    /// Shows or folds away the older releases of the agent's models.
+    Fold,
 }
 
 #[derive(Clone)]
@@ -132,6 +134,8 @@ pub struct Menu {
     scroll: ScrollHandle,
     /// The keys moved the chosen row, so the list scrolls it into view when it next draws.
     follow: bool,
+    /// The older releases of the agent's models show, which start folded away.
+    older: bool,
     _typing: Subscription,
     _bench: Subscription,
 }
@@ -197,6 +201,7 @@ impl Menu {
             close,
             scroll: ScrollHandle::new(),
             follow: false,
+            older: false,
             _typing: typing,
             _bench: cx.observe(bench, |_, _, cx| cx.notify()),
         }
@@ -283,11 +288,20 @@ impl Menu {
             .unwrap_or_else(|| bench.agent_name(own).to_owned());
         let mut groups = vec![paying.unwrap_or(maker)];
         let mut options: Vec<Row> = Vec::new();
+        let query = self.query.read(cx).value().trim().to_lowercase();
+        let unfolded = self.older || !query.is_empty();
+        let mut folded = false;
+        let mut shows = |choice: &ConfigChoice| {
+            let hidden = choice.superseded && choice.value != current;
+            folded |= hidden;
+            unfolded || !hidden
+        };
         if self.picked.locked || !on_route {
             options.extend(
                 listed
                     .iter()
                     .filter(|choice| self.picked.locked || !choice.value.starts_with("sikemux-"))
+                    .filter(|choice| shows(choice))
                     .map(|choice| Row {
                         group: 0,
                         mark: Some(own.to_owned()),
@@ -307,6 +321,7 @@ impl Menu {
                 .unwrap_or_default()
                 .into_iter()
                 .filter(|choice| !choice.value.starts_with("sikemux-"))
+                .filter(|choice| shows(choice))
                 .collect::<Vec<_>>();
             let going = |model: Option<String>| Moving {
                 provider: own.to_owned(),
@@ -332,6 +347,16 @@ impl Menu {
                     act: Act::Move(going(Some(choice.value.clone()))),
                 })),
             }
+        }
+        if folded && query.is_empty() {
+            options.push(Row {
+                group: 0,
+                mark: None,
+                label: if self.older { "Show less" } else { "Show more" }.into(),
+                meta: None,
+                current: false,
+                act: Act::Fold,
+            });
         }
         if !self.picked.locked {
             for route in self.routes.iter().filter(|route| route.runs(own)) {
@@ -380,9 +405,8 @@ impl Menu {
                 act: Act::AddProvider,
             });
         }
-        let query = self.query.read(cx).value().trim().to_lowercase();
         options.retain(|option| {
-            matches!(option.act, Act::AddProvider)
+            matches!(option.act, Act::AddProvider | Act::Fold)
                 || format!(
                     "{} {} {}",
                     option.label,
@@ -396,6 +420,11 @@ impl Menu {
     }
 
     fn pick(&mut self, act: Act, window: &mut Window, cx: &mut Context<Self>) {
+        if matches!(act, Act::Fold) {
+            self.older = !self.older;
+            cx.notify();
+            return;
+        }
         (self.close)(window, cx);
         match act {
             Act::Set(value) => {
@@ -406,6 +435,7 @@ impl Menu {
                 }
             }
             Act::Move(going) => (self.picked.moving)(going, window, cx),
+            Act::Fold => {}
             Act::AddProvider => {
                 let chat = (!self.picked.locked).then(|| self.picked.moving.clone());
                 if let Some(bench) = self.bench.upgrade() {
@@ -529,7 +559,7 @@ impl Menu {
         this: &Entity<Self>,
     ) -> AnyElement {
         let (menu, act) = (this.clone(), row.act.clone());
-        let adds = matches!(row.act, Act::AddProvider);
+        let adds = matches!(row.act, Act::AddProvider | Act::Fold);
         div()
             .id(("model-option", at))
             .flex()
@@ -552,8 +582,18 @@ impl Menu {
             })
             .child(match &row.mark {
                 Some(mark) => ui::mark(mark, 14.),
-                None => ui::mark_box(14., ui::icon(Icon::Plus, 13.).text_color(t.text_tertiary))
-                    .into_any_element(),
+                None => ui::mark_box(
+                    14.,
+                    ui::icon(
+                        match row.act {
+                            Act::Fold => Icon::Chevron,
+                            _ => Icon::Plus,
+                        },
+                        13.,
+                    )
+                    .text_color(t.text_tertiary),
+                )
+                .into_any_element(),
             })
             .child(
                 div()

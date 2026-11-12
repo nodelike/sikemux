@@ -463,6 +463,8 @@ export interface ConfigChoice {
     description?: string;
     /** The choice the agent takes when none is made, which a picker marks. */
     isDefault?: boolean;
+    /** The agent offers a newer release of this model, so a picker folds it away. */
+    superseded?: boolean;
 }
 
 /** What the app draws behind its panes. */
@@ -1550,6 +1552,11 @@ export interface Layout {
      * are shown instead of this host's; none while they are on this host or an SSH host.
      */
     chosenHost?: string;
+    /**
+     * The tabs the person had in front, by id, the latest first, so closing the one in front
+     * brings back the one they were on before it.
+     */
+    recent?: string[];
 }
 
 export interface ProjectLayout {

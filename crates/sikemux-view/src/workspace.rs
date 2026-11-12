@@ -312,6 +312,9 @@ pub struct ConfigChoice {
     /// The choice the agent takes when none is made, which a picker marks.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub is_default: bool,
+    /// The agent offers a newer release of this model, so a picker folds it away.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub superseded: bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]

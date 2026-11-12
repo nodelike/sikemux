@@ -16,7 +16,7 @@ pub fn pickers(options: &Value) -> (Option<ConfigPicker>, Option<ConfigPicker>) 
                 ConfigPicker {
                     id: row["id"].as_str()?.to_owned(),
                     current: row["currentValue"].as_str()?.to_owned(),
-                    choices: choices(&row["options"], None),
+                    choices: choices(&row["options"]),
                 },
             ))
         })
@@ -36,31 +36,84 @@ pub fn is_effort(row: &Value) -> bool {
     row["category"] == "thought_level"
 }
 
-fn choices(options: &Value, group: Option<&str>) -> Vec<ConfigChoice> {
-    options
-        .as_array()
-        .into_iter()
-        .flatten()
-        .flat_map(|row| {
-            if row["options"].is_array() {
-                return choices(&row["options"], row["name"].as_str());
-            }
-            let (Some(value), Some(name)) = (row["value"].as_str(), row["name"].as_str()) else {
-                return Vec::new();
-            };
-            let description = row["description"].as_str().or(group);
-            let label = match provided_model(value) {
-                Some(model) => model.to_owned(),
-                None => versioned(name, description),
-            };
-            vec![ConfigChoice {
+fn choices(options: &Value) -> Vec<ConfigChoice> {
+    let mut found = Vec::new();
+    collect(options, None, &mut found);
+    mark_superseded(&mut found);
+    found.into_iter().map(|(_, choice)| choice).collect()
+}
+
+fn collect<'a>(
+    options: &'a Value,
+    group: Option<&'a str>,
+    found: &mut Vec<(Option<&'a str>, ConfigChoice)>,
+) {
+    for row in options.as_array().into_iter().flatten() {
+        if row["options"].is_array() {
+            collect(&row["options"], row["name"].as_str(), found);
+            continue;
+        }
+        let (Some(value), Some(name)) = (row["value"].as_str(), row["name"].as_str()) else {
+            continue;
+        };
+        let description = row["description"].as_str().or(group);
+        let label = match provided_model(value) {
+            Some(model) => model.to_owned(),
+            None => versioned(name, description),
+        };
+        found.push((
+            group,
+            ConfigChoice {
                 value: value.to_owned(),
                 label,
                 description: description.map(str::to_owned),
                 is_default: row["isDefault"] == true,
-            }]
+                superseded: false,
+            },
+        ));
+    }
+}
+
+/// Marks each model the same group also offers a newer release of, read from their names
+/// alone ("Opus 5" under "Opus 5.5"), so a model released later folds its elders away
+/// without Sikemux knowing it.
+fn mark_superseded(found: &mut [(Option<&str>, ConfigChoice)]) {
+    let releases: Vec<Option<(Option<&str>, String, Vec<u64>)>> = found
+        .iter()
+        .map(|(group, choice)| {
+            let (family, version) = release(&choice.label)?;
+            Some((*group, family, version))
         })
-        .collect()
+        .collect();
+    for (at, (_, choice)) in found.iter_mut().enumerate() {
+        let Some((group, family, version)) = &releases[at] else {
+            continue;
+        };
+        choice.superseded = !choice.is_default
+            && releases
+                .iter()
+                .flatten()
+                .any(|(other_group, other_family, other)| {
+                    other_group == group && other_family == family && other > version
+                });
+    }
+}
+
+/// A model's name split into its family, with the release number blanked out, and that
+/// number: "Opus 5.5" is ("Opus #", [5, 5]), "gpt-5.4-mini" is ("gpt-#-mini", [5, 4]).
+fn release(label: &str) -> Option<(String, Vec<u64>)> {
+    let start = label.find(|c: char| c.is_ascii_digit())?;
+    let rest = &label[start..];
+    let mut end = rest
+        .find(|c: char| !c.is_ascii_digit() && c != '.')
+        .unwrap_or(rest.len());
+    end = rest[..end].trim_end_matches('.').len();
+    let version = rest[..end]
+        .split('.')
+        .map(str::parse)
+        .collect::<Result<Vec<u64>, _>>()
+        .ok()?;
+    Some((format!("{}#{}", &label[..start], &rest[end..]), version))
 }
 
 /// The model a provider Sikemux handed the agent serves, by the name its API gives it:
@@ -166,6 +219,7 @@ mod tests {
                 label: "My model".into(),
                 description: Some("Custom provider".into()),
                 is_default: false,
+                superseded: false,
             }]
         );
     }
