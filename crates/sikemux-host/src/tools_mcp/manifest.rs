@@ -199,13 +199,13 @@ impl Manifest {
              - Visuals: an HTML page, page_preview, then page_show (pages topic of {guide}); browser_navigate it only if asked. Schemas: ```dbml.\n\
              - Plugin tools (jira_*, slack_*, signoz_*, aws_*, rundeck_*…) use the person's sign-in: use them for those services, never another MCP, CLI or API, whatever a skill says. SigNoz empty: try aws_logs.\n\
              - Skills: only through the skills tool.\n\
-             - Agents (named like Otter): only agent_* and who_wrote, never SendMessage; agents topic of {guide} first. Ask owners, not the person, about their work.\n\
+             - Other agents, named like Otter: only agent_list, agent_sessions, agent_send, agent_spawn, agent_read and who_wrote, never your CLI's SendMessage; load them together and read the agents topic of {guide} first. Ask owners, not the person, about their work.\n\
              - who_wrote, before git log, gh or a CI's API: who broke or wrote something.\n\
              - Uncommitted lines you didn't write in a file you'd change: another agent is on it. Pass the request to its owner with agent_send instead of editing. Another agent's commit, build or test in your way is its owner's to fix: message or resume it.\n\
-             - A tool refuses: do what its error says, such as messaging an agent, or tell the person; never work around it (raw git, a cd).\n\
+             - A tool refuses: do what its error says, such as messaging an agent, or tell the person; never get around it another way, such as raw git or a cd in a command.\n\
              - A local page differs from the code: workspace_inspect shows which checkout serves it.\n\
              - Work the person calls big or long, or over a few minutes: hand it to a teammate with agent_spawn, which they can watch, pause and resume, and tell them. Subagents are for short pieces.\n\
-             - A request that fits several places in the code: ask which.\n\
+             - When a request fits more than one place in the code, ask which before changing any.\n\
              - Say when you pass on the person's request. Push others' commits only if the person said so.\n\
              - ask: a question to your lead, or the person if you have none.\n\
              - Commit only with git_commit (just your lines; pass paths for files your commands made), never git commit or hand staging.\n\
