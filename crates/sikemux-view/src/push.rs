@@ -175,6 +175,21 @@ impl ActivityGlance {
                 }
             }
         }
+        let remote: Vec<_> = (inbox.remote_agents.iter())
+            .filter(|remote| remote.reachable)
+            .collect();
+        for worker in &remote {
+            let team = worker.lead.as_ref().and_then(|lead| {
+                (units.iter_mut()).find(|unit| unit.iter().any(|agent| &agent.agent_id == lead))
+            });
+            match team {
+                Some(team) => team.push(&worker.shown),
+                None => units.push(vec![&worker.shown]),
+            }
+        }
+        let shown: Vec<_> = (shown.into_iter())
+            .chain(remote.iter().map(|worker| &worker.shown))
+            .collect();
         let needing: Vec<ActivityRow> = (units.iter())
             .filter_map(|unit| {
                 let asking = unit

@@ -257,7 +257,8 @@ pub(crate) fn shown_here(
     project: Option<String>,
     untitled: impl FnOnce() -> String,
 ) -> AgentShown {
-    let mut shown = foreign.shown.clone().unwrap_or_else(|| {
+    let said = foreign.said.as_ref().map(|said| said.shown.clone());
+    let mut shown = said.unwrap_or_else(|| {
         let mut shown = agent_shown(
             foreign.agent_id.clone(),
             foreign.cli.clone(),
@@ -747,7 +748,10 @@ fn agents(core: &Core, chats: &[ChatInfo], sessions: &[SessionInfo]) -> Vec<Agen
             project: Some(foreign.project),
             title: shown.titled.then_some(shown.title),
             session: None,
-            group: AgentGroup::Idle,
+            group: match foreign.role == Role::Worker && core.hosts.reachable(&foreign.host) {
+                true => shown.group,
+                false => AgentGroup::Idle,
+            },
             at: shown.active_at.unwrap_or(0),
         }
     }));
@@ -1478,11 +1482,16 @@ pub(crate) fn view(core: &Core, chats: &[ChatInfo], sessions: &[SessionInfo]) ->
         agent.project_name = place.and_then(|place| called(&place));
     }
     let in_main = |agent: &&AgentShown| agent.snoozed_until.is_none() && agent.settled_at.is_none();
-    for agent in listed.iter().filter(in_main) {
+    let remote = remote_agents(core);
+    let in_reach = (remote.iter())
+        .filter(|remote| remote.reachable)
+        .map(|remote| &remote.shown);
+    for agent in listed.iter().filter(in_main).chain(in_reach.clone()) {
         if let Some(project) = &agent.project {
             by_project.entry(project.clone()).or_default().push(agent);
         }
     }
+    let rolled = rollup(listed.iter().filter(in_main).chain(in_reach));
     let projects = by_project
         .into_iter()
         .filter_map(|(project, agents)| Some((project, rollup(agents)?)))
@@ -1503,7 +1512,9 @@ pub(crate) fn view(core: &Core, chats: &[ChatInfo], sessions: &[SessionInfo]) ->
         });
     }
     for item in &mut view.items {
-        let agent = (listed.iter()).find(|agent| item.agent_id.as_ref() == Some(&agent.agent_id));
+        let remote = view.remote_agents.iter().map(|remote| &remote.shown);
+        let agent = (listed.iter().chain(remote))
+            .find(|agent| item.agent_id.as_ref() == Some(&agent.agent_id));
         let about = agent
             .map(|agent| agent.title.as_str())
             .or(item.title.as_deref())
@@ -1526,7 +1537,7 @@ pub(crate) fn view(core: &Core, chats: &[ChatInfo], sessions: &[SessionInfo]) ->
         }
     }
     let mut inbox = Inbox {
-        rollup: rollup(listed.iter().filter(in_main)),
+        rollup: rolled,
         projects,
         needs,
         needed,
@@ -1875,8 +1886,40 @@ fn vault_items(core: &Core) -> Vec<InboxItem> {
         .collect()
 }
 
+/// What the hosts workers of agents here run on hold in their inboxes about them, as items
+/// here in the project their team works in.
+fn foreign_items(core: &Core) -> Vec<InboxItem> {
+    let mut items = Vec::new();
+    for foreign in core.hosts.team.all() {
+        let Some(said) = foreign.said.filter(|_| foreign.role == Role::Worker) else {
+            continue;
+        };
+        if !core.hosts.reachable(&foreign.host) {
+            continue;
+        }
+        let host = super::hosts::name_of(core, &foreign.host);
+        items.extend(said.items.into_iter().map(|mut item| {
+            item.host = Some(host.clone());
+            item.project = Some(foreign.project.clone());
+            item.session = None;
+            item
+        }));
+    }
+    items
+}
+
+/// The permission requests of workers on linked hosts, which the person answers here.
+pub(crate) fn foreign_attentions(core: &Core) -> Vec<sikemux_wire::protocol::Attention> {
+    (core.hosts.team.all().into_iter())
+        .filter(|foreign| foreign.role == Role::Worker && core.hosts.reachable(&foreign.host))
+        .filter_map(|foreign| foreign.said)
+        .flat_map(|said| said.attentions)
+        .collect()
+}
+
 fn view_of(core: &Core, agents: &[Agent], sessions: &[SessionInfo], turns: &Turned) -> Inbox {
     let mut items = waiting(core, agents, sessions);
+    items.extend(foreign_items(core));
     let listed: HashSet<String> = items
         .iter()
         .filter_map(|item| item.agent_id.clone())

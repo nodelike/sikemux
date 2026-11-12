@@ -10,8 +10,8 @@ use std::sync::Mutex;
 use serde::{Deserialize, Serialize};
 use sikemux_process::sync::Locked;
 
-use sikemux_view::inbox::AgentShown;
-use sikemux_wire::protocol::AgentStatus;
+use sikemux_view::inbox::{AgentShown, InboxItem};
+use sikemux_wire::protocol::{AgentStatus, Attention};
 
 use super::super::kept::Kept;
 
@@ -41,9 +41,9 @@ pub(crate) struct Foreign {
     pub parent: Option<String>,
     pub role: Role,
     pub status: AgentStatus,
-    /// Its row as its host last listed it among its own agents; none until it says.
+    /// What its host last said of it; none until it says.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub shown: Option<AgentShown>,
+    pub said: Option<Said>,
     pub active_at: Option<u64>,
     /// The checkout of its lead's project here that its commits come back to.
     pub repo: Option<PathBuf>,
@@ -59,6 +59,22 @@ pub(crate) struct Foreign {
     /// The call that starts it there, while whether it started is not known yet.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pending: Option<String>,
+}
+
+/// What a host says of one of its agents to the hosts that agent's teammates run on: all its
+/// own clients show of it.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct Said {
+    /// Its row among the agents there.
+    pub shown: AgentShown,
+    /// What that host's inbox holds about it: what it waits on the person for, and how its
+    /// turn went.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub items: Vec<InboxItem>,
+    /// Its permission requests, with what each offers.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attentions: Vec<Attention>,
 }
 
 /// A worker's own checkout here, cut for its lead on another host.

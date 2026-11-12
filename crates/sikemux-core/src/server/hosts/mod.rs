@@ -143,9 +143,9 @@ pub(crate) struct Hosts {
     probes: Mutex<probe::Probes>,
     /// The linked hosts when the hosts were last listed, to see links come and go.
     listed_links: Mutex<Option<Vec<String>>>,
-    /// The row of each agent here as each host its teammates run on was last told it, by
+    /// What each host an agent's teammates run on was last told this host shows of it, by
     /// that host's key and the agent's id.
-    pub(crate) rows_told: Mutex<HashMap<(String, String), sikemux_view::inbox::AgentShown>>,
+    pub(crate) rows_told: Mutex<HashMap<(String, String), team::Said>>,
     /// Tells them the rows that changed.
     pub(crate) rows: Wake,
     /// Changed rows are gathering to be told.

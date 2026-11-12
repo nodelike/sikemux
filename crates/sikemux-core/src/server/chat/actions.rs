@@ -458,10 +458,12 @@ pub(crate) fn reply_permission(
     option_id: Option<String>,
     peer: &Peer,
 ) -> CoreResult<()> {
-    core.chats
-        .get(agent_id)
-        .ok_or_else(super::permission_gone)?
-        .reply_permission(request_id, option_id, peer)
+    if let Some(chat) = core.chats.get(agent_id) {
+        return chat.reply_permission(request_id, option_id, peer);
+    }
+    let worker = (core.hosts.team.get(agent_id)).ok_or_else(super::permission_gone)?;
+    crate::server::hosts::route::permit(core, &worker, request_id, option_id);
+    Ok(())
 }
 
 pub(crate) async fn set_permission_mode(
