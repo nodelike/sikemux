@@ -2,6 +2,7 @@
 //! again. They go to a ref of the card's own, outside branches and tags, where code hosts start
 //! no checks; the card's branch is only pushed when its work ships.
 
+use crate::server::parts::Parts;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -22,8 +23,8 @@ pub(super) struct Backups {
 
 /// `agent` made a commit: the run it works for, if any, has something new to keep.
 pub(crate) fn committed(core: &Core, agent: &str) {
-    let lead = core.names.team_of(agent);
-    let mut state = core.boards.state.locked();
+    let lead = core.names().team_of(agent);
+    let mut state = core.boards().state.locked();
     let found = state.boards.iter().find_map(|(project, board)| {
         if !board.settings.lands_itself() {
             return None;
@@ -39,13 +40,13 @@ pub(crate) fn committed(core: &Core, agent: &str) {
     };
     state.backups.due.insert(key);
     drop(state);
-    core.boards.wake.now();
+    core.boards().wake.now();
 }
 
 /// Pushes the commits of each run that has new ones, one push per run at a time.
 pub(super) fn start_due(core: &Arc<Core>) {
     let starts: Vec<(CardKey, PathBuf, String, Option<String>)> = {
-        let mut state = core.boards.state.locked();
+        let mut state = core.boards().state.locked();
         if state.backups.due.is_empty() {
             return;
         }
@@ -76,8 +77,8 @@ pub(super) fn start_due(core: &Arc<Core>) {
                 Ok(None) => {}
                 Err(error) => eprintln!("sikemux core: Auto could not back up a card: {error}"),
             }
-            core.boards.state.locked().backups.pushing.remove(&key);
-            core.boards.wake.now();
+            core.boards().state.locked().backups.pushing.remove(&key);
+            core.boards().wake.now();
         });
     }
 }
@@ -90,7 +91,7 @@ fn push(tree: &Path, branch: &str, kept: Option<String>) -> Result<Option<String
 }
 
 fn note_kept(core: &Core, (project, id): &CardKey, head: String) {
-    core.boards.edit_if(project, *id, |card| {
+    core.boards().edit_if(project, *id, |card| {
         let run = card.auto.as_mut()?;
         run.backed_up = Some(head);
         if let Some(record) = card.record.as_mut() {

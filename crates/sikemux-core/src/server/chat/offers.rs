@@ -1,5 +1,6 @@
 //! What a chat offers to pick before its agent starts.
 
+use crate::server::parts::Parts;
 use crate::server::workspace::{launcher_of, ModelPick};
 use sikemux_view::workspace::ConfigPicker;
 
@@ -12,7 +13,7 @@ use super::*;
 pub(super) fn waiting_options(core: &Core, chat: &Chat) -> Option<Value> {
     let launch = chat.current_launch();
     let mut options = core
-        .workspaces
+        .workspaces()
         .launcher_options(chat.origin.launcher.as_deref()?)
         .filter(Value::is_array)
         .unwrap_or_else(|| Value::Array(Vec::new()));
@@ -48,7 +49,7 @@ pub(super) fn offer_model(core: &Core, launch: &ChatLaunch, options: &mut Value,
     let name = launch
         .model_provider
         .as_deref()
-        .and_then(|id| core.workspaces.providers()?.find(id))
+        .and_then(|id| core.workspaces().providers()?.find(id))
         .map_or(model, |provider| {
             provider.api_model(&launch.provider, model)
         })
@@ -80,21 +81,21 @@ pub(super) fn offer_options(core: &Arc<Core>, chat: &Arc<Chat>) {
     let Some(launcher) = chat.origin.launcher.clone() else {
         return;
     };
-    let offered = core.workspaces.launcher_options(&launcher).is_some();
+    let offered = core.workspaces().launcher_options(&launcher).is_some();
     if let Some(options) = waiting_options(core, chat) {
         tell_options(chat, options);
     }
-    if !core.workspaces.first_offer_read(&launcher) {
+    if !core.workspaces().first_offer_read(&launcher) {
         return;
     }
     if !offered {
-        core.workspaces
+        core.workspaces()
             .note_config_options(&launcher, &Value::Array(Vec::new()));
     }
     let (core, chat) = (core.clone(), chat.clone());
     tokio::spawn(async move {
         match native::read_options(&chat.current_launch()).await {
-            Ok(options) => core.workspaces.note_config_options(&launcher, &options),
+            Ok(options) => core.workspaces().note_config_options(&launcher, &options),
             Err(error) => {
                 return eprintln!("sikemux core: {launcher} offered nothing to pick: {error}")
             }
@@ -159,13 +160,15 @@ pub(super) fn choose_while_asleep(
     config_id: &str,
     value: String,
 ) -> CoreResult<Value> {
-    let (Some(agent), Some(feed)) = (core.workspaces.agent(agent_id), core.chats.heard(agent_id))
-    else {
+    let (Some(agent), Some(feed)) = (
+        core.workspaces().agent(agent_id),
+        core.chats().heard(agent_id),
+    ) else {
         return Err(NOT_RUNNING.into());
     };
     let mut options = feed
         .config_options()
-        .or_else(|| core.workspaces.launcher_options(&launcher_of(&agent)))
+        .or_else(|| core.workspaces().launcher_options(&launcher_of(&agent)))
         .unwrap_or(Value::Null);
     let row = (options.as_array_mut().into_iter().flatten())
         .find(|row| row["id"] == config_id)
@@ -187,7 +190,7 @@ pub(super) fn choose_while_asleep(
 /// Keeps the model and effort a chat now runs on with its agent, so its next
 /// session starts on them, and with its kind of agent, so its new chats do too. An effort its CLI does not take is left out.
 pub(super) fn keep_model_choice(core: &Core, agent_id: &str, options: &Value) {
-    let Some(agent) = core.workspaces.agent(agent_id) else {
+    let Some(agent) = core.workspaces().agent(agent_id) else {
         return;
     };
     let (model, effort) = crate::acp::pickers::pickers(options);
@@ -205,7 +208,7 @@ pub(super) fn keep_model_choice(core: &Core, agent_id: &str, options: &Value) {
         return;
     }
     let pick = ModelPick { model, effort };
-    let kept = core.workspaces.edit_agent(agent_id, |agent| {
+    let kept = core.workspaces().edit_agent(agent_id, |agent| {
         if pick.model.is_some() {
             agent.model = pick.model.clone();
         }
@@ -213,7 +216,7 @@ pub(super) fn keep_model_choice(core: &Core, agent_id: &str, options: &Value) {
             agent.effort = pick.effort.clone();
         }
     });
-    let kept = kept.and_then(|_| core.workspaces.keep_model_pick(&agent.provider, pick));
+    let kept = kept.and_then(|_| core.workspaces().keep_model_pick(&agent.provider, pick));
     if let Err(error) = kept {
         eprintln!("sikemux core: the agent's model choice was not kept: {error}");
     }
@@ -226,6 +229,6 @@ pub(crate) struct AgentModelsParams {
 
 /// The model choice `agent` last offered, from any launcher of it.
 pub(crate) fn models_of(core: &Core, agent: &str) -> Option<ConfigPicker> {
-    let options = core.workspaces.agent_options(agent)?;
+    let options = core.workspaces().agent_options(agent)?;
     pickers::pickers(&options).0
 }

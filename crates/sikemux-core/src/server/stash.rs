@@ -5,6 +5,7 @@
 
 use super::remote_image::PictureData;
 use crate::server::changed::What;
+use crate::server::parts::Parts;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -87,7 +88,7 @@ pub struct ShownStashLink {
 
 /// One page of the account's stash, newest first; by default only what has not been used.
 pub(crate) async fn list(core: &Core, params: ListParams) -> CoreResult<ShownStash> {
-    if core.remote.signed_in_api().is_none() {
+    if core.remote().signed_in_api().is_none() {
         return Ok(ShownStash::default());
     }
     let taken = params.taken.unwrap_or(StashTaken::False);
@@ -324,7 +325,7 @@ impl AttachedStash {
 /// with `draft` false only keeps its file where the chat's agent can read it.
 pub(crate) async fn attach(core: &Core, params: AttachStashParams) -> CoreResult<AttachedStash> {
     let home = params.agent_id == sikemux_view::chat::START_COMPOSER;
-    if !home && core.workspaces.agent(&params.agent_id).is_none() {
+    if !home && core.workspaces().agent(&params.agent_id).is_none() {
         return Err(CoreError::from("that chat is no longer on this host"));
     }
     let item = item(core, &params.id).await?;
@@ -364,7 +365,7 @@ async fn into_draft(core: &Core, item: &StashItem, agent_id: &str) -> CoreResult
         context: context(item),
         words,
     };
-    core.drafts.deliver(&key, delivery)?;
+    core.drafts().deliver(&key, delivery)?;
     super::drafts::changed(core, vec![key]);
     Ok(paths)
 }
@@ -407,7 +408,7 @@ pub(crate) async fn stash_prompt(
 ) -> CoreResult<StashedPrompt> {
     let key = sikemux_view::chat::chat_draft_key(&params.agent_id);
     let draft = core
-        .drafts
+        .drafts()
         .chat_draft(&params.agent_id)
         .ok_or_else(|| CoreError::from("there is nothing written to stash"))?;
     let extra = draft.extra.unwrap_or_default();
@@ -441,7 +442,7 @@ pub(crate) async fn stash_prompt(
     for file in files {
         upload(core, &prompt.id, file).await?;
     }
-    core.drafts.set(&key, String::new(), None)?;
+    core.drafts().set(&key, String::new(), None)?;
     super::drafts::changed(core, vec![key]);
     core.changed(What::Read(Topic::Stash));
     Ok(StashedPrompt { id: prompt.id })

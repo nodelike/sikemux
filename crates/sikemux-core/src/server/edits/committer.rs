@@ -2,6 +2,7 @@
 //! can still push its own: a signed git note under [`NOTES_REF`] that stays on
 //! this computer, since pushing a branch does not push notes.
 
+use crate::server::parts::Parts;
 use std::path::Path;
 use std::time::Duration;
 
@@ -21,7 +22,7 @@ pub(super) struct Committer {
 }
 
 pub(super) fn record(core: &Core, dir: &Path, commit: &str, agent: &Agent) {
-    let Some(key) = core.remote.host_key() else {
+    let Some(key) = core.remote().host_key() else {
         return;
     };
     let committer = Committer {
@@ -33,7 +34,7 @@ pub(super) fn record(core: &Core, dir: &Path, commit: &str, agent: &Agent) {
 }
 
 pub(super) fn of(core: &Core, dir: &Path, commit: &str) -> Option<Committer> {
-    read(dir, commit, &core.remote.host_keys())
+    read(dir, commit, &core.remote().host_keys())
 }
 
 fn put(dir: &Path, commit: &str, committer: &Committer, key: &iroh::SecretKey) -> Option<()> {

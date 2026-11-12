@@ -3,6 +3,7 @@
 //! counts what a chat does and, once it looks like real work, tells the chat's agent, which
 //! decides whether to track it as a goal.
 
+use crate::server::parts::Parts;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -214,15 +215,15 @@ impl ChatGoals {
 /// Whether the core counts this agent's work: a chat the person started, not one another agent
 /// did, whose work its lead answers for.
 fn counted(core: &Core, agent: &str) -> bool {
-    core.chats.get(agent).is_some()
-        && (core.names.get(agent)).is_some_and(|named| named.parent.is_none())
+    core.chats().get(agent).is_some()
+        && (core.names().get(agent)).is_some_and(|named| named.parent.is_none())
 }
 
 fn count(core: &Core, agent: &str, add: impl FnOnce(&mut Tally)) {
     if !counted(core, agent) {
         return;
     }
-    let goals = &core.boards.chat_goals;
+    let goals = &core.boards().chat_goals;
     let mut chats = goals.chats.locked();
     let record = chats.entry(agent.to_owned()).or_default();
     add(&mut record.tally);
@@ -248,7 +249,7 @@ pub(crate) fn turn_started(core: &Core, agent: &str) {
     if !counted(core, agent) {
         return;
     }
-    let goals = &core.boards.chat_goals;
+    let goals = &core.boards().chat_goals;
     let (attached, settled) = {
         let mut chats = goals.chats.locked();
         let record = chats.entry(agent.to_owned()).or_default();
@@ -269,7 +270,7 @@ pub(crate) fn turn_started(core: &Core, agent: &str) {
     if let Some(goal) = attached {
         lease::back_at_work(core, &goal.project, goal.card, agent);
     }
-    if let (Some(goal), Some(chat)) = (settled, core.chats.get(agent)) {
+    if let (Some(goal), Some(chat)) = (settled, core.chats().get(agent)) {
         goal_line(core, &chat, &goal, GoalMoment::Started);
         push_head(core, agent);
     }
@@ -278,7 +279,7 @@ pub(crate) fn turn_started(core: &Core, agent: &str) {
 /// A turn ended: it counts towards the chat's work, and one that ran its course can tell the
 /// agent so.
 pub(crate) fn turn_ended(core: &Core, agent: &str, ran_its_course: bool) {
-    let goals = &core.boards.chat_goals;
+    let goals = &core.boards().chat_goals;
     let mut chats = goals.chats.locked();
     let Some(record) = chats.get_mut(agent) else {
         return;
@@ -298,7 +299,7 @@ pub(crate) fn turn_ended(core: &Core, agent: &str, ran_its_course: bool) {
 
 /// The agent lost its slice to the lease, which ends the moment it could be taken back.
 pub(super) fn lease_lapsed(core: &Core, agent: &str) {
-    let goals = &core.boards.chat_goals;
+    let goals = &core.boards().chat_goals;
     let mut chats = goals.chats.locked();
     let Some(goal) = chats.get_mut(agent).and_then(|record| record.goal.as_mut()) else {
         return;
@@ -312,7 +313,7 @@ pub(super) fn lease_lapsed(core: &Core, agent: &str) {
 /// What the agent is told with the person's next message, once. Being told its work looks like a
 /// goal no longer applies once the chat has one.
 pub(crate) fn take_note(core: &Core, agent: &str) -> Option<ChatContext> {
-    let goals = &core.boards.chat_goals;
+    let goals = &core.boards().chat_goals;
     let mut chats = goals.chats.locked();
     let record = chats.get_mut(agent)?;
     let note = record.note.take()?;
@@ -332,7 +333,7 @@ pub(crate) async fn undo(core: &Arc<Core>, agent: String) -> Result<(), String> 
     let notices = {
         let (core, agent) = (core.clone(), agent.clone());
         blocking(move || {
-            let goals = &core.boards.chat_goals;
+            let goals = &core.boards().chat_goals;
             let goal = {
                 let mut chats = goals.chats.locked();
                 let record = chats
@@ -380,7 +381,7 @@ fn say(chat: &Chat, title: String, marker: GoalMarker) {
 /// The line in the chat that marks `moment` of the goal, as it stands now.
 fn goal_line(core: &Core, chat: &Chat, goal: &Attached, moment: GoalMoment) {
     let (steps, of_gates, state) = {
-        let boards = core.boards.state.locked();
+        let boards = core.boards().state.locked();
         let found = (boards.boards.get(&goal.project))
             .and_then(|board| Some((board, board.card(goal.card).ok()?)));
         let (steps, of_gates) =
@@ -465,10 +466,10 @@ fn goals_held<'a>(
     core: &Core,
     agents: impl IntoIterator<Item = &'a str>,
 ) -> HashMap<String, ChatGoal> {
-    let state = core.boards.state.locked();
+    let state = core.boards().state.locked();
     let mut found = HashMap::new();
     for agent in agents {
-        let Some(project) = core.names.get(agent).map(|named| named.project) else {
+        let Some(project) = core.names().get(agent).map(|named| named.project) else {
             continue;
         };
         let Some(board) = state.boards.get(&project) else {
@@ -497,7 +498,7 @@ fn goals_held<'a>(
 
 /// Whether the goal the chat worked on finished, rather than being taken away from it.
 fn finished(core: &Core, goal: &Attached) -> bool {
-    let state = core.boards.state.locked();
+    let state = core.boards().state.locked();
     (state.boards.get(&goal.project))
         .and_then(|board| Some((board, board.card(goal.card).ok()?)))
         .is_some_and(|(board, card)| {
@@ -510,14 +511,14 @@ fn finished(core: &Core, goal: &Attached) -> bool {
 /// agents change, so a goal's strip clears, and the line stays, as soon as it finishes.
 pub(super) fn settle(core: &Arc<Core>) {
     tell_owner_changes(core);
-    let open = core.chats.all();
-    let resting = core.chats.resting_feeds();
+    let open = core.chats().all();
+    let resting = core.chats().resting_feeds();
     let held = goals_held(
         core,
         (open.iter().map(|chat| chat.agent_id())).chain(resting.iter().map(|(a, _)| a.as_str())),
     );
     let added_itself = added_itself(core, &held);
-    let goals = &core.boards.chat_goals;
+    let goals = &core.boards().chat_goals;
     let mut lines: Vec<(Arc<Chat>, Attached, GoalMoment)> = Vec::new();
     let mut earlier_work = Vec::new();
     {
@@ -628,7 +629,7 @@ pub(super) fn settle(core: &Arc<Core>) {
 /// The chats whose own agent added the goal it now holds, which the person can take back while
 /// it is new. Agents another agent started answer to their lead instead.
 fn added_itself(core: &Core, held: &HashMap<String, ChatGoal>) -> HashSet<String> {
-    let state = core.boards.state.locked();
+    let state = core.boards().state.locked();
     (held.iter())
         .filter(|(agent, goal)| {
             (state.boards.get(&goal.project))
@@ -644,7 +645,7 @@ fn added_itself(core: &Core, held: &HashMap<String, ChatGoal>) -> HashSet<String
 /// without a new commit.
 fn take_earlier_work(core: &Core, agent: &str, project: &str, card: u64, commits: usize) {
     if let Some(head) = slice::earlier_work(core, project, agent, commits) {
-        core.boards
+        core.boards()
             .edit(project, card, |held| slice::took_work(held, &head));
     }
 }
@@ -652,8 +653,8 @@ fn take_earlier_work(core: &Core, agent: &str, project: &str, card: u64, commits
 /// Clients read a board again when a card's state changed with its owner, which changes nothing
 /// on the card itself.
 fn tell_owner_changes(core: &Core) {
-    let goals = &core.boards.chat_goals;
-    let mut state = core.boards.state.locked();
+    let goals = &core.boards().chat_goals;
+    let mut state = core.boards().state.locked();
     let mut now = HashMap::new();
     let mut changed = Vec::new();
     {
@@ -679,7 +680,7 @@ fn tell_owner_changes(core: &Core) {
 }
 
 fn apply_head(core: &Core, agent: &str, feed: &Feed, goal: Option<ChatGoal>) {
-    let chats = core.boards.chat_goals.chats.locked();
+    let chats = core.boards().chat_goals.chats.locked();
     let record = chats.get(agent);
     let goal = goal.map(|goal| ChatGoal {
         undoable: record
@@ -692,7 +693,7 @@ fn apply_head(core: &Core, agent: &str, feed: &Feed, goal: Option<ChatGoal>) {
 }
 
 fn push_head(core: &Core, agent: &str) {
-    let Some(chat) = core.chats.get(agent) else {
+    let Some(chat) = core.chats().get(agent) else {
         return;
     };
     let goal = goals_held(core, [agent]).remove(agent);

@@ -2,6 +2,7 @@
 
 use super::offers::offer_options;
 use super::*;
+use crate::server::parts::Parts;
 
 /// The notice a chat shows when an update started its agent again rather
 /// than carrying it over.
@@ -35,7 +36,7 @@ pub(crate) fn idle(core: &Arc<Core>, agent_id: &str, provider: &str, cwd: &str) 
         fallbacks: Vec::new(),
     };
     let (chat, _) = core
-        .chats
+        .chats()
         .insert(core, launch, Origin::default(), None)
         .unwrap_or_else(|error| panic!("{error}"));
     chat
@@ -130,7 +131,7 @@ pub(super) fn launch(
             ending.fail_for_good(serde_json::json!({ "message": error }));
         }
         ending.end(result.err());
-        if owner.chats.remove_if_current(&ending) {
+        if owner.chats().remove_if_current(&ending) {
             owner.note_agent_gone(ending.agent_id());
         }
         ending.cancel_permissions();
@@ -242,8 +243,8 @@ pub(super) fn start(
     }
     validate(&launch_spec)?;
     let resume_id = launch_spec.resume_id.clone();
-    let waking = core.workspaces.agent(&launch_spec.agent_id).is_some();
-    let (chat, queue) = core.chats.insert(core, launch_spec, origin, None)?;
+    let waking = core.workspaces().agent(&launch_spec.agent_id).is_some();
+    let (chat, queue) = core.chats().insert(core, launch_spec, origin, None)?;
     match &resume_id {
         None if !briefed => {
             *chat.brief.locked() = crate::server::memory::for_chat(core, &chat.launch.cwd);
@@ -261,7 +262,7 @@ pub(super) fn start(
     if crate::server::chief::is_chief(core, chat.agent_id()) {
         *chat.brief.locked() = Some(crate::server::chief::brief(core, &chat.launch.cwd));
     }
-    core.workspaces.note_begun(&chat);
+    core.workspaces().note_begun(&chat);
     crate::server::model_providers::chat_begun(core, &chat.launch);
     let naming = (
         core.clone(),
@@ -274,7 +275,7 @@ pub(super) fn start(
         core.name_agent(&agent_id, &cwd, Some(&provider), resume_id.as_deref());
     });
     if !waking {
-        core.seen.active(chat.agent_id());
+        core.seen().active(chat.agent_id());
     }
     if !waits_for_person {
         crate::server::activity_log::chat_launched(core, &chat.launch);
@@ -310,7 +311,7 @@ pub(crate) async fn until_started(core: &Arc<Core>, chat: Arc<Chat>) -> CoreResu
     match tokio::time::timeout(START_TIMEOUT, chat.until_ready()).await {
         Ok(result) => result.map_err(CoreError::from),
         Err(_) => {
-            if core.chats.remove_if_current(&chat) {
+            if core.chats().remove_if_current(&chat) {
                 core.note_agent_gone(chat.agent_id());
             }
             Chats::halt(&chat);
@@ -332,7 +333,10 @@ pub(crate) fn resume(core: &Arc<Core>, record: ChatRecord) {
         return;
     }
     let notice = record.notice.as_deref().map(update_notice);
-    match core.chats.insert(core, record.launch, record.origin, None) {
+    match core
+        .chats()
+        .insert(core, record.launch, record.origin, None)
+    {
         Ok((chat, queue)) => {
             if record.unstarted {
                 wait_for_person(&chat);
@@ -379,13 +383,13 @@ pub(super) const RESTARTED: &str = "Sikemux restarted while this agent was worki
 /// stopped. Each is listed at once, and starts on its saved session in the
 /// background.
 pub(crate) fn restore(core: &Arc<Core>) {
-    let Some(dir) = core.chats.kept.clone() else {
+    let Some(dir) = core.chats().kept.clone() else {
         return;
     };
     for kept in kept::read(&dir) {
         let agent_id = kept.launch.agent_id.clone();
-        let asleep = (core.workspaces.agent(&agent_id)).is_some_and(|agent| agent.asleep);
-        match core.chats.get(&agent_id) {
+        let asleep = (core.workspaces().agent(&agent_id)).is_some_and(|agent| agent.asleep);
+        match core.chats().get(&agent_id) {
             Some(chat) if chat.feed.id() == kept.feed => {}
             Some(_) => kept::forget(&dir, &kept.feed),
             None if !kept.begun() || asleep => {
@@ -415,13 +419,13 @@ pub(super) fn take_up(core: &Arc<Core>, dir: &std::path::Path, kept: KeptChat) -
     let feed = Feed::recovering(
         launch_spec.agent_id.clone(),
         launch_spec.permission_mode,
-        core.chats.history.as_deref(),
+        core.chats().history.as_deref(),
         &kept.feed,
     );
     kept::moved(dir, &kept, feed.id());
     let saved = launch_spec.resume_id.is_some();
     let flags = TurnProgress::saved(saved);
-    let (chat, queue) = core.chats.insert(
+    let (chat, queue) = core.chats().insert(
         core,
         launch_spec.clone(),
         kept.origin.clone(),
@@ -435,7 +439,7 @@ pub(super) fn take_up(core: &Arc<Core>, dir: &std::path::Path, kept: KeptChat) -
         let reading = (core.clone(), chat.clone());
         let read = tokio::task::spawn_blocking(move || {
             let (core, chat) = reading;
-            if let Some(history) = core.chats.history.as_deref() {
+            if let Some(history) = core.chats().history.as_deref() {
                 chat.feed.recover(history);
             }
             kept.unsealed(&core).map(|launch| (launch, kept))
@@ -465,7 +469,7 @@ pub(super) fn take_up(core: &Arc<Core>, dir: &std::path::Path, kept: KeptChat) -
                 chat.feed
                     .emit(ChatEventKind::Error, rebind::error_message(&error));
                 Chats::halt(&chat);
-                if core.chats.remove_if_current(&chat) {
+                if core.chats().remove_if_current(&chat) {
                     core.note_agent_gone(chat.agent_id());
                 }
             }
@@ -538,7 +542,7 @@ pub(crate) fn adopt(
     validate(&live.current).map_err(|error| error.to_string())?;
     let feed = Feed::restored(live.launch.agent_id.clone(), live.feed);
     let (chat, queue) = core
-        .chats
+        .chats()
         .insert(core, live.launch, live.origin, Some((feed, live.flags)))
         .map_err(|error| error.to_string())?;
     chat.set_current(live.current);
@@ -552,10 +556,10 @@ pub(crate) fn adopt(
         chat.feed.subscribe(client);
     }
     if chat.turn_running() {
-        core.seen.started(chat.agent_id());
+        core.seen().started(chat.agent_id());
     }
     if !live.asked.is_empty() {
-        core.seen.wants_a_look(chat.agent_id());
+        core.seen().wants_a_look(chat.agent_id());
     }
     bring_up(
         core,

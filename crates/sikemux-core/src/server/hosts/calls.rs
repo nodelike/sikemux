@@ -1,6 +1,7 @@
 //! What a linked host may ask this one. Each ask is answered only while the
 //! host that makes it is still linked.
 
+use crate::server::parts::Parts;
 use std::sync::Arc;
 
 use serde::de::DeserializeOwned;
@@ -82,7 +83,7 @@ pub(super) fn pulled(
     method: &str,
     params: Value,
 ) -> Result<std::path::PathBuf, Refusal> {
-    if core.remote.link(host).is_none() {
+    if core.remote().link(host).is_none() {
         return Err(Refusal::not_linked(not_linked(core, host).to_string()));
     }
     match method {
@@ -99,17 +100,17 @@ pub(super) async fn answer(
     body: Option<Received>,
     call: Option<String>,
 ) -> Result<Value, Refusal> {
-    if core.remote.link(host).is_none() {
+    if core.remote().link(host).is_none() {
         return Err(Refusal::not_linked(not_linked(core, host).to_string()));
     }
     if method == Receipt::METHOD {
         let params = read::<Receipt>(params)?;
-        return Ok(core.hosts.receipts.stands(host, &params.call).told());
+        return Ok(core.hosts().receipts.stands(host, &params.call).told());
     }
     let Some(call) = call else {
         return work(core, host, method, params, body).await;
     };
-    let doing = match core.hosts.receipts.begin(host, &call) {
+    let doing = match core.hosts().receipts.begin(host, &call) {
         Ok(doing) => doing,
         Err(Stands::Done(answer)) => return answer.map_err(Refusal::from),
         Err(_) => return Err(Refusal::retry("this host is still doing that")),
@@ -152,7 +153,7 @@ async fn dispatch(
             Ok(reply)
         }
         "unlink" => {
-            if core.remote.forget_link(host) {
+            if core.remote().forget_link(host) {
                 super::unlinked(core, host, "the person there removed the link");
             }
             Ok(Value::Null)

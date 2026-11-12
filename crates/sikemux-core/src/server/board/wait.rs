@@ -5,6 +5,7 @@
 //! board's slices took at that gate before. The board tells clients again
 //! whenever a wait starts, ends, or runs past its estimate.
 
+use crate::server::parts::Parts;
 use std::collections::{HashMap, VecDeque};
 
 use sikemux_process::clock::epoch_ms;
@@ -130,7 +131,7 @@ pub(super) fn of(core: &Core, board: &Board, card: &Card, now: u64) -> Option<Wa
         let running = (board.checking.running.as_ref())
             .filter(|running| running.covered.iter().any(|covered| covered == sha));
         let queued = core
-            .checks
+            .checks()
             .queued(&board.project, sha)
             .then(|| (CheckRun::Queued, slice.waiting_since()));
         let on_its_way = running
@@ -159,8 +160,8 @@ pub(super) fn of(core: &Core, board: &Board, card: &Card, now: u64) -> Option<Wa
     let owner = card
         .owner_id()
         .filter(|owner| core.agent_now(owner).mid_turn())?;
-    let since = (core.seen.started_at(owner))
-        .or_else(|| core.seen.active_at(owner))
+    let since = (core.seen().started_at(owner))
+        .or_else(|| core.seen().active_at(owner))
         .unwrap_or_else(|| slice.waiting_since());
     let ends = (slice.working_on_since(gate))
         .zip(board.took.of_gate(gate))
@@ -218,7 +219,7 @@ pub(super) fn settle(core: &Core, state: &mut State) -> (Option<u64>, Vec<GoalMo
 /// The owners of slices that wait on the project's check, each with when that wait began and how
 /// long the check usually takes.
 pub(crate) fn owners_on_check(core: &Core) -> HashMap<String, (u64, Option<u64>)> {
-    let state = core.boards.state.locked();
+    let state = core.boards().state.locked();
     let mut owners = HashMap::new();
     for board in state.boards.values() {
         for (card, wait) in &board.told_waits {

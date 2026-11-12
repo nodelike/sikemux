@@ -3,6 +3,7 @@
 
 use super::changed::Topic;
 use crate::server::changed::What;
+use crate::server::parts::Parts;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::path::Path;
@@ -215,7 +216,7 @@ pub(crate) fn set(core: &Core, change: PreferenceChange) -> CoreResult<Preferenc
     core.preferences.change(change.clone());
     match change {
         PreferenceChange::Notch(_) => super::notch::follow(core),
-        PreferenceChange::UpdateChannel(_) => core.updates.check_soon(),
+        PreferenceChange::UpdateChannel(_) => core.updates().check_soon(),
         PreferenceChange::PaneShader(_) | PreferenceChange::PaneImage(_) => {
             super::backdrop::follow(core)
         }

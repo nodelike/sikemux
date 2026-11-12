@@ -2,6 +2,7 @@
 //! the core took it over. The steps that finished are recorded in `FILE`; one
 //! that could not finish runs again when the core next starts.
 
+use crate::server::parts::Parts;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -74,7 +75,7 @@ pub(super) fn carry(core: &Arc<Core>, data_dir: Option<&Path>) {
     }
     done.insert(PREFERENCES_STEP.to_owned());
     if !done.contains(HOSTS_STEP) {
-        core.hosts.carry_installed_from(installed_from(dir));
+        core.hosts().carry_installed_from(installed_from(dir));
         done.insert(HOSTS_STEP.to_owned());
     }
     let aws_profile = prefs["pluginSettings"][AWS_PLUGIN]["profile"]

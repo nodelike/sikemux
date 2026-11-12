@@ -2,6 +2,7 @@
 //! removing it would cost, so it can ask the person; then it removes it with
 //! their answers, and the agent goes back to the main checkout.
 
+use crate::server::parts::Parts;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -40,7 +41,7 @@ pub struct WorktreeRemovalInfo {
 }
 
 fn worktree_of(core: &Core, agent_id: &str) -> CoreResult<(WorkspaceAgent, AgentWorktree)> {
-    let agent = core.workspaces.agent_or_gone(agent_id)?;
+    let agent = core.workspaces().agent_or_gone(agent_id)?;
     let worktree = agent
         .worktree
         .clone()
@@ -50,19 +51,19 @@ fn worktree_of(core: &Core, agent_id: &str) -> CoreResult<(WorkspaceAgent, Agent
 
 fn sharers(core: &Core, agent_id: &str, worktree: &Path) -> Vec<String> {
     let projects = core
-        .workspaces
+        .workspaces()
         .project_paths()
         .into_iter()
         .filter(|path| path.starts_with(worktree))
         .map(|path| path.to_string_lossy().into_owned());
     let agents = core
-        .workspaces
+        .workspaces()
         .agent_ids()
         .into_iter()
         .filter(|id| id != agent_id)
-        .filter_map(|id| core.workspaces.agent(&id))
+        .filter_map(|id| core.workspaces().agent(&id))
         .filter(|other| other.cwd.starts_with(worktree))
-        .map(|other| core.names.name(&other.id).unwrap_or(other.title));
+        .map(|other| core.names().name(&other.id).unwrap_or(other.title));
     projects.chain(agents).collect()
 }
 
@@ -329,7 +330,7 @@ pub(crate) async fn remove(
         })
         .await?
     };
-    core.workspaces.edit_agent(&params.agent_id, |agent| {
+    core.workspaces().edit_agent(&params.agent_id, |agent| {
         agent.worktree = None;
         agent.cwd = outside(&worktree, &agent.cwd);
     })?;

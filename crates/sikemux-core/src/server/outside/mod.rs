@@ -3,6 +3,7 @@
 //! Each signs in once, the person allows it in the app with read-only or full access, and it
 //! then calls with a token that lasts 30 days until the person removes it.
 
+use crate::server::parts::Parts;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -419,19 +420,19 @@ pub struct OutsideChange {
 }
 
 pub(crate) fn answer(core: &Core, answer: OutsideAnswer) -> CoreResult<OutsideView> {
-    core.outside
+    core.outside()
         .answer(&answer.id, answer.allow.then_some(answer.access))?;
     changed(core);
-    Ok(core.outside.view())
+    Ok(core.outside().view())
 }
 
 pub(crate) fn change(core: &Core, change: OutsideChange) -> CoreResult<OutsideView> {
     match change.access {
-        Some(access) => core.outside.set_access(&change.id, access)?,
-        None => core.outside.remove(&change.id)?,
+        Some(access) => core.outside().set_access(&change.id, access)?,
+        None => core.outside().remove(&change.id)?,
     }
     changed(core);
-    Ok(core.outside.view())
+    Ok(core.outside().view())
 }
 
 pub(crate) fn random_text(bytes: usize) -> CoreResult<String> {

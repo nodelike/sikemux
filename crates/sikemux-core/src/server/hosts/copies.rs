@@ -3,6 +3,7 @@
 //! told it, so it can show one project for each repository, with a copy on each host that
 //! holds one.
 
+use crate::server::parts::Parts;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -91,11 +92,11 @@ impl Copies {
     /// the same repository, else in a project of its own among those only elsewhere.
     pub(crate) fn fold(&self, core: &Core, workspace: &mut Workspace) {
         let heard = self.heard.locked().clone();
-        for link in core.remote.links() {
+        for link in core.remote().links() {
             let Some(held) = heard.get(&link.id) else {
                 continue;
             };
-            let away = core.hosts.connected(&link.id).is_none();
+            let away = core.hosts().connected(&link.id).is_none();
             for project in held {
                 let copy = ProjectCopy {
                     host: link.id.clone(),
@@ -137,9 +138,9 @@ impl Copies {
 
 /// This host's projects, as it tells the others.
 fn held_here(core: &Core) -> Vec<Held> {
-    (core.workspaces.projects().into_iter())
+    (core.workspaces().projects().into_iter())
         .map(|project| Held {
-            git: core.git.shown(&project.path.to_string_lossy()).1,
+            git: core.git().shown(&project.path.to_string_lossy()).1,
             id: project.id,
             name: project.name,
             path: project.path,
@@ -152,7 +153,7 @@ fn held_here(core: &Core) -> Vec<Held> {
 /// told.
 pub(crate) fn share(core: &Arc<Core>) {
     let reached: Vec<String> = core
-        .hosts
+        .hosts()
         .state
         .locked()
         .connections
@@ -163,12 +164,12 @@ pub(crate) fn share(core: &Arc<Core>) {
         return;
     }
     let held = held_here(core);
-    let told = core.hosts.copies.told.locked().clone();
+    let told = core.hosts().copies.told.locked().clone();
     for host in reached {
         if told.get(&host) == Some(&held) {
             continue;
         }
-        core.hosts
+        core.hosts()
             .copies
             .told
             .locked()
@@ -180,7 +181,7 @@ pub(crate) fn share(core: &Arc<Core>) {
             });
             let sent = ask(&core, &host, asks::Copies::METHOD, params, None, ASK_WAIT).await;
             if sent.is_err_and(|failed| failed.passing()) {
-                let mut told = core.hosts.copies.told.locked();
+                let mut told = core.hosts().copies.told.locked();
                 if told.get(&host) == Some(&held) {
                     told.remove(&host);
                 }
@@ -191,7 +192,7 @@ pub(crate) fn share(core: &Arc<Core>) {
 
 /// `host` told this one what it holds.
 pub(super) fn heard(core: &Core, host: &str, params: HeldParams) -> Answer {
-    let copies = &core.hosts.copies;
+    let copies = &core.hosts().copies;
     let mut heard = copies.heard.locked();
     if heard.get(host) != Some(&params.projects) {
         heard.insert(host.to_owned(), params.projects);

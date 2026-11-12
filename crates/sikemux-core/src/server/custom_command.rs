@@ -2,6 +2,7 @@
 //! device asked for it: in the background, in a terminal tab of its own, beside
 //! or in place of the view in focus, or in a terminal floating over the window.
 
+use crate::server::parts::Parts;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -156,7 +157,7 @@ fn running(core: &Core, at: &At) -> CoreResult<Running> {
         }),
         (None, false) => {
             let project = core
-                .workspaces
+                .workspaces()
                 .project_info(&at.project)
                 .ok_or_else(|| CoreError::from("that project is not on this host"))?;
             Ok(Running {

@@ -1,3 +1,4 @@
+use crate::server::parts::Parts;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use iroh::SecretKey;
@@ -48,7 +49,7 @@ fn host(when: NotifyWhen) -> Host {
     let secret = SecretKey::generate();
     let host = secret.public().to_string();
     let phone = SecretKey::generate().public().to_string();
-    core.remote.stand_in(
+    core.remote().stand_in(
         secret,
         Some("user_2abc"),
         vec![DeviceInfo {
@@ -62,12 +63,12 @@ fn host(when: NotifyWhen) -> Host {
         }],
     );
     let key = NotificationKey::new(7, [5; 32]);
-    core.remote
+    core.remote()
         .set_notifications(&phone, key.id, &key.to_hex(), prefs(when))
         .unwrap();
     let here = Arc::new(Here(AtomicBool::new(true)));
-    core.notify.set_presence(here.clone());
-    let _ = core.notify.host_name.set("MacBook Pro".into());
+    core.notify().set_presence(here.clone());
+    let _ = core.notify().host_name.set("MacBook Pro".into());
     super::super::chat::idle(&core, "chat-1", "claude", "/work/sikemux");
     Host {
         core,
@@ -93,7 +94,7 @@ impl Host {
 
     /// What went out to the server since the last look.
     fn sent(&self) -> Vec<(Push, NotificationCard)> {
-        let outbox = self.core.remote.outbox();
+        let outbox = self.core.remote().outbox();
         let pushes = outbox.waiting();
         outbox.take();
         pushes
@@ -109,7 +110,7 @@ impl Host {
 
     fn set_prefs(&self, prefs: NotifyPrefs) {
         self.core
-            .remote
+            .remote()
             .set_notifications(&self.phone, self.key.id, &self.key.to_hex(), prefs)
             .unwrap();
     }
@@ -222,7 +223,7 @@ async fn a_phone_that_turned_this_host_off_hears_nothing() {
     host.leave();
     host.signal(Signal::Attention(Box::new(attention("r1"))), T);
     assert!(host.sent().is_empty());
-    let status = host.core.remote.status();
+    let status = host.core.remote().status();
     assert_eq!(status.notifications[0].state, NotificationState::Off);
 }
 
@@ -390,7 +391,7 @@ async fn nothing_reaches_a_phone_showing_the_chat() {
             id: "someone-else".into(),
         },
     );
-    let chat = host.core.chats.get("chat-1").unwrap();
+    let chat = host.core.chats().get("chat-1").unwrap();
     chat.feed.subscribe(&client);
     chat.feed.subscribe(&other);
     host.signal(Signal::Attention(Box::new(attention("r1"))), T);
@@ -404,13 +405,13 @@ async fn nothing_reaches_a_phone_showing_the_chat() {
 #[tokio::test]
 async fn a_host_signed_out_sends_nothing() {
     let host = host(NotifyWhen::Always);
-    let phones = host.core.remote.status().devices;
+    let phones = host.core.remote().status().devices;
     host.core
-        .remote
+        .remote()
         .stand_in(SecretKey::generate(), None, phones);
     host.signal(Signal::Attention(Box::new(attention("r1"))), T);
     assert!(host.sent().is_empty());
-    let status = host.core.remote.status();
+    let status = host.core.remote().status();
     assert_eq!(status.notifications[0].state, NotificationState::SignedOut);
 }
 
@@ -426,9 +427,9 @@ async fn what_the_server_answers_shows_in_settings_and_a_refusal_stops_pushing()
             blob: "AAAA".into(),
             expires_at: T,
         };
-        host.core.remote.note_pushed(&push, result)
+        host.core.remote().note_pushed(&push, result)
     };
-    let state = || host.core.remote.status().notifications[0].state;
+    let state = || host.core.remote().status().notifications[0].state;
     assert_eq!(state(), NotificationState::On);
     assert!(push(PushResult::NoToken));
     assert_eq!(state(), NotificationState::PhoneOff);
@@ -452,7 +453,7 @@ async fn what_the_server_answers_shows_in_settings_and_a_refusal_stops_pushing()
 #[tokio::test]
 async fn only_a_paired_phone_with_a_real_key_is_kept() {
     let host = host(NotifyWhen::Always);
-    let remote = &host.core.remote;
+    let remote = &host.core.remote();
     let key = host.key.to_hex();
     assert!(remote
         .set_notifications("stranger", 1, &key, prefs(NotifyWhen::Always))
@@ -479,10 +480,10 @@ async fn only_a_paired_phone_with_a_real_key_is_kept() {
 async fn revoking_a_phone_forgets_its_key() {
     let host = host(NotifyWhen::Always);
     super::super::remote::revoke(&host.core, &host.phone).unwrap();
-    assert!(host.core.remote.status().notifications.is_empty());
+    assert!(host.core.remote().status().notifications.is_empty());
     assert!(host
         .core
-        .remote
+        .remote()
         .notify_targets()
         .is_some_and(|(_, targets)| targets.is_empty()));
 }
@@ -490,10 +491,10 @@ async fn revoking_a_phone_forgets_its_key() {
 #[tokio::test]
 async fn clearing_stops_notifications() {
     let host = host(NotifyWhen::Always);
-    host.core.remote.clear_notifications(&host.phone).unwrap();
+    host.core.remote().clear_notifications(&host.phone).unwrap();
     host.signal(Signal::Attention(Box::new(attention("r1"))), T);
     assert!(host.sent().is_empty());
-    assert!(host.core.remote.status().notifications.is_empty());
+    assert!(host.core.remote().status().notifications.is_empty());
 }
 
 /// Against a stand-in for the accounts server: the push goes out on the live
@@ -506,7 +507,7 @@ async fn a_push_reaches_the_server_and_its_answer_comes_back() {
     let host = host(NotifyWhen::Always);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     host.core
-        .remote
+        .remote()
         .set_accounts_api(&format!("http://{}", listener.local_addr().unwrap()));
     super::super::remote::ensure_live(&host.core);
     let (stream, _) = listener.accept().await.unwrap();
@@ -551,7 +552,7 @@ async fn a_push_reaches_the_server_and_its_answer_comes_back() {
     socket.send(send(json!({ "type": "ping" }))).await.unwrap();
     assert_eq!(read(socket.next().await.unwrap().unwrap())["type"], "pong");
     assert_eq!(
-        host.core.remote.status().notifications[0].state,
+        host.core.remote().status().notifications[0].state,
         NotificationState::PhoneOff
     );
     super::super::remote::stop_live(&host.core);

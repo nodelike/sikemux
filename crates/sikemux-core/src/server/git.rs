@@ -2,6 +2,7 @@
 //! project that tells them all when to read again.
 
 use crate::server::changed::What;
+use crate::server::parts::Parts;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, Weak};
@@ -81,7 +82,7 @@ async fn confine(core: &Core, peer: &Peer, repo: &str) -> CoreResult<()> {
     if !matches!(peer, Peer::Device { .. }) {
         return Ok(());
     }
-    let (asked, projects) = (PathBuf::from(repo), core.workspaces.project_paths());
+    let (asked, projects) = (PathBuf::from(repo), core.workspaces().project_paths());
     if !blocking(move || Ok(of_a_project(&asked, &projects))).await? {
         return Err("a device may only look at the workspace's projects".into());
     }
@@ -90,13 +91,13 @@ async fn confine(core: &Core, peer: &Peer, repo: &str) -> CoreResult<()> {
 
 /// Whether a project or an agent here works inside `path`.
 fn lived_in(core: &Core, path: &Path) -> bool {
-    let projects = core.workspaces.project_paths();
+    let projects = core.workspaces().project_paths();
     projects.iter().any(|project| project.starts_with(path))
         || core
-            .workspaces
+            .workspaces()
             .agent_ids()
             .into_iter()
-            .filter_map(|id| core.workspaces.agent(&id))
+            .filter_map(|id| core.workspaces().agent(&id))
             .any(|agent| agent.cwd.starts_with(path))
 }
 
@@ -118,7 +119,7 @@ pub(super) async fn pull_request_url(
 
 /// The repository of `project`, preferring the one the person picked for it.
 async fn project_repo(core: &Core, project: String) -> Result<status::ProjectRepo, String> {
-    if core.clones.holds(Path::new(&project)) {
+    if core.clones().holds(Path::new(&project)) {
         return Ok(status::ProjectRepo {
             repo: None,
             repos: Some(Vec::new()),
@@ -234,13 +235,13 @@ fn read_chips(core: &Arc<Core>, folders: Vec<String>) {
             read.push((folder, chip));
         }
         let projects: HashSet<String> = core
-            .workspaces
+            .workspaces()
             .project_paths()
             .iter()
             .map(|path| path.to_string_lossy().into_owned())
             .collect();
         let changed = {
-            let mut chips = core.git.chips.locked();
+            let mut chips = core.git().chips.locked();
             let before = chips.len();
             chips.retain(|folder, _| projects.contains(folder));
             let mut changed = chips.len() != before;
@@ -369,13 +370,13 @@ pub(crate) fn read_hosts(core: &Arc<Core>, folders: Vec<String>) {
             read.push((folder, Some(hosted)));
         }
         let projects: HashSet<String> = core
-            .workspaces
+            .workspaces()
             .project_paths()
             .iter()
             .map(|path| path.to_string_lossy().into_owned())
             .collect();
         let changed = {
-            let mut hosts = core.git.hosted.locked();
+            let mut hosts = core.git().hosted.locked();
             let before = hosts.len();
             hosts.retain(|folder, _| projects.contains(folder));
             let mut changed = hosts.len() != before;
@@ -396,7 +397,7 @@ pub(crate) fn read_hosts(core: &Arc<Core>, folders: Vec<String>) {
 /// The repositories whose pull request checks are still running, which the
 /// CI watch keeps checking until they settle.
 pub(crate) fn pending_pulls(core: &Core) -> Vec<super::codehost::ci::Shown> {
-    core.git
+    core.git()
         .hosted
         .locked()
         .values()
@@ -414,7 +415,7 @@ pub(crate) fn pending_pulls(core: &Core) -> Vec<super::codehost::ci::Shown> {
 /// read again.
 pub(crate) fn ci_moved(core: &Arc<Core>, repo: &super::codehost::ci::Shown) {
     let folders: Vec<String> = core
-        .git
+        .git()
         .hosted
         .locked()
         .iter()
@@ -434,7 +435,7 @@ const HOST_REFRESH_GAP: Duration = Duration::from_secs(5);
 /// refs moved meanwhile.
 fn refresh_hosts(core: &Arc<Core>, projects: &[String]) {
     let fresh: Vec<String> = {
-        let mut refreshes = core.git.refreshes.locked();
+        let mut refreshes = core.git().refreshes.locked();
         projects
             .iter()
             .filter(|project| match refreshes.get_mut(*project) {
@@ -458,13 +459,13 @@ fn refresh_hosts(core: &Arc<Core>, projects: &[String]) {
 fn refresh_host_now(core: &Arc<Core>, project: String) {
     read_hosts(core, vec![project.clone()]);
     super::codehost::refs_moved(core, std::slice::from_ref(&project));
-    core.checks.refs_moved(&project);
+    core.checks().refs_moved(&project);
     let weak = Arc::downgrade(core);
     tokio::spawn(async move {
         tokio::time::sleep(HOST_REFRESH_GAP).await;
         let Some(core) = weak.upgrade() else { return };
         let again = {
-            let mut refreshes = core.git.refreshes.locked();
+            let mut refreshes = core.git().refreshes.locked();
             match refreshes.get_mut(&project) {
                 Some(again) if *again => {
                     *again = false;
@@ -506,22 +507,22 @@ pub(crate) fn follow_projects(core: &Core) {
             super::project_files::moved(project, paths.as_deref());
             core.changed(What::ReadIn(Topic::Git, Some(project), paths.clone()));
             if state_moved {
-                core.collisions.head_moved(&core, project);
+                core.collisions().head_moved(&core, project);
             }
         }
     });
     tokio::task::spawn_blocking(move || {
-        core.git
+        core.git()
             .watches
-            .follow(|| core.workspaces.project_paths(), &changed);
-        set_identities(&core, identities_of(core.workspaces.project_paths()));
+            .follow(|| core.workspaces().project_paths(), &changed);
+        set_identities(&core, identities_of(core.workspaces().project_paths()));
     });
 }
 
 /// Keeps what each project is known by, and moves what the person keeps by a project's identity
 /// (the copy in front, the space of a project held elsewhere, the order) to its new identity.
 fn set_identities(core: &Core, identities: Vec<(PathBuf, Option<String>)>) {
-    let renamed: Vec<(String, String)> = (core.workspaces.projects().into_iter())
+    let renamed: Vec<(String, String)> = (core.workspaces().projects().into_iter())
         .filter_map(|project| {
             let old = project.identity?;
             let (_, new) = identities.iter().find(|(path, _)| *path == project.path)?;
@@ -529,7 +530,7 @@ fn set_identities(core: &Core, identities: Vec<(PathBuf, Option<String>)>) {
             (old != new).then_some((old, new))
         })
         .collect();
-    core.workspaces.set_identities(identities);
+    core.workspaces().set_identities(identities);
     if renamed.is_empty() {
         return;
     }
@@ -573,7 +574,7 @@ fn identities_of(paths: Vec<PathBuf>) -> Vec<(PathBuf, Option<String>)> {
 fn refresh_identities(core: &Arc<Core>, paths: Vec<PathBuf>) {
     let core = core.clone();
     tokio::task::spawn_blocking(move || {
-        let known = core.workspaces.project_paths();
+        let known = core.workspaces().project_paths();
         let paths = paths
             .into_iter()
             .filter(|path| known.contains(path))

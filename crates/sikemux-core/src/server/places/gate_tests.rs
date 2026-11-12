@@ -1,3 +1,4 @@
+use crate::server::parts::Parts;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -63,7 +64,7 @@ fn core_at(data: Option<&Path>, project: &str, places: Vec<Place>) -> Arc<Core> 
         reports: false,
         depth: 0,
     };
-    core.names.adopt(adopted, ["agent".to_owned()].into());
+    core.names().adopt(adopted, ["agent".to_owned()].into());
     change(&core, project, |kept| {
         kept.places = places;
         kept.confirmed = Some(1);
@@ -252,7 +253,7 @@ fn a_target_with_no_name_keeps_no_place() {
     };
     assert!(run(&core, bare, Path::new("/nowhere")).is_err());
     assert!(core
-        .places
+        .places()
         .of("/tmp/sikemux-gate-unnamed")
         .places
         .is_empty());
@@ -298,7 +299,7 @@ async fn a_deploys_yes_covers_every_command_of_it_until_the_turn_ends() {
     assert!(run(&core, deploy("vercel --prod"), &cwd).is_err());
     let call = open_calls(&core).remove(0);
     answer(&core, &call.id, "allow").await;
-    core.ship.turn_started("agent");
+    core.ship().turn_started("agent");
     for what in [
         "vercel --prod",
         "vercel deploy --prod --yes",
@@ -310,7 +311,7 @@ async fn a_deploys_yes_covers_every_command_of_it_until_the_turn_ends() {
     let unseen = run(&core, deploy("vercel --prod"), &cwd).unwrap().unwrap();
     ship::ended(core.clone(), unseen, None, String::new()).await;
     assert!(run(&core, deploy("vercel --prod"), &cwd).unwrap().is_some());
-    core.ship.turn_ended("agent");
+    core.ship().turn_ended("agent");
     assert!(run(&core, deploy("vercel --prod"), &cwd).is_err());
 }
 
@@ -323,15 +324,15 @@ async fn a_no_holds_until_the_work_changes_or_the_person_speaks() {
     assert!(run(&core, deploy("vercel --prod"), &cwd).is_err());
     let call = open_calls(&core).remove(0);
     answer(&core, &call.id, "refuse").await;
-    core.ship.turn_started("agent");
-    core.ship.turn_ended("agent");
+    core.ship().turn_started("agent");
+    core.ship().turn_ended("agent");
     let said = run(&core, deploy("vercel deploy --prod"), &cwd)
         .err()
         .unwrap_or_default();
     assert!(said.starts_with("Not yet"), "{said}");
     assert!(open_calls(&core).is_empty());
     std::thread::sleep(std::time::Duration::from_millis(2));
-    core.ship.person_spoke("agent");
+    core.ship().person_spoke("agent");
     assert!(run(&core, deploy("vercel --prod"), &cwd).is_err());
     assert_eq!(open_calls(&core).len(), 1);
 }
@@ -424,11 +425,11 @@ async fn a_context_the_tool_reads_asks_once_and_the_answer_keeps_it() {
         .options
         .iter()
         .any(|option| option.id == ship::NOT_PRODUCTION));
-    assert!(core.places.of(project).places.is_empty());
+    assert!(core.places().of(project).places.is_empty());
     answer(&core, &calls[0].id, ship::NOT_PRODUCTION).await;
 
     assert!(run(&core, apply(), Path::new("/nowhere")).is_ok());
-    let kept = core.places.of(project).places;
+    let kept = core.places().of(project).places;
     assert_eq!(kept.len(), 1);
     assert!(!kept[0].shown.production);
     assert_eq!(
@@ -543,17 +544,17 @@ async fn a_deploys_yes_ends_with_the_last_turn_of_those_on_its_call() {
         reports: false,
         depth: 0,
     };
-    core.names
+    core.names()
         .adopt(other, ["agent".to_owned(), "other".to_owned()].into());
     assert!(run(&core, deploy("vercel --prod"), &cwd).is_err());
     assert!(ship::check(&core, "other", deploy("vercel --prod"), &cwd).is_err());
     let call = open_calls(&core).remove(0);
     answer(&core, &call.id, "allow").await;
-    core.ship.turn_started("agent");
-    core.ship.turn_started("other");
-    core.ship.turn_ended("other");
+    core.ship().turn_started("agent");
+    core.ship().turn_started("other");
+    core.ship().turn_ended("other");
     assert!(run(&core, deploy("vercel --prod"), &cwd).unwrap().is_some());
-    core.ship.turn_ended("agent");
+    core.ship().turn_ended("agent");
     assert!(run(&core, deploy("vercel --prod"), &cwd).is_err());
 }
 
@@ -582,7 +583,7 @@ async fn an_offer_outlives_a_restart() {
     drop(core);
     let again = Core::new(Default::default(), Some(data.path())).unwrap();
     answer(&again, &id, ship::NOT_PRODUCTION).await;
-    let kept = again.places.of(project).places;
+    let kept = again.places().of(project).places;
     assert!(kept.iter().any(|place| !place.shown.production));
 }
 
@@ -725,7 +726,7 @@ fn a_live_offer_is_never_dropped() {
     for at in 0..70 {
         offer(&core, project, &format!("0{at}"), vercel_place());
     }
-    assert!(core.places.of(project).offered.contains_key(&live));
+    assert!(core.places().of(project).offered.contains_key(&live));
 }
 
 /// Two folders each running `--kubeconfig kubeconfig.yaml` with a context called default gave

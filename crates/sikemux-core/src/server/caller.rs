@@ -1,5 +1,6 @@
 //! Who called an agent tool, and what its params say, for every tool alike.
 
+use crate::server::parts::Parts;
 use serde_json::Value;
 
 use crate::cli::protocol::HarnessRequest;
@@ -18,9 +19,9 @@ pub(crate) fn project_of(core: &Core, request: &HarnessRequest) -> String {
     request
         .agent_id
         .as_deref()
-        .and_then(|agent_id| core.names.get(agent_id))
+        .and_then(|agent_id| core.names().get(agent_id))
         .map(|named| named.project)
-        .unwrap_or_else(|| core.workspaces.project_of(Path::new(&request.project)))
+        .unwrap_or_else(|| core.workspaces().project_of(Path::new(&request.project)))
 }
 
 /// The param `key`, trimmed by the caller's choice; none when it is left out.

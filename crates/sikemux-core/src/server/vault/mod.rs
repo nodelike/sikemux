@@ -3,6 +3,7 @@
 //! the plugins read; this module keeps it in step with the vault, decides who may use each
 //! entry, logs every use, and hands on the access tokens of the sign-ins this host refreshes.
 
+use crate::server::parts::Parts;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::{Arc, Mutex, Weak};
 
@@ -192,7 +193,7 @@ impl HostKeeper {
     fn with<T>(&self, absent: T, read: impl FnOnce(&Core, &mut State) -> T) -> T {
         match self.0.upgrade() {
             Some(core) => {
-                let mut state = core.vault.state.locked();
+                let mut state = core.vault().state.locked();
                 read(&core, &mut state)
             }
             None => absent,
@@ -238,15 +239,15 @@ impl Keeper for HostKeeper {
             tally.count += 1;
             tally.last = now;
             state.latest.insert(id, (actor, now));
-            core.vault.used.notify_one();
+            core.vault().used.notify_one();
             Ok(())
         })
     }
 
     fn changed(&self, _service: &str, _account: &str) {
         if let Some(core) = self.0.upgrade() {
-            core.vault.state.locked().dirty = true;
-            core.vault.wake();
+            core.vault().state.locked().dirty = true;
+            core.vault().wake();
         }
     }
 
@@ -277,7 +278,7 @@ impl Keeper for HostKeeper {
     fn refreshed(&self, service: &str, account: &str, access: SharedAccess) {
         let Some(core) = self.0.upgrade() else { return };
         {
-            let mut state = core.vault.state.locked();
+            let mut state = core.vault().state.locked();
             let Some(me) = state.me.clone() else { return };
             let Some(id) = state
                 .entry_of(service, account)
@@ -292,7 +293,7 @@ impl Keeper for HostKeeper {
             state.renew_failed.remove(&id);
             state.pending.insert(id);
         }
-        core.vault.wake();
+        core.vault().wake();
     }
 }
 
@@ -323,7 +324,7 @@ pub(crate) struct Wait {
 
 pub(crate) fn waits(core: &Core) -> Vec<Wait> {
     let (recovery, idle_hosts, count, since) = {
-        let state = core.vault.state.locked();
+        let state = core.vault().state.locked();
         if state.status != Status::Open {
             return Vec::new();
         }

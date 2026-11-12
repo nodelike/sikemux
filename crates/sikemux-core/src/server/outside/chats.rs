@@ -1,6 +1,7 @@
 //! What an outside program may do with chats, as the person would in the app: list them, read
 //! one, wait for it, and with full access start one, send it a message or stop its turn.
 
+use crate::server::parts::Parts;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -137,7 +138,7 @@ fn project(core: &Core, named: &str) -> Result<String, String> {
         return Ok(project.id.clone());
     }
     let path = std::fs::canonicalize(named).ok();
-    path.map(|path| core.workspaces.project_of(&path))
+    path.map(|path| core.workspaces().project_of(&path))
         .filter(|id| !id.is_empty())
         .ok_or_else(|| format!("No project in Sikemux is named {named}; chat_list lists them"))
 }
@@ -148,7 +149,7 @@ fn chat(core: &Core, named: &str) -> Result<Listed, String> {
     if target.reach == Reach::Remote {
         return Err("That chat runs on a linked host; reach it from that host".into());
     }
-    if core.names.is_blind(&target.agent_id) {
+    if core.names().is_blind(&target.agent_id) {
         return Err("That agent reviews a card blind, so nothing outside may reach it".into());
     }
     Ok(target)
@@ -283,7 +284,7 @@ async fn start(core: &Arc<Core>, args: &Value) -> Result<Value, String> {
     prompt_chat(core, PromptChatParams::new(agent_id.clone(), prompt))
         .await
         .map_err(|error| error.to_string())?;
-    let name = core.names.get(&agent_id).map(|named| named.name);
+    let name = core.names().get(&agent_id).map(|named| named.name);
     Ok(json!({
         "chat": name,
         "agentId": agent_id,

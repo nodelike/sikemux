@@ -2,6 +2,7 @@
 //! server holds what senders post until the host takes it over `/v1/hooks/live`, a connection
 //! that runs while the host has a webhook and comes back whenever it drops.
 
+use crate::server::parts::Parts;
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
@@ -76,10 +77,10 @@ pub(crate) async fn remove_hook(core: &Core, hook_id: &str) -> CoreResult<()> {
 /// Makes sure the connection runs while this host is signed in. The server closes it at once
 /// when the host has no webhooks.
 pub(crate) fn connect(core: &Arc<Core>) {
-    let Some(base) = core.remote.signed_in_api() else {
+    let Some(base) = core.remote().signed_in_api() else {
         return;
     };
-    let mut link = core.hooks.link.locked();
+    let mut link = core.hooks().link.locked();
     if link.running {
         link.again = true;
         return;
@@ -113,7 +114,7 @@ async fn run(core: Weak<Core>, url: String) {
                 let Some(core) = core.upgrade() else {
                     return;
                 };
-                let mut link = core.hooks.link.locked();
+                let mut link = core.hooks().link.locked();
                 if !link.again {
                     link.running = false;
                     return;
@@ -188,7 +189,7 @@ async fn session(core: &Arc<Core>, url: &str) -> Ended {
     let Some(nonce) = nonce.await else {
         return retry(None, false);
     };
-    let Some((key, signature)) = core.remote.sign_hooks(&nonce) else {
+    let Some((key, signature)) = core.remote().sign_hooks(&nonce) else {
         return Ended::Done;
     };
     let hello = HookClientMessage::Hello(HookHello {

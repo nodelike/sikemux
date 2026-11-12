@@ -12,6 +12,7 @@
 //! What agents settle among themselves goes in its goal's log, or the project's
 //! when they work on no goal, where the person can overrule it.
 
+use crate::server::parts::Parts;
 use std::collections::HashSet;
 use std::sync::Arc;
 
@@ -40,10 +41,10 @@ const MAX_COMMAND_CHARS: usize = 1000;
 
 /// Who says something now, and in which chat turn; none for the person.
 pub(crate) fn learned(core: &Core, agent: Option<&str>) -> Learned {
-    let chat = agent.and_then(|agent| core.chats.get(agent));
+    let chat = agent.and_then(|agent| core.chats().get(agent));
     Learned {
         agent: agent.map(str::to_owned),
-        name: agent.and_then(|agent| core.names.name(agent)),
+        name: agent.and_then(|agent| core.names().name(agent)),
         feed: chat.as_ref().map(|chat| chat.feed.id().to_owned()),
         turn: chat.as_ref().and_then(|chat| chat.feed.turn_start()),
         at: epoch_ms(),
@@ -203,7 +204,7 @@ pub(crate) struct Standing {
 /// The project's decisions still standing that were made since `since`, newest first, at
 /// most `most`: every goal's, and those made on no goal.
 pub(crate) fn standing_since(core: &Core, project: &str, since: u64, most: usize) -> Vec<Decision> {
-    let state = core.boards.state.locked();
+    let state = core.boards().state.locked();
     let Some(board) = state.boards.get(project) else {
         return Vec::new();
     };
@@ -220,7 +221,7 @@ pub(crate) fn standing_since(core: &Core, project: &str, since: u64, most: usize
 }
 
 pub(crate) fn standing(core: &Core, goal: &GoalRef) -> Standing {
-    let state = core.boards.state.locked();
+    let state = core.boards().state.locked();
     let Some(card) = state
         .boards
         .get(&goal.project)
@@ -541,7 +542,7 @@ fn keep_change(
     by: Learned,
     files: Vec<NamedFile>,
 ) -> Result<String, String> {
-    let mut state = core.boards.state.locked();
+    let mut state = core.boards().state.locked();
     let board = state
         .boards
         .get_mut(project)
@@ -659,7 +660,7 @@ fn keep_change(
     if asserting {
         super::slice::rebind(board);
     }
-    core.boards.save(&mut state, project);
+    core.boards().save(&mut state, project);
     drop(state);
     if asserting {
         core.changed(What::View);
@@ -759,7 +760,7 @@ pub(crate) async fn tool(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
         let goal = goal_of(&core, &agent).ok_or(
             "You work on no card that is not done, so there is no goal to decide for; claim your card first",
         )?;
-        let answers = (core.chats.get(&agent))
+        let answers = (core.chats().get(&agent))
             .and_then(|chat| chat.feed.turn_prompt())
             .map(|prompt| answers_in(&prompt))
             .unwrap_or_default();
@@ -882,7 +883,7 @@ pub(crate) fn keep_settled(core: &Core, settled: Settled) -> Option<(Option<u64>
     let project = goal
         .as_ref()
         .map_or(settled.project, |goal| goal.project.clone());
-    let mut state = core.boards.state.locked();
+    let mut state = core.boards().state.locked();
     let board = (state.boards)
         .entry(project.clone())
         .or_insert_with(|| Board::empty(&project));
@@ -907,7 +908,7 @@ pub(crate) fn keep_settled(core: &Core, settled: Settled) -> Option<(Option<u64>
         holder: Some(settled.holder),
     });
     let decision = kept.last;
-    core.boards.save(&mut state, &project);
+    core.boards().save(&mut state, &project);
     Some((goal, decision))
 }
 
@@ -919,7 +920,7 @@ pub(crate) fn decided_since(
     since: Option<u64>,
     project: Option<&str>,
 ) -> Vec<SwarmDecision> {
-    let state = core.boards.state.locked();
+    let state = core.boards().state.locked();
     let mut decided = Vec::new();
     for board in state.boards.values() {
         if project.is_some_and(|project| project != board.project) {
@@ -970,7 +971,7 @@ pub(crate) async fn overrule(
         blocking(move || {
             let project = project_at(&core, &params.project)?;
             let by = learned(&core, None);
-            let mut state = core.boards.state.locked();
+            let mut state = core.boards().state.locked();
             let board = (state.boards.get_mut(&project))
                 .ok_or_else(|| "This project keeps no decisions".to_owned())?;
             let kept = match params.goal {
@@ -982,7 +983,7 @@ pub(crate) async fn overrule(
                 .ok_or("That decision has been overruled or retired already")?;
             decision.retired = Some(by);
             let overruled = decision.clone();
-            core.boards.save(&mut state, &project);
+            core.boards().save(&mut state, &project);
             drop(state);
             let stopped_auto =
                 super::recover::overruled(&core, &project, params.goal, params.decision);
@@ -1004,7 +1005,7 @@ pub(crate) async fn overrule(
         .cloned()
         .collect();
     for agent in &told {
-        let name = core.names.name_or_id(agent);
+        let name = core.names().name_or_id(agent);
         let answered = crate::server::messages::Answered {
             question: decision.says(),
             asker: name,
@@ -1064,7 +1065,7 @@ pub(crate) async fn undo_overrule(
             let project = project_at(&core, &params.project)?;
             let overrule =
                 crate::server::chief::undoable(&core, &project, params.goal, params.decision)?;
-            let mut state = core.boards.state.locked();
+            let mut state = core.boards().state.locked();
             let board = (state.boards.get_mut(&project))
                 .ok_or_else(|| "This project keeps no decisions".to_owned())?;
             let kept = match params.goal {
@@ -1082,7 +1083,7 @@ pub(crate) async fn undo_overrule(
                 .ok_or("That decision is not overruled")?;
             decision.retired = None;
             let text = decision.text.clone();
-            core.boards.save(&mut state, &project);
+            core.boards().save(&mut state, &project);
             drop(state);
             let view = project_view(&core, &project);
             Ok((project, overrule, text, view))
@@ -1097,7 +1098,7 @@ pub(crate) async fn undo_overrule(
 /// How many decisions agents made in `project` from `from` to `to`, and how many of all its
 /// decisions the person overruled then.
 pub(crate) fn counted_since(core: &Core, project: &str, from: u64, to: u64) -> (usize, usize) {
-    let state = core.boards.state.locked();
+    let state = core.boards().state.locked();
     let Some(board) = state.boards.get(project) else {
         return (0, 0);
     };
@@ -1226,7 +1227,7 @@ pub(crate) async fn person_answer_command(
         let project = project_at(&core, &params.project)?;
         let by = learned(&core, None);
         let (settled, told) = {
-            let mut state = core.boards.state.locked();
+            let mut state = core.boards().state.locked();
             let board = (state.boards.get_mut(&project))
                 .ok_or("This project's board has no such assertion")?;
             let card = board.card_mut(params.card)?;
@@ -1288,7 +1289,7 @@ pub(crate) async fn person_answer_command(
             card.updated_at = epoch_ms();
             super::slice::rebind(board);
             let settled = super::steps::settle_cards(&core, &mut state, &project);
-            core.boards.save(&mut state, &project);
+            core.boards().save(&mut state, &project);
             (settled, told)
         };
         core.changed(What::View);

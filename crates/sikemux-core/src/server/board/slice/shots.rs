@@ -1,5 +1,6 @@
 //! The screenshots a slice keeps as evidence: when one is wanted, and its files.
 
+use crate::server::parts::Parts;
 use serde_json::json;
 
 use super::*;
@@ -11,7 +12,7 @@ pub(crate) const SCREENSHOT_WIDTHS: [&str; 2] = ["mobile", "tablet"];
 /// Whether a screenshot `agent` takes now is kept as evidence: the card it works is a
 /// slice with assertions a screenshot shows.
 pub(crate) fn wants_screenshot(core: &Core, agent: &str) -> bool {
-    let state = core.boards.state.locked();
+    let state = core.boards().state.locked();
     state.boards.values().any(|board| {
         working_slice(board, agent)
             .and_then(|id| board.card(id).ok()?.slice.as_ref())
@@ -30,7 +31,7 @@ pub(crate) fn screenshot_taken(core: &Arc<Core>, agent: &str, shots: &[Value]) {
         return;
     }
     let target = {
-        let state = core.boards.state.locked();
+        let state = core.boards().state.locked();
         state.boards.iter().find_map(|(project, board)| {
             let id = working_slice(board, agent)?;
             let slice = board.card(id).ok()?.slice.as_ref()?;
@@ -76,9 +77,9 @@ pub(crate) fn keep_shots(
     collect: impl FnOnce(&mut Slice, &[Shot]),
 ) {
     let paths = {
-        let mut state = core.boards.state.locked();
+        let mut state = core.boards().state.locked();
         let Some(paths) = (decoded.iter())
-            .map(|(_, width)| core.boards.evidence_file(project, id, *width))
+            .map(|(_, width)| core.boards().evidence_file(project, id, *width))
             .collect::<Option<Vec<_>>>()
         else {
             return;
@@ -107,7 +108,7 @@ pub(crate) fn keep_shots(
     if !kept.is_empty() {
         moved_by_evidence(core, project, id, |slice| collect(slice, &kept));
     }
-    if let Some(board) = core.boards.state.locked().boards.get_mut(project) {
+    if let Some(board) = core.boards().state.locked().boards.get_mut(project) {
         board.writing.retain(|writing| !paths.contains(writing));
     }
 }

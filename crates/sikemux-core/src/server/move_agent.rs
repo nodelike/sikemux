@@ -3,6 +3,7 @@
 //! resumes there; a chat starts again in its new folder at once, and a
 //! terminal agent starts again there when it is next shown.
 
+use crate::server::parts::Parts;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -32,7 +33,7 @@ pub struct MoveToFolder {
 }
 
 fn movable(core: &Core, agent_id: &str) -> CoreResult<WorkspaceAgent> {
-    let agent = core.workspaces.agent_or_gone(agent_id)?;
+    let agent = core.workspaces().agent_or_gone(agent_id)?;
     if agent.worktree.is_some() {
         return Err("an agent working in its own worktree stays in its project".into());
     }
@@ -60,14 +61,14 @@ pub(crate) async fn move_to_folder(
 pub(crate) async fn move_agent(core: &Arc<Core>, params: MoveParams) -> CoreResult<WorkspaceAgent> {
     let agent = movable(core, &params.agent_id)?;
     let to = core
-        .workspaces
+        .workspaces()
         .project_info(&params.project)
         .ok_or_else(|| CoreError::from("that project is not on this host"))?;
     if agent.cwd == to.path {
         return Ok(agent);
     }
     let followed = layout::agent_in_front(core, &agent.id, &agent.project);
-    let chat = core.chats.get(&agent.id).is_some();
+    let chat = core.chats().get(&agent.id).is_some();
     let terminal = agent
         .pty_id
         .and_then(|pty| core.session(pty))
@@ -83,16 +84,19 @@ pub(crate) async fn move_agent(core: &Arc<Core>, params: MoveParams) -> CoreResu
                     agent.provider
                 ))
             })?;
-        if chat && !core.chats.stop_if_idle(&agent.id) {
+        if chat && !core.chats().stop_if_idle(&agent.id) {
             return Err("the agent is at work; move it once its turn ends".into());
         }
         if let Some(terminal) = &terminal {
             session::kill(core, terminal);
         }
-        let config_path = agent
-            .profile_id
-            .as_deref()
-            .and_then(|id| core.workspaces.accounts()?.profile(id)?.config_path.clone());
+        let config_path = agent.profile_id.as_deref().and_then(|id| {
+            core.workspaces()
+                .accounts()?
+                .profile(id)?
+                .config_path
+                .clone()
+        });
         relocate(
             kind,
             agent.cwd.to_string_lossy().into_owned(),
@@ -103,9 +107,9 @@ pub(crate) async fn move_agent(core: &Arc<Core>, params: MoveParams) -> CoreResu
         .await
         .map_err(CoreError::from)?;
     } else if chat {
-        core.chats.stop(&agent.id);
+        core.chats().stop(&agent.id);
     }
-    let moved = core.workspaces.edit_agent(&agent.id, |moved| {
+    let moved = core.workspaces().edit_agent(&agent.id, |moved| {
         moved.project = to.id.clone();
         moved.cwd = to.path;
         if terminal.is_some() {

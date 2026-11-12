@@ -11,6 +11,7 @@
 //! pid stays this process's child, so the new core reads on where the old
 //! one stopped while the agent works on.
 
+use crate::server::parts::Parts;
 use std::collections::{HashMap, HashSet};
 use std::fs::{DirBuilder, File, OpenOptions};
 use std::io::Write;
@@ -235,7 +236,7 @@ pub(crate) fn replace_process(core: &Core, binary: &Path, handed: &mut [HandOver
             ),
         }
     }
-    let tools = core.tools.locked().as_ref().map(|tools| ToolsRecord {
+    let tools = core.tools().locked().as_ref().map(|tools| ToolsRecord {
         path: tools.path().to_path_buf(),
         fd: tools.fd(),
         token: tools.token().to_owned(),
@@ -287,7 +288,7 @@ pub(crate) fn replace_process(core: &Core, binary: &Path, handed: &mut [HandOver
         next_call_id: core.window.call_mark(),
         agent_sequence: agent::sequence_mark(),
         sessions: records,
-        harness: serde_json::to_value(core.harness.record()).unwrap_or(Value::Null),
+        harness: serde_json::to_value(core.harness().record()).unwrap_or(Value::Null),
         chats,
         live_chats,
         lsp_documents: super::lsp::carry(),
@@ -898,7 +899,7 @@ pub(crate) async fn resume(recovery: Recovery, build: BuildIdentity) -> Result<(
             }
         }
         match serde_json::from_value::<HarnessRecord>(state.harness) {
-            Ok(record) => core.harness.restore(record),
+            Ok(record) => core.harness().restore(record),
             Err(error) => eprintln!(
                 "sikemux core: UPDATE LOST THE HARNESS RUNS ({error}); task sessions keep running"
             ),
@@ -980,7 +981,7 @@ pub(crate) async fn resume(recovery: Recovery, build: BuildIdentity) -> Result<(
     if endpoint.is_none() {
         endpoint = start_tools(&core).await;
     }
-    *core.tools.locked() = endpoint;
+    *core.tools().locked() = endpoint;
     if let Err(error) = std::fs::remove_dir_all(&recovery.directory) {
         eprintln!(
             "sikemux core: could not remove {}: {error}",

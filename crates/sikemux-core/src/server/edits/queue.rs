@@ -7,6 +7,7 @@
 //! failed check is traced to the land that broke it, which goes back to its
 //! agent as a message while the rest stay in line.
 
+use crate::server::parts::Parts;
 use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -96,7 +97,7 @@ pub(super) fn enqueue(core: &Core, agent_id: &str, push: bool) -> Result<Queued,
         failed_over: None,
     };
     let ahead = {
-        let mut lines = core.land_queue.0.locked();
+        let mut lines = core.land_queue().0.locked();
         let line = lines.entry(key.clone()).or_default();
         match (line.waiting.iter()).position(|w| w.agent == agent_id) {
             Some(at) => {
@@ -131,7 +132,7 @@ fn wake(core: &Core, key: Key) {
         return;
     };
     {
-        let mut lines = core.land_queue.0.locked();
+        let mut lines = core.land_queue().0.locked();
         let Some(line) = lines.get_mut(&key) else {
             return;
         };
@@ -149,7 +150,7 @@ fn wake(core: &Core, key: Key) {
 
 /// The lands the next check takes, or none when the queue stops for now.
 fn next(core: &Arc<Core>, key: &Key) -> Option<Vec<Waiting>> {
-    let mut lines = core.land_queue.0.locked();
+    let mut lines = core.land_queue().0.locked();
     let line = lines.get_mut(key)?;
     let waiters: Vec<Waiter> = (line.waiting.iter())
         .map(|w| Waiter {
@@ -177,7 +178,7 @@ fn next(core: &Arc<Core>, key: &Key) -> Option<Vec<Waiting>> {
 }
 
 fn with_line<T>(core: &Core, key: &Key, change: impl FnOnce(&mut Line) -> T) -> Option<T> {
-    core.land_queue.0.locked().get_mut(key).map(change)
+    core.land_queue().0.locked().get_mut(key).map(change)
 }
 
 fn leave(core: &Core, key: &Key, waiting: &Waiting) {
@@ -513,15 +514,15 @@ fn clashing(repo: &Path, stacked: &Stack, paths: &[PathBuf]) -> Vec<Waiting> {
 
 /// Brings each landed agent's checkout up to its landed commits and says they landed.
 fn landed(core: &Core, repo: &Path, stacked: &Stack) -> Landed {
-    let project = core.workspaces.project_of(repo);
+    let project = core.workspaces().project_of(repo);
     let mut onto = stacked.tip.clone();
     let mut landed = Vec::with_capacity(stacked.laid.len());
     for laid in &stacked.laid {
         let waiting = &laid.waiting;
         let stays = land::follow(&waiting.worktree.path, &waiting.head, &laid.tip);
-        core.build_outputs.landed(&waiting.agent);
+        core.build_outputs().landed(&waiting.agent);
         crate::server::chief::landed(core, &project, &waiting.agent);
-        core.repo_events.tell(RepoEvent::Landed {
+        core.repo_events().tell(RepoEvent::Landed {
             project: project.clone(),
             agent: waiting.agent.clone(),
             onto: onto.clone(),

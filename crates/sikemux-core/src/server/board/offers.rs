@@ -1,6 +1,7 @@
 //! The board offers an idle agent its team's free cards, and tells a turn that only ignored
 //! the offer from one worth reporting.
 
+use crate::server::parts::Parts;
 use std::sync::Arc;
 
 use super::*;
@@ -17,7 +18,7 @@ fn idle_from(core: &Core, agent_id: &str) -> Option<u64> {
         return None;
     }
     now.resting().then(|| {
-        core.seen
+        core.seen()
             .active_at(agent_id)
             .map_or(0, |at| at + IDLE_BEFORE_OFFER_MS)
     })
@@ -34,7 +35,7 @@ pub(super) fn offer(core: &Arc<Core>) -> Option<u64> {
     let workers: Vec<(String, String)> = running
         .iter()
         .filter_map(|agent| {
-            let named = core.names.get(agent)?;
+            let named = core.names().get(agent)?;
             let lead = named.parent.as_ref()?;
             idle_from(core, lead)
                 .is_some()
@@ -47,7 +48,7 @@ pub(super) fn offer(core: &Arc<Core>) -> Option<u64> {
     let mut next = None;
     let mut offers: Vec<(String, Vec<String>, String)> = Vec::new();
     {
-        let mut state = core.boards.state.locked();
+        let mut state = core.boards().state.locked();
         let State {
             boards,
             offered,
@@ -64,7 +65,7 @@ pub(super) fn offer(core: &Arc<Core>) -> Option<u64> {
             if busy {
                 continue;
             }
-            let team = core.names.team_of(&agent);
+            let team = core.names().team_of(&agent);
             let free: Vec<&Card> = board
                 .cards
                 .iter()
@@ -116,7 +117,7 @@ pub(super) fn offer(core: &Arc<Core>) -> Option<u64> {
             let sent = messages::from_board(&core, agent.clone(), text, note).await;
             let new_turn = sent.is_ok_and(|sent| sent["delivery"] == "newTurn");
             if !new_turn {
-                core.boards.state.locked().woken.remove(&agent);
+                core.boards().state.locked().woken.remove(&agent);
             }
         });
     }
@@ -126,7 +127,7 @@ pub(super) fn offer(core: &Arc<Core>) -> Option<u64> {
 /// Forgets offers of cards no longer open, or gone, and offers to agents
 /// since closed.
 fn forget_stale_offers(core: &Core) {
-    let mut state = core.boards.state.locked();
+    let mut state = core.boards().state.locked();
     if state.offered.is_empty() {
         return;
     }
@@ -136,7 +137,7 @@ fn forget_stale_offers(core: &Core) {
         .map(|(_, _, agent)| agent.clone())
         .collect();
     let named: HashSet<String> = core
-        .names
+        .names()
         .of(&offered_to)
         .into_iter()
         .map(|named| named.agent_id)
@@ -156,11 +157,11 @@ fn forget_stale_offers(core: &Core) {
 /// Whether the agent's turn was one the board started to offer it cards, in
 /// which it took none and changed nothing on the board. Ends that turn's mark.
 pub(crate) fn offer_turn_ignored(core: &Core, agent_id: &str) -> bool {
-    core.boards.state.locked().woken.remove(agent_id)
+    core.boards().state.locked().woken.remove(agent_id)
 }
 
 /// Something besides the board's offer reached the agent in the turn the
 /// offer started, so that turn's end is worth reporting.
 pub(crate) fn reached_by_more_than_offer(core: &Core, agent_id: &str) {
-    core.boards.state.locked().woken.remove(agent_id);
+    core.boards().state.locked().woken.remove(agent_id);
 }

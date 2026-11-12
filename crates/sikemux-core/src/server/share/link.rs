@@ -3,6 +3,7 @@
 //! reconnects when it drops, opening each share again and sending a fresh
 //! snapshot, since the server may have lost what it held.
 
+use crate::server::parts::Parts;
 use std::sync::{Arc, Weak};
 use std::time::Duration;
 
@@ -51,7 +52,7 @@ pub(super) async fn run(
             return;
         };
         {
-            let mut inner = alive.shares.inner.locked();
+            let mut inner = alive.shares().inner.locked();
             for running in inner.running.values_mut() {
                 if running.state == ShareState::Open {
                     running.state = ShareState::Connecting;
@@ -114,7 +115,7 @@ async fn send(socket: &mut Socket, message: &ShareClientMessage) -> bool {
 
 fn publish(core: &Core, id: &str, frame: &[u8]) -> Option<ShareClientMessage> {
     let (plain, snapshot) = published(core, id, frame)?;
-    let mut inner = core.shares.inner.locked();
+    let mut inner = core.shares().inner.locked();
     numbered(inner.running.get_mut(id)?, &plain, snapshot)
 }
 
@@ -151,7 +152,7 @@ fn tick(core: &Arc<Core>) {
     let now = epoch_ms();
     let mut stale = Vec::new();
     {
-        let mut inner = core.shares.inner.locked();
+        let mut inner = core.shares().inner.locked();
         let before = inner.running.len();
         inner
             .running
@@ -165,7 +166,7 @@ fn tick(core: &Arc<Core>) {
                 continue;
             }
             let current = core
-                .chats
+                .chats()
                 .get(&running.stored.agent_id)
                 .map(|chat| Arc::as_ptr(&chat) as usize);
             if current.is_some() && current != running.chat {
@@ -194,7 +195,7 @@ async fn session(
     let Some(nonce) = nonce.await else {
         return retry(None, false);
     };
-    let Some((key, signature)) = core.remote.sign_share(&nonce) else {
+    let Some((key, signature)) = core.remote().sign_share(&nonce) else {
         return retry(None, false);
     };
     let hello = ShareClientMessage::Hello(ShareHello {
@@ -242,7 +243,7 @@ async fn session(
                 let mut taken = None;
                 let outgoing = match heard {
                     ToLink::Open(id) => core
-                        .shares
+                        .shares()
                         .inner.locked()
                         .running
                         .get(&id)
@@ -270,7 +271,7 @@ async fn session(
                     tick(core);
                 }
                 let idle = {
-                    let inner = core.shares.inner.locked();
+                    let inner = core.shares().inner.locked();
                     inner.running.is_empty() && inner.closing.is_empty()
                 };
                 if idle {
@@ -285,7 +286,7 @@ async fn session(
                 open = true;
                 silence = socket::silence(ready.heartbeat_ms);
                 let (opening, closing): (Vec<_>, Vec<_>) = {
-                    let inner = core.shares.inner.locked();
+                    let inner = core.shares().inner.locked();
                     (
                         inner
                             .running
@@ -313,7 +314,7 @@ async fn session(
                 sent
             }
             ShareServerMessage::Opened(opened) => {
-                let mut inner = core.shares.inner.locked();
+                let mut inner = core.shares().inner.locked();
                 if let Some(running) = inner.running.get_mut(&opened.share) {
                     running.state = ShareState::Open;
                     running.problem = None;
@@ -324,7 +325,7 @@ async fn session(
                 true
             }
             ShareServerMessage::Refused(refused) => {
-                let mut inner = core.shares.inner.locked();
+                let mut inner = core.shares().inner.locked();
                 if let Some(running) = inner.running.get_mut(&refused.share) {
                     running.state = ShareState::Refused;
                     running.problem = Some(refusal_text(refused.reason).to_owned());
@@ -335,7 +336,8 @@ async fn session(
                 true
             }
             ShareServerMessage::Viewers(viewers) => {
-                if let Some(running) = core.shares.inner.locked().running.get_mut(&viewers.share) {
+                if let Some(running) = core.shares().inner.locked().running.get_mut(&viewers.share)
+                {
                     running.viewers = u32::try_from(viewers.count).unwrap_or(0);
                     super::changed(core);
                 }
@@ -347,7 +349,7 @@ async fn session(
                     if let Some(reply) =
                         answer(core.clone(), asked.share, asked.viewer, asked.sealed).await
                     {
-                        let mut inner = core.shares.inner.locked();
+                        let mut inner = core.shares().inner.locked();
                         super::tell(&core, &mut inner, reply);
                     }
                 });
@@ -358,7 +360,7 @@ async fn session(
                 true
             }
             ShareServerMessage::Ended(ended) => {
-                let mut inner = core.shares.inner.locked();
+                let mut inner = core.shares().inner.locked();
                 inner.closing.retain(|stored| stored.id != ended.share);
                 if let Some(running) = inner.running.remove(&ended.share) {
                     super::chat::detach(core, running.client.id, &running.stored.agent_id);

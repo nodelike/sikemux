@@ -7,6 +7,7 @@
 //! is in a turn, and the core hands itself over to it.
 
 use crate::server::changed::What;
+use crate::server::parts::Parts;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -272,7 +273,7 @@ pub(crate) async fn serve(core: Arc<Core>) {
             .flatten(),
         false => None,
     };
-    core.updates.edit(&core, |held| {
+    core.updates().edit(&core, |held| {
         held.status.updates = own_app().is_some();
         held.status.current = core.config.build.version.clone();
         held.status.install_command = by_installer.clone();
@@ -282,7 +283,7 @@ pub(crate) async fn serve(core: Arc<Core>) {
     if is_host() {
         tokio::spawn(settle_own_update(core.clone()));
     }
-    if !core.updates.status().updates && by_installer.is_none() {
+    if !core.updates().status().updates && by_installer.is_none() {
         return;
     }
     tokio::time::sleep(FIRST_CHECK).await;
@@ -290,7 +291,7 @@ pub(crate) async fn serve(core: Arc<Core>) {
         if check(&core).await.is_ok() {
             update_host_when_quiet(&core).await;
         }
-        let _ = tokio::time::timeout(CHECK_EVERY, core.updates.wake.notified()).await;
+        let _ = tokio::time::timeout(CHECK_EVERY, core.updates().wake.notified()).await;
     }
 }
 
@@ -307,7 +308,7 @@ fn read_switch() -> bool {
 /// in a turn, or at once when the account no longer works with this build,
 /// since it then reaches nobody. It waits at most until the next check.
 async fn update_host_when_quiet(core: &Arc<Core>) {
-    let status = core.updates.status();
+    let status = core.updates().status();
     if !is_host()
         || status.automatic != Some(true)
         || status.available.is_none()
@@ -317,17 +318,17 @@ async fn update_host_when_quiet(core: &Arc<Core>) {
     }
     let until = tokio::time::Instant::now() + CHECK_EVERY;
     loop {
-        let rested = core.updates.quiet.notified();
-        if core.chats.in_turn() == 0 || core.remote.too_old() {
+        let rested = core.updates().quiet.notified();
+        if core.chats().in_turn() == 0 || core.remote().too_old() {
             break;
         }
         if tokio::time::timeout_at(until, rested).await.is_err() {
             return;
         }
     }
-    let force = core.remote.too_old();
+    let force = core.remote().too_old();
     if force {
-        let interrupted = core.chats.blockers().len();
+        let interrupted = core.chats().blockers().len();
         eprintln!(
             "sikemux core: this version is too old for the account, so it updates now, interrupting {interrupted} chats"
         );
@@ -338,7 +339,7 @@ async fn update_host_when_quiet(core: &Arc<Core>) {
 /// Looks for a release newer than this one on the person's channel. One feed
 /// that does not answer must not hide a release the other one offers.
 pub(crate) async fn check(core: &Core) -> CoreResult<UpdateStatus> {
-    let status = core.updates.status();
+    let status = core.updates().status();
     let channel = channel(core);
     let by_installer = blocking(move || Ok(installer_command(channel)))
         .await
@@ -383,7 +384,7 @@ pub(crate) async fn check(core: &Core) -> CoreResult<UpdateStatus> {
             ))
         },
     );
-    core.updates.edit(core, |held| {
+    core.updates().edit(core, |held| {
         held.status.checked = Some(UpdateCheck {
             at: epoch_ms(),
             channel,
@@ -400,7 +401,7 @@ pub(crate) async fn check(core: &Core) -> CoreResult<UpdateStatus> {
     });
     match error {
         Some(error) => Err(CoreError::from(format!("update check: {error}"))),
-        None => Ok(core.updates.status()),
+        None => Ok(core.updates().status()),
     }
 }
 
@@ -414,7 +415,7 @@ pub struct UpdateInstallParams {
 /// Downloads and puts in place the release `check` found, in the background;
 /// clients follow it in the status.
 pub(crate) fn install(core: &Arc<Core>, params: UpdateInstallParams) -> CoreResult<UpdateStatus> {
-    let status = core.updates.status();
+    let status = core.updates().status();
     if matches!(
         status.state,
         UpdateState::Downloading | UpdateState::Installing | UpdateState::Ready
@@ -423,11 +424,11 @@ pub(crate) fn install(core: &Arc<Core>, params: UpdateInstallParams) -> CoreResu
     }
     let app = own_app().ok_or_else(|| CoreError::from("this build does not update itself"))?;
     let (found, installed) = {
-        let held = core.updates.held.locked();
+        let held = core.updates().held.locked();
         (held.found.clone(), held.installed)
     };
     let found = found.ok_or_else(|| CoreError::from("there is no update to install"))?;
-    core.updates.edit(core, |held| {
+    core.updates().edit(core, |held| {
         if !installed {
             begin_update(held);
         }
@@ -441,18 +442,18 @@ pub(crate) fn install(core: &Arc<Core>, params: UpdateInstallParams) -> CoreResu
             UpdateState::Downloading
         };
     });
-    let status = core.updates.status();
+    let status = core.updates().status();
     let core = core.clone();
     tokio::spawn(async move {
         if let Err(error) = put_in_place(&core, &app, &found, installed).await {
-            core.updates.edit(&core, |held| {
+            core.updates().edit(&core, |held| {
                 held.status.state = UpdateState::Failed;
                 held.status.error = Some(error);
             });
             return;
         }
         wait_for_chats(&core).await;
-        if matches!(app, OwnApp::Host) && core.updates.status().state == UpdateState::Ready {
+        if matches!(app, OwnApp::Host) && core.updates().status().state == UpdateState::Ready {
             restart_into_installed(&core).await;
         }
     });
@@ -466,12 +467,12 @@ async fn ask_root(core: &Core) -> (Vec<UpdateStep>, Option<String>) {
     let mut steps = Vec::new();
     let request = HostRequest {
         channel: channel(core),
-        id: core.updates.status().id,
+        id: core.updates().status().id,
         action: HostAction::Install,
     };
     let last = host_update::ask_root(&request, |step| {
         if let UpdateStep::Downloaded { bytes, .. } = step {
-            core.updates.edit(core, |held| {
+            core.updates().edit(core, |held| {
                 held.status.downloaded_bytes = *bytes;
                 held.status.total_bytes = Some(*bytes);
                 held.status.state = UpdateState::Installing;
@@ -481,7 +482,7 @@ async fn ask_root(core: &Core) -> (Vec<UpdateStep>, Option<String>) {
     })
     .await;
     if last == UpdateStep::Off {
-        core.updates
+        core.updates()
             .edit(core, |held| held.status.automatic = Some(false));
     }
     refresh_outcome(core).await;
@@ -506,7 +507,7 @@ fn refusal(steps: &[UpdateStep]) -> String {
 /// Hands this core over to the one root put in place, keeping its terminals
 /// and chats. Returns only if that failed.
 async fn restart_into_installed(core: &Arc<Core>) {
-    let force = core.updates.status().forced;
+    let force = core.updates().status().forced;
     let error = upgrade::replace_with(
         core,
         PathBuf::from(INSTALLED_CORE),
@@ -514,7 +515,7 @@ async fn restart_into_installed(core: &Arc<Core>) {
         HANDING_OVER_LIMIT,
     )
     .await;
-    core.updates.edit(core, |held| {
+    core.updates().edit(core, |held| {
         held.status.state = UpdateState::Failed;
         held.status.error = Some(format!("could not restart into it: {error}"));
     });
@@ -526,7 +527,7 @@ async fn refresh_outcome(core: &Core) {
         .await
         .ok()
         .flatten();
-    core.updates
+    core.updates()
         .edit(core, |held| held.status.outcome = outcome);
 }
 
@@ -538,7 +539,7 @@ fn begin_update(held: &mut Held) {
 /// On a host core an update just put in place: says it started well once it has run a while,
 /// so root drops the core it replaced.
 async fn settle_own_update(core: Arc<Core>) {
-    let Some(outcome) = core.updates.status().outcome.filter(|outcome| {
+    let Some(outcome) = core.updates().status().outcome.filter(|outcome| {
         outcome.state == UpdateOutcomeState::Pending
             && outcome.to.as_deref() == Some(core.config.build.version.as_str())
     }) else {
@@ -657,12 +658,12 @@ async fn watch_stalls(core: Arc<Core>) {
     loop {
         tokio::time::sleep(WATCH_EVERY).await;
         let (state, since) = {
-            let held = core.updates.held.locked();
+            let held = core.updates().held.locked();
             (held.status.state, held.since)
         };
         let working = matches!(state, UpdateState::Downloading | UpdateState::Installing);
         if working && since.is_some_and(|since| since.elapsed() > WORKING_LIMIT) {
-            core.updates.edit(&core, |held| {
+            core.updates().edit(&core, |held| {
                 held.status.state = UpdateState::Failed;
                 held.status.error = Some(format!(
                     "it did not finish in {} minutes",
@@ -675,7 +676,7 @@ async fn watch_stalls(core: Arc<Core>) {
 
 /// What a host's devices show of its updates; none on anything but a host.
 pub(crate) fn host_view(core: &Core) -> Option<UpdateStatus> {
-    is_host().then(|| core.updates.status())
+    is_host().then(|| core.updates().status())
 }
 
 /// `sikemux update` on a host: puts the newest release in place now, without
@@ -687,12 +688,12 @@ pub(crate) async fn update_host(core: &Arc<Core>) -> CoreResult<HostUpdate> {
     }
     let _ = check(core).await;
     if !matches!(
-        core.updates.status().state,
+        core.updates().status().state,
         UpdateState::Idle | UpdateState::Failed
     ) {
         return Err("this host is already updating".into());
     }
-    core.updates.edit(core, |held| {
+    core.updates().edit(core, |held| {
         begin_update(held);
         held.status.forced = false;
         held.status.state = UpdateState::Installing;
@@ -700,7 +701,7 @@ pub(crate) async fn update_host(core: &Arc<Core>) -> CoreResult<HostUpdate> {
     });
     let (steps, in_place) = ask_root(core).await;
     let failed = matches!(steps.last(), Some(UpdateStep::Failed { .. }));
-    core.updates.edit(core, |held| {
+    core.updates().edit(core, |held| {
         held.installed = in_place.is_some();
         held.status.state = match (&in_place, failed) {
             (Some(_), _) => UpdateState::Waiting,
@@ -714,7 +715,7 @@ pub(crate) async fn update_host(core: &Arc<Core>) -> CoreResult<HostUpdate> {
         tokio::spawn(async move {
             tokio::time::sleep(ANSWER_GRACE).await;
             wait_for_chats(&core).await;
-            if core.updates.status().state == UpdateState::Ready {
+            if core.updates().status().state == UpdateState::Ready {
                 restart_into_installed(&core).await;
             }
         });
@@ -752,21 +753,21 @@ pub(crate) async fn set_automatic(
         stored.map_err(|error| CoreError::from(error.to_string()))
     })
     .await?;
-    core.updates
+    core.updates()
         .edit(core, |held| held.status.automatic = Some(on));
-    core.updates.check_soon();
-    Ok(core.updates.status())
+    core.updates().check_soon();
+    Ok(core.updates().status())
 }
 
 /// Stops waiting on chats; the update stays in place for later.
 pub(crate) fn cancel(core: &Core) -> UpdateStatus {
-    core.updates.edit(core, |held| {
+    core.updates().edit(core, |held| {
         if held.status.state == UpdateState::Waiting {
             held.status.state = UpdateState::Idle;
             held.status.blockers.clear();
         }
     });
-    core.updates.status()
+    core.updates().status()
 }
 
 async fn put_in_place(
@@ -783,7 +784,7 @@ async fn put_in_place(
         if in_place.is_none() {
             return Err(refusal(&steps));
         }
-        core.updates.edit(core, |held| held.installed = true);
+        core.updates().edit(core, |held| held.installed = true);
         return Ok(());
     }
     let key = release_feed::release_key()?;
@@ -805,7 +806,7 @@ async fn put_in_place(
         |done, total| {
             if last.elapsed() >= PROGRESS_EVERY || total == Some(done) {
                 last = Instant::now();
-                core.updates.edit(core, |held| {
+                core.updates().edit(core, |held| {
                     held.status.downloaded_bytes = done;
                     held.status.total_bytes = total;
                 });
@@ -817,7 +818,7 @@ async fn put_in_place(
         let _ = std::fs::remove_file(&archive);
         return Err(error);
     }
-    core.updates
+    core.updates()
         .edit(core, |held| held.status.state = UpdateState::Installing);
     let (app, unpack) = (app.clone(), archive.clone());
     let swapped = blocking(move || {
@@ -831,7 +832,7 @@ async fn put_in_place(
     .await;
     let _ = std::fs::remove_file(&archive);
     swapped.map_err(|error| error.to_string())?;
-    core.updates.edit(core, |held| held.installed = true);
+    core.updates().edit(core, |held| held.installed = true);
     Ok(())
 }
 
@@ -839,12 +840,12 @@ async fn put_in_place(
 /// once when the person chose to stop them.
 async fn wait_for_chats(core: &Core) {
     loop {
-        let status = core.updates.status();
+        let status = core.updates().status();
         if !matches!(status.state, UpdateState::Installing | UpdateState::Waiting) {
             return;
         }
         let blockers: Vec<UpdateBlocker> = core
-            .chats
+            .chats()
             .blockers()
             .into_iter()
             .map(|blocker| UpdateBlocker {
@@ -855,7 +856,7 @@ async fn wait_for_chats(core: &Core) {
             })
             .collect();
         let ready = status.forced || blockers.is_empty();
-        core.updates.edit(core, |held| {
+        core.updates().edit(core, |held| {
             held.status.blockers = blockers;
             held.status.state = if ready {
                 UpdateState::Ready

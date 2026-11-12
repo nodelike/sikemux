@@ -3,6 +3,7 @@
 //! when the page opens and alerts can start; what each agent uses is read only while a client
 //! watches the page, which a `hostStats` read for more than now does for a while.
 
+use crate::server::parts::Parts;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
@@ -160,7 +161,7 @@ impl HostWatch {
 }
 
 pub(crate) fn read(core: &Core, params: HostStatsParams) -> HostStats {
-    let watch = &core.host_watch;
+    let watch = core.host_watch();
     let more = params.span != StatsSpan::Now;
     if more {
         watch.watch();
@@ -206,7 +207,7 @@ pub(crate) fn read(core: &Core, params: HostStatsParams) -> HostStats {
 
 /// What the rows that show this host's load say of it.
 pub(crate) fn load(core: &Core) -> HostLoad {
-    let now = core.host_watch.state.locked().now;
+    let now = core.host_watch().state.locked().now;
     let cores = std::thread::available_parallelism().map_or(1, |cores| cores.get());
     let average = sikemux_process::machine::load_average();
     let overloaded = sikemux_process::machine::overloaded(average, cores);
@@ -219,7 +220,7 @@ pub(crate) fn load(core: &Core) -> HostLoad {
             .map(|average| average.round() as u32),
         cores: cores as u32,
         builds: match overloaded {
-            true => core.builds.shown(),
+            true => core.builds().shown(),
             false => Vec::new(),
         },
     }
@@ -257,7 +258,7 @@ pub(crate) fn inbox_alerts(core: &Core) -> Vec<(Option<String>, String, HostAler
 /// [`alerts`], each linked host's with its name.
 fn alerts_named(core: &Core) -> Vec<(HostAlerted, Option<String>)> {
     let (alerts, offline) = {
-        let state = core.host_watch.state.locked();
+        let state = core.host_watch().state.locked();
         (state.alerts.clone(), state.offline.clone())
     };
     let mut listed: Vec<_> = (alerts.into_iter())
@@ -266,7 +267,7 @@ fn alerts_named(core: &Core) -> Vec<(HostAlerted, Option<String>)> {
     if offline.is_empty() {
         return listed;
     }
-    let links = core.remote.links();
+    let links = core.remote().links();
     for (host, since) in offline {
         let Some(link) = links.iter().find(|link| link.id == host) else {
             continue;
@@ -290,7 +291,7 @@ fn alerts_named(core: &Core) -> Vec<(HostAlerted, Option<String>)> {
 }
 
 fn about(core: &Core) -> &HostAbout {
-    core.host_watch.about.get_or_init(|| {
+    core.host_watch().about.get_or_init(|| {
         let machine = machine::about();
         let mark = if machine.gpu.is_some() {
             HostMark::Nvidia
@@ -328,7 +329,7 @@ fn watch_pressure(core: Weak<Core>) {
             return;
         };
         let moved = {
-            let mut state = core.host_watch.state.locked();
+            let mut state = core.host_watch().state.locked();
             let at = epoch_ms();
             if state.pressure != Some(pressure) {
                 state.pressure = Some(pressure);
@@ -372,12 +373,12 @@ async fn run(core: Arc<Core>) {
     let mut next_shown = Instant::now() + LOAD_SHOWN_EVERY;
     loop {
         let now = Instant::now();
-        let watched = core.host_watch.watched();
+        let watched = core.host_watch().watched();
         let host_due = now >= next_host;
         let watched_due = watched && now >= next_watched;
         if !watched && looker.looked_at.is_some() {
             looker.forget_processes();
-            let mut state = core.host_watch.state.locked();
+            let mut state = core.host_watch().state.locked();
             state.agents = Vec::new();
             state.rest = None;
             state.top = Vec::new();
@@ -402,7 +403,7 @@ async fn run(core: Arc<Core>) {
             looker = back;
             if host_due {
                 next_host = now + HISTORY_EVERY;
-                if let Some((free, total)) = core.host_watch.disk_free() {
+                if let Some((free, total)) = core.host_watch().disk_free() {
                     super::worktree::build_output::make_room(&core, free, total);
                 }
                 if now >= next_shown {
@@ -428,14 +429,14 @@ async fn run(core: Arc<Core>) {
                 core.changed(What::Read(Topic::HostStats));
             }
         }
-        let wake = if core.host_watch.watched() {
+        let wake = if core.host_watch().watched() {
             next_host.min(next_watched)
         } else {
             next_host
         };
         tokio::select! {
             () = tokio::time::sleep_until(wake.into()) => {}
-            () = core.host_watch.woken.notified() => {}
+            () = core.host_watch().woken.notified() => {}
         }
     }
 }
@@ -447,9 +448,9 @@ impl Looker {
         let disk = (self.home.as_deref())
             .and_then(machine::disk)
             .unwrap_or_default();
-        let offline = core.hosts.out_of_reach(OFFLINE_AFTER_MS);
+        let offline = core.hosts().out_of_reach(OFFLINE_AFTER_MS);
         let at = epoch_ms();
-        let mut state = core.host_watch.state.locked();
+        let mut state = core.host_watch().state.locked();
         let sample = HostSample {
             at,
             cpu: cpu.unwrap_or(state.now.cpu),
@@ -601,7 +602,7 @@ impl Looker {
             .map(str::to_owned)
             .collect();
         let (in_apps, met) = self.apps.of(&usages);
-        core.host_watch.icons.meet(met);
+        core.host_watch().icons.meet(met);
         let mut grouped: Vec<(ProcessUse, u64, u64)> = Vec::new();
         let mut group_of: HashMap<(&str, Option<&str>), usize> = HashMap::new();
         for (index, usage) in usages.iter().enumerate() {
@@ -655,7 +656,7 @@ impl Looker {
             .collect();
         let shown = shown_of(&agents, &rest, &top);
         let now = epoch_ms();
-        let mut state = core.host_watch.state.locked();
+        let mut state = core.host_watch().state.locked();
         if let Some(cpu) = cpu {
             state.now.cpu = cpu;
         }
@@ -956,13 +957,13 @@ impl State {
 /// Measures what takes the disk, in the background at the system's lowest priority, at most
 /// every so often while the page is watched.
 fn measure_disk_parts(core: &Arc<Core>) {
-    let watch = &core.host_watch;
+    let watch = core.host_watch();
     if (watch.state.locked().disk_parts_at).is_some_and(|at| at.elapsed() < DISK_PARTS_EVERY)
         || watch.measuring.swap(true, Ordering::AcqRel)
     {
         return;
     }
-    let projects = core.workspaces.project_paths();
+    let projects = core.workspaces().project_paths();
     let core = Arc::downgrade(core);
     let spawned = std::thread::Builder::new()
         .name("sikemux-disk-parts".into())
@@ -973,7 +974,7 @@ fn measure_disk_parts(core: &Arc<Core>) {
                 return;
             };
             {
-                let mut state = core.host_watch.state.locked();
+                let mut state = core.host_watch().state.locked();
                 let measured: u64 = parts.iter().map(|part| part.bytes).sum();
                 let mut parts = parts;
                 parts.push(DiskPart {
@@ -986,7 +987,7 @@ fn measure_disk_parts(core: &Arc<Core>) {
                 state.disk_parts = parts;
                 state.disk_parts_at = Some(Instant::now());
             }
-            core.host_watch.measuring.store(false, Ordering::Release);
+            core.host_watch().measuring.store(false, Ordering::Release);
             core.changed(What::Read(Topic::HostStats));
         });
     if spawned.is_err() {

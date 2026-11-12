@@ -3,6 +3,7 @@
 
 use super::*;
 use crate::server::changed::What;
+use crate::server::parts::Parts;
 use sikemux_view::workspace::{ConfigChoice, ConfigPicker};
 
 /// A launcher's id: the CLI it starts and the account it starts it on, written `kind` or
@@ -200,21 +201,21 @@ pub(crate) struct UsageAccount {
 /// the core last heard of their sign-in. Runs as the core starts and when the
 /// person's accounts or their mode change, or they may have installed an agent.
 pub(crate) fn refresh_launchers(core: Arc<Core>) -> impl std::future::Future<Output = ()> {
-    let asked = core.workspaces.asked.fetch_add(1, Ordering::SeqCst) + 1;
+    let asked = core.workspaces().asked.fetch_add(1, Ordering::SeqCst) + 1;
     async move { refresh(core, asked).await }
 }
 
 /// Answers once the core has looked for the agents it can start at least once, so one asked
 /// to start an agent just after it started doesn't take "not looked yet" for "none".
 pub(crate) async fn launchers_known(core: &Arc<Core>) {
-    if core.workspaces.applied.load(Ordering::SeqCst) == 0 {
+    if core.workspaces().applied.load(Ordering::SeqCst) == 0 {
         refresh_launchers(core.clone()).await;
     }
 }
 
 pub(super) async fn refresh(core: Arc<Core>, asked: u64) {
     let looking: Vec<_> = core
-        .workspaces
+        .workspaces()
         .offered()
         .into_iter()
         .map(|launcher| {
@@ -248,11 +249,11 @@ pub(super) async fn refresh(core: Arc<Core>, asked: u64) {
         }
     }
     // A newer look may finish first; an older one still lands when nothing newer has.
-    if core.workspaces.applied.fetch_max(asked, Ordering::SeqCst) >= asked {
+    if core.workspaces().applied.fetch_max(asked, Ordering::SeqCst) >= asked {
         return;
     }
     {
-        let mut logged = core.workspaces.missed.locked();
+        let mut logged = core.workspaces().missed.locked();
         for (id, reason) in &missed {
             if logged.get(id) != Some(reason) {
                 eprintln!("sikemux core: {id} cannot be started here: {reason}");
@@ -260,7 +261,7 @@ pub(super) async fn refresh(core: Arc<Core>, asked: u64) {
         }
         *logged = missed;
     }
-    core.workspaces.set_launchers(found);
+    core.workspaces().set_launchers(found);
     // The accounts' kept plan limits are listed by launcher, so they show once launchers are.
     core.changed(What::Read(Topic::Usage));
 }

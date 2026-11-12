@@ -5,6 +5,7 @@
 //! a window reload, a restart and an update.
 
 use crate::server::changed::What;
+use crate::server::parts::Parts;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
@@ -1258,16 +1259,16 @@ impl BoardTicketParams {
 
 /// The provider paying for the agent's turns, by name, when not its own account.
 fn paid_by(core: &Core, agent_id: &str) -> Option<String> {
-    let chat = core.chats.get(agent_id)?;
+    let chat = core.chats().get(agent_id)?;
     let provider = core
-        .workspaces
+        .workspaces()
         .providers()?
         .find(chat.launch.model_provider.as_deref()?)?;
     Some(provider.label.clone())
 }
 
 fn name_of(core: &Core, agent_id: &str) -> String {
-    core.names.name_or_id(agent_id)
+    core.names().name_or_id(agent_id)
 }
 
 /// The agent that answers for a card: its owner while that agent is open, here
@@ -1290,7 +1291,7 @@ fn holder_for_agents<'a>(core: &Core, board: &Board, card: &'a Card) -> Option<&
 fn may_change(core: &Core, agent_id: &str, holder: Option<&str>) -> bool {
     match holder {
         None => true,
-        Some(owner) => owner == agent_id || core.names.leads(agent_id, owner),
+        Some(owner) => owner == agent_id || core.names().leads(agent_id, owner),
     }
 }
 
@@ -1348,7 +1349,7 @@ pub(crate) fn wants_name(title: &str, details: &str) -> bool {
 
 /// What the person asked for goal `card` of `project`, when its title is too long to go by.
 pub(crate) fn asked_for_name(core: &Core, project: &str, card: u64) -> Option<String> {
-    let state = core.boards.state.locked();
+    let state = core.boards().state.locked();
     let goal = state.boards.get(project)?.card(card).ok()?;
     wants_name(&goal.title, &goal.details).then(|| match goal.details.as_str() {
         "" => goal.title.clone(),
@@ -1358,13 +1359,17 @@ pub(crate) fn asked_for_name(core: &Core, project: &str, card: u64) -> Option<St
 
 /// The open goals still waiting for a short name, by project, card and the agent holding each.
 pub(crate) fn unnamed_goals(core: &Core) -> Vec<(String, u64, String)> {
-    let state = core.boards.state.locked();
+    let state = core.boards().state.locked();
     state.boards.values().for_each(Board::place_cards);
     let unnamed = (state.boards.values())
         .flat_map(|board| board.cards.iter().map(move |card| (board, card)))
         .filter(|(board, card)| card.status != CardStatus::Done && board.is_goal(card))
         .filter(|(_, card)| wants_name(&card.title, &card.details))
-        .filter(|(board, card)| core.goal_summaries.title(&board.project, card.id).is_none())
+        .filter(|(board, card)| {
+            core.goal_summaries()
+                .title(&board.project, card.id)
+                .is_none()
+        })
         .filter_map(|(board, card)| {
             Some((board.project.clone(), card.id, card.owner_id()?.to_owned()))
         })
@@ -1376,7 +1381,7 @@ pub(crate) fn unnamed_goals(core: &Core) -> Vec<(String, u64, String)> {
 /// The goals `agent` holds, by project and card, whose titles are too long to go by and which
 /// `title` is short enough to name.
 pub(crate) fn goals_to_name(core: &Core, agent: &str, title: &str) -> Vec<(String, u64)> {
-    let state = core.boards.state.locked();
+    let state = core.boards().state.locked();
     (state.boards.values())
         .flat_map(|board| board.cards.iter().map(move |card| (board, card)))
         .filter(|(_, card)| card.parent.is_none() && card.owner_id() == Some(agent))
@@ -1473,7 +1478,7 @@ impl Card {
 
     fn owner_name(&self, core: &Core) -> Option<String> {
         let owner = self.owner.as_ref()?;
-        core.names
+        core.names()
             .name(&owner.id)
             .or_else(|| owner.name.clone())
             .or_else(|| Some(owner.id.clone()))
@@ -1483,7 +1488,7 @@ impl Card {
         match &self.created_by {
             None => "the person".to_owned(),
             Some(maker) => core
-                .names
+                .names()
                 .name(&maker.id)
                 .or_else(|| maker.name.clone())
                 .unwrap_or_else(|| maker.id.clone()),
@@ -1511,7 +1516,7 @@ fn team_of(core: &Core, board: &Board, card: &Card) -> Option<Team> {
         .up_from(card)
         .find(|card| card.owner_id().or(card.maker_id()).is_some())?;
     let agent = card.owner_id().or(card.maker_id())?;
-    if core.names.name(agent).is_none() {
+    if core.names().name(agent).is_none() {
         return card.team.clone().or_else(|| {
             Some(Team {
                 lead: agent.to_owned(),
@@ -1519,9 +1524,9 @@ fn team_of(core: &Core, board: &Board, card: &Card) -> Option<Team> {
             })
         });
     }
-    let lead = core.names.team_of(agent);
+    let lead = core.names().team_of(agent);
     let name = core
-        .names
+        .names()
         .name(&lead)
         .or_else(|| {
             card.team
@@ -1712,7 +1717,7 @@ fn card_view(core: &Core, board: &Board, card: &Card) -> BoardCard {
         ticket_above: ticket_above(board, card),
         column,
         question: (column == BoardColumn::Needs)
-            .then(|| core.harness.questions.blocking(card.owner_id()?))
+            .then(|| core.harness().questions.blocking(card.owner_id()?))
             .flatten(),
         auto: card.auto.as_ref().map(AutoRun::view),
         recordings: card.recordings.clone(),
@@ -1756,7 +1761,7 @@ fn card_view(core: &Core, board: &Board, card: &Card) -> BoardCard {
 /// of what the person asked until that arrives.
 fn display_title(core: &Core, board: &Board, card: &Card) -> Option<String> {
     (card.parent.is_none() && wants_name(&card.title, &card.details)).then(|| {
-        core.goal_summaries
+        core.goal_summaries()
             .title(&board.project, card.id)
             .unwrap_or_else(|| first_clause(card))
     })
@@ -1766,7 +1771,7 @@ fn display_title(core: &Core, board: &Board, card: &Card) -> Option<String> {
 /// short name it was given; none while it waits for that.
 fn short_name(core: &Core, board: &Board, card: &Card) -> Option<String> {
     match wants_name(&card.title, &card.details) {
-        true => core.goal_summaries.title(&board.project, card.id),
+        true => core.goal_summaries().title(&board.project, card.id),
         false => Some(card.title.clone()),
     }
 }
@@ -1785,7 +1790,7 @@ fn board_view(core: &Core, _state: &State, board: &Board) -> ProjectBoard {
         running: auto::running(core, board),
         auto_note: (board.auto_note.clone()).or_else(|| board.reservoir_note.clone()),
         problems: Vec::new(),
-        triggers: core.triggers.on_board(&board.project),
+        triggers: core.triggers().on_board(&board.project),
         audit: audit::view(core, board),
     };
     board.forget_places();
@@ -1957,7 +1962,7 @@ fn add_card(
     adding: Adding,
     holder: Option<&str>,
 ) -> Result<(u64, Value), String> {
-    let boards = &core.boards;
+    let boards = core.boards();
     let mut state = boards.state.locked();
     archive::make_room(boards, &mut state, project);
     let board = state
@@ -2080,7 +2085,7 @@ pub(crate) struct CiCard {
 /// The latest commits of `project`'s unfinished slices that still wait for the check to pass
 /// on them, which a passing CI run on a commit holding them stands for.
 pub(crate) fn unbuilt_heads(core: &Core, project: &str) -> Vec<String> {
-    let state = core.boards.state.locked();
+    let state = core.boards().state.locked();
     let Some(board) = state.boards.get(project) else {
         return Vec::new();
     };
@@ -2092,7 +2097,7 @@ pub(crate) fn unbuilt_heads(core: &Core, project: &str) -> Vec<String> {
 }
 
 pub(crate) fn ci_card(core: &Core, project: &str) -> Option<CiCard> {
-    let state = core.boards.state.locked();
+    let state = core.boards().state.locked();
     let card = (state.boards.get(project)?.cards.iter())
         .find(|card| card.status != CardStatus::Done && !card.ci.is_empty())?;
     Some(CiCard {
@@ -2113,7 +2118,7 @@ fn take_on(core: &Core, board: &mut Board, id: u64, agent: &str) -> Result<(), S
 }
 
 fn claim_card(core: &Core, project: &str, agent: &str, id: u64) -> Result<Value, String> {
-    let boards = &core.boards;
+    let boards = core.boards();
     let mut state = boards.state.locked();
     let board = state
         .boards
@@ -2174,9 +2179,9 @@ fn change_card(
         _ => slice::Seen::unread(),
     };
     let (view, notices, later) = {
-        let mut state = core.boards.state.locked();
+        let mut state = core.boards().state.locked();
         let changed = change_in(core, &mut state, project, by, id, changes, &seen);
-        core.boards.save(&mut state, project);
+        core.boards().save(&mut state, project);
         changed?
     };
     later.run(core);
@@ -2558,7 +2563,7 @@ fn mark_done(
 }
 
 fn remove_card(core: &Core, project: &str, id: u64) -> Result<Vec<Notice>, String> {
-    let boards = &core.boards;
+    let boards = core.boards();
     let mut state = boards.state.locked();
     let board = state
         .boards
@@ -2733,7 +2738,7 @@ pub(crate) async fn update(core: &Arc<Core>, request: &HarnessRequest) -> Result
         blocking(move || {
             let project = super::caller::project_of(&core, &request);
             let own_run = {
-                let state = core.boards.state.locked();
+                let state = core.boards().state.locked();
                 state
                     .boards
                     .get(&project)
@@ -2747,7 +2752,7 @@ pub(crate) async fn update(core: &Arc<Core>, request: &HarnessRequest) -> Result
             if shipping {
                 changes.status = None;
                 if changes.is_empty() {
-                    let state = core.boards.state.locked();
+                    let state = core.boards().state.locked();
                     let board = state.boards.get(&project).ok_or("the board is gone")?;
                     return Ok((
                         agent_view(&core, board, board.card(id)?, false),
@@ -2782,12 +2787,12 @@ pub(crate) async fn list(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
     blocking(move || {
         let project = super::caller::project_of(&core, &request);
         if request.params.get("compare") == Some(&Value::Bool(true)) {
-            let archived = archive::archived(&core.boards, &project);
-            let state = core.boards.state.locked();
+            let archived = archive::archived(core.boards(), &project);
+            let state = core.boards().state.locked();
             let live = state.boards.get(&project).map_or(&[][..], |board| &board.cards);
             return Ok(compare::view(&project, live.iter().chain(&archived)));
         }
-        let state = core.boards.state.locked();
+        let state = core.boards().state.locked();
         let Some(board) = state.boards.get(&project) else {
             if let Some(id) = one {
                 return Err(format!("There is no card #{id} on this project's board").into());
@@ -2797,7 +2802,7 @@ pub(crate) async fn list(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
         if let Some(id) = one {
             return Ok(agent_view(&core, board, board.card(id)?, true));
         }
-        let team = core.names.team_of(&agent);
+        let team = core.names().team_of(&agent);
         let rank = |card: &Card| {
             let mine = card.owner_id() == Some(agent.as_str());
             let ours = team_of(&core, board, card).is_some_and(|ours| ours.lead == team);
@@ -2859,7 +2864,7 @@ fn held_card<'a>(state: &'a mut State, agent_id: &str) -> Option<(&'a String, &'
 /// A line naming the agent's card, for the report its lead gets when its
 /// turn ends.
 pub(crate) fn card_line(core: &Core, agent_id: &str) -> Option<String> {
-    let mut state = core.boards.state.locked();
+    let mut state = core.boards().state.locked();
     let (_, card) = held_card(&mut state, agent_id)?;
     Some(format!(
         "Its card on the board: {}, {}.",
@@ -2878,7 +2883,7 @@ fn open_work<'a>(state: &'a State, agent_id: &str) -> Option<(&'a String, &'a Bo
 
 /// The ticket of the card an agent holds, or of the card it sits under.
 pub(crate) fn ticket_of_agent(core: &Core, agent_id: &str) -> Option<String> {
-    let state = core.boards.state.locked();
+    let state = core.boards().state.locked();
     let (_, board, card) = open_work(&state, agent_id)?;
     let ticket = board
         .up_from(card)
@@ -2940,8 +2945,8 @@ fn waits(core: &Core, board: &Board, card: &Card) -> Option<Waits> {
             agent: stalled.agent.clone(),
             name: stalled.name.clone(),
             why: stalled.why,
-            can_resume: core.names.ran_session(&stalled.agent).is_some()
-                || core.workspaces.agent(&stalled.agent).is_some(),
+            can_resume: core.names().ran_session(&stalled.agent).is_some()
+                || core.workspaces().agent(&stalled.agent).is_some(),
         });
     }
     if let Some(ticket) = card.ticket_done_unlanded() {
@@ -2972,7 +2977,7 @@ fn waits(core: &Core, board: &Board, card: &Card) -> Option<Waits> {
     (card.status == CardStatus::Progress
         && card
             .owner_id()
-            .is_some_and(|owner| core.harness.questions.blocks_on_person(owner)))
+            .is_some_and(|owner| core.harness().questions.blocks_on_person(owner)))
     .then_some(Waits::Answer)
 }
 
@@ -3019,7 +3024,7 @@ impl Card {
 
 /// The card the agent works, or the one it reviews for Auto.
 pub(crate) fn agent_card(core: &Core, agent_id: &str) -> Option<Summary> {
-    let mut state = core.boards.state.locked();
+    let mut state = core.boards().state.locked();
     let (project, id) = match held_card(&mut state, agent_id) {
         Some((project, card)) => (project.clone(), card.id),
         None => blind::reviewed_card(&state, agent_id)
@@ -3031,8 +3036,8 @@ pub(crate) fn agent_card(core: &Core, agent_id: &str) -> Option<Summary> {
 
 /// Whether the agent reviews a card's contract, about which nobody is asked.
 pub(crate) fn reviews_contract(core: &Core, agent_id: &str) -> bool {
-    core.names.is_blind(agent_id) && {
-        let state = core.boards.state.locked();
+    core.names().is_blind(agent_id) && {
+        let state = core.boards().state.locked();
         blind::reviewed_card(&state, agent_id)
             .and_then(|(_, card)| card.auto.as_ref())
             .is_some_and(|run| run.stage == RunStage::Contracting)
@@ -3042,7 +3047,7 @@ pub(crate) fn reviews_contract(core: &Core, agent_id: &str) -> bool {
 /// Whether Auto, switched on, runs the agent: it builds or reviews a card on a
 /// board whose Auto is on.
 pub(crate) fn led_by_auto(core: &Core, agent_id: &str) -> bool {
-    let state = core.boards.state.locked();
+    let state = core.boards().state.locked();
     let on = |project: &String| {
         state
             .boards
@@ -3062,7 +3067,7 @@ pub(crate) fn led_by_auto(core: &Core, agent_id: &str) -> bool {
 /// Whether Auto runs the agent, building a card or reviewing one, so the ends of its turns
 /// move the card on rather than wait on the person, even while the card is handed back.
 pub(crate) fn run_by_auto(core: &Core, agent_id: &str) -> bool {
-    let state = core.boards.state.locked();
+    let state = core.boards().state.locked();
     blind::reviewed_card(&state, agent_id).is_some()
         || state
             .boards
@@ -3089,7 +3094,7 @@ pub(crate) fn decisions_of(
     core: &Core,
     project: &str,
 ) -> Vec<(Option<u64>, sikemux_view::slice::Decision)> {
-    let state = core.boards.state.locked();
+    let state = core.boards().state.locked();
     let Some(board) = state.boards.get(project) else {
         return Vec::new();
     };
@@ -3106,7 +3111,7 @@ pub(crate) fn decisions_of(
 }
 
 pub(crate) fn cards_for_person(core: &Core, done_since: Option<u64>) -> Vec<Summary> {
-    let state = core.boards.state.locked();
+    let state = core.boards().state.locked();
     state.boards.values().for_each(Board::place_cards);
     let cards = (state.boards.values())
         .flat_map(|board| board.cards.iter().map(move |card| (board, card)))
@@ -3126,7 +3131,7 @@ pub(crate) fn cards_for_person(core: &Core, done_since: Option<u64>) -> Vec<Summ
 /// slice, else among the card's recordings.
 pub(crate) fn attach_recording(core: &Arc<Core>, agent_id: &str, recording: InboxRecording) {
     let found = {
-        let mut state = core.boards.state.locked();
+        let mut state = core.boards().state.locked();
         let working = state.boards.iter().find_map(|(project, board)| {
             Some((project.clone(), slice::working_slice(board, agent_id)?))
         });
@@ -3149,7 +3154,7 @@ pub(crate) fn attach_recording(core: &Arc<Core>, agent_id: &str, recording: Inbo
         let asserting = (card.slice.as_ref())
             .is_some_and(|slice| !slice.asserting(Collect::Recording).is_empty());
         if kept != Some(false) {
-            core.boards.save(&mut state, &project);
+            core.boards().save(&mut state, &project);
         }
         (kept == Some(true) && asserting).then_some((project, id))
     };
@@ -3161,7 +3166,7 @@ pub(crate) fn attach_recording(core: &Arc<Core>, agent_id: &str, recording: Inbo
 /// Who passes Landed in `project`: Sikemux once a slice is on the branch, or
 /// the person.
 pub(crate) fn landing(core: &Core, project: &str) -> auto::Landing {
-    let state = core.boards.state.locked();
+    let state = core.boards().state.locked();
     (state.boards.get(project)).map_or_else(auto::Landing::default, |board| board.settings.landing)
 }
 
@@ -3176,7 +3181,7 @@ pub(crate) struct GoalRef {
 /// The goal the card `agent_id` works sits under, in its own project: its
 /// card not done, walked up to the top card above it, done or not.
 pub(crate) fn goal_of(core: &Core, agent_id: &str) -> Option<GoalRef> {
-    let state = core.boards.state.locked();
+    let state = core.boards().state.locked();
     let (project, board, live) = open_work(&state, agent_id)?;
     let project = project.clone();
     let goal = board.goal_above(live);
@@ -3199,7 +3204,7 @@ pub(crate) fn goal_of(core: &Core, agent_id: &str) -> Option<GoalRef> {
 }
 
 pub(crate) fn boards(core: &Core) -> Vec<ProjectBoard> {
-    let state = core.boards.state.locked();
+    let state = core.boards().state.locked();
     state
         .boards
         .values()
@@ -3208,7 +3213,7 @@ pub(crate) fn boards(core: &Core) -> Vec<ProjectBoard> {
 }
 
 pub(crate) fn project_view(core: &Core, project: &str) -> ProjectBoard {
-    let state = core.boards.state.locked();
+    let state = core.boards().state.locked();
     match state.boards.get(project) {
         Some(board) => board_view(core, &state, board),
         None => board_view(core, &state, &Board::empty(project)),
@@ -3217,14 +3222,14 @@ pub(crate) fn project_view(core: &Core, project: &str) -> ProjectBoard {
 
 /// How `project`'s board runs on its own.
 pub(crate) fn settings_of(core: &Core, project: &str) -> BoardSettings {
-    (core.boards.state.locked().boards.get(project))
+    (core.boards().state.locked().boards.get(project))
         .map(|board| board.settings.clone())
         .unwrap_or_default()
 }
 
 pub(crate) fn project_at(core: &Core, path: &str) -> Result<String, String> {
     if Path::new(path).is_absolute() && path.len() <= 4096 {
-        Ok(core.workspaces.project_of(Path::new(path)))
+        Ok(core.workspaces().project_of(Path::new(path)))
     } else {
         Err("project must be the project's absolute path".into())
     }
@@ -3400,7 +3405,7 @@ pub(crate) async fn person_add(
         let owner = params.owner.clone();
         if let Some(owner) = &owner {
             let here = core
-                .names
+                .names()
                 .get(owner)
                 .is_some_and(|named| named.project == project);
             if !here || !core.open_agents().contains(owner) {
@@ -3450,7 +3455,7 @@ pub(crate) async fn person_settings(
     blocking(move || {
         let project = project_at(&core, &params.project)?;
         let current = {
-            let state = core.boards.state.locked();
+            let state = core.boards().state.locked();
             state
                 .boards
                 .get(&project)
@@ -3458,23 +3463,23 @@ pub(crate) async fn person_settings(
                 .unwrap_or_default()
         };
         let settings = current.changed(params, |id| {
-            core.workspaces
+            core.workspaces()
                 .providers()
                 .is_some_and(|providers| providers.find(id).is_some())
         })?;
         for host in settings.hosts.iter().filter(|host| !current.hosts.contains(host)) {
-            if core.remote.link(host).is_none() {
+            if core.remote().link(host).is_none() {
                 return Err(format!("{host} is not a host linked with this one").into());
             }
         }
         if let (Some(builder), Some(reviewer)) = (&settings.launcher, &settings.reviewer) {
-            let cli = |id: &str| core.workspaces.launcher_cli(id);
+            let cli = |id: &str| core.workspaces().launcher_cli(id);
             if cli(builder).is_some() && cli(builder) == cli(&reviewer.launcher) {
                 return Err("The reviewer must run another CLI than Auto's agents, so it does not share their blind spots".into());
             }
         }
         let settled = {
-            let mut state = core.boards.state.locked();
+            let mut state = core.boards().state.locked();
             let board = state
                 .boards
                 .entry(project.clone())
@@ -3487,7 +3492,7 @@ pub(crate) async fn person_settings(
                 slice::settle_ladders(board);
                 settled = steps::settle_cards(&core, &mut state, &project);
             }
-            core.boards.save(&mut state, &project);
+            core.boards().save(&mut state, &project);
             settled
         };
         settled.later.run(&core);
@@ -3507,9 +3512,9 @@ pub(crate) async fn person_answer_proposal(
     blocking(move || {
         let project = project_at(&core, &params.project)?;
         let accepted = {
-            let mut state = core.boards.state.locked();
+            let mut state = core.boards().state.locked();
             let accepted = steps::answer_proposal(&mut state, &project, params.accept)?;
-            core.boards.save(&mut state, &project);
+            core.boards().save(&mut state, &project);
             accepted
         };
         if !accepted.is_empty() {
@@ -3532,20 +3537,20 @@ pub(crate) fn propose_environments(
 ) -> Result<Value, String> {
     let project = project_at(core, project)?;
     let by = name_of(core, agent);
-    let mut state = core.boards.state.locked();
+    let mut state = core.boards().state.locked();
     let board = state
         .boards
         .entry(project.clone())
         .or_insert_with(|| Board::empty(&project));
     steps::propose(board, environments, why, by)?;
-    core.boards.save(&mut state, &project);
+    core.boards().save(&mut state, &project);
     Ok(
         json!({ "note": "The person sees this in Needs you. Nothing changes until they accept it." }),
     )
 }
 
 pub(crate) fn proposals(core: &Core) -> Vec<(String, PlacesProposal)> {
-    (core.boards.state.locked().boards.iter())
+    (core.boards().state.locked().boards.iter())
         .filter_map(|(project, board)| Some((project.clone(), board.places_proposal.clone()?)))
         .collect()
 }
@@ -3561,7 +3566,7 @@ pub(crate) struct ProposedCommand {
 }
 
 pub(crate) fn proposed_commands(core: &Core) -> Vec<ProposedCommand> {
-    let state = core.boards.state.locked();
+    let state = core.boards().state.locked();
     let mut proposed = Vec::new();
     for (project, board) in &state.boards {
         for card in &board.cards {
@@ -3581,20 +3586,20 @@ pub(crate) fn proposed_commands(core: &Core) -> Vec<ProposedCommand> {
 
 /// What the person set to count as landed in `project`, when they did.
 pub(crate) fn landed_set(core: &Core, project: &str) -> Option<sikemux_view::turn::Landed> {
-    let state = core.boards.state.locked();
+    let state = core.boards().state.locked();
     state.boards.get(project)?.settings.landed
 }
 
 /// Whether the place called `name` is one of `project`'s production places.
 pub(crate) fn is_production(core: &Core, project: &str, name: &str) -> bool {
-    let places = core.places.of(project).places;
+    let places = core.places().of(project).places;
     (places.iter()).any(|place| place.shown.production && place.shown.name == name)
 }
 
 /// Whether `project` deploys somewhere that isn't production, and whether it has a
 /// production place, by its places.
 pub(crate) fn deploys_to(core: &Core, project: &str) -> (bool, bool) {
-    let places = core.places.of(project).places;
+    let places = core.places().of(project).places;
     let production = places.iter().any(|place| place.shown.production);
     let elsewhere = places.iter().any(|place| !place.shown.production);
     (elsewhere, production)
@@ -3609,7 +3614,7 @@ pub(crate) fn mirror_places(
     confirmed: Option<u64>,
 ) {
     let settled = {
-        let mut state = core.boards.state.locked();
+        let mut state = core.boards().state.locked();
         let Some(board) = state.boards.get_mut(project) else {
             return;
         };
@@ -3623,7 +3628,7 @@ pub(crate) fn mirror_places(
             slice::settle_ladders(board);
         }
         let settled = steps::settle_cards(core, &mut state, project);
-        core.boards.save(&mut state, project);
+        core.boards().save(&mut state, project);
         settled
     };
     settled.later.run(core);
@@ -3656,7 +3661,7 @@ pub(crate) async fn person_forget_inherited(
 
 /// The address a deploy to the place called `name` in `project` is read healthy at.
 pub(crate) fn health_of(core: &Core, project: &str, name: &str) -> Option<String> {
-    let state = core.boards.state.locked();
+    let state = core.boards().state.locked();
     state.boards.get(project)?.settings.health(name)
 }
 
@@ -3718,27 +3723,27 @@ pub(crate) fn settle(core: &Arc<Core>) {
     reservoir::due(core);
     roles::due(core);
     next = sooner(next, audit::due(core));
-    let (due, mut moved) = wait::settle(core, &mut core.boards.state.locked());
+    let (due, mut moved) = wait::settle(core, &mut core.boards().state.locked());
     next = sooner(next, due);
     let (due, reported) = report::due(core);
     next = sooner(next, due);
     moved.extend(reported);
     if let Some(next) = next {
-        core.boards.wake.at(next);
+        core.boards().wake.at(next);
     }
     if !moved.is_empty() {
-        core.notify.goals_moved(moved);
+        core.notify().goals_moved(moved);
     }
     chat_goal::settle(core);
-    if !core.boards.state.locked().dirty.is_empty() {
-        core.harness.questions.boards_changed();
+    if !core.boards().state.locked().dirty.is_empty() {
+        core.harness().questions.boards_changed();
     }
     tell_clients(core);
 }
 
 /// Tells every client which boards changed, so each reads them again.
 fn tell_clients(core: &Core) {
-    let dirty = std::mem::take(&mut core.boards.state.locked().dirty);
+    let dirty = std::mem::take(&mut core.boards().state.locked().dirty);
     if !dirty.is_empty() {
         super::hosts::route::rows_moved(core);
     }
@@ -3774,7 +3779,7 @@ impl Boards {
 impl super::part::Part for Boards {
     fn start(&self, core: &Arc<Core>) -> Vec<tokio::task::JoinHandle<()>> {
         vec![
-            super::part::on_wake(core, |core| &core.boards.wake, settle),
+            super::part::on_wake(core, |core| &core.boards().wake, settle),
             tokio::spawn(follow(core.clone())),
         ]
     }
@@ -3809,7 +3814,7 @@ mod tests {
             ..Adding::default()
         };
         let (id, _) = add_card(&core, PROJECT, &creator, adding, None).unwrap();
-        core.names.pin(HashSet::from(["owner".to_owned()]));
+        core.names().pin(HashSet::from(["owner".to_owned()]));
         claim_card(&core, PROJECT, "owner", id).unwrap();
 
         let refused = change_card(&core, PROJECT, &creator, id, done()).map(|_| ());
@@ -3817,7 +3822,7 @@ mod tests {
         let refused = claim_card(&core, PROJECT, "creator", id);
         assert!(refused.unwrap_err().contains("has #"));
 
-        core.names.pin(HashSet::new());
+        core.names().pin(HashSet::new());
 
         let (view, _) = change_card(&core, PROJECT, &creator, id, done()).unwrap();
         assert_eq!(view["status"], "done");
@@ -3830,13 +3835,13 @@ mod tests {
         };
         let creator = By::Agent("creator".to_owned());
         let (id, _) = add_card(core, PROJECT, &creator, adding, None).unwrap();
-        core.names.pin(HashSet::from([owner.to_owned()]));
+        core.names().pin(HashSet::from([owner.to_owned()]));
         claim_card(core, PROJECT, owner, id).unwrap();
         id
     }
 
     fn stalled_on(core: &Core, id: u64) -> Option<String> {
-        let state = core.boards.state.locked();
+        let state = core.boards().state.locked();
         let card = state.boards[PROJECT].card(id).unwrap();
         lease::stalled_of(core, card).map(|stalled| stalled.agent)
     }
@@ -3846,9 +3851,9 @@ mod tests {
     fn a_deleted_chats_card_stops_asking_for_it() {
         let core = Core::new(Default::default(), None).unwrap();
         core.name_agent("owner", Path::new(PROJECT), Some("claude"), None);
-        core.names.note_session("owner", "deleted");
+        core.names().note_session("owner", "deleted");
         let id = claimed_card(&core, "owner");
-        core.names.pin(HashSet::new());
+        core.names().pin(HashSet::new());
         assert_eq!(stalled_on(&core, id).as_deref(), Some("owner"));
 
         lease::session_deleted(&core, "another");
@@ -3856,7 +3861,7 @@ mod tests {
 
         lease::session_deleted(&core, "deleted");
         assert_eq!(stalled_on(&core, id), None);
-        let state = core.boards.state.locked();
+        let state = core.boards().state.locked();
         let card = state.boards[PROJECT].card(id).unwrap();
         assert_eq!(card.status, CardStatus::Open);
         assert_eq!(card.owner_id(), None);
@@ -3874,10 +3879,10 @@ mod tests {
         };
         let creator = By::Agent("creator".to_owned());
         let (id, _) = add_card(&core, PROJECT, &creator, adding, None).unwrap();
-        core.names.pin(HashSet::from(["owner".to_owned()]));
+        core.names().pin(HashSet::from(["owner".to_owned()]));
         claim_card(&core, PROJECT, "owner", id).unwrap();
         let sha = "c1f0c6e0000000000000000000000000000000000";
-        let mut state = core.boards.state.locked();
+        let mut state = core.boards().state.locked();
         let board = state.boards.get_mut(PROJECT).unwrap();
 
         slice::file_fix(&core, board, id, sha).unwrap();
@@ -3895,8 +3900,8 @@ mod tests {
         let core = Core::new(Default::default(), None).unwrap();
         let old = claimed_card(&core, "gone");
         let live = claimed_card(&core, "live");
-        core.names.pin(HashSet::from(["live".to_owned()]));
-        core.boards
+        core.names().pin(HashSet::from(["live".to_owned()]));
+        core.boards()
             .state
             .locked()
             .old_stalls
@@ -3906,7 +3911,7 @@ mod tests {
         assert_eq!(stalled_on(&core, old), None);
         assert_eq!(stalled_on(&core, live), None);
 
-        core.names.pin(HashSet::new());
+        core.names().pin(HashSet::new());
         assert_eq!(stalled_on(&core, live).as_deref(), Some("live"));
         lease::clear_old_stalls(&core);
         assert_eq!(stalled_on(&core, live).as_deref(), Some("live"));

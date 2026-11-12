@@ -3,6 +3,7 @@
 //! They look whenever the harness journal moves, the same signal `events_wait` and `agent_wait`
 //! hold a turn open for; a timeout fires them through the trigger's own time.
 
+use crate::server::parts::Parts;
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
@@ -126,7 +127,7 @@ pub(super) async fn set(core: &Arc<Core>, request: &HarnessRequest) -> Result<Pa
     match (params.get("process"), params.get("agent")) {
         (Some(Value::String(execution_id)), None) => {
             let run = core
-                .harness
+                .harness()
                 .run_of(execution_id.trim())
                 .filter(|run| run.project == request.project)
                 .ok_or("process must be an executionId process_start gave in this project")?;
@@ -150,7 +151,7 @@ pub(super) async fn set(core: &Arc<Core>, request: &HarnessRequest) -> Result<Pa
                     text,
                 },
                 since,
-                after: core.harness.journal_cursor(&request.project),
+                after: core.harness().journal_cursor(&request.project),
             };
             Ok(match met(core, &park).await {
                 Some(said) => Parked::Already(said),
@@ -182,7 +183,7 @@ pub(super) async fn set(core: &Arc<Core>, request: &HarnessRequest) -> Result<Pa
             }
             let shown = format!("@{}", waited.name);
             let park = Park {
-                after: core.harness.journal_cursor(&waited.project),
+                after: core.harness().journal_cursor(&waited.project),
                 project: waited.project,
                 on: On::Agent {
                     agent_id: waited.agent_id,
@@ -205,7 +206,7 @@ async fn met(core: &Core, park: &Park) -> Option<String> {
             shown,
             text,
         } => {
-            let Some(run) = core.harness.run_of(execution_id) else {
+            let Some(run) = core.harness().run_of(execution_id) else {
                 return Some(format!(
                     "{shown} is gone from Sikemux's runs; start it again with process_start if it is still needed."
                 ));
@@ -238,7 +239,7 @@ async fn met(core: &Core, park: &Park) -> Option<String> {
         } => {
             let until = Until::named(until).ok()?;
             let page = core
-                .harness
+                .harness()
                 .journal_since(&park.project, park.after)
                 .ok()
                 .filter(|page| !page.truncated);
@@ -269,7 +270,7 @@ async fn met(core: &Core, park: &Park) -> Option<String> {
 /// Fires each parked trigger whose wait is over.
 async fn look(core: &Arc<Core>) {
     let parked: Vec<(u64, Park)> = {
-        let state = core.triggers.state.locked();
+        let state = core.triggers().state.locked();
         let waiting = state.triggers.iter().filter(|trigger| !trigger.rests());
         waiting
             .filter_map(|trigger| Some((trigger.id, trigger.park.clone()?)))
@@ -300,7 +301,7 @@ async fn look(core: &Arc<Core>) {
 
 /// Looks at the parked triggers each time the harness journal moves, for as long as the core runs.
 pub(super) async fn serve(core: Arc<Core>) {
-    let mut changed = core.harness.subscribe();
+    let mut changed = core.harness().subscribe();
     loop {
         look(&core).await;
         if changed.changed().await.is_err() {

@@ -2,6 +2,7 @@
 //! JSON item per line. The board holds only a limited number of them as cards, so a list of tens
 //! of thousands costs it no more than a short one, and each landing tops the cards up.
 
+use crate::server::parts::Parts;
 use std::cmp::Reverse;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -83,7 +84,7 @@ enum Outcome {
 /// board Auto has just turned on for, which a core starting with Auto on counts as.
 pub(super) fn due(core: &Arc<Core>) {
     let starts: Vec<(String, Option<u64>)> = {
-        let mut state = core.boards.state.locked();
+        let mut state = core.boards().state.locked();
         let State {
             boards, reservoirs, ..
         } = &mut *state;
@@ -119,8 +120,8 @@ pub(super) fn due(core: &Arc<Core>) {
 
 /// Card `card` of `project` landed, so what its reservoir lists may have changed.
 pub(super) fn landed(core: &Core, project: &str, card: u64) {
-    (core.boards.state.locked().reservoirs.wanted).insert(project.to_owned(), Some(card));
-    core.boards.wake.now();
+    (core.boards().state.locked().reservoirs.wanted).insert(project.to_owned(), Some(card));
+    core.boards().wake.now();
 }
 
 async fn run(core: Arc<Core>, project: String, landed: Option<u64>) {
@@ -138,20 +139,20 @@ async fn run(core: Arc<Core>, project: String, landed: Option<u64>) {
         )),
         Ok(_) => None,
     };
-    let mut state = core.boards.state.locked();
+    let mut state = core.boards().state.locked();
     state.reservoirs.running.remove(&project);
     if let Some(board) = state.boards.get_mut(&project) {
         let noted = board.reservoir_note != note;
         board.reservoir_note = note;
         let recorded = landed.is_some_and(|card| record(board, card, &outcome, took_ms));
         if recorded {
-            core.boards.save(&mut state, &project);
+            core.boards().save(&mut state, &project);
         } else if noted {
             state.dirty.insert(project.clone());
         }
     }
     drop(state);
-    core.boards.wake.now();
+    core.boards().wake.now();
 }
 
 /// Adds a run to the run record of the card whose landing started it.
@@ -221,21 +222,21 @@ async fn refill(core: &Arc<Core>, project: &str) -> Result<Outcome, String> {
 /// Asks the person to trust the project's `sikemux.json`, once however many things wait on it;
 /// each looks again if they do.
 pub(super) fn ask_trust(core: &Arc<Core>, project: &str, ask: crate::server::tasks::TrustAsk) {
-    let first = (core.boards.state.locked().reservoirs.awaiting_trust).insert(project.to_owned());
+    let first = (core.boards().state.locked().reservoirs.awaiting_trust).insert(project.to_owned());
     if !first {
         return;
     }
     let (core, project) = (core.clone(), project.to_owned());
     tokio::spawn(async move {
         let trusted = ask_person(&core, &project, ask, None).await;
-        let mut state = core.boards.state.locked();
+        let mut state = core.boards().state.locked();
         state.reservoirs.awaiting_trust.remove(&project);
         if trusted {
             state.roles.want(project.clone());
             state.reservoirs.wanted.insert(project, None);
         }
         drop(state);
-        core.boards.wake.now();
+        core.boards().wake.now();
     });
 }
 
@@ -394,7 +395,7 @@ fn close_gone(
 /// Brings the board in line with what a run that began at `started_at` listed, under one lock and
 /// one save: its time goes with the board, never with the length of the list.
 fn apply(core: &Arc<Core>, project: &str, listed: &Listed, started_at: u64) -> Applied {
-    let boards = &core.boards;
+    let boards = core.boards();
     let mut state = boards.state.locked();
     let wanted = (state.boards.get(project)).is_some_and(|board| board.settings.auto);
     if !wanted {

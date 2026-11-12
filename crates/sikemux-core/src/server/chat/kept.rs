@@ -2,6 +2,7 @@
 //! starts after this one died, or after the host restarted, takes each chat
 //! up again by itself and carries on a turn that was cut short.
 
+use crate::server::parts::Parts;
 use std::os::unix::fs::DirBuilderExt;
 use std::path::{Path, PathBuf};
 
@@ -103,7 +104,7 @@ impl KeptChat {
             }
         }
         if !self.keys.is_empty() {
-            let wired = core.workspaces.wiring(
+            let wired = core.workspaces().wiring(
                 &launch.provider,
                 launch.model_provider.as_deref(),
                 launch.model.as_deref(),

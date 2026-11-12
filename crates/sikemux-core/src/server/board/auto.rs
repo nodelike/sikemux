@@ -3,6 +3,7 @@
 //! few at once, and ships its work when its turn ends.
 
 use crate::server::changed::What;
+use crate::server::parts::Parts;
 use std::cmp::Reverse;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -523,7 +524,7 @@ fn running_where(core: &Core, board: &Board, counts: impl Fn(&AutoRun) -> bool) 
                 run.held.is_none()
                     && run.stage.busy()
                     && counts(run)
-                    && !core.harness.questions.blocks_on_person(&run.agent)
+                    && !core.harness().questions.blocks_on_person(&run.agent)
             })
         })
         .count()
@@ -579,14 +580,14 @@ impl Reservoir {
 /// Whether the team of the agent that added a card may still give it to one
 /// of its own: one of them is in a turn, or something will bring one back.
 fn team_keeps(core: &Core, maker: &str) -> bool {
-    let lead = core.names.team_of(maker);
+    let lead = core.names().team_of(maker);
     let now = core.agent_now(&lead);
     now.open() && (now.maybe_mid_turn() || now.at_work() || now.waits_on_something())
 }
 
 /// The card of the Auto run an agent adding a card works for: its own, or its lead's.
 pub(super) fn run_adding(core: &Core, board: &Board, agent: &str) -> Option<u64> {
-    let lead = core.names.team_of(agent);
+    let lead = core.names().team_of(agent);
     (board.cards.iter())
         .find(|card| card.kept_run().is_some_and(|run| run.agent == lead))
         .map(|card| card.id)
@@ -634,7 +635,7 @@ fn picks(
         return Vec::new();
     }
     takeable.sort_unstable();
-    let room = core.names.room_for_started(project, core.open_agents());
+    let room = core.names().room_for_started(project, core.open_agents());
     let mut kept_by_team: HashMap<&str, bool> = HashMap::new();
     takeable
         .into_iter()
@@ -661,9 +662,9 @@ struct Start {
 
 /// Starts an agent on each card Auto may take, while it has places free.
 pub(super) fn start_free(core: &Arc<Core>) {
-    let launchers = core.workspaces.has_launchers();
+    let launchers = core.workspaces().has_launchers();
     let starts: Vec<Start> = {
-        let mut state = core.boards.state.locked();
+        let mut state = core.boards().state.locked();
         let projects: Vec<String> = state
             .boards
             .iter()
@@ -747,7 +748,7 @@ pub(super) fn start_free(core: &Arc<Core>) {
                     state_jobs.push((project.clone(), id));
                 }
             }
-            core.boards.save(&mut state, &project);
+            core.boards().save(&mut state, &project);
         }
         for (project, id) in state_jobs {
             state.work(&project, id).job = true;
@@ -765,11 +766,11 @@ pub(super) fn start_free(core: &Arc<Core>) {
         let core = core.clone();
         tokio::spawn(async move {
             let started = start(&core, &project, id, &agent, stalled, place).await;
-            core.boards.end_job(&project, id);
+            core.boards().end_job(&project, id);
             if let Err(error) = started {
-                let gone = core.chats.get(&agent).is_none();
+                let gone = core.chats().get(&agent).is_none();
                 if gone {
-                    core.names.forget(&agent);
+                    core.names().forget(&agent);
                 }
                 finish::hold(
                     &core,
@@ -869,14 +870,14 @@ fn launch_in(
     settings: &BoardSettings,
     tree: &worktree::Tree,
 ) -> Result<Launched, String> {
-    let (mut launch, launcher) = core.workspaces.board_launch(
+    let (mut launch, launcher) = core.workspaces().board_launch(
         settings.launcher.as_deref(),
         &tree.cwd,
         settings.provider.as_deref(),
         settings.model.clone(),
         PICKED_IN,
     )?;
-    let (named, _) = core.names.give(
+    let (named, _) = core.names().give(
         Starting {
             agent_id: agent,
             project: project.to_owned(),
@@ -885,7 +886,7 @@ fn launch_in(
         },
         core.open_agents(),
     );
-    core.names.count_as_started(agent);
+    core.names().count_as_started(agent);
     launch.agent_id = agent.to_owned();
     Ok(Launched {
         launch,
@@ -956,7 +957,7 @@ async fn set_going(
         true,
     )
     .map_err(|error| error.to_string())?;
-    let _ = core.workspaces.edit_agent(agent, |agent| {
+    let _ = core.workspaces().edit_agent(agent, |agent| {
         agent.worktree = Some(AgentWorktree {
             repo: tree.repo,
             path: tree.path,
@@ -991,7 +992,7 @@ fn left_behind(core: &Core, project: &str, stalled: &Stalled) -> Option<worktree
     if core.running_agents().contains(&stalled.agent) {
         return None;
     }
-    let kept = core.workspaces.agent(&stalled.agent)?.worktree?;
+    let kept = core.workspaces().agent(&stalled.agent)?.worktree?;
     let base = kept.base?;
     kept.path.is_dir().then(|| worktree::Tree {
         cwd: kept
@@ -1021,7 +1022,7 @@ async fn start(
     place: Option<RunElsewhere>,
 ) -> Result<(), String> {
     let (card, settings) = {
-        let state = core.boards.state.locked();
+        let state = core.boards().state.locked();
         let board = state.boards.get(project).ok_or("the board is gone")?;
         (board.card(id)?.clone(), board.settings.clone())
     };
@@ -1204,7 +1205,7 @@ pub(crate) fn turn_ended(core: &Arc<Core>, agent_id: &str, ending: &Ending) {
         return;
     }
     let found = {
-        let state = core.boards.state.locked();
+        let state = core.boards().state.locked();
         state.boards.iter().find_map(|(project, board)| {
             board.cards.iter().find_map(|card| {
                 let run = card.kept_run()?;
@@ -1226,7 +1227,7 @@ pub(crate) fn turn_ended(core: &Arc<Core>, agent_id: &str, ending: &Ending) {
         return;
     };
     let name = core
-        .names
+        .names()
         .name(agent_id)
         .unwrap_or_else(|| "Its agent".to_owned());
     match ending {
@@ -1257,15 +1258,15 @@ pub(crate) fn turn_ended(core: &Arc<Core>, agent_id: &str, ending: &Ending) {
 /// to nobody wakes nobody, so when its lead's run waits only on its workers,
 /// the run ships now.
 fn worker_ended(core: &Arc<Core>, agent_id: &str) {
-    if core.names.reports_to(agent_id).is_some() {
+    if core.names().reports_to(agent_id).is_some() {
         return;
     }
-    let lead = core.names.team_of(agent_id);
+    let lead = core.names().team_of(agent_id);
     if lead == agent_id {
         return;
     }
     let found = {
-        let state = core.boards.state.locked();
+        let state = core.boards().state.locked();
         state.boards.iter().find_map(|(project, board)| {
             board.cards.iter().find_map(|card| {
                 let run = card.run()?;

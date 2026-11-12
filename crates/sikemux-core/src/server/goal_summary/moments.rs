@@ -4,6 +4,7 @@
 //! it is cut down and stripped of pastes and anything that may be a secret here, before any
 //! model sees it. Another vendor's transcript never goes to the one asked.
 
+use crate::server::parts::Parts;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::time::{Duration, Instant};
@@ -173,7 +174,7 @@ fn workers(
         } else if workers.len() < MAX_AGENTS {
             workers.push(Worker {
                 id: id.to_owned(),
-                name: name.or_else(|| core.names.name(id)),
+                name: name.or_else(|| core.names().name(id)),
                 since,
                 until: None,
             });
@@ -188,7 +189,7 @@ fn workers(
         add(maker, None, goal.at);
     }
     if let Some(lead) = &goal.owner {
-        for teammate in core.names.team(lead) {
+        for teammate in core.names().team(lead) {
             add(&teammate, None, goal.at);
         }
     }
@@ -393,7 +394,7 @@ fn read_session(
 
 /// Places in `agent`'s live chat: where each thing it was sent or wrote at length starts.
 fn places(core: &Core, agent: &str) -> Option<(String, HashMap<String, u64>)> {
-    let chat = core.chats.get(agent)?;
+    let chat = core.chats().get(agent)?;
     let excerpt = chat
         .feed
         .excerpt(Some(0), usize::MAX, MAX_SESSION_BYTES as usize);
@@ -456,7 +457,7 @@ fn commits(core: &Core, project: &str, workers: &[Worker], since: u64) -> Vec<Mo
     ]);
     let sessions = workers
         .iter()
-        .filter_map(|worker| core.names.ran_session(&worker.id))
+        .filter_map(|worker| core.names().ran_session(&worker.id))
         .map(|ran| ran.session_id);
     let keys: HashSet<String> = workers
         .iter()
@@ -697,7 +698,7 @@ fn held(core: &Core, workers: &[Worker], moments: &mut Vec<Moment>) {
             .find(|worker| worker.id == id)
             .map(|worker| worker.name.clone())
     };
-    for waiting in core.ship.waiting() {
+    for waiting in core.ship().waiting() {
         if let Some(who) = name(&waiting.agent_id) {
             moments.push(fact(
                 SourceKind::Held,
@@ -708,7 +709,7 @@ fn held(core: &Core, workers: &[Worker], moments: &mut Vec<Moment>) {
             ));
         }
     }
-    for answered in core.ship.answered() {
+    for answered in core.ship().answered() {
         if let Some(who) = name(&answered.agent_id) {
             let verb = if answered.allowed {
                 "You allowed once"
@@ -778,7 +779,7 @@ pub(super) fn gather(core: &Core, project: &str, card: u64) -> Option<Gathered> 
     let cards = family(&board.cards, goal.id);
     let workers = workers(core, &board, goal, &cards);
     let lead = workers.first()?;
-    let lead_ran = core.names.ran_session(&lead.id);
+    let lead_ran = core.names().ran_session(&lead.id);
     let lead_kind = (goal.owner_cli.as_deref())
         .or_else(|| cards.iter().find_map(|card| card.owner_cli.as_deref()))
         .map(str::to_owned)
@@ -794,7 +795,7 @@ pub(super) fn gather(core: &Core, project: &str, card: u64) -> Option<Gathered> 
     let mut account = None;
     for (at, worker) in workers.iter().enumerate() {
         let name = worker.name.clone().unwrap_or_else(|| worker.id.clone());
-        let ran = core.names.ran_session(&worker.id);
+        let ran = core.names().ran_session(&worker.id);
         let kind = ran
             .as_ref()
             .and_then(|ran| AgentKind::from_name(&ran.provider));
@@ -818,7 +819,7 @@ pub(super) fn gather(core: &Core, project: &str, card: u64) -> Option<Gathered> 
         if at == 0 {
             account = config;
         }
-        let working = (core.chats.get(&worker.id)).is_some_and(|chat| chat.feed.in_turn());
+        let working = (core.chats().get(&worker.id)).is_some_and(|chat| chat.feed.in_turn());
         let link = chat_link(&worker.id, None, None);
         let mut read = read_session(kind, &path, worker, link, working, deadline);
         place_moments(core, &worker.id, &mut read);

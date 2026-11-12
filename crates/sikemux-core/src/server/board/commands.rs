@@ -7,6 +7,7 @@
 //! person accepted, which waits for them to answer: a plain path in the command
 //! is all this can see, so what the command calls can still change.
 
+use crate::server::parts::Parts;
 use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -114,7 +115,7 @@ fn compare_files(
 ) -> Looked {
     let mut looked = Looked::default();
     let mut notices = Vec::new();
-    let mut state = core.boards.state.locked();
+    let mut state = core.boards().state.locked();
     let State {
         boards, commands, ..
     } = &mut *state;
@@ -166,7 +167,7 @@ fn compare_files(
         }));
     }
     super::slice::rebind(board);
-    core.boards.save(&mut state, project);
+    core.boards().save(&mut state, project);
     drop(state);
     core.changed(What::View);
     super::send_notices(core, notices);
@@ -203,7 +204,7 @@ fn waiting(state: &State) -> HashMap<String, BTreeSet<Waiting>> {
 pub(super) fn due(core: &Arc<Core>) {
     let mut starts = Vec::new();
     {
-        let mut state = core.boards.state.locked();
+        let mut state = core.boards().state.locked();
         let forgot: Vec<String> = (state.boards.iter_mut())
             .filter_map(|(project, board)| {
                 super::goal::forget_moved_on(board).then(|| project.clone())
@@ -211,7 +212,7 @@ pub(super) fn due(core: &Arc<Core>) {
             .collect();
         let any_forgotten = !forgot.is_empty();
         for project in forgot {
-            core.boards.save(&mut state, &project);
+            core.boards().save(&mut state, &project);
         }
         if any_forgotten {
             core.changed(What::View);
@@ -272,8 +273,13 @@ async fn run(core: Arc<Core>, project: String, head: String, command: String) {
         };
         keep(&core, &project, &head, &command, verdict, output);
     }
-    core.boards.state.locked().commands.running.remove(&project);
-    core.boards.wake.now();
+    core.boards()
+        .state
+        .locked()
+        .commands
+        .running
+        .remove(&project);
+    core.boards().wake.now();
 }
 
 async fn run_in_checkout(
@@ -302,7 +308,7 @@ fn keep(
     output: String,
 ) {
     let cards: Vec<(u64, Option<String>, String)> = {
-        let state = core.boards.state.locked();
+        let state = core.boards().state.locked();
         (state.boards.get(project).into_iter())
             .flat_map(|board| board.cards.iter())
             .filter(|card| {
@@ -352,7 +358,7 @@ fn keep(
 /// The owner of slice `card` marked it done again, so what did not pass on it runs again, other
 /// than what is running now.
 pub(super) fn run_again(core: &Core, project: &str, card: u64) {
-    let mut state = core.boards.state.locked();
+    let mut state = core.boards().state.locked();
     let runs = &mut state.commands;
     let running = runs.running.get(project).cloned();
     if let Some(ran) = runs.ran.get_mut(project) {
@@ -364,5 +370,5 @@ pub(super) fn run_again(core: &Core, project: &str, card: u64) {
         });
     }
     drop(state);
-    core.boards.wake.now();
+    core.boards().wake.now();
 }

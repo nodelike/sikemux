@@ -4,6 +4,7 @@
 //! its pull request, and a ticket closed in its tracker closes its card, but
 //! for a slice the person lands that has not landed, which waits for them.
 
+use crate::server::parts::Parts;
 use std::sync::Arc;
 
 use serde_json::{json, Value};
@@ -76,7 +77,7 @@ pub(super) fn due(core: &Arc<Core>) -> Option<u64> {
     let now = epoch_ms();
     let mut next = None;
     let due: Vec<(String, u64, CardTicket, Work)> = {
-        let mut state = core.boards.state.locked();
+        let mut state = core.boards().state.locked();
         let mut due = Vec::new();
         for (project, board) in &state.boards {
             for card in &board.cards {
@@ -146,11 +147,11 @@ pub(super) fn due(core: &Arc<Core>) -> Option<u64> {
             let pushing = matches!(work, Work::Push { .. });
             run(&core, &project, id, &ticket, work).await;
             if pushing {
-                core.boards
+                core.boards()
                     .state
                     .locked()
                     .change_work(&project, id, |kept| kept.syncing = false);
-                core.boards.wake.now();
+                core.boards().wake.now();
             }
         });
     }
@@ -240,7 +241,7 @@ fn into_category(transitions: &Value, category: &str) -> Option<String> {
 /// The ticket closed with nothing landed was opened again in its tracker, so
 /// it no longer waits for the person, and goes back in step with its card.
 fn reopened(core: &Core, project: &str, id: u64, key: &str) {
-    core.boards.edit_if(project, id, |card| {
+    core.boards().edit_if(project, id, |card| {
         let ticket = card.ticket.as_mut().filter(|ticket| ticket.key == key)?;
         ticket.done_unlanded = false;
         ticket.synced = None;
@@ -257,7 +258,7 @@ fn settle(
     status: CardStatus,
     outcome: Result<(), String>,
 ) {
-    let mut state = core.boards.state.locked();
+    let mut state = core.boards().state.locked();
     let Some(card) = state
         .boards
         .get_mut(project)
@@ -280,7 +281,7 @@ fn settle(
         }
     };
     state.change_work(project, id, |kept| kept.ticket_failed = failed);
-    core.boards.save(&mut state, project);
+    core.boards().save(&mut state, project);
 }
 
 /// The ticket was closed in its tracker, so its card is done. A slice the
@@ -291,7 +292,7 @@ async fn close(core: &Arc<Core>, project: &str, id: u64, key: &str) {
     let (project, key) = (project.to_owned(), key.to_owned());
     let notices = blocking(move || {
         let open = {
-            let mut state = core2.boards.state.locked();
+            let mut state = core2.boards().state.locked();
             let Some(board) = state.boards.get_mut(&project) else {
                 return Ok(Vec::new());
             };
@@ -311,7 +312,7 @@ async fn close(core: &Arc<Core>, project: &str, id: u64, key: &str) {
                 if !ticket.done_unlanded {
                     ticket.done_unlanded = true;
                     card.updated_at = epoch_ms();
-                    core2.boards.save(&mut state, &project);
+                    core2.boards().save(&mut state, &project);
                 }
                 return Ok(Vec::new());
             }
@@ -360,7 +361,7 @@ fn ticket_card(
 /// The card on `project`'s board for ticket `key`, an open one before a done
 /// one.
 fn card_of_ticket(core: &Core, project: &str, key: &str) -> Option<TicketHeld> {
-    let state = core.boards.state.locked();
+    let state = core.boards().state.locked();
     let card = (state.boards.get(project)?.cards.iter())
         .filter(|card| {
             card.ticket

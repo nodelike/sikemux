@@ -2,6 +2,7 @@
 //! the SSH hosts a terminal is open to, each with how it is reached.
 
 use crate::server::changed::What;
+use crate::server::parts::Parts;
 use std::collections::BTreeMap;
 use std::sync::atomic::Ordering;
 
@@ -52,13 +53,13 @@ pub struct HostRow {
 /// the SSH host it is reached at from here, then the SSH hosts a terminal is open to or a set-up
 /// runs on, by alias, one row for each host they reach.
 pub(crate) fn rows(core: &Core) -> Vec<HostRow> {
-    if !core.hosts.listed.swap(true, Ordering::AcqRel) {
-        core.hosts.wake.now();
+    if !core.hosts().listed.swap(true, Ordering::AcqRel) {
+        core.hosts().wake.now();
     }
-    let links = core.remote.links();
+    let links = core.remote().links();
     let links_moved = forget_unlinked(core, &links);
-    let installed = core.hosts.installed.locked().clone();
-    let listening = core.remote.endpoint().is_some();
+    let installed = core.hosts().installed.locked().clone();
+    let listening = core.remote().endpoint().is_some();
     let mut setups: BTreeMap<String, super::install::SetupRow> =
         super::install::rows(core).into_iter().collect();
     let mut asking: Vec<String> = Vec::new();
@@ -66,7 +67,7 @@ pub(crate) fn rows(core: &Core) -> Vec<HostRow> {
         .into_iter()
         .map(|link| {
             let reach = if listening {
-                core.hosts.reach(&link.id)
+                core.hosts().reach(&link.id)
             } else {
                 Reach::Away
             };
@@ -169,18 +170,18 @@ fn answered(row: &mut HostRow, answer: super::probe::Answer) {
 /// hosts were last listed.
 fn forget_unlinked(core: &Core, links: &[super::super::remote::StoredLink]) -> bool {
     let now: Vec<String> = links.iter().map(|link| link.id.clone()).collect();
-    let before = core.hosts.listed_links.locked().replace(now.clone());
+    let before = core.hosts().listed_links.locked().replace(now.clone());
     let Some(before) = before else {
         return false;
     };
     if before == now {
         return false;
     }
-    let mut installed = core.hosts.installed.locked();
+    let mut installed = core.hosts().installed.locked();
     let count = installed.len();
     installed.retain(|key, _| now.contains(key) || !before.contains(key));
     if installed.len() != count {
-        core.hosts.installed_kept.save(&*installed);
+        core.hosts().installed_kept.save(&*installed);
     }
     true
 }
@@ -213,7 +214,7 @@ pub(crate) fn installed_from(core: &Core, installed: InstalledFrom) -> CoreResul
 
 /// Notes that `alias` reaches the host `key`, unless another alias of it still does.
 pub(crate) fn note_reached(core: &Core, key: String, alias: String) {
-    let current = core.hosts.installed.locked().get(&key).cloned();
+    let current = core.hosts().installed.locked().get(&key).cloned();
     let keeps = current.is_some_and(|current| {
         current == alias
             || super::probe::reached(core, &current).is_none_or(|reached| reached == key)
@@ -225,10 +226,10 @@ pub(crate) fn note_reached(core: &Core, key: String, alias: String) {
 
 /// Notes that `alias` reaches the host `key`, which no other host's row is reached at then.
 pub(crate) fn note_installed(core: &Core, key: String, alias: String) {
-    let mut map = core.hosts.installed.locked();
+    let mut map = core.hosts().installed.locked();
     map.retain(|_, held| *held != alias);
     map.insert(key, alias);
-    core.hosts.installed_kept.save(&*map);
+    core.hosts().installed_kept.save(&*map);
     drop(map);
     core.changed(What::Read(Topic::Hosts));
 }

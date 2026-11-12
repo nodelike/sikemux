@@ -5,6 +5,7 @@
 //! again.
 
 use crate::server::changed::What;
+use crate::server::parts::Parts;
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
@@ -421,10 +422,10 @@ fn next_daily(minute: u32, weekdays: &[u8], now: u64) -> Option<u64> {
 /// Pauses the triggers of a chat that is closing, until it is taken up again. A chat with no
 /// session to take up never comes back, so its triggers go.
 pub(crate) fn pause(core: &Core, agent_id: &str, chat: Option<HeldChat>) {
-    if core.triggers.count(agent_id) == 0 {
+    if core.triggers().count(agent_id) == 0 {
         return;
     }
-    let gone = core.triggers.change(|state| {
+    let gone = core.triggers().change(|state| {
         let mine = |trigger: &Trigger| trigger.prompts(agent_id);
         if let Some(chat) = &chat {
             for trigger in state.triggers.iter_mut().filter(|trigger| mine(trigger)) {
@@ -446,12 +447,12 @@ pub(crate) fn pause(core: &Core, agent_id: &str, chat: Option<HeldChat>) {
 /// repeating one skips the times that passed while it was closed; a one-off that came due
 /// fires once.
 pub(crate) fn resume(core: &Arc<Core>) {
-    if !core.triggers.any_paused() {
+    if !core.triggers().any_paused() {
         return;
     }
-    let holders = core.workspaces.holders();
+    let holders = core.workspaces().holders();
     let now = epoch_ms();
-    let (resumed, missed, held) = core.triggers.change(|state| {
+    let (resumed, missed, held) = core.triggers().change(|state| {
         let (mut resumed, mut missed, mut held) = (Vec::new(), Vec::new(), Vec::new());
         state.triggers.retain_mut(|trigger| {
             let chat = trigger.paused.as_ref().map(HeldChat::id);
@@ -502,7 +503,7 @@ pub(crate) fn resume(core: &Arc<Core>) {
         show(core, trigger);
     }
     if resumed.iter().any(|trigger| trigger.park.is_some()) {
-        core.harness.changed();
+        core.harness().changed();
     }
     for firing in missed {
         tokio::spawn(fire(core.clone(), firing));
@@ -520,13 +521,13 @@ pub(crate) fn resume(core: &Arc<Core>) {
 /// Sends what came due, closes the triggers of chats that are gone, and waits for the next.
 pub(crate) fn settle(core: &Arc<Core>) {
     let gone: Vec<String> = core
-        .triggers
+        .triggers()
         .agents()
         .into_iter()
-        .filter(|agent_id| core.workspaces.closed(agent_id))
+        .filter(|agent_id| core.workspaces().closed(agent_id))
         .collect();
     if !gone.is_empty() {
-        let closed = core.triggers.change(|state| {
+        let closed = core.triggers().change(|state| {
             let (closed, kept) = std::mem::take(&mut state.triggers)
                 .into_iter()
                 .partition(|trigger| trigger.board.is_none() && gone.contains(&trigger.agent_id));
@@ -535,9 +536,9 @@ pub(crate) fn settle(core: &Arc<Core>) {
         });
         closed.iter().for_each(|trigger| unhook(core, trigger));
     }
-    let (firing, looking, next) = core.triggers.take_due(epoch_ms());
+    let (firing, looking, next) = core.triggers().take_due(epoch_ms());
     if let Some(next) = next {
-        core.triggers.wake.at(next);
+        core.triggers().wake.at(next);
     }
     for id in looking {
         tokio::spawn(look(core.clone(), id));
@@ -597,7 +598,7 @@ async fn fire(core: Arc<Core>, firing: Firing) {
             trigger.id
         ),
         (false, None) => core
-            .triggers
+            .triggers()
             .shown(&trigger.agent_id)
             .iter()
             .find(|shown| shown.id == trigger.id)
@@ -632,7 +633,7 @@ async fn fire(core: Arc<Core>, firing: Firing) {
 /// Has the trigger `id` look at what it waits on, and fire if that calls for it.
 async fn look(core: Arc<Core>, id: u64) {
     let checks = {
-        let state = core.triggers.state.locked();
+        let state = core.triggers().state.locked();
         let trigger = state.triggers.iter().find(|trigger| trigger.id == id);
         trigger.is_some_and(|trigger| trigger.check.is_some())
     };
@@ -651,8 +652,8 @@ fn show(core: &Core, trigger: &Trigger) {
         super::board::triggers_changed(core, project);
         return;
     }
-    if let Some(feed) = core.chats.heard(&trigger.agent_id) {
-        feed.set_triggers(core.triggers.shown(&trigger.agent_id));
+    if let Some(feed) = core.chats().heard(&trigger.agent_id) {
+        feed.set_triggers(core.triggers().shown(&trigger.agent_id));
     }
     core.changed(What::View);
 }
@@ -754,7 +755,7 @@ pub(crate) async fn add(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
         }
         Some(_) => return Err("webhook must be a boolean".into()),
     };
-    let added = core.triggers.change(|state| {
+    let added = core.triggers().change(|state| {
         let (own, most, whose) = match &board {
             Some(project) => (
                 state
@@ -858,7 +859,7 @@ pub(crate) async fn add(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
 pub(crate) fn list(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, String> {
     let agent_id = crate::server::caller::agent_of(request, "trigger_list")?;
     let project = crate::server::caller::project_of(core, request);
-    let state = core.triggers.state.locked();
+    let state = core.triggers().state.locked();
     let mut triggers: Vec<&Trigger> = state
         .triggers
         .iter()
@@ -914,7 +915,7 @@ fn yours(trigger: &Trigger, agent_id: &str, project: &str) -> bool {
 /// that passed while it was paused; a one-off that came due fires once it is resumed.
 pub(crate) fn hold(core: &Arc<Core>, params: HoldTriggerParams) -> bool {
     let now = epoch_ms();
-    let held = core.triggers.change(|state| {
+    let held = core.triggers().change(|state| {
         let trigger = state
             .triggers
             .iter_mut()
@@ -940,14 +941,14 @@ pub(crate) fn hold(core: &Arc<Core>, params: HoldTriggerParams) -> bool {
 /// What runs in `project` with nobody asking: the triggers its chats and its board set,
 /// soonest first.
 pub(crate) fn for_playbook(core: &Core, project: &str) -> Vec<RunsAlone> {
-    let state = core.triggers.state.locked();
+    let state = core.triggers().state.locked();
     let mut lines: Vec<(Option<u64>, RunsAlone)> = state
         .triggers
         .iter()
         .filter(|trigger| match &trigger.board {
             Some(board) => board == project,
             None => core
-                .names
+                .names()
                 .get(&trigger.agent_id)
                 .is_some_and(|named| named.project == project),
         })
@@ -973,7 +974,7 @@ pub(crate) fn remove(core: &Arc<Core>, id: u64) -> bool {
 }
 
 fn remove_where(core: &Arc<Core>, matches: impl Fn(&Trigger) -> bool) -> Option<Trigger> {
-    let removed = core.triggers.change(|state| {
+    let removed = core.triggers().change(|state| {
         let at = state.triggers.iter().position(&matches)?;
         Some(state.triggers.remove(at))
     })?;
@@ -984,7 +985,7 @@ fn remove_where(core: &Arc<Core>, matches: impl Fn(&Trigger) -> bool) -> Option<
 
 /// Puts the chat's triggers in its feed, as it starts or wakes.
 pub(crate) fn seed(core: &Core, feed: &super::chat::feed::Feed, agent_id: &str) {
-    feed.set_triggers(core.triggers.shown(agent_id));
+    feed.set_triggers(core.triggers().shown(agent_id));
 }
 
 fn text(params: &Value, key: &str, max: usize) -> Result<String, String> {
@@ -1110,11 +1111,11 @@ pub(crate) struct HookDelivery {
 /// One for a trigger paused with its chat waits for the chat to be taken up again, up to the most
 /// it keeps; one for a trigger the person paused is dropped.
 pub(crate) fn delivered(core: &Arc<Core>, delivery: HookDelivery) -> Result<(), String> {
-    if !core.triggers.first_time(&delivery.delivery_id) {
+    if !core.triggers().first_time(&delivery.delivery_id) {
         return Ok(());
     }
     let trigger = core
-        .triggers
+        .triggers()
         .state
         .locked()
         .triggers
@@ -1130,7 +1131,7 @@ pub(crate) fn delivered(core: &Arc<Core>, delivery: HookDelivery) -> Result<(), 
     };
     if trigger.paused.is_some() && trigger.stopped.is_none() {
         let request = fired_request(delivery);
-        core.triggers.change(|state| {
+        core.triggers().change(|state| {
             let Some(kept) = (state.triggers.iter_mut()).find(|kept| kept.id == trigger.id) else {
                 return;
             };
@@ -1200,7 +1201,7 @@ impl super::part::Part for Triggers {
             super::codehost::ci::start(core);
         }
         vec![
-            super::part::on_wake(core, |core| &core.triggers.wake, settle),
+            super::part::on_wake(core, |core| &core.triggers().wake, settle),
             tokio::spawn(park::serve(core.clone())),
         ]
     }

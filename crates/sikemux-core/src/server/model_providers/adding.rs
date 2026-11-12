@@ -2,6 +2,7 @@
 //! is found by its URL and connected; any other is checked against its model
 //! list, asked which other APIs it serves, and kept as one the person added.
 
+use crate::server::parts::Parts;
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
@@ -114,7 +115,7 @@ pub(crate) async fn add(core: &Arc<Core>, entered: Entered) -> CoreResult<ModelP
     })
     .await??;
     if !known {
-        core.workspaces.model_checks.forget(&provider.id);
+        core.workspaces().model_checks.forget(&provider.id);
     }
     Ok(entry(core, provider, true, &feed, Some(served)))
 }
@@ -123,7 +124,7 @@ pub(crate) async fn remove(core: &Arc<Core>, params: ProviderParams) -> CoreResu
     let id = params.id;
     let removing = id.clone();
     on_store(core, move |store| store.remove_custom(&removing)).await??;
-    core.workspaces.model_checks.forget(&id);
+    core.workspaces().model_checks.forget(&id);
     Ok(())
 }
 

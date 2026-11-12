@@ -3,6 +3,7 @@
 //! `mod.json` declares it reads. A write must be declared too, and runs only once the person has
 //! allowed the mod's writes. Credentials stay in the core: a page only ever sees answers.
 
+use crate::server::parts::Parts;
 use std::sync::Arc;
 
 use crate::server::plugins::{AgentTool, Manifest};
@@ -235,7 +236,7 @@ pub(in super::super) async fn write(
         )
         .into());
     }
-    if !core.mods.allowed(&asked.id, &manifest.writes) {
+    if !core.mods().allowed(&asked.id, &manifest.writes) {
         return Ok(BridgeWrite::Ask {
             name: manifest.name,
             writes: manifest.writes,

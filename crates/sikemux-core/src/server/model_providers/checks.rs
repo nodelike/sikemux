@@ -3,6 +3,7 @@
 //! kept with its date so it is asked once.
 
 use crate::launch::claude_model;
+use crate::server::parts::Parts;
 use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -145,7 +146,7 @@ impl Checks {
 /// Checks a model the first time a chat runs on it, in the background.
 pub(crate) fn first_use(core: &Arc<Core>, provider: Arc<Provider>, model: &str) {
     let model = claude_model::api_name(model).to_owned();
-    let checks = &core.workspaces.model_checks;
+    let checks = &core.workspaces().model_checks;
     if checks.of(&provider.id).contains_key(&model)
         || !checks
             .running
@@ -160,7 +161,7 @@ pub(crate) fn first_use(core: &Arc<Core>, provider: Arc<Provider>, model: &str) 
             Some(_) => super::key(&core, &provider.id).await,
             None => None,
         };
-        let checks = &core.workspaces.model_checks;
+        let checks = &core.workspaces().model_checks;
         if provider.key.is_none() || key.is_some() {
             if let Err(error) = checks.run(&provider, key.as_deref(), &model).await {
                 eprintln!(

@@ -2,6 +2,7 @@
 //! the account which hosts it has, links with each it is not linked with,
 //! with a ticket it asks for itself, and calls each what the account calls it.
 
+use crate::server::parts::Parts;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
@@ -26,7 +27,7 @@ const BUSY: Duration = Duration::from_secs(60);
 /// Forgets the linked hosts that `hosts`, the account's, no longer holds.
 pub(crate) fn forget_hosts_off_account(core: &Core, hosts: &DeviceList) -> CoreResult<()> {
     let keys: Vec<String> = hosts.devices.iter().map(|host| host.key.clone()).collect();
-    let gone = core.remote.forget_links_off(&keys)?;
+    let gone = core.remote().forget_links_off(&keys)?;
     for host in &gone {
         super::unlinked(core, host, "it was removed from your account");
     }
@@ -39,26 +40,28 @@ pub(crate) fn forget_hosts_off_account(core: &Core, hosts: &DeviceList) -> CoreR
 /// Links this host with every other host on its account it is not linked
 /// with yet. One pass at a time; a pass asked for meanwhile runs after.
 pub(crate) fn relink(core: &Arc<Core>) {
-    if core.remote.signed_in_api().is_none() {
+    if core.remote().signed_in_api().is_none() {
         return;
     }
-    if core.hosts.linking.swap(true, Ordering::AcqRel) {
-        core.hosts.relink.at(epoch_ms() + AGAIN.as_millis() as u64);
+    if core.hosts().linking.swap(true, Ordering::AcqRel) {
+        core.hosts()
+            .relink
+            .at(epoch_ms() + AGAIN.as_millis() as u64);
         return;
     }
     let core = core.clone();
     tokio::spawn(async move {
         if let Err(error) = link_all(&core).await {
             eprintln!("sikemux core: could not link with the account's other hosts: {error}");
-            core.hosts.relink.at(epoch_ms() + BUSY.as_millis() as u64);
+            core.hosts().relink.at(epoch_ms() + BUSY.as_millis() as u64);
         }
-        core.hosts.linking.store(false, Ordering::Release);
+        core.hosts().linking.store(false, Ordering::Release);
     });
 }
 
 async fn link_all(core: &Arc<Core>) -> CoreResult<()> {
     let own = core
-        .remote
+        .remote()
         .core_id()
         .ok_or_else(|| CoreError::from("this host's key has not loaded"))?;
     let hosts: DeviceList = as_host(core, Method::GET, "/v1/devices?role=host", None).await?;
@@ -73,17 +76,17 @@ async fn link_all(core: &Arc<Core>) -> CoreResult<()> {
         .iter()
         .map(|host| (host.key.clone(), host.name.clone()))
         .collect();
-    if core.remote.name_links(&names)? {
+    if core.remote().name_links(&names)? {
         super::super::remote::announce(core);
     }
     let on_account: Vec<String> = hosts.devices.iter().map(|host| host.key.clone()).collect();
     let linked: Vec<String> = core
-        .remote
+        .remote()
         .links()
         .into_iter()
         .map(|link| link.id)
         .collect();
-    let declined = core.remote.declined_links();
+    let declined = core.remote().declined_links();
     let now = epoch_ms();
     let mut next = None;
     let mut links = Vec::new();
@@ -92,11 +95,11 @@ async fn link_all(core: &Arc<Core>) -> CoreResult<()> {
             || host.key == own
             || linked.contains(&host.key)
             || declined.contains(&host.key)
-            || core.remote.removed_here(&host.key)
+            || core.remote().removed_here(&host.key)
         {
             continue;
         }
-        if let Some(due) = core.remote.relink_due(&host.key).filter(|due| *due > now) {
+        if let Some(due) = core.remote().relink_due(&host.key).filter(|due| *due > now) {
             next = sooner(next, due);
             continue;
         }
@@ -111,7 +114,7 @@ async fn link_all(core: &Arc<Core>) -> CoreResult<()> {
                     "sikemux core: no ticket to link with {}: {error}",
                     host.key.get(..8).unwrap_or(&host.key)
                 );
-                next = sooner(next, core.remote.relink_failed(&host.key));
+                next = sooner(next, core.remote().relink_failed(&host.key));
                 continue;
             }
         };
@@ -134,20 +137,20 @@ async fn link_all(core: &Arc<Core>) -> CoreResult<()> {
             };
             match link_with(&core, params).await {
                 Ok(Linking::Linked) => {
-                    core.remote.relink_succeeded(&host.key);
+                    core.remote().relink_succeeded(&host.key);
                     None
                 }
                 Ok(Linking::Declined) => {
-                    core.remote.relink_succeeded(&host.key);
+                    core.remote().relink_succeeded(&host.key);
                     eprintln!("sikemux core: {named} turned down linking; it is not asked again");
-                    if let Err(error) = core.remote.decline_link(&host.key, &on_account) {
+                    if let Err(error) = core.remote().decline_link(&host.key, &on_account) {
                         eprintln!("sikemux core: could not save that {named} turned down linking: {error}");
                     }
                     None
                 }
                 Err(error) => {
                     eprintln!("sikemux core: could not link with {named}: {error}");
-                    Some(core.remote.relink_failed(&host.key))
+                    Some(core.remote().relink_failed(&host.key))
                 }
             }
         });
@@ -160,7 +163,7 @@ async fn link_all(core: &Arc<Core>) -> CoreResult<()> {
         next = sooner(next, due);
     }
     if let Some(next) = next {
-        core.hosts.relink.at(next);
+        core.hosts().relink.at(next);
     }
     Ok(())
 }

@@ -1,6 +1,7 @@
 //! Whose work an agent's own git command would take in or throw away, for the
 //! git guard to refuse it by.
 
+use crate::server::parts::Parts;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -30,7 +31,7 @@ pub(crate) fn others(
     let top = git(dir, &["rev-parse", "--show-toplevel"])?;
     let top = PathBuf::from(top.trim());
     let top = std::fs::canonicalize(&top).unwrap_or(top);
-    let projects = core.workspaces.project_paths();
+    let projects = core.workspaces().project_paths();
     let project = project_of(&top, &projects);
     let in_project = projects.iter().any(|known| {
         std::fs::canonicalize(known).unwrap_or_else(|_| known.clone()) == Path::new(&project)
@@ -46,7 +47,7 @@ pub(crate) fn others(
                 .filter(|agent| matches!(agent.reach, Reach::Chat | Reach::Terminal))
                 .filter(|agent| agent.agent_id != agent_id)
                 .filter(|agent| {
-                    core.edits.checkout_of(core, &agent.agent_id).as_deref() == Some(&top)
+                    core.edits().checkout_of(core, &agent.agent_id).as_deref() == Some(&top)
                 })
                 .map(|agent| agent.name.unwrap_or(agent.agent_id)),
         );

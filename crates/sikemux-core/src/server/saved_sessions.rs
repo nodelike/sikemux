@@ -2,6 +2,7 @@
 //! renaming, deleting or moving one to another project the way each
 //! provider's own commands do.
 
+use crate::server::parts::Parts;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -101,17 +102,17 @@ pub struct RecentRenamed {
 /// Renames a recent chat in its CLI's own history, as the launcher that found it signs in.
 pub(super) async fn rename_recent(core: &Arc<Core>, renamed: RecentRenamed) -> CoreResult<()> {
     let session = core
-        .workspaces
+        .workspaces()
         .recent_session(&renamed.recent, renamed.cwd)?;
     sessions::rename::rename(session, renamed.title).await?;
-    core.workspaces.recent_stale();
+    core.workspaces().recent_stale();
     Ok(())
 }
 
 /// Deletes a recent chat from its CLI's own history, for good.
 pub(super) async fn delete_recent(core: &Arc<Core>, chat: RecentChat) -> CoreResult<()> {
-    let session = core.workspaces.recent_session(&chat.recent, chat.cwd)?;
+    let session = core.workspaces().recent_session(&chat.recent, chat.cwd)?;
     delete(core, session).await?;
-    core.workspaces.recent_stale();
+    core.workspaces().recent_stale();
     Ok(())
 }

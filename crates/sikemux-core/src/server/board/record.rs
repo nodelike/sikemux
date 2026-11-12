@@ -1,6 +1,7 @@
 //! What a card's Auto run did and which of the board's switches were on for
 //! it, so a run with a switch can be compared with one without.
 
+use crate::server::parts::Parts;
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
@@ -109,7 +110,7 @@ impl CheckRan<'_> {
 
 /// Adds `ran` to the latest run record of each agent it took in.
 pub(crate) fn record_check(core: &Core, project: &str, ran: &CheckRan<'_>) {
-    let mut state = core.boards.state.locked();
+    let mut state = core.boards().state.locked();
     let Some(board) = state.boards.get_mut(project) else {
         return;
     };
@@ -136,7 +137,7 @@ pub(crate) fn record_check(core: &Core, project: &str, ran: &CheckRan<'_>) {
         recorded = true;
     }
     if recorded {
-        core.boards.save(&mut state, project);
+        core.boards().save(&mut state, project);
     }
 }
 

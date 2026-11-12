@@ -5,6 +5,7 @@
 //! as an agent, sets off the person's own hooks or comes back as a past session. What it finds is an offer, never a
 //! rule, until the person keeps it.
 
+use crate::server::parts::Parts;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -46,13 +47,13 @@ pub(super) fn settled(seeding: Option<Seeding>) -> Option<Seeding> {
 /// Marks `project` as being read and starts reading it, unless it is already.
 fn begin(core: &Arc<Core>, project: &str) -> Result<(), String> {
     {
-        let mut state = core.memory.state.locked();
+        let mut state = core.memory().state.locked();
         let held = holding(&mut state, project)?;
         if matches!(held.seeding, Some(Seeding::Reading { .. })) {
             return Err("Sikemux is already reading this project's past sessions".into());
         }
         held.seeding = Some(Seeding::Reading { since: epoch_ms() });
-        core.memory.save(&mut state, project);
+        core.memory().save(&mut state, project);
     }
     tell_clients(core, false);
     let (core, project) = (core.clone(), project.to_owned());
@@ -100,7 +101,7 @@ fn find(core: &Core, project: &str) -> Vec<SeededRule> {
             }
         }
     });
-    let kept: Vec<String> = (core.memory.state.locked().held.get(project))
+    let kept: Vec<String> = (core.memory().state.locked().held.get(project))
         .map(|held| {
             held.rules
                 .iter()
@@ -115,7 +116,7 @@ fn find(core: &Core, project: &str) -> Vec<SeededRule> {
 
 /// Where the model is asked: the core's own folder, outside every project.
 fn asked_in(core: &Core) -> PathBuf {
-    (core.memory.folder.clone()).unwrap_or_else(std::env::temp_dir)
+    (core.memory().folder.clone()).unwrap_or_else(std::env::temp_dir)
 }
 
 #[derive(Deserialize)]
@@ -163,7 +164,7 @@ fn rules_in(answer: &str, kept: &[String]) -> Vec<SeededRule> {
 /// Keeps what the search of `project` found as an offer, or that it ran when
 /// it found nothing.
 fn end(core: &Core, project: &str, rules: Vec<SeededRule>) {
-    let mut state = core.memory.state.locked();
+    let mut state = core.memory().state.locked();
     let Some(held) = state.held.get_mut(project) else {
         return;
     };
@@ -172,7 +173,7 @@ fn end(core: &Core, project: &str, rules: Vec<SeededRule>) {
         true => Seeding::Ran { at, kept: 0 },
         false => Seeding::Offered { rules, at },
     });
-    core.memory.save(&mut state, project);
+    core.memory().save(&mut state, project);
     drop(state);
     tell_clients(core, true);
 }
@@ -195,7 +196,7 @@ pub(crate) async fn keep(
     let project = project_at(core, &params.project)?;
     let core = core.clone();
     run(move || {
-        let rules = offered(&core.memory.state.locked(), &project)
+        let rules = offered(&core.memory().state.locked(), &project)
             .ok_or("Sikemux offers no rules from past sessions in this project now")?;
         if let Some(id) = (params.keep.iter()).find(|id| !rules.iter().any(|rule| rule.id == **id))
         {
@@ -216,14 +217,14 @@ pub(crate) async fn keep(
                 }
             }
         }
-        let mut state = core.memory.state.locked();
+        let mut state = core.memory().state.locked();
         if let Some(held) = state.held.get_mut(&project) {
             held.seeding = Some(Seeding::Ran {
                 at: epoch_ms(),
                 kept,
             });
         }
-        core.memory.save(&mut state, &project);
+        core.memory().save(&mut state, &project);
         drop(state);
         tell_clients(&core, true);
         Ok(view(&core, &project, &peer))

@@ -7,6 +7,7 @@
 //! The core keeps, for each chief, what its next turn hears and what the person is shown in its
 //! chat: never what the person typed, which is read back from the chats' own records.
 
+use crate::server::parts::Parts;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -180,43 +181,44 @@ impl super::part::Part for Chiefs {
 
 /// Every project's chief, by agent id.
 pub(crate) fn all(core: &Core) -> HashSet<String> {
-    core.workspaces.chiefs()
+    core.workspaces().chiefs()
 }
 
 /// Whether `agent_id` is a project's chief.
 pub(crate) fn is_chief(core: &Core, agent_id: &str) -> bool {
-    core.workspaces.is_chief(agent_id)
+    core.workspaces().is_chief(agent_id)
 }
 
 /// Each project's chief whose chat is open, by the project's id. A chief closed hears nothing.
 pub(crate) fn seated(core: &Core) -> HashMap<String, String> {
-    (core.workspaces.projects().into_iter())
+    (core.workspaces().projects().into_iter())
         .filter_map(|project| Some((project.id, project.chief?)))
-        .filter(|(_, chief)| core.workspaces.agent(chief).is_some())
+        .filter(|(_, chief)| core.workspaces().agent(chief).is_some())
         .collect()
 }
 
 /// The chief over `agent_id`, when its project has one open other than the agent itself.
 fn chief_over(core: &Core, agent_id: &str) -> Option<String> {
-    let project = core.workspaces.agent(agent_id)?.project;
+    let project = core.workspaces().agent(agent_id)?.project;
     seated(core)
         .remove(&project)
         .filter(|chief| chief != agent_id)
 }
 
 fn project_of_chief(core: &Core, chief: &str) -> Option<ProjectInfo> {
-    (core.workspaces.projects().into_iter()).find(|project| project.chief.as_deref() == Some(chief))
+    (core.workspaces().projects().into_iter())
+        .find(|project| project.chief.as_deref() == Some(chief))
 }
 
 fn chief_at(core: &Core, path: &str) -> Option<String> {
-    (core.workspaces.projects().into_iter())
+    (core.workspaces().projects().into_iter())
         .find(|project| project.path.to_string_lossy() == path)
         .and_then(|project| project.chief)
 }
 
 /// The chief's seat, made the first time.
 fn ensure_seat(core: &Core, chief: &str, project: &str) {
-    if core.chiefs.read(chief, |_| ()).is_some() {
+    if core.chiefs().read(chief, |_| ()).is_some() {
         return;
     }
     let now = epoch_ms();
@@ -227,7 +229,7 @@ fn ensure_seat(core: &Core, chief: &str, project: &str) {
         ..Seat::default()
     };
     be_with(&mut seat, now);
-    core.chiefs.change(|saved| {
+    core.chiefs().change(|saved| {
         saved.seats.entry(chief.to_owned()).or_insert(seat);
     });
 }
@@ -270,8 +272,8 @@ pub(crate) async fn open(core: &Arc<Core>, params: OpenChiefParams) -> CoreResul
 /// else made, waiting for the person.
 async fn seat(core: &Arc<Core>, project: &ProjectInfo) -> CoreResult<String> {
     match &project.chief {
-        Some(chief) if core.workspaces.agent(chief).is_some() => Ok(chief.clone()),
-        Some(chief) if core.names.ran_session(chief).is_some() => {
+        Some(chief) if core.workspaces().agent(chief).is_some() => Ok(chief.clone()),
+        Some(chief) if core.names().ran_session(chief).is_some() => {
             launching::reopen_agent(core, chief.clone())
                 .await
                 .map(|taken| taken.agent_id)
@@ -279,7 +281,7 @@ async fn seat(core: &Arc<Core>, project: &ProjectInfo) -> CoreResult<String> {
         Some(chief) => make(core, project, chief.clone()).await,
         None => {
             let chief = super::names::new_agent_id();
-            core.workspaces.set_chief(&project.id, &chief)?;
+            core.workspaces().set_chief(&project.id, &chief)?;
             make(core, project, chief).await
         }
     }
@@ -292,9 +294,9 @@ async fn make(core: &Arc<Core>, project: &ProjectInfo, chief: String) -> CoreRes
     let kind = super::workspace::LauncherId::parse(&launcher)
         .kind
         .to_owned();
-    let pick = core.workspaces.model_pick(&kind).unwrap_or_default();
-    core.names
-        .name_chief(&chief, &core.workspaces.project_of(&project.path));
+    let pick = core.workspaces().model_pick(&kind).unwrap_or_default();
+    core.names()
+        .name_chief(&chief, &core.workspaces().project_of(&project.path));
     let chosen = Launch {
         agent_id: chief,
         launcher,
@@ -319,10 +321,10 @@ async fn make(core: &Arc<Core>, project: &ProjectInfo, chief: String) -> CoreRes
 fn greeting(core: &Core, project: &ProjectInfo, chief: &str) -> Option<String> {
     ensure_seat(core, chief, &project.id);
     let fresh = core
-        .chats
+        .chats()
         .get(chief)
         .is_some_and(|chat| !chat.has_answered() && !chat.working());
-    let greet = core.chiefs.seat(chief, |seat| {
+    let greet = core.chiefs().seat(chief, |seat| {
         let greet = fresh && !seat.greeted;
         seat.greeted = true;
         if greet {
@@ -337,10 +339,10 @@ fn greeting(core: &Core, project: &ProjectInfo, chief: &str) -> Option<String> {
     let now = epoch_ms();
     let turns = super::turn_state::all(core);
     let calls = super::person_calls::shown(core);
-    let open: Vec<String> = (core.workspaces.agent_projects().into_iter())
+    let open: Vec<String> = (core.workspaces().agent_projects().into_iter())
         .filter(|(agent, id)| *id == project.id && agent != chief)
         .map(|(agent, _)| {
-            let title = core.workspaces.title(&agent).unwrap_or_default();
+            let title = core.workspaces().title(&agent).unwrap_or_default();
             let stands = turns.get(&agent).map_or_else(
                 || "not started".to_owned(),
                 |turn| super::chat::cap::standing(turn, now),
@@ -383,7 +385,7 @@ fn quoted(text: &str) -> String {
 fn called(core: &Core, agent_id: &str) -> String {
     format!(
         "@{}",
-        crate::text::one_line(&core.names.name_or_id(agent_id))
+        crate::text::one_line(&core.names().name_or_id(agent_id))
     )
 }
 
@@ -396,19 +398,19 @@ pub(crate) fn person_wrote(core: &Core, agent_id: &str) {
             return;
         };
         let known = core
-            .chiefs
+            .chiefs()
             .read(&chief, |seat| {
                 seat.wrote.iter().any(|wrote| wrote == agent_id)
             })
             .unwrap_or(true);
         if !known {
-            core.chiefs
+            core.chiefs()
                 .seat(&chief, |seat| seat.wrote.push(agent_id.to_owned()));
         }
         return;
     }
     let now = epoch_ms();
-    let stands = core.chiefs.read(agent_id, |seat| {
+    let stands = core.chiefs().read(agent_id, |seat| {
         let done = seat.away.as_ref().is_some_and(|away| !away.until_answered);
         (done, now.saturating_sub(seat.with) >= WITH_STEP_MS)
     });
@@ -416,7 +418,7 @@ pub(crate) fn person_wrote(core: &Core, agent_id: &str) {
         return;
     };
     if away_done || moved {
-        core.chiefs.seat(agent_id, |seat| {
+        core.chiefs().seat(agent_id, |seat| {
             be_with(seat, now);
             if away_done {
                 seat.away = None;
@@ -424,7 +426,7 @@ pub(crate) fn person_wrote(core: &Core, agent_id: &str) {
         });
     }
     if away_done {
-        if let Some(feed) = core.chats.heard(agent_id) {
+        if let Some(feed) = core.chats().heard(agent_id) {
             feed.set_away(None);
         }
     }
@@ -447,11 +449,11 @@ pub(crate) fn chat_rested(core: &Core, agent_id: &str, feed: &str) {
     };
     let noted = (agent_id.to_owned(), feed.to_owned());
     let known = core
-        .chiefs
+        .chiefs()
         .read(&chief, |seat| seat.feeds.contains(&noted))
         .unwrap_or(true);
     if !known {
-        core.chiefs.seat(&chief, |seat| {
+        core.chiefs().seat(&chief, |seat| {
             seat.feeds.push(noted);
             if seat.feeds.len() > MOST_FEEDS {
                 seat.feeds.remove(0);
@@ -466,7 +468,7 @@ pub(crate) fn landed(core: &Core, path: &str, agent: &str) {
         return;
     };
     let now = epoch_ms();
-    core.chiefs.seat(&chief, |seat| {
+    core.chiefs().seat(&chief, |seat| {
         seat.landed.push((agent.to_owned(), now));
         if seat.landed.len() > MOST_LANDED {
             seat.landed.remove(0);
@@ -476,7 +478,7 @@ pub(crate) fn landed(core: &Core, path: &str, agent: &str) {
 
 /// Sikemux tells the chief `text` with its next turn.
 fn note(core: &Core, chief: &str, text: String) {
-    core.chiefs.seat(chief, |seat| {
+    core.chiefs().seat(chief, |seat| {
         seat.notes.push((epoch_ms(), text));
         if seat.notes.len() > MOST_NOTES {
             seat.notes.remove(0);
@@ -487,7 +489,7 @@ fn note(core: &Core, chief: &str, text: String) {
 /// Puts `update` in the chief's chat, open or asleep, and keeps it, under `key`, until it is done
 /// with: a chat that opens on another feed, after a restart, gets it again.
 fn put_row(core: &Core, chief: &str, key: String, update: Value) {
-    let feed = core.chats.heard(chief);
+    let feed = core.chats().heard(chief);
     let at = epoch_ms();
     let row = Row {
         key,
@@ -495,7 +497,7 @@ fn put_row(core: &Core, chief: &str, key: String, update: Value) {
         at,
         feed: feed.as_ref().map(|feed| feed.id().to_owned()),
     };
-    core.chiefs.change(|saved| {
+    core.chiefs().change(|saved| {
         let refused: HashSet<String> = (saved.overrules.iter())
             .filter(|(_, overrule)| overrule.stopped_auto)
             .map(|(key, _)| format!("overrule|{key}"))
@@ -520,7 +522,7 @@ fn put_row(core: &Core, chief: &str, key: String, update: Value) {
 
 /// The chief's line kept under `key` is done with.
 fn drop_row(core: &Core, chief: &str, key: &str) {
-    core.chiefs
+    core.chiefs()
         .seat(chief, |seat| seat.rows.retain(|row| row.key != key));
 }
 
@@ -532,7 +534,7 @@ pub(crate) fn chat_ready(core: &Core, chat: &Chat) {
     }
     let id = chat.feed.id().to_owned();
     let missing: Vec<(Value, u64)> = {
-        let mut saved = core.chiefs.state.locked();
+        let mut saved = core.chiefs().state.locked();
         let Some(seat) = saved.seats.get_mut(chat.agent_id()) else {
             return;
         };
@@ -544,7 +546,7 @@ pub(crate) fn chat_ready(core: &Core, chat: &Chat) {
             })
             .collect();
         if !missing.is_empty() {
-            core.chiefs.kept.save_soon(&*saved);
+            core.chiefs().kept.save_soon(&*saved);
         }
         missing
     };
@@ -564,7 +566,7 @@ fn emit_row(feed: &Arc<Feed>, chief: &str, mut update: Value, at: u64) {
 
 /// The chief's chat opened on `feed`: what happened while the person was away is shown on it.
 pub(crate) fn chat_opened(core: &Core, chief: &str, feed: &Arc<Feed>) {
-    if let Some(away) = core.chiefs.read(chief, |seat| {
+    if let Some(away) = core.chiefs().read(chief, |seat| {
         seat.away.as_ref().map(|away| away.shown.clone())
     }) {
         feed.set_away(away);
@@ -590,7 +592,7 @@ fn digest_now(core: &Core, chief: &str) -> Option<ChatContext> {
     let project = project_of_chief(core, chief)?;
     ensure_seat(core, chief, &project.id);
     let now = epoch_ms();
-    let (since, feeds, wrote, notes) = core.chiefs.seat(chief, |seat| {
+    let (since, feeds, wrote, notes) = core.chiefs().seat(chief, |seat| {
         let since = std::mem::replace(&mut seat.digested, now);
         (
             since,
@@ -600,7 +602,7 @@ fn digest_now(core: &Core, chief: &str) -> Option<ChatContext> {
         )
     })?;
     let path = project.path.to_string_lossy().into_owned();
-    let agents: Vec<String> = (core.workspaces.agent_projects().into_iter())
+    let agents: Vec<String> = (core.workspaces().agent_projects().into_iter())
         .filter(|(agent, id)| *id == project.id && agent != chief)
         .map(|(agent, _)| agent)
         .collect();
@@ -613,7 +615,7 @@ fn digest_now(core: &Core, chief: &str) -> Option<ChatContext> {
         if turn.state == TurnPhase::Working {
             continue;
         }
-        let title = core.workspaces.title(agent).unwrap_or_default();
+        let title = core.workspaces().title(agent).unwrap_or_default();
         agent_lines.push((
             turn.since,
             format!(
@@ -697,13 +699,13 @@ fn typed_since(
         .filter(|(agent, _)| wrote.contains(agent))
         .collect();
     for agent in wrote {
-        if let Some(feed) = core.chats.heard(agent) {
+        if let Some(feed) = core.chats().heard(agent) {
             feeds.push((agent.clone(), feed.id().to_owned()));
         }
     }
     feeds.sort();
     feeds.dedup();
-    let places = core.workspaces.places();
+    let places = core.workspaces().places();
     let said_at = |agent: &str| {
         (places.get(agent))
             .and_then(|(place, _)| place.said_at)
@@ -743,7 +745,7 @@ fn typed_since(
     }
     for agent in wrote.iter().filter(|agent| !heard.contains(*agent)) {
         let at = said_at(agent);
-        let line = match core.workspaces.in_terminal(agent) {
+        let line = match core.workspaces().in_terminal(agent) {
             true => format!(
                 "- wrote to {} in its terminal; Sikemux keeps no record of a terminal's words",
                 called(core, agent)
@@ -819,13 +821,17 @@ pub(crate) fn on_screen(core: &Core, agent_ids: &[String], focused: bool) {
     }
     let now = epoch_ms();
     for chief in agent_ids.iter().filter(|agent| is_chief(core, agent)) {
-        let on_screen = core.chats.heard(chief).map(|feed| feed.id().to_owned());
+        let on_screen = core.chats().heard(chief).map(|feed| feed.id().to_owned());
         let shown = |row: &Row| row.feed.is_some() && row.feed == on_screen;
-        if core.chiefs.read(chief, |seat| seat.rows.iter().any(shown)) == Some(true) {
-            core.chiefs
+        if core
+            .chiefs()
+            .read(chief, |seat| seat.rows.iter().any(shown))
+            == Some(true)
+        {
+            core.chiefs()
                 .seat(chief, |seat| seat.rows.retain(|row| !shown(row)));
         }
-        let seen = core.chiefs.read(chief, |seat| {
+        let seen = core.chiefs().read(chief, |seat| {
             let pending = seat.away.as_ref();
             (
                 seat.with,
@@ -847,13 +853,13 @@ pub(crate) fn on_screen(core: &Core, agent_ids: &[String], focused: bool) {
             })
             .flatten();
         let shown = away.as_ref().map(|away| away.shown.clone());
-        core.chiefs.seat(chief, |seat| {
+        core.chiefs().seat(chief, |seat| {
             be_with(seat, now);
             if away.is_some() {
                 seat.away = away;
             }
         });
-        if let (Some(shown), Some(feed)) = (shown, core.chats.heard(chief)) {
+        if let (Some(shown), Some(feed)) = (shown, core.chats().heard(chief)) {
             feed.set_away(Some(shown));
         }
     }
@@ -875,14 +881,14 @@ fn away(core: &Core, chief: &str, since: u64) -> Option<Away> {
                 text: swarm.decision.text,
                 why: swarm.decision.why,
                 by: swarm.decision.learned.agent.map(|agent_id| AwayAgent {
-                    name: core.names.name_or_id(&agent_id),
+                    name: core.names().name_or_id(&agent_id),
                     agent_id,
                 }),
                 at: swarm.decision.learned.at,
             })
             .collect();
     let landings = core
-        .chiefs
+        .chiefs()
         .read(chief, |seat| seat.landed.clone())
         .unwrap_or_default();
     let mut last_landed: HashMap<String, u64> = HashMap::new();
@@ -892,8 +898,8 @@ fn away(core: &Core, chief: &str, since: u64) -> Option<Away> {
     let turns = super::turn_state::all(core);
     let mut landed: Vec<AwayLanded> = (last_landed.into_iter())
         .map(|(agent_id, at)| AwayLanded {
-            name: core.names.name(&agent_id),
-            title: core.workspaces.title(&agent_id).unwrap_or_default(),
+            name: core.names().name(&agent_id),
+            title: core.workspaces().title(&agent_id).unwrap_or_default(),
             at,
             try_it: (turns.get(&agent_id))
                 .and_then(|turn| turn.done.as_ref())
@@ -926,13 +932,13 @@ fn open_calls(calls: &[PersonCall], path: &str) -> Vec<String> {
 /// Each chief's away block with its calls as they stand now: one whose calls are all answered
 /// is done with.
 pub(crate) fn refresh_away(core: &Core, calls: &[PersonCall]) {
-    let shown: Vec<(String, String, Away)> = (core.chiefs.state.locked().seats.iter())
+    let shown: Vec<(String, String, Away)> = (core.chiefs().state.locked().seats.iter())
         .filter_map(|(chief, seat)| Some((chief.clone(), seat.project.clone(), seat.away.clone()?)))
         .collect();
     if shown.is_empty() {
         return;
     }
-    let paths: HashMap<String, String> = (core.workspaces.projects().into_iter())
+    let paths: HashMap<String, String> = (core.workspaces().projects().into_iter())
         .map(|project| (project.id, project.path.to_string_lossy().into_owned()))
         .collect();
     for (chief, project, mut away) in shown {
@@ -946,9 +952,9 @@ pub(crate) fn refresh_away(core: &Core, calls: &[PersonCall]) {
         let done = away.until_answered && live.is_empty();
         away.shown.calls = live;
         let shown = (!done).then(|| away.shown.clone());
-        core.chiefs
+        core.chiefs()
             .seat(&chief, |seat| seat.away = (!done).then_some(away));
-        if let Some(feed) = core.chats.heard(&chief) {
+        if let Some(feed) = core.chats().heard(&chief) {
             feed.set_away(shown);
         }
     }
@@ -992,7 +998,7 @@ pub(crate) fn overruled(
     )
     .inspect_err(|error| eprintln!("sikemux core: an Overrule kept no rule: {error}"))
     .ok();
-    core.chiefs.change(|saved| {
+    core.chiefs().change(|saved| {
         let overrule = Overrule {
             rule,
             stopped_auto,
@@ -1048,7 +1054,7 @@ pub(crate) fn undoable(
     decision: u64,
 ) -> Result<Overrule, String> {
     let key = overrule_key(project, goal, decision);
-    let overrule = (core.chiefs.state.locked().overrules.get(&key).cloned())
+    let overrule = (core.chiefs().state.locked().overrules.get(&key).cloned())
         .ok_or("Only a decision you overruled can be put back")?;
     if overrule.stopped_auto {
         return Err("Overruling this stopped Auto's run on its slice and dropped what it did, so it cannot be put back".into());
@@ -1066,7 +1072,7 @@ pub(crate) async fn overrule_undone(
     overrule: Overrule,
 ) {
     let (id, text) = decision;
-    core.chiefs
+    core.chiefs()
         .change(|saved| saved.overrules.remove(&overrule_key(project, goal, id)));
     if let Some(rule) = overrule.rule {
         if let Err(error) = super::memory::retire_persons_rule(core, project, rule) {
@@ -1091,7 +1097,7 @@ pub(crate) async fn overrule_undone(
             &chief,
             &format!("overrule|{}", overrule_key(project, goal, id)),
         );
-        if let Some(feed) = core.chats.heard(&chief) {
+        if let Some(feed) = core.chats().heard(&chief) {
             let undone = OverruledDecision {
                 project: project.to_owned(),
                 goal,
@@ -1144,7 +1150,7 @@ async fn count_weeks(core: Arc<Core>) {
         let Some(began) = week_began(epoch_ms()) else {
             continue;
         };
-        let due: Vec<(String, String, bool)> = (core.chiefs.state.locked().seats.iter())
+        let due: Vec<(String, String, bool)> = (core.chiefs().state.locked().seats.iter())
             .filter(|(_, seat)| seat.counted < began)
             .map(|(chief, seat)| {
                 let was_with = seat.with_weeks.contains(&(began - WEEK_MS));
@@ -1152,7 +1158,7 @@ async fn count_weeks(core: Arc<Core>) {
             })
             .collect();
         for (chief, project, was_with) in due {
-            core.chiefs.seat(&chief, |seat| seat.counted = began);
+            core.chiefs().seat(&chief, |seat| seat.counted = began);
             if was_with {
                 count_week(&core, &chief, &project, began);
             }
@@ -1161,14 +1167,14 @@ async fn count_weeks(core: Arc<Core>) {
 }
 
 fn count_week(core: &Core, chief: &str, project: &str, began: u64) {
-    let Some(project) = (core.workspaces.projects().into_iter()).find(|info| info.id == project)
+    let Some(project) = (core.workspaces().projects().into_iter()).find(|info| info.id == project)
     else {
         return;
     };
     let path = project.path.to_string_lossy().into_owned();
     let from = began - WEEK_MS;
     let (decided, overruled) = super::board::goal::counted_since(core, &path, from, began);
-    let answered = core.person_calls.answered_since(&path, from, began);
+    let answered = core.person_calls().answered_since(&path, from, began);
     let as_picked = answered.iter().filter(|as_picked| **as_picked).count();
     if decided == 0 && answered.is_empty() {
         return;
@@ -1199,12 +1205,12 @@ fn count_week(core: &Core, chief: &str, project: &str, began: u64) {
 
 /// Lets go of what is kept for a chief that is no longer one, and of Overrules in projects gone.
 fn prune(core: &Core) {
-    let chiefs = core.workspaces.chiefs();
-    let paths: HashSet<String> = (core.workspaces.projects().into_iter())
+    let chiefs = core.workspaces().chiefs();
+    let paths: HashSet<String> = (core.workspaces().projects().into_iter())
         .map(|project| project.path.to_string_lossy().into_owned())
         .collect();
     let stale = {
-        let saved = core.chiefs.state.locked();
+        let saved = core.chiefs().state.locked();
         saved.seats.keys().any(|chief| !chiefs.contains(chief))
             || (saved.overrules.keys()).any(|key| {
                 !key.split('|')
@@ -1213,7 +1219,7 @@ fn prune(core: &Core) {
             })
     };
     if stale {
-        core.chiefs.change(|saved| {
+        core.chiefs().change(|saved| {
             saved.seats.retain(|chief, _| chiefs.contains(chief));
             (saved.overrules).retain(|key, _| {
                 key.split('|')

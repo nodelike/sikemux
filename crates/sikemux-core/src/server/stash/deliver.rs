@@ -1,6 +1,7 @@
 //! Delivering a stashed item into a chat's draft, as the account says one arrived.
 
 use super::*;
+use crate::server::parts::Parts;
 
 /// The items being put in a chat's draft right now, so an event and a catch-up that both
 /// hear of one deliver it once.
@@ -100,7 +101,7 @@ pub(super) async fn deliver(core: &Arc<Core>, item: StashItem) {
     let Some(target) = item.target.as_ref() else {
         return;
     };
-    if core.remote.core_id().as_deref() != Some(target.host_key.as_str()) {
+    if core.remote().core_id().as_deref() != Some(target.host_key.as_str()) {
         return;
     }
     let Some(_delivering) = Delivering::start(&item.id) else {
@@ -120,7 +121,7 @@ pub(super) async fn deliver_to(
     target: &StashTarget,
 ) -> CoreResult<()> {
     let agent_id = match (&target.chat_id, &target.project_path) {
-        (Some(chat), _) if core.workspaces.agent(chat).is_some() => chat.clone(),
+        (Some(chat), _) if core.workspaces().agent(chat).is_some() => chat.clone(),
         (Some(_), _) => return Ok(()),
         (None, Some(project)) if target.new_chat == Some(true) => {
             match new_chat(core, project).await? {

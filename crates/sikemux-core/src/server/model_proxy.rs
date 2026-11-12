@@ -2,6 +2,7 @@
 //! token that works only while its process runs; the core puts the provider's key on each
 //! request here, so the key never enters an agent's environment.
 
+use crate::server::parts::Parts;
 use std::collections::{BTreeMap, HashMap};
 use std::convert::Infallible;
 use std::net::{Ipv4Addr, SocketAddrV4};
@@ -327,7 +328,7 @@ async fn forward(
 /// Blocks, as reading a key can start the Keychain, so it runs off the async threads.
 async fn provider_and_key(core: Arc<Core>, id: String) -> Result<(Arc<Provider>, String), Refused> {
     let found = tokio::task::spawn_blocking(move || {
-        let providers: &Providers = core.workspaces.providers()?;
+        let providers: &Providers = core.workspaces().providers()?;
         Some((providers.find(&id)?, providers.key(&id)))
     })
     .await;

@@ -1,5 +1,6 @@
 //! The host's half of joining; [`crate::join`] describes the exchange.
 
+use crate::server::parts::Parts;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -69,7 +70,7 @@ async fn refuse(writer: &mut SendStream, connection: &Connection, phone: &str, r
 pub(super) async fn serve(core: Arc<Core>, connection: Connection) {
     let phone = connection.remote_id().to_string();
     let (mut writer, hello) = {
-        let Ok(_reading) = core.joins.reading.try_acquire() else {
+        let Ok(_reading) = core.joins().reading.try_acquire() else {
             connection.close(0u32.into(), b"busy");
             return;
         };
@@ -86,7 +87,7 @@ pub(super) async fn serve(core: Arc<Core>, connection: Connection) {
         refuse(&mut writer, &connection, &phone, Refusal::Unreadable).await;
         return;
     };
-    match core.remote.check_join(&hello.ticket, &phone) {
+    match core.remote().check_join(&hello.ticket, &phone) {
         Err(refusal) => {
             refuse(&mut writer, &connection, &phone, refusal).await;
             return;
@@ -105,8 +106,8 @@ pub(super) async fn serve(core: Arc<Core>, connection: Connection) {
         from_account: true,
         expires_at: sikemux_process::clock::epoch_ms() + APPROVAL_TIMEOUT.as_millis() as u64,
     };
-    if !core.remote.requires_approval_of(&request.device_id) {
-        let reply = match core.remote.admit(
+    if !core.remote().requires_approval_of(&request.device_id) {
+        let reply = match core.remote().admit(
             &request,
             hello.ticket.account.clone(),
             hello.ticket.via.clone(),
@@ -122,19 +123,19 @@ pub(super) async fn serve(core: Arc<Core>, connection: Connection) {
         finish(&mut writer, &connection, &reply).await;
         return;
     }
-    let Ok(_waiting) = core.joins.waiting.try_acquire() else {
+    let Ok(_waiting) = core.joins().waiting.try_acquire() else {
         connection.close(0u32.into(), b"busy");
         return;
     };
-    core.remote.forget_device_requests(&request.device_id);
-    let answered = core.remote.ask(
+    core.remote().forget_device_requests(&request.device_id);
+    let answered = core.remote().ask(
         request.clone(),
         hello.ticket.account.clone(),
         None,
         hello.ticket.via.clone(),
     );
     remote::announce(&core);
-    core.notify.send(Signal::Pairing(request.clone()));
+    core.notify().send(Signal::Pairing(request.clone()));
     // The person may answer after the device gave up waiting; it is let in
     // the next time it comes.
     let access = tokio::time::timeout(APPROVAL_TIMEOUT, answered)
@@ -142,9 +143,10 @@ pub(super) async fn serve(core: Arc<Core>, connection: Connection) {
         .ok()
         .and_then(Result::ok)
         .flatten();
-    core.remote.forget_pending(&request.id);
+    core.remote().forget_pending(&request.id);
     remote::announce(&core);
-    core.notify.send(Signal::PairingSettled { id: request.id });
+    core.notify()
+        .send(Signal::PairingSettled { id: request.id });
     let reply = match access {
         Some(access) => JoinReply::Allowed { access },
         None => JoinReply::Denied,
@@ -175,10 +177,10 @@ mod tests {
 
     async fn host(vector: &Vector) -> Host {
         let core = Core::new(BuildIdentity::default(), None).unwrap();
-        core.remote
+        core.remote()
             .stand_in(SecretKey::generate(), Some(ACCOUNT), Vec::new());
-        core.remote.listen_on_loopback();
-        core.remote
+        core.remote().listen_on_loopback();
+        core.remote()
             .trust_join_key(&vector.ticket.key_id, vector.public);
         remote::set_enabled(&core, true).await.unwrap();
         Host { core }
@@ -195,7 +197,7 @@ mod tests {
 
     impl Host {
         fn status(&self) -> RemoteStatus {
-            self.core.remote.status()
+            self.core.remote().status()
         }
 
         fn addr(&self) -> EndpointAddr {
@@ -284,7 +286,7 @@ mod tests {
             .saturating_sub(sikemux_process::clock::epoch_ms());
         assert!(waits > 580_000 && waits <= 600_000, "{waits}");
         host.core
-            .remote
+            .remote()
             .answer(&request.id, Some(DeviceAccess::Watch))
             .unwrap();
 
@@ -373,7 +375,7 @@ mod tests {
         });
         host.until_asked().await;
         host.core
-            .remote
+            .remote()
             .allow(vec![allowed(&key, DeviceAccess::Watch)])
             .unwrap();
 
@@ -395,8 +397,8 @@ mod tests {
         let core = Core::new(BuildIdentity::default(), None).unwrap();
         let mut device = allowed(&SecretKey::generate(), DeviceAccess::Full);
         device.id = "not-a-key".into();
-        assert!(core.remote.allow(vec![device]).is_err());
-        assert!(core.remote.status().devices.is_empty());
+        assert!(core.remote().allow(vec![device]).is_err());
+        assert!(core.remote().status().devices.is_empty());
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -411,7 +413,7 @@ mod tests {
             async move { join::join(&endpoint, addr, &hello).await }
         });
         let request = host.until_asked().await;
-        host.core.remote.answer(&request.id, None).unwrap();
+        host.core.remote().answer(&request.id, None).unwrap();
         assert_eq!(joining.await.unwrap().unwrap(), JoinReply::Denied);
         assert!(host.status().devices.is_empty());
         remote::stop(&host.core).await;

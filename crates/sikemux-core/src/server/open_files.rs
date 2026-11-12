@@ -3,6 +3,7 @@
 //! when one moves on disk, so an editor reads it again.
 
 use crate::server::changed::What;
+use crate::server::parts::Parts;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, Weak};
@@ -67,7 +68,7 @@ pub(crate) fn show(core: &Arc<Core>, client: ClientId, shown: ShowFiles) -> Core
         }
         open.insert(on_disk(Path::new(&path)), path);
     }
-    let mut state = core.open_files.state.locked();
+    let mut state = core.open_files().state.locked();
     if open.is_empty() {
         state.by_client.remove(&client);
     } else {
@@ -133,7 +134,7 @@ fn start(core: Weak<Core>) -> CoreResult<RecommendedWatcher> {
             }
             let Some(core) = core.upgrade() else { return };
             let named: HashSet<String> = {
-                let state = core.open_files.state.locked();
+                let state = core.open_files().state.locked();
                 state
                     .by_client
                     .values()

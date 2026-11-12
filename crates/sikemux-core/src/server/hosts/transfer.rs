@@ -8,6 +8,7 @@
 //! resumable on both. A move whose uncommitted changes did not go sends no chat.
 
 use crate::server::changed::What;
+use crate::server::parts::Parts;
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::sync::Arc;
@@ -116,7 +117,7 @@ pub struct SessionSent {
 pub(crate) async fn send_session(core: &Arc<Core>, params: SendParams) -> CoreResult<SessionSent> {
     let link = find(core, &params.host)?;
     let project = core
-        .workspaces
+        .workspaces()
         .project_info(&params.project)
         .ok_or_else(|| CoreError::from("that project is not on this host"))?;
     let from = project.path.to_string_lossy().into_owned();
@@ -351,10 +352,13 @@ fn gather(
             left.push(stay(format!("{label} keeps its chats where it runs")));
             continue;
         };
-        let config = agent
-            .profile_id
-            .as_deref()
-            .and_then(|id| core.workspaces.accounts()?.profile(id)?.config_path.clone());
+        let config = agent.profile_id.as_deref().and_then(|id| {
+            core.workspaces()
+                .accounts()?
+                .profile(id)?
+                .config_path
+                .clone()
+        });
         let cwd = agent.cwd.to_string_lossy().into_owned();
         let mut prints = Vec::new();
         let written = carry::gather(kind, &cwd, &resume, config.as_deref()).and_then(|files| {
@@ -449,15 +453,15 @@ impl Sent {
 
 /// Whether the agent `id` is in a turn, in its chat or its terminal.
 fn at_work(core: &Core, id: &str) -> bool {
-    core.chats.at_work(id) || core.agent_now(id).mid_turn()
+    core.chats().at_work(id) || core.agent_now(id).mid_turn()
 }
 
 /// Closes the chat `chat` here and removes its saved files, now that another host holds it.
 async fn close_here(core: &Arc<Core>, chat: &Sent) -> Result<(), String> {
-    if core.workspaces.agent(&chat.id).is_none() {
+    if core.workspaces().agent(&chat.id).is_none() {
         return Ok(());
     }
-    if !core.chats.stop_if_idle(&chat.id) {
+    if !core.chats().stop_if_idle(&chat.id) {
         return Err("it began a turn".into());
     }
     workspace::close_agent(core, chat.id.clone()).map_err(|error| error.to_string())?;
@@ -513,11 +517,11 @@ pub(super) async fn untake_here(core: &Arc<Core>, untake: Untake) -> Answer {
             continue;
         };
         if taken.new {
-            let Some(agent) = core.workspaces.agent(&id) else {
+            let Some(agent) = core.workspaces().agent(&id) else {
                 remove_files(&taken.made);
                 continue;
             };
-            if !core.chats.stop_if_idle(&id) || workspace::close_agent(core, id).is_err() {
+            if !core.chats().stop_if_idle(&id) || workspace::close_agent(core, id).is_err() {
                 kept.push(agent.title);
                 continue;
             }
@@ -535,7 +539,7 @@ pub(super) async fn untake_here(core: &Arc<Core>, untake: Untake) -> Answer {
 pub(super) async fn take_here(core: &Arc<Core>, params: Take, body: Option<Received>) -> Answer {
     let take = params;
     let project = core
-        .workspaces
+        .workspaces()
         .project_info(&take.project)
         .ok_or("that project is not on this host")?;
     let to = match take.work {
@@ -599,7 +603,7 @@ pub(super) async fn take_here(core: &Arc<Core>, params: Take, body: Option<Recei
         {
             draft.insert("buddy".into(), buddy);
         }
-        match core.workspaces.put_agent_draft(draft) {
+        match core.workspaces().put_agent_draft(draft) {
             Ok(agent) => {
                 taken().insert(agent.id.clone(), Taken { made, new: true });
                 agents.insert(chat.id, agent.id);

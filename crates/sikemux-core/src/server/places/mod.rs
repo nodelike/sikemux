@@ -11,6 +11,7 @@ pub(crate) mod push;
 pub(crate) mod store;
 pub(crate) mod work;
 
+use crate::server::parts::Parts;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -49,7 +50,7 @@ pub(crate) fn change<R>(
     project: &str,
     change: impl FnOnce(&mut store::Kept) -> Result<R, String>,
 ) -> Result<R, String> {
-    let (answer, kept, changed) = core.places.change(project, change)?;
+    let (answer, kept, changed) = core.places().change(project, change)?;
     board::mirror_places(core, project, kept.places, kept.confirmed);
     if changed {
         core.changed(What::Read(Topic::Playbook));
@@ -60,7 +61,7 @@ pub(crate) fn change<R>(
 /// `project`'s places with those its files name that it doesn't keep yet, and whether the
 /// person confirmed the list. Nothing is written.
 pub(crate) fn current(core: &Core, project: &str) -> (Vec<Place>, bool) {
-    let kept = core.places.of(project);
+    let kept = core.places().of(project);
     let mut places = kept.places;
     for found in found::in_files(Path::new(project)) {
         keep(&mut places, found);
@@ -102,7 +103,7 @@ pub(crate) fn keep(places: &mut Vec<Place>, place: Place) {
 pub(crate) fn judge(core: &Core, project: &str, ship: &Ship, agent: &str) -> Judged {
     let (places, confirmed) = current(core, project);
     let judged = judge::judged(&places, confirmed, ship, agent);
-    let kept = core.places.of(project).places;
+    let kept = core.places().of(project).places;
     let found = places.len() != kept.len();
     if found || judged.keep {
         let action = judged.place.clone().filter(|_| judged.keep);
@@ -121,17 +122,17 @@ pub(crate) fn judge(core: &Core, project: &str, ship: &Ship, agent: &str) -> Jud
 /// new entry is written out at once.
 pub(crate) fn saw(core: &Core, project: &str, ship: &Ship, agent_id: &str) {
     let (id, what) = judge::seen_key(ship);
-    let name = core.names.get(agent_id).map(|named| named.name);
+    let name = core.names().get(agent_id).map(|named| named.name);
     let at = epoch_ms();
     let listed = core
-        .places
+        .places()
         .of(project)
         .unplaced
         .iter()
         .any(|kept| kept.seen.id == id);
-    let full = core.places.of(project).unplaced.len() >= MAX_SEEN;
+    let full = core.places().of(project).unplaced.len() >= MAX_SEEN;
     if listed || full {
-        core.places.touch(project, |kept| {
+        core.places().touch(project, |kept| {
             match kept.unplaced.iter_mut().find(|kept| kept.seen.id == id) {
                 Some(kept) => {
                     kept.seen.times += 1;
@@ -302,7 +303,7 @@ pub(crate) fn may_pass(
 
 /// The sites agents in `project` write to without asking: those of places that don't wait.
 pub(crate) fn allowed_sites(core: &Core, project: &str) -> Vec<String> {
-    let kept = core.places.of(project);
+    let kept = core.places().of(project);
     let (places, confirmed) = (kept.places, kept.confirmed.is_some());
     (places.iter())
         .filter(|place| !place.asks(confirmed))
@@ -317,7 +318,7 @@ pub(crate) fn allowed_sites(core: &Core, project: &str) -> Vec<String> {
 /// `project`'s places as clients show them.
 pub(crate) fn of(core: &Core, project: &str) -> Places {
     let (places, _) = current(core, project);
-    let kept = core.places.of(project);
+    let kept = core.places().of(project);
     Places {
         places: places.into_iter().map(|place| place.shown).collect(),
         seen: kept.unplaced.into_iter().map(|kept| kept.seen).collect(),

@@ -3,6 +3,7 @@
 //! keeps each as the apps wrote it: what it means is theirs. Keys name what a diagram is of:
 //! `file:<host>:<path>`, `chat:<agent>:<text>`.
 
+use crate::server::parts::Parts;
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Mutex;
@@ -101,12 +102,12 @@ pub struct DiagramLayout {
 
 pub(crate) fn layout(core: &Core, params: DiagramParams) -> DiagramLayout {
     DiagramLayout {
-        layout: core.diagrams.get(&params.key),
+        layout: core.diagrams().get(&params.key),
     }
 }
 
 pub(crate) fn set_layout(core: &Core, params: DiagramParams) -> CoreResult<Value> {
-    core.diagrams.set(&params.key, params.layout)?;
+    core.diagrams().set(&params.key, params.layout)?;
     Ok(json!({}))
 }
 

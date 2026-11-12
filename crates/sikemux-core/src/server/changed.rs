@@ -2,6 +2,7 @@
 //! read it through a `Call`, the device view, the agents' wakes and the notifier. A burst of
 //! changes to one topic and project goes out as one notice.
 
+use crate::server::parts::Parts;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -50,21 +51,21 @@ impl Core {
         match what {
             What::View => self.view_moved(),
             What::ViewNow => {
-                self.device_view.due.notify_one();
+                self.device_view().due.notify_one();
                 self.view_moved();
             }
             What::Agents => {
-                self.harness.mailbox.wake.now();
-                self.harness.questions.wake.now();
-                self.boards.wake.now();
-                self.updates.chats_changed();
+                self.harness().mailbox.wake.now();
+                self.harness().questions.wake.now();
+                self.boards().wake.now();
+                self.updates().chats_changed();
                 self.view_moved();
             }
             What::Read(topic) => self.read_changed(topic, None, None),
             What::ReadIn(topic, project, paths) => self.read_changed(topic, project, paths),
             What::Event(event) => {
                 if let Some(signal) = signal_of(event) {
-                    self.notify.send(signal);
+                    self.notify().send(signal);
                 }
                 self.tell(event);
             }
@@ -74,10 +75,10 @@ impl Core {
 
     /// The view is built afresh, and with it what the inbox is made from may have moved.
     fn view_moved(&self) {
-        self.device_view.stale.notify_one();
-        self.hosts.copies.wake.now();
+        self.device_view().stale.notify_one();
+        self.hosts().copies.wake.now();
         super::hosts::route::rows_moved(self);
-        self.notify.inbox_moved();
+        self.notify().inbox_moved();
     }
 
     fn read_changed(&self, topic: Topic, project: Option<&str>, paths: Option<Vec<String>>) {

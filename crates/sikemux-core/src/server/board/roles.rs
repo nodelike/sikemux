@@ -2,6 +2,7 @@
 //! commits must land between its runs. A run is an ordinary card, so Auto takes it through its
 //! usual contract, review and queue, and it waits for a slot like any other.
 
+use crate::server::parts::Parts;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -50,7 +51,7 @@ impl Runs {
 /// Auto has just turned on for.
 pub(super) fn due(core: &Arc<Core>) {
     let starts: Vec<String> = {
-        let mut state = core.boards.state.locked();
+        let mut state = core.boards().state.locked();
         let State { boards, roles, .. } = &mut *state;
         let on: HashSet<&String> = (boards.iter())
             .filter(|(_, board)| board.settings.auto)
@@ -82,14 +83,14 @@ pub(super) fn due(core: &Arc<Core>) {
 
 /// A commit landed on `project`'s branch, so a role may have reached its threshold.
 pub(crate) fn landed(core: &Core, project: &str) {
-    core.boards.state.locked().roles.want(project.to_owned());
-    core.boards.wake.now();
+    core.boards().state.locked().roles.want(project.to_owned());
+    core.boards().wake.now();
 }
 
 /// Card `id`'s run ended, having found nothing to do when `idle`. Nothing happens for any card
 /// but a standing role's.
 pub(super) fn ended(core: &Core, project: &str, id: u64, idle: bool) {
-    let mut state = core.boards.state.locked();
+    let mut state = core.boards().state.locked();
     let Some(board) = state.boards.get_mut(project) else {
         return;
     };
@@ -101,16 +102,16 @@ pub(super) fn ended(core: &Core, project: &str, id: u64, idle: bool) {
     };
     role.idle = idle;
     role.ended = true;
-    core.boards.save(&mut state, project);
+    core.boards().save(&mut state, project);
     state.roles.want(project.to_owned());
     drop(state);
-    core.boards.wake.now();
+    core.boards().wake.now();
 }
 
 /// Whether card `id` is a standing role's whose agent has changed nothing so far.
 pub(super) fn found_nothing(core: &Core, project: &str, id: u64) -> bool {
     let tree = {
-        let state = core.boards.state.locked();
+        let state = core.boards().state.locked();
         let card = state
             .boards
             .get(project)
@@ -126,8 +127,8 @@ async fn look(core: Arc<Core>, project: String) {
     if let Err(why) = refresh(&core, &project).await {
         eprintln!("sikemux core: the standing roles of {project} were not looked at: {why}");
     }
-    core.boards.state.locked().roles.looking.remove(&project);
-    core.boards.wake.now();
+    core.boards().state.locked().roles.looking.remove(&project);
+    core.boards().wake.now();
 }
 
 async fn refresh(core: &Arc<Core>, project: &str) -> Result<(), String> {
@@ -158,7 +159,7 @@ async fn refresh(core: &Arc<Core>, project: &str) -> Result<(), String> {
         return Ok(());
     }
     let sinces: BTreeMap<String, String> = {
-        let state = core.boards.state.locked();
+        let state = core.boards().state.locked();
         (state.boards.get(project).into_iter())
             .flat_map(|board| board.roles.iter())
             .map(|(name, role)| (name.clone(), role.since.clone()))
@@ -189,14 +190,14 @@ fn landed_between(repo: &Path, since: &str, tip: &str) -> Option<u32> {
 }
 
 fn forget_all(core: &Core, project: &str) {
-    let mut state = core.boards.state.locked();
+    let mut state = core.boards().state.locked();
     let forgot = state.boards.get_mut(project).is_some_and(|board| {
         let had = !board.roles.is_empty();
         board.roles.clear();
         had
     });
     if forgot {
-        core.boards.save(&mut state, project);
+        core.boards().save(&mut state, project);
     }
 }
 
@@ -207,7 +208,7 @@ fn apply(
     tip: &str,
     counts: &HashMap<String, Option<u32>>,
 ) {
-    let boards = &core.boards;
+    let boards = core.boards();
     let mut state = boards.state.locked();
     let Some(board) = state
         .boards

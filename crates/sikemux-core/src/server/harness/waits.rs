@@ -1,6 +1,7 @@
 //! The tools that wait: `events_wait`, and agents waiting on their plugins to change.
 
 use super::*;
+use crate::server::parts::Parts;
 
 pub(crate) struct WaitSlot<'a>(pub(super) &'a AtomicUsize);
 
@@ -20,7 +21,7 @@ pub(super) async fn events_wait(core: &Core, request: &HarnessRequest) -> Result
         Some(Value::String(cursor)) if cursor.trim().is_empty() => None,
         _ => text(params, "cursor")?,
     };
-    let harness = &core.harness;
+    let harness = core.harness();
     let after = match cursor {
         Some(cursor) => cursor
             .bytes()
@@ -90,7 +91,7 @@ async fn run_until(core: &Core, request: &HarnessRequest) -> Result<Value, Strin
     let timeout = integer(params, "timeoutMs", MAX_WAIT_MS, MAX_WAIT_MS, 0)?;
     let deadline = Instant::now() + Duration::from_millis(timeout);
     let project = request.project.as_str();
-    let harness = &core.harness;
+    let harness = core.harness();
     let run = harness.read(|state| state.run(project, execution_id))?;
     let pattern = match until {
         "exit" => None,
@@ -198,12 +199,12 @@ mod tests {
         let core = Core::new(Default::default(), None).unwrap();
         let project = tempfile::tempdir().unwrap();
         let project = project.path().to_string_lossy().into_owned();
-        core.harness.change(|state| {
+        core.harness().change(|state| {
             state
                 .journals
                 .append(&project, "process.running", Some("a"), None);
         });
-        let now = core.harness.journal_cursor(&project).to_string();
+        let now = core.harness().journal_cursor(&project).to_string();
         let asking = |params: Value| HarnessRequest {
             id: "wait".to_owned(),
             project: project.clone(),

@@ -4,6 +4,7 @@
 //! provider saves its key in the host's Keychain, hands it to OpenCode, Pi and
 //! OMP as they start, and lets Claude Code and Codex chats run on it.
 
+use crate::server::parts::Parts;
 use std::collections::BTreeMap;
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
@@ -169,7 +170,7 @@ fn entry(
             .collect(),
         runs_with: provider.runs_with().map(str::to_owned),
         speaks: provider.speaks().into_iter().map(str::to_owned).collect(),
-        checks: core.workspaces.model_checks.of(&provider.id),
+        checks: core.workspaces().model_checks.of(&provider.id),
         id: provider.id.clone(),
         label: provider.label.clone(),
         kind: provider.kind,
@@ -182,7 +183,7 @@ fn entry(
 }
 
 fn store(core: &Core) -> CoreResult<&Providers> {
-    core.workspaces
+    core.workspaces()
         .providers()
         .ok_or_else(|| CoreError::from("Sikemux keeps no provider keys here"))
 }
@@ -365,7 +366,7 @@ pub(crate) async fn check(core: &Arc<Core>, params: CheckParams) -> CoreResult<C
         None => None,
     };
     Ok(core
-        .workspaces
+        .workspaces()
         .model_checks
         .run(&provider, key.as_deref(), params.model.trim())
         .await?)

@@ -3,6 +3,7 @@
 //! the core what its desks hold.
 
 use crate::server::changed::What;
+use crate::server::parts::Parts;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::hash::{Hash, Hasher};
@@ -46,7 +47,7 @@ pub(super) fn set_desks(core: &Core, client: ClientId, params: DesksParams) {
     }
     desks.retain(|_, desk| *desk != AgentDesk::default());
     let held = Some((client, desks));
-    let mut kept = core.goals.desks.locked();
+    let mut kept = core.goals().desks.locked();
     if *kept != held {
         *kept = held;
         drop(kept);
@@ -66,13 +67,13 @@ pub(super) fn view_moved(core: &Core, inbox: &Inbox) {
     for item in inbox.items.iter().filter(|item| item.need.is_some()) {
         (&item.id, &item.what, item.at).hash(&mut hasher);
     }
-    if let Some((_, desks)) = &*core.goals.desks.locked() {
+    if let Some((_, desks)) = &*core.goals().desks.locked() {
         for terminal in desks.values().flat_map(|desk| &desk.terminals) {
             (terminal.session, session_runs(core, terminal.session)).hash(&mut hasher);
         }
     }
     let moved = hasher.finish();
-    let mut seen = core.goals.seen.locked();
+    let mut seen = core.goals().seen.locked();
     if *seen != moved {
         *seen = moved;
         drop(seen);
@@ -181,9 +182,9 @@ pub(super) fn view(core: &Core) -> GoalsView {
         .filter(|agent| !working.contains(agent) && !asking.contains(agent))
         .map(str::to_owned)
         .collect();
-    let names = core.workspaces.view();
+    let names = core.workspaces().view();
     let names: HashMap<&str, Option<String>> = (names.agents.iter())
-        .map(|agent| (agent.id.as_str(), core.names.name(&agent.id)))
+        .map(|agent| (agent.id.as_str(), core.names().name(&agent.id)))
         .collect();
     let agents = (inbox.agents.iter())
         .map(|agent| {
@@ -340,7 +341,7 @@ impl Placed<'_> {
 
 /// The desks that count now, by agent, each terminal saying whether it still runs.
 fn held_desks(core: &Core) -> BTreeMap<String, AgentDesk> {
-    let mut desks = match &*core.goals.desks.locked() {
+    let mut desks = match &*core.goals().desks.locked() {
         Some((client, desks)) if core.clients.locked().contains_key(client) => desks.clone(),
         _ => BTreeMap::new(),
     };
@@ -357,7 +358,7 @@ fn session_runs(core: &Core, id: SessionId) -> bool {
 /// The agents each agent started, by the agent that did.
 fn helpers_of(core: &Core) -> HashMap<String, Vec<String>> {
     let mut helpers: HashMap<String, Vec<String>> = HashMap::new();
-    for agent in core.workspaces.view().agents {
+    for agent in core.workspaces().view().agents {
         if let Some(lead) = agent.lead {
             helpers.entry(lead).or_default().push(agent.id);
         }

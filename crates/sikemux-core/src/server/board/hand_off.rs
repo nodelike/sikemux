@@ -4,6 +4,7 @@
 //! check to pass on its work, run by the core.
 
 use crate::server::changed::What;
+use crate::server::parts::Parts;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -146,7 +147,7 @@ pub(super) async fn hand_on(
     from: String,
 ) -> Result<(), String> {
     let text = {
-        let state = core.boards.state.locked();
+        let state = core.boards().state.locked();
         let card = (state.boards.get(project))
             .ok_or_else(|| format!("There is no card #{id} on this project's board"))?
             .card(id)?;
@@ -210,7 +211,7 @@ async fn start_worker(
             let folder = Path::new(&project);
             let (checkout, cwd) = agent::cut_for(folder, folder, &worktree::branch_for(&text))?;
             let mut unclaimed = Unclaimed(Some(checkout.clone()));
-            let (mut launch, launcher) = core.workspaces.board_launch(
+            let (mut launch, launcher) = core.workspaces().board_launch(
                 worker.launcher.as_deref(),
                 &cwd,
                 worker.provider.as_deref(),
@@ -221,7 +222,7 @@ async fn start_worker(
                 launch.permission_mode = mode;
             }
             launch.effort = worker.effort;
-            core.names.give(
+            core.names().give(
                 Starting {
                     agent_id: &agent,
                     project: project.clone(),
@@ -232,9 +233,9 @@ async fn start_worker(
             );
             launch.agent_id = agent.clone();
             let chat = chat::begin(&core, launch, None, Some(launcher), false, false)
-                .inspect_err(|_| core.names.forget(&agent))?;
+                .inspect_err(|_| core.names().forget(&agent))?;
             let placed = core
-                .workspaces
+                .workspaces()
                 .edit_agent(&agent, |worker| worker.worktree = Some(checkout.clone()))
                 .map_err(|error| error.to_string())
                 .and_then(|_| place(&core, &project, &agent));
@@ -306,7 +307,7 @@ async fn hand_task(
             "\n\nWhen it is done, commit it with git_commit and land it on {base} with land true. This project names no check, so nothing Sikemux runs can show the work Built yet: ask me how it is to be checked before you mark the card done."
         ),
     });
-    if let Some(chat) = core.chats.get(agent) {
+    if let Some(chat) = core.chats().get(agent) {
         chat.take_brief();
     }
     if let Some(brief) = crate::server::memory::brief(core, agent, Some(&text)) {

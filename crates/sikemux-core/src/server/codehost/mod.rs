@@ -4,6 +4,7 @@
 //! tells clients when it changed, so no client keeps time of its own.
 
 use crate::server::changed::What;
+use crate::server::parts::Parts;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -122,7 +123,7 @@ impl Shows for Listed {
     const LONGEST_BACKOFF: Duration = FRESH;
 
     fn cache(core: &Core) -> &ShownCache<Self> {
-        &core.code_host_lists.lists
+        &core.code_host_lists().lists
     }
 
     fn served_within(_pace: Duration) -> Duration {
@@ -150,7 +151,7 @@ impl Shows for Listed {
 
     fn tidy(core: &Core, shown: &HashSet<(String, u8)>) {
         let projects: HashSet<&String> = shown.iter().map(|(project, _)| project).collect();
-        core.code_host_lists
+        core.code_host_lists()
             .state
             .locked()
             .found
@@ -197,7 +198,7 @@ pub(crate) async fn tracked(
 }
 
 async fn answered(core: &Arc<Core>, client: ClientId, project: String, list: List) -> Answer {
-    let project = project_of(Path::new(&project), &core.workspaces.project_paths());
+    let project = project_of(Path::new(&project), &core.workspaces().project_paths());
     let repo = match repo_of(core, &project).await {
         Ok(repo) => repo,
         Err(failure) => return Answer::Failed(failure),
@@ -205,7 +206,7 @@ async fn answered(core: &Arc<Core>, client: ClientId, project: String, list: Lis
     let kind = list.kind();
     let key = Key::of(&repo, list);
     if let Some(answer) = core
-        .code_host_lists
+        .code_host_lists()
         .lists
         .show(client, (project, kind), &key)
     {
@@ -224,7 +225,7 @@ async fn answered(core: &Arc<Core>, client: ClientId, project: String, list: Lis
 /// The repository the project at `project` shows, worked out again once a minute.
 async fn repo_of(core: &Arc<Core>, project: &str) -> Result<Repo, PluginFailure> {
     let found = core
-        .code_host_lists
+        .code_host_lists()
         .state
         .locked()
         .found
@@ -239,7 +240,7 @@ async fn repo_of(core: &Arc<Core>, project: &str) -> Result<Repo, PluginFailure>
         repo: repo.clone(),
         read: Instant::now(),
     };
-    core.code_host_lists
+    core.code_host_lists()
         .state
         .locked()
         .found
@@ -255,7 +256,7 @@ pub(crate) fn known_states(core: &Core, urls: &[&str]) -> HashMap<String, String
     if urls.is_empty() {
         return known;
     }
-    core.code_host_lists.lists.each(|_, answer| {
+    core.code_host_lists().lists.each(|_, answer| {
         let pulls = answer["pulls"].as_array().into_iter().flatten();
         for listed in pulls {
             if let (Some(url), Some(state)) =
@@ -292,7 +293,7 @@ pub(crate) fn known_states(core: &Core, urls: &[&str]) -> HashMap<String, String
 /// `project`, so it is worked out again.
 pub(crate) fn picked(core: &Core, project: &str) {
     let forgot = core
-        .code_host_lists
+        .code_host_lists()
         .state
         .locked()
         .found
@@ -314,7 +315,7 @@ pub(crate) fn wrote(core: &Arc<Core>, plugin: &str, params: &Value) {
         owner: owner.to_owned(),
         name: name.to_owned(),
     };
-    let keys = core.code_host_lists.lists.keys(|key| key.repo == repo);
+    let keys = core.code_host_lists().lists.keys(|key| key.repo == repo);
     shown_cache::read_again_settled::<Listed>(core, keys);
 }
 
@@ -322,7 +323,7 @@ pub(crate) fn wrote(core: &Arc<Core>, plugin: &str, params: &Value) {
 /// their pull requests and runs are read again now.
 pub(crate) fn refs_moved(core: &Arc<Core>, projects: &[String]) {
     let repos: HashSet<RepoId> = {
-        let state = core.code_host_lists.state.locked();
+        let state = core.code_host_lists().state.locked();
         projects
             .iter()
             .filter_map(|project| state.found.get(project))
@@ -330,7 +331,7 @@ pub(crate) fn refs_moved(core: &Arc<Core>, projects: &[String]) {
             .collect()
     };
     let keys = core
-        .code_host_lists
+        .code_host_lists()
         .lists
         .keys(|key| repos.contains(&key.repo));
     shown_cache::read_again::<Listed>(core, keys);
@@ -392,7 +393,10 @@ pub struct TrackedContextParams {
 /// The `codeHostTrackedContext` call: an issue or pull request as context an
 /// agent can work from, `{uri, title, text}`.
 pub(crate) async fn tracked_context(core: &Arc<Core>, params: TrackedContextParams) -> Answer {
-    let project = project_of(Path::new(&params.project), &core.workspaces.project_paths());
+    let project = project_of(
+        Path::new(&params.project),
+        &core.workspaces().project_paths(),
+    );
     let repo = match repo_of(core, &project).await {
         Ok(repo) => repo,
         Err(failure) => return Answer::Failed(failure),

@@ -1,6 +1,7 @@
 //! What `workspace_inspect` answers: the project as the core knows it, with the panes the window shows.
 
 use super::*;
+use crate::server::parts::Parts;
 
 const LISTED_FINISHED_RUNS: usize = 8;
 const FINISHED_COMMAND_CHARS: usize = 160;
@@ -34,7 +35,7 @@ pub(super) async fn inspect(core: &Arc<Core>, request: HarnessRequest) -> Result
         if !window_open {
             object.insert("note".into(), NO_WINDOW_NOTE.into());
         }
-        core.harness.read(|state| {
+        core.harness().read(|state| {
             let (runs, older) = listed_runs(&state.runs.list(&project));
             object.insert("runs".into(), runs.into());
             if older > 0 {
@@ -131,7 +132,7 @@ pub(super) fn views(core: &Core, pane: &Pane, found: &mut Vec<Value>) {
 pub(super) fn cwd_of(core: &Core, kind: PaneKind, target: &str) -> Option<PathBuf> {
     match kind {
         PaneKind::Terminal => core.session(target.parse().ok()?)?.cwd(),
-        PaneKind::Agent => match core.chats.get(target) {
+        PaneKind::Agent => match core.chats().get(target) {
             Some(chat) => Some(chat.launch.cwd.clone()),
             None => core.agent_session(target)?.cwd(),
         },

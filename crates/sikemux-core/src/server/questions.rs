@@ -7,6 +7,7 @@
 //! first answer reaches the asker as a message.
 
 use crate::server::changed::What;
+use crate::server::parts::Parts;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -985,7 +986,7 @@ pub(crate) fn lead_answered(
     answer: &str,
     why: Option<String>,
 ) {
-    let Some(question) = core.harness.questions.take_answered(lead, agent_id, id) else {
+    let Some(question) = core.harness().questions.take_answered(lead, agent_id, id) else {
         return;
     };
     super::board::goal::keep_settled(
@@ -1033,7 +1034,7 @@ fn stood(core: &Core, question: Question) {
 /// The agent's turn ended, so a question it was handed and did not answer
 /// starts its time to be passed over.
 pub(crate) fn turn_ended(core: &Core, agent_id: &str) {
-    let questions = &core.harness.questions;
+    let questions = &core.harness().questions;
     let waiting: Vec<String> = questions
         .state
         .locked()
@@ -1272,7 +1273,7 @@ fn mark_pick(params: &Value, choices: &mut [QuestionChoice]) -> Result<(), Strin
 
 /// Whether the person closed the agent, so its questions go with it.
 fn gone(core: &Core, agent_id: &str) -> bool {
-    !core.agent_now(agent_id).running() && core.workspaces.closed(agent_id)
+    !core.agent_now(agent_id).running() && core.workspaces().closed(agent_id)
 }
 
 /// Whether a message reaches the agent now: it runs, or it sleeps in an open
@@ -1280,8 +1281,8 @@ fn gone(core: &Core, agent_id: &str) -> bool {
 fn reachable(core: &Core, agent_id: &str) -> bool {
     core.agent_now(agent_id).running()
         || (core.window.is_open()
-            && !core.workspaces.closed(agent_id)
-            && core.workspaces.published(agent_id) != Some(false))
+            && !core.workspaces().closed(agent_id)
+            && core.workspaces().published(agent_id) != Some(false))
 }
 
 pub(crate) fn cli_of(core: &Core, agent_id: &str) -> String {
@@ -1292,14 +1293,14 @@ pub(crate) fn cli_of(core: &Core, agent_id: &str) -> String {
 
 /// The agent that started `agent_id`, while a message reaches it.
 fn reachable_lead(core: &Core, agent_id: &str) -> Option<String> {
-    let led_by_auto = (core.hosts.team.tree(agent_id)).is_some_and(|tree| tree.auto);
-    (core.names.get(agent_id)?.parent).filter(|lead| !led_by_auto && reachable(core, lead))
+    let led_by_auto = (core.hosts().team.tree(agent_id)).is_some_and(|tree| tree.auto);
+    (core.names().get(agent_id)?.parent).filter(|lead| !led_by_auto && reachable(core, lead))
 }
 
 /// Whether the agent answers to nobody but has agents of its own, so what it asks the person is
 /// a decision it raises rather than a question from a lone agent.
 fn raises(core: &Core, agent_id: &str) -> bool {
-    reachable_lead(core, agent_id).is_none() && core.names.team(agent_id).len() > 1
+    reachable_lead(core, agent_id).is_none() && core.names().team(agent_id).len() > 1
 }
 
 /// Opens the questions `agent_id` asked together, put to its lead when it
@@ -1311,10 +1312,10 @@ fn open(
     project: &str,
     asked: Vec<Asked>,
 ) -> Result<Vec<Question>, String> {
-    let named = core.names.get(agent_id);
+    let named = core.names().get(agent_id);
     let stage = match reachable_lead(core, agent_id) {
         Some(lead_id) => Stage::Lead {
-            lead_name: core.names.name_or_id(&lead_id),
+            lead_name: core.names().name_or_id(&lead_id),
             lead_id,
             ended_at: None,
             handed_back: false,
@@ -1331,7 +1332,7 @@ fn open(
         .unwrap_or_else(|| agent_id.to_owned());
     let project = named
         .map(|named| named.project)
-        .unwrap_or_else(|| core.workspaces.project_of(std::path::Path::new(project)));
+        .unwrap_or_else(|| core.workspaces().project_of(std::path::Path::new(project)));
     let cli = cli_of(core, agent_id);
     let at = epoch_ms();
     let questions: Vec<Question> = asked
@@ -1373,7 +1374,7 @@ fn open(
             raise: asked.raise,
         })
         .collect();
-    let mut state = core.harness.questions.state.locked();
+    let mut state = core.harness().questions.state.locked();
     let open = state
         .open
         .iter()
@@ -1385,7 +1386,7 @@ fn open(
         ));
     }
     state.open.extend(questions.iter().cloned());
-    core.harness.questions.changed(&mut state);
+    core.harness().questions.changed(&mut state);
     Ok(questions)
 }
 
@@ -1490,13 +1491,13 @@ async fn lead_reads(core: &Arc<Core>, question: &Question, text: String, note: S
     {
         return;
     }
-    let mut state = core.harness.questions.state.locked();
+    let mut state = core.harness().questions.state.locked();
     if let Some(open) = state.open.iter_mut().find(|open| open.id == question.id) {
         open.stage = Stage::Person {
             lead: None,
             passed: false,
         };
-        core.harness.questions.changed(&mut state);
+        core.harness().questions.changed(&mut state);
     }
 }
 
@@ -1519,8 +1520,8 @@ pub(crate) async fn ask(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
         .map(|header| clipped(&header, MAX_HEADER_CHARS));
     if let Some(worker) = text_param(params, "for", 200)? {
         let mut raise = Some(raise_of(params, &text, &mut choices)?);
-        (core.harness.questions).keep_pictures(&request.project, &mut choices)?;
-        (core.harness.questions).keep_evidence(&request.project, &mut raise)?;
+        (core.harness().questions).keep_pictures(&request.project, &mut choices)?;
+        (core.harness().questions).keep_evidence(&request.project, &mut raise)?;
         let raise = raise.ok_or("the decision could not be raised")?;
         if let Some(foreign) = foreign_worker(core, &agent_id, &worker)? {
             let choices = serde_json::to_value(&choices).map_err(|error| error.to_string())?;
@@ -1572,8 +1573,8 @@ pub(crate) async fn ask(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
         .then(|| raise_of(params, &text, &mut choices))
         .transpose()?;
     mark_pick(params, &mut choices)?;
-    (core.harness.questions).keep_pictures(&request.project, &mut choices)?;
-    (core.harness.questions).keep_evidence(&request.project, &mut raise)?;
+    (core.harness().questions).keep_pictures(&request.project, &mut choices)?;
+    (core.harness().questions).keep_evidence(&request.project, &mut raise)?;
     let question = open(
         core,
         &agent_id,
@@ -1595,7 +1596,7 @@ pub(crate) async fn ask(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
     .remove(0);
     hand_to_lead(core, &question).await;
     let question = core
-        .harness
+        .harness()
         .questions
         .state
         .locked()
@@ -1701,7 +1702,7 @@ pub(crate) fn ask_for_dialog(
     choices: Vec<QuestionChoice>,
 ) -> Result<(), String> {
     let project = core
-        .chats
+        .chats()
         .get(agent_id)
         .map(|chat| chat.launch.cwd.to_string_lossy().into_owned())
         .unwrap_or_default();
@@ -1729,7 +1730,7 @@ pub(crate) fn ask_for_dialog(
 /// Closes the question on `agent_id`'s dialog `only`, or on all its dialogs,
 /// when they no longer wait.
 pub(crate) fn withdraw_dialogs(core: &Core, agent_id: &str, only: Option<&str>) {
-    let questions = &core.harness.questions;
+    let questions = &core.harness().questions;
     let mut state = questions.state.locked();
     let before = state.open.len();
     state.open.retain(|question| {
@@ -1751,7 +1752,7 @@ fn foreign_worker(
     worker: &str,
 ) -> Result<Option<super::hosts::team::Foreign>, String> {
     let (wanted, on) = super::messages::on_host(worker.trim().trim_start_matches('@'));
-    let mut found: Vec<super::hosts::team::Foreign> = (core.hosts.team.all().into_iter())
+    let mut found: Vec<super::hosts::team::Foreign> = (core.hosts().team.all().into_iter())
         .filter(|foreign| foreign.parent.as_deref() == Some(lead))
         .filter(|foreign| {
             foreign.agent_id == wanted
@@ -1804,10 +1805,10 @@ fn pass_on(
 ) -> Result<Value, String> {
     let wanted = worker.trim().trim_start_matches('@');
     let lead_name = core
-        .names
+        .names()
         .name(lead_id)
         .unwrap_or_else(|| lead_id.to_owned());
-    let mut state = core.harness.questions.state.locked();
+    let mut state = core.harness().questions.state.locked();
     let from = |question: &Question| {
         question.agent_id == wanted || question.name.eq_ignore_ascii_case(wanted)
     };
@@ -1856,7 +1857,7 @@ fn pass_on(
         passed: true,
     };
     let (id, name) = (question.id.clone(), question.name.clone());
-    core.harness.questions.changed(&mut state);
+    core.harness().questions.changed(&mut state);
     Ok(json!({
         "questionId": id,
         "askedOf": "the person",
@@ -1915,7 +1916,7 @@ pub(crate) fn ask_from_cli(core: &Arc<Core>, agent_id: &str, input: &Value) -> S
         );
     }
     let project = core
-        .chats
+        .chats()
         .get(agent_id)
         .map(|chat| chat.launch.cwd.to_string_lossy().into_owned())
         .unwrap_or_default();
@@ -1946,13 +1947,13 @@ pub(crate) fn ask_from_cli(core: &Arc<Core>, agent_id: &str, input: &Value) -> S
 /// at work again already, is not done. The questions' lock is held across the last look, so a
 /// turn that starts meanwhile takes the question back.
 pub(crate) fn asked_in_reply(core: &Arc<Core>, agent_id: &str) {
-    let Some(chat) = core.chats.get(agent_id) else {
+    let Some(chat) = core.chats().get(agent_id) else {
         return;
     };
-    let named = core.names.get(agent_id);
+    let named = core.names().get(agent_id);
     if named.as_ref().is_some_and(|named| named.parent.is_some())
         || super::board::run_by_auto(core, agent_id)
-        || core.harness.mailbox.has_waiting(agent_id)
+        || core.harness().mailbox.has_waiting(agent_id)
         || chat.feed.has_queued()
     {
         return;
@@ -1964,14 +1965,14 @@ pub(crate) fn asked_in_reply(core: &Arc<Core>, agent_id: &str) {
         asked_in(&reply).into_iter().partition(|ask| ask.polar);
     let name = (named.as_ref()).map_or_else(|| agent_id.to_owned(), |named| named.name.clone());
     let project = (named.map(|named| named.project))
-        .unwrap_or_else(|| core.workspaces.project_of(&chat.launch.cwd));
+        .unwrap_or_else(|| core.workspaces().project_of(&chat.launch.cwd));
     follow_rule(
         core,
         agent_id,
         &project,
         offers.into_iter().map(|offer| offer.text),
     );
-    let was_sent_back = (core.harness.questions.state.locked().sent_back).remove(agent_id);
+    let was_sent_back = (core.harness().questions.state.locked().sent_back).remove(agent_id);
     if asks.is_empty() {
         return;
     }
@@ -1995,7 +1996,7 @@ pub(crate) fn asked_in_reply(core: &Arc<Core>, agent_id: &str) {
         given_paths: Vec::new(),
         at,
     });
-    let questions = &core.harness.questions;
+    let questions = &core.harness().questions;
     let mut state = questions.state.locked();
     let asking = (state.open.iter())
         .chain(state.answered.iter().map(|answered| &answered.question))
@@ -2033,7 +2034,7 @@ fn send_back(
     choosing: bool,
     asked: &[&str],
 ) {
-    (core.harness.questions.state.locked().sent_back).insert(agent_id.to_owned());
+    (core.harness().questions.state.locked().sent_back).insert(agent_id.to_owned());
     let asked = asked.join("\n");
     let why = match started_by {
         Some(other) => {
@@ -2072,11 +2073,11 @@ fn follow_rule(
         Some((offer, rule))
     });
     let Some((offer, rule)) = covered else {
-        let followed = &mut core.harness.questions.state.locked().followed_rules;
+        let followed = &mut core.harness().questions.state.locked().followed_rules;
         followed.remove(agent_id);
         return;
     };
-    let mut state = core.harness.questions.state.locked();
+    let mut state = core.harness().questions.state.locked();
     if state.followed_rules.get(agent_id) == Some(&rule) {
         return;
     }
@@ -2099,7 +2100,7 @@ fn follow_rule(
 /// app, the notch and phones.
 pub(crate) fn views(core: &Core) -> Vec<AgentQuestion> {
     let (open, answered, reply_questions) = {
-        let state = core.harness.questions.state.locked();
+        let state = core.harness().questions.state.locked();
         (
             state.open.clone(),
             state.answered.clone(),
@@ -2220,7 +2221,7 @@ pub(crate) async fn answer_all(core: &Arc<Core>, mut params: AnswersParams) -> R
         .iter_mut()
         .for_each(AnswerParams::written_out);
     let (reply_questions, answers): (Vec<AnswerParams>, Vec<AnswerParams>) = {
-        let state = core.harness.questions.state.locked();
+        let state = core.harness().questions.state.locked();
         (params.answers.into_iter()).partition(|given| {
             state
                 .reply_questions
@@ -2234,7 +2235,7 @@ pub(crate) async fn answer_all(core: &Arc<Core>, mut params: AnswersParams) -> R
     }
     let params = AnswersParams { answers };
     let taken = {
-        let mut state = core.harness.questions.state.locked();
+        let mut state = core.harness().questions.state.locked();
         let mut taken = Vec::with_capacity(params.answers.len());
         for given in params.answers {
             let question = state
@@ -2263,18 +2264,18 @@ pub(crate) async fn answer_all(core: &Arc<Core>, mut params: AnswersParams) -> R
         }
         let over = state.answered.len().saturating_sub(MAX_ANSWERED);
         state.answered.drain(..over);
-        core.harness.questions.changed(&mut state);
+        core.harness().questions.changed(&mut state);
         taken
     };
     let reopen = |questions: Vec<Question>| {
-        let mut state = core.harness.questions.state.locked();
+        let mut state = core.harness().questions.state.locked();
         state.answered.retain(|answered| {
             !questions
                 .iter()
                 .any(|question| question.id == answered.question.id)
         });
         state.open.extend(questions);
-        core.harness.questions.changed(&mut state);
+        core.harness().questions.changed(&mut state);
     };
     // Each answer as the asker gets it, with what was done about it when that is not the answer itself.
     let mut letters: Vec<(Question, String, Option<String>, Vec<String>)> = Vec::new();
@@ -2291,7 +2292,7 @@ pub(crate) async fn answer_all(core: &Arc<Core>, mut params: AnswersParams) -> R
             continue;
         }
         if let Some(dialog) = &question.dialog {
-            if let Some(chat) = core.chats.get(&question.agent_id) {
+            if let Some(chat) = core.chats().get(&question.agent_id) {
                 let _ = chat.send(ChatCommand::AnswerDialog {
                     id: dialog.clone(),
                     answer: text,
@@ -2309,7 +2310,7 @@ pub(crate) async fn answer_all(core: &Arc<Core>, mut params: AnswersParams) -> R
                     .await
                     .map_err(|error| error.to_string())
                     .flatten()
-                    .and_then(|secret| core.harness.questions.keep_secret(&question, &secret))
+                    .and_then(|secret| core.harness().questions.keep_secret(&question, &secret))
                     .map(|path| (secret_note(&path), None))
             }
             (None, false) => Ok((text, None)),
@@ -2360,7 +2361,7 @@ pub(crate) async fn answer_all(core: &Arc<Core>, mut params: AnswersParams) -> R
             .collect();
         match messages::answer(core, asker.to_owned(), sent).await {
             Ok(delivered) if delivered["delivery"] == "waiting" => {}
-            Ok(_) => core.harness.questions.delivered(asker),
+            Ok(_) => core.harness().questions.delivered(asker),
             Err(error) => {
                 reopen(
                     own.into_iter()
@@ -2388,7 +2389,7 @@ async fn answer_replies(core: &Arc<Core>, given: Vec<AnswerParams>) -> Result<()
     if given.is_empty() {
         return Ok(());
     }
-    let questions = &core.harness.questions;
+    let questions = &core.harness().questions;
     let ready: Vec<(String, Vec<ReplyQuestion>)> = {
         let mut state = questions.state.locked();
         let mut answers: Vec<(String, String, Vec<String>)> = Vec::with_capacity(given.len());
@@ -2466,7 +2467,7 @@ async fn answer_replies(core: &Arc<Core>, given: Vec<AnswerParams>) -> Result<()
 /// question, when the person writes to it before answering every question: they go with what
 /// the person wrote, and the questions left unanswered no longer wait.
 pub(crate) fn held_answers(core: &Core, agent_id: &str) -> Vec<ChatContext> {
-    let questions = &core.harness.questions;
+    let questions = &core.harness().questions;
     let theirs: Vec<ReplyQuestion> = {
         let mut state = questions.state.locked();
         let (theirs, rest) = std::mem::take(&mut state.reply_questions)
@@ -2596,7 +2597,7 @@ fn attach_picked_pictures(core: &Arc<Core>, answers: &mut [AnswerParams]) {
         return;
     };
     let shown: Vec<(usize, String)> = {
-        let state = core.harness.questions.state.locked();
+        let state = core.harness().questions.state.locked();
         (answers.iter().enumerate())
             .filter_map(|(at, given)| {
                 let question = state.open.iter().find(|open| open.id == given.id)?;
@@ -2656,9 +2657,9 @@ fn first_of_each_reply(asked: &[ReplyQuestion]) -> impl Iterator<Item = &ReplyQu
 /// agents change, and again when a lead's time to answer runs out.
 pub(crate) fn settle(core: &Arc<Core>) {
     let (askers, leads): (HashSet<String>, HashSet<String>) = {
-        let state = core.harness.questions.state.locked();
+        let state = core.harness().questions.state.locked();
         if state.dirty {
-            core.boards.wake.now();
+            core.boards().wake.now();
         }
         if state.open.is_empty()
             && state.answered.is_empty()
@@ -2707,7 +2708,7 @@ pub(crate) fn settle(core: &Arc<Core>) {
         })
         .collect();
     let unread: HashSet<String> = {
-        let state = core.harness.questions.state.locked();
+        let state = core.harness().questions.state.locked();
         state
             .open
             .iter()
@@ -2725,7 +2726,7 @@ pub(crate) fn settle(core: &Arc<Core>) {
     let left: Vec<Question>;
     let standing: Vec<Question>;
     {
-        let mut state = core.harness.questions.state.locked();
+        let mut state = core.harness().questions.state.locked();
         let before = state.open.len();
         state
             .open
@@ -2739,7 +2740,7 @@ pub(crate) fn settle(core: &Arc<Core>) {
             .reply_questions
             .retain(|question| !gone.contains(&question.agent_id));
         if state.reply_questions.len() != reply_questions {
-            core.harness.questions.shown_changed(&mut state);
+            core.harness().questions.shown_changed(&mut state);
         }
         let mut changed = state.open.len() != before || state.answered.len() != answered;
         for question in &mut state.open {
@@ -2791,8 +2792,8 @@ pub(crate) fn settle(core: &Arc<Core>) {
         changed |= !stands.is_empty() || !left.is_empty();
         standing = stands;
         if changed {
-            core.harness.questions.changed(&mut state);
-            core.boards.wake.now();
+            core.harness().questions.changed(&mut state);
+            core.boards().wake.now();
         }
     }
     for question in standing {
@@ -2814,7 +2815,7 @@ pub(crate) fn settle(core: &Arc<Core>) {
     }
     relay(core);
     if let Some(next) = next {
-        core.harness.questions.wake.at(next);
+        core.harness().questions.wake.at(next);
     }
     tell_calls(core);
     tell_phones(core);
@@ -2847,7 +2848,7 @@ impl Asking {
 /// questions again.
 fn tell_phones(core: &Core) {
     let (asked, cleared, changed) = {
-        let mut state = core.harness.questions.state.locked();
+        let mut state = core.harness().questions.state.locked();
         let shown: HashMap<String, String> = state
             .open
             .iter()
@@ -2912,11 +2913,11 @@ fn tell_phones(core: &Core) {
         (asked, cleared, changed)
     };
     for agent_id in changed {
-        core.seen.active(&agent_id);
+        core.seen().active(&agent_id);
     }
     for (id, asking) in asked {
         core.note_activity(&asking.agent_id, Activity::NeedsYou);
-        core.notify.send(Signal::Question {
+        core.notify().send(Signal::Question {
             id,
             agent_id: asking.agent_id,
             name: asking.name,
@@ -2925,7 +2926,7 @@ fn tell_phones(core: &Core) {
         });
     }
     for (id, agent_id) in cleared {
-        core.notify.send(Signal::QuestionCleared { id, agent_id });
+        core.notify().send(Signal::QuestionCleared { id, agent_id });
     }
 }
 
@@ -2933,7 +2934,7 @@ fn tell_phones(core: &Core) {
 /// closes.
 fn tell_calls(core: &Core) {
     let wanted = {
-        let state = core.harness.questions.state.locked();
+        let state = core.harness().questions.state.locked();
         let asked = (state.open.iter())
             .filter(|question| question.listed_for_devices())
             .map(|question| (question.call(), question.allows()));
@@ -2961,7 +2962,7 @@ const LEFT_TO_ASKER: &str =
 /// the person again. With no lead to take it, the asker goes with its own pick.
 pub(crate) async fn hand_back(core: &Arc<Core>, id: &str) -> Result<(), String> {
     let lead = {
-        let state = core.harness.questions.state.locked();
+        let state = core.harness().questions.state.locked();
         let question = (state.open.iter()).find(|question| question.id == id);
         question.and_then(|question| match &question.stage {
             Stage::Person {
@@ -2982,7 +2983,7 @@ pub(crate) async fn hand_back(core: &Arc<Core>, id: &str) -> Result<(), String> 
         .await;
     };
     let question = {
-        let mut state = core.harness.questions.state.locked();
+        let mut state = core.harness().questions.state.locked();
         let question = (state.open.iter_mut())
             .find(|question| question.id == id)
             .ok_or("That question has been answered already")?;
@@ -2994,7 +2995,7 @@ pub(crate) async fn hand_back(core: &Arc<Core>, id: &str) -> Result<(), String> 
             left_by_person: true,
         };
         let question = question.clone();
-        core.harness.questions.changed(&mut state);
+        core.harness().questions.changed(&mut state);
         question
     };
     let (text, _) = for_lead(&question);
@@ -3013,10 +3014,10 @@ pub(crate) async fn hand_back(core: &Arc<Core>, id: &str) -> Result<(), String> 
     .await;
     if sent.is_err() {
         let taken = {
-            let mut state = core.harness.questions.state.locked();
+            let mut state = core.harness().questions.state.locked();
             let at = state.open.iter().position(|open| open.id == id);
             let taken = at.map(|at| state.open.remove(at));
-            core.harness.questions.changed(&mut state);
+            core.harness().questions.changed(&mut state);
             taken
         };
         if let Some(question) = taken {
@@ -3043,7 +3044,7 @@ async fn left_to_asker(core: &Arc<Core>, question: &Question) {
 fn tell_window(core: &Arc<Core>) {
     let window = core.window.client_id();
     let (open, answered, reply_questions) = {
-        let mut state = core.harness.questions.state.locked();
+        let mut state = core.harness().questions.state.locked();
         if !state.dirty && state.told_window == window {
             return;
         }

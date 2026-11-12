@@ -11,6 +11,7 @@
 mod culprit;
 mod report;
 
+use crate::server::parts::Parts;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -364,7 +365,7 @@ impl Checks {
 /// newest of its commits, and has devices told of a project broken long
 /// enough for the person to hear of it, or mended since.
 pub(crate) fn settle(core: &Arc<Core>) {
-    let mut guard = core.checks.state.locked();
+    let mut guard = core.checks().state.locked();
     let state = &mut *guard;
     let listed: HashSet<String> = state
         .failing()
@@ -440,7 +441,7 @@ fn choose_tier(
     full: String,
     fast: Option<String>,
 ) -> (Tier, String, Vec<Commit>) {
-    let mut state = core.checks.state.locked();
+    let mut state = core.checks().state.locked();
     let broken_in_full = state
         .failing
         .get(project)
@@ -486,23 +487,23 @@ async fn run_batch(
         .await
         .unwrap_or_default();
     if commits.is_empty() {
-        core.checks.state.locked().running.remove(&project);
-        core.checks.wake.now();
+        core.checks().state.locked().running.remove(&project);
+        core.checks().wake.now();
         return;
     }
     let fast = named.then(|| fast_check(&project)).flatten();
     let (tier, command, commits) = choose_tier(&core, &project, &dir, commits, full, fast);
     let Some(newest) = commits.last().map(|commit| commit.sha.clone()) else {
-        core.checks.state.locked().running.remove(&project);
-        core.checks.wake.now();
+        core.checks().state.locked().running.remove(&project);
+        core.checks().wake.now();
         return;
     };
     let (sound, seed) = {
-        let mut state = core.checks.state.locked();
+        let mut state = core.checks().state.locked();
         let shas: Vec<String> = commits.iter().map(|commit| commit.sha.clone()).collect();
         state.running.insert(project.clone(), shas.clone());
         state.wait_again(project.clone(), dir.clone(), later);
-        core.repo_events.tell(RepoEvent::CheckStarted {
+        core.repo_events().tell(RepoEvent::CheckStarted {
             project: project.clone(),
             covered: shas,
             run: CheckRun::Local,
@@ -547,7 +548,7 @@ async fn run_batch(
     };
     let ran = match outcome {
         Ok(BatchRun::Generated(generated)) => {
-            let mut state = core.checks.state.locked();
+            let mut state = core.checks().state.locked();
             state.running.remove(&project);
             let mut again = commits;
             again.push(Commit {
@@ -558,13 +559,13 @@ async fn run_batch(
             });
             state.wait_again(project, dir, again);
             drop(state);
-            core.checks.wake.now();
+            core.checks().wake.now();
             return;
         }
         Ok(BatchRun::Ran(ran)) => ran,
         Err(error) => {
             {
-                let mut state = core.checks.state.locked();
+                let mut state = core.checks().state.locked();
                 state.running.remove(&project);
                 if tier == Tier::Full {
                     let standing = state.standing.entry(project.clone()).or_default();
@@ -577,7 +578,7 @@ async fn run_batch(
         }
     };
     let was_broken = {
-        let mut state = core.checks.state.locked();
+        let mut state = core.checks().state.locked();
         state.standing.entry(project.clone()).or_default().ran(
             tier,
             &newest,
@@ -588,7 +589,7 @@ async fn run_batch(
         state.failing.contains_key(&project)
     };
     if ran.passed || !named {
-        core.checks.state.locked().running.remove(&project);
+        core.checks().state.locked().running.remove(&project);
         crate::server::board::record_check(
             &core,
             &project,
@@ -605,16 +606,16 @@ async fn run_batch(
         );
         if tier == Tier::Fast {
             let due =
-                (core.checks.state.locked().standing.get(&project)).map(Standing::full_due_at);
+                (core.checks().state.locked().standing.get(&project)).map(Standing::full_due_at);
             if let Some(at) = due {
-                core.checks.wake.at(at);
+                core.checks().wake.at(at);
             }
         }
         return;
     }
     let hunts = !was_broken;
     {
-        let mut state = core.checks.state.locked();
+        let mut state = core.checks().state.locked();
         state.running.insert(project.clone(), Vec::new());
         if hunts {
             state.hunting.insert(project.clone());
@@ -658,11 +659,11 @@ async fn run_batch(
     blame(&core, &project, &command, &commits, &digest, &hunted).await;
     crate::server::board::record_check(&core, &project, &check_ran(&commits, &ran, &hunted));
     {
-        let mut state = core.checks.state.locked();
+        let mut state = core.checks().state.locked();
         state.running.remove(&project);
         state.hunting.remove(&project);
     }
-    core.checks.wake.now();
+    core.checks().wake.now();
 }
 
 fn check_ran<'a>(
@@ -718,7 +719,7 @@ async fn needs_trust(
         return false;
     };
     let first = {
-        let mut state = core.checks.state.locked();
+        let mut state = core.checks().state.locked();
         let waiting = state.awaiting_trust.entry(project.to_owned()).or_default();
         waiting.extend_from_slice(commits);
         waiting.len() == commits.len()
@@ -727,13 +728,13 @@ async fn needs_trust(
         let (core, project, dir) = (core.clone(), project.to_owned(), dir.to_owned());
         tokio::spawn(async move {
             let trusted = super::tasks::ask_person(&core, &project, ask, None).await;
-            let mut state = core.checks.state.locked();
+            let mut state = core.checks().state.locked();
             let commits = state.awaiting_trust.remove(&project).unwrap_or_default();
             if trusted {
                 state.wait_again(project, dir, commits);
             }
             drop(state);
-            core.checks.wake.now();
+            core.checks().wake.now();
         });
     }
     true
@@ -830,7 +831,7 @@ async fn wait_for_ci(
     }
     .label();
     let wake = Arc::new(Notify::new());
-    core.checks.state.locked().ci.insert(
+    core.checks().state.locked().ci.insert(
         project.clone(),
         CiWait {
             repo: None,
@@ -843,7 +844,7 @@ async fn wait_for_ci(
     let mut started: HashSet<String> = HashSet::new();
     loop {
         {
-            let mut state = core.checks.state.locked();
+            let mut state = core.checks().state.locked();
             if let Some((_, more)) = state.waiting.remove(&project) {
                 for commit in more {
                     if commits.iter().all(|kept| kept.sha != commit.sha) {
@@ -890,7 +891,7 @@ async fn wait_for_ci(
         if looked.tip.is_some() && repo.is_none() {
             match codehost::of_project(&core, &project).await {
                 Ok(found) => {
-                    if let Some(wait) = core.checks.state.locked().ci.get_mut(&project) {
+                    if let Some(wait) = core.checks().state.locked().ci.get_mut(&project) {
                         wait.repo = Some(found.watched());
                     }
                     crate::server::codehost::ci::start(&core);
@@ -943,7 +944,7 @@ async fn wait_for_ci(
                     if started.insert(tip.clone()) {
                         let mut covered = held.clone();
                         covered.push(tip.clone());
-                        core.repo_events.tell(RepoEvent::CheckStarted {
+                        core.repo_events().tell(RepoEvent::CheckStarted {
                             project: project.clone(),
                             covered,
                             run: CheckRun::Ci { workflow, url },
@@ -970,7 +971,7 @@ async fn wait_for_ci(
         }
         for Ruled { held, tip, outcome } in ruled {
             if tip.is_none() {
-                let mut state = core.checks.state.locked();
+                let mut state = core.checks().state.locked();
                 for commit in commits.iter().filter(|commit| held.contains(&commit.sha)) {
                     for agent in &commit.agents {
                         tell(
@@ -1038,11 +1039,11 @@ async fn wait_for_ci(
             () = tokio::time::sleep(CI_LOOK) => {}
         }
     }
-    let mut state = core.checks.state.locked();
+    let mut state = core.checks().state.locked();
     state.ci.remove(&project);
     state.running.remove(&project);
     drop(state);
-    core.checks.wake.now();
+    core.checks().wake.now();
 }
 
 /// How long a commit CI failed on waits for a later passing run to stand for it.
@@ -1050,7 +1051,7 @@ const FAILED_KEPT_MS: u64 = 24 * 60 * 60_000;
 
 fn keep_failed(core: &Core, project: &str, commits: &[Commit]) {
     let now = epoch_ms();
-    let mut state = core.checks.state.locked();
+    let mut state = core.checks().state.locked();
     let kept = state.failed_on_ci.entry(project.to_owned()).or_default();
     kept.retain(|(_, at)| now.saturating_sub(*at) < FAILED_KEPT_MS);
     kept.extend(commits.iter().cloned().map(|commit| (commit, now)));
@@ -1058,7 +1059,7 @@ fn keep_failed(core: &Core, project: &str, commits: &[Commit]) {
 
 /// The commits CI failed on that `tip` holds, which its passing run stands for.
 async fn vouched_by(core: &Core, project: &str, dir: &Path, tip: &str) -> Vec<Commit> {
-    let kept = (core.checks.state.locked().failed_on_ci.remove(project)).unwrap_or_default();
+    let kept = (core.checks().state.locked().failed_on_ci.remove(project)).unwrap_or_default();
     if kept.is_empty() {
         return Vec::new();
     }
@@ -1073,7 +1074,7 @@ async fn vouched_by(core: &Core, project: &str, dir: &Path, tip: &str) -> Vec<Co
     .await
     .unwrap_or_default();
     if !others.is_empty() {
-        let mut state = core.checks.state.locked();
+        let mut state = core.checks().state.locked();
         state
             .failed_on_ci
             .entry(project.to_owned())
@@ -1145,7 +1146,7 @@ fn ended(
     named: bool,
     tier: Tier,
 ) {
-    let checks = &core.checks;
+    let checks = core.checks();
     let agents: BTreeSet<&String> = commits.iter().flat_map(|commit| &commit.agents).collect();
     let mut state = checks.state.locked();
     let checked = |verdict, output| RepoEvent::Checked {
@@ -1161,7 +1162,7 @@ fn ended(
         Err(error) => {
             eprintln!("sikemux core: the check after a commit did not run: {error}");
             drop(state);
-            core.repo_events.tell(checked(None, error));
+            core.repo_events().tell(checked(None, error));
             checks.wake.now();
             return;
         }
@@ -1209,8 +1210,8 @@ fn ended(
     } else {
         Verdict::Failed
     };
-    core.repo_events.tell(checked(Some(verdict), output));
-    core.harness.note_repository(
+    core.repo_events().tell(checked(Some(verdict), output));
+    core.harness().note_repository(
         project,
         if passed {
             "check.passed"
@@ -1226,7 +1227,7 @@ fn ended(
 
 /// Whether `agent` should be told of `project`'s failing check, the first time, once only.
 fn newly_told(core: &Core, project: &str, agent: &str) -> bool {
-    core.checks
+    core.checks()
         .state
         .locked()
         .failing
@@ -1279,7 +1280,7 @@ async fn blame(
         return;
     }
     let owner = core
-        .checks
+        .checks()
         .state
         .locked()
         .failing
@@ -1320,7 +1321,7 @@ async fn blame(
         return;
     };
     {
-        let mut state = core.checks.state.locked();
+        let mut state = core.checks().state.locked();
         if let Some(failing) = state.failing.get_mut(project) {
             failing.owner = Some(owner.clone());
             failing.told.insert(owner.clone());
@@ -1410,11 +1411,11 @@ pub(crate) fn project_check(core: &Core, project: &str) -> Result<Checker, NoChe
 }
 
 fn found_check(core: &Core, project: &str) -> Option<String> {
-    if let Some(found) = core.checks.found.locked().get(project) {
+    if let Some(found) = core.checks().found.locked().get(project) {
         return found.clone();
     }
     let found = crate::tasks::detect::test_check(Path::new(project));
-    core.checks
+    core.checks()
         .found
         .locked()
         .insert(project.to_owned(), found.clone());
@@ -1598,7 +1599,11 @@ impl ProjectChecks {
 
 impl super::part::Part for ProjectChecks {
     fn start(&self, core: &Arc<Core>) -> Vec<tokio::task::JoinHandle<()>> {
-        vec![super::part::on_wake(core, |core| &core.checks.wake, settle)]
+        vec![super::part::on_wake(
+            core,
+            |core| &core.checks().wake,
+            settle,
+        )]
     }
 }
 
@@ -1625,6 +1630,6 @@ pub(crate) fn head_moved(core: &Arc<Core>, project: &str, dir: &Path) {
         agents,
         asked: false,
     };
-    core.checks
+    core.checks()
         .wait_for(project.to_owned(), dir.to_owned(), commit);
 }

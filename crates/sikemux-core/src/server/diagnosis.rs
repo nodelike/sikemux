@@ -3,6 +3,7 @@
 //! that host's core and whether it takes this one as linked. Steps after the first that
 //! failed are unchecked, since each needs the one before.
 
+use crate::server::parts::Parts;
 use iroh::Watcher;
 use serde::{Deserialize, Serialize};
 use sikemux_view::host_stats::{DiagnosisStep, HostDiagnosis, ReachStep, StepState, StepWhy};
@@ -19,8 +20,8 @@ pub struct DiagnosisParams {
 }
 
 pub(crate) fn diagnose(core: &Core, params: DiagnosisParams) -> HostDiagnosis {
-    let status = core.remote.status();
-    let endpoint = core.remote.endpoint();
+    let status = core.remote().status();
+    let endpoint = core.remote().endpoint();
     let relay_up = endpoint.as_ref().is_some_and(|endpoint| {
         (endpoint.home_relay_status().get().iter()).any(|relay| relay.is_connected())
     });
@@ -48,7 +49,7 @@ pub(crate) fn diagnose(core: &Core, params: DiagnosisParams) -> HostDiagnosis {
     ];
     let (mut since, mut tries) = (None, 0);
     if let Some(host) = params.host.as_deref() {
-        let dialed = core.hosts.dial_state(host);
+        let dialed = core.hosts().dial_state(host);
         if let DialState::Down {
             since: down_since,
             failures,

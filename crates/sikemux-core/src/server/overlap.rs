@@ -1,6 +1,7 @@
 //! The files a new agent's brief names that other open agents are already
 //! changing, so the lead hears of it while it can still merge or order the work.
 
+use crate::server::parts::Parts;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 
@@ -44,7 +45,7 @@ pub(crate) fn of_brief(core: &Core, caller: &str, brief: &str) -> Option<Value> 
         {
             continue;
         }
-        let Some(placed) = core.workspaces.agent(&agent.agent_id) else {
+        let Some(placed) = core.workspaces().agent(&agent.agent_id) else {
             continue;
         };
         let changing = match &placed.worktree {
@@ -64,7 +65,7 @@ pub(crate) fn of_brief(core: &Core, caller: &str, brief: &str) -> Option<Value> 
             .filter(|file| named.iter().any(|path| names(path, file)))
             .collect();
         if !files.is_empty() {
-            let name = core.names.name_or_id(&agent.agent_id);
+            let name = core.names().name_or_id(&agent.agent_id);
             found.push((agent.agent_id, name, files));
         }
     }

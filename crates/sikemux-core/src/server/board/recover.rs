@@ -4,6 +4,7 @@
 //! in a row, or too many, go to the person once, with the reason. What is tried and what is
 //! due sits on the run, so a core that restarts carries on from the card.
 
+use crate::server::parts::Parts;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -94,7 +95,7 @@ fn cannot_run(reason: &str) -> bool {
 }
 
 fn sort(core: &Core, agent: &str, reason: &str) -> Sorted {
-    match core.inbox.fault(agent) {
+    match core.inbox().fault(agent) {
         Some(Fault::Account) => Sorted::NeedsPerson,
         Some(Fault::Retrying) => Sorted::WaitsByItself,
         _ if cannot_run(reason) => Sorted::NeedsPerson,
@@ -216,7 +217,7 @@ pub(super) fn ended(
     ending: &Ending,
 ) {
     let held = |note: String| finish::hold(core, project, id, agent, RunHold::Unblock, note);
-    let on_board = core.boards.state.locked().boards.contains_key(project);
+    let on_board = core.boards().state.locked().boards.contains_key(project);
     let (why, cause) = match ending {
         Ending::Finished => return,
         Ending::Stopped | Ending::Gone { asked: true, .. } => {
@@ -247,13 +248,13 @@ pub(super) fn ended(
         }
         Sorted::Tries => schedule(core, project, id, agent, why, &cause),
     }
-    core.boards.wake.now();
+    core.boards().wake.now();
 }
 
 /// A usage limit's wait gave up, so a run it held waits on the person after all.
 pub(crate) fn stopped_waiting(core: &Core, agent: &str) {
     let found = {
-        let state = core.boards.state.locked();
+        let state = core.boards().state.locked();
         state.boards.iter().find_map(|(project, board)| {
             board.cards.iter().find_map(|card| {
                 let run = card.run()?;
@@ -276,7 +277,7 @@ pub(super) fn bringing_back(run: &AutoRun) -> bool {
 /// Its agent finished a turn, so what was tried before no longer counts against it.
 pub(super) fn finished_turn(core: &Core, project: &str, id: u64, agent: &str) {
     let tried = {
-        let state = core.boards.state.locked();
+        let state = core.boards().state.locked();
         state
             .boards
             .get(project)
@@ -303,14 +304,14 @@ fn keeps_busy(core: &Core, agent: &str) -> bool {
     let now = core.agent_now(agent);
     now.waits_on_something()
         || now.workers_busy(agent)
-        || (core.chats.get(agent)).is_some_and(|chat| !chat.pending_permissions().is_empty())
-        || (core.harness.all_runs().into_iter())
+        || (core.chats().get(agent)).is_some_and(|chat| !chat.pending_permissions().is_empty())
+        || (core.harness().all_runs().into_iter())
             .any(|run| run.status.is_active() && run.agent_id.as_deref() == Some(agent))
 }
 
 /// When the agent's turn counts as hung unless it says something first; none when not in one.
 pub(super) fn hangs_at(core: &Core, agent: &str) -> Option<u64> {
-    let chat = core.chats.get(agent)?;
+    let chat = core.chats().get(agent)?;
     (chat.turn_running() && !keeps_busy(core, agent)).then(|| chat.feed.heard_at() + HUNG_AFTER_MS)
 }
 
@@ -334,10 +335,10 @@ pub(super) async fn settle(core: &Arc<Core>, step: Step) {
         .unwrap_or_else(|| format!("{name} is no longer running"));
     let cut_short = format!("{why}, so it did not finish; Ship it again sends what it committed");
     let asleep = core
-        .workspaces
+        .workspaces()
         .agent(&agent)
         .is_some_and(|known| known.asleep);
-    if asleep || closed_here(core, &step) || core.workspaces.held(&agent) {
+    if asleep || closed_here(core, &step) || core.workspaces().held(&agent) {
         hold(core, &step, cut_short);
         return;
     }
@@ -349,19 +350,19 @@ pub(super) async fn settle(core: &Arc<Core>, step: Step) {
         why,
         "no longer running",
     );
-    core.boards.wake.now();
+    core.boards().wake.now();
 }
 
 /// The person closed the run's agent. One on a linked host is never in this host's workspace.
 fn closed_here(core: &Core, step: &Step) -> bool {
-    step.run.elsewhere.is_none() && core.workspaces.closed(step.agent())
+    step.run.elsewhere.is_none() && core.workspaces().closed(step.agent())
 }
 
 fn stop_agent(core: &Core, agent: &str) {
-    if let Some(chat) = core.chats.get(agent) {
-        core.workspaces.note_stopping(&chat);
+    if let Some(chat) = core.chats().get(agent) {
+        core.workspaces().note_stopping(&chat);
     }
-    if core.chats.stop(agent) {
+    if core.chats().stop(agent) {
         core.note_agent_gone(agent);
     }
     crate::server::hosts::route::stop_worker(core, agent);
@@ -377,7 +378,7 @@ fn hung(core: &Arc<Core>, step: Step) {
     );
     schedule(core, &step.project, step.id, &agent, why, "hung");
     stop_agent(core, &agent);
-    core.boards.wake.now();
+    core.boards().wake.now();
 }
 
 /// A try whose time came: the agent's own session if that can work, else a fresh agent.
@@ -397,7 +398,7 @@ async fn attempt(core: &Arc<Core>, step: Step) {
         cleared(None);
         return;
     }
-    if core.workspaces.held(&agent) {
+    if core.workspaces().held(&agent) {
         hold(
             core,
             &step,
@@ -414,17 +415,17 @@ async fn attempt(core: &Arc<Core>, step: Step) {
         return;
     }
     if replaces {
-        for worker in core.names.team(&agent).iter().filter(|id| **id != agent) {
+        for worker in core.names().team(&agent).iter().filter(|id| **id != agent) {
             stop_agent(core, worker);
         }
         fresh(core, &step, &why).await;
         return;
     }
     cleared(Some(format!("Bringing {name} back")));
-    let running = core.chats.get(&agent).is_some() || elsewhere::works_now(core, &agent);
+    let running = core.chats().get(&agent).is_some() || elsewhere::works_now(core, &agent);
     let resumable = running
         || core
-            .workspaces
+            .workspaces()
             .agent(&agent)
             .is_some_and(|known| known.resume_id.is_some() && !known.terminal);
     if !resumable {
@@ -625,7 +626,7 @@ pub(super) fn takeover_note(
 /// The handover for an agent taking a stalled slice on in a checkout other than the one its
 /// owner left: where that work is, so it is carried over rather than done again.
 pub(super) fn left_elsewhere(core: &Core, stalled: &Stalled, said: Option<String>) -> String {
-    let kept = core.workspaces.agent(&stalled.agent);
+    let kept = core.workspaces().agent(&stalled.agent);
     let mut text = format!(
         "\n\n@{} held this slice before you and lost it: {}",
         stalled.name,
@@ -657,13 +658,13 @@ pub(super) fn left_elsewhere(core: &Core, stalled: &Stalled, said: Option<String
 
 /// What an agent last wrote, while its chat is still open.
 pub(super) fn last_said(core: &Core, agent: &str) -> Option<String> {
-    (core.chats.get(agent)).and_then(|chat| chat.feed.last_answer())
+    (core.chats().get(agent)).and_then(|chat| chat.feed.last_answer())
 }
 
 /// The person overruled Auto taking a stalled slice on: its agent stops, and the slice waits for
 /// them as it did. Answers whether it was such a decision.
 pub(super) fn overruled(core: &Core, project: &str, goal: Option<u64>, decision: u64) -> bool {
-    let mut state = core.boards.state.locked();
+    let mut state = core.boards().state.locked();
     let Some(board) = state.boards.get_mut(project) else {
         return false;
     };
@@ -701,8 +702,8 @@ pub(super) fn overruled(core: &Core, project: &str, goal: Option<u64>, decision:
         run,
         discard: false,
     });
-    core.boards.save(&mut state, project);
+    core.boards().save(&mut state, project);
     drop(state);
-    core.boards.wake.now();
+    core.boards().wake.now();
     true
 }

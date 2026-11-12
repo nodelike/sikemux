@@ -12,6 +12,7 @@ pub mod devices;
 mod profile;
 
 use crate::server::changed::What;
+use crate::server::parts::Parts;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -108,7 +109,7 @@ fn decode_saved(text: &str) -> Option<Saved> {
 }
 
 async fn saved(core: &Core) -> Option<Saved> {
-    if let Some(saved) = core.account.saved.locked().clone() {
+    if let Some(saved) = core.account().saved.locked().clone() {
         return saved;
     }
     let read = tokio::task::spawn_blocking(|| sikemux_keychain::read(KEY_SERVICE, key_account()))
@@ -117,7 +118,7 @@ async fn saved(core: &Core) -> Option<Saved> {
         .and_then(Result::ok)
         .flatten()
         .and_then(|text| decode_saved(&text));
-    *core.account.saved.locked() = Some(read.clone());
+    *core.account().saved.locked() = Some(read.clone());
     read
 }
 
@@ -133,7 +134,7 @@ async fn keep_saved(core: &Core, saved: Option<Saved>) -> CoreResult<()> {
     .await
     .map_err(|error| CoreError::from(error.to_string()))?
     .map_err(|error| CoreError::from(error.to_string()))?;
-    *core.account.saved.locked() = Some(saved);
+    *core.account().saved.locked() = Some(saved);
     Ok(())
 }
 
@@ -159,9 +160,9 @@ async fn forget(core: &Core) -> CoreResult<()> {
 /// changed. A sign-in the account let go of while the host was not looking
 /// is forgotten here.
 pub(crate) async fn show(core: &Core) {
-    let owner = core.remote.owner();
+    let owner = core.remote().owner();
     let mut saved = saved(core).await;
-    let has_key = core.remote.host_key().is_some();
+    let has_key = core.remote().host_key().is_some();
     if saved
         .as_ref()
         .is_some_and(|saved| released(owner.as_deref(), has_key, &saved.user_id))
@@ -205,7 +206,7 @@ pub(crate) async fn show(core: &Core) {
         }),
     };
     let changed = {
-        let mut kept = core.account.shown.locked();
+        let mut kept = core.account().shown.locked();
         let changed = *kept != shown;
         *kept = shown;
         changed
@@ -233,7 +234,7 @@ pub(crate) fn start(core: &Arc<Core>) {
 }
 
 async fn refresh_profile(core: &Core) {
-    let (Some(owner), Some(folder)) = (core.remote.owner(), folder(core)) else {
+    let (Some(owner), Some(folder)) = (core.remote().owner(), folder(core)) else {
         show(core).await;
         return;
     };
@@ -242,12 +243,12 @@ async fn refresh_profile(core: &Core) {
         .filter(|profile| profile.user_id == owner)
         .is_none_or(|profile| profile.is_stale(profile::now()));
     let tried_lately = core
-        .account
+        .account()
         .profile_tried
         .locked()
         .is_some_and(|at| at.elapsed() < PROFILE_RETRY);
     if stale && !tried_lately {
-        *core.account.profile_tried.locked() = Some(Instant::now());
+        *core.account().profile_tried.locked() = Some(Instant::now());
         if let Ok(account) =
             as_host::<AccountProfile>(core, Method::GET, "/v1/account/profile", None).await
         {
@@ -307,7 +308,7 @@ pub(crate) async fn sign_in(core: &Arc<Core>, peer: Peer) -> CoreResult<SignInPa
     let url = authorize_url(callback.redirect_uri(), &state, &challenge(&verifier));
     let (cancel, cancelled) = oneshot::channel();
     let (done, finished) = watch::channel(None);
-    if let Some(previous) = core.account.flight.locked().replace(Flight {
+    if let Some(previous) = core.account().flight.locked().replace(Flight {
         cancel,
         done: finished,
     }) {
@@ -329,7 +330,7 @@ pub(crate) async fn sign_in(core: &Arc<Core>, peer: Peer) -> CoreResult<SignInPa
 /// signed in to.
 pub(crate) async fn sign_in_finished(core: &Core) -> CoreResult<AccountInfo> {
     let mut done = core
-        .account
+        .account()
         .flight
         .locked()
         .as_ref()
@@ -347,7 +348,7 @@ pub(crate) async fn sign_in_finished(core: &Core) -> CoreResult<AccountInfo> {
 }
 
 pub(crate) fn cancel_sign_in(core: &Core) {
-    if let Some(flight) = core.account.flight.locked().take() {
+    if let Some(flight) = core.account().flight.locked().take() {
         let _ = flight.cancel.send(());
     }
 }
@@ -431,10 +432,10 @@ async fn finish(
             let fresh = profile::from_account(account, user_id, profile::now());
             let _ = profile::save(folder, &fresh).await;
         }
-        *core.account.profile_tried.locked() = Some(Instant::now());
+        *core.account().profile_tried.locked() = Some(Instant::now());
     }
     show(core).await;
-    core.account
+    core.account()
         .shown()
         .ok_or_else(|| "the account let this host go as it signed in".to_owned())
 }
@@ -538,8 +539,8 @@ pub(crate) async fn host_registration(
     user_id: &str,
     peer: &Peer,
 ) -> CoreResult<HostRegistration> {
-    core.remote.may_join(user_id, peer)?;
-    let (key, signature) = core.remote.sign_registration(nonce, user_id)?;
+    core.remote().may_join(user_id, peer)?;
+    let (key, signature) = core.remote().sign_registration(nonce, user_id)?;
     let (host, name) =
         super::connection::blocking(|| Ok((super::host::info(), super::host::name()))).await?;
     devices::remember_first_name_sent(core, &name).await;

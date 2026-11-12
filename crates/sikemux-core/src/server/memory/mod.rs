@@ -6,6 +6,7 @@
 //! out of briefs and waits in the inbox until someone corrects or retires it.
 
 use crate::server::changed::What;
+use crate::server::parts::Parts;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -184,7 +185,7 @@ impl crate::server::part::Part for Memory {
     fn start(&self, core: &Arc<Core>) -> Vec<tokio::task::JoinHandle<()>> {
         vec![crate::server::part::on_wake(
             core,
-            |core| &core.memory.wake,
+            |core| &core.memory().wake,
             settle,
         )]
     }
@@ -306,7 +307,7 @@ fn add(core: &Core, project: &str, new: NewMemory, learned: Learned) -> Result<u
             folder_for(project, folder.as_deref())?,
         ),
     };
-    let mut state = core.memory.state.locked();
+    let mut state = core.memory().state.locked();
     let held = holding(&mut state, &folder)?;
     if held.len() >= MAX_ENTRIES {
         return Err(format!(
@@ -356,7 +357,7 @@ fn add(core: &Core, project: &str, new: NewMemory, learned: Learned) -> Result<u
             stale: None,
         }),
     }
-    core.memory.save(&mut state, &folder);
+    core.memory().save(&mut state, &folder);
     drop(state);
     tell_clients(core, false);
     Ok(id)
@@ -463,7 +464,7 @@ fn change(
     let about = update.about.map(abouts).transpose()?;
     let check = update.check.map(checked_check).transpose()?;
     let id = update.id;
-    let mut state = core.memory.state.locked();
+    let mut state = core.memory().state.locked();
     if state.promoting == Some(id) {
         return Err(format!("#{id} is being written into AGENTS.md"));
     }
@@ -521,7 +522,7 @@ fn change(
     if update.retire {
         state.wanted.remove(&id);
     }
-    core.memory.save(&mut state, &folder);
+    core.memory().save(&mut state, &folder);
     drop(state);
     tell_clients(core, stale_moved);
     Ok(())
@@ -531,7 +532,7 @@ fn change(
 /// own window reads it.
 fn view(core: &Core, project: &str, peer: &Peer) -> MemoryView {
     let shows_sensitive = matches!(peer, Peer::App);
-    let folders: Vec<String> = (core.memory.state.locked().applying(project))
+    let folders: Vec<String> = (core.memory().state.locked().applying(project))
         .map(|held| held.folder.clone())
         .collect();
     let files: HashMap<String, _> = folders
@@ -541,7 +542,7 @@ fn view(core: &Core, project: &str, peer: &Peer) -> MemoryView {
             (folder, file)
         })
         .collect();
-    let state = core.memory.state.locked();
+    let state = core.memory().state.locked();
     let folders = state
         .applying(project)
         .map(|held| {
@@ -578,7 +579,7 @@ fn view(core: &Core, project: &str, peer: &Peer) -> MemoryView {
 /// knowledge kept, nearest folder first. Sensitive entries show only in Sikemux's own window.
 pub(crate) fn for_playbook(core: &Core, project: &str, peer: &Peer) -> (Vec<Entry>, Vec<Entry>) {
     let shows_sensitive = matches!(peer, Peer::App);
-    let state = core.memory.state.locked();
+    let state = core.memory().state.locked();
     let (mut rules, mut notes) = (Vec::new(), Vec::new());
     for held in state.applying(project) {
         let folder = (held.folder != project).then(|| held.folder.clone());
@@ -640,7 +641,7 @@ pub(crate) fn rule_about(core: &Core, project: &str, word: &str) -> Option<Strin
     let names = |rule: &&MemoryRule| {
         (rule.text.to_lowercase().split(|c: char| !c.is_alphabetic())).any(|said| said == word)
     };
-    let state = core.memory.state.locked();
+    let state = core.memory().state.locked();
     let rule = state
         .applying(project)
         .find_map(|held| held.rules.iter().find(names).map(|rule| rule.text.clone()));
@@ -648,7 +649,7 @@ pub(crate) fn rule_about(core: &Core, project: &str, word: &str) -> Option<Strin
 }
 
 pub(crate) fn stale(core: &Core) -> Vec<StaleKnowledge> {
-    let state = core.memory.state.locked();
+    let state = core.memory().state.locked();
     let mut listed = Vec::new();
     for held in state.held.values() {
         for known in &held.knowledge {
@@ -811,7 +812,7 @@ pub(crate) async fn tool_add(core: &Arc<Core>, request: &HarnessRequest) -> Resu
 fn said_by_person(core: &Core, agent: &str, rule: &str) -> Result<(), String> {
     const NOT_THEIRS: &str =
         "person: true is for a rule the person said to you in this turn; keep it without person";
-    let said = (core.chats.get(agent))
+    let said = (core.chats().get(agent))
         .map(|chat| chat.feed.person_said())
         .unwrap_or_default();
     if said.is_empty() {
@@ -834,7 +835,7 @@ fn said_by_person(core: &Core, agent: &str, rule: &str) -> Result<(), String> {
 
 /// The line in the agent's chat that says rule `id` was kept from the person's words.
 fn say_kept(core: &Core, agent: &str, project: &str, id: u64) {
-    let Some(chat) = core.chats.get(agent) else {
+    let Some(chat) = core.chats().get(agent) else {
         return;
     };
     let Some(start) = chat.feed.start() else {
@@ -892,7 +893,7 @@ pub(crate) async fn tool_list(core: &Arc<Core>, request: &HarnessRequest) -> Res
     let agent = crate::server::caller::agent_of(request, "memory_list")?;
     let project = crate::server::caller::project_of(core, request);
     let goal = board::goal_of(core, &agent).map(|goal| (goal.card, goal::standing(core, &goal)));
-    let state = core.memory.state.locked();
+    let state = core.memory().state.locked();
     let (mut rules, mut knowledge) = (Vec::new(), Vec::new());
     for held in state.applying(&project) {
         let folder = (held.folder != project).then_some(held.folder.as_str());

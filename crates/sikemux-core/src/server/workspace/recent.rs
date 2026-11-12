@@ -4,6 +4,7 @@
 use super::*;
 use crate::server::changed::What;
 use crate::server::names::RanSession;
+use crate::server::parts::Parts;
 use crate::sessions::said::FoundLine;
 use serde::{Deserialize, Serialize};
 use sikemux_view::chat::ChatTrigger;
@@ -143,7 +144,7 @@ pub struct PinnedParams {
 }
 
 pub(crate) fn set_pinned_chats(core: &Core, params: PinnedParams) -> CoreResult<()> {
-    core.workspaces.set_pinned(params.chats)
+    core.workspaces().set_pinned(params.chats)
 }
 
 #[derive(Deserialize, Serialize)]
@@ -153,7 +154,7 @@ pub struct PinChatParams {
 }
 
 pub(crate) fn pin_chat(core: &Core, params: PinChatParams) -> CoreResult<()> {
-    core.workspaces.pin_chat(&params.recent, params.pinned)
+    core.workspaces().pin_chat(&params.recent, params.pinned)
 }
 
 /// The saved chats `chats` as a device sees them: those in a project on this host, each
@@ -282,7 +283,7 @@ pub struct RecentChats {
 /// A page of a project's saved chats, or every project's, newest first, those matching
 /// `query` when it has one. A device may take up any of them again as it does a recent one.
 pub(crate) async fn recent_chats(core: &Core, asked: RecentChatsParams) -> CoreResult<RecentChats> {
-    let (launchers, request) = core.workspaces.page_request(asked)?;
+    let (launchers, request) = core.workspaces().page_request(asked)?;
     let mut page = blocking(move || Ok(saved_chats::recent_page(request)?)).await?;
     let said = (page.sessions.iter_mut())
         .filter_map(|session| Some((chat_id(session.agent, &session.id), session.said.take()?)))
@@ -298,8 +299,8 @@ pub(crate) async fn recent_chats(core: &Core, asked: RecentChatsParams) -> CoreR
         })
         .collect();
     let chats = core
-        .workspaces
-        .note_found(found, &core.chats.list(), &core.triggers.held());
+        .workspaces()
+        .note_found(found, &core.chats().list(), &core.triggers().held());
     Ok(RecentChats {
         chats,
         next: page.next,
@@ -312,10 +313,10 @@ pub(crate) async fn recent_chats(core: &Core, asked: RecentChatsParams) -> CoreR
 pub(crate) async fn recents(core: Arc<Core>) {
     loop {
         tokio::time::sleep(RECENT_SETTLE).await;
-        let requests = core.workspaces.recent_requests();
-        crate::sessions::said::heed(core.workspaces.chat_accounts());
-        let pins = core.workspaces.pinned_away();
-        let projects = core.workspaces.project_paths();
+        let requests = core.workspaces().recent_requests();
+        crate::sessions::said::heed(core.workspaces().chat_accounts());
+        let pins = core.workspaces().pinned_away();
+        let projects = core.workspaces().project_paths();
         let found = blocking(move || {
             let homes = pins
                 .into_iter()
@@ -325,11 +326,11 @@ pub(crate) async fn recents(core: Arc<Core>) {
         })
         .await;
         if let Ok(((found, saved), homes)) = found {
-            if core.workspaces.set_recent(found, saved, homes) {
+            if core.workspaces().set_recent(found, saved, homes) {
                 core.changed(What::View);
             }
         }
-        core.workspaces.recent_stale.notified().await;
+        core.workspaces().recent_stale.notified().await;
     }
 }
 

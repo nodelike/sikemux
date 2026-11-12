@@ -4,6 +4,7 @@
 //! task and card name. Stale knowledge stays out. A reviewer Auto started blind
 //! gets only what the person said, nothing an agent added.
 
+use crate::server::parts::Parts;
 use std::path::Path;
 
 use sikemux_process::clock::epoch_ms;
@@ -56,7 +57,9 @@ fn names(text: &str, term: &str) -> bool {
 pub(crate) fn brief(core: &Core, agent_id: &str, task: Option<&str>) -> Option<String> {
     let goal = board::briefing::goal_for(core, agent_id);
     let on_board = (goal.as_ref())
-        .map(|goal| board::briefing::sections(core, agent_id, goal, core.names.is_blind(agent_id)))
+        .map(|goal| {
+            board::briefing::sections(core, agent_id, goal, core.names().is_blind(agent_id))
+        })
         .unwrap_or_default();
     let mut read = task.unwrap_or_default().to_lowercase();
     if let Some(goal) = &goal {
@@ -64,9 +67,9 @@ pub(crate) fn brief(core: &Core, agent_id: &str, task: Option<&str>) -> Option<S
         read.push_str(&goal.live.to_lowercase());
     }
     let reader = Reader {
-        project: core.names.get(agent_id)?.project,
+        project: core.names().get(agent_id)?.project,
         goal,
-        blind: core.names.is_blind(agent_id),
+        blind: core.names().is_blind(agent_id),
         read,
         on_board,
     };
@@ -82,7 +85,7 @@ pub(crate) fn brief(core: &Core, agent_id: &str, task: Option<&str>) -> Option<S
 /// later through `memory_list`.
 pub(crate) fn for_chat(core: &Core, cwd: &Path) -> Option<String> {
     let reader = Reader {
-        project: core.workspaces.project_of(cwd),
+        project: core.workspaces().project_of(cwd),
         goal: None,
         blind: false,
         read: String::new(),
@@ -117,7 +120,7 @@ fn body(core: &Core, reader: Reader) -> Option<String> {
     let mut notes = Vec::new();
     let room_for_note = |notes: &Vec<String>| !blind && notes.len() < MAX_AGENT_NOTES;
     {
-        let state = core.memory.state.locked();
+        let state = core.memory().state.locked();
         for held in state.applying(&project) {
             for rule in &held.rules {
                 if rule.learned.agent.is_some() {

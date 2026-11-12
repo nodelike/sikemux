@@ -3,11 +3,12 @@
 use super::offers::{choose_before_start, choose_while_asleep, keep_model_choice};
 use super::*;
 use crate::agent_accounts::Takers;
+use crate::server::parts::Parts;
 
 /// The person began writing in a new chat, or a sleeping one, so its agent starts while
 /// they write.
 pub(crate) fn composing(core: &Arc<Core>, agent_id: &str) {
-    if let Some(chat) = core.chats.get(agent_id) {
+    if let Some(chat) = core.chats().get(agent_id) {
         chat.start_agent();
     } else if stopped(core, agent_id) {
         let (core, agent_id) = (core.clone(), agent_id.to_owned());
@@ -25,7 +26,7 @@ pub(crate) fn composing(core: &Arc<Core>, agent_id: &str) {
 /// Answers once the running chat is ready, or says why it never got there. A new chat
 /// still waiting for the person answers at once.
 pub(crate) async fn until_ready(core: &Core, agent_id: &str) -> CoreResult<()> {
-    let chat = core.chats.running(agent_id)?;
+    let chat = core.chats().running(agent_id)?;
     if chat.unstarted() {
         return Ok(());
     }
@@ -42,19 +43,19 @@ pub(crate) async fn attach(
     let missing = || client.answer::<ask::AcpAttach>(request_id, Ok(ChatAttachment::Missing));
     // A sleeping chat is read from the feed it kept, or else taken up to wait for the person,
     // its saved history shown when the core can read it; neither starts its agent.
-    let chat = match core.chats.get(agent_id) {
+    let chat = match core.chats().get(agent_id) {
         Some(chat) => chat,
         None => {
-            if let Ok(feed) = core.chats.readable(agent_id) {
+            if let Ok(feed) = core.chats().readable(agent_id) {
                 let standing = Standing {
                     turned: false,
-                    draft: core.drafts.chat_draft(agent_id),
+                    draft: core.drafts().chat_draft(agent_id),
                 };
                 feed.attach(client, request_id, standing, since);
                 return;
             }
             let in_terminal = core
-                .workspaces
+                .workspaces()
                 .agent(agent_id)
                 .is_some_and(|agent| agent.terminal);
             let taken_up = stopped(core, agent_id)
@@ -62,7 +63,7 @@ pub(crate) async fn attach(
                 && crate::server::launching::start_saved(core, agent_id, true)
                     .await
                     .is_ok();
-            match core.chats.get(agent_id).filter(|_| taken_up) {
+            match core.chats().get(agent_id).filter(|_| taken_up) {
                 Some(chat) => chat,
                 None => {
                     missing();
@@ -86,7 +87,7 @@ pub(crate) async fn attach(
         request_id,
         Standing {
             turned: chat.turn.locked().turned,
-            draft: core.drafts.chat_draft(agent_id),
+            draft: core.drafts().chat_draft(agent_id),
         },
         since,
     );
@@ -100,7 +101,7 @@ pub(crate) fn history(
     turns: u32,
 ) -> CoreResult<sikemux_view::chat::ChatPage> {
     Ok(core
-        .chats
+        .chats()
         .readable(agent_id)?
         .history(feed, before, turns as usize)?)
 }
@@ -121,7 +122,7 @@ pub(crate) fn page(
     let turns = params
         .turns
         .map_or(sikemux_fold::TAIL_TURNS, |turns| turns as usize);
-    Ok(core.chats.readable(&params.agent_id)?.page(
+    Ok(core.chats().readable(&params.agent_id)?.page(
         &params.feed,
         anchor,
         turns,
@@ -135,7 +136,7 @@ pub(crate) fn find(
     params: find::FindParams,
 ) -> CoreResult<find::FindAnswer> {
     Ok(core
-        .chats
+        .chats()
         .readable(&params.agent_id)?
         .find(client, &params)?)
 }
@@ -145,7 +146,7 @@ pub(crate) fn tool_detail(
     agent_id: &str,
     tool_call_id: &str,
 ) -> CoreResult<sikemux_view::chat::ToolDetail> {
-    core.chats
+    core.chats()
         .running(agent_id)?
         .feed
         .tool_detail(tool_call_id)
@@ -159,15 +160,15 @@ pub(crate) fn left_out(
     agent_id: &str,
     message_id: &str,
 ) -> CoreResult<sikemux_view::chat::ChatLeftOut> {
-    let parts = core.chats.readable(agent_id)?.left_out(message_id);
+    let parts = core.chats().readable(agent_id)?.left_out(message_id);
     Ok(sikemux_view::chat::ChatLeftOut { parts })
 }
 
 pub(crate) fn detach(core: &Core, client: ClientId, agent_id: &str) {
-    if let Some(chat) = core.chats.get(agent_id) {
+    if let Some(chat) = core.chats().get(agent_id) {
         chat.feed.unsubscribe(client);
     }
-    let resting = core.chats.resting.locked();
+    let resting = core.chats().resting.locked();
     if let Some(resting) = resting.iter().find(|resting| resting.agent_id == agent_id) {
         resting.feed.unsubscribe(client);
     }
@@ -176,7 +177,7 @@ pub(crate) fn detach(core: &Core, client: ClientId, agent_id: &str) {
 /// Whether `agent_id` is an agent of the workspace whose chat isn't running, asleep or
 /// stopped, so a message to it must start it first on its saved conversation.
 pub(crate) fn stopped(core: &Core, agent_id: &str) -> bool {
-    core.chats.get(agent_id).is_none() && core.workspaces.agent(agent_id).is_some()
+    core.chats().get(agent_id).is_none() && core.workspaces().agent(agent_id).is_some()
 }
 
 /// Readies `agent_id`'s chat for the person's message. A sleeping chat shows its saved
@@ -195,7 +196,7 @@ pub(crate) async fn wake_for_prompt(
 /// Starts a sleeping chat waiting for the person, with its saved history in place.
 pub(super) async fn wake_shown(core: &Arc<Core>, agent_id: &str) -> CoreResult<Arc<Chat>> {
     crate::server::lifecycle::ensure_running(core, agent_id, true).await?;
-    let chat = core.chats.running(agent_id)?;
+    let chat = core.chats().running(agent_id)?;
     chat.until_saved_read().await;
     Ok(chat)
 }
@@ -242,7 +243,7 @@ pub(crate) fn prompt(
         &text
     });
     crate::server::workspace::retitle(core, agent_id, title, true);
-    let chat = core.chats.running(agent_id)?;
+    let chat = core.chats().running(agent_id)?;
     context.extend(crate::server::questions::held_answers(core, agent_id));
     context.extend(crate::server::board::chat_goal::take_note(core, agent_id));
     context.extend(
@@ -276,7 +277,7 @@ pub(crate) async fn edit(
     bounded_text("message id", &message_id, 256)?;
     mentions::fill(core, agent_id, &mut context);
     let (reply, answer) = oneshot::channel();
-    core.chats.running(agent_id)?.send(ChatCommand::Edit {
+    core.chats().running(agent_id)?.send(ChatCommand::Edit {
         message_id,
         text,
         paths,
@@ -301,7 +302,7 @@ pub(crate) async fn steer(
     mentions::fill(core, agent_id, &mut context);
     crate::server::messages::person_wrote(core, agent_id);
     let (reply, answer) = oneshot::channel();
-    core.chats.running(agent_id)?.send(ChatCommand::Steer {
+    core.chats().running(agent_id)?.send(ChatCommand::Steer {
         text,
         paths,
         context,
@@ -324,7 +325,7 @@ pub(crate) async fn letter(
     person: bool,
 ) -> CoreResult<Delivery> {
     let (reply, answer) = oneshot::channel();
-    core.chats.running(agent_id)?.send(ChatCommand::Letter {
+    core.chats().running(agent_id)?.send(ChatCommand::Letter {
         text,
         paths,
         person,
@@ -339,14 +340,14 @@ pub(crate) async fn letter(
 /// with no chat running starts on it next time.
 pub(crate) async fn move_chat(core: &Core, agent_id: &str, account: ChatAccount) -> CoreResult<()> {
     validate_account(&account)?;
-    let before = core.workspaces.agent_or_gone(agent_id)?.profile_id;
+    let before = core.workspaces().agent_or_gone(agent_id)?.profile_id;
     let to = account.id.clone();
-    core.workspaces
+    core.workspaces()
         .edit_agent(agent_id, |agent| agent.profile_id = Some(to))?;
     let going = send_switch(core, agent_id, account).await;
     if going.is_err() {
         let _ = core
-            .workspaces
+            .workspaces()
             .edit_agent(agent_id, |agent| agent.profile_id = before);
     }
     going
@@ -355,7 +356,7 @@ pub(crate) async fn move_chat(core: &Core, agent_id: &str, account: ChatAccount)
 const MOVE_ANSWERED_WITHIN: std::time::Duration = std::time::Duration::from_secs(5);
 
 async fn send_switch(core: &Core, agent_id: &str, account: ChatAccount) -> CoreResult<()> {
-    let Some(chat) = core.chats.get(agent_id) else {
+    let Some(chat) = core.chats().get(agent_id) else {
         return Ok(());
     };
     if chat.unstarted() {
@@ -382,8 +383,8 @@ async fn send_switch(core: &Core, agent_id: &str, account: ChatAccount) -> CoreR
 /// The account the agent's chat runs on, and those it may carry on in, as one rule of the core's
 /// decides for every client.
 pub(crate) fn accounts(core: &Core, agent_id: &str) -> CoreResult<Takers> {
-    let agent = core.workspaces.agent_or_gone(agent_id)?;
-    let book = core.workspaces.accounts().unwrap_or_default();
+    let agent = core.workspaces().agent_or_gone(agent_id)?;
+    let book = core.workspaces().accounts().unwrap_or_default();
     if agent.pty_id.is_some() || agent.terminal {
         let takers = book.takers(&agent.provider, agent.profile_id.as_deref(), true);
         return Ok(Takers {
@@ -393,7 +394,7 @@ pub(crate) fn accounts(core: &Core, agent_id: &str) -> CoreResult<Takers> {
         });
     }
     let started = core
-        .chats
+        .chats()
         .get(agent_id)
         .is_none_or(|chat| !chat.unstarted());
     Ok(book.takers(&agent.provider, agent.profile_id.as_deref(), started))
@@ -420,14 +421,14 @@ pub(crate) async fn move_to_account(
 /// Stops the running turn. The messages waiting behind it go back to the
 /// person rather than out.
 pub(crate) fn cancel(core: &Core, agent_id: &str) -> CoreResult<()> {
-    let chat = core.chats.running(agent_id)?;
+    let chat = core.chats().running(agent_id)?;
     chat.feed.clear_queue();
     chat.send(ChatCommand::Cancel)
 }
 
 pub(crate) fn stop_task(core: &Core, agent_id: &str, task_id: String) -> CoreResult<()> {
     bounded_text("task id", &task_id, 256)?;
-    core.chats
+    core.chats()
         .running(agent_id)?
         .send(ChatCommand::StopTask { task_id })
 }
@@ -439,7 +440,7 @@ pub(crate) async fn mcp_app_request(
     agent_id: &str,
     request: crate::server::mcp_apps::ServerRequest,
 ) -> CoreResult<Value> {
-    let chat = core.chats.running(agent_id)?;
+    let chat = core.chats().running(agent_id)?;
     if chat.unstarted.load(Ordering::Acquire) {
         return Err("Send a message in this chat first, so its agent is running".into());
     }
@@ -458,10 +459,10 @@ pub(crate) fn reply_permission(
     option_id: Option<String>,
     peer: &Peer,
 ) -> CoreResult<()> {
-    if let Some(chat) = core.chats.get(agent_id) {
+    if let Some(chat) = core.chats().get(agent_id) {
         return chat.reply_permission(request_id, option_id, peer);
     }
-    let worker = (core.hosts.team.get(agent_id)).ok_or_else(super::permission_gone)?;
+    let worker = (core.hosts().team.get(agent_id)).ok_or_else(super::permission_gone)?;
     crate::server::hosts::route::permit(core, &worker, request_id, option_id);
     Ok(())
 }
@@ -471,7 +472,7 @@ pub(crate) async fn set_permission_mode(
     agent_id: &str,
     mode: PermissionMode,
 ) -> CoreResult<()> {
-    let chat = core.chats.running(agent_id)?;
+    let chat = core.chats().running(agent_id)?;
     let (reply, answer) = oneshot::channel();
     chat.send(ChatCommand::SetPermissionMode { mode, reply })?;
     chat.feed.set_changing_mode(true);
@@ -488,7 +489,7 @@ pub(crate) async fn set_permission_mode(
 pub(crate) async fn authenticate(core: &Core, agent_id: &str, method_id: String) -> CoreResult<()> {
     bounded_text("sign-in method", &method_id, 256)?;
     let (reply, answer) = oneshot::channel();
-    core.chats
+    core.chats()
         .running(agent_id)?
         .send(ChatCommand::Authenticate { method_id, reply })?;
     answer
@@ -505,7 +506,7 @@ pub(crate) async fn set_config(
 ) -> CoreResult<Value> {
     bounded_text("config id", &config_id, 256)?;
     bounded_text("config value", &value, 4096)?;
-    let Ok(chat) = core.chats.running(agent_id) else {
+    let Ok(chat) = core.chats().running(agent_id) else {
         return choose_while_asleep(core, agent_id, &config_id, value);
     };
     if chat.unstarted() {

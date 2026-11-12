@@ -1,5 +1,6 @@
 //! The person's devices and hosts on the account, as this host sees and changes them.
 
+use crate::server::parts::Parts;
 use std::sync::Arc;
 
 use reqwest::Method;
@@ -31,7 +32,7 @@ pub(crate) struct DeviceChallenge {
 
 /// Starts adding one of the person's own devices, such as an app, to the account as this host.
 pub(crate) async fn device_challenge(core: &Core) -> CoreResult<DeviceChallenge> {
-    let status = core.remote.status();
+    let status = core.remote().status();
     let user_id = status
         .owner
         .filter(|_| !status.core_id.is_empty())
@@ -203,7 +204,7 @@ pub(crate) async fn remember_first_name_sent(core: &Core, name: &str) {
 /// account's name for this host is no longer the one it last sent, since then someone
 /// chose that name and it stays.
 pub(crate) async fn keep_name_current(core: &Core) {
-    let (Some(path), Some(_)) = (name_sent_path(core), core.remote.owner()) else {
+    let (Some(path), Some(_)) = (name_sent_path(core), core.remote().owner()) else {
         return;
     };
     let Ok(current) = tokio::task::spawn_blocking(super::super::host::name).await else {
@@ -214,7 +215,7 @@ pub(crate) async fn keep_name_current(core: &Core) {
     if sent.as_deref() == Some(current.as_str()) {
         return;
     }
-    let key = core.remote.status().core_id;
+    let key = core.remote().status().core_id;
     let Ok(hosts) = as_host::<DeviceList>(core, Method::GET, "/v1/devices?role=host", None).await
     else {
         return;
@@ -248,7 +249,7 @@ pub(crate) async fn rename_device(core: &Core, params: DeviceParams) -> CoreResu
         .ok_or_else(|| CoreError::from("a device needs a name"))?;
     let path = format!("{}/name", device_path(&params.key)?);
     host_request(core, Method::POST, &path, Some(json!({ "name": name }))).await?;
-    if core.remote.core_id().as_deref() == Some(params.key.as_str()) {
+    if core.remote().core_id().as_deref() == Some(params.key.as_str()) {
         crate::server::host::note_account_name(Some(name.clone()));
     }
     crate::server::remote::rename_paired(core, &params.key, &name)
@@ -272,13 +273,13 @@ pub(crate) async fn remove_device(core: &Core, params: DeviceParams) -> CoreResu
 /// Forgets the phones paired through the account that the account no longer
 /// has, which it may have revoked while this host was away and never told it.
 pub(crate) async fn forget_phones_off_account(core: &Core) -> CoreResult<()> {
-    let Some(owner) = core.remote.owner() else {
+    let Some(owner) = core.remote().owner() else {
         return Ok(());
     };
     let since = sikemux_process::clock::epoch_ms();
     let list: DeviceList = as_host(core, Method::GET, "/v1/devices?role=client", None).await?;
     let keys: Vec<String> = list.devices.into_iter().map(|device| device.key).collect();
-    let forgotten = core.remote.forget_phones_off(&owner, since, &keys)?;
+    let forgotten = core.remote().forget_phones_off(&owner, since, &keys)?;
     for device in &forgotten {
         core.close_device_clients(Some(&device.id));
         eprintln!(
@@ -295,7 +296,7 @@ pub(crate) async fn forget_phones_off_account(core: &Core) -> CoreResult<()> {
 /// The phones on the account this host has not paired, newest first, so the
 /// person can let them in right after signing in.
 pub(crate) async fn phones(core: &Core) -> CoreResult<Vec<Device>> {
-    let status = core.remote.status();
+    let status = core.remote().status();
     if status.owner.is_none() || status.core_id.is_empty() {
         return Ok(Vec::new());
     }

@@ -1,4 +1,5 @@
 use crate::server::changed::What;
+use crate::server::parts::Parts;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -430,8 +431,8 @@ pub(crate) fn thaw(core: &Arc<Core>, session: Arc<Session>) {
 /// Opens the terminal and starts its process. Runs on a blocking thread.
 pub(crate) fn spawn_session(core: &Arc<Core>, launch: PreparedLaunch) -> CoreResult<PendingStart> {
     validate_pty_dimensions(launch.cols, launch.rows)?;
-    let _launching = core.updating.launching.enter();
-    if core.updating.is_frozen() {
+    let _launching = core.updating().launching.enter();
+    if core.updating().is_frozen() {
         return Err(super::upgrade::UPDATING.into());
     }
     core.reclaim_exited_sessions(core.uptime_ms());
@@ -693,8 +694,8 @@ enum PumpEnd {
 /// Reads until EOF. The first byte is read into the screen at once; after
 /// that, small writes are gathered for up to 2 ms into one pass.
 async fn pump_output(core: &Arc<Core>, session: &Session) -> PumpEnd {
-    let mut frozen = core.updating.watch();
-    let _pumping = core.updating.pumping.enter();
+    let mut frozen = core.updating().watch();
+    let _pumping = core.updating().pumping.enter();
     let mut buf = vec![0u8; OUTPUT_BATCH_BYTES];
     let mut batch = Vec::with_capacity(OUTPUT_BATCH_BYTES);
     loop {
@@ -876,7 +877,7 @@ pub(crate) fn report_exit(core: &Core, session: &Session, status: Option<&ExitSt
     };
     if session.is_task() {
         if let Some(failed) = core
-            .harness
+            .harness()
             .session_exited(session.id, code, signal.clone())
         {
             super::harness::tell_agent_run_failed(core, failed);

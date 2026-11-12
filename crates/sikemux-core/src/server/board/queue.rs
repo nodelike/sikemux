@@ -5,6 +5,7 @@
 //! code host go one at a time: put on the latest base, pushed, and waited for.
 //! An approval moves to the rebased commit only when the patch is the same.
 
+use crate::server::parts::Parts;
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -111,7 +112,7 @@ pub(super) fn due(core: &Arc<Core>) -> Option<u64> {
     let mut next = None;
     let mut started = Vec::new();
     {
-        let mut state = core.boards.state.locked();
+        let mut state = core.boards().state.locked();
         let lanes = waiting_lanes(&state);
         state
             .lanes
@@ -156,7 +157,7 @@ pub(super) fn due(core: &Arc<Core>) -> Option<u64> {
         let core = core.clone();
         tokio::spawn(async move {
             run_lane(&core, &key, &steps).await;
-            if let Some(lane) = core.boards.state.locked().lanes.get_mut(&key) {
+            if let Some(lane) = core.boards().state.locked().lanes.get_mut(&key) {
                 lane.running = false;
             }
             for step in &steps {
@@ -238,18 +239,18 @@ fn failed_on(step: &Step, tip: &str) -> bool {
 }
 
 fn red_tip(core: &Core, key: &LaneKey) -> Option<String> {
-    let state = core.boards.state.locked();
+    let state = core.boards().state.locked();
     state.lanes.get(key)?.red_tip().map(str::to_owned)
 }
 
 fn clear_red(core: &Core, key: &LaneKey) {
-    if let Some(lane) = core.boards.state.locked().lanes.get_mut(key) {
+    if let Some(lane) = core.boards().state.locked().lanes.get_mut(key) {
         lane.clear_red();
     }
 }
 
 fn mark_red(core: &Core, key: &LaneKey, tip: &str) {
-    if let Some(lane) = core.boards.state.locked().lanes.get_mut(key) {
+    if let Some(lane) = core.boards().state.locked().lanes.get_mut(key) {
         lane.mark_red(tip);
     }
 }
@@ -291,7 +292,7 @@ pub(super) async fn base_answers_for(core: &Arc<Core>, step: &Step, pull: &AutoP
             true
         }
         Ok(Checks::Running { .. }) => {
-            core.boards
+            core.boards()
                 .state
                 .locked()
                 .work(&step.project, step.id)
@@ -465,7 +466,7 @@ fn nothing_left(core: &Core, step: &Step) {
 }
 
 async fn conflicted(core: &Arc<Core>, step: &Step) {
-    core.boards.edit(&step.project, step.id, bounced);
+    core.boards().edit(&step.project, step.id, bounced);
     finish::conflicted(core, step, "its turn in the merge queue came").await;
 }
 
@@ -723,7 +724,7 @@ struct Batch<'a> {
 
 impl Batch<'_> {
     fn trust_one_at_a_time(&self, core: &Core, one_at_a_time: bool) {
-        if let Some(lane) = core.boards.state.locked().lanes.get_mut(self.key) {
+        if let Some(lane) = core.boards().state.locked().lanes.get_mut(self.key) {
             lane.one_at_a_time = one_at_a_time;
         }
     }
@@ -835,7 +836,7 @@ async fn send_back(core: &Arc<Core>, batch: &Batch<'_>, culprit: &Laid, failed: 
         step.run.branch,
         base = step.run.base,
     );
-    core.boards.edit(&step.project, step.id, bounced);
+    core.boards().edit(&step.project, step.id, bounced);
     finish::failed(core, step, &what).await;
 }
 

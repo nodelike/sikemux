@@ -13,6 +13,7 @@ mod pulls;
 pub(crate) use naming::{chat_titled, name_new, name_unnamed};
 
 use crate::server::changed::What;
+use crate::server::parts::Parts;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -182,7 +183,7 @@ pub(crate) async fn read(
     }
     let core = core.clone();
     blocking(move || {
-        let summaries = &core.goal_summaries;
+        let summaries = core.goal_summaries();
         let Written {
             summary, failed, ..
         } = summaries.written(&goal);
@@ -198,16 +199,16 @@ pub(crate) async fn read(
 
 /// Refreshes `goal` off to the side, unless it is being refreshed already.
 fn start(core: &Arc<Core>, goal: Goal, again: bool) {
-    if core.goal_summaries.busy.locked().contains_key(&goal) {
+    if core.goal_summaries().busy.locked().contains_key(&goal) {
         return;
     }
-    core.goal_summaries
+    core.goal_summaries()
         .busy
         .locked()
         .insert(goal.clone(), false);
     let core = core.clone();
     tokio::spawn(async move {
-        let turn = core.goal_summaries.turns.clone().acquire_owned().await;
+        let turn = core.goal_summaries().turns.clone().acquire_owned().await;
         let (reading, asked) = (core.clone(), goal.clone());
         let gathered = blocking(move || Ok(moments::gather(&reading, &asked.0, asked.1))).await;
         let done = match gathered {
@@ -227,7 +228,7 @@ fn start(core: &Arc<Core>, goal: Goal, again: bool) {
         if let Err(error) = done {
             eprintln!("sikemux core: a goal's summary stopped: {error}");
         }
-        let wrote = core.goal_summaries.busy.locked().remove(&goal) == Some(true);
+        let wrote = core.goal_summaries().busy.locked().remove(&goal) == Some(true);
         if wrote {
             tell_clients(&core, &goal);
         }
@@ -240,7 +241,7 @@ fn refresh(core: &Core, goal: &Goal, gathered: &Gathered, again: bool) {
         return;
     }
     let stamp = hex(answer::fingerprint(gathered).as_bytes());
-    let mut written = core.goal_summaries.written(goal);
+    let mut written = core.goal_summaries().written(goal);
     let tried = written.stamp.as_deref() == Some(stamp.as_str())
         || written
             .failed
@@ -249,11 +250,14 @@ fn refresh(core: &Core, goal: &Goal, gathered: &Gathered, again: bool) {
     if tried && !again {
         return;
     }
-    core.goal_summaries.busy.locked().insert(goal.clone(), true);
+    core.goal_summaries()
+        .busy
+        .locked()
+        .insert(goal.clone(), true);
     tell_clients(core, goal);
     match write(core, gathered) {
         Ok((summary, title)) => {
-            if title.is_some_and(|title| core.goal_summaries.name(goal, title)) {
+            if title.is_some_and(|title| core.goal_summaries().name(goal, title)) {
                 core.changed(What::ReadIn(Topic::Boards, Some(&goal.0), None));
             }
             written.summary = Some(summary);
@@ -265,7 +269,7 @@ fn refresh(core: &Core, goal: &Goal, gathered: &Gathered, again: bool) {
             written.failed = Some(Failed { stamp, why });
         }
     }
-    core.goal_summaries.keep(goal, &written);
+    core.goal_summaries().keep(goal, &written);
 }
 
 /// What a model wrote about `gathered` and the short name it gave the goal, or why there is
@@ -296,7 +300,7 @@ fn ask(
         .ask_once()
         .ok_or("This agent can't be asked once")?;
     let model = (agent.entry().commit_models.first()).ok_or("This agent names no model to ask")?;
-    let asked_in = (core.goal_summaries.folder.clone()).unwrap_or_else(std::env::temp_dir);
+    let asked_in = (core.goal_summaries().folder.clone()).unwrap_or_else(std::env::temp_dir);
     std::fs::create_dir_all(&asked_in).map_err(|error| error.to_string())?;
     ask(&asked_in.to_string_lossy(), model, prompt, account)
 }

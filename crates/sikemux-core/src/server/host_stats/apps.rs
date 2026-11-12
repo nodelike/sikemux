@@ -2,6 +2,7 @@
 //! program is in, so an app's helpers count as the app, which is named and drawn as the Finder
 //! shows it.
 
+use crate::server::parts::Parts;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -122,7 +123,7 @@ pub struct AppIconParams {
 /// The icon of the app `app` names, as a PNG in base64, drawn the first time it is asked for.
 pub(crate) async fn icon(core: &Arc<Core>, params: AppIconParams) -> CoreResult<Option<String>> {
     let bundle = {
-        let icons = core.host_watch.icons.0.locked();
+        let icons = core.host_watch().icons.0.locked();
         let Some(icon) = icons.get(&params.app) else {
             return Ok(None);
         };
@@ -136,7 +137,7 @@ pub(crate) async fn icon(core: &Arc<Core>, params: AppIconParams) -> CoreResult<
         use base64::Engine;
         base64::engine::general_purpose::STANDARD.encode(png).into()
     });
-    if let Some(icon) = core.host_watch.icons.0.locked().get_mut(&params.app) {
+    if let Some(icon) = core.host_watch().icons.0.locked().get_mut(&params.app) {
         icon.drawn = Some(drawn.clone());
     }
     Ok(drawn.as_deref().map(str::to_owned))

@@ -4,6 +4,7 @@
 //! the person. Real progress is a check passing on new commits or a criterion newly met.
 //! A landing ends the run, so nothing needs counting after one.
 
+use crate::server::parts::Parts;
 use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
@@ -122,7 +123,7 @@ fn limit_usd(board: &Board) -> f64 {
 }
 
 fn limit_of(core: &Core, project: &str) -> f64 {
-    let state = core.boards.state.locked();
+    let state = core.boards().state.locked();
     state.boards.get(project).map_or(START_LIMIT_USD, limit_usd)
 }
 
@@ -162,15 +163,19 @@ fn at_work_stage(run: &AutoRun) -> bool {
 /// when one of its workers has taken it past the limit. Its lead's turn ending is left alone,
 /// since its work ships next and the check on it is what says whether it got anywhere.
 pub(super) fn turn_ended(core: &Core, agent: &str) {
-    if let Some(cost) = core.chats.get(agent).and_then(|chat| chat.feed.cost_usd()) {
+    if let Some(cost) = core
+        .chats()
+        .get(agent)
+        .and_then(|chat| chat.feed.cost_usd())
+    {
         heard_cost(core, agent, cost);
     }
 }
 
 /// What `agent`'s CLI last said it cost, here or on a linked host.
 pub(super) fn heard_cost(core: &Core, agent: &str, cost: f64) {
-    let lead = core.names.team_of(agent);
-    let mut state = core.boards.state.locked();
+    let lead = core.names().team_of(agent);
+    let mut state = core.boards().state.locked();
     let found = state.boards.iter().find_map(|(project, board)| {
         let index = board.cards.iter().position(|card| {
             card.kept_run().is_some_and(|run| {
@@ -203,7 +208,7 @@ pub(super) fn heard_cost(core: &Core, agent: &str, cost: f64) {
     card.auto = Some(run);
     board.auto_spent_usd += added;
     if added > 0.0 || tripped {
-        core.boards.save(&mut state, &project);
+        core.boards().save(&mut state, &project);
     }
 }
 
@@ -283,7 +288,7 @@ pub(super) fn turned_down(
 /// progress and a failure of theirs counts towards a trip. True when a run changed.
 pub(super) fn checked(core: &Core, board: &mut Board, ran: &CheckRan<'_>) -> bool {
     let by_lead: Vec<(String, &String)> = (ran.authors.iter())
-        .map(|author| (core.names.team_of(author), *author))
+        .map(|author| (core.names().team_of(author), *author))
         .collect();
     let limit = limit_usd(board);
     let mut changed = false;
@@ -344,7 +349,7 @@ pub(super) fn look(core: &Core, project: &str, id: u64, agent: &str, looked: u64
     let agent_now = core.agent_now(agent);
     let at_work = (agent_now.maybe_mid_turn() || agent_now.workers_busy(agent))
         && !agent_now.waits_on_something()
-        && !matches!(core.inbox.fault(agent), Some(Fault::Retrying));
+        && !matches!(core.inbox().fault(agent), Some(Fault::Retrying));
     finish::change_run(core, project, id, agent, |card, run| {
         if at_work && looked != 0 {
             run.burn.work_ms += now.saturating_sub(looked).min(2 * LOOK_EVERY_MS);

@@ -5,6 +5,7 @@
 
 use super::Core;
 use crate::server::changed::What;
+use crate::server::parts::Parts;
 use std::path::Path;
 use std::sync::{Mutex, OnceLock};
 
@@ -172,7 +173,7 @@ impl Faces {
 }
 
 pub(crate) fn set_style_shown(core: &Core, style: FaceStyleChange) -> CoreResult<FaceStyle> {
-    let style = core.faces.set_style(style)?;
+    let style = core.faces().set_style(style)?;
     core.changed(What::View);
     Ok(style)
 }

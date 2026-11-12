@@ -1,6 +1,7 @@
 //! The builds agents start take turns: as many build at once as the host's
 //! cores and memory take, and the rest wait in the order they asked.
 
+use crate::server::parts::Parts;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -143,7 +144,7 @@ pub(crate) struct Turn {
 impl Turn {
     pub(crate) fn ask(core: &Arc<Core>, request: BuildRequest) -> Self {
         let agent = request.agent_id.is_some();
-        let mut state = core.builds.state.locked();
+        let mut state = core.builds().state.locked();
         state.next += 1;
         let id = state.next;
         state.waiting.push_back(Build {
@@ -166,7 +167,7 @@ impl Turn {
     /// Where it stands now, sized by the person's limit, else the host's.
     pub(crate) fn place(&self) -> Place {
         let chosen = self.core.preferences.get().build_runs as usize;
-        let place = self.core.builds.place(self.id, |building| match chosen {
+        let place = self.core.builds().place(self.id, |building| match chosen {
             0 => host_limit(building),
             chosen => chosen,
         });
@@ -180,7 +181,7 @@ impl Turn {
     pub(crate) async fn changed(&self) {
         let _ = tokio::time::timeout(
             std::time::Duration::from_secs(2),
-            self.core.builds.turned.notified(),
+            self.core.builds().turned.notified(),
         )
         .await;
     }
@@ -196,11 +197,11 @@ impl Turn {
 
 impl Drop for Turn {
     fn drop(&mut self) {
-        let mut state = self.core.builds.state.locked();
+        let mut state = self.core.builds().state.locked();
         state.building.retain(|build| build.id != self.id);
         state.waiting.retain(|build| build.id != self.id);
         drop(state);
-        self.core.builds.turned.notify_waiters();
+        self.core.builds().turned.notify_waiters();
         if self.shown.load(Ordering::Relaxed) {
             self.core.changed(What::View);
         } else {

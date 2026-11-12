@@ -7,6 +7,7 @@
 use super::connection::blocking;
 use crate::git::remote::remote_urls;
 use crate::server::changed::What;
+use crate::server::parts::Parts;
 use std::collections::BTreeMap;
 use std::future::Future;
 use std::path::{Path, PathBuf};
@@ -165,7 +166,7 @@ pub(crate) fn agent_environment(core: &Core, cwd: &Path) -> BTreeMap<String, Str
     let Some(Provided(plugins)) = core.config.plugins else {
         return BTreeMap::new();
     };
-    let project = super::workspace::project_of(cwd, &core.workspaces.project_paths());
+    let project = super::workspace::project_of(cwd, &core.workspaces().project_paths());
     plugins.agent_environment(Path::new(&project))
 }
 
@@ -225,7 +226,7 @@ pub(crate) fn tell_agents_if_theirs(core: &Core, plugin: &str) {
         .plugins
         .is_some_and(|Provided(plugins)| plugins.offers_agent_tools(plugin))
     {
-        core.harness.plugins_changed();
+        core.harness().plugins_changed();
     }
 }
 
@@ -264,7 +265,7 @@ pub struct Disabled {
 pub(crate) fn set_disabled(core: &Core, disabled: Disabled) {
     if let Some(Provided(plugins)) = core.config.plugins {
         plugins.set_disabled(disabled.ids);
-        core.harness.plugins_changed();
+        core.harness().plugins_changed();
         core.changed(What::Read(Topic::Plugins));
     }
 }
@@ -372,7 +373,7 @@ pub(crate) fn sign_in_moved(core: &Core, plugin: &str, method: &str) {
             .any(|account| account == method)
     });
     if account_moved {
-        core.vault.touched();
+        core.vault().touched();
         core.changed(What::Read(Topic::Plugins));
     }
 }
@@ -485,7 +486,7 @@ pub(crate) fn caller_of(
     let named = request
         .agent_id
         .as_deref()
-        .and_then(|agent_id| core.names.get(agent_id));
+        .and_then(|agent_id| core.names().get(agent_id));
     sikemux_plugin_api::vault::Caller {
         agent: Some(
             named

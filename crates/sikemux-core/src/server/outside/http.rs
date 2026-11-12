@@ -1,6 +1,7 @@
 //! The MCP endpoint outside programs connect to, on this computer only: Streamable HTTP for
 //! the tools, and the OAuth endpoints a client signs in through.
 
+use crate::server::parts::Parts;
 use std::convert::Infallible;
 use std::net::{Ipv4Addr, SocketAddrV4};
 use std::sync::{Arc, Weak};
@@ -50,7 +51,7 @@ pub(crate) async fn serve(core: Weak<Core>) {
                 let Some(core) = core.upgrade() else {
                     return;
                 };
-                core.outside.set_listening(
+                core.outside().set_listening(
                     None,
                     Some(format!("port {port} on this computer is taken: {error}")),
                 );
@@ -63,7 +64,7 @@ pub(crate) async fn serve(core: Weak<Core>) {
         let Some(core) = core.upgrade() else {
             return;
         };
-        core.outside
+        core.outside()
             .set_listening(Some(format!("http://127.0.0.1:{port}/mcp")), None);
         changed(&core);
     }
@@ -233,13 +234,13 @@ async fn answer(core: Weak<Core>, port: u16, request: Request<Incoming>) -> Resp
                     &json!({ "error": "invalid_client_metadata", "error_description": "the body must be JSON" }),
                 );
             };
-            match core.outside.register(&body) {
+            match core.outside().register(&body) {
                 Ok(registered) => json_reply(StatusCode::CREATED, &registered),
                 Err(refusal) => oauth_refusal(StatusCode::BAD_REQUEST, &refusal),
             }
         }
         (Method::GET, "/authorize") => {
-            match authorize_query(&query).and_then(|asked| core.outside.authorize(asked)) {
+            match authorize_query(&query).and_then(|asked| core.outside().authorize(asked)) {
                 Ok(waiting) => {
                     changed(&core);
                     see_other(&format!("/authorize/wait?id={waiting}"))
@@ -261,12 +262,12 @@ async fn answer(core: Weak<Core>, port: u16, request: Request<Incoming>) -> Resp
                 .find(|(key, _)| key == "id")
                 .map(|(_, id)| id.clone())
                 .unwrap_or_default();
-            match core.outside.back_to_client(&id) {
+            match core.outside().back_to_client(&id) {
                 Ok(Some(back)) => {
                     changed(&core);
                     see_other(&back)
                 }
-                Ok(None) => match core.outside.waiting_shown(&id) {
+                Ok(None) => match core.outside().waiting_shown(&id) {
                     Some(shown) => reply(StatusCode::OK, "text/html; charset=utf-8", page(
                         &format!("Allow {} in Sikemux", shown.name),
                         &format!("Sikemux asks whether {} may use your chats. Check that it shows {} there, then choose what it may do. This page goes on by itself.", shown.name, shown.check),
@@ -279,7 +280,10 @@ async fn answer(core: Weak<Core>, port: u16, request: Request<Incoming>) -> Resp
         }
         (Method::POST, "/token") if not_from_a_page(&request) => {
             let body = read_body(request.into_body()).await.unwrap_or_default();
-            match core.outside.token(&pairs(&String::from_utf8_lossy(&body))) {
+            match core
+                .outside()
+                .token(&pairs(&String::from_utf8_lossy(&body)))
+            {
                 Ok(token) => {
                     changed(&core);
                     json_reply(StatusCode::OK, &token)
@@ -333,7 +337,7 @@ async fn mcp(core: &Arc<Core>, base: &str, request: Request<Incoming>) -> Respon
         });
     let Some(caller) = token
         .as_deref()
-        .and_then(|token| core.outside.caller(token))
+        .and_then(|token| core.outside().caller(token))
     else {
         return unauthorized(base, token.is_some());
     };

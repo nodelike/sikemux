@@ -1,6 +1,7 @@
 //! The vault as Settings → Connectors shows it, and what the person changes there: which
 //! hosts and projects may use each sign-in, the recovery key, and each sign-in's use log.
 
+use crate::server::parts::Parts;
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
@@ -83,7 +84,7 @@ pub struct ShownUse {
 /// key when the account does not name it.
 pub(super) fn named(core: &Core, state: &State, key: &str) -> (String, bool) {
     if state.me.as_deref() == Some(key) {
-        return (core.notify.host_name(), true);
+        return (core.notify().host_name(), true);
     }
     let linked = hosts::rows(core)
         .into_iter()
@@ -101,12 +102,12 @@ pub(super) fn named(core: &Core, state: &State, key: &str) -> (String, bool) {
 }
 
 pub(crate) fn host_name(core: &Core, key: &str) -> String {
-    let state = core.vault.state.locked();
+    let state = core.vault().state.locked();
     named(core, &state, key).0
 }
 
 pub(crate) fn vault(core: &Core) -> ShownVault {
-    let state = core.vault.state.locked();
+    let state = core.vault().state.locked();
     let me = state.me.clone().unwrap_or_default();
     let (status, failed) = match &state.status {
         Status::Off => (ShownStatus::Off, None),
@@ -153,7 +154,7 @@ pub(crate) fn vault(core: &Core) -> ShownVault {
                 hosts: shown_hosts,
                 last_use: state.latest.get(id).map(|(actor, at)| ShownUse {
                     actor: actor.clone(),
-                    host: core.notify.host_name(),
+                    host: core.notify().host_name(),
                     count: 1,
                     at: *at,
                 }),
@@ -212,11 +213,11 @@ pub(crate) async fn revoke(core: &Arc<Core>, params: RevokeParams) -> CoreResult
 }
 
 pub(crate) async fn recovery_saved(core: &Arc<Core>) -> CoreResult<()> {
-    let account = core.vault.state.locked().account.clone();
+    let account = core.vault().state.locked().account.clone();
     if let Some(account) = account {
         blocking(move || local::forget_recovery(&account).map_err(CoreError::from)).await?;
     }
-    core.vault.state.locked().recovery_text = None;
+    core.vault().state.locked().recovery_text = None;
     super::announce(core);
     super::inbox_changed(core);
     Ok(())

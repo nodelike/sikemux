@@ -6,6 +6,7 @@
 //! the generators in a checkout they share, where they would read the other
 //! agents' work in progress.
 
+use crate::server::parts::Parts;
 use std::path::Path;
 use std::time::Duration;
 use uuid::Uuid;
@@ -81,7 +82,7 @@ pub(crate) fn regenerate(
         .iter()
         .filter_map(|agent| known(core, project, agent))
         .collect();
-    let key = core.remote.host_key();
+    let key = core.remote().host_key();
     bring_up_to_date(project, checkout, commit, &generate, &signers, key.as_ref())
 }
 

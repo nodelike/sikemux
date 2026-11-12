@@ -1,6 +1,7 @@
 //! Every agent the core runs or the app holds, merged once: chats, terminals, those asleep and
 //! those on linked hosts. What the agents' tools list, read and close comes from here.
 
+use crate::server::parts::Parts;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -29,7 +30,7 @@ pub(crate) fn terminals<'a>(
 /// The folder of the project an agent's terminal was opened in.
 pub(crate) fn terminal_folder(core: &Core, session: &SessionInfo) -> Option<std::path::PathBuf> {
     let id = session.project.as_deref()?;
-    Some(core.workspaces.project_info(id)?.path)
+    Some(core.workspaces().project_info(id)?.path)
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -64,7 +65,7 @@ impl Listed {
             self.status,
             AgentStatus::Idle | AgentStatus::Done | AgentStatus::Asleep
         );
-        if resting && core.harness.mailbox.has_waiting(&self.agent_id) {
+        if resting && core.harness().mailbox.has_waiting(&self.agent_id) {
             AgentStatus::Starting
         } else {
             self.status
@@ -76,9 +77,9 @@ impl Listed {
 /// puts them. Reads the disk to place agents in projects.
 pub(crate) fn listed(core: &Core) -> Vec<Listed> {
     let (chats, sessions) = core.ranked_infos();
-    let projects = core.workspaces.project_paths();
+    let projects = core.workspaces().project_paths();
     let place = |agent_id: &str, cwd: Option<&std::path::Path>| {
-        core.names
+        core.names()
             .get(agent_id)
             .map(|named| (named.project, named.parent))
             .unwrap_or_else(|| {
@@ -133,19 +134,19 @@ pub(crate) fn listed(core: &Core) -> Vec<Listed> {
         });
     }
     let away: Vec<WorkspaceAgent> = core
-        .workspaces
+        .workspaces()
         .agent_ids()
         .into_iter()
         .filter(|agent_id| !agents.iter().any(|listed| &listed.agent_id == agent_id))
-        .filter_map(|agent_id| core.workspaces.agent(&agent_id))
+        .filter_map(|agent_id| core.workspaces().agent(&agent_id))
         .filter(|agent| agent.terminal)
         .collect();
     for agent in away {
         let (project, parent) = place(&agent.id, Some(&agent.cwd));
         agents.push(Listed {
-            name: core.names.get(&agent.id).map(|named| named.name),
+            name: core.names().get(&agent.id).map(|named| named.name),
             project,
-            title: core.workspaces.title(&agent.id),
+            title: core.workspaces().title(&agent.id),
             cli: agent.provider,
             status: AgentStatus::Asleep,
             parent,
@@ -156,7 +157,7 @@ pub(crate) fn listed(core: &Core) -> Vec<Listed> {
         });
     }
     agents.sort_by_key(|agent| agent.rank);
-    agents.extend(core.hosts.team.all().into_iter().map(|foreign| {
+    agents.extend(core.hosts().team.all().into_iter().map(|foreign| {
         let shown = super::inbox::foreign_shown(core, &foreign);
         Listed {
             name: shown.name,
@@ -177,7 +178,7 @@ pub(crate) fn listed(core: &Core) -> Vec<Listed> {
 /// The host an agent on a linked host runs on, as this host calls it.
 fn host_of(core: &Core, agent: &Listed) -> Option<String> {
     (agent.reach == Reach::Remote)
-        .then(|| core.hosts.team.get(&agent.agent_id))
+        .then(|| core.hosts().team.get(&agent.agent_id))
         .flatten()
         .map(|foreign| super::hosts::name_of(core, &foreign.host))
 }
@@ -237,10 +238,10 @@ pub(crate) fn rows(core: &Core, project: Option<&str>, caller: &str) -> Vec<Valu
         .map(|agent| {
             let host = host_of(core, agent);
             let reachable = core
-                .hosts
+                .hosts()
                 .team
                 .get(&agent.agent_id)
-                .is_none_or(|foreign| core.hosts.reachable(&foreign.host));
+                .is_none_or(|foreign| core.hosts().reachable(&foreign.host));
             let status = if reachable {
                 status_word(agent.standing(core))
             } else {
@@ -313,7 +314,7 @@ pub(crate) async fn close(core: &Arc<Core>, request: &HarnessRequest) -> Result<
                 remote.push(target.agent_id);
                 continue;
             }
-            let led = core.names.leads_of(&target.agent_id);
+            let led = core.names().leads_of(&target.agent_id);
             let by_auto = super::board::run_by_auto(&core, &target.agent_id);
             let orphan = (by_auto || !led.is_empty())
                 && !led.iter().any(|lead| core.agent_now(lead).open())
@@ -420,8 +421,8 @@ pub(crate) fn resolve(
 /// caller's project, or on the caller's team on any host.
 pub(crate) fn reaches(core: &Core, agent: &Listed, project: &str, caller: &str) -> bool {
     let top = match (&agent.reach, &agent.parent) {
-        (Reach::Remote, Some(parent)) => core.names.team_of(parent),
-        _ => core.names.team_of(&agent.agent_id),
+        (Reach::Remote, Some(parent)) => core.names().team_of(parent),
+        _ => core.names().team_of(&agent.agent_id),
     };
-    agent.project == project || top == core.names.team_of(caller)
+    agent.project == project || top == core.names().team_of(caller)
 }

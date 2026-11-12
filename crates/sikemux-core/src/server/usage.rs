@@ -3,6 +3,7 @@
 //! turns, sessions and commits, never which projects or what was said. Only
 //! builds the release workflow publishes send anything; local builds stay silent.
 
+use crate::server::parts::Parts;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
@@ -201,7 +202,7 @@ pub(crate) async fn serve(core: Arc<Core>, data_dir: PathBuf) {
         else {
             continue;
         };
-        let account = core.remote.owner();
+        let account = core.remote().owner();
         sentry_core::Hub::main().configure_scope(|scope| {
             scope.set_user(account.as_deref().map(|account| sentry_core::User {
                 id: Some(account_hash(account)),
@@ -217,7 +218,7 @@ pub(crate) async fn serve(core: Arc<Core>, data_dir: PathBuf) {
         if let Err(error) = report_active(&data_dir, active).await {
             eprintln!("sikemux core: {error}");
         }
-        let log = core.activity_log.clone();
+        let log = core.activity_log().clone();
         let days = move |first: u64, end: u64| log.reported_days(first as i64, end as i64);
         if let Err(error) = report_activity(&data_dir, &active, days).await {
             eprintln!("sikemux core: {error}");

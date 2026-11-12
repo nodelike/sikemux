@@ -4,6 +4,7 @@
 //! anything more goes back to the person. While it waits for review, its
 //! agent is handed reviewers' comments and its replies are posted for it.
 
+use crate::server::parts::Parts;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -47,7 +48,7 @@ pub(super) fn change_run(
     agent: &str,
     change: impl FnOnce(&mut Card, &mut AutoRun),
 ) -> bool {
-    core.boards
+    core.boards()
         .edit_if(project, id, |card| {
             if card.run().is_none_or(|run| run.agent != agent) {
                 return None;
@@ -69,7 +70,7 @@ pub(super) fn note(core: &Core, project: &str, id: u64, agent: &str, stage: RunS
 }
 
 fn agent_cost(core: &Core, agent: &str) -> Option<f64> {
-    core.chats.get(agent)?.feed.cost_usd()
+    core.chats().get(agent)?.feed.cost_usd()
 }
 
 /// What the run cost: all its agents when any reported it, else its last agent's own count.
@@ -129,7 +130,7 @@ pub(super) struct Dropped {
 pub(super) fn clear_dropped(core: &Arc<Core>) {
     blind::clear_dismissed(core);
     let ready: Vec<Dropped> = {
-        let mut state = core.boards.state.locked();
+        let mut state = core.boards().state.locked();
         if state.dropped.is_empty() {
             return;
         }
@@ -148,7 +149,7 @@ pub(super) fn clear_dropped(core: &Arc<Core>) {
         tokio::spawn(async move {
             let (project, id) = (dropped.project.clone(), dropped.id);
             clear(&core, dropped).await;
-            core.boards.end_job(&project, id);
+            core.boards().end_job(&project, id);
         });
     }
 }
@@ -160,7 +161,7 @@ async fn clear(core: &Arc<Core>, dropped: Dropped) {
     if let Some(reviewer) = run.reviewer.take() {
         blind::dismiss(core, reviewer).await;
     }
-    if core.chats.stop(&run.agent) {
+    if core.chats().stop(&run.agent) {
         core.note_agent_gone(&run.agent);
     }
     stop_worker(core, &run.agent);
@@ -227,7 +228,7 @@ impl Step {
     }
 
     pub(super) fn name(&self, core: &Core) -> String {
-        core.names
+        core.names()
             .name(self.agent())
             .or_else(|| self.card.owner.as_ref()?.name.clone())
             .unwrap_or_else(|| "Its agent".to_owned())
@@ -249,7 +250,7 @@ where
     Fut: std::future::Future<Output = ()> + Send + 'static,
 {
     let step = {
-        let mut state = core.boards.state.locked();
+        let mut state = core.boards().state.locked();
         if state.busy(&project, id) {
             if stage == Some(RunStage::Shipping) {
                 state.work(&project, id).reship = true;
@@ -284,7 +285,7 @@ where
         };
         state.work(&project, id).job = true;
         if stage.is_some() {
-            core.boards.save(&mut state, &project);
+            core.boards().save(&mut state, &project);
         }
         step
     };
@@ -301,13 +302,13 @@ where
 /// A step of the card ended, so whatever waited for it can go on.
 pub(super) fn end_step(core: &Arc<Core>, project: String, id: u64) {
     let mut again = false;
-    core.boards
+    core.boards()
         .state
         .locked()
         .change_work(&project, id, |work| {
             again = std::mem::take(&mut work.reship)
         });
-    core.boards.end_job(&project, id);
+    core.boards().end_job(&project, id);
     if again {
         ship(core, project, id);
     }
@@ -317,7 +318,7 @@ pub(super) fn end_step(core: &Arc<Core>, project: String, id: u64) {
 /// never got a worktree, else by shipping its work afresh.
 pub(super) fn retry(core: &Arc<Core>, project: &str, id: u64) -> Result<(), String> {
     let ships = {
-        let mut state = core.boards.state.locked();
+        let mut state = core.boards().state.locked();
         let card = state
             .boards
             .get_mut(project)
@@ -342,7 +343,7 @@ pub(super) fn retry(core: &Arc<Core>, project: &str, id: u64) -> Result<(), Stri
             card.auto = None;
         }
         card.updated_at = epoch_ms();
-        core.boards.save(&mut state, project);
+        core.boards().save(&mut state, project);
         ships
     };
     if ships {
@@ -402,7 +403,7 @@ fn pull_body(core: &Core, step: &Step) -> String {
 }
 
 fn current_result(core: &Core, step: &Step) -> Option<String> {
-    let state = core.boards.state.locked();
+    let state = core.boards().state.locked();
     state
         .boards
         .get(&step.project)?
@@ -469,7 +470,7 @@ async fn shipping(core: &Arc<Core>, step: &Step) -> Result<(), String> {
         None
     } else {
         let said = core
-            .chats
+            .chats()
             .get(step.agent())
             .and_then(|chat| chat.feed.last_answer());
         let answers = review::answers(asked, said.as_deref(), &step.name(core), &head);
@@ -528,7 +529,7 @@ async fn shipping(core: &Arc<Core>, step: &Step) -> Result<(), String> {
 /// each project whose slices wait on a workflow, as the code-host
 /// repositories the core's CI check watches for them.
 pub(crate) fn waiting_on_ci(core: &Core) -> Vec<ci::Shown> {
-    let state = core.boards.state.locked();
+    let state = core.boards().state.locked();
     state
         .boards
         .values()
@@ -549,7 +550,7 @@ pub(crate) fn waiting_on_ci(core: &Core) -> Vec<ci::Shown> {
 /// The runs on `repo` moved, so the runs waiting on their checks there look
 /// again now rather than at their next fallback.
 pub(crate) fn ci_moved(core: &Core, repo: &ci::Shown) {
-    let mut state = core.boards.state.locked();
+    let mut state = core.boards().state.locked();
     let waiting: Vec<(String, u64)> = state
         .boards
         .iter()
@@ -571,7 +572,7 @@ pub(crate) fn ci_moved(core: &Core, repo: &ci::Shown) {
     let workflows = super::workflows::ci_moved(&mut state, repo);
     drop(state);
     if !waiting.is_empty() || workflows {
-        core.boards.wake.now();
+        core.boards().wake.now();
     }
 }
 
@@ -597,7 +598,7 @@ pub(super) fn due(core: &Arc<Core>) -> Option<u64> {
     let mut next = None;
     let mut checking_any = false;
     let due: (Vec<(String, u64, RunStage)>, Vec<WatchedTurn>) = {
-        let mut state = core.boards.state.locked();
+        let mut state = core.boards().state.locked();
         let mut due = Vec::new();
         let mut present = Vec::new();
         let mut missing = Vec::new();
@@ -801,7 +802,7 @@ async fn checking(core: &Arc<Core>, step: Step) {
     let checks = match codehost::checks(core, &pull, &step.run.branch, &head).await {
         Ok(checks) => checks,
         Err(error) => {
-            core.boards
+            core.boards()
                 .state
                 .locked()
                 .work(&step.project, step.id)
@@ -962,14 +963,14 @@ pub(super) async fn ask(
 /// Why the card waits rather than merging: its agent, or an agent working under
 /// it, has a question nobody has answered.
 pub(super) fn unanswered(core: &Core, step: &Step) -> Option<String> {
-    let team = core.names.team(step.agent());
+    let team = core.names().team(step.agent());
     let asker = team
         .iter()
-        .find(|agent| core.harness.questions.has_open(agent))?;
+        .find(|agent| core.harness().questions.has_open(agent))?;
     let who = if asker == step.agent() {
         step.name(core)
     } else {
-        let name = core.names.name_or_id(asker);
+        let name = core.names().name_or_id(asker);
         format!("{name}, working under {},", step.name(core))
     };
     Some(format!(
@@ -1134,9 +1135,10 @@ pub(super) async fn merged(core: &Arc<Core>, step: &Step, by_person: bool) {
     super::roles::landed(core, &step.project);
     if !all_passed {
         // Auto's part ended at the merge; what it deploys next is for whoever takes the card.
-        core.boards.edit(&step.project, step.id, Card::auto_lets_go);
+        core.boards()
+            .edit(&step.project, step.id, Card::auto_lets_go);
     }
-    if core.chats.stop(step.agent()) {
+    if core.chats().stop(step.agent()) {
         core.note_agent_gone(step.agent());
     }
     stop_worker(core, step.agent());
@@ -1203,7 +1205,7 @@ async fn reviewing(core: &Arc<Core>, step: Step) {
 
 /// Counts the looks in a row at the card's pull request that found nothing new.
 fn quiet(core: &Core, step: &Step, nothing_new: bool) {
-    core.boards
+    core.boards()
         .state
         .locked()
         .change_work(&step.project, step.id, |work| {

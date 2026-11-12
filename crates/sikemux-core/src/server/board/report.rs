@@ -3,6 +3,7 @@
 //! draws, so nobody has to ask its lead for status. The person hears of a report only when it
 //! says something the one before did not.
 
+use crate::server::parts::Parts;
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
@@ -59,7 +60,7 @@ pub(crate) async fn person_report_every(
     let core = core.clone();
     blocking(move || {
         let project = project_at(&core, &params.project)?;
-        let set = core.boards.edit(&project, params.id, |card| {
+        let set = core.boards().edit(&project, params.id, |card| {
             card.goal.report_on(params.every);
         });
         set.ok_or_else(|| format!("There is no card #{} on this project's board", params.id))?;
@@ -72,7 +73,7 @@ pub(crate) async fn person_report_every(
 /// Goal `id`'s reports, oldest first.
 pub(crate) fn reports(core: &Core, params: GoalReportsParams) -> Result<Vec<GoalReport>, String> {
     let project = project_at(core, &params.project)?;
-    let state = core.boards.state.locked();
+    let state = core.boards().state.locked();
     let board = (state.boards.get(&project))
         .ok_or_else(|| format!("There is no card #{} on this project's board", params.id))?;
     Ok(board.card(params.id)?.goal.reports().to_vec())
@@ -84,7 +85,7 @@ pub(super) fn due(core: &Core) -> (Option<u64>, Vec<GoalMoved>) {
     let now = epoch_ms();
     let mut next = None;
     let mut moved = Vec::new();
-    let mut state = core.boards.state.locked();
+    let mut state = core.boards().state.locked();
     let projects: Vec<String> = state.boards.keys().cloned().collect();
     for project in projects {
         let Some(board) = state.boards.get(&project) else {
@@ -150,7 +151,7 @@ pub(super) fn due(core: &Core) -> (Option<u64>, Vec<GoalMoved>) {
                 card.goal.reported(report, KEEP);
             }
         }
-        core.boards.save(&mut state, &project);
+        core.boards().save(&mut state, &project);
     }
     (next, moved)
 }

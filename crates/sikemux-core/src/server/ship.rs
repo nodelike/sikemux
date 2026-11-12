@@ -9,6 +9,7 @@
 //! one that goes is followed to its end and kept as evidence on the slice.
 
 use crate::server::changed::What;
+use crate::server::parts::Parts;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -294,9 +295,9 @@ fn check_call(
     cwd: &Path,
     call: Option<ToolCall>,
 ) -> Result<Option<Deploy>, String> {
-    let project = (core.names.get(agent_id).map(|named| named.project))
+    let project = (core.names().get(agent_id).map(|named| named.project))
         .filter(|project| !project.is_empty())
-        .unwrap_or_else(|| core.workspaces.project_of(cwd));
+        .unwrap_or_else(|| core.workspaces().project_of(cwd));
     let mut ship = ship;
     if ship.kind == ShipKind::Push {
         match push::reach(&ship.what, cwd) {
@@ -340,7 +341,7 @@ fn check_call(
         }
         return hold(core, agent_id, &project, ship, cwd, call, None);
     }
-    let name = core.names.name_or_id(agent_id);
+    let name = core.names().name_or_id(agent_id);
     let judged = places::judge(core, &project, &ship, &name);
     let place = judged.place.as_ref().map(|place| place.name().to_owned());
     let deploy = |why: String, call: Option<String>, telling: Option<Telling>| {
@@ -388,11 +389,11 @@ fn check_call(
             let (key, once) = key_of(&gated, &ship, work.as_deref(), call.is_some());
             let yes = person_calls::find_key(core, &project, &key)
                 .filter(|call| passes(core, call, agent_id))
-                .filter(|call| core.ship.claim(&call.id, once));
+                .filter(|call| core.ship().claim(&call.id, once));
             if let Some(yes) = yes {
                 if let Err(why) = person_calls::started(core, &yes.id) {
                     if once {
-                        core.ship.state.locked().used.remove(&yes.id);
+                        core.ship().state.locked().used.remove(&yes.id);
                     }
                     return Err(format!(
                         "Not yet: Sikemux couldn't record that `{}` started ({why}), so it doesn't run. Try again in a moment.",
@@ -400,7 +401,7 @@ fn check_call(
                     ));
                 }
                 if !once {
-                    let mut state = core.ship.state.locked();
+                    let mut state = core.ship().state.locked();
                     let covered = (state.covering.iter())
                         .any(|(agent, call, _)| agent == agent_id && *call == yes.id);
                     if !covered {
@@ -464,8 +465,8 @@ pub(crate) fn key_of(
 fn passes(core: &Core, call: &PersonCall, asking: &str) -> bool {
     settle_covering(core, &call.id, asking);
     let yes = (call.answer.as_ref())
-        .is_some_and(|answer| said_yes(answer.option.as_deref()) && answer.at >= core.ship.born);
-    if core.ship.state.locked().used.contains(&call.id) {
+        .is_some_and(|answer| said_yes(answer.option.as_deref()) && answer.at >= core.ship().born);
+    if core.ship().state.locked().used.contains(&call.id) {
         return false;
     }
     let used = (call.outcome.as_ref()).is_some_and(|outcome| {
@@ -480,7 +481,7 @@ fn passes(core: &Core, call: &PersonCall, asking: &str) -> bool {
 /// A deploy's yes covers those on its call until the last of their turns ends; an agent that
 /// closed takes no more turns, so it counts as ended.
 fn settle_covering(core: &Core, call: &str, asking: &str) {
-    let on_call: Vec<String> = (core.ship.state.locked().covering.iter())
+    let on_call: Vec<String> = (core.ship().state.locked().covering.iter())
         .filter(|(_, covered, _)| covered == call)
         .map(|(agent, _, _)| agent.clone())
         .collect();
@@ -489,12 +490,12 @@ fn settle_covering(core: &Core, call: &str, asking: &str) {
     }
     let gone: Vec<String> = (on_call.into_iter())
         .filter(|agent| agent != asking)
-        .filter(|agent| !core.agent_now(agent).running() && core.workspaces.closed(agent))
+        .filter(|agent| !core.agent_now(agent).running() && core.workspaces().closed(agent))
         .collect();
     if gone.is_empty() {
         return;
     }
-    let mut state = core.ship.state.locked();
+    let mut state = core.ship().state.locked();
     state
         .covering
         .retain(|(agent, covered, _)| covered != call || !gone.contains(agent));
@@ -552,7 +553,7 @@ fn call_asking(
     key: Option<String>,
     resolved_from: Option<&str>,
 ) -> Raise {
-    let name = core.names.name_or_id(agent_id);
+    let name = core.names().name_or_id(agent_id);
     let subject = Git::quick(cwd)
         .trimmed(&["log", "-1", "--format=%s"])
         .ok()
@@ -653,7 +654,7 @@ fn gate(
     } = asking;
     if let Some(no) = person_calls::find_key(core, project, &key).filter(refused) {
         let answered = no.answer.as_ref().map_or(0, |answer| answer.at);
-        let spoke = core.ship.state.locked().spoke.get(agent_id).copied();
+        let spoke = core.ship().state.locked().spoke.get(agent_id).copied();
         if spoke.is_none_or(|spoke| spoke <= answered) {
             return Err(format!(
                 "Not yet: the person said no to changing {} with this work. Do not run it again, however it is spelled, unless the work changes or they tell you to; if your work needs it, say so in your answer.",
@@ -661,7 +662,7 @@ fn gate(
             ));
         }
     }
-    let stale: Vec<String> = (core.ship.state.locked().holds.iter())
+    let stale: Vec<String> = (core.ship().state.locked().holds.iter())
         .filter(|hold| hold.agent_id == agent_id)
         .filter_map(|hold| hold.key.as_deref().map(|held| (hold, held)))
         .filter(|(_, held)| *held != key && same_but_work(held, &key))
@@ -676,7 +677,7 @@ fn gate(
         );
     }
     let oldest = {
-        let state = core.ship.state.locked();
+        let state = core.ship().state.locked();
         let mine: Vec<&Hold> = (state.holds.iter())
             .filter(|hold| hold.agent_id == agent_id && hold.key.is_some())
             .collect();
@@ -719,7 +720,7 @@ fn gate(
         places::offer(core, project, &id, place.clone());
     }
     {
-        let mut state = core.ship.state.locked();
+        let mut state = core.ship().state.locked();
 
         let waiting = (state.holds.iter())
             .any(|hold| hold.agent_id == agent_id && hold.key.as_deref() == Some(key.as_str()));
@@ -784,7 +785,7 @@ fn same_but_work(one: &str, other: &str) -> bool {
 /// waits on it, telling the others that joined it why.
 fn withdraw(core: &Core, agent_id: &str, token: &str, why: &str) {
     let others: Vec<String> = {
-        let mut state = core.ship.state.locked();
+        let mut state = core.ship().state.locked();
         state
             .holds
             .retain(|hold| !(hold.token == token && hold.agent_id == agent_id));
@@ -849,7 +850,7 @@ fn hold(
             telling: None,
         });
     {
-        let mut state = core.ship.state.locked();
+        let mut state = core.ship().state.locked();
         let same =
             |agent: &str, held: &Ship, at: &Path| agent == agent_id && *held == ship && at == cwd;
         if let Some(at) = (state.allowed.iter()).position(|allowed| {
@@ -938,7 +939,7 @@ pub(crate) async fn call(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
         Ok(None) => json!({ "allowed": true }),
         Ok(Some(deploy)) if follows => {
             let went = {
-                let mut state = core.ship.state.locked();
+                let mut state = core.ship().state.locked();
                 state.next += 1;
                 let went = state.next;
                 if state.going.len() >= MAX_GOING {
@@ -954,7 +955,7 @@ pub(crate) async fn call(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
             tokio::spawn(async move {
                 tokio::time::sleep(GOING_AT_MOST).await;
                 let lost = {
-                    let mut state = waiting.ship.state.locked();
+                    let mut state = waiting.ship().state.locked();
                     let at = state.going.iter().position(|(id, _)| *id == went);
                     at.and_then(|at| state.going.remove(at))
                 };
@@ -1023,7 +1024,7 @@ pub(crate) fn ran_call(core: &Arc<Core>, request: &HarnessRequest) -> Result<Val
         .and_then(|went| went.parse().ok())
         .ok_or("went must be what the check answered with")?;
     let deploy = {
-        let mut state = core.ship.state.locked();
+        let mut state = core.ship().state.locked();
         let at = (state.going.iter())
             .position(|(id, deploy)| {
                 *id == went && Some(&deploy.agent_id) == request.agent_id.as_ref()
@@ -1345,12 +1346,12 @@ pub(crate) async fn ended(
         person_calls::set_outcome(&core, call, outcome.clone());
     }
     if let Some(telling) = deploy.telling.clone() {
-        let told = core.ship.state.locked().told.get(&telling.key).cloned();
+        let told = core.ship().state.locked().told.get(&telling.key).cloned();
         match told {
             Some(id) => person_calls::set_outcome(&core, &id, outcome),
             None => {
                 let id = person_calls::told(&core, telling.raise, outcome);
-                core.ship.state.locked().told.insert(telling.key, id);
+                core.ship().state.locked().told.insert(telling.key, id);
             }
         }
     }
@@ -1372,7 +1373,7 @@ pub(crate) async fn ended(
         by_person: deploy.by_person,
         head: deploy.head,
     };
-    core.repo_events.tell(RepoEvent::Deployed {
+    core.repo_events().tell(RepoEvent::Deployed {
         project: deploy.project,
         agent: deploy.agent_id,
         ran,
@@ -1388,7 +1389,7 @@ pub(crate) async fn gate_answered(core: &Arc<Core>, call: &PersonCall, typed: Op
         .as_ref()
         .and_then(|answer| answer.option.clone());
     {
-        let mut state = core.ship.state.locked();
+        let mut state = core.ship().state.locked();
         let mut waiting: Vec<String> = (state.holds.iter())
             .filter(|hold| hold.token == call.id)
             .map(|hold| hold.agent_id.clone())
@@ -1473,7 +1474,7 @@ pub(crate) async fn gate_answered(core: &Arc<Core>, call: &PersonCall, typed: Op
         let heard = delivered
             .is_ok_and(|told| matches!(told["delivery"].as_str(), Some("steered" | "newTurn")));
         if heard {
-            core.ship.turn_started(&asker.agent_id);
+            core.ship().turn_started(&asker.agent_id);
         }
     }
 }
@@ -1500,7 +1501,7 @@ pub(crate) async fn allow(core: &Arc<Core>, params: HoldParams) -> CoreResult<()
 }
 
 async fn allow_hold(core: &Arc<Core>, mut hold: Hold) {
-    core.ship.remember(&hold, true);
+    core.ship().remember(&hold, true);
     if let Some(call) = hold.call.take() {
         let allowed = format!("The person allowed `{}` once", hold.ship.what);
         run_held(core, hold, call, allowed);
@@ -1561,7 +1562,7 @@ async fn permitted(
     text: String,
     call: Option<String>,
 ) {
-    core.ship.state.locked().allowed.push(Allowed {
+    core.ship().state.locked().allowed.push(Allowed {
         agent_id: agent_id.clone(),
         permit,
         call,
@@ -1571,7 +1572,7 @@ async fn permitted(
     let heard =
         told.is_ok_and(|told| matches!(told["delivery"].as_str(), Some("steered" | "newTurn")));
     if heard {
-        core.ship.turn_started(&agent_id);
+        core.ship().turn_started(&agent_id);
     }
 }
 
@@ -1584,7 +1585,7 @@ pub(crate) async fn let_go(_core: &Arc<Core>, _params: HoldParams) -> CoreResult
 /// The person refuses the held action, and the agent is told not to take it.
 pub(crate) async fn refuse(core: &Arc<Core>, params: HoldParams) -> CoreResult<()> {
     let hold = take(core, &params.hold)?;
-    core.ship.remember(&hold, false);
+    core.ship().remember(&hold, false);
     let text = format!(
         "The person did not allow `{}`. Do not run it; if your work needed it, say so in your answer.",
         hold.ship.what
@@ -1595,7 +1596,7 @@ pub(crate) async fn refuse(core: &Arc<Core>, params: HoldParams) -> CoreResult<(
 
 fn take(core: &Core, id: &str) -> CoreResult<Hold> {
     let hold = {
-        let mut state = core.ship.state.locked();
+        let mut state = core.ship().state.locked();
         let at = (state.holds.iter())
             .position(|hold| hold.token == id)
             .ok_or("that action no longer waits on you")?;
@@ -1609,7 +1610,7 @@ fn take(core: &Core, id: &str) -> CoreResult<Hold> {
 /// Puts each held action to the person as a production call, and closes the calls of those no
 /// longer held.
 fn tell_calls(core: &Core) {
-    let state = core.ship.state.locked();
+    let state = core.ship().state.locked();
     let wanted = (state.holds.iter())
         .filter(|hold| hold.key.is_none())
         .map(|hold| (hold.token.clone(), held_call(core, hold)))
@@ -1639,7 +1640,7 @@ fn slug(name: &str) -> String {
 }
 
 fn held_call(core: &Core, hold: &Hold) -> PersonCall {
-    let name = core.names.name_or_id(&hold.agent_id);
+    let name = core.names().name_or_id(&hold.agent_id);
     let question = match (hold.ship.kind, hold.ship.writes_to(), &hold.environment) {
         (_, Some(place), _) => format!("Let @{name} write to {place} as you?"),
         (ShipKind::Push, ..) => format!("Let @{name} push its commits?"),
@@ -1711,7 +1712,7 @@ mod tests {
             .await
             .unwrap_err();
         assert!(said.starts_with("Waits for the person"), "{said}");
-        let waiting = core.ship.waiting();
+        let waiting = core.ship().waiting();
         assert_eq!(waiting.len(), 1);
         assert_eq!(waiting[0].hold.environment.as_deref(), Some("./deploy.sh"));
     }

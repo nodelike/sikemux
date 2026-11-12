@@ -4,6 +4,7 @@
 //! saves, and writes a name the person gave back into the CLI's own session.
 
 use crate::server::changed::What;
+use crate::server::parts::Parts;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, Weak};
@@ -90,10 +91,10 @@ fn group_of(book: &Book, agent: &WorkspaceAgent) -> Option<Group> {
 }
 
 fn agents(core: &Core) -> Vec<WorkspaceAgent> {
-    core.workspaces
+    core.workspaces()
         .agent_ids()
         .into_iter()
-        .filter_map(|agent_id| core.workspaces.agent(&agent_id))
+        .filter_map(|agent_id| core.workspaces().agent(&agent_id))
         .filter(|agent| !agent.asleep)
         .collect()
 }
@@ -101,12 +102,12 @@ fn agents(core: &Core) -> Vec<WorkspaceAgent> {
 /// Watches the session folders of every group an agent of the workspace is
 /// in, and only those. Runs whenever the workspace changes.
 pub(crate) fn follow(core: &Arc<Core>) {
-    let book = core.workspaces.accounts().unwrap_or_default();
+    let book = core.workspaces().accounts().unwrap_or_default();
     let wanted: HashSet<Group> = agents(core)
         .iter()
         .filter_map(|agent| group_of(&book, agent))
         .collect();
-    let mut watching = core.session_watch.watching.locked();
+    let mut watching = core.session_watch().watching.locked();
     let fresh: Vec<Group> = wanted
         .iter()
         .filter(|group| !watching.places.iter().any(|places| places.group == **group))
@@ -221,7 +222,7 @@ fn route(core: &Arc<Core>, paths: &[PathBuf], pending: &mut HashMap<Group, Touch
     let mut touches: Vec<(Group, Touch)> = Vec::new();
     let mut moved = false;
     {
-        let mut watching = core.session_watch.watching.locked();
+        let mut watching = core.session_watch().watching.locked();
         for places in &watching.places {
             for path in paths {
                 if let Some(touch) = places.touched(path) {
@@ -283,10 +284,10 @@ async fn refresh(core: &Arc<Core>, group: Group, touched: Touched) {
 
 /// The sessions of the group's chats with a turn running.
 fn streaming(core: &Core, group: &Group) -> Vec<String> {
-    core.chats
+    core.chats()
         .ids()
         .into_iter()
-        .filter_map(|agent_id| core.chats.get(&agent_id))
+        .filter_map(|agent_id| core.chats().get(&agent_id))
         .filter(|chat| {
             chat.provider() == group.kind.as_str()
                 && chat.launch.cwd.to_string_lossy() == group.cwd
@@ -379,13 +380,13 @@ fn real(path: &Path) -> PathBuf {
 /// Notes the sessions there are as a terminal agent starts without one, so
 /// the one it binds to is the one it starts.
 pub(crate) async fn note_launch(core: &Arc<Core>, agent: &WorkspaceAgent) {
-    let book = core.workspaces.accounts().unwrap_or_default();
+    let book = core.workspaces().accounts().unwrap_or_default();
     let Some(group) = group_of(&book, agent) else {
         return;
     };
     let listed = listed(group).await;
     let ids = listed.into_iter().map(|session| session.id).collect();
-    core.session_watch
+    core.session_watch()
         .baselines
         .locked()
         .insert(agent.id.clone(), ids);
@@ -426,7 +427,7 @@ fn take_title(core: &Core, agent: &WorkspaceAgent, row: &AgentSession) {
 }
 
 async fn settle(core: &Arc<Core>, group: &Group, rows: Vec<AgentSession>) {
-    let book = core.workspaces.accounts().unwrap_or_default();
+    let book = core.workspaces().accounts().unwrap_or_default();
     let members: Vec<WorkspaceAgent> = agents(core)
         .into_iter()
         .filter(|agent| group_of(&book, agent).as_ref() == Some(group))
@@ -463,7 +464,7 @@ async fn settle(core: &Arc<Core>, group: &Group, rows: Vec<AgentSession>) {
     candidates.sort_by_key(|row| std::cmp::Reverse(row.mtime));
     for agent in fresh {
         let baseline = core
-            .session_watch
+            .session_watch()
             .baselines
             .locked()
             .get(&agent.id)
@@ -478,12 +479,12 @@ async fn settle(core: &Arc<Core>, group: &Group, rows: Vec<AgentSession>) {
         };
         let row = candidates.remove(index);
         let resumed = core
-            .workspaces
+            .workspaces()
             .edit_agent(&agent.id, |agent| agent.resume_id = Some(row.id.clone()));
         if resumed.is_err() {
             continue;
         }
-        core.session_watch.baselines.locked().remove(&agent.id);
+        core.session_watch().baselines.locked().remove(&agent.id);
         if agent.renamed {
             names.push((row.id.clone(), agent.title.clone()));
         } else {
@@ -499,7 +500,7 @@ async fn settle(core: &Arc<Core>, group: &Group, rows: Vec<AgentSession>) {
 /// Writes a name the person gave an agent into its CLI's own session, once.
 async fn name_session(core: &Core, group: &Group, session_id: String, name: String) {
     let key = (session_id.clone(), name.clone());
-    let first = core.session_watch.named.locked().insert(key);
+    let first = core.session_watch().named.locked().insert(key);
     if !first {
         return;
     }

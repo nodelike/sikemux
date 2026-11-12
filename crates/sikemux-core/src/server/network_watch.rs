@@ -3,6 +3,7 @@
 //! sitting out its backoff.
 
 use crate::server::changed::What;
+use crate::server::parts::Parts;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
@@ -21,7 +22,7 @@ pub(super) async fn run(core: Arc<Core>) {
         };
         if change != NetworkEvent::Offline {
             remote::network_back(&core).await;
-            core.chats.retry_offline_failures();
+            core.chats().retry_offline_failures();
         }
         core.changed(What::Event(&Event::Network { change }));
     }

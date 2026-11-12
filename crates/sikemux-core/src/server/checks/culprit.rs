@@ -2,6 +2,7 @@
 //! the last sound one and the failing one in the integration checkout, for a
 //! bounded time, one project's step at a time.
 
+use crate::server::parts::Parts;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -115,7 +116,7 @@ async fn passes(
     sha: &str,
     started: Instant,
 ) -> Result<Ran, String> {
-    let _turn = core.checks.hunt_turn.lock().await;
+    let _turn = core.checks().hunt_turn.lock().await;
     let Some(left) = HUNT_LIMIT.checked_sub(started.elapsed()) else {
         return Err("it ran out of time".to_owned());
     };

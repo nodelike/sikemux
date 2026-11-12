@@ -17,6 +17,7 @@ impl crate::server::part::Part for Notifier {
 #[cfg(test)]
 mod tests;
 
+use crate::server::parts::Parts;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -234,10 +235,10 @@ impl Notifier {
 /// Handles signals in order as they come, and watches for the person leaving.
 pub(crate) async fn run(core: Arc<Core>) {
     let (signals, mut received) = mpsc::unbounded_channel();
-    *core.notify.signals.locked() = Some(signals);
+    *core.notify().signals.locked() = Some(signals);
     let named = tokio::task::spawn_blocking(|| super::host::info().name).await;
     if let Ok(name) = named {
-        let _ = core.notify.host_name.set(name);
+        let _ = core.notify().host_name.set(name);
     }
     let mut ticker = tokio::time::interval(TICK);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -259,14 +260,14 @@ pub(crate) async fn run(core: Arc<Core>) {
                     activity::tell(&core, now);
                 }
             }
-            () = core.notify.inbox_moved.notified(), if inbox_due.is_none() => {
+            () = core.notify().inbox_moved.notified(), if inbox_due.is_none() => {
                 inbox_due = Some(tokio::time::Instant::now() + INBOX_GATHER);
             }
             () = when(inbox_due) => {
                 inbox_due = None;
                 inbox(&core, epoch_ms());
             }
-            () = core.notify.goals_moved.notified(), if goals_due.is_none() => {
+            () = core.notify().goals_moved.notified(), if goals_due.is_none() => {
                 goals_due = Some(tokio::time::Instant::now() + goals::GATHER);
             }
             () = when(goals_due) => {
@@ -288,7 +289,7 @@ async fn when(due: Option<tokio::time::Instant>) {
 /// Asking macOS whether the screen is locked can take seconds the first time,
 /// so it runs off the threads that serve connections.
 async fn away_now(core: &Core) -> bool {
-    let presence = core.notify.presence();
+    let presence = core.notify().presence();
     tokio::task::spawn_blocking(move || presence.away())
         .await
         .ok()
@@ -298,14 +299,14 @@ async fn away_now(core: &Core) -> bool {
 
 #[cfg(test)]
 pub(crate) fn look_around(core: &Core, now: u64) {
-    noted(core, core.notify.presence().away().unwrap_or(true), now);
+    noted(core, core.notify().presence().away().unwrap_or(true), now);
 }
 
 /// Notes whether the person is here, and once they leave, sends what waited
 /// for that: permission requests and agents still waiting for input.
 fn noted(core: &Core, away: bool, now: u64) {
     let left = {
-        let mut state = core.notify.state.locked();
+        let mut state = core.notify().state.locked();
         let left = away && !state.away;
         if left {
             state.left_at = Some(now);
@@ -320,7 +321,7 @@ fn noted(core: &Core, away: bool, now: u64) {
         return;
     }
     let pending: Vec<Attention> = core
-        .notify
+        .notify()
         .state
         .locked()
         .pending
@@ -333,7 +334,7 @@ fn noted(core: &Core, away: bool, now: u64) {
         }
     }
     let questions: Vec<((String, String), Asked)> = core
-        .notify
+        .notify()
         .state
         .locked()
         .questions
@@ -346,7 +347,7 @@ fn noted(core: &Core, away: bool, now: u64) {
         }
     }
     let waiting: Vec<String> = core
-        .notify
+        .notify()
         .state
         .locked()
         .waiting_for_input
@@ -359,7 +360,7 @@ fn noted(core: &Core, away: bool, now: u64) {
         }
     }
     let told: Vec<Draft> = core
-        .notify
+        .notify()
         .state
         .locked()
         .inbox
@@ -388,7 +389,7 @@ fn inbox(core: &Core, now: u64) {
     tell_chats_needs(core);
     activity::tell(core, now);
     let phones: Vec<String> = core
-        .remote
+        .remote()
         .notify_targets()
         .map(|(_, targets)| targets.into_iter().map(|target| target.device_id).collect())
         .unwrap_or_default();
@@ -407,7 +408,7 @@ fn inbox(core: &Core, now: u64) {
             .map(|call| (format!("call|{}", call.id), Told::Call(call))),
     );
     let (fresh, gone) = {
-        let mut state = core.notify.state.locked();
+        let mut state = core.notify().state.locked();
         let first = state.inbox.is_none();
         let before = state.inbox.take().unwrap_or_default();
         let mut kept = HashMap::new();
@@ -461,7 +462,7 @@ pub(crate) fn handle(core: &Core, signal: Signal, now: u64) {
 fn apply(core: &Core, signal: Signal, now: u64) {
     match signal {
         Signal::Attention(attention) => {
-            core.notify.state.locked().pending.insert(
+            core.notify().state.locked().pending.insert(
                 (attention.agent_id.clone(), attention.id.clone()),
                 (*attention).clone(),
             );
@@ -470,7 +471,7 @@ fn apply(core: &Core, signal: Signal, now: u64) {
             }
         }
         Signal::Cleared { id, agent_id } => {
-            core.notify
+            core.notify()
                 .state
                 .locked()
                 .pending
@@ -485,7 +486,7 @@ fn apply(core: &Core, signal: Signal, now: u64) {
         }
         Signal::AgentState { agent_id, state } => {
             let was_waiting = {
-                let mut notify = core.notify.state.locked();
+                let mut notify = core.notify().state.locked();
                 if state == AgentState::Blocked {
                     !notify.waiting_for_input.insert(agent_id.clone())
                 } else {
@@ -508,7 +509,7 @@ fn apply(core: &Core, signal: Signal, now: u64) {
             at,
         } => {
             let asked = Asked { name, text, at };
-            core.notify
+            core.notify()
                 .state
                 .locked()
                 .questions
@@ -518,7 +519,7 @@ fn apply(core: &Core, signal: Signal, now: u64) {
             }
         }
         Signal::QuestionCleared { id, agent_id } => {
-            core.notify
+            core.notify()
                 .state
                 .locked()
                 .questions
@@ -536,17 +537,17 @@ fn apply(core: &Core, signal: Signal, now: u64) {
         Signal::Pairing(device) => alert_all(core, &pairing(core, &device), now),
         Signal::PairingSettled { id } => clear_all(core, "", &pairing_card(&id), None, now),
         Signal::TurnStarted { agent_id } => {
-            core.notify.state.locked().turns.insert(agent_id, now);
+            core.notify().state.locked().turns.insert(agent_id, now);
         }
         Signal::TurnCompleted {
             agent_id,
             cancelled,
         } => {
-            let started = core.notify.state.locked().turns.remove(&agent_id);
+            let started = core.notify().state.locked().turns.remove(&agent_id);
             let long =
                 started.is_some_and(|started| now.saturating_sub(started) >= FINISHED_AFTER_MS);
-            let asking = core.harness.questions.waits_on_answer(&agent_id)
-                || core.harness.questions.asks_in_reply(&agent_id);
+            let asking = core.harness().questions.waits_on_answer(&agent_id)
+                || core.harness().questions.asks_in_reply(&agent_id);
             let waits = super::turn_state::set_a_wake(core, &agent_id);
             if long && !cancelled && !asking && !waits {
                 if let Some(draft) = finished(core, &agent_id, now) {
@@ -566,7 +567,7 @@ fn apply(core: &Core, signal: Signal, now: u64) {
         }
         Signal::Problem { agent_id, message } => {
             if core
-                .notify
+                .notify()
                 .state
                 .locked()
                 .waiting_for_input
@@ -600,7 +601,7 @@ fn input_card(agent_id: &str) -> String {
 /// Each chat says what the agents messaging it need of the person on the line their messages fold to.
 fn tell_chats_needs(core: &Core) {
     let needs = super::inbox::agent_needs(core);
-    for chat in core.chats.all() {
+    for chat in core.chats().all() {
         chat.feed.set_needs(&needs);
     }
 }
@@ -649,7 +650,7 @@ pub(crate) fn provider_name(core: &Core, provider: &str) -> String {
     if let Some(agent) = crate::agent_catalog::agent(provider) {
         return agent.label.into();
     }
-    core.workspaces
+    core.workspaces()
         .view()
         .launchers
         .into_iter()
@@ -665,7 +666,7 @@ pub(crate) fn provider_name(core: &Core, provider: &str) -> String {
 }
 
 fn project_name(core: &Core, project: &str) -> String {
-    core.workspaces
+    core.workspaces()
         .view()
         .projects
         .into_iter()
@@ -681,7 +682,7 @@ fn folder_name(path: &Path) -> String {
 }
 
 fn name(core: &Core, agent_id: &str) -> Option<Named> {
-    if let Some(chat) = core.chats.get(agent_id) {
+    if let Some(chat) = core.chats().get(agent_id) {
         let title = core
             .chat_infos()
             .into_iter()
@@ -691,7 +692,7 @@ fn name(core: &Core, agent_id: &str) -> Option<Named> {
             chat: true,
             provider: chat.provider().to_owned(),
             agent: core
-                .names
+                .names()
                 .name(agent_id)
                 .unwrap_or_else(|| provider_name(core, chat.provider())),
             title,
@@ -704,11 +705,11 @@ fn name(core: &Core, agent_id: &str) -> Option<Named> {
     Some(Named {
         chat: false,
         agent: core
-            .names
+            .names()
             .name(agent_id)
             .unwrap_or_else(|| provider_name(core, &provider)),
         provider,
-        title: core.workspaces.title(agent_id),
+        title: core.workspaces().title(agent_id),
         project: owner
             .project
             .as_deref()
@@ -724,7 +725,7 @@ impl Named {
         } else {
             self.project.clone().or_else(|| self.title.clone())
         };
-        let host = core.notify.host_name();
+        let host = core.notify().host_name();
         match place {
             Some(place) => format!("{place} on {host}"),
             None => format!("On {host}"),
@@ -859,12 +860,12 @@ fn needed(core: &Core, item: &InboxItem, now: u64) -> Draft {
     let place = match &named {
         Some(named) => named.whereabouts(core, true),
         None => item.project.as_deref().map_or_else(
-            || format!("On {}", core.notify.host_name()),
+            || format!("On {}", core.notify().host_name()),
             |project| {
                 format!(
                     "{} on {}",
                     project_name(core, project),
-                    core.notify.host_name()
+                    core.notify().host_name()
                 )
             },
         ),
@@ -1043,7 +1044,10 @@ fn pairing(core: &Core, device: &PendingDevice) -> Draft {
         chat_title: None,
         title: clipped_line(&format!("{name} wants to connect"), MAX_TITLE_CHARS),
         body: clipped_line(
-            &format!("To {}, from your Sikemux account", core.notify.host_name()),
+            &format!(
+                "To {}, from your Sikemux account",
+                core.notify().host_name()
+            ),
             MAX_BODY_CHARS,
         ),
         detail: None,
@@ -1089,14 +1093,14 @@ fn answers_pairing(core: &Core, phone: &str) -> bool {
     let peer = Peer::Device {
         id: phone.to_owned(),
     };
-    access::permit(&peer, core.remote.standing_of(phone), Needs::Owner).is_ok()
+    access::permit(&peer, core.remote().standing_of(phone), Needs::Owner).is_ok()
 }
 
 /// The phone has this agent open on screen, so it already sees it.
 fn watching(core: &Core, phone: &str, draft: &Draft) -> bool {
     let chat = draft
         .chat
-        .then(|| core.chats.get(&draft.agent_id))
+        .then(|| core.chats().get(&draft.agent_id))
         .flatten();
     let session = (!draft.chat)
         .then(|| core.agent_session(&draft.agent_id))
@@ -1199,12 +1203,12 @@ fn alert_all(core: &Core, draft: &Draft, now: u64) {
 /// Posts `draft` to each phone that asked to hear of its kind and `also` lets
 /// through, and answers which they were.
 fn alert_phones(core: &Core, draft: &Draft, now: u64, also: impl Fn(&str) -> bool) -> Vec<String> {
-    let Some((host, targets)) = core.remote.notify_targets() else {
+    let Some((host, targets)) = core.remote().notify_targets() else {
         return Vec::new();
     };
-    let away = core.notify.state.locked().away;
-    let host_name = core.notify.host_name();
-    let outbox = core.remote.outbox();
+    let away = core.notify().state.locked().away;
+    let host_name = core.notify().host_name();
+    let outbox = core.remote().outbox();
     let mut posted = Vec::new();
     for target in targets {
         let phone = target.device_id.clone();
@@ -1230,7 +1234,7 @@ fn alert_phones(core: &Core, draft: &Draft, now: u64, also: impl Fn(&str) -> boo
 /// Whether `to` has not yet been told of this card, nor of the agent
 /// finishing or failing a moment ago.
 fn due(core: &Core, to: &str, draft: &Draft, now: u64) -> bool {
-    let state = core.notify.state.locked();
+    let state = core.notify().state.locked();
     let ci = draft.card.starts_with(CI_CARD);
     let once = matches!(
         draft.kind,
@@ -1252,7 +1256,7 @@ fn due(core: &Core, to: &str, draft: &Draft, now: u64) -> bool {
 }
 
 fn sent(core: &Core, to: &str, draft: &Draft, now: u64) {
-    let mut state = core.notify.state.locked();
+    let mut state = core.notify().state.locked();
     let pair = (to.to_owned(), draft.agent_id.clone());
     match draft.kind {
         NotificationKind::Finished if draft.card.starts_with(CI_CARD) => {
@@ -1277,19 +1281,19 @@ fn sent(core: &Core, to: &str, draft: &Draft, now: u64) {
 /// Takes the card off every phone that was sent it: withdrawn if it has not
 /// gone out yet, otherwise followed by a `clear`.
 fn clear_all(core: &Core, agent_id: &str, card: &str, request_id: Option<String>, now: u64) {
-    core.notify
+    core.notify()
         .state
         .locked()
         .alerted
         .remove(&(APP.to_owned(), card.to_owned()));
-    let Some((host, targets)) = core.remote.notify_targets() else {
+    let Some((host, targets)) = core.remote().notify_targets() else {
         return;
     };
-    let host_name = core.notify.host_name();
-    let outbox = core.remote.outbox();
+    let host_name = core.notify().host_name();
+    let outbox = core.remote().outbox();
     for target in targets {
         let shown = (target.device_id.clone(), card.to_owned());
-        if !core.notify.state.locked().alerted.remove(&shown) {
+        if !core.notify().state.locked().alerted.remove(&shown) {
             continue;
         }
         let collapse_id = target.key.collapse_id(card);

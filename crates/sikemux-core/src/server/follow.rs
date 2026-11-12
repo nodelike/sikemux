@@ -3,6 +3,7 @@
 //! is journaled beside the project's task events, so a wait from a cursor
 //! misses nothing that happened between two waits.
 
+use crate::server::parts::Parts;
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
@@ -392,7 +393,7 @@ fn read_cursor(feed: &str, index: u64) -> String {
 /// The agent's last turns, or what it said since `cursor`.
 fn read_chat(core: &Core, target: &Listed, cursor: Option<&str>) -> Result<Value, String> {
     let chat = core
-        .chats
+        .chats()
         .get(&target.agent_id)
         .ok_or("that agent is not running")?;
     let name = target.name.as_deref().unwrap_or(&target.agent_id);
@@ -457,7 +458,7 @@ fn session_file(core: &Core, agent_id: &str) -> Option<(AgentKind, String, std::
     let terminal = core.agent_session(agent_id)?;
     let owner = terminal.owner();
     let cli = AgentKind::from_name(owner.agent_type.as_deref()?)?;
-    let session = core.names.session_of(agent_id)?;
+    let session = core.names().session_of(agent_id)?;
     let path = transcript::locate(cli, owner.account_home.as_deref(), &session)?;
     Some((cli, session, path))
 }
@@ -633,7 +634,7 @@ pub(crate) async fn read_here(
             .into_iter()
             .find(|agent| agent.agent_id == agent_id && agent.reach != Reach::Remote)
             .ok_or("that agent is not on this host")?;
-        if core.names.is_blind(&target.agent_id) {
+        if core.names().is_blind(&target.agent_id) {
             return Err(
                 "that agent reviews a card blind for Auto, so no agent may reach it".into(),
             );
@@ -653,7 +654,7 @@ pub(crate) fn read_target(
         .name
         .clone()
         .unwrap_or_else(|| target.agent_id.clone());
-    let mut answer = if core.chats.get(&target.agent_id).is_some() {
+    let mut answer = if core.chats().get(&target.agent_id).is_some() {
         read_chat(core, target, cursor)?
     } else {
         match target.reach {
@@ -728,7 +729,7 @@ pub(crate) fn waited(
             },
             Err(error) => {
                 let named = core
-                    .names
+                    .names()
                     .get(agent.trim())
                     .filter(|named| named.agent_id != caller)
                     .ok_or(error)?;
@@ -814,7 +815,7 @@ pub(crate) async fn wait(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
                 "timeoutMs must be an integer between 0 and {MAX_WAIT_MS}"
             ))?,
     };
-    let harness = &core.harness;
+    let harness = core.harness();
     let _slot = harness.wait_slot()?;
     let deadline = Instant::now() + Duration::from_millis(timeout);
     let first = {

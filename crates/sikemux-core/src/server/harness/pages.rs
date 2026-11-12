@@ -1,6 +1,7 @@
 //! Pages an agent shows: writing one down, where it shows, and reading it back.
 
 use super::*;
+use crate::server::parts::Parts;
 use serde::{Deserialize, Serialize};
 
 pub(super) const PAGE_IN_REPLY: &str = "The person sees the page in your reply, above the text you write next. Do not describe or restate it; write only what it does not already say.";
@@ -40,7 +41,7 @@ pub(super) async fn show_page(
     let in_chat = request
         .agent_id
         .as_deref()
-        .is_none_or(|agent_id| core.chats.get(agent_id).is_some());
+        .is_none_or(|agent_id| core.chats().get(agent_id).is_some());
     let mut on_desk = false;
     if core.window.is_open() {
         let card = in_chat && tab;

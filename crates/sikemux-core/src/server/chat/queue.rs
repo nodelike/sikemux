@@ -2,6 +2,7 @@
 //! chat's feed, where every app sees them, and go out together once the turn
 //! ends, unless the person steers them in sooner or takes one back.
 
+use crate::server::parts::Parts;
 use std::collections::HashSet;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -123,7 +124,7 @@ impl Chat {
         let generation = self.generation;
         tokio::spawn(async move {
             tokio::time::sleep(SETTLE).await;
-            let Some(chat) = core.upgrade().and_then(|core| core.chats.get(&agent_id)) else {
+            let Some(chat) = core.upgrade().and_then(|core| core.chats().get(&agent_id)) else {
                 return;
             };
             if chat.generation != generation
@@ -161,8 +162,8 @@ pub(crate) async fn steer(
     ids: Vec<String>,
     message: Option<QueuedMessageParams>,
 ) -> CoreResult<()> {
-    let chat = core.chats.running(agent_id)?;
-    core.workspaces.person_said(agent_id);
+    let chat = core.chats().running(agent_id)?;
+    core.workspaces().person_said(agent_id);
     crate::server::chief::person_wrote(core, agent_id);
     let message = match message {
         Some(mut message) => {
@@ -195,7 +196,7 @@ pub(crate) async fn steer(
 }
 
 pub(crate) fn remove(core: &Core, agent_id: &str, ids: &[String]) -> CoreResult<()> {
-    core.chats.running(agent_id)?.feed.take_queued(Some(ids));
+    core.chats().running(agent_id)?.feed.take_queued(Some(ids));
     Ok(())
 }
 

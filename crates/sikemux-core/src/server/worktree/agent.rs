@@ -1,6 +1,7 @@
 //! The worktree a chat agent or a worker is given, and the setup the project
 //! asks for in it.
 
+use crate::server::parts::Parts;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -143,7 +144,7 @@ pub(crate) fn resumed_in(cwd: &Path, branch: Option<&str>) -> Result<ResumedIn, 
 /// session there, and keeps it on the agent's record. One still there gets back, warm, any
 /// build output that was removed while the agent was closed.
 pub(crate) async fn restore(core: &Arc<Core>, agent_id: &str) -> CoreResult<()> {
-    let agent = core.workspaces.agent_or_gone(agent_id)?;
+    let agent = core.workspaces().agent_or_gone(agent_id)?;
     if agent.cwd.is_dir() {
         if let Some(tree) = agent.worktree {
             warm::seed_in_background(&tree.repo, &tree.path);
@@ -152,7 +153,7 @@ pub(crate) async fn restore(core: &Arc<Core>, agent_id: &str) -> CoreResult<()> 
     }
     let (cwd, branch) = (agent.cwd, agent.worktree.map(|tree| tree.branch));
     let resumed = blocking(move || Ok(resumed_in(&cwd, branch.as_deref())?)).await?;
-    core.workspaces
+    core.workspaces()
         .edit_agent(agent_id, |agent| agent.worktree = resumed.worktree.clone())?;
     set_up_made_again(core, agent_id, &resumed);
     Ok(())
@@ -278,7 +279,7 @@ pub(crate) async fn for_agent(
     params: AgentWorktreeParams,
 ) -> CoreResult<MadeAgentWorktree> {
     let agent = core
-        .workspaces
+        .workspaces()
         .view()
         .agents
         .into_iter()
@@ -292,18 +293,18 @@ pub(crate) async fn for_agent(
     let branch = branch_for(&params.message);
     let (worktree, tree_cwd) = blocking(move || Ok(cut_for(&checkout, &cwd, &branch)?)).await?;
     let project = core
-        .workspaces
+        .workspaces()
         .view()
         .projects
         .into_iter()
         .find(|project| project.id == agent.project)
         .map_or(agent.cwd, |project| project.path);
     let setup_error = set_up(core, &project, Some(&params.agent_id), &tree_cwd).await;
-    core.workspaces.edit_agent(&params.agent_id, |agent| {
+    core.workspaces().edit_agent(&params.agent_id, |agent| {
         agent.worktree = Some(worktree.clone());
         agent.cwd = tree_cwd.clone();
     })?;
-    if core.chats.stop(&params.agent_id) {
+    if core.chats().stop(&params.agent_id) {
         launching::start_agent(core, None, &params.agent_id, false).await?;
     }
     Ok(MadeAgentWorktree {
@@ -475,7 +476,7 @@ pub(crate) async fn settle(core: Arc<Core>, project: PathBuf, tree: PathBuf) {
         || tree.display().to_string(),
         |name| name.to_string_lossy().into_owned(),
     );
-    core.host_watch.note(HostEventKind::SettleFailed {
+    core.host_watch().note(HostEventKind::SettleFailed {
         worktree,
         command: failed.label,
         output: failed.output,

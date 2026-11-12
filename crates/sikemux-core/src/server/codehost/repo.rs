@@ -1,6 +1,7 @@
 //! AutoPull requests and their checks on the project's code host, through its
 //! plugin and the person's own sign-in to it, and what reviewers say on them.
 
+use crate::server::parts::Parts;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -134,8 +135,8 @@ impl Repo {
 /// What the person picked by hand on each code host for the project `dir`
 /// is in, its worktrees included.
 pub(crate) fn picks(core: &Core, dir: &Path) -> BTreeMap<String, CodeHostChoice> {
-    let project = PathBuf::from(project_of(dir, &core.workspaces.project_paths()));
-    core.workspaces
+    let project = PathBuf::from(project_of(dir, &core.workspaces().project_paths()));
+    core.workspaces()
         .view()
         .projects
         .into_iter()

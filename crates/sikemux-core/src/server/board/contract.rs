@@ -5,6 +5,7 @@
 //! acceptance criteria and can never weaken or replace them, and nobody is
 //! asked about it.
 
+use crate::server::parts::Parts;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -147,7 +148,7 @@ pub(super) fn propose(
     value: &Value,
 ) -> Result<Value, String> {
     let terms = terms(value)?;
-    let mut state = core.boards.state.locked();
+    let mut state = core.boards().state.locked();
     let card = state
         .boards
         .get_mut(project)
@@ -182,9 +183,9 @@ pub(super) fn propose(
         run.note = Some("Its contract goes to an agent on another CLI".to_owned());
     }
     card.updated_at = epoch_ms();
-    core.boards.save(&mut state, project);
+    core.boards().save(&mut state, project);
     drop(state);
-    core.boards.wake.now();
+    core.boards().wake.now();
     Ok(json!({
         "recorded": true,
         "round": rounds,
@@ -378,7 +379,7 @@ pub(super) fn stand(core: &Arc<Core>, project: &str, id: u64, builder: &str, why
 
 async fn tell(core: &Arc<Core>, project: String, id: u64, builder: String, text: String) {
     if let Err(error) = messages::from_auto(core, builder.clone(), text).await {
-        let name = core.names.name_or_id(&builder);
+        let name = core.names().name_or_id(&builder);
         super::finish::hold(
             core,
             &project,
@@ -398,7 +399,7 @@ pub(super) fn keeps_building(core: &Arc<Core>, project: &str, id: u64, builder: 
     }
     let mut text = None;
     let mut settled = None;
-    core.boards.edit_if(project, id, |card| {
+    core.boards().edit_if(project, id, |card| {
         let contract = card.contract.as_ref()?;
         match contract.state {
             ContractState::Awaited => {

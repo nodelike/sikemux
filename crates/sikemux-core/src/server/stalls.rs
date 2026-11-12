@@ -2,6 +2,7 @@
 //! behind a queued build. Its lead hears of it once; with no lead awake to
 //! hear, the person sees it with what else needs them.
 
+use crate::server::parts::Parts;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
@@ -55,7 +56,7 @@ pub(crate) async fn look(core: &Arc<Core>, now: u64) {
         .filter(|chat| chat.status == AgentStatus::Working && chat.subagents == 0)
         .filter_map(|chat| {
             let id = chat.agent_id.as_str();
-            let last = [core.seen.started_at(id), core.seen.tool_at(id)]
+            let last = [core.seen().started_at(id), core.seen().tool_at(id)]
                 .into_iter()
                 .flatten()
                 .max()?;
@@ -63,7 +64,7 @@ pub(crate) async fn look(core: &Arc<Core>, now: u64) {
         })
         .collect();
     let (forgot, new) = {
-        let mut stalls = core.stalls.0.locked();
+        let mut stalls = core.stalls().0.locked();
         let before = stalls.len();
         stalls.retain(|id, stall| working.get(id.as_str()) == Some(&stall.since));
         let forgot = stalls.len() != before;
@@ -92,7 +93,7 @@ pub(crate) async fn look(core: &Arc<Core>, now: u64) {
     .unwrap_or_default();
     let mut for_person = forgot;
     for (agent_id, since) in new {
-        let lead = (core.names.get(&agent_id))
+        let lead = (core.names().get(&agent_id))
             .and_then(|named| named.parent)
             .filter(|lead| awake.contains(lead));
         let told = match lead {
@@ -113,7 +114,7 @@ pub(crate) async fn look(core: &Arc<Core>, now: u64) {
             settling::needs_person(core, &agent_id);
             for_person = true;
         }
-        core.stalls.0.locked().insert(
+        core.stalls().0.locked().insert(
             agent_id.clone(),
             Stall {
                 agent_id,
@@ -130,7 +131,7 @@ pub(crate) async fn look(core: &Arc<Core>, now: u64) {
 fn note(core: &Core, agent_id: &str, since: u64, now: u64) -> String {
     format!(
         "@{} has been working for {} min without calling a tool; it may be stuck, such as on a queued build. Read it with agent_read and tell it what to do, or close it.",
-        core.names.name_or_id(agent_id),
+        core.names().name_or_id(agent_id),
         now.saturating_sub(since) / 60_000
     )
 }

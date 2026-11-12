@@ -6,6 +6,7 @@
 //! already offers, it answers that ssh needs signing in to.
 
 use crate::server::changed::What;
+use crate::server::parts::Parts;
 use std::collections::{HashMap, HashSet};
 use std::process::Stdio;
 use std::sync::Arc;
@@ -152,7 +153,7 @@ pub(crate) enum Why {
 /// recently enough for `why`.
 pub(crate) fn ask(core: &Arc<Core>, alias: &str, why: Why) {
     {
-        let mut probes = core.hosts.probes.locked();
+        let mut probes = core.hosts().probes.locked();
         if probes.asking.contains(alias) {
             return;
         }
@@ -178,7 +179,7 @@ pub(crate) fn ask(core: &Arc<Core>, alias: &str, why: Why) {
             (Answer::Found(Found::Same), Some(reached)) => Some(reached.key.clone()),
             _ => None,
         };
-        let mut probes = core.hosts.probes.locked();
+        let mut probes = core.hosts().probes.locked();
         probes.asking.remove(&alias);
         probes.answers.insert(alias.clone(), probe);
         drop(probes);
@@ -191,7 +192,7 @@ pub(crate) fn ask(core: &Arc<Core>, alias: &str, why: Why) {
 
 /// What `alias` was last found to run, or why it has no answer.
 pub(crate) fn answer(core: &Core, alias: &str) -> Answer {
-    core.hosts
+    core.hosts()
         .probes
         .locked()
         .answers
@@ -203,13 +204,13 @@ pub(crate) fn answer(core: &Core, alias: &str) -> Answer {
 
 /// The host key `alias` was last found to reach.
 pub(crate) fn reached(core: &Core, alias: &str) -> Option<String> {
-    let probes = core.hosts.probes.locked();
+    let probes = core.hosts().probes.locked();
     Some(probes.answers.get(alias)?.reached.as_ref()?.key.clone())
 }
 
 async fn probe(core: &Arc<Core>, alias: &str) -> Probe {
     let ran = run(alias, &probe_script(), PROBE_TIMEOUT, |_| {}).await;
-    let (answer, reached) = read(&ran, core.remote.owner().as_deref());
+    let (answer, reached) = read(&ran, core.remote().owner().as_deref());
     Probe {
         answer,
         reached,

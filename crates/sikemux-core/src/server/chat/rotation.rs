@@ -4,6 +4,7 @@
 //! message, which carries the brief, so it never sits without one. The old session stays the
 //! chat's session until the fresh one has answered, and carries on if the fresh one fails.
 
+use crate::server::parts::Parts;
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
@@ -218,7 +219,7 @@ pub(crate) fn brief(core: &Core, chat: &Chat) -> Brief {
         instructions.clone(),
     ));
 
-    let project = core.workspaces.project_of(&chat.launch.cwd);
+    let project = core.workspaces().project_of(&chat.launch.cwd);
     let since = epoch_ms().saturating_sub(DECISION_DAYS * 24 * 60 * 60_000);
     let decided = crate::server::board::goal::standing_since(core, &project, since, MOST_DECISIONS);
     let decisions = within(

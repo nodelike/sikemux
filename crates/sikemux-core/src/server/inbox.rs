@@ -3,6 +3,7 @@
 //! to review, then finished work, then work under way. Built from what the
 //! core already keeps; only how each agent's latest turn went is kept here.
 
+use crate::server::parts::Parts;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
@@ -241,7 +242,7 @@ fn rollup<'a>(agents: impl IntoIterator<Item = &'a AgentShown>) -> Option<AgentR
 
 /// A teammate on a linked host as the rows here show it.
 pub(crate) fn foreign_shown(core: &Core, foreign: &Foreign) -> AgentShown {
-    let project = (core.workspaces.project_names().remove(&foreign.project)).or_else(|| {
+    let project = (core.workspaces().project_names().remove(&foreign.project)).or_else(|| {
         let folder = Path::new(&foreign.project).file_name()?;
         Some(folder.to_string_lossy().into_owned())
     });
@@ -278,7 +279,7 @@ pub(crate) fn shown_here(
 
 /// The workers agents here started on linked hosts.
 fn remote_agents(core: &Core) -> Vec<RemoteAgent> {
-    core.hosts
+    core.hosts()
         .team
         .all()
         .into_iter()
@@ -286,7 +287,7 @@ fn remote_agents(core: &Core) -> Vec<RemoteAgent> {
         .map(|foreign| RemoteAgent {
             shown: foreign_shown(core, &foreign),
             host: super::hosts::name_of(core, &foreign.host),
-            reachable: core.hosts.reachable(&foreign.host),
+            reachable: core.hosts().reachable(&foreign.host),
             host_id: foreign.host,
             lead: foreign.parent,
         })
@@ -568,7 +569,7 @@ pub(crate) fn recorded(core: &Arc<Core>, agent_id: &str, answer: &Value) {
     ) else {
         return;
     };
-    let chat = core.chats.get(agent_id);
+    let chat = core.chats().get(agent_id);
     let recording = InboxRecording {
         path: path.to_owned(),
         seconds,
@@ -576,7 +577,7 @@ pub(crate) fn recorded(core: &Arc<Core>, agent_id: &str, answer: &Value) {
         feed: chat.as_ref().map(|chat| chat.feed.id().to_owned()),
         turn: chat.as_ref().and_then(|chat| chat.feed.turn_start()),
     };
-    core.inbox.change(|turns| {
+    core.inbox().change(|turns| {
         let turn = turn(turns, agent_id);
         if turn.recordings.len() >= MAX_TURN_RECORDINGS {
             turn.recordings.remove(0);
@@ -589,7 +590,7 @@ pub(crate) fn recorded(core: &Arc<Core>, agent_id: &str, answer: &Value) {
 /// What the agent left when its last turn ended, worked out once.
 pub(crate) fn handoff(core: &Core, agent_id: &str) -> InboxHandoff {
     if let Some(handoff) = core
-        .inbox
+        .inbox()
         .turns
         .locked()
         .get(agent_id)
@@ -598,11 +599,11 @@ pub(crate) fn handoff(core: &Core, agent_id: &str) -> InboxHandoff {
         return handoff;
     }
     let mut handoff = InboxHandoff::default();
-    if let Some(chat) = core.chats.get(agent_id) {
+    if let Some(chat) = core.chats().get(agent_id) {
         let reply = chat.feed.last_answer();
         handoff.offer = reply.as_deref().and_then(super::questions::offer_in);
         handoff.answer = reply.map(|answer| clipped(&answer, MAX_ANSWER_CHARS));
-        let project = core.names.get(agent_id).map(|named| named.project);
+        let project = core.names().get(agent_id).map(|named| named.project);
         let filter = serde_json::from_value(json!({
             "project": project.clone().unwrap_or_default(),
             "agentId": agent_id,
@@ -611,7 +612,7 @@ pub(crate) fn handoff(core: &Core, agent_id: &str) -> InboxHandoff {
         }));
         if let (Some(project), Ok(filter)) = (project, filter) {
             let mut seen = HashSet::new();
-            for edit in core.edits.read(&project, &filter) {
+            for edit in core.edits().read(&project, &filter) {
                 if seen.insert(edit.path.clone()) && handoff.files.len() < MAX_FILES {
                     handoff.files.push(edit.path);
                 }
@@ -620,14 +621,14 @@ pub(crate) fn handoff(core: &Core, agent_id: &str) -> InboxHandoff {
             handoff.uncommitted = uncommitted(core, &project, agent_id, &chat.launch.cwd);
         }
     }
-    turn(&mut core.inbox.turns.locked(), agent_id).handoff = Some(handoff.clone());
+    turn(&mut core.inbox().turns.locked(), agent_id).handoff = Some(handoff.clone());
     handoff
 }
 
 /// Whether the agent changed any file in `project`, in any turn of its chat.
 pub(crate) fn ever_edited(core: &Core, project: &str, agent_id: &str) -> bool {
     let filter = serde_json::from_value(json!({ "project": project, "agentId": agent_id }));
-    filter.is_ok_and(|filter| !core.edits.read(project, &filter).is_empty())
+    filter.is_ok_and(|filter| !core.edits().read(project, &filter).is_empty())
 }
 
 /// Whether a file the agent changed in any turn of its chat holds changes git has not committed,
@@ -637,7 +638,7 @@ pub(crate) fn uncommitted(core: &Core, project: &str, agent_id: &str, cwd: &Path
     let Ok(filter) = filter else {
         return false;
     };
-    let mut files: Vec<String> = (core.edits.read(project, &filter).into_iter())
+    let mut files: Vec<String> = (core.edits().read(project, &filter).into_iter())
         .map(|edit| edit.path)
         .collect();
     files.sort_unstable();
@@ -663,7 +664,7 @@ pub(crate) struct Left {
 }
 
 pub(crate) fn left(core: &Core, agent_id: &str) -> Left {
-    if !core.inbox.ended_well(agent_id) {
+    if !core.inbox().ended_well(agent_id) {
         return Left::default();
     }
     let handoff = handoff(core, agent_id);
@@ -695,7 +696,7 @@ struct Agent {
 }
 
 fn agents(core: &Core, chats: &[ChatInfo], sessions: &[SessionInfo]) -> Vec<Agent> {
-    let project = |agent_id: &str| core.names.get(agent_id).map(|named| named.project);
+    let project = |agent_id: &str| core.names().get(agent_id).map(|named| named.project);
     let mut agents: Vec<Agent> = chats
         .iter()
         .map(|chat| Agent {
@@ -703,7 +704,7 @@ fn agents(core: &Core, chats: &[ChatInfo], sessions: &[SessionInfo]) -> Vec<Agen
             name: chat.name.clone(),
             cli: Some(chat.provider.clone()),
             project: project(&chat.agent_id)
-                .or_else(|| Some(core.workspaces.project_of(&chat.cwd))),
+                .or_else(|| Some(core.workspaces().project_of(&chat.cwd))),
             title: chat.title.clone(),
             session: None,
             group: chat.group,
@@ -721,7 +722,7 @@ fn agents(core: &Core, chats: &[ChatInfo], sessions: &[SessionInfo]) -> Vec<Agen
             cli: session.agent_type.clone(),
             project: project(agent_id).or_else(|| {
                 let folder = roster::terminal_folder(core, session)?;
-                Some(core.workspaces.project_of(&folder))
+                Some(core.workspaces().project_of(&folder))
             }),
             title: session.title.clone(),
             session: Some(session.id),
@@ -732,10 +733,10 @@ fn agents(core: &Core, chats: &[ChatInfo], sessions: &[SessionInfo]) -> Vec<Agen
     }
     for agent in &mut agents {
         if agent.group == AgentGroup::Working {
-            agent.at = core.seen.started_at(&agent.id).unwrap_or(agent.at);
+            agent.at = core.seen().started_at(&agent.id).unwrap_or(agent.at);
         }
     }
-    agents.extend(core.hosts.team.all().into_iter().map(|foreign| {
+    agents.extend(core.hosts().team.all().into_iter().map(|foreign| {
         let shown = foreign_shown(core, &foreign);
         Agent {
             host: Some(super::hosts::name_of(core, &foreign.host)),
@@ -745,7 +746,7 @@ fn agents(core: &Core, chats: &[ChatInfo], sessions: &[SessionInfo]) -> Vec<Agen
             project: Some(foreign.project),
             title: shown.titled.then_some(shown.title),
             session: None,
-            group: match foreign.role == Role::Worker && core.hosts.reachable(&foreign.host) {
+            group: match foreign.role == Role::Worker && core.hosts().reachable(&foreign.host) {
                 true => shown.group,
                 false => AgentGroup::Idle,
             },
@@ -757,19 +758,19 @@ fn agents(core: &Core, chats: &[ChatInfo], sessions: &[SessionInfo]) -> Vec<Agen
 
 /// An agent not running now, as one asleep or closed, as the names remember it.
 fn gone_agent(core: &Core, agent_id: &str) -> Agent {
-    let named = core.names.get(agent_id);
+    let named = core.names().get(agent_id);
     Agent {
         id: agent_id.to_owned(),
         name: named.as_ref().map(|named| named.name.clone()),
         cli: None,
         project: named.map(|named| named.project).or_else(|| {
-            let agent = core.workspaces.agent(agent_id)?;
-            Some(core.workspaces.project_of(&agent.cwd))
+            let agent = core.workspaces().agent(agent_id)?;
+            Some(core.workspaces().project_of(&agent.cwd))
         }),
         title: None,
         session: None,
         group: AgentGroup::Idle,
-        at: core.seen.active_at(agent_id).unwrap_or(0),
+        at: core.seen().active_at(agent_id).unwrap_or(0),
         host: None,
     }
 }
@@ -913,7 +914,7 @@ fn deploy_asks_instead(core: &Core, card: &Summary, waits: &Waits) -> bool {
     else {
         return false;
     };
-    core.ship.waiting().iter().any(|waiting| {
+    core.ship().waiting().iter().any(|waiting| {
         waiting.project == card.project
             && Some(&waiting.agent_id) == card.owner.as_ref()
             && waiting.hold.environment.as_ref() == Some(environment)
@@ -1072,7 +1073,7 @@ fn gate_item(card: &Summary, gate: &Step, promise: &str) -> InboxItem {
 
 /// How an agent's turn went, or that it is still at work.
 fn agent_item(core: &Core, agent: &Agent, working: bool, turns: &Turned) -> InboxItem {
-    let (ended_at, problem, recordings) = core.inbox.snapshot(&agent.id).unwrap_or_default();
+    let (ended_at, problem, recordings) = core.inbox().snapshot(&agent.id).unwrap_or_default();
     let card = board::agent_card(core, &agent.id);
     let mut item = if working {
         item(
@@ -1113,7 +1114,7 @@ fn agent_item(core: &Core, agent: &Agent, working: bool, turns: &Turned) -> Inbo
         item.handoff = Some(handoff);
         item
     };
-    if let Some(chat) = core.chats.get(&agent.id) {
+    if let Some(chat) = core.chats().get(&agent.id) {
         item.feed = Some(chat.feed.id().to_owned());
         item.turn = chat.feed.turn_start();
     }
@@ -1125,7 +1126,7 @@ fn agent_item(core: &Core, agent: &Agent, working: bool, turns: &Turned) -> Inbo
 fn needs(core: &Core, agents: &[Agent], sessions: &[SessionInfo]) -> Vec<InboxItem> {
     let find = |agent_id: &str| agents.iter().find(|agent| agent.id == agent_id);
     let mut items = Vec::new();
-    for attention in core.chats.attentions() {
+    for attention in core.chats().attentions() {
         let mut item = item(
             format!("permission:{}:{}", attention.agent_id, attention.id),
             Case::Permission,
@@ -1143,7 +1144,7 @@ fn needs(core: &Core, agents: &[Agent], sessions: &[SessionInfo]) -> Vec<InboxIt
         item.choices = Some(attention.choices);
         items.push(item);
     }
-    let questions = core.harness.questions.for_person();
+    let questions = core.harness().questions.for_person();
     for question in &questions {
         let case = Case::Question {
             secret: question.access,
@@ -1166,7 +1167,7 @@ fn needs(core: &Core, agents: &[Agent], sessions: &[SessionInfo]) -> Vec<InboxIt
         item.assumption.clone_from(&question.assumption);
         items.push(item);
     }
-    for waiting in core.ship.waiting() {
+    for waiting in core.ship().waiting() {
         let what = match waiting.hold.kind {
             _ if waiting.writes_to.is_some() => "Wants to write",
             ShipKind::Push => "Wants to push",
@@ -1264,9 +1265,9 @@ fn needs(core: &Core, agents: &[Agent], sessions: &[SessionInfo]) -> Vec<InboxIt
         });
         items.push(item);
     }
-    for looped in core.harness.mailbox.loops() {
+    for looped in core.harness().mailbox.loops() {
         let (agent, other) = &looped.agents;
-        let other_name = core.names.name_or_id(other);
+        let other_name = core.names().name_or_id(other);
         let mut item = item(
             format!("loop:{}", pair_id(agent, other)),
             Case::Looping,
@@ -1279,7 +1280,7 @@ fn needs(core: &Core, agents: &[Agent], sessions: &[SessionInfo]) -> Vec<InboxIt
         );
         items.push(item);
     }
-    for stopped in core.harness.mailbox.stopped_agents() {
+    for stopped in core.harness().mailbox.stopped_agents() {
         let agent = &stopped.agent_id;
         let mut item = item(
             format!("stopped:{agent}"),
@@ -1296,7 +1297,7 @@ fn needs(core: &Core, agents: &[Agent], sessions: &[SessionInfo]) -> Vec<InboxIt
         );
         items.push(item);
     }
-    for stall in core.stalls.for_person() {
+    for stall in core.stalls().for_person() {
         let agent = &stall.agent_id;
         let mut item = item(
             format!("no-progress:{agent}"),
@@ -1314,9 +1315,9 @@ fn needs(core: &Core, agents: &[Agent], sessions: &[SessionInfo]) -> Vec<InboxIt
         );
         items.push(item);
     }
-    for pair in core.collisions.pairs() {
+    for pair in core.collisions().pairs() {
         let (agent, other) = &pair.agents;
-        let other_name = core.names.name_or_id(other);
+        let other_name = core.names().name_or_id(other);
         let mut item = item(
             format!("collide:{}", pair_id(agent, other)),
             Case::Colliding,
@@ -1354,11 +1355,11 @@ fn needs(core: &Core, agents: &[Agent], sessions: &[SessionInfo]) -> Vec<InboxIt
         item.detail = Some(format!("{why}Correct #{} or retire it.", stale.id));
         items.push(item);
     }
-    for failing in core.checks.failing() {
+    for failing in core.checks().failing() {
         let names: Vec<String> = failing
             .agents
             .iter()
-            .map(|agent| core.names.name_or_id(agent))
+            .map(|agent| core.names().name_or_id(agent))
             .collect();
         let mut item = item(
             format!("check:{}", failing.project),
@@ -1417,7 +1418,7 @@ pub(crate) fn view(core: &Core, chats: &[ChatInfo], sessions: &[SessionInfo]) ->
     let own_titles: HashMap<&str, bool> = (workspace_agents.iter())
         .map(|agent| (agent.id.as_str(), agent.titled))
         .collect();
-    let places = core.workspaces.places();
+    let places = core.workspaces().places();
     let now = epoch_ms();
     let mut shown = shown(core, chats, sessions, &own_titles);
     let seen: Vec<turn_state::Seen> = (shown.iter())
@@ -1438,7 +1439,7 @@ pub(crate) fn view(core: &Core, chats: &[ChatInfo], sessions: &[SessionInfo]) ->
             super::settling::show(agent, place, now);
         }
     }
-    let leads = core.workspaces.agent_parents();
+    let leads = core.workspaces().agent_parents();
     let turns: Turned = (shown.iter())
         .filter_map(|agent| Some((agent.agent_id.clone(), agent.turn.clone()?)))
         .collect();
@@ -1446,7 +1447,7 @@ pub(crate) fn view(core: &Core, chats: &[ChatInfo], sessions: &[SessionInfo]) ->
     let mut listed = in_teams(main, &leads);
     listed.extend(in_teams(snoozed, &leads));
     listed.extend(in_teams(settled, &leads));
-    let project_names = core.workspaces.project_names();
+    let project_names = core.workspaces().project_names();
     let called = |place: &str| {
         (project_names.get(place).cloned()).or_else(|| {
             let folder = Path::new(place).file_name()?;
@@ -1472,7 +1473,7 @@ pub(crate) fn view(core: &Core, chats: &[ChatInfo], sessions: &[SessionInfo]) ->
         }
     }
     let mut by_project: BTreeMap<String, Vec<&AgentShown>> = BTreeMap::new();
-    let project_of = core.workspaces.agent_projects();
+    let project_of = core.workspaces().agent_projects();
     for agent in &mut listed {
         agent.project = project_of.get(&agent.agent_id).cloned();
         let place = agent.project.clone().or(agent.project_name.take());
@@ -1734,8 +1735,8 @@ fn shown(
             shown.unread = chat.unread;
             shown.active_at = chat.active_at;
             shown.next_trigger = chat.next_trigger;
-            shown.triggers = core.triggers.count(&chat.agent_id);
-            shown.build_queued_at = core.builds.waiting_since(&chat.agent_id);
+            shown.triggers = core.triggers().count(&chat.agent_id);
+            shown.build_queued_at = core.builds().waiting_since(&chat.agent_id);
             shown.called_at = chat.called_at;
             (chat.attention_rank, shown)
         })
@@ -1754,8 +1755,8 @@ fn shown(
             shown.unread = session.unread;
             shown.active_at = session.active_at;
             shown.next_trigger = session.next_trigger;
-            shown.triggers = core.triggers.count(agent_id);
-            shown.build_queued_at = core.builds.waiting_since(agent_id);
+            shown.triggers = core.triggers().count(agent_id);
+            shown.build_queued_at = core.builds().waiting_since(agent_id);
             shown.called_at = session.called_at;
             Some((session.attention_rank.unwrap_or(u32::MAX), shown))
         }),
@@ -1805,7 +1806,7 @@ pub(crate) fn agent_needs(core: &Core) -> Vec<AgentNeed> {
         }
     }
     for agent in &agents {
-        if let Some(said) = core.inbox.failure(&agent.id) {
+        if let Some(said) = core.inbox().failure(&agent.id) {
             let said = clipped_line(&said, MAX_LINE_CHARS);
             add(&agent.id, TeamNeedKind::Failed, Some(said));
         }
@@ -1887,11 +1888,11 @@ fn vault_items(core: &Core) -> Vec<InboxItem> {
 /// here in the project their team works in.
 fn foreign_items(core: &Core) -> Vec<InboxItem> {
     let mut items = Vec::new();
-    for foreign in core.hosts.team.all() {
+    for foreign in core.hosts().team.all() {
         let Some(said) = foreign.said.filter(|_| foreign.role == Role::Worker) else {
             continue;
         };
-        if !core.hosts.reachable(&foreign.host) {
+        if !core.hosts().reachable(&foreign.host) {
             continue;
         }
         let host = super::hosts::name_of(core, &foreign.host);
@@ -1907,8 +1908,8 @@ fn foreign_items(core: &Core) -> Vec<InboxItem> {
 
 /// The permission requests of workers on linked hosts, which the person answers here.
 pub(crate) fn foreign_attentions(core: &Core) -> Vec<sikemux_wire::protocol::Attention> {
-    (core.hosts.team.all().into_iter())
-        .filter(|foreign| foreign.role == Role::Worker && core.hosts.reachable(&foreign.host))
+    (core.hosts().team.all().into_iter())
+        .filter(|foreign| foreign.role == Role::Worker && core.hosts().reachable(&foreign.host))
         .filter_map(|foreign| foreign.said)
         .flat_map(|said| said.attentions)
         .collect()
@@ -1934,8 +1935,8 @@ fn view_of(core: &Core, agents: &[Agent], sessions: &[SessionInfo], turns: &Turn
         items: ranked(items),
         kept: Vec::new(),
         working,
-        away: core.notify.absence().2,
-        agent_messages: core.harness.mailbox.log.latest(),
+        away: core.notify().absence().2,
+        agent_messages: core.harness().mailbox.log.latest(),
         remote_agents: remote_agents(core),
         agents: Vec::new(),
         projects: BTreeMap::new(),
@@ -1949,7 +1950,7 @@ fn view_of(core: &Core, agents: &[Agent], sessions: &[SessionInfo], turns: &Turn
 /// What finished, failed and waits since the person last left, or since
 /// `since` when given.
 pub(crate) fn digest(core: &Core, since: Option<u64>, project: Option<&str>) -> InboxDigest {
-    let (left_at, back_at, away) = core.notify.absence();
+    let (left_at, back_at, away) = core.notify().absence();
     let until = since.is_none().then_some(back_at).flatten();
     let since = since.or(left_at);
     let before_until = |at: u64| until.is_none_or(|until| at <= until);
@@ -1960,7 +1961,7 @@ pub(crate) fn digest(core: &Core, since: Option<u64>, project: Option<&str>) -> 
     let (mut finished, mut failed) = (Vec::new(), Vec::new());
     if let Some(since) = since {
         let mut listed = HashSet::new();
-        for agent_id in core.inbox.ended_between(since, until) {
+        for agent_id in core.inbox().ended_between(since, until) {
             let agent = agents
                 .iter()
                 .find(|agent| agent.id == agent_id)

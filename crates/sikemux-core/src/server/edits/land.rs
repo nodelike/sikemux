@@ -7,6 +7,7 @@
 //! keeping what it has not committed. Syncing moves the agent's checkout to the
 //! branch's tip in that way too, its commits made again on it.
 
+use crate::server::parts::Parts;
 use std::ffi::OsStr;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::PermissionsExt;
@@ -90,7 +91,7 @@ pub(super) fn apply(repo: &Path, steps: Steps, before: &str, after: &str) -> Vec
 }
 
 pub(super) fn own_checkout(core: &Core, agent_id: &str) -> Option<AgentWorktree> {
-    core.workspaces
+    core.workspaces()
         .agent(agent_id)
         .and_then(|agent| agent.worktree)
 }

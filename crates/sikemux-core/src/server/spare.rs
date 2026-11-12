@@ -3,6 +3,7 @@
 //! opens on a prompt instead of waiting on the person's rc files. At most one
 //! runs, and one nobody takes is stopped after a while.
 
+use crate::server::parts::Parts;
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
@@ -103,11 +104,11 @@ impl Spares {
 
 /// The shell started for `project`, for a new terminal there to take over.
 pub(crate) fn take(core: &Core, params: TakeParams) -> Option<Taken> {
-    let mut held = core.spares.held.locked();
+    let mut held = core.spares().held.locked();
     let fits = held.spare.as_ref()?.project == params.project
         && Some(held.spare.as_ref()?.size) == held.size;
     let spare = held.spare.take().filter(|_| fits)?;
-    core.spares.changed(&mut held);
+    core.spares().changed(&mut held);
     Some(Taken {
         id: spare.id,
         window_id: spare.window_id,
@@ -120,9 +121,9 @@ pub(crate) fn take(core: &Core, params: TakeParams) -> Option<Taken> {
 pub(crate) fn settle(core: &Arc<Core>) {
     let now = epoch_ms();
     let front = front_project(core);
-    let mut held = core.spares.held.locked();
+    let mut held = core.spares().held.locked();
     if now < held.changed_at + SETTLE_MS {
-        core.spares.wake.at(held.changed_at + SETTLE_MS);
+        core.spares().wake.at(held.changed_at + SETTLE_MS);
         return;
     }
     let wanted = front.zip(held.size);
@@ -133,7 +134,7 @@ pub(crate) fn settle(core: &Arc<Core>) {
         let idle_until = spare.started_at.max(held.changed_at) + IDLE_LIMIT_MS;
         let stale = now >= idle_until;
         if fits && !stale {
-            core.spares.wake.at(idle_until);
+            core.spares().wake.at(idle_until);
             return;
         }
         let id = spare.id;
@@ -192,11 +193,11 @@ async fn start(
         Ok(id) => id,
         Err(error) => {
             eprintln!("sikemux core: a spare shell did not start: {error}");
-            core.spares.held.locked().starting = None;
+            core.spares().held.locked().starting = None;
             return;
         }
     };
-    let mut held = core.spares.held.locked();
+    let mut held = core.spares().held.locked();
     held.starting = None;
     held.spare = Some(Spare {
         project,
@@ -207,7 +208,7 @@ async fn start(
         started_at: epoch_ms(),
     });
     drop(held);
-    core.spares.wake.now();
+    core.spares().wake.now();
 }
 
 async fn shell(
@@ -261,7 +262,7 @@ async fn terminal(
 
 /// The size a terminal opened by the core starts at: the last one a client gave.
 pub(crate) fn opening_size(core: &Core) -> (u16, u16) {
-    core.spares.held.locked().size.unwrap_or((80, 24))
+    core.spares().held.locked().size.unwrap_or((80, 24))
 }
 
 #[derive(Deserialize, Serialize)]
@@ -476,7 +477,7 @@ async fn ssh_shell(core: &Arc<Core>, host: &str) -> CoreResult<SessionId> {
 
 /// Stops the shell started ahead, as before the core hands itself over.
 pub(crate) fn discard(core: &Arc<Core>) {
-    let spare = core.spares.held.locked().spare.take();
+    let spare = core.spares().held.locked().spare.take();
     if let Some(spare) = spare {
         stop(core, spare.id);
     }
@@ -491,6 +492,10 @@ pub(crate) fn stop(core: &Arc<Core>, id: SessionId) {
 
 impl super::part::Part for Spares {
     fn start(&self, core: &Arc<Core>) -> Vec<tokio::task::JoinHandle<()>> {
-        vec![super::part::on_wake(core, |core| &core.spares.wake, settle)]
+        vec![super::part::on_wake(
+            core,
+            |core| &core.spares().wake,
+            settle,
+        )]
     }
 }

@@ -29,6 +29,7 @@ mod usage;
 
 use crate::server::access::Peer;
 use crate::server::changed::What;
+use crate::server::parts::Parts;
 use sikemux_fold::update::{notice, turn_answer};
 use sikemux_fold::UpdateKind;
 use sikemux_view::chat::StopReason;
@@ -578,11 +579,11 @@ impl Chat {
         let (Some(core), Some(start)) = (self.core.upgrade(), self.feed.start()) else {
             return;
         };
-        let known = core.workspaces.agent(self.agent_id());
+        let known = core.workspaces().agent(self.agent_id());
         if known.is_none_or(|agent| agent.resume_id.as_deref() == Some(start.session_id.as_str())) {
             return;
         }
-        let _ = core.workspaces.edit_agent(self.agent_id(), |agent| {
+        let _ = core.workspaces().edit_agent(self.agent_id(), |agent| {
             agent.resume_id = Some(start.session_id)
         });
     }
@@ -594,7 +595,7 @@ impl Chat {
             return;
         };
         if let Some(account) = payload.pointer("/update/account").and_then(Value::as_str) {
-            let _ = core.workspaces.edit_agent(self.agent_id(), |agent| {
+            let _ = core.workspaces().edit_agent(self.agent_id(), |agent| {
                 agent.profile_id = Some(account.to_owned())
             });
         }
@@ -669,7 +670,7 @@ impl Chat {
         tokio::spawn(async move {
             tokio::time::sleep(wait).await;
             let Some(core) = core.upgrade() else { return };
-            let Some(chat) = core.chats.get(&agent_id) else {
+            let Some(chat) = core.chats().get(&agent_id) else {
                 return;
             };
             if chat.generation != generation || !giving_up && chat.feed.running_subagents() > 0 {
@@ -703,7 +704,7 @@ impl Chat {
             .and_then(|failure| failure.get("kind"))
             .and_then(|kind| serde_json::from_value(kind.clone()).ok());
         if let Some(core) = self.core.upgrade() {
-            core.inbox.failed(self.agent_id(), message, fault, kind);
+            core.inbox().failed(self.agent_id(), message, fault, kind);
         }
         self.turn.locked().failure = Some(message.to_owned());
     }
@@ -907,7 +908,7 @@ impl Chat {
 
     pub(crate) fn letter_unread(&self, text: String) {
         if let Some(core) = self.core.upgrade() {
-            core.harness.mailbox.returned(self.agent_id(), text);
+            core.harness().mailbox.returned(self.agent_id(), text);
         }
     }
 
@@ -924,13 +925,13 @@ impl Chat {
             return;
         };
         if core
-            .collisions
+            .collisions()
             .saw(self.agent_id(), &self.launch.cwd, update)
         {
-            core.edits.command_began(self.agent_id());
+            core.edits().command_began(self.agent_id());
         }
         if let Some((tool_call_id, changes)) = self.edits.note(update) {
-            core.edits.record(self, tool_call_id, changes);
+            core.edits().record(self, tool_call_id, changes);
         }
     }
 
@@ -1022,10 +1023,11 @@ impl Chat {
     pub(crate) fn mark_ready(&self, start: ChatStart) {
         if let Some(core) = self.core.upgrade() {
             if let Some(launcher) = &self.origin.launcher {
-                core.workspaces
+                core.workspaces()
                     .note_config_options(launcher, &start.setup["configOptions"]);
             }
-            core.names.note_session(self.agent_id(), &start.session_id);
+            core.names()
+                .note_session(self.agent_id(), &start.session_id);
         }
         self.feed.set_start(start.clone());
         self.tell_saved_usage(&start);
@@ -1168,7 +1170,7 @@ impl Chat {
     fn permission_closed(&self, asked_at: u64, answered_by: Option<&Peer>) {
         if let Some(core) = self.core.upgrade() {
             let waited = Duration::from_millis(epoch_ms().saturating_sub(asked_at));
-            core.activity_log
+            core.activity_log()
                 .call_closed("permission", answered_by, waited);
         }
     }
@@ -1223,7 +1225,7 @@ impl Chat {
     /// Names the MCP app a call showed on the update that ends it.
     pub(crate) fn mark_app(&self, update: &mut Value) {
         if let Some(core) = self.core.upgrade() {
-            core.mcp_apps.mark(update);
+            core.mcp_apps().mark(update);
         }
     }
 
@@ -1289,7 +1291,7 @@ impl Chat {
             name: self
                 .core
                 .upgrade()
-                .and_then(|core| core.names.name(self.agent_id())),
+                .and_then(|core| core.names().name(self.agent_id())),
             provider: self.launch.provider.clone(),
             title: self.feed.title(),
             cwd: self.launch.cwd.clone(),

@@ -1140,6 +1140,7 @@ impl Remote {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::server::parts::Parts;
 
     /// Hosts that update keep the digest their last build took, over that
     /// build's shape of the file; they come back with their account, devices
@@ -1234,7 +1235,7 @@ mod tests {
         let before = std::fs::read(&path).unwrap();
         let core = Core::new(sikemux_wire::protocol::BuildIdentity::default(), None).unwrap();
         {
-            let mut inner = core.remote.inner.locked();
+            let mut inner = core.remote().inner.locked();
             inner.path = Some(path.clone());
             inner.keeper = Some(Keeper::new(&socket, false).unwrap());
             inner.secret = Some(key.secret.clone());
@@ -1243,7 +1244,7 @@ mod tests {
             inner.written = written;
             inner.stored = stored;
         }
-        core.remote
+        core.remote()
             .change(|stored| {
                 stored.links.clear();
                 Ok(())
@@ -1373,7 +1374,7 @@ mod tests {
     fn signed_in(dir: &Path, phones: &[&DeviceInfo]) -> Arc<Core> {
         let core = Core::new(sikemux_wire::protocol::BuildIdentity::default(), None).unwrap();
         {
-            let mut inner = core.remote.inner.locked();
+            let mut inner = core.remote().inner.locked();
             inner.path = Some(dir.join("core.sock.remote.json"));
             inner.direct_only = true;
             inner.secret = Some(SecretKey::generate());
@@ -1384,7 +1385,7 @@ mod tests {
     }
 
     fn devices(core: &Core) -> Vec<String> {
-        core.remote
+        core.remote()
             .status()
             .devices
             .into_iter()
@@ -1397,7 +1398,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let (kept, gone) = (phone("Kept"), phone("Gone"));
         let core = signed_in(dir.path(), &[&kept, &gone]);
-        let _waiting = core.remote.ask(
+        let _waiting = core.remote().ask(
             PendingDevice {
                 id: "request-1".into(),
                 device_id: gone.id.clone(),
@@ -1419,8 +1420,8 @@ mod tests {
         apply_events(&core, &events);
 
         assert_eq!(devices(&core), vec!["Kept"]);
-        assert!(core.remote.status().pending.is_empty());
-        assert_eq!(core.remote.status().owner.as_deref(), Some("user_2abc"));
+        assert!(core.remote().status().pending.is_empty());
+        assert_eq!(core.remote().status().owner.as_deref(), Some("user_2abc"));
         let saved = read_stored(&dir.path().join("core.sock.remote.json")).unwrap();
         assert_eq!(saved.account_event_id, 6);
         assert_eq!(saved.devices, vec![kept]);
@@ -1428,11 +1429,11 @@ mod tests {
 
     fn ticket_for(core: &Core, phone: &str, issued_at: u64) -> JoinTicket {
         let vector = crate::join::vector::vector();
-        core.remote
+        core.remote()
             .trust_join_key(&vector.ticket.key_id, vector.public);
         vector.signed(|ticket| {
             ticket.account = "user_2abc".into();
-            ticket.host = core.remote.core_id().unwrap();
+            ticket.host = core.remote().core_id().unwrap();
             ticket.phone = phone.into();
             ticket.issued_at = issued_at as i64;
             ticket.expires_at = issued_at as i64 + 600;
@@ -1452,18 +1453,18 @@ mod tests {
         let phone = SecretKey::generate().public().to_string();
         let issued = epoch_secs() - 30;
         let ticket = ticket_for(&core, &phone, issued);
-        assert_eq!(core.remote.check_join(&ticket, &phone), Ok(None));
+        assert_eq!(core.remote().check_join(&ticket, &phone), Ok(None));
 
         apply_events(&core, &[revoked_at(1, &phone, issued * 1000 + 10_000)]);
         assert_eq!(
-            core.remote.check_join(&ticket, &phone),
+            core.remote().check_join(&ticket, &phone),
             Err(Refusal::Revoked)
         );
         let saved = read_stored(&dir.path().join("core.sock.remote.json")).unwrap();
         assert_eq!(saved.revoked.get(&phone), Some(&(issued * 1000 + 10_000)));
 
         let reissued = ticket_for(&core, &phone, issued + 20);
-        assert_eq!(core.remote.check_join(&reissued, &phone), Ok(None));
+        assert_eq!(core.remote().check_join(&reissued, &phone), Ok(None));
     }
 
     #[tokio::test]
@@ -1483,7 +1484,7 @@ mod tests {
             ],
         );
         let kept: Vec<String> = core
-            .remote
+            .remote()
             .inner
             .locked()
             .stored
@@ -1500,9 +1501,9 @@ mod tests {
         let core = signed_in(dir.path(), &[]);
         let phone = SecretKey::generate().public().to_string();
         let ticket = ticket_for(&core, &phone, epoch_secs());
-        core.remote.inner.locked().stored.owner = None;
+        core.remote().inner.locked().stored.owner = None;
         assert_eq!(
-            core.remote.check_join(&ticket, &phone),
+            core.remote().check_join(&ticket, &phone),
             Err(Refusal::SignedOut)
         );
     }
@@ -1515,7 +1516,7 @@ mod tests {
         let core = signed_in(dir.path(), &[&paired]);
         let ticket = ticket_for(&core, &paired.id, epoch_secs());
         assert_eq!(
-            core.remote.check_join(&ticket, &paired.id),
+            core.remote().check_join(&ticket, &paired.id),
             Ok(Some(DeviceAccess::Watch))
         );
     }
@@ -1525,13 +1526,13 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let kept = phone("Kept");
         let core = signed_in(dir.path(), &[&kept]);
-        let own = core.remote.core_id().unwrap();
+        let own = core.remote().core_id().unwrap();
         apply_events(
             &core,
             &[event(9, "device.revoked", Some(&own), "host", "removed")],
         );
 
-        let status = core.remote.status();
+        let status = core.remote().status();
         assert_eq!(status.owner, None);
         assert_eq!(devices(&core), vec!["Kept"]);
         let account = status.account.unwrap();
@@ -1539,7 +1540,7 @@ mod tests {
         assert_eq!(account.reason, Some(RevokeReason::Removed));
 
         apply_events(&core, &[event(10, "account.deleted", None, "", "")]);
-        let account = core.remote.status().account.unwrap();
+        let account = core.remote().status().account.unwrap();
         assert_eq!(account.reason, Some(RevokeReason::Removed));
     }
 
@@ -1548,7 +1549,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let core = signed_in(dir.path(), &[]);
         apply_events(&core, &[event(3, "account.deleted", None, "", "")]);
-        let status = core.remote.status();
+        let status = core.remote().status();
         assert_eq!(status.owner, None);
         assert_eq!(
             status.account.unwrap().reason,
@@ -1570,7 +1571,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let (kept, gone) = (phone("Kept"), phone("Gone"));
         let core = signed_in(dir.path(), &[&kept, &gone]);
-        core.remote.inner.locked().accounts_api = Some(base);
+        core.remote().inner.locked().accounts_api = Some(base);
         ensure_live(&core);
 
         let (stream, _) = listener.accept().await.unwrap();
@@ -1583,7 +1584,7 @@ mod tests {
             .unwrap();
         let hello = socket.next().await.unwrap().unwrap();
         let hello: serde_json::Value = serde_json::from_str(hello.as_text().unwrap()).unwrap();
-        assert_eq!(hello["key"], core.remote.core_id().unwrap());
+        assert_eq!(hello["key"], core.remote().core_id().unwrap());
         socket
             .send(send(
                 serde_json::json!({ "type": "ready", "latest": 1, "heartbeatMs": 25000 }),
@@ -1600,7 +1601,7 @@ mod tests {
         assert_eq!(ack.as_text(), Some(r#"{"type":"ack","id":1}"#));
         assert_eq!(devices(&core), vec!["Kept"]);
         assert_eq!(
-            core.remote.status().account.unwrap().state,
+            core.remote().status().account.unwrap().state,
             AccountLinkState::Live
         );
 
@@ -1623,13 +1624,13 @@ mod tests {
             .unwrap();
         assert_eq!(status.owner, None);
         tokio::time::timeout(Duration::from_secs(30), async {
-            while core.remote.inner.locked().stored.pending_leave.is_some() {
+            while core.remote().inner.locked().stored.pending_leave.is_some() {
                 tokio::time::sleep(Duration::from_millis(10)).await;
             }
         })
         .await
         .expect("the account lets the host go");
-        assert_eq!(core.remote.status().account, None);
+        assert_eq!(core.remote().status().account, None);
         assert_eq!(devices(&core), vec!["Kept"]);
     }
 
@@ -1674,7 +1675,10 @@ mod tests {
         assert_eq!(retired(), Some(old.public()));
         let file = std::fs::read_to_string(file_path(&socket_path)).unwrap();
         assert!(!file.contains("secretKey"));
-        assert_ne!(offline.remote.core_id().unwrap(), old.public().to_string());
+        assert_ne!(
+            offline.remote().core_id().unwrap(),
+            old.public().to_string()
+        );
 
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let base = format!("http://{}", listener.local_addr().unwrap());
@@ -1711,14 +1715,14 @@ mod tests {
         })
         .await
         .expect("the retired key is forgotten once the account lets it go");
-        assert!(core.remote.inner.locked().retired.is_none());
+        assert!(core.remote().inner.locked().retired.is_none());
     }
 
     #[tokio::test]
     async fn signing_out_offline_keeps_the_leave_for_the_next_connection() {
         let dir = tempfile::tempdir().unwrap();
         let core = signed_in(dir.path(), &[]);
-        core.remote.inner.locked().accounts_api = Some("http://127.0.0.1:9".into());
+        core.remote().inner.locked().accounts_api = Some("http://127.0.0.1:9".into());
         let status = set_owner(&core, None, &Peer::App).await.unwrap();
         assert_eq!(status.owner, None);
         let saved = read_stored(&dir.path().join("core.sock.remote.json")).unwrap();
@@ -1755,7 +1759,7 @@ mod tests {
         };
         let core = Core::new(build, None).unwrap();
         {
-            let mut inner = core.remote.inner.locked();
+            let mut inner = core.remote().inner.locked();
             inner.path = Some(dir.path().join("core.sock.remote.json"));
             inner.secret = Some(SecretKey::generate());
             inner.direct_only = true;
@@ -1764,10 +1768,10 @@ mod tests {
         }
         set_enabled(&core, true).await.unwrap();
         ensure_live(&core);
-        assert!(core.remote.inner.locked().live.is_some());
+        assert!(core.remote().inner.locked().live.is_some());
 
         apply_network(&core, network_allowing("0.5.0-nightly.2")).await;
-        let status = core.remote.status();
+        let status = core.remote().status();
         assert_eq!(
             status.update_required,
             Some(UpdateRequired {
@@ -1776,25 +1780,25 @@ mod tests {
             })
         );
         assert!(status.enabled, "the switch stays on for after the update");
-        assert!(core.remote.inner.locked().running.is_none());
-        assert!(core.remote.inner.locked().live.is_none());
+        assert!(core.remote().inner.locked().running.is_none());
+        assert!(core.remote().inner.locked().live.is_none());
         assert!(set_enabled(&core, true).await.is_err());
         ensure_live(&core);
-        assert!(core.remote.inner.locked().live.is_none());
+        assert!(core.remote().inner.locked().live.is_none());
         let saved = read_stored(&dir.path().join("core.sock.remote.json")).unwrap();
         assert_eq!(
             saved.network.unwrap().relays[0].url,
             "https://relay.example/"
         );
         assert_eq!(
-            core.remote.inner.locked().relays[0].url,
+            core.remote().inner.locked().relays[0].url,
             "https://relay.example/"
         );
 
         apply_network(&core, network_allowing("0.4.0")).await;
-        assert_eq!(core.remote.status().update_required, None);
-        assert!(core.remote.inner.locked().running.is_some());
-        assert!(core.remote.inner.locked().live.is_some());
+        assert_eq!(core.remote().status().update_required, None);
+        assert!(core.remote().inner.locked().running.is_some());
+        assert!(core.remote().inner.locked().live.is_some());
         stop(&core).await;
         stop_live(&core);
     }
@@ -1803,20 +1807,20 @@ mod tests {
     async fn remote_access_follows_the_sign_in() {
         let dir = tempfile::tempdir().unwrap();
         let core = signed_in(dir.path(), &[]);
-        core.remote.inner.locked().stored.owner = None;
+        core.remote().inner.locked().stored.owner = None;
         let refused = set_enabled(&core, true).await.unwrap_err();
         assert_eq!(refused.to_string(), SIGNED_OUT);
-        assert!(!core.remote.is_enabled());
+        assert!(!core.remote().is_enabled());
 
         let status = set_owner(&core, Some("user_2abc".into()), &Peer::App)
             .await
             .unwrap();
         assert!(status.enabled, "signing in turns remote access on");
-        assert!(core.remote.inner.locked().running.is_some());
+        assert!(core.remote().inner.locked().running.is_some());
 
         let status = set_owner(&core, None, &Peer::App).await.unwrap();
         assert!(!status.enabled, "signing out turns remote access off");
-        assert!(core.remote.inner.locked().running.is_none());
+        assert!(core.remote().inner.locked().running.is_none());
         let saved = read_stored(&dir.path().join("core.sock.remote.json")).unwrap();
         assert!(!saved.enabled);
     }
@@ -1826,12 +1830,12 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let core = signed_in(dir.path(), &[]);
         set_enabled(&core, true).await.unwrap();
-        let own = core.remote.core_id().unwrap();
+        let own = core.remote().core_id().unwrap();
         apply_events(
             &core,
             &[event(1, "device.revoked", Some(&own), "host", "removed")],
         );
-        assert!(!core.remote.status().enabled);
-        assert!(core.remote.inner.locked().running.is_none());
+        assert!(!core.remote().status().enabled);
+        assert!(core.remote().inner.locked().running.is_none());
     }
 }

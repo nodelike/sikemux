@@ -6,6 +6,7 @@
 //! bring it back by itself. A plain card under another loses such an owner too, and goes back to
 //! Open with a line naming who left it, as nobody is asked to bring a plain card's owner back.
 
+use crate::server::parts::Parts;
 use std::collections::HashSet;
 use std::sync::Arc;
 
@@ -89,8 +90,8 @@ fn lapses(core: &Core, board: &Board, card: &Card, now: u64) -> bool {
 }
 
 fn unattended(core: &Core, now: u64) -> Vec<Unattended> {
-    let state = core.boards.state.locked();
-    let born = core.boards.born;
+    let state = core.boards().state.locked();
+    let born = core.boards().born;
     let mut found = Vec::new();
     for board in state.boards.values() {
         for card in &board.cards {
@@ -116,13 +117,13 @@ fn unattended(core: &Core, now: u64) -> Vec<Unattended> {
 /// of already, such as having stopped everything themselves.
 fn waits_elsewhere(core: &Core, owner: &str, running: &HashSet<String>) -> bool {
     let now = core.agent_now(owner);
-    core.workspaces.held(owner)
+    core.workspaces().held(owner)
         || now.waits_on_something()
-        || core.seen.viewed(owner)
-        || core.inbox.failing(owner)
+        || core.seen().viewed(owner)
+        || core.inbox().failing(owner)
         || running.contains(owner)
         || core
-            .ship
+            .ship()
             .waiting()
             .iter()
             .any(|held| held.agent_id == owner)
@@ -137,8 +138,8 @@ pub(super) fn settle(core: &Core) -> Option<u64> {
         return None;
     }
     let here = core.open_agents();
-    let linked = core.names.open_with(HashSet::new());
-    let running: HashSet<String> = (core.harness.all_runs().into_iter())
+    let linked = core.names().open_with(HashSet::new());
+    let running: HashSet<String> = (core.harness().all_runs().into_iter())
         .filter(|run| run.status.is_active())
         .filter_map(|run| run.agent_id)
         .collect();
@@ -156,14 +157,16 @@ pub(super) fn settle(core: &Core) -> Option<u64> {
         if slice.plain && persons_own(core, owner, Why::Quiet) {
             continue;
         }
-        let touched = slice.touched.max(core.seen.quiet_since(owner).unwrap_or(0));
+        let touched = slice
+            .touched
+            .max(core.seen().quiet_since(owner).unwrap_or(0));
         let due = touched + QUIET_MS;
         if waits_elsewhere(core, owner, &running) {
             // Not all of these say when they end, such as the person looking away from it.
             next = sooner(next, Some(due.max(now + QUIET_MS)));
         } else if now < due {
             next = sooner(next, Some(due));
-        } else if core.chats.get(owner).is_some() || core.agent_session(owner).is_some() {
+        } else if core.chats().get(owner).is_some() || core.agent_session(owner).is_some() {
             lost.push((slice, Why::Quiet));
         } else {
             lost.push((slice, Why::Stopped));
@@ -178,13 +181,13 @@ pub(super) fn settle(core: &Core) -> Option<u64> {
 fn persons_own(core: &Core, owner: &str, why: Why) -> bool {
     !matches!(why, Why::Closed)
         && core
-            .names
+            .names()
             .get(owner)
             .is_none_or(|named| named.parent.is_none())
 }
 
 fn lose(core: &Core, lost: Vec<(Unattended, Why)>, now: u64) {
-    let mut state = core.boards.state.locked();
+    let mut state = core.boards().state.locked();
     let mut owners = Vec::new();
     for (slice, why) in lost {
         let Some(board) = state.boards.get_mut(&slice.project) else {
@@ -219,7 +222,7 @@ fn lose(core: &Core, lost: Vec<(Unattended, Why)>, now: u64) {
         state
             .offered
             .retain(|(project, id, _)| !(*project == slice.project && *id == slice.id));
-        core.boards.save(&mut state, &slice.project);
+        core.boards().save(&mut state, &slice.project);
     }
     drop(state);
     for owner in owners {
@@ -231,7 +234,7 @@ fn lose(core: &Core, lost: Vec<(Unattended, Why)>, now: u64) {
 /// slice's work and gates, nobody's and on no team, so nothing asks the person or an agent about it.
 fn let_go(core: &Core, projects: Vec<String>, lost: impl Fn(&Card) -> bool) {
     let now = epoch_ms();
-    let mut state = core.boards.state.locked();
+    let mut state = core.boards().state.locked();
     for project in projects {
         let Some(board) = state.boards.get_mut(&project) else {
             continue;
@@ -249,18 +252,25 @@ fn let_go(core: &Core, projects: Vec<String>, lost: impl Fn(&Card) -> bool) {
             changed = true;
         }
         if changed {
-            core.boards.save(&mut state, &project);
+            core.boards().save(&mut state, &project);
         }
     }
 }
 
 /// A chat deleted for good can't be resumed, so the cards it held or lost stop waiting on it.
 pub(crate) fn session_deleted(core: &Core, session_id: &str) {
-    let agents = core.names.agents_of_session(session_id);
+    let agents = core.names().agents_of_session(session_id);
     if agents.is_empty() {
         return;
     }
-    let projects = core.boards.state.locked().boards.keys().cloned().collect();
+    let projects = core
+        .boards()
+        .state
+        .locked()
+        .boards
+        .keys()
+        .cloned()
+        .collect();
     let_go(core, projects, |card| {
         let closed_owner = || card.owner_id().filter(|_| holder(core, card).is_none());
         match stalled_of(core, card) {
@@ -273,7 +283,7 @@ pub(crate) fn session_deleted(core: &Core, session_id: &str) {
 /// Lets go of the cards stalled on chats that closed before this version, once, as weeks-old
 /// chats may be long gone. Only a chat closing from now on asks the person about its card.
 pub(super) fn clear_old_stalls(core: &Core) {
-    let projects = std::mem::take(&mut core.boards.state.locked().old_stalls);
+    let projects = std::mem::take(&mut core.boards().state.locked().old_stalls);
     if projects.is_empty() {
         return;
     }
@@ -290,7 +300,7 @@ async fn stalled_card(
     let (core, folder, id) = (core.clone(), params.project.clone(), params.id);
     blocking(move || {
         let project = project_at(&core, &folder)?;
-        let state = core.boards.state.locked();
+        let state = core.boards().state.locked();
         let card = state
             .boards
             .get(&project)
@@ -307,7 +317,7 @@ async fn stalled_card(
 
 /// Puts `agent` on the slice, unless someone took it meanwhile.
 pub(super) fn give(core: &Core, project: &str, id: u64, agent: &str) -> Result<(), String> {
-    let mut state = core.boards.state.locked();
+    let mut state = core.boards().state.locked();
     let board = state
         .boards
         .get_mut(project)
@@ -317,7 +327,7 @@ pub(super) fn give(core: &Core, project: &str, id: u64, agent: &str) -> Result<(
         return Err(format!("{} has #{id} now", name_of(core, owner)));
     }
     take_on(core, board, id, agent)?;
-    core.boards.save(&mut state, project);
+    core.boards().save(&mut state, project);
     Ok(())
 }
 
@@ -331,13 +341,13 @@ pub(crate) fn resumed_session(
     session: &str,
 ) -> Option<String> {
     let ran = |stalled: &Stalled| {
-        core.names
+        core.names()
             .ran_session(&stalled.agent)
             .is_some_and(|ran| ran.provider == provider && ran.session_id == session)
     };
     let mut taken = false;
     {
-        let mut state = core.boards.state.locked();
+        let mut state = core.boards().state.locked();
         let projects: Vec<String> = state.boards.keys().cloned().collect();
         for project in projects {
             let Some(board) = state.boards.get_mut(&project) else {
@@ -357,7 +367,7 @@ pub(crate) fn resumed_session(
                 changed |= take_on(core, board, id, agent).is_ok();
             }
             if changed {
-                core.boards.save(&mut state, &project);
+                core.boards().save(&mut state, &project);
                 taken = true;
             }
         }
@@ -375,7 +385,7 @@ pub(crate) fn resumed_session(
 /// The chat that lost the slice `id` by sitting idle is working again, so it holds the slice
 /// again, unless someone took it meanwhile.
 pub(super) fn back_at_work(core: &Core, project: &str, id: u64, agent: &str) {
-    let mut state = core.boards.state.locked();
+    let mut state = core.boards().state.locked();
     let Some(board) = state.boards.get_mut(project) else {
         return;
     };
@@ -386,7 +396,7 @@ pub(super) fn back_at_work(core: &Core, project: &str, id: u64, agent: &str) {
         .and_then(|slice| slice.stalled.as_ref())
         .is_some_and(|stalled| stalled.agent == agent);
     if lost_it && card.owner.is_none() && take_on(core, board, id, agent).is_ok() {
-        core.boards.save(&mut state, project);
+        core.boards().save(&mut state, project);
     }
 }
 
@@ -409,14 +419,14 @@ async fn tell(core: &Arc<Core>, agent: &str, text: String) -> Result<(), String>
 async fn bring_back(core: &Arc<Core>, stalled: &Stalled) -> Result<String, String> {
     let agent = stalled.agent.clone();
     if core.open_agents().contains(&agent) {
-        if core.chats.get(&agent).is_none() && core.agent_session(&agent).is_none() {
+        if core.chats().get(&agent).is_none() && core.agent_session(&agent).is_none() {
             launching::wake(core, agent.clone())
                 .await
                 .map_err(|error| format!("@{} did not start again: {error}", stalled.name))?;
         }
         return Ok(agent);
     }
-    if core.names.ran_session(&agent).is_none() {
+    if core.names().ran_session(&agent).is_none() {
         return Err(format!(
             "@{}'s session isn't kept any more; hand the slice to someone else",
             stalled.name
@@ -436,7 +446,7 @@ pub(crate) async fn person_resume(
     let (project, stalled, label) = stalled_card(core, &params).await?;
     let agent = bring_back(core, &stalled).await?;
     give(core, &project, params.id, &agent)?;
-    if let Some(chat) = core.chats.get(&agent) {
+    if let Some(chat) = core.chats().get(&agent) {
         chat.take_brief();
     }
     let standing = standing_for(core, &agent);

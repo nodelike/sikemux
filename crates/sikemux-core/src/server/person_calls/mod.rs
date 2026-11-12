@@ -6,6 +6,7 @@
 
 mod log;
 
+use crate::server::parts::Parts;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
@@ -747,7 +748,7 @@ fn same_decision(one: &PersonCall, other: &PersonCall) -> bool {
 
 /// Whether `agent_id` waits on a call to the person whose words are never kept.
 pub(crate) fn hides_typed(core: &Core, agent_id: &str) -> bool {
-    let book = core.person_calls.book.locked();
+    let book = core.person_calls().book.locked();
     (book.iter()).map(|kept| &kept.call).any(|call| {
         let asked = call.asker.agent_id == agent_id
             || call.joined.iter().any(|joined| joined.agent_id == agent_id);
@@ -771,7 +772,7 @@ fn settled_at(call: &PersonCall) -> u64 {
 /// same key. Answers the call's id, or why a production call could not be raised.
 pub(crate) fn raise(core: &Core, raise: Raise) -> Result<String, String> {
     let id = {
-        let mut book = core.person_calls.book.locked();
+        let mut book = core.person_calls().book.locked();
         let same = book.iter().find(|kept| {
             kept.call.state == CallState::Open
                 && kept.call.project == raise.project
@@ -787,7 +788,7 @@ pub(crate) fn raise(core: &Core, raise: Raise) -> Result<String, String> {
                     source: None,
                     at: epoch_ms(),
                 };
-                core.person_calls.write(&mut book, joined);
+                core.person_calls().write(&mut book, joined);
                 id
             }
             None => {
@@ -800,12 +801,12 @@ pub(crate) fn raise(core: &Core, raise: Raise) -> Result<String, String> {
                     key,
                     yes,
                 };
-                core.person_calls.put(&mut book, raised)?;
+                core.person_calls().put(&mut book, raised)?;
                 id
             }
         }
     };
-    core.person_calls.changed(core);
+    core.person_calls().changed(core);
     Ok(id)
 }
 
@@ -815,7 +816,7 @@ pub(crate) fn told(core: &Core, raise: Raise, outcome: CallOutcome) -> String {
     let (call, key, yes) = raise.into_call(uuid::Uuid::new_v4().simple().to_string());
     let id = call.id.clone();
     {
-        let mut book = core.person_calls.book.locked();
+        let mut book = core.person_calls().book.locked();
         let raised = Entry::Raised {
             call: Box::new(call),
             source: Source::Raised,
@@ -823,8 +824,8 @@ pub(crate) fn told(core: &Core, raise: Raise, outcome: CallOutcome) -> String {
             key,
             yes,
         };
-        core.person_calls.write(&mut book, raised);
-        core.person_calls.write(
+        core.person_calls().write(&mut book, raised);
+        core.person_calls().write(
             &mut book,
             Entry::Came {
                 id: id.clone(),
@@ -832,13 +833,13 @@ pub(crate) fn told(core: &Core, raise: Raise, outcome: CallOutcome) -> String {
             },
         );
     }
-    core.person_calls.changed(core);
+    core.person_calls().changed(core);
     id
 }
 
 /// The newest call of `project` raised with `key`, open or not.
 pub(crate) fn find_key(core: &Core, project: &str, key: &str) -> Option<PersonCall> {
-    (core.person_calls.book.locked().iter())
+    (core.person_calls().book.locked().iter())
         .filter(|kept| kept.call.project == project && kept.key.as_deref() == Some(key))
         .max_by_key(|kept| kept.call.raised_at)
         .map(|kept| kept.call.clone())
@@ -846,9 +847,9 @@ pub(crate) fn find_key(core: &Core, project: &str, key: &str) -> Option<PersonCa
 
 /// Says what came of an answered call, such as that it shipped and its place stayed healthy.
 pub(crate) fn set_outcome(core: &Core, id: &str, outcome: CallOutcome) {
-    let mut book = core.person_calls.book.locked();
+    let mut book = core.person_calls().book.locked();
     if kept(&book, id).is_some() {
-        core.person_calls.write(
+        core.person_calls().write(
             &mut book,
             Entry::Came {
                 id: id.to_owned(),
@@ -856,7 +857,7 @@ pub(crate) fn set_outcome(core: &Core, id: &str, outcome: CallOutcome) {
             },
         );
         drop(book);
-        core.person_calls.changed(core);
+        core.person_calls().changed(core);
     }
 }
 
@@ -872,7 +873,7 @@ pub(crate) struct Wanted {
 
 /// The questions now put to the person, as calls.
 pub(crate) fn sync_questions(core: &Core, wanted: Vec<Wanted>) {
-    (core.person_calls).sync(core, |source| matches!(source, Source::Question(_)), wanted);
+    (core.person_calls()).sync(core, |source| matches!(source, Source::Question(_)), wanted);
 }
 
 /// The actions now held for the person, as calls.
@@ -885,14 +886,14 @@ pub(crate) fn sync_holds(core: &Core, wanted: Vec<(String, PersonCall)>) {
             yes: Some(HOLD_ALLOW.to_owned()),
         })
         .collect();
-    (core.person_calls).sync(core, |source| matches!(source, Source::Hold(_)), wanted);
+    (core.person_calls()).sync(core, |source| matches!(source, Source::Hold(_)), wanted);
 }
 
 /// What the yes of the call `id` lets run is about to start, so a restart says it may have run
 /// rather than that nothing did: the first time, and again once what ran last has an outcome.
 /// When that can't be recorded for sure, nothing may run.
 pub(crate) fn started(core: &Core, id: &str) -> Result<(), String> {
-    let mut book = core.person_calls.book.locked();
+    let mut book = core.person_calls().book.locked();
     let since = |kept: &Kept| match kept.started {
         None => true,
         Some(started) => (kept.call.outcome.as_ref()).is_some_and(|came| came.at > started),
@@ -904,7 +905,7 @@ pub(crate) fn started(core: &Core, id: &str) -> Result<(), String> {
                 id: id.to_owned(),
                 at,
             };
-            core.person_calls.write_sure(&mut book, started)
+            core.person_calls().write_sure(&mut book, started)
         }
         _ => Ok(()),
     }
@@ -959,7 +960,7 @@ impl PersonCalls {
 
 /// Closes each call `raise` put whose askers have all `gone`: nobody is left to hear its answer.
 pub(crate) fn close_left(core: &Core, gone: impl Fn(&str) -> bool) {
-    let mut book = core.person_calls.book.locked();
+    let mut book = core.person_calls().book.locked();
     let left: Vec<String> = (book.iter())
         .filter(|kept| kept.source == Source::Raised && kept.call.state == CallState::Open)
         .filter(|kept| {
@@ -973,11 +974,11 @@ pub(crate) fn close_left(core: &Core, gone: impl Fn(&str) -> bool) {
     }
     for id in left {
         let outcome = outcome(CallResult::Withdrawn);
-        core.person_calls
+        core.person_calls()
             .write(&mut book, Entry::Came { id, outcome });
     }
     drop(book);
-    core.person_calls.changed(core);
+    core.person_calls().changed(core);
 }
 
 /// The longest answer typed in a chat that a call keeps.
@@ -990,11 +991,11 @@ const MAX_WRITTEN_CHARS: usize = 2000;
 /// answered by writing, and an access call never keeps what was typed. Answers which kind of call
 /// the words answered, for the chat's record of them.
 pub(crate) fn written(core: &Core, agent_id: &str, text: &str) -> Option<Answered> {
-    let questions = core.harness.questions.answered_by_writing(agent_id);
+    let questions = core.harness().questions.answered_by_writing(agent_id);
     if questions.is_empty() {
         return None;
     }
-    let mut book = core.person_calls.book.locked();
+    let mut book = core.person_calls().book.locked();
     let answerable: Vec<&Kept> = (book.iter())
         .filter(|kept| {
             let call = &kept.call;
@@ -1032,10 +1033,10 @@ pub(crate) fn written(core: &Core, agent_id: &str, text: &str) -> Option<Answere
                 source,
                 at: epoch_ms(),
             };
-            core.person_calls.write(&mut book, left);
+            core.person_calls().write(&mut book, left);
         }
         drop(book);
-        core.person_calls.changed(core);
+        core.person_calls().changed(core);
         return Some(answered);
     }
     let call = &kept.call;
@@ -1050,7 +1051,7 @@ pub(crate) fn written(core: &Core, agent_id: &str, text: &str) -> Option<Answere
         waited_ms: epoch_ms().saturating_sub(call.raised_at),
     };
     let id = call.id.clone();
-    let write = |book: &mut Book, entry| core.person_calls.write(book, entry);
+    let write = |book: &mut Book, entry| core.person_calls().write(book, entry);
     write(
         &mut book,
         Entry::Answered {
@@ -1066,14 +1067,14 @@ pub(crate) fn written(core: &Core, agent_id: &str, text: &str) -> Option<Answere
         },
     );
     drop(book);
-    core.person_calls.changed(core);
+    core.person_calls().changed(core);
     Some(answered)
 }
 
 /// A client drew the call.
 pub(crate) fn seen(core: &Core, peer: &Peer, params: CallParams) -> CoreResult<()> {
     let by = client_of(peer).ok_or(NOT_A_CLIENT)?;
-    let mut book = core.person_calls.book.locked();
+    let mut book = core.person_calls().book.locked();
     let kept = kept(&book, &params.id).ok_or(GONE)?;
     if !kept.seen.iter().any(|(seer, _)| *seer == by) {
         let shown = Entry::Shown {
@@ -1081,7 +1082,7 @@ pub(crate) fn seen(core: &Core, peer: &Peer, params: CallParams) -> CoreResult<(
             by,
             at: epoch_ms(),
         };
-        core.person_calls.write(&mut book, shown);
+        core.person_calls().write(&mut book, shown);
     }
     Ok(())
 }
@@ -1145,7 +1146,7 @@ fn answer_of(
 }
 
 fn call_of(core: &Core, id: &str) -> CoreResult<PersonCall> {
-    Ok(open(&core.person_calls.book.locked(), id)?.call.clone())
+    Ok(open(&core.person_calls().book.locked(), id)?.call.clone())
 }
 
 /// The person answers a call from the app, the notch or a phone. A production call is answered
@@ -1164,7 +1165,7 @@ pub(crate) async fn answer(
     }
     crate::server::chat::prompt::check_attachments(&params.paths)?;
     if call.kind == CallKind::Production {
-        if !core.person_calls.seen_by(&call.id, &client) {
+        if !core.person_calls().seen_by(&call.id, &client) {
             return Err(
                 "open the call to answer it: a production call is answered where it was seen"
                     .into(),
@@ -1172,15 +1173,15 @@ pub(crate) async fn answer(
         }
         may_pass(core, &call, peer, answer.option.as_deref())?;
     }
-    let (call, source) = core.person_calls.take_answer(&call.id, answer)?;
-    if let Err(error) = core.person_calls.starting_on_yes(&call.id) {
-        return Err(core.person_calls.unanswer(core, &call.id, error));
+    let (call, source) = core.person_calls().take_answer(&call.id, answer)?;
+    if let Err(error) = core.person_calls().starting_on_yes(&call.id) {
+        return Err(core.person_calls().unanswer(core, &call.id, error));
     }
-    core.person_calls.changed(core);
+    core.person_calls().changed(core);
     let reached = deliver(core, &call, &source, typed, params.paths).await;
     if let Err(error) = reached {
-        core.person_calls.reopen(&call.id);
-        core.person_calls.changed(core);
+        core.person_calls().reopen(&call.id);
+        core.person_calls().changed(core);
         return Err(error);
     }
     Ok(())
@@ -1205,7 +1206,7 @@ async fn deliver(
             let index = |option: &String| call.options.iter().position(|known| known.id == *option);
             let mut reached = false;
             let mut failed = None;
-            for id in core.person_calls.questions_of(&call.id) {
+            for id in core.person_calls().questions_of(&call.id) {
                 let params = AnswerParams {
                     id,
                     answer: typed.clone(),
@@ -1223,7 +1224,7 @@ async fn deliver(
             if !reached {
                 return Err(failed.unwrap_or_else(|| GONE.to_owned()).into());
             }
-            core.person_calls.settle(&call.id, CallResult::Heard);
+            core.person_calls().settle(&call.id, CallResult::Heard);
         }
         Source::Hold(hold) => {
             let params = ship::HoldParams { hold: hold.clone() };
@@ -1232,7 +1233,7 @@ async fn deliver(
                 Some(HOLD_ALWAYS) => ship::let_go(core, params).await?,
                 _ => {
                     ship::refuse(core, params).await?;
-                    core.person_calls.settle(&call.id, CallResult::NotShipped);
+                    core.person_calls().settle(&call.id, CallResult::NotShipped);
                 }
             }
             if let Some(typed) = listed() {
@@ -1243,7 +1244,7 @@ async fn deliver(
         Source::Raised if call.place.is_some() => call_answered(core, call, listed()).await,
         Source::Raised => {
             tell_askers(core, call, listed()).await;
-            core.person_calls.settle(&call.id, CallResult::Heard);
+            core.person_calls().settle(&call.id, CallResult::Heard);
         }
     }
     Ok(())
@@ -1289,8 +1290,9 @@ fn answered_before(
     answer: impl FnOnce(&PersonCall, CallClient) -> CallAnswer,
 ) -> CoreResult<Option<String>> {
     let client = client_of(peer).ok_or(NOT_A_CLIENT)?;
-    let Some(id) = core.person_calls.id_of(source) else {
-        let settled = (core.person_calls.book.locked().iter()).any(|kept| raised_by(kept, source));
+    let Some(id) = core.person_calls().id_of(source) else {
+        let settled =
+            (core.person_calls().book.locked().iter()).any(|kept| raised_by(kept, source));
         return match settled {
             true => Err(GONE.into()),
             false => Ok(None),
@@ -1301,11 +1303,11 @@ fn answered_before(
     if call.kind == CallKind::Production {
         may_pass(core, &call, peer, given.option.as_deref())?;
     }
-    core.person_calls.take_answer(&id, given)?;
-    if let Err(error) = core.person_calls.starting_on_yes(&id) {
-        return Err(core.person_calls.unanswer(core, &id, error));
+    core.person_calls().take_answer(&id, given)?;
+    if let Err(error) = core.person_calls().starting_on_yes(&id) {
+        return Err(core.person_calls().unanswer(core, &id, error));
     }
-    core.person_calls.changed(core);
+    core.person_calls().changed(core);
     Ok(Some(id))
 }
 
@@ -1324,12 +1326,12 @@ pub(crate) async fn answer_questions(
     let mut joined = Vec::new();
     for params in &given.answers {
         let Some(call) = core
-            .person_calls
+            .person_calls()
             .id_of(&Source::Question(params.id.clone()))
         else {
             continue;
         };
-        let waiting = core.person_calls.questions_of(&call);
+        let waiting = core.person_calls().questions_of(&call);
         for id in waiting
             .into_iter()
             .filter(|id| !answered.contains(&id.as_str()))
@@ -1374,7 +1376,7 @@ pub(crate) async fn answer_questions(
             Err(error) => {
                 taken
                     .iter()
-                    .for_each(|id: &String| core.person_calls.reopen(id));
+                    .for_each(|id: &String| core.person_calls().reopen(id));
                 return Err(error);
             }
         }
@@ -1385,21 +1387,21 @@ pub(crate) async fn answer_questions(
                 let _ = questions::answer(core, params).await;
             }
             for id in &taken {
-                core.person_calls.settle(id, CallResult::Heard);
+                core.person_calls().settle(id, CallResult::Heard);
             }
-            core.person_calls.changed(core);
+            core.person_calls().changed(core);
             Ok(())
         }
         Err(error) => {
-            taken.iter().for_each(|id| core.person_calls.reopen(id));
-            core.person_calls.changed(core);
+            taken.iter().for_each(|id| core.person_calls().reopen(id));
+            core.person_calls().changed(core);
             Err(error.into())
         }
     }
 }
 
 fn raised_by_gate(core: &Core, id: &str) -> bool {
-    (kept(&core.person_calls.book.locked(), id))
+    (kept(&core.person_calls().book.locked(), id))
         .is_some_and(|kept| kept.source == Source::Raised && kept.call.place.is_some())
 }
 
@@ -1421,8 +1423,8 @@ async fn answer_gate(core: &Arc<Core>, peer: &Peer, id: &str, option: &str) -> C
         at: epoch_ms(),
         waited_ms: epoch_ms().saturating_sub(call.raised_at),
     };
-    let (call, source) = core.person_calls.take_answer(id, given)?;
-    core.person_calls.changed(core);
+    let (call, source) = core.person_calls().take_answer(id, given)?;
+    core.person_calls().changed(core);
     deliver(core, &call, &source, None, Vec::new()).await
 }
 
@@ -1453,11 +1455,13 @@ pub(crate) async fn answer_hold(
     };
     if let Some(id) = &taken {
         match &ran {
-            Ok(()) if option == HOLD_REFUSE => core.person_calls.settle(id, CallResult::NotShipped),
+            Ok(()) if option == HOLD_REFUSE => {
+                core.person_calls().settle(id, CallResult::NotShipped)
+            }
             Ok(()) => {}
-            Err(_) => core.person_calls.reopen(id),
+            Err(_) => core.person_calls().reopen(id),
         }
-        core.person_calls.changed(core);
+        core.person_calls().changed(core);
     }
     ran
 }
@@ -1470,7 +1474,7 @@ pub(crate) async fn not_mine(core: &Arc<Core>, peer: &Peer, params: CallParams) 
     if !call.can_hand_back {
         return Err("only a call of taste or direction can be handed back".into());
     }
-    let source = core.person_calls.source_of(&call.id).ok_or(GONE)?;
+    let source = core.person_calls().source_of(&call.id).ok_or(GONE)?;
     let answer = CallAnswer {
         option: None,
         options: Vec::new(),
@@ -1480,12 +1484,12 @@ pub(crate) async fn not_mine(core: &Arc<Core>, peer: &Peer, params: CallParams) 
         at: epoch_ms(),
         waited_ms: epoch_ms().saturating_sub(call.raised_at),
     };
-    core.person_calls.take_answer(&call.id, answer)?;
-    core.person_calls.changed(core);
+    core.person_calls().take_answer(&call.id, answer)?;
+    core.person_calls().changed(core);
     let handed = match &source {
         Source::Question(_) => {
             let mut handed = Err(GONE.to_owned());
-            for id in core.person_calls.questions_of(&call.id) {
+            for id in core.person_calls().questions_of(&call.id) {
                 let back = questions::hand_back(core, &id).await;
                 handed = handed.or(back);
             }
@@ -1496,14 +1500,14 @@ pub(crate) async fn not_mine(core: &Arc<Core>, peer: &Peer, params: CallParams) 
         }
     };
     match handed {
-        Ok(()) => core.person_calls.settle(&call.id, CallResult::HandedBack),
+        Ok(()) => core.person_calls().settle(&call.id, CallResult::HandedBack),
         Err(error) => {
-            core.person_calls.reopen(&call.id);
-            core.person_calls.changed(core);
+            core.person_calls().reopen(&call.id);
+            core.person_calls().changed(core);
             return Err(error.into());
         }
     }
-    core.person_calls.changed(core);
+    core.person_calls().changed(core);
     Ok(())
 }
 
@@ -1515,14 +1519,14 @@ pub(crate) fn open_call(core: &Core, id: &str) -> Option<PersonCall> {
 /// The open call the question `id` raised or joined.
 pub(crate) fn asked_by(core: &Core, id: &str) -> Option<PersonCall> {
     let source = Source::Question(id.to_owned());
-    let call = core.person_calls.id_of(&source)?;
+    let call = core.person_calls().id_of(&source)?;
     open_call(core, &call)
 }
 
 /// The open calls only this module tells the person of: those not raised by a question or a
 /// held action, which are told of as they always were.
 pub(crate) fn raised_open(core: &Core) -> Vec<PersonCall> {
-    (core.person_calls.book.locked().iter())
+    (core.person_calls().book.locked().iter())
         .filter(|kept| kept.source == Source::Raised && kept.call.state == CallState::Open)
         .map(|kept| kept.call.clone())
         .collect()
@@ -1566,11 +1570,11 @@ async fn after_restart(core: &Arc<Core>, left: AfterStart) {
     for id in left.undelivered {
         redeliver(core, &id).await;
     }
-    core.person_calls.changed(core);
+    core.person_calls().changed(core);
 }
 
 fn call_any(core: &Core, id: &str) -> Option<PersonCall> {
-    kept(&core.person_calls.book.locked(), id).map(|kept| kept.call.clone())
+    kept(&core.person_calls().book.locked(), id).map(|kept| kept.call.clone())
 }
 
 /// Tells every agent waiting on the call, waiting for any that has stopped.
@@ -1585,7 +1589,7 @@ async fn tell(core: &Arc<Core>, call: &PersonCall, text: &str) {
 /// open may have been lost between being taken and being sent, so it is sent as a plain message;
 /// one whose words were never kept, as an access call's, waits on the person again.
 async fn redeliver(core: &Arc<Core>, id: &str) {
-    let Some((call, source)) = kept(&core.person_calls.book.locked(), id)
+    let Some((call, source)) = kept(&core.person_calls().book.locked(), id)
         .map(|kept| (kept.call.clone(), kept.source.clone()))
     else {
         return;
@@ -1603,12 +1607,12 @@ async fn redeliver(core: &Arc<Core>, id: &str) {
             );
             tell(core, &call, &text).await;
         }
-        core.person_calls.settle(id, CallResult::NotShipped);
+        core.person_calls().settle(id, CallResult::NotShipped);
         return;
     }
     if let Source::Question(_) = source {
-        let questions = core.person_calls.questions_of(id);
-        let open = (questions.iter()).any(|question| core.harness.questions.is_open(question));
+        let questions = core.person_calls().questions_of(id);
+        let open = (questions.iter()).any(|question| core.harness().questions.is_open(question));
         if !open {
             let text = match said(&call, typed.clone()) {
                 Some(said) => format!(
@@ -1621,11 +1625,11 @@ async fn redeliver(core: &Arc<Core>, id: &str) {
                 ),
             };
             tell(core, &call, &text).await;
-            core.person_calls.settle(id, CallResult::Heard);
+            core.person_calls().settle(id, CallResult::Heard);
             return;
         }
         if !picked && typed.is_none() {
-            core.person_calls.reopen(id);
+            core.person_calls().reopen(id);
             return;
         }
     }
@@ -1633,7 +1637,7 @@ async fn redeliver(core: &Arc<Core>, id: &str) {
         .await
         .is_err()
     {
-        core.person_calls.reopen(id);
+        core.person_calls().reopen(id);
     }
 }
 
@@ -1641,7 +1645,7 @@ async fn redeliver(core: &Arc<Core>, id: &str) {
 /// could not be read. Reads the disk, so it blocks.
 pub(crate) fn history(core: &Core, project: &str) -> Option<Vec<PersonCall>> {
     let mut book = Book::new();
-    for entry in core.person_calls.log.read_project(project)? {
+    for entry in core.person_calls().log.read_project(project)? {
         apply_with(&mut book, entry, false);
     }
     let mut calls: Vec<PersonCall> = book.into_iter().map(|kept| kept.call).collect();
@@ -1652,7 +1656,7 @@ pub(crate) fn history(core: &Core, project: &str) -> Option<Vec<PersonCall>> {
 /// Every call the device view shows, each asker marked when it is a project's chief.
 pub(crate) fn shown(core: &Core) -> Vec<PersonCall> {
     let chiefs = crate::server::chief::all(core);
-    let mut calls = core.person_calls.shown();
+    let mut calls = core.person_calls().shown();
     for call in &mut calls {
         for asker in std::iter::once(&mut call.asker).chain(call.joined.iter_mut()) {
             asker.chief = chiefs.contains(&asker.agent_id);

@@ -3,6 +3,7 @@
 //! What it reads of a turn is kept with the turn by `inbox::Turns`, through a restart; where git
 //! said the chat's work was is read off the view's path when a turn ends and on each commit.
 
+use crate::server::parts::Parts;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -99,11 +100,11 @@ pub(crate) struct Seen {
 impl Gathered {
     pub(crate) fn of(core: &Core, agents: &[Seen]) -> Self {
         let mut asks: HashMap<String, Vec<Ask>> = HashMap::new();
-        for attention in core.chats.attentions() {
+        for attention in core.chats().attentions() {
             let agent = attention.agent_id.clone();
             asks.entry(agent).or_default().push(ask_of(attention));
         }
-        let leads = core.workspaces.agent_leads();
+        let leads = core.workspaces().agent_leads();
         let mut workers = HashMap::new();
         let working = agents
             .iter()
@@ -112,8 +113,8 @@ impl Gathered {
             let Some(lead) = leads.get(&worker.id) else {
                 continue;
             };
-            let since = (core.seen.started_at(&worker.id))
-                .or_else(|| core.seen.active_at(&worker.id))
+            let since = (core.seen().started_at(&worker.id))
+                .or_else(|| core.seen().active_at(&worker.id))
                 .unwrap_or_else(epoch_ms);
             workers
                 .entry(lead.clone())
@@ -130,7 +131,7 @@ impl Gathered {
 /// What the agent waits on the person for: its oldest permission or call, with how many wait.
 fn call_of(core: &Core, gathered: &Gathered, agent_id: &str) -> Option<TurnCall> {
     let asked = gathered.asks.get(agent_id).map_or(&[][..], Vec::as_slice);
-    let call = core.person_calls.of_agent(agent_id);
+    let call = core.person_calls().of_agent(agent_id);
     let count = (asked.len() + call.as_ref().map_or(0, |call| call.count)) as u32;
     let older = |ask: &&Ask| {
         call.as_ref()
@@ -201,20 +202,20 @@ pub(crate) fn now(core: &Core, agent_id: &str) -> Option<TurnState> {
         false => AgentStatus::Idle,
     };
     let mut asks: HashMap<String, Vec<Ask>> = HashMap::new();
-    if let Some(chat) = core.chats.get(agent_id) {
+    if let Some(chat) = core.chats().get(agent_id) {
         asks.insert(
             agent_id.to_owned(),
             (chat.attentions().into_iter()).map(ask_of).collect(),
         );
     }
-    let leads = core.workspaces.agent_leads();
+    let leads = core.workspaces().agent_leads();
     let worker = (leads.iter()).find(|(worker, lead)| *lead == agent_id && mid_turn(worker));
     let workers = (worker.into_iter())
         .map(|(worker, _)| {
-            let since = (core.seen.started_at(worker))
-                .or_else(|| core.seen.active_at(worker))
+            let since = (core.seen().started_at(worker))
+                .or_else(|| core.seen().active_at(worker))
                 .unwrap_or_else(epoch_ms);
-            let name = core.names.name(worker).unwrap_or_default();
+            let name = core.names().name(worker).unwrap_or_default();
             (agent_id.to_owned(), (name, since))
         })
         .collect();
@@ -262,19 +263,19 @@ pub(crate) fn of(
         state.call = Some(call);
         return Some(state);
     }
-    let ended = core.inbox.ending(agent_id);
+    let ended = core.inbox().ending(agent_id);
     if matches!(status, AgentStatus::Working | AgentStatus::Blocked) {
-        let since = (core.seen.started_at(agent_id))
+        let since = (core.seen().started_at(agent_id))
             .or_else(|| ended.as_ref().map(|ended| ended.started_at))
-            .or_else(|| core.seen.active_at(agent_id))
+            .or_else(|| core.seen().active_at(agent_id))
             .unwrap_or_else(epoch_ms);
         let mut state = standing(TurnPhase::Working, since);
-        state.on = (core.chats.get(agent_id)).and_then(|chat| chat.feed.plan_on(since));
+        state.on = (core.chats().get(agent_id)).and_then(|chat| chat.feed.plan_on(since));
         return Some(state);
     }
     let rested_at = (ended.as_ref())
         .and_then(|ended| ended.at)
-        .or_else(|| core.seen.active_at(agent_id))
+        .or_else(|| core.seen().active_at(agent_id))
         .unwrap_or_else(epoch_ms);
     if let Some(failed) = ended
         .as_ref()
@@ -311,7 +312,7 @@ pub(crate) fn of(
 /// it set, a worker of its at work, or the project's check on its slice.
 fn wait_of(core: &Core, gathered: &Gathered, agent_id: &str, rested_at: u64) -> Option<TurnWait> {
     let set = core
-        .triggers
+        .triggers()
         .wait_of(agent_id, rested_at, |on| core.waits.expected(on));
     if set
         .as_ref()
@@ -343,7 +344,7 @@ fn wait_of(core: &Core, gathered: &Gathered, agent_id: &str, rested_at: u64) -> 
 fn failed(core: &Core, agent_id: &str, ended: &Ended) -> Option<TurnFailed> {
     let problem = ended.problem.as_ref()?;
     let why = problem.kind.unwrap_or(FailureKind::Other);
-    let resets_at = core.chats.resets.resumes_at(agent_id);
+    let resets_at = core.chats().resets.resumes_at(agent_id);
     let can = match why {
         FailureKind::Limit => vec![Remedy::OtherAccount, Remedy::Retry],
         FailureKind::SignIn => vec![Remedy::SignIn, Remedy::OtherAccount],
@@ -361,7 +362,7 @@ fn failed(core: &Core, agent_id: &str, ended: &Ended) -> Option<TurnFailed> {
 /// Where the chat's work is, as git last said, and what can be done with it. Landed work that
 /// shipped or went to staging since its commit was made reads so.
 fn done(core: &Core, agent_id: &str, ended: &Ended, work: &Work) -> TurnDone {
-    let shipped = (core.person_calls.latest_outcome(agent_id))
+    let shipped = (core.person_calls().latest_outcome(agent_id))
         .filter(|outcome| outcome.result == CallResult::Shipped)
         .filter(|outcome| work.head_at.is_none_or(|made| outcome.at >= made));
     let staged = ended.staged.is_some() && ended.staged == work.head;
@@ -447,7 +448,7 @@ pub(crate) fn read_work(core: &Core, agent_id: &str) {
             return;
         };
         let shows = (work.can_try).then(|| (work.project.clone(), work.changes, work.head.clone()));
-        if core.inbox.keep_work(&agent_id, work) {
+        if core.inbox().keep_work(&agent_id, work) {
             core.changed(What::View);
         }
         let Some((project, changes, head)) = shows else {
@@ -455,7 +456,7 @@ pub(crate) fn read_work(core: &Core, agent_id: &str) {
         };
         let unchecked = changes == WorkAt::Uncommitted
             || super::checks::project_check(&core, &project).is_err();
-        let started = core.inbox.ending(&agent_id).map(|ended| ended.started_at);
+        let started = core.inbox().ending(&agent_id).map(|ended| ended.started_at);
         if let (true, Some(turn)) = (unchecked, started) {
             super::pictures::take(&core, &agent_id, &project, turn, head);
         }
@@ -463,13 +464,13 @@ pub(crate) fn read_work(core: &Core, agent_id: &str) {
 }
 
 fn work_of(core: &Arc<Core>, agent_id: &str) -> Option<Work> {
-    let agent = core.workspaces.agent(agent_id);
-    let cwd: PathBuf = match core.chats.get(agent_id) {
+    let agent = core.workspaces().agent(agent_id);
+    let cwd: PathBuf = match core.chats().get(agent_id) {
         Some(chat) => chat.launch.cwd.clone(),
         None => agent.as_ref()?.cwd.clone(),
     };
-    let project = (core.names.get(agent_id).map(|named| named.project))
-        .unwrap_or_else(|| core.workspaces.project_of(&cwd));
+    let project = (core.names().get(agent_id).map(|named| named.project))
+        .unwrap_or_else(|| core.workspaces().project_of(&cwd));
     let handoff = inbox::handoff(core, agent_id);
     let head = Git::quick(&cwd).trimmed(&["rev-parse", "HEAD"]).ok();
     let head_at = Git::quick(&cwd)
@@ -479,7 +480,7 @@ fn work_of(core: &Arc<Core>, agent_id: &str) -> Option<Work> {
         .map(|seconds| seconds * 1000);
     let pages = (handoff.files.iter()).any(|file| super::pictures::is_page_file(file));
     let changed =
-        inbox::ever_edited(core, &project, agent_id) || core.inbox.changed_in_turn(agent_id);
+        inbox::ever_edited(core, &project, agent_id) || core.inbox().changed_in_turn(agent_id);
     let changes = if handoff.uncommitted {
         WorkAt::Uncommitted
     } else if !changed {
@@ -529,17 +530,17 @@ fn landed(core: &Core, project: &str, worktree: Option<&AgentWorktree>, head: &s
 
 /// What the agent's plan leaves open as its turn ends by itself.
 pub(crate) fn left_open(core: &Core, agent_id: &str) -> Option<String> {
-    let started = core.inbox.ending(agent_id)?.started_at;
-    core.chats.get(agent_id)?.feed.plan_left(started)
+    let started = core.inbox().ending(agent_id)?.started_at;
+    core.chats().get(agent_id)?.feed.plan_left(started)
 }
 
 /// Whether the agent ends its turn on a wake it set itself: CI, a one-time timer, or a worker
 /// of its at work.
 pub(crate) fn set_a_wake(core: &Core, agent_id: &str) -> bool {
-    core.triggers
+    core.triggers()
         .wait_of(agent_id, epoch_ms(), |_| None)
         .is_some()
-        || (core.workspaces.agent_leads().iter())
+        || (core.workspaces().agent_leads().iter())
             .any(|(worker, lead)| lead == agent_id && core.agent_now(worker).mid_turn())
 }
 
@@ -672,7 +673,7 @@ pub(crate) async fn take_step(core: &Arc<Core>, params: TakeStepParams) -> CoreR
 /// when nothing serves it yet.
 async fn try_it(core: &Arc<Core>, agent_id: &str) -> CoreResult<()> {
     let url = super::pictures::serve(core, agent_id).await?;
-    let project = (core.names.get(agent_id).map(|named| named.project)).unwrap_or_default();
+    let project = (core.names().get(agent_id).map(|named| named.project)).unwrap_or_default();
     let opened = crate::cli::protocol::HarnessRequest {
         id: format!("try-it-{}", epoch_ms()),
         project,
@@ -732,7 +733,7 @@ fn own_landed(
 /// What tells a worker to take its landed work back out: its own landed commits, by name. Why
 /// not, when it has none of its own.
 fn undo_words(core: &Core, agent_id: &str) -> Result<String, String> {
-    let work = (core.inbox.ending(agent_id))
+    let work = (core.inbox().ending(agent_id))
         .and_then(|ended| ended.work)
         .ok_or("Sikemux has not read where this agent's work is yet")?;
     if work.own.is_empty() {

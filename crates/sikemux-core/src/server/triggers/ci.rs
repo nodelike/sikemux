@@ -2,6 +2,7 @@
 //! sleeping and asking the code host again. The core's one CI watch looks at the repository and
 //! says when its runs move; a trigger also looks on its own now and then, in case a move was missed.
 
+use crate::server::parts::Parts;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -215,7 +216,7 @@ fn id_text(id: &Value) -> String {
 
 /// The repositories CI triggers wait on, which the CI watch keeps checking.
 pub(crate) fn waiting_on_ci(core: &Core) -> Vec<Shown> {
-    let state = core.triggers.state.locked();
+    let state = core.triggers().state.locked();
     let waiting = state
         .triggers
         .iter()
@@ -228,7 +229,7 @@ pub(crate) fn waiting_on_ci(core: &Core) -> Vec<Shown> {
 /// The runs on `repo` moved, so the CI triggers waiting on it look again.
 pub(crate) fn ci_moved(core: &Arc<Core>, repo: &Shown) {
     let ids: Vec<u64> = {
-        let state = core.triggers.state.locked();
+        let state = core.triggers().state.locked();
         let waiting = state
             .triggers
             .iter()
@@ -246,7 +247,7 @@ pub(crate) fn ci_moved(core: &Arc<Core>, repo: &Shown) {
 /// Fires the CI trigger `id` with how its CI ended, once it has.
 pub(super) async fn look(core: Arc<Core>, id: u64) {
     let watch = {
-        let state = core.triggers.state.locked();
+        let state = core.triggers().state.locked();
         let trigger = state.triggers.iter().find(|trigger| trigger.id == id);
         trigger.and_then(|trigger| trigger.ci.clone())
     };
@@ -286,7 +287,7 @@ pub(super) async fn look(core: Arc<Core>, id: u64) {
         core.waits
             .took(&watch.waits_on(), epoch_ms().saturating_sub(since));
     }
-    core.notify.send(Signal::CiEnded {
+    core.notify().send(Signal::CiEnded {
         agent_id: trigger.agent_id.clone(),
         run: watch.run(),
         what: trigger.title.clone(),
@@ -307,7 +308,7 @@ pub(super) async fn look(core: Arc<Core>, id: u64) {
 
 /// Changes what the CI trigger `id` keeps of its CI, saving it.
 fn watched(core: &Core, id: u64, change: impl FnOnce(&mut CiWatch)) {
-    core.triggers.change(|state| {
+    core.triggers().change(|state| {
         let watch = (state.triggers.iter_mut())
             .find(|trigger| trigger.id == id)
             .and_then(|trigger| trigger.ci.as_mut());

@@ -6,6 +6,7 @@
 //! builds its environment afresh, keys and all.
 
 use crate::server::changed::What;
+use crate::server::parts::Parts;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -1423,7 +1424,9 @@ pub(crate) async fn add_project(
         }
     })
     .await?;
-    let project = core.workspaces.add_project(path, params.name, params.id)?;
+    let project = core
+        .workspaces()
+        .add_project(path, params.name, params.id)?;
     super::git::follow_projects(core);
     Ok(project)
 }
@@ -1435,8 +1438,8 @@ pub struct RemoveProjectParams {
 
 /// Stops offering a project, and closes its agents.
 pub(crate) fn remove_project(core: &Core, params: RemoveProjectParams) -> CoreResult<()> {
-    let before = core.workspaces.agent_ids();
-    let id = core.workspaces.remove_project(&params.path)?;
+    let before = core.workspaces().agent_ids();
+    let id = core.workspaces().remove_project(&params.path)?;
     super::new_project::forget(core, &id, &params.path);
     agents_closed(core, before);
     super::pins::project_removed(core, &params.path.to_string_lossy());
@@ -1465,7 +1468,7 @@ impl UpdateProjectParams {
 /// Renames, pins or moves a project to a space.
 pub(crate) fn update_project(core: &Core, params: UpdateProjectParams) -> CoreResult<ProjectInfo> {
     let picks_changed = params.patch.contains_key("codeHosts");
-    let project = core.workspaces.update_project(&params.id, params.patch)?;
+    let project = core.workspaces().update_project(&params.id, params.patch)?;
     if let (true, Some(core)) = (picks_changed, core.arc()) {
         super::git::read_hosts(&core, vec![project.path.to_string_lossy().into_owned()]);
         super::codehost::picked(&core, &project.path.to_string_lossy());
@@ -1486,10 +1489,10 @@ pub(crate) fn move_project(core: &Core, params: MoveProjectParams) -> CoreResult
         let shown: Vec<String> = (core.workspace_view().projects.into_iter())
             .map(|project| project.id)
             .collect();
-        core.workspaces.order_projects(&shown)?;
+        core.workspaces().order_projects(&shown)?;
         super::preferences::set(core, PreferenceChange::ProjectSort(ProjectSort::Manual))?;
     }
-    core.workspaces.move_project(&params.id, params.index)
+    core.workspaces().move_project(&params.id, params.index)
 }
 
 /// Puts `projects` in the order the person chose: the one worked in last first, the first
@@ -1514,7 +1517,7 @@ pub struct SpacesParams {
 }
 
 pub(crate) fn set_spaces(core: &Core, params: SpacesParams) -> CoreResult<()> {
-    core.workspaces.set_spaces(params.spaces)
+    core.workspaces().set_spaces(params.spaces)
 }
 
 #[derive(Deserialize, Serialize)]
@@ -1526,7 +1529,7 @@ pub struct DefaultsParams {
 /// Keeps the mode agents start in, and offers the launchers in it.
 pub(crate) async fn set_defaults(core: &Arc<Core>, params: DefaultsParams) -> CoreResult<()> {
     if core
-        .workspaces
+        .workspaces()
         .set_permission_mode(params.permission_mode)?
     {
         refresh_launchers(core.clone()).await;
@@ -1548,10 +1551,10 @@ pub(crate) fn create_agent(
     let draft = &mut params.agent;
     if let (None, Some(Value::String(session))) = (draft.get("id"), draft.get("resumeId")) {
         let provider = draft.get("provider").and_then(Value::as_str);
-        let id = (core.names).returning_id(provider, session, core.open_agents());
+        let id = (core.names()).returning_id(provider, session, core.open_agents());
         draft.insert("id".into(), Value::String(id));
     }
-    core.workspaces.put_agent_draft(params.agent)
+    core.workspaces().put_agent_draft(params.agent)
 }
 
 #[derive(Deserialize, Serialize)]
@@ -1672,7 +1675,7 @@ fn tidy_tags(tags: Vec<String>) -> Vec<String> {
 
 /// Changes some of an agent's fields; a null one is cleared.
 pub(crate) fn update_agent(core: &Core, params: UpdateAgentParams) -> CoreResult<WorkspaceAgent> {
-    core.workspaces
+    core.workspaces()
         .edit_agent(&params.agent_id, |agent| params.patch.apply(agent))
 }
 
@@ -1692,7 +1695,7 @@ pub(crate) fn restore(core: &Core) {
     if core.preferences.get().restore_agent_tabs {
         return;
     }
-    let agents: Vec<String> = core.workspaces.agent_ids().into_iter().collect();
+    let agents: Vec<String> = core.workspaces().agent_ids().into_iter().collect();
     if let Err(error) = close(core, &agents) {
         eprintln!("sikemux core: the agents from before stayed open: {error}");
     }
@@ -1704,17 +1707,20 @@ pub(crate) fn close_agent(core: &Core, agent_id: String) -> CoreResult<()> {
 }
 
 pub(crate) fn close(core: &Core, agent_ids: &[String]) -> CoreResult<()> {
-    for agent in agent_ids.iter().filter_map(|id| core.workspaces.agent(id)) {
-        core.names
+    for agent in agent_ids
+        .iter()
+        .filter_map(|id| core.workspaces().agent(id))
+    {
+        core.names()
             .note_look(&agent.id, agent.buddy.clone(), named(&agent));
-        super::triggers::pause(core, &agent.id, core.workspaces.held_chat(&agent));
-        core.chats.handoffs.forget(&agent.id);
+        super::triggers::pause(core, &agent.id, core.workspaces().held_chat(&agent));
+        core.chats().handoffs.forget(&agent.id);
     }
     let trees: Vec<_> = (agent_ids.iter())
-        .filter_map(|id| core.workspaces.agent(id)?.worktree)
+        .filter_map(|id| core.workspaces().agent(id)?.worktree)
         .collect();
-    let before = core.workspaces.agent_ids();
-    core.workspaces.close_agents(agent_ids)?;
+    let before = core.workspaces().agent_ids();
+    core.workspaces().close_agents(agent_ids)?;
     agents_closed(core, before);
     super::worktree::build_output::closed(core, agent_ids, trees);
     Ok(())
@@ -1738,10 +1744,10 @@ fn untitled(saved: &Saved, agent: &WorkspaceAgent) -> bool {
 
 pub(crate) fn retitle(core: &Core, agent_id: &str, title: Option<String>, stand_in: bool) {
     if let Some(title) = title {
-        if core.workspaces.note_title(agent_id, &title, stand_in) {
+        if core.workspaces().note_title(agent_id, &title, stand_in) {
             super::hosts::route::rows_moved(core);
         }
-        if let Some(own) = core.workspaces.own_title(agent_id).filter(|_| !stand_in) {
+        if let Some(own) = core.workspaces().own_title(agent_id).filter(|_| !stand_in) {
             super::goal_summary::chat_titled(core, agent_id, &own);
         }
     }
@@ -1755,11 +1761,11 @@ pub(crate) fn close_gone(core: &Core, agent_ids: &[String]) {
 /// What follows agents leaving the workspace, however they left: their chats
 /// and the tasks they started stop, and their names are free again.
 fn agents_closed(core: &Core, before: HashSet<String>) {
-    let kept = core.workspaces.agent_ids();
+    let kept = core.workspaces().agent_ids();
     let gone: Vec<&String> = before.difference(&kept).collect();
     for agent_id in &gone {
-        core.chats.stop(agent_id);
-        core.chats.forget_rest(agent_id);
+        core.chats().stop(agent_id);
+        core.chats().forget_rest(agent_id);
     }
     super::hosts::route::closed(core, &gone);
     super::pins::agents_closed(core, &gone);
@@ -1776,7 +1782,7 @@ fn agents_closed(core: &Core, before: HashSet<String>) {
             }
         });
     }
-    let forgotten = core.drafts.forget(
+    let forgotten = core.drafts().forget(
         gone.iter()
             .map(|agent_id| sikemux_view::chat::chat_draft_key(agent_id)),
     );
@@ -1789,8 +1795,8 @@ fn agents_closed(core: &Core, before: HashSet<String>) {
 /// Agents in the workspace keep their names and the accounts they run on, and the names of
 /// agents gone from it are free again.
 fn settle_names(core: &Core) {
-    core.names.note_runs(core.workspaces.agent_runs());
-    core.names.settle(core.open_agents());
+    core.names().note_runs(core.workspaces().agent_runs());
+    core.names().settle(core.open_agents());
 }
 
 /// Runs whenever the workspace changes: agents in it keep their names while
@@ -1805,7 +1811,7 @@ pub(crate) fn settle(core: &Arc<Core>) {
 impl super::part::Part for Workspaces {
     fn start(&self, core: &Arc<Core>) -> Vec<tokio::task::JoinHandle<()>> {
         vec![
-            super::part::on_wake(core, |core| &core.workspaces.wake, settle),
+            super::part::on_wake(core, |core| &core.workspaces().wake, settle),
             tokio::spawn(recents(core.clone())),
         ]
     }

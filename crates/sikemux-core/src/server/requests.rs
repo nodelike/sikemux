@@ -1,6 +1,7 @@
 //! What the core does with each request a client sends, and whether it may: one rule, run once,
 //! before anything runs. The connection itself is in `connection.rs`.
 
+use crate::server::parts::Parts;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
@@ -23,11 +24,11 @@ use super::{
 /// Refuses what a client may not send now: nothing while the core hands itself over, then what
 /// `rule` says of its peer.
 pub(super) fn admit(core: &Core, client: &ClientConn, rule: &Rule) -> CoreResult<()> {
-    if core.updating.is_frozen() {
+    if core.updating().is_frozen() {
         return Err(upgrade::UPDATING.into());
     }
     core.permit(&client.peer, rule.needs)?;
-    if client.peer == Peer::Local && rule.only_the_app(core.remote.setup()) {
+    if client.peer == Peer::Local && rule.only_the_app(core.remote().setup()) {
         return Err(access::APP_ONLY.into());
     }
     Ok(())
@@ -52,8 +53,8 @@ pub(super) fn write_to_program(
         .as_ref()
         .filter(|_| agent::submits_line(&bytes))
     {
-        core.harness.questions.typed(agent.agent_id());
-        core.ship.person_spoke(agent.agent_id());
+        core.harness().questions.typed(agent.agent_id());
+        core.ship().person_spoke(agent.agent_id());
         messages::worked(core, agent.agent_id());
     }
     if bytes.is_empty() {
@@ -104,7 +105,7 @@ pub(super) async fn run(
                             client.answer::<ask::Spawn>(request_id, Ok(id));
                             let stopped = pending
                                 .task()
-                                .is_some_and(|task| core.harness.session_started(id, task));
+                                .is_some_and(|task| core.harness().session_started(id, task));
                             pending.start(&core);
                             if stopped {
                                 if let Some(target) = core.take_session_for_kill(id) {
@@ -142,7 +143,7 @@ pub(super) async fn run(
             }
             Request::RegisterWindow => {
                 core.window.register(client.clone());
-                core.hosts.wake.now();
+                core.hosts().wake.now();
                 super::notch::follow(&core);
                 core.usage_wake.notify_one();
                 crate::waiting::wake(&core.config.socket);
@@ -248,7 +249,7 @@ pub(super) async fn run(
                 if cols < sikemux_grid::MIN_TERMINAL_COLUMNS {
                     eprintln!("sikemux core: a client asked for {cols} columns in terminal {id}");
                 } else {
-                    core.spares.note_size(cols, rows);
+                    core.spares().note_size(cols, rows);
                 }
                 let result = match validate_pty_dimensions(cols, rows) {
                     Ok(()) => match session_or_missing(&core, id) {
@@ -309,9 +310,9 @@ pub(super) async fn run(
             }
             Request::AcpList => {
                 let chats = if client.peer.is_local() {
-                    core.chats.list()
+                    core.chats().list()
                 } else {
-                    core.workspaces.listed(core.chats.list())
+                    core.workspaces().listed(core.chats().list())
                 };
                 client.answer::<ask::AcpList>(request_id, Ok(chats));
             }
@@ -322,7 +323,7 @@ pub(super) async fn run(
                 paths,
                 context,
             }) => {
-                core.ship.person_spoke(&agent_id);
+                core.ship().person_spoke(&agent_id);
                 let params = chat_calls::PromptChatParams {
                     agent_id,
                     message_id,
@@ -360,7 +361,7 @@ pub(super) async fn run(
                 paths,
                 context,
             }) => {
-                if core.workspaces.in_terminal(&agent_id) {
+                if core.workspaces().in_terminal(&agent_id) {
                     let result = chat_calls::steer_terminal(&core, &agent_id, text);
                     client.answer::<ask::AcpSteer>(request_id, result);
                 } else {
@@ -382,7 +383,7 @@ pub(super) async fn run(
                     .attachment_dir
                     .clone()
                     .ok_or_else(|| CoreError::from("this host has nowhere to keep files"));
-                let open = core.chats.running(&agent_id).map(drop).or_else(|error| {
+                let open = core.chats().running(&agent_id).map(drop).or_else(|error| {
                     core.open_agents()
                         .contains(&agent_id)
                         .then_some(())
@@ -401,7 +402,7 @@ pub(super) async fn run(
                 }
             }
             Request::Call(ask::Call { method, params }) => {
-                core.activity_log.call_used(
+                core.activity_log().call_used(
                     calls::row(&method).counted,
                     &method,
                     &params,
@@ -431,10 +432,10 @@ pub(super) async fn run(
                 client.answer::<ask::AcpPermissionReply>(request_id, result);
             }
             Request::AcpStop(ask::AcpStop { agent_id }) => {
-                if let Some(chat) = core.chats.get(&agent_id) {
-                    core.workspaces.note_stopping(&chat);
+                if let Some(chat) = core.chats().get(&agent_id) {
+                    core.workspaces().note_stopping(&chat);
                 }
-                if core.chats.stop(&agent_id) {
+                if core.chats().stop(&agent_id) {
                     core.note_agent_gone(&agent_id);
                 }
                 client.answer::<ask::AcpStop>(request_id, Ok(()));
@@ -446,7 +447,7 @@ pub(super) async fn run(
                 });
             }
             Request::RemoteStatus => {
-                let status = Box::new(core.remote.status());
+                let status = Box::new(core.remote().status());
                 client.answer::<ask::RemoteStatus>(request_id, Ok(status));
             }
             Request::SetRemoteAccess(ask::SetRemoteAccess { enabled }) => {
@@ -460,13 +461,13 @@ pub(super) async fn run(
                 client.answer::<ask::SetDeviceAccess>(request_id, result.map(Box::new));
             }
             Request::BackdropImage => {
-                let data_url = core.workspaces.backdrop_image();
+                let data_url = core.workspaces().backdrop_image();
                 client.answer::<ask::BackdropImage>(request_id, Ok(data_url));
             }
             Request::PublishOnScreen(ask::PublishOnScreen { agent_ids, focused }) => {
                 super::launching::show_terminals(&core, &agent_ids);
                 super::chief::on_screen(&core, &agent_ids, focused);
-                core.seen.show(client.id, agent_ids, focused);
+                core.seen().show(client.id, agent_ids, focused);
                 core.changed(What::View);
                 client.answer::<ask::PublishOnScreen>(request_id, Ok(()));
             }
@@ -481,7 +482,7 @@ pub(super) async fn run(
             }
             Request::SetNotifications(ask::SetNotifications { key_id, key, prefs }) => {
                 let result = match &client.peer {
-                    Peer::Device { id } => core.remote.set_notifications(id, key_id, &key, prefs),
+                    Peer::Device { id } => core.remote().set_notifications(id, key_id, &key, prefs),
                     Peer::App | Peer::Local | Peer::Share { .. } => {
                         Err("only a paired phone can ask for notifications".into())
                     }
@@ -493,7 +494,7 @@ pub(super) async fn run(
             }
             Request::ClearNotifications => {
                 let result = match &client.peer {
-                    Peer::Device { id } => core.remote.clear_notifications(id),
+                    Peer::Device { id } => core.remote().clear_notifications(id),
                     Peer::App | Peer::Local | Peer::Share { .. } => {
                         Err("only a paired phone has notifications to stop".into())
                     }
@@ -516,7 +517,7 @@ pub(super) async fn run(
             Request::Host => {
                 tokio::spawn(async move {
                     let access = match &client.peer {
-                        Peer::Device { id } => core.remote.standing_of(id).map(|it| it.access),
+                        Peer::Device { id } => core.remote().standing_of(id).map(|it| it.access),
                         _ => None,
                     };
                     let host = blocking(move || {
@@ -565,13 +566,16 @@ pub(super) async fn run(
             }
             Request::AnswerPairing(ask::AnswerPairing { id, allow, access }) => {
                 let result = core
-                    .remote
+                    .remote()
                     .answer(&id, allow.then_some(access))
                     .map(|()| remote::announce(&core));
                 client.answer::<ask::AnswerPairing>(request_id, result.map(Box::new));
             }
             Request::AllowDevices(ask::AllowDevices { devices }) => {
-                let result = core.remote.allow(devices).map(|()| remote::announce(&core));
+                let result = core
+                    .remote()
+                    .allow(devices)
+                    .map(|()| remote::announce(&core));
                 client.answer::<ask::AllowDevices>(request_id, result.map(Box::new));
             }
             Request::Unpair => {
@@ -632,7 +636,7 @@ async fn shutdown(core: Arc<Core>, client: Arc<ClientConn>, request_id: RequestI
     if stop_all {
         core.stop_everything().await;
     } else {
-        let running = core.running_sessions() + core.chats.count();
+        let running = core.running_sessions() + core.chats().count();
         if running > 0 {
             client.respond(
                 request_id,

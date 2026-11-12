@@ -6,6 +6,7 @@
 //! only the person's words and the core's own facts, never another agent's tool output or
 //! thinking.
 
+use crate::server::parts::Parts;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -208,7 +209,7 @@ pub(crate) async fn tool(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
     let agent = (request.agent_id.clone())
         .ok_or("why answers only an agent Sikemux started, in its own project")?;
     let named = core
-        .names
+        .names()
         .get(&agent)
         .ok_or("why answers only an agent Sikemux knows")?;
     let text = |key: &str| {
@@ -234,7 +235,7 @@ pub(crate) async fn tool(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
         .locked()
         .entry(agent.clone())
         .or_insert_with(epoch_ms);
-    let checkout = (core.chats.get(&agent))
+    let checkout = (core.chats().get(&agent))
         .map(|chat| chat.launch.cwd.clone())
         .unwrap_or_else(|| PathBuf::from(&named.project));
     let asked = Asked {
@@ -288,7 +289,7 @@ fn read(core: &Core, asked: &Asked) -> (Vec<Fact>, bool) {
 /// Whether `agent` works in `project`, so what it was told and asked may be read for an asker
 /// there.
 fn of_project(core: &Core, agent: &str, project: &str) -> bool {
-    (core.names.get(agent)).is_some_and(|named| named.project == project)
+    (core.names().get(agent)).is_some_and(|named| named.project == project)
 }
 
 fn about_target(core: &Core, asked: &Asked, about: &str, facts: &mut Facts) {
@@ -311,7 +312,8 @@ fn about_target(core: &Core, asked: &Asked, about: &str, facts: &mut Facts) {
         return;
     }
     let path = about.rsplit_once(':').map_or(about, |(path, _)| path);
-    if Path::new(path).is_absolute() && core.workspaces.project_of(Path::new(path)) != asked.project
+    if Path::new(path).is_absolute()
+        && core.workspaces().project_of(Path::new(path)) != asked.project
     {
         return;
     }
@@ -495,7 +497,7 @@ fn rule_facts(core: &Core, asked: &Asked, id: u64, facts: &mut Facts) {
 /// The person's prompt that started the turn beginning at event `turn` of the chat run `feed`,
 /// when the person's words started it.
 fn turn_prompt(core: &Core, feed: &str, turn: u64) -> Option<u64> {
-    let dir = core.chats.history_dir()?;
+    let dir = core.chats().history_dir()?;
     let events = history::tail(dir, feed, MAX_CHAT_BYTES as u64);
     let at = events.iter().position(|(index, _)| *index == turn)?;
     (events.get(..=at)?.iter().rev())
@@ -522,7 +524,7 @@ fn said_words(core: &Core, asked: &Asked, words: &str, facts: &mut Facts) {
         wanted.iter().all(|word| text.contains(word.as_str()))
     };
     let mut found = 0;
-    for chat in core.chats.all() {
+    for chat in core.chats().all() {
         if found >= MAX_WORDS_FOUND || facts.full() {
             break;
         }
@@ -564,7 +566,7 @@ fn said_words(core: &Core, asked: &Asked, words: &str, facts: &mut Facts) {
 /// or anything that may be a secret. Read from
 /// the chat's history file, never under the chat's lock.
 fn persons_said(core: &Core, agent: &str) -> Vec<(String, Pointer, Option<u64>)> {
-    let Some(chat) = core.chats.get(agent) else {
+    let Some(chat) = core.chats().get(agent) else {
         return Vec::new();
     };
     let feed = chat.feed.id().to_owned();
@@ -597,7 +599,7 @@ pub(crate) struct Said {
 /// prompt they sent. Read from the chat's history file, never under the chat's lock, whether
 /// or not the chat runs now.
 pub(crate) fn persons_said_in(core: &Core, feed: &str) -> Vec<Said> {
-    let Some(dir) = core.chats.history_dir() else {
+    let Some(dir) = core.chats().history_dir() else {
         return Vec::new();
     };
     (history::persons_prompts(dir, feed, MAX_CHAT_BYTES as u64).into_iter())
@@ -649,11 +651,11 @@ fn count(core: &Core, agent: &str) {
         true => "why.person",
         false => "why.agent",
     };
-    core.activity_log.core_used(by);
+    core.activity_log().core_used(by);
 }
 
 fn started_by_person(core: &Core, agent: &str) -> bool {
-    let (Some(chat), Some(dir)) = (core.chats.get(agent), core.chats.history_dir()) else {
+    let (Some(chat), Some(dir)) = (core.chats().get(agent), core.chats().history_dir()) else {
         return false;
     };
     let events = history::tail(dir, chat.feed.id(), MAX_TURN_BYTES);
@@ -691,7 +693,7 @@ pub(crate) fn turn_ended(core: &Core, agent: &str) {
 /// that rest on none. Reads git and files, so it blocks; it checks at most [`MAX_LINKS`] links
 /// and stops at [`MAX_TIME`].
 fn source(core: &Core, agent: &str, asked_at: u64) {
-    let (Some(chat), Some(dir)) = (core.chats.get(agent), core.chats.history_dir()) else {
+    let (Some(chat), Some(dir)) = (core.chats().get(agent), core.chats().history_dir()) else {
         return;
     };
     let events = history::tail(dir, chat.feed.id(), MAX_TURN_BYTES);
@@ -741,7 +743,7 @@ fn source(core: &Core, agent: &str, asked_at: u64) {
     let checkout = chat.launch.cwd.clone();
     let mut checking = Checking {
         core,
-        project: core.workspaces.project_of(&checkout),
+        project: core.workspaces().project_of(&checkout),
         checkout,
         deadline: Instant::now() + MAX_TIME,
         calls: None,
@@ -844,7 +846,7 @@ impl Checking<'_> {
                 feed: Some(feed),
                 index: Some(index),
             } => {
-                let Some(named) = core.names.get(&agent) else {
+                let Some(named) = core.names().get(&agent) else {
                     return Checked::Unknown;
                 };
                 if named.project != project {
@@ -911,8 +913,8 @@ impl Checking<'_> {
     /// the core recorded it; `None` when the core cannot tell, as when the chat is closed, has
     /// begun another run, or the event is older than the stretch of its history read.
     fn persons_prompt(&mut self, agent: &str, feed: &str, index: u64) -> Option<bool> {
-        let chat = self.core.chats.get(agent)?;
-        let dir = self.core.chats.history_dir()?;
+        let chat = self.core.chats().get(agent)?;
+        let dir = self.core.chats().history_dir()?;
         if chat.feed.id() != feed {
             return None;
         }

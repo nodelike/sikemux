@@ -4,6 +4,7 @@
 use super::*;
 use crate::accounts::protocol::DeviceList;
 use crate::server::account::api::as_host;
+use crate::server::parts::Parts;
 use reqwest::Method;
 
 /// The remote file set aside beside `path`, and when it was, if there is one.
@@ -32,11 +33,11 @@ pub(super) fn read_held(path: &Path) -> Option<(Stored, u64)> {
 /// Nothing else in that file is trusted: not its account, shares, settings or
 /// removals, and not a device or host removed or revoked here since.
 pub(crate) async fn trust_held(core: &Arc<Core>) -> CoreResult<RemoteStatus> {
-    let owner = core.remote.owner().ok_or_else(|| {
+    let owner = core.remote().owner().ok_or_else(|| {
         CoreError::from("sign in first, so the account can say which devices are still yours")
     })?;
     let Some((held, _)) = core
-        .remote
+        .remote()
         .inner
         .locked()
         .held
@@ -48,8 +49,8 @@ pub(crate) async fn trust_held(core: &Arc<Core>) -> CoreResult<RemoteStatus> {
     let (devices, links) = held;
     let phones: DeviceList = as_host(core, Method::GET, "/v1/devices?role=client", None).await?;
     let hosts: DeviceList = as_host(core, Method::GET, "/v1/devices?role=host", None).await?;
-    let own = core.remote.core_id();
-    core.remote.change(|stored| {
+    let own = core.remote().core_id();
+    core.remote().change(|stored| {
         if stored.owner.as_ref() != Some(&owner) {
             return Err("the account changed meanwhile; try again".into());
         }
@@ -87,19 +88,19 @@ pub(crate) async fn trust_held(core: &Arc<Core>) -> CoreResult<RemoteStatus> {
         stored.enabled = true;
         Ok(())
     })?;
-    core.remote.inner.locked().held = None;
+    core.remote().inner.locked().held = None;
     forget_held_file(core);
     if let Err(error) = listen(core).await {
         eprintln!("sikemux core: remote access did not start: {error}");
     }
     ensure_live(core);
-    core.hosts.relink.now();
+    core.hosts().relink.now();
     Ok(announce(core))
 }
 
 /// Lets the set-aside file go: the host starts over with no devices or hosts.
 pub(crate) fn discard_held(core: &Core) -> CoreResult<RemoteStatus> {
-    if core.remote.inner.locked().held.take().is_none() {
+    if core.remote().inner.locked().held.take().is_none() {
         return Err("nothing waits to be trusted again".into());
     }
     forget_held_file(core);
@@ -107,7 +108,7 @@ pub(crate) fn discard_held(core: &Core) -> CoreResult<RemoteStatus> {
 }
 
 fn forget_held_file(core: &Core) {
-    let Some(path) = core.remote.inner.locked().path.clone() else {
+    let Some(path) = core.remote().inner.locked().path.clone() else {
         return;
     };
     if let Err(error) = std::fs::remove_file(held_path(&path)) {

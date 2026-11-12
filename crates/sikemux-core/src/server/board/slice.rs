@@ -22,6 +22,7 @@ pub(crate) use shots::*;
 pub(crate) use spots::*;
 pub(crate) use words::*;
 
+use crate::server::parts::Parts;
 use std::collections::{BTreeSet, VecDeque};
 use std::path::Path;
 use std::sync::Arc;
@@ -1747,7 +1748,7 @@ impl Later {
             let subject = Git::quick(Path::new(&project))
                 .trimmed(&["log", "-1", "--format=%s", &sha])
                 .unwrap_or_default();
-            core.checks.check_again(&project, &sha, subject, &agent);
+            core.checks().check_again(&project, &sha, subject, &agent);
         }
         for diff in self.diffs {
             collect_diff(core, diff);
@@ -1854,7 +1855,7 @@ fn collect_diff(core: &Core, diff: DiffWork) {
             return;
         }
     };
-    let mut state = core.boards.state.locked();
+    let mut state = core.boards().state.locked();
     let Some(card) = state
         .boards
         .get_mut(&diff.project)
@@ -1872,7 +1873,7 @@ fn collect_diff(core: &Core, diff: DiffWork) {
     };
     slice.add_evidence(&diff.gate, epoch_ms(), owner, None, proof, &[]);
     slice.pages = pages;
-    core.boards.save(&mut state, &diff.project);
+    core.boards().save(&mut state, &diff.project);
 }
 
 /// The change from `base` to `head`, and whether it touches the project's pages.
@@ -1914,7 +1915,7 @@ impl Footers {
     /// Whether `sha`'s footer names `agent`, by its chat or by its session, which a chat
     /// reopened under a new id keeps.
     fn names(&self, core: &Core, dir: &Path, sha: &str, agent: &str) -> bool {
-        let session = core.names.last_session(agent);
+        let session = core.names().last_session(agent);
         let named = |names: &[Signer]| {
             names.iter().any(|(chat, signed)| {
                 chat == agent || (session.is_some() && signed.as_ref() == session.as_ref())
@@ -1946,7 +1947,7 @@ impl Footers {
 /// stands once git still holds it.
 pub(super) fn seen(core: &Core, project: &str, id: u64, check: &Result<Checker, NoCheck>) -> Seen {
     let read = {
-        let state = core.boards.state.locked();
+        let state = core.boards().state.locked();
         state.boards.get(project).and_then(|board| {
             let card = board.card(id).ok()?;
             let slice = card.slice.as_ref()?;
@@ -1974,7 +1975,7 @@ pub(super) fn seen(core: &Core, project: &str, id: u64, check: &Result<Checker, 
         };
     };
     let own_checkout = core
-        .workspaces
+        .workspaces()
         .agent(&owner)
         .is_some_and(|agent| agent.worktree.is_some());
     let tells_latest = own_checkout || footer::attributed(Path::new(project));
@@ -2032,7 +2033,7 @@ fn owner_latest(
     base: &str,
 ) -> Result<Option<String>, String> {
     if let Some(worktree) = core
-        .workspaces
+        .workspaces()
         .agent(agent)
         .and_then(|agent| agent.worktree)
     {
@@ -2055,7 +2056,7 @@ fn owner_latest(
         .filter_map(|line| line.split_once('\0'))
         .filter(|(_, subject)| !subject.starts_with(generated))
         .map(|(sha, _)| sha)
-        .find(|sha| core.boards.footers.names(core, dir, sha, agent));
+        .find(|sha| core.boards().footers.names(core, dir, sha, agent));
     match latest {
         Some(latest) => Ok(Some(latest.to_owned())),
         None if log.lines().count() > OWNER_COMMITS_READ => Err(format!(
@@ -2075,7 +2076,7 @@ pub(super) fn earlier_work(
     commits: usize,
 ) -> Option<Head> {
     let worktree = core
-        .workspaces
+        .workspaces()
         .agent(agent)
         .and_then(|agent| agent.worktree);
     let dir = worktree
@@ -2087,7 +2088,7 @@ pub(super) fn earlier_work(
         .ok()?;
     let mine: Vec<(&str, &str)> = (log.lines())
         .filter_map(|line| line.split_once('\0'))
-        .filter(|(sha, _)| core.boards.footers.names(core, dir, sha, agent))
+        .filter(|(sha, _)| core.boards().footers.names(core, dir, sha, agent))
         .take(commits)
         .collect();
     let (head, _) = mine.first()?;
@@ -2136,7 +2137,7 @@ pub(super) fn auto_shipped(card: &mut Card, from: &str, head: &str) {
 /// since a message would start it on another turn.
 pub(super) fn auto_checked(core: &Arc<Core>, project: &str, id: u64, agent: &str, run: HeardRun) {
     let (notices, later) = {
-        let mut state = core.boards.state.locked();
+        let mut state = core.boards().state.locked();
         let Some(board) = state.boards.get_mut(project) else {
             return;
         };
@@ -2160,7 +2161,7 @@ pub(super) fn auto_checked(core: &Arc<Core>, project: &str, id: u64, agent: &str
             id,
             &Seen::unread(),
         );
-        core.boards.save(&mut state, project);
+        core.boards().save(&mut state, project);
         match moved {
             Ok(moved) => moved,
             Err(_) => return,
@@ -2191,7 +2192,7 @@ pub(super) fn moved_by_evidence(
     collect: impl FnOnce(&mut Slice),
 ) {
     let (notices, later) = {
-        let mut state = core.boards.state.locked();
+        let mut state = core.boards().state.locked();
         let Some(slice) = (state.boards.get_mut(project))
             .and_then(|board| board.card_mut(id).ok())
             .and_then(|card| card.slice.as_mut())
@@ -2207,7 +2208,7 @@ pub(super) fn moved_by_evidence(
             id,
             &Seen::unread(),
         );
-        core.boards.save(&mut state, project);
+        core.boards().save(&mut state, project);
         match moved {
             Ok(moved) => moved,
             Err(_) => return,
@@ -2258,7 +2259,7 @@ pub(crate) struct DeployRan {
 /// already done keeps the evidence and its ladder.
 pub(crate) fn deployed(core: &Arc<Core>, project: &str, agent: &str, ran: DeployRan) {
     let card = {
-        let state = core.boards.state.locked();
+        let state = core.boards().state.locked();
         (state.boards.get(project)).and_then(|board| {
             let id = board.working_card(agent)?.id;
             let card = board.card(id).ok()?;
@@ -2291,7 +2292,7 @@ pub(crate) fn deployed(core: &Arc<Core>, project: &str, agent: &str, ran: Deploy
     });
     if open && verdict != Some(Verdict::Failed) {
         let told = {
-            let state = core.boards.state.locked();
+            let state = core.boards().state.locked();
             (state.boards.get(project)).and_then(|board| {
                 let card = board.card(id).ok()?;
                 (card.slice.as_ref()?.owner_closes(&board.settings)).then(|| Notice {
@@ -2327,7 +2328,7 @@ pub(crate) fn turn_pictures(
     decoded: &[(Vec<u8>, Option<u32>)],
 ) {
     let card = {
-        let state = core.boards.state.locked();
+        let state = core.boards().state.locked();
         (state.boards.get(project)).and_then(|board| follow::working_slice(board, agent))
     };
     if let Some(card) = card {
@@ -2340,7 +2341,7 @@ pub(crate) fn turn_pictures(
 /// The verdict of the latest kept run of `project`'s check that took in `sha`; none when no run
 /// is kept for it, or it gave none.
 pub(crate) fn verdict_on(core: &Core, project: &str, sha: &str) -> Option<Verdict> {
-    let state = core.boards.state.locked();
+    let state = core.boards().state.locked();
     state.runs.get(project)?.of(sha)?.verdict
 }
 
@@ -2353,7 +2354,7 @@ pub(crate) fn check_stands(
     agent: &str,
     head: Option<&str>,
 ) -> Result<(), String> {
-    let state = core.boards.state.locked();
+    let state = core.boards().state.locked();
     let slice = (state.boards.get(project)).and_then(|board| {
         board
             .card(working_slice(board, agent)?)
@@ -2420,12 +2421,12 @@ async fn looked_right(core: Arc<Core>, params: BoardPassParams) -> Result<Projec
     blocking(move || {
         let project = project_at(&core, &params.project)?;
         let notice = {
-            let mut state = core.boards.state.locked();
+            let mut state = core.boards().state.locked();
             let board = (state.boards.get_mut(&project)).ok_or_else(|| {
                 format!("There is no card #{} on this project's board", params.card)
             })?;
             let notice = looks_right(board, params.card)?;
-            core.boards.save(&mut state, &project);
+            core.boards().save(&mut state, &project);
             notice
         };
         send_notices(&core, notice.into_iter().collect());
@@ -2473,7 +2474,7 @@ pub(crate) async fn person_note(
             );
         }
         let told = {
-            let mut state = core.boards.state.locked();
+            let mut state = core.boards().state.locked();
             let board = state
                 .boards
                 .get_mut(&project)
@@ -2487,7 +2488,7 @@ pub(crate) async fn person_note(
                     .into_iter()
                     .collect(),
             };
-            core.boards.save(&mut state, &project);
+            core.boards().save(&mut state, &project);
             told
         };
         for (to, message) in told {

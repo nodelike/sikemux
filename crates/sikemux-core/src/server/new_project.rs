@@ -2,6 +2,7 @@
 //! one by its URL. Both go in the folder the person keeps projects in. A clone becomes a project
 //! at once and comes down in the background, its progress in the project's `cloning`.
 
+use crate::server::parts::Parts;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -120,7 +121,7 @@ pub(crate) fn projects_folder(core: &Core) -> Option<PathBuf> {
     let roots = (core.preferences.get().project_roots.into_iter())
         .map(|root| sikemux_process::paths::expand_home(&root.path))
         .filter(|root| root.is_dir());
-    let mut parents: Vec<PathBuf> = (core.workspaces.project_paths().into_iter())
+    let mut parents: Vec<PathBuf> = (core.workspaces().project_paths().into_iter())
         .filter_map(|path| path.parent().map(Path::to_path_buf))
         .collect();
     parents.sort();
@@ -211,7 +212,7 @@ pub(crate) async fn clone(core: &Arc<Core>, params: CloneProjectParams) -> CoreR
         phase: "Starting".into(),
         ..Cloning::default()
     };
-    core.clones.0.locked().insert(
+    core.clones().0.locked().insert(
         project.id.clone(),
         Running {
             shown: cloning,
@@ -220,12 +221,12 @@ pub(crate) async fn clone(core: &Arc<Core>, params: CloneProjectParams) -> CoreR
         },
     );
     let task = tokio::spawn(run(core.clone(), project.id.clone(), url, dir));
-    if let Some(clone) = core.clones.0.locked().get_mut(&project.id) {
+    if let Some(clone) = core.clones().0.locked().get_mut(&project.id) {
         clone.task = Some(task.abort_handle());
     }
     core.changed(What::View);
     Ok(ProjectInfo {
-        cloning: core.clones.of(&project.id),
+        cloning: core.clones().of(&project.id),
         ..project
     })
 }
@@ -234,12 +235,12 @@ async fn run(core: Arc<Core>, project: String, url: String, dir: PathBuf) {
     let said = clone_into(&core, &project, &url, &dir).await;
     match said {
         Ok(()) => {
-            core.clones.0.locked().remove(&project);
+            core.clones().0.locked().remove(&project);
             super::git::follow_projects(&core);
             let folder = dir.to_string_lossy();
             core.changed(What::ReadIn(Topic::Git, Some(&folder), None));
         }
-        Err(error) => core.clones.set(&project, |cloning| {
+        Err(error) => core.clones().set(&project, |cloning| {
             cloning.failed = Some(error);
         }),
     }
@@ -283,7 +284,7 @@ async fn clone_into(core: &Core, project: &str, url: &str, dir: &Path) -> Result
                 let shown = format!("{phase}{percent}");
                 if shown != last {
                     last = shown;
-                    core.clones.set(project, |cloning| {
+                    core.clones().set(project, |cloning| {
                         cloning.phase = phase;
                         cloning.percent = percent;
                     });
@@ -326,7 +327,7 @@ fn progress(line: &str) -> Option<(String, u8)> {
 
 /// Removes the folder of a clone that was stopped or failed, which holds nothing to keep.
 pub(crate) fn forget(core: &Core, project: &str, path: &Path) {
-    if core.clones.stop(project) {
+    if core.clones().stop(project) {
         let _ = std::fs::remove_dir_all(path);
     }
 }

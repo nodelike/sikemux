@@ -5,6 +5,7 @@
 //! shown, never proven. The core takes only a page something already serves on this machine;
 //! only the person's Try it starts the project's process, as one they can see and stop.
 
+use crate::server::parts::Parts;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -302,9 +303,9 @@ fn shown_by_agent(sets: &[Set]) -> HashMap<String, Vec<TurnShown>> {
 
 /// The checkout the agent works in: its own, else the project's.
 pub(crate) fn checkout(core: &Core, agent_id: &str) -> Option<PathBuf> {
-    match core.chats.get(agent_id) {
+    match core.chats().get(agent_id) {
         Some(chat) => Some(chat.launch.cwd.clone()),
-        None => core.workspaces.agent(agent_id).map(|agent| agent.cwd),
+        None => core.workspaces().agent(agent_id).map(|agent| agent.cwd),
     }
 }
 
@@ -387,7 +388,8 @@ pub(crate) async fn serve(core: &Arc<Core>, agent_id: &str) -> Result<String, St
     let until = Instant::now() + SERVE_WAIT;
     loop {
         tokio::time::sleep(LOOK_EVERY).await;
-        let run = (core.harness.run_of(&execution)).ok_or("The process Try it started is gone")?;
+        let run =
+            (core.harness().run_of(&execution)).ok_or("The process Try it started is gone")?;
         if !run.status.is_active() {
             return Err(run
                 .error
@@ -440,11 +442,11 @@ async fn not_a_page(url: &str) -> Option<String> {
 /// Takes the page the agent's checkout serves at each width, for its turn that began at `turn`
 /// with its work at `head`, once per turn, off the caller's path; nothing when nothing serves it.
 pub(crate) fn take(core: &Core, agent_id: &str, project: &str, turn: u64, head: Option<String>) {
-    if !core.window.is_open() || core.pictures.taken(agent_id, turn) {
+    if !core.window.is_open() || core.pictures().taken(agent_id, turn) {
         return;
     }
     if !core
-        .pictures
+        .pictures()
         .taking
         .locked()
         .insert((agent_id.to_owned(), turn))
@@ -465,13 +467,13 @@ pub(crate) fn take(core: &Core, agent_id: &str, project: &str, turn: u64, head: 
                     set.shots.len(),
                     started.elapsed().as_millis()
                 );
-                core.pictures.keep(set);
+                core.pictures().keep(set);
                 core.changed(What::View);
             }
             Ok(None) => {}
             Err(why) => eprintln!("sikemux core: the turn's page was not taken: {why}"),
         }
-        core.pictures.taking.locked().remove(&(agent, turn));
+        core.pictures().taking.locked().remove(&(agent, turn));
     });
 }
 
@@ -497,7 +499,7 @@ async fn shoot(
     if let Some(why) = not_a_page(&url).await {
         return Err(format!("{url}: {why}"));
     }
-    let folder = (core.pictures.folder.clone()).ok_or("This core keeps no files")?;
+    let folder = (core.pictures().folder.clone()).ok_or("This core keeps no files")?;
     std::fs::create_dir_all(&folder).map_err(|error| error.to_string())?;
     let at = epoch_ms();
     let mut shots = Vec::new();
@@ -563,7 +565,8 @@ pub(crate) async fn picture(
     core: &Arc<Core>,
     params: TurnPictureParams,
 ) -> CoreResult<TurnPictureData> {
-    let path = (core.pictures.file_of(&params.id)).ok_or("The core keeps no picture by that id")?;
+    let path =
+        (core.pictures().file_of(&params.id)).ok_or("The core keeps no picture by that id")?;
     let bytes = blocking(move || Ok(std::fs::read(path)?)).await?;
     Ok(TurnPictureData {
         mime_type: "image/jpeg".to_owned(),
@@ -577,7 +580,7 @@ pub(crate) fn tidy(core: &Core, closed_agents: bool) {
     let mut open: HashSet<String> = core.open_agents().into_iter().collect();
     if !closed_agents {
         open.extend(
-            core.pictures
+            core.pictures()
                 .state
                 .locked()
                 .sets
@@ -585,10 +588,10 @@ pub(crate) fn tidy(core: &Core, closed_agents: bool) {
                 .map(|set| set.agent.clone()),
         );
     }
-    let projects: HashSet<String> = (core.workspaces.project_paths().into_iter())
+    let projects: HashSet<String> = (core.workspaces().project_paths().into_iter())
         .map(|path| path.to_string_lossy().into_owned())
         .collect();
-    core.pictures.tidy(&open, &projects);
+    core.pictures().tidy(&open, &projects);
 }
 
 /// A row for each of a lead's `workers` whose turn finished, oldest first.
@@ -601,20 +604,20 @@ pub(crate) fn results(
         .filter_map(|worker| {
             let turn = (turns.get(*worker)).filter(|turn| turn.state == TurnPhase::Done)?;
             let done = turn.done.clone()?;
-            let started = core.inbox.ending(worker).map(|ended| ended.started_at);
+            let started = core.inbox().ending(worker).map(|ended| ended.started_at);
             Some(ResultRow {
                 agent_id: (*worker).clone(),
-                name: core.names.name(worker),
-                title: core.workspaces.title(worker).unwrap_or_default(),
+                name: core.names().name(worker),
+                title: core.workspaces().title(worker).unwrap_or_default(),
                 at: turn.since,
                 undo: done.changes == WorkAt::Landed
                     && core
-                        .inbox
+                        .inbox()
                         .ending(worker)
                         .and_then(|ended| ended.work)
                         .is_some_and(|work| !work.own.is_empty()),
                 pages: started
-                    .map(|turn| core.pictures.pages_of(worker, turn))
+                    .map(|turn| core.pictures().pages_of(worker, turn))
                     .unwrap_or_default(),
                 done,
             })
@@ -689,12 +692,12 @@ mod tests {
         )
         .await
         .expect("project");
-        core.pictures
-            .keep(set(core.workspaces.project_of(&folder), "agent-a"));
-        core.pictures
-            .keep(set(core.workspaces.project_of(&own), "agent-b"));
+        core.pictures()
+            .keep(set(core.workspaces().project_of(&folder), "agent-a"));
+        core.pictures()
+            .keep(set(core.workspaces().project_of(&own), "agent-b"));
         tidy(&core, true);
-        assert_eq!(core.pictures.turns_of("agent-a").len(), 1);
-        assert_eq!(core.pictures.turns_of("agent-b").len(), 1);
+        assert_eq!(core.pictures().turns_of("agent-a").len(), 1);
+        assert_eq!(core.pictures().turns_of("agent-b").len(), 1);
     }
 }

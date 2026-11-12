@@ -2,6 +2,7 @@
 //! the same agent, on its own sign-in, in its copy of the project, with the draft, model and
 //! effort the chat had, and this host closes the chat.
 
+use crate::server::parts::Parts;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -53,12 +54,12 @@ pub(crate) async fn move_chat(
     core: &Arc<Core>,
     params: MoveChatToHostParams,
 ) -> CoreResult<ChatMoved> {
-    let agent = core.workspaces.agent_or_gone(&params.agent_id)?;
+    let agent = core.workspaces().agent_or_gone(&params.agent_id)?;
     if agent.terminal || agent.resume_id.is_some() || agent.worktree.is_some() {
         return Err("only a new chat moves to another host, before its first message".into());
     }
     let link = find(core, &params.host)?;
-    let draft = core.drafts.chat_draft(&agent.id);
+    let draft = core.drafts().chat_draft(&agent.id);
     let attached = (draft.as_ref())
         .and_then(|draft| draft.extra.as_ref())
         .is_some_and(|extra| !extra.attachments.is_empty());
@@ -110,11 +111,11 @@ pub(super) async fn take_here(core: &Arc<Core>, taking: TakeChat) -> Answer {
 }
 
 async fn start_taken(core: &Arc<Core>, taking: TakeChat) -> CoreResult<String> {
-    let launchers = core.workspaces.view().launchers;
+    let launchers = core.workspaces().view().launchers;
     let ids = launchers
         .iter()
         .map(|launcher| (launcher.id.as_str(), launcher.provider.as_str()));
-    let accounts = core.workspaces.accounts();
+    let accounts = core.workspaces().accounts();
     let launcher = workspace::launcher_for(ids, accounts.as_ref(), &taking.provider)
         .ok_or_else(|| CoreError::from(format!("{} is not set up here", taking.provider)))?;
     let choice = workspace::ChatChoice {

@@ -2,6 +2,7 @@
 //! its own protocol: turns, permission requests, accounts and starting the
 //! agent again under the chat.
 
+use crate::server::parts::Parts;
 use std::collections::HashMap;
 use std::ops::ControlFlow;
 use std::os::fd::OwnedFd;
@@ -215,7 +216,7 @@ impl Telling {
         record: &crate::server::mcp_apps::Record,
     ) -> Result<(), String> {
         let core = self.chat.core.upgrade().ok_or("the core is stopping")?;
-        core.mcp_apps.keep(id, record)
+        core.mcp_apps().keep(id, record)
     }
 
     /// Whether this start loads the session again under a running chat.
@@ -293,8 +294,8 @@ impl Telling {
 
     pub fn session_used(&self, calls: Vec<ModelCall>, compactions: Vec<Compaction>) {
         if let Some(core) = self.chat.core.upgrade() {
-            let project = core.workspaces.project_of(&self.chat.launch.cwd);
-            core.activity_log
+            let project = core.workspaces().project_of(&self.chat.launch.cwd);
+            core.activity_log()
                 .session_used(self.chat.agent_id(), &project, calls, compactions);
         }
     }
@@ -368,7 +369,7 @@ impl Sink {
             _ => None,
         };
         if let (Some(answer), Some(core)) = (answer, chat.core.upgrade()) {
-            core.activity_log
+            core.activity_log()
                 .turn_answered(&chat.current_launch(), answer);
         }
         match end {
@@ -771,7 +772,7 @@ pub(crate) async fn run<B: Backend>(
     let account = (chat.core.upgrade())
         .and_then(|core| {
             let folder = crate::launch::named_account(&provider, &launch.env);
-            let book = core.workspaces.accounts().unwrap_or_default();
+            let book = core.workspaces().accounts().unwrap_or_default();
             Some(book.account_in(&provider, folder)?.id)
         })
         .or_else(|| launch.account.as_ref().map(|account| account.id.clone()));
@@ -1085,7 +1086,7 @@ impl<B: Backend> Running<'_, B> {
         if !crate::server::chat::prompt::is_command(&replay.text) {
             replay.context.extend(self.rotation_brief.take());
             if let Some(core) = self.chat.core.upgrade() {
-                let handoff = core.chats.handoffs.take(self.chat.agent_id());
+                let handoff = core.chats().handoffs.take(self.chat.agent_id());
                 if handoff.is_some() {
                     self.chat.feed.set_handoff(None);
                 }

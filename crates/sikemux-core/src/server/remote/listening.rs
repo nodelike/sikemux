@@ -1,6 +1,7 @@
 //! Listening for devices: the endpoint, its relays, and the network the accounts server describes.
 
 use super::*;
+use crate::server::parts::Parts;
 
 /// Loads the core's key and devices, listens if remote access was left on,
 /// and connects to the account the host is signed in to.
@@ -27,7 +28,7 @@ pub(crate) async fn start(core: &Arc<Core>, config: &ServerConfig) {
     };
     let enabled = stored.enabled;
     {
-        let mut inner = core.remote.inner.locked();
+        let mut inner = core.remote().inner.locked();
         inner.relays = stored
             .network
             .as_ref()
@@ -60,14 +61,14 @@ pub(crate) async fn start(core: &Arc<Core>, config: &ServerConfig) {
 /// Reads the network now and every few hours while the core runs. Until the
 /// first answer, the host uses the last copy it saved.
 pub(super) fn watch_network(core: &Arc<Core>) {
-    let mut inner = core.remote.inner.locked();
+    let mut inner = core.remote().inner.locked();
     let Some(base) = inner.accounts_api.clone() else {
         return;
     };
     if inner.direct_only || inner.network.is_some() {
         return;
     }
-    let refresh = core.remote.refresh.clone();
+    let refresh = core.remote().refresh.clone();
     let core = Arc::downgrade(core);
     inner.network = Some(tokio::spawn(async move {
         loop {
@@ -95,7 +96,7 @@ pub(super) fn watch_network(core: &Arc<Core>) {
 /// on the network tries again now rather than sitting out its backoff.
 pub(crate) async fn network_back(core: &Arc<Core>) {
     let endpoint = core
-        .remote
+        .remote()
         .inner
         .locked()
         .running
@@ -104,14 +105,14 @@ pub(crate) async fn network_back(core: &Arc<Core>) {
     if let Some(endpoint) = endpoint {
         endpoint.network_change().await;
     }
-    core.remote.refresh.notify_one();
+    core.remote().refresh.notify_one();
     ensure_live(core);
-    core.hosts.retry_now();
+    core.hosts().retry_now();
     crate::server::share::network_back(core);
 }
 
 pub(crate) fn stop_network(core: &Core) {
-    if let Some(task) = core.remote.inner.locked().network.take() {
+    if let Some(task) = core.remote().inner.locked().network.take() {
         task.abort();
     }
 }
@@ -123,7 +124,7 @@ pub(super) async fn apply_network(core: &Arc<Core>, fetched: Network) {
     let relays = network::usable_relays(&fetched);
     let version = &core.config.build.version;
     let (moved, endpoint, required, was_required) = {
-        let mut inner = core.remote.inner.locked();
+        let mut inner = core.remote().inner.locked();
         let required = if inner.never_too_old {
             None
         } else {
@@ -152,7 +153,7 @@ pub(super) async fn apply_network(core: &Arc<Core>, fetched: Network) {
         (moved, endpoint, required, was_required)
     };
     if relays.is_some() {
-        let saved = core.remote.change(|stored| {
+        let saved = core.remote().change(|stored| {
             if stored.network.as_ref() != Some(&fetched) {
                 stored.network = Some(fetched);
             }
@@ -178,11 +179,11 @@ pub(super) async fn apply_network(core: &Arc<Core>, fetched: Network) {
             );
             stop(core).await;
             stop_live(core);
-            core.updates.check_soon();
+            core.updates().check_soon();
         }
         (Some(_), None) => {
             ensure_live(core);
-            if core.remote.is_enabled() {
+            if core.remote().is_enabled() {
                 if let Err(error) = listen(core).await {
                     eprintln!("sikemux core: remote access did not start: {error}");
                 }
@@ -204,7 +205,7 @@ pub(super) fn update_first(required: &UpdateRequired) -> CoreError {
 
 pub(super) async fn listen(core: &Arc<Core>) -> CoreResult<()> {
     let (secret, direct_only, relays) = {
-        let inner = core.remote.inner.locked();
+        let inner = core.remote().inner.locked();
         if let Some(required) = &inner.update_required {
             return Err(update_first(required));
         }
@@ -237,14 +238,14 @@ pub(super) async fn listen(core: &Arc<Core>) -> CoreResult<()> {
         .await
         .map_err(|error| CoreError::from(format!("remote access did not start: {error}")))?;
     let accept = tokio::spawn(accept(core.clone(), endpoint.clone()));
-    let mut inner = core.remote.inner.locked();
+    let mut inner = core.remote().inner.locked();
     if inner.running.is_some() {
         accept.abort();
         return Ok(());
     }
     inner.running = Some(Running { endpoint, accept });
     drop(inner);
-    core.hosts.wake.now();
+    core.hosts().wake.now();
     Ok(())
 }
 
@@ -252,7 +253,7 @@ pub(super) async fn listen(core: &Arc<Core>) -> CoreResult<()> {
 /// endpoint for the caller to close.
 pub(super) fn halt(core: &Core) -> Option<Endpoint> {
     let running = {
-        let mut inner = core.remote.inner.locked();
+        let mut inner = core.remote().inner.locked();
         inner.pending.clear();
         inner.running.take()
     };
@@ -271,11 +272,11 @@ pub(crate) async fn stop(core: &Core) {
 }
 
 pub(crate) async fn set_enabled(core: &Arc<Core>, enabled: bool) -> CoreResult<RemoteStatus> {
-    if enabled && core.remote.inner.locked().stored.owner.is_none() {
+    if enabled && core.remote().inner.locked().stored.owner.is_none() {
         return Err(SIGNED_OUT.into());
     }
     if let Some(required) = core
-        .remote
+        .remote()
         .inner
         .locked()
         .update_required
@@ -284,13 +285,13 @@ pub(crate) async fn set_enabled(core: &Arc<Core>, enabled: bool) -> CoreResult<R
     {
         return Err(update_first(required));
     }
-    core.remote.change(|stored| {
+    core.remote().change(|stored| {
         stored.enabled = enabled;
         Ok(())
     })?;
     if enabled {
         if let Err(error) = listen(core).await {
-            core.remote.change(|stored| {
+            core.remote().change(|stored| {
                 stored.enabled = false;
                 Ok(())
             })?;
@@ -328,7 +329,7 @@ pub(super) async fn serve_device(core: Arc<Core>, incoming: Incoming) {
         return;
     }
     let id = connection.remote_id().to_string();
-    if !core.remote.is_paired(&id) {
+    if !core.remote().is_paired(&id) {
         connection.close(
             sikemux_client::remote::NOT_PAIRED.into(),
             b"this device is not paired with this core",
@@ -338,7 +339,7 @@ pub(super) async fn serve_device(core: Arc<Core>, incoming: Incoming) {
     let Ok((send, recv)) = connection.accept_bi().await else {
         return;
     };
-    core.remote.note_connected(&id, true);
+    core.remote().note_connected(&id, true);
     announce(&core);
     serve_client(
         core.clone(),
@@ -348,9 +349,9 @@ pub(super) async fn serve_device(core: Arc<Core>, incoming: Incoming) {
         Box::new(send),
     )
     .await;
-    core.remote.note_connected(&id, false);
+    core.remote().note_connected(&id, false);
     announce(&core);
-    if !core.remote.is_paired(&id) {
+    if !core.remote().is_paired(&id) {
         connection.close(
             sikemux_client::remote::NOT_PAIRED.into(),
             b"this device was removed from this host",

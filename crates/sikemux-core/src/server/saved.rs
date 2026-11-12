@@ -1,6 +1,7 @@
 //! Sessions the agent CLIs saved, found from a vague memory of them for
 //! `agent_sessions` and the composer, and which of them are open now.
 
+use crate::server::parts::Parts;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -43,7 +44,7 @@ fn providers(core: &Core) -> Vec<RecentProvider> {
         .filter_map(|agent| kept(agent, None))
         .collect();
     for profile in core
-        .workspaces
+        .workspaces()
         .accounts()
         .into_iter()
         .flat_map(|book| book.profiles)
@@ -64,7 +65,7 @@ fn open_sessions(core: &Core) -> HashMap<(String, String), (String, Option<Strin
     crate::server::roster::listed(core)
         .into_iter()
         .filter_map(|agent| {
-            let session = core.names.session_of(&agent.agent_id)?;
+            let session = core.names().session_of(&agent.agent_id)?;
             Some(((agent.cli, session), (agent.agent_id, agent.name)))
         })
         .collect()
@@ -77,7 +78,7 @@ fn scope_of(core: &Core, projects: Vec<String>) -> Scope {
         .iter()
         .map(|project| std::fs::canonicalize(project).unwrap_or_else(|_| project.into()))
         .collect();
-    let mut known = core.workspaces.project_paths();
+    let mut known = core.workspaces().project_paths();
     known.extend(wanted.iter().cloned());
     let auto_worktrees: Vec<PathBuf> = wanted
         .iter()
@@ -136,14 +137,14 @@ pub(crate) fn account_of(core: &Core, agent_id: &str, agent: AgentKind) -> Optio
 /// The account folder `agent_id` runs on, when known: its launch's while its chat runs, else the
 /// profile its record keeps through sleep, close and restarts.
 fn recorded_account(core: &Core, agent_id: &str, agent: AgentKind) -> Option<Option<String>> {
-    if let Some(chat) = core.chats.get(agent_id) {
+    if let Some(chat) = core.chats().get(agent_id) {
         let launch = chat.current_launch();
         return Some(named_account(agent.as_str(), &launch.env).map(str::to_owned));
     }
-    let profile = (core.workspaces.agent(agent_id))
+    let profile = (core.workspaces().agent(agent_id))
         .and_then(|kept| kept.profile_id)
-        .or_else(|| core.names.ran_session(agent_id)?.profile)?;
-    let book = core.workspaces.accounts().unwrap_or_default();
+        .or_else(|| core.names().ran_session(agent_id)?.profile)?;
+    let book = core.workspaces().accounts().unwrap_or_default();
     Some(
         book.profile(&profile)
             .and_then(|profile| profile.config_path.clone()),
@@ -151,7 +152,7 @@ fn recorded_account(core: &Core, agent_id: &str, agent: AgentKind) -> Option<Opt
 }
 
 fn chosen_account(core: &Core, agent: AgentKind) -> Option<String> {
-    let book = core.workspaces.accounts()?;
+    let book = core.workspaces().accounts()?;
     book.profile(&book.chosen(agent.as_str()))?
         .config_path
         .clone()

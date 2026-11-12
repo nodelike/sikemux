@@ -3,6 +3,7 @@
 //! end of its project's strip, and a tab goes once nothing it shows is left.
 
 use crate::server::changed::What;
+use crate::server::parts::Parts;
 use sikemux_view::layout::At;
 use sikemux_view::layout::OpenTab;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -126,8 +127,9 @@ pub(crate) fn view(
     sessions: &[SessionInfo],
     device: Option<&str>,
 ) -> Layout {
-    let mut layout = core.layouts.layout.locked().clone();
-    if let Some(front) = device.and_then(|device| core.layouts.fronts.locked().get(device).cloned())
+    let mut layout = core.layouts().layout.locked().clone();
+    if let Some(front) =
+        device.and_then(|device| core.layouts().fronts.locked().get(device).cloned())
     {
         front.lay_over(&mut layout);
     }
@@ -135,13 +137,13 @@ pub(crate) fn view(
 }
 
 pub(crate) fn fronted(core: &Core) -> HashSet<String> {
-    core.layouts.fronts.locked().keys().cloned().collect()
+    core.layouts().fronts.locked().keys().cloned().collect()
 }
 
 /// The layout, with the chosen host dropped once it is no longer linked with this one.
 fn on_linked_host(core: &Core, mut layout: Layout) -> Layout {
     if let Some(chosen) = &layout.chosen_host {
-        if !core.remote.links().iter().any(|link| &link.id == chosen) {
+        if !core.remote().links().iter().any(|link| &link.id == chosen) {
             layout.chosen_host = None;
         }
     }
@@ -570,8 +572,8 @@ fn edit<T>(core: &Core, change: impl FnOnce(&mut Layout) -> CoreResult<T>) -> Co
     let sessions = core.session_infos();
     let device = asker();
     let answer = {
-        let mut kept = core.layouts.layout.locked();
-        let mut fronts = core.layouts.fronts.locked();
+        let mut kept = core.layouts().layout.locked();
+        let mut fronts = core.layouts().fronts.locked();
         let shared = on_linked_host(core, fitted(kept.clone(), &workspace, &sessions));
         let mut layout = shared.clone();
         if let Some(front) = device.as_ref().and_then(|device| fronts.get(device)) {
@@ -586,7 +588,7 @@ fn edit<T>(core: &Core, change: impl FnOnce(&mut Layout) -> CoreResult<T>) -> Co
             Front::of(&shared).lay_over(&mut layout);
         }
         let paired: HashSet<String> = core
-            .remote
+            .remote()
             .status()
             .devices
             .into_iter()
@@ -594,11 +596,11 @@ fn edit<T>(core: &Core, change: impl FnOnce(&mut Layout) -> CoreResult<T>) -> Co
             .collect();
         fronts.retain(|device, _| paired.contains(device));
         *kept = layout;
-        core.layouts.kept.save_soon(&*kept);
+        core.layouts().kept.save_soon(&*kept);
         answer
     };
     core.changed(What::ViewNow);
-    core.spares.front_changed();
+    core.spares().front_changed();
     Ok(answer)
 }
 
@@ -620,7 +622,7 @@ pub(crate) fn agent_in_front(core: &Core, id: &str, project: &str) -> bool {
 
 /// The project the person has in front, by id, as the layout last said.
 pub(crate) fn front_project(core: &Core) -> Option<String> {
-    core.layouts.layout.locked().active_project.clone()
+    core.layouts().layout.locked().active_project.clone()
 }
 
 fn strip<'a>(
@@ -982,7 +984,7 @@ pub(crate) async fn lay_out_carried(
     agents: &HashMap<String, String>,
 ) -> CoreResult<(usize, usize)> {
     let to = core
-        .workspaces
+        .workspaces()
         .project_info(project)
         .ok_or_else(|| CoreError::from("that project is not on this host"))?
         .path
@@ -1142,7 +1144,7 @@ pub struct HostParams {
 pub(crate) async fn choose_host(core: &Arc<Core>, params: HostParams) -> CoreResult<()> {
     if let Some(alias) = params.host.strip_prefix("ssh:") {
         let has_tabs = core
-            .layouts
+            .layouts()
             .layout
             .locked()
             .hosts
@@ -1160,7 +1162,7 @@ pub(crate) async fn choose_host(core: &Arc<Core>, params: HostParams) -> CoreRes
                 layout.active_host = None;
             }
             Some(("host", key)) => {
-                if !core.remote.links().iter().any(|link| link.id == key) {
+                if !core.remote().links().iter().any(|link| link.id == key) {
                     return Err("that host is not linked with this one".into());
                 }
                 layout.chosen_host = Some(key.to_owned());

@@ -4,6 +4,7 @@
 //! to it later does not read it all again uncached. The chat the person sees is the core's
 //! record, so none of this changes it.
 
+use crate::server::parts::Parts;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
@@ -209,7 +210,7 @@ pub(crate) fn open_work(core: &Core, agent_id: &str) -> Vec<String> {
     if let Some(wait) = turn(own).and_then(|turn| turn.wait.as_ref()) {
         lines.push(format!("- You wait on {}", waited(wait, now)));
     }
-    let leads = core.workspaces.agent_leads();
+    let leads = core.workspaces().agent_leads();
     let mut workers: Vec<String> = (listed.iter())
         .filter(|agent| leads.get(&agent.agent_id).map(String::as_str) == Some(agent_id))
         .map(|worker| {
@@ -296,8 +297,8 @@ fn big_from(chat: &Chat) -> u64 {
 
 /// Asks each big chat that has sat idle long enough to compact before its cache dies.
 pub(crate) fn compact_idle(core: &Core, now: u64) {
-    for agent_id in core.chats.ids() {
-        let Some(chat) = core.chats.get(&agent_id) else {
+    for agent_id in core.chats().ids() {
+        let Some(chat) = core.chats().get(&agent_id) else {
             continue;
         };
         let due = chat.is_ready()
@@ -316,7 +317,7 @@ pub(crate) fn compact_idle(core: &Core, now: u64) {
 /// Compacts a big chat about to sleep while its cache is still warm, as it may sleep past the
 /// cache's life. Answers whether it is compacting, to sleep once it is done.
 pub(crate) fn compact_before_sleep(core: &Core, agent_id: &str, now: u64) -> bool {
-    let Some(chat) = core.chats.get(agent_id) else {
+    let Some(chat) = core.chats().get(agent_id) else {
         return false;
     };
     let due = !chat.capped()
@@ -343,7 +344,7 @@ fn compact(core: &Core, chat: &Chat, now: u64) {
 /// A chat stays awake while it compacts, and a capped one until its idle stretch has been
 /// compacted, since a sleeping agent cannot compact.
 pub(crate) fn holds_awake(core: &Core, agent_id: &str, now: u64) -> bool {
-    core.chats.get(agent_id).is_some_and(|chat| {
+    core.chats().get(agent_id).is_some_and(|chat| {
         chat.meter.compacting()
             || (chat.capped() && (chat.meter.worth_compacting(now, IDLE_COMPACT_TOKENS)).is_some())
     })

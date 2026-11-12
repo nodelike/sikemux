@@ -3,6 +3,7 @@
 //! goes to every client, so the person can finish it from any device.
 
 use crate::server::changed::What;
+use crate::server::parts::Parts;
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
@@ -123,7 +124,7 @@ fn waiting() -> MutexGuard<'static, HashMap<String, Vec<String>>> {
 
 /// Moves the chat onto the account as soon as a sign-in to it finishes, from whichever client.
 pub(super) fn move_after_sign_in(core: &Core, after: AfterSignIn) -> CoreResult<()> {
-    core.workspaces.agent_or_gone(&after.agent_id)?;
+    core.workspaces().agent_or_gone(&after.agent_id)?;
     let mut waiting = waiting();
     let chats = waiting.entry(after.account_id).or_default();
     if !chats.contains(&after.agent_id) {
@@ -135,7 +136,7 @@ pub(super) fn move_after_sign_in(core: &Core, after: AfterSignIn) -> CoreResult<
 /// Moves the chats waiting for the account in `config_path` onto it.
 fn signed_in(core: &Arc<Core>, account: &Account) {
     let book = core
-        .workspaces
+        .workspaces()
         .accounts()
         .unwrap_or_default()
         .with_built_ins();
@@ -173,7 +174,7 @@ pub(super) async fn sign_in_launcher(core: &Arc<Core>, params: LauncherParams) -
     let agent = AgentKind::from_name(launcher.kind)
         .ok_or_else(|| CoreError::from("that agent is not one Sikemux knows"))?;
     let profile =
-        (launcher.account).and_then(|id| core.workspaces.accounts()?.profile(id).cloned());
+        (launcher.account).and_then(|id| core.workspaces().accounts()?.profile(id).cloned());
     let account = Account {
         agent,
         executable_path: profile

@@ -7,6 +7,7 @@
 //! settles, as its agent closes or has landed everything and gone to sleep, also runs the
 //! project's `worktree.onSettle`.
 
+use crate::server::parts::Parts;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -94,11 +95,11 @@ impl Keeper {
 /// land, the worktree's build output goes once its processes have ended. Waking it clones the
 /// main checkout's back, warm.
 pub(crate) fn slept(core: &Core, agent_id: &str) {
-    if !core.build_outputs.landed.locked().remove(agent_id) {
+    if !core.build_outputs().landed.locked().remove(agent_id) {
         return;
     }
     let Some(tree) = core
-        .workspaces
+        .workspaces()
         .agent(agent_id)
         .and_then(|agent| agent.worktree)
     else {
@@ -120,13 +121,13 @@ pub(crate) fn slept(core: &Core, agent_id: &str) {
 /// once their processes have ended.
 pub(crate) fn closed(core: &Core, agent_ids: &[String], trees: Vec<AgentWorktree>) {
     {
-        let mut landed = core.build_outputs.landed.locked();
+        let mut landed = core.build_outputs().landed.locked();
         for agent_id in agent_ids {
             landed.remove(agent_id);
         }
     }
-    let open: Vec<PathBuf> = (core.workspaces.agent_ids().into_iter())
-        .filter_map(|id| core.workspaces.agent(&id))
+    let open: Vec<PathBuf> = (core.workspaces().agent_ids().into_iter())
+        .filter_map(|id| core.workspaces().agent(&id))
         .map(|agent| agent.cwd)
         .collect();
     let mut left: Vec<AgentWorktree> = trees
@@ -147,9 +148,9 @@ pub(crate) fn closed(core: &Core, agent_ids: &[String], trees: Vec<AgentWorktree
 }
 
 fn used_by_others(core: &Core, tree: &Path, agent_id: &str) -> bool {
-    (core.workspaces.agent_ids().into_iter())
+    (core.workspaces().agent_ids().into_iter())
         .filter(|id| id != agent_id)
-        .filter_map(|id| core.workspaces.agent(&id))
+        .filter_map(|id| core.workspaces().agent(&id))
         .any(|other| other.cwd.starts_with(tree))
 }
 
@@ -181,11 +182,11 @@ fn clear_once_stopped(core: &Core, mut trees: Vec<PathBuf>, reason: ClearedFor) 
 /// enough is free again.
 pub(crate) fn make_room(core: &Core, free: u64, total: u64) {
     if free >= FREE_FLOOR.min(total / 10) {
-        core.build_outputs.stuck.store(false, Ordering::Release);
+        core.build_outputs().stuck.store(false, Ordering::Release);
         return;
     }
     let now = epoch_ms();
-    let next = &core.build_outputs.next_room_at;
+    let next = &core.build_outputs().next_room_at;
     let due = next.load(Ordering::Acquire);
     if now < due
         || next
@@ -210,7 +211,7 @@ impl Drop for NextPass<'_> {
     fn drop(&mut self) {
         let after = epoch_ms() + MAKE_ROOM_EVERY.as_millis() as u64;
         self.0
-            .build_outputs
+            .build_outputs()
             .next_room_at
             .store(after, Ordering::Release);
     }
@@ -220,9 +221,9 @@ fn pass_at_making_room(core: &Core) {
     let Some(home) = sikemux_process::paths::home() else {
         return;
     };
-    let projects = core.workspaces.project_paths();
-    let awake: Vec<PathBuf> = (core.workspaces.agent_ids().into_iter())
-        .filter_map(|id| core.workspaces.agent(&id))
+    let projects = core.workspaces().project_paths();
+    let awake: Vec<PathBuf> = (core.workspaces().agent_ids().into_iter())
+        .filter_map(|id| core.workspaces().agent(&id))
         .filter(|agent| !agent.asleep)
         .map(|agent| agent.cwd)
         .collect();
@@ -253,8 +254,8 @@ fn pass_at_making_room(core: &Core) {
         }
     }
     if removed_any {
-        core.build_outputs.stuck.store(false, Ordering::Release);
-    } else if !core.build_outputs.stuck.swap(true, Ordering::AcqRel) {
+        core.build_outputs().stuck.store(false, Ordering::Release);
+    } else if !core.build_outputs().stuck.swap(true, Ordering::AcqRel) {
         eprintln!(
             "sikemux core: free space is low and no worktree's build output could go: {by_agents} kept for an agent awake or at work in it, {by_processes} for a process running from it, {unsure} as what runs there could not be told"
         );
@@ -263,7 +264,7 @@ fn pass_at_making_room(core: &Core) {
 
 /// Deletes the build outputs a core that stopped mid-delete left set aside.
 pub(crate) fn remove_set_aside(core: &Core) {
-    let mut folders: Vec<PathBuf> = (core.workspaces.project_paths().iter())
+    let mut folders: Vec<PathBuf> = (core.workspaces().project_paths().iter())
         .map(|path| worktrees_folder(path))
         .collect();
     folders.sort();
@@ -369,11 +370,11 @@ fn last_built(tree: &Path) -> Option<SystemTime> {
 /// What keeps the worktree at `tree` as it is now: an agent awake or at work in it, or a process
 /// that runs from it. Not being able to tell keeps it too.
 fn kept_by(core: &Core, tree: &Path) -> Option<Keeper> {
-    let agent = (core.workspaces.agent_ids().into_iter())
-        .filter_map(|id| core.workspaces.agent(&id))
+    let agent = (core.workspaces().agent_ids().into_iter())
+        .filter_map(|id| core.workspaces().agent(&id))
         .find(|agent| agent.cwd.starts_with(tree) && (!agent.asleep || busy(core, &agent.id)));
     if let Some(agent) = agent {
-        let name = core.names.name(&agent.id).unwrap_or(agent.id);
+        let name = core.names().name(&agent.id).unwrap_or(agent.id);
         return Some(Keeper::Agent(format!("@{name} is awake in it")));
     }
     let Ok(real) = tree.canonicalize() else {
@@ -412,7 +413,7 @@ fn clear(core: &Core, tree: &Path, reason: ClearedFor, say_kept: bool) -> Outcom
         return Outcome::Nothing;
     }
     if let Some(keeper) = kept_by(core, tree) {
-        let mut spared = core.build_outputs.spared.locked();
+        let mut spared = core.build_outputs().spared.locked();
         spared.retain(|path| path.exists());
         if say_kept && spared.insert(tree.to_path_buf()) {
             eprintln!(
@@ -423,7 +424,7 @@ fn clear(core: &Core, tree: &Path, reason: ClearedFor, say_kept: bool) -> Outcom
         }
         return Outcome::Kept(keeper);
     }
-    core.build_outputs.spared.locked().remove(tree);
+    core.build_outputs().spared.locked().remove(tree);
     let Some(freed) = remove_outputs(tree, outputs) else {
         return Outcome::Nothing;
     };
@@ -442,7 +443,7 @@ fn clear(core: &Core, tree: &Path, reason: ClearedFor, say_kept: bool) -> Outcom
         tree.display(),
         freed / 1_000_000
     );
-    core.host_watch.note(HostEventKind::BuildOutputCleared {
+    core.host_watch().note(HostEventKind::BuildOutputCleared {
         worktree,
         bytes: freed,
         reason,

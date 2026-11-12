@@ -3,6 +3,7 @@
 //! commit, as the project's CI check does, and keeps the verdict as each such
 //! assertion's evidence. Runs moving in the project's repository wake it.
 
+use crate::server::parts::Parts;
 use std::collections::{BTreeSet, HashMap};
 use std::path::Path;
 use std::sync::Arc;
@@ -87,7 +88,7 @@ pub(super) fn due(core: &Arc<Core>) -> Option<u64> {
     let mut next = None;
     let mut looks = Vec::new();
     {
-        let mut state = core.boards.state.locked();
+        let mut state = core.boards().state.locked();
         let waiting = waiting(&state);
         let watches = &mut state.workflows.0;
         watches.retain(|project, watch| watch.looking || waiting.contains_key(project));
@@ -129,13 +130,13 @@ async fn look(core: Arc<Core>, project: String, slices: Vec<Waiting>) {
             )
         });
     }
-    let mut state = core.boards.state.locked();
+    let mut state = core.boards().state.locked();
     if let Some(watch) = state.workflows.0.get_mut(&project) {
         watch.looking = false;
         watch.next = Some(again);
     }
     drop(state);
-    core.boards.wake.at(again);
+    core.boards().wake.at(again);
 }
 
 /// What each workflow said that the slices wait on, and when to look again:
@@ -146,7 +147,7 @@ async fn read(core: &Arc<Core>, project: &str, slices: &[Waiting]) -> (Vec<Ruled
     let Ok(repo) = codehost::of_project(core, project).await else {
         return (Vec::new(), again);
     };
-    if let Some(watch) = core.boards.state.locked().workflows.0.get_mut(project) {
+    if let Some(watch) = core.boards().state.locked().workflows.0.get_mut(project) {
         watch.repo = Some(repo.watched());
     }
     ci::start(core);
@@ -163,7 +164,7 @@ async fn read(core: &Arc<Core>, project: &str, slices: &[Waiting]) -> (Vec<Ruled
             .unwrap_or_default();
     let tip = looked.tip.as_ref().map(|(tip, _)| tip.clone());
     let since = {
-        let mut state = core.boards.state.locked();
+        let mut state = core.boards().state.locked();
         let watch = state.workflows.0.entry(project.to_owned()).or_default();
         watch.tips.retain(|known, _| tip.as_ref() == Some(known));
         tip.map(|tip| *watch.tips.entry(tip).or_insert_with(epoch_ms))
@@ -216,13 +217,13 @@ async fn read(core: &Arc<Core>, project: &str, slices: &[Waiting]) -> (Vec<Ruled
 
 /// Someone asks after the project's slices, so their workflows are read again.
 pub(super) fn look_again(core: &Core, project: &str) {
-    let mut state = core.boards.state.locked();
+    let mut state = core.boards().state.locked();
     let Some(watch) = state.workflows.0.get_mut(project) else {
         return;
     };
     watch.looked.clear();
     drop(state);
-    core.boards.wake.now();
+    core.boards().wake.now();
 }
 
 /// The repositories of projects whose slices wait on a workflow, for the CI watch.

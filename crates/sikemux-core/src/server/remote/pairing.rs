@@ -2,9 +2,10 @@
 
 use super::*;
 use crate::server::changed::What;
+use crate::server::parts::Parts;
 
 pub(crate) fn set_access(core: &Core, id: &str, access: DeviceAccess) -> CoreResult<RemoteStatus> {
-    core.remote.change(|stored| {
+    core.remote().change(|stored| {
         let device = stored
             .devices
             .iter_mut()
@@ -18,7 +19,7 @@ pub(crate) fn set_access(core: &Core, id: &str, access: DeviceAccess) -> CoreRes
 
 /// Gives the device `id` paired here the name the account now has for it.
 pub(crate) fn rename_paired(core: &Core, id: &str, name: &str) -> CoreResult<()> {
-    let renamed = core.remote.change(|stored| {
+    let renamed = core.remote().change(|stored| {
         let device = stored.devices.iter_mut().find(|device| device.id == id);
         Ok(device.map(|device| device.name = name.to_owned()).is_some())
     })?;
@@ -40,12 +41,12 @@ pub struct RemotePairing {
 }
 
 pub(crate) fn pairing(core: &Core) -> RemotePairing {
-    let status = core.remote.status();
+    let status = core.remote().status();
     RemotePairing {
         pending: status.pending,
         devices: status.devices,
         links: crate::server::hosts::views(core),
-        pending_links: core.remote.pending_links(),
+        pending_links: core.remote().pending_links(),
     }
 }
 
@@ -57,7 +58,7 @@ pub struct PairingAnswer {
 }
 
 pub(crate) fn answer_pairing(core: &Core, answer: PairingAnswer) -> CoreResult<RemotePairing> {
-    core.remote
+    core.remote()
         .answer(&answer.id, answer.allow.then_some(answer.access))?;
     announce(core);
     Ok(pairing(core))
@@ -83,7 +84,7 @@ pub(crate) fn set_require_approval(
     core: &Core,
     setting: ApprovalSetting,
 ) -> CoreResult<RemoteStatus> {
-    core.remote.change(|stored| {
+    core.remote().change(|stored| {
         stored.require_approval = setting.require_approval;
         Ok(())
     })?;
@@ -104,7 +105,7 @@ pub(crate) fn announce(core: &Core) -> RemoteStatus {
         tokio::spawn(async move { crate::server::account::show(&core).await });
     }
     core.changed(What::Read(Topic::Hosts));
-    let status = core.remote.status();
+    let status = core.remote().status();
     core.changed(What::Event(&Event::Remote {
         status: status.clone(),
     }));

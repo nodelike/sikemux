@@ -4,6 +4,7 @@
 //! JSON only the apps read, such as a message's attachments.
 
 use crate::server::changed::What;
+use crate::server::parts::Parts;
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -90,8 +91,8 @@ impl Delivery {
 /// draft with the chat.
 pub(crate) fn changed(core: &Core, keys: Vec<String>) {
     for agent in keys.iter().filter_map(|key| key.strip_prefix(CHAT_DRAFT)) {
-        if let Some(feed) = core.chats.heard(agent) {
-            feed.set_draft(core.drafts.chat_draft(agent));
+        if let Some(feed) = core.chats().heard(agent) {
+            feed.set_draft(core.drafts().chat_draft(agent));
         }
     }
     core.changed(What::ReadIn(Topic::Drafts, None, Some(keys)));
@@ -315,7 +316,7 @@ pub struct SetDraftParams {
 
 /// Keeps the draft `params` names and tells every client.
 pub(crate) fn set(core: &Core, params: SetDraftParams) -> CoreResult<()> {
-    core.drafts
+    core.drafts()
         .save(&params.key, params.text, params.extra, params.rev)?;
     changed(core, vec![params.key]);
     Ok(())

@@ -2,6 +2,7 @@
 //! the agent sessions a commit's signed footer names, else the person git
 //! names as its author and the pull request it came in through.
 
+use crate::server::parts::Parts;
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -94,7 +95,7 @@ fn owners(
             let session_id = agent
                 .session
                 .clone()
-                .or_else(|| core.names.last_session(&agent.chat));
+                .or_else(|| core.names().last_session(&agent.chat));
             let open = listed.iter().filter(|open| open.reach != Reach::Stopped);
             let running = open
                 .clone()
@@ -102,7 +103,7 @@ fn owners(
                 .or_else(|| {
                     let session_id = session_id.as_ref()?;
                     open.clone().find(|other| {
-                        core.names.session_of(&other.agent_id).as_ref() == Some(session_id)
+                        core.names().session_of(&other.agent_id).as_ref() == Some(session_id)
                     })
                 });
             let saved = session_id
@@ -115,7 +116,7 @@ fn owners(
             };
             let project = saved
                 .map(|(_, project)| project)
-                .or_else(|| core.names.ran_session(&agent.chat).map(|ran| ran.project));
+                .or_else(|| core.names().ran_session(&agent.chat).map(|ran| ran.project));
             AgentOwner {
                 title,
                 open: running.map(|running| running.agent_id.clone()),
@@ -144,7 +145,7 @@ fn noted<'a>(
     let commits: HashMap<&str, &[Agent]> =
         commits.filter(|(_, agents)| !agents.is_empty()).collect();
     let hashes: Vec<&str> = commits.keys().copied().collect();
-    let mut notes = note::read(dir, &hashes, &core.remote.host_keys());
+    let mut notes = note::read(dir, &hashes, &core.remote().host_keys());
     notes.retain(|commit, note| {
         let agents = commits.get(commit.as_str()).copied().unwrap_or_default();
         note.retain(|key, _| agents.iter().any(|agent| agent.key() == key));

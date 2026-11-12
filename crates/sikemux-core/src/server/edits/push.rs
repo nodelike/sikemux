@@ -5,6 +5,7 @@
 //! and pushed, and the branch is rebuilt on what was pushed with the other
 //! commits after it, so its files stay exactly as they are.
 
+use crate::server::parts::Parts;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -53,8 +54,8 @@ pub(super) struct Signing {
 impl Signing {
     pub(super) fn of(core: &Core) -> Self {
         Self {
-            key: core.remote.host_key(),
-            hosts: core.remote.host_keys(),
+            key: core.remote().host_key(),
+            hosts: core.remote().host_keys(),
         }
     }
 
@@ -88,13 +89,13 @@ pub(super) fn push(
     remote: &str,
 ) -> Result<Pushed, String> {
     let sessions: Vec<String> = (agents.iter())
-        .filter_map(|agent| core.names.last_session(agent))
+        .filter_map(|agent| core.names().last_session(agent))
         .collect();
     let whose = |commit: &str| {
         let is_me = |chat: &str, of: Option<&str>| {
             agents
                 .iter()
-                .any(|agent| chat == agent || core.names.leads(agent, chat))
+                .any(|agent| chat == agent || core.names().leads(agent, chat))
                 || of.is_some_and(|of| sessions.iter().any(|session| session == of))
         };
         let agents = verified(core, dir, commit)?;

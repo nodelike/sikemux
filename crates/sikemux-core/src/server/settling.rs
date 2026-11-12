@@ -2,6 +2,7 @@
 //! time; the core settles one the person has seen, that has been quiet a while and left
 //! nothing uncommitted. Either comes back by itself once the agent needs the person.
 
+use crate::server::parts::Parts;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
@@ -50,7 +51,7 @@ async fn run(core: Arc<Core>) {
         let next = sweep(&core).await;
         tokio::select! {
             () = tokio::time::sleep(Duration::from_millis(next)) => {}
-            () = core.settling.changed.notified() => {}
+            () = core.settling().changed.notified() => {}
         }
     }
 }
@@ -60,14 +61,14 @@ async fn run(core: Arc<Core>) {
 async fn sweep(core: &Arc<Core>) -> u64 {
     let now = epoch_ms();
     super::stalls::look(core, now).await;
-    let places = core.workspaces.places();
+    let places = core.workspaces().places();
     let due: Vec<String> = (places.iter())
         .filter(|(_, (place, _))| place.snooze.is_some_and(|snooze| snooze.until <= now))
         .map(|(agent_id, _)| agent_id.clone())
         .collect();
-    core.workspaces
+    core.workspaces()
         .move_places(&due, |place| place.snooze = None);
-    let chiefs = core.workspaces.chiefs();
+    let chiefs = core.workspaces().chiefs();
     let ready = ready_to_settle(core, &places, now);
     let checking = core.clone();
     let settle = blocking(move || {
@@ -81,7 +82,7 @@ async fn sweep(core: &Arc<Core>) -> u64 {
     })
     .await
     .unwrap_or_default();
-    core.workspaces.move_places(&settle, |place| {
+    core.workspaces().move_places(&settle, |place| {
         let written_since = place.said_at.is_some_and(|at| at > now);
         if place.settled.is_none() && place.snooze.is_none() && !written_since {
             place.settled = Some(Settled {
@@ -114,7 +115,7 @@ fn ready_to_settle(
         let busy = session.group.is_some_and(|group| group != AgentGroup::Idle);
         session.agent_id.as_deref().filter(|_| busy)
     }));
-    let leads = core.workspaces.agent_leads();
+    let leads = core.workspaces().agent_leads();
     let leading: HashSet<&str> = (leads.iter())
         .filter(|(worker, _)| {
             places
@@ -129,11 +130,11 @@ fn ready_to_settle(
                 return false;
             };
             let quiet_since = [
-                Some(core.settling.started_at),
+                Some(core.settling().started_at),
                 Some(agent.created_at),
                 place.said_at,
                 place.unsettled_at,
-                core.seen.quiet_since(&agent.id),
+                core.seen().quiet_since(&agent.id),
             ]
             .into_iter()
             .flatten()
@@ -144,8 +145,8 @@ fn ready_to_settle(
                 && !pinned
                 && !restless.contains(agent.id.as_str())
                 && !leading.contains(agent.id.as_str())
-                && !core.seen.unread(&agent.id)
-                && !core.seen.viewed(&agent.id)
+                && !core.seen().unread(&agent.id)
+                && !core.seen().viewed(&agent.id)
                 && now.saturating_sub(quiet_since) >= SETTLE_AFTER_MS
         })
         .map(|agent| (agent.id, agent.project, agent.cwd))
@@ -156,7 +157,7 @@ fn ready_to_settle(
 /// main list whether snoozed or settled.
 pub(crate) fn needs_person(core: &Core, agent_id: &str) {
     let now = epoch_ms();
-    core.workspaces
+    core.workspaces()
         .move_places(&[agent_id.to_owned()], |place| unsettle(place, now));
 }
 
@@ -222,7 +223,7 @@ pub(crate) fn snooze(core: &Core, params: SnoozeParams) -> CoreResult<()> {
         Some(_) => not_chiefs(core, params.agent_ids)?,
         None => params.agent_ids,
     };
-    core.workspaces
+    core.workspaces()
         .move_places(&agent_ids, |place| match until {
             Some(until) => {
                 unsettle(place, now);
@@ -230,7 +231,7 @@ pub(crate) fn snooze(core: &Core, params: SnoozeParams) -> CoreResult<()> {
             }
             None => place.snooze = None,
         });
-    core.settling.changed.notify_one();
+    core.settling().changed.notify_one();
     Ok(())
 }
 
@@ -247,7 +248,7 @@ pub(crate) fn settle(core: &Core, params: SettleParams) -> CoreResult<()> {
         true => not_chiefs(core, params.agent_ids)?,
         false => params.agent_ids,
     };
-    core.workspaces.move_places(&agent_ids, |place| {
+    core.workspaces().move_places(&agent_ids, |place| {
         if !params.settled {
             unsettle(place, now);
         } else if place.settled.is_none() {
@@ -263,7 +264,7 @@ pub(crate) fn settle(core: &Core, params: SettleParams) -> CoreResult<()> {
 
 /// The chats of `agent_ids` that may be put out of the way: a project's chief keeps its row.
 fn not_chiefs(core: &Core, agent_ids: Vec<String>) -> CoreResult<Vec<String>> {
-    let chiefs = core.workspaces.chiefs();
+    let chiefs = core.workspaces().chiefs();
     let others: Vec<String> = (agent_ids.iter())
         .filter(|agent_id| !chiefs.contains(*agent_id))
         .cloned()

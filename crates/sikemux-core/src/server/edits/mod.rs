@@ -20,6 +20,7 @@ mod prior;
 mod push;
 pub(crate) mod queue;
 
+use crate::server::parts::Parts;
 use sikemux_fold::UpdateKind;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::Write;
@@ -320,7 +321,7 @@ impl Edits {
 
     /// Every file `agent_id` has changed in its project, by absolute path.
     pub(crate) fn paths_of(&self, core: &Core, agent_id: &str) -> HashSet<String> {
-        let Some(named) = core.names.get(agent_id) else {
+        let Some(named) = core.names().get(agent_id) else {
             return HashSet::new();
         };
         self.matching(&named.project, |edit| edit.agent_id == agent_id)
@@ -455,15 +456,15 @@ impl Store {
     }
 
     fn finished(&self, core: &Arc<Core>, finished: Vec<Done>) {
-        let projects = core.workspaces.project_paths();
+        let projects = core.workspaces().project_paths();
         let mut batch: HashMap<String, Vec<Edit>> = HashMap::new();
         for mut done in finished {
-            let named = core.names.get(&done.agent_id);
+            let named = core.names().get(&done.agent_id);
             let project = match &named {
                 Some(named) => named.project.clone(),
                 None => project_of(&done.cwd, &projects),
             };
-            core.collisions
+            core.collisions()
                 .wrote(core, &done.agent_id, &done.cwd, &mut done.changes);
             batch
                 .entry(project)
@@ -489,7 +490,7 @@ impl Store {
                     });
                 }
             }
-            core.collisions.landed(core, &project, &edits);
+            core.collisions().landed(core, &project, &edits);
         }
     }
 
@@ -611,7 +612,7 @@ pub(crate) async fn commit_staged(core: &Arc<Core>, params: CommitParams) -> Cor
         let output = footer::commit(&core, &params.dir, &[], &params.message, None)?;
         let said = |bytes: &[u8]| String::from_utf8_lossy(bytes).into_owned();
         if output.status.success() {
-            core.activity_log
+            core.activity_log()
                 .record_commit(&params.dir.to_string_lossy());
             Ok(said(&output.stdout))
         } else if output.stderr.trim_ascii().is_empty() {
@@ -628,8 +629,8 @@ pub(crate) async fn commit_staged(core: &Arc<Core>, params: CommitParams) -> Cor
 pub(crate) async fn read_edits(core: &Arc<Core>, filter: Filter) -> CoreResult<Vec<Edit>> {
     let core = core.clone();
     blocking(move || {
-        let project = core.workspaces.project_of(&filter.project);
-        Ok(core.edits.read(&project, &filter))
+        let project = core.workspaces().project_of(&filter.project);
+        Ok(core.edits().read(&project, &filter))
     })
     .await
 }
@@ -650,7 +651,7 @@ pub(crate) async fn write_file(
     let path = std::path::PathBuf::from(&params.path);
     let written = on_disk(move || crate::files::write(params)).await?;
     if written.version.is_some() {
-        core.edits.saved(path);
+        core.edits().saved(path);
     }
     Ok(written)
 }

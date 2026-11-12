@@ -3,6 +3,7 @@
 //! has touched for a week moves to Later until someone takes it up again.
 
 use super::*;
+use crate::server::parts::Parts;
 
 /// How long an open card nobody holds sits untouched before it moves to Later.
 const UNTOUCHED_MS: u64 = 7 * 24 * 60 * 60 * 1000;
@@ -11,11 +12,18 @@ const CLOSED_RESULT: &str = "Every card under it is done.";
 /// Tidies every board, and answers when the next card comes due to leave or move.
 pub(super) fn settle(core: &Arc<Core>) -> Option<u64> {
     let now = epoch_ms();
-    let projects: Vec<String> = core.boards.state.locked().boards.keys().cloned().collect();
+    let projects: Vec<String> = core
+        .boards()
+        .state
+        .locked()
+        .boards
+        .keys()
+        .cloned()
+        .collect();
     let mut next = None;
     for project in projects {
         close_parents(core, &project);
-        let mut state = core.boards.state.locked();
+        let mut state = core.boards().state.locked();
         let kept_until = archive::finished_long_ago(core, &mut state, &project, now);
         next = sooner(next, kept_until);
         next = sooner(next, put_aside(core, &mut state, &project, now));
@@ -37,7 +45,7 @@ fn finished_under(core: &Core, board: &Board, card: &Card, under: &[&Card]) -> b
 }
 
 fn close_parents(core: &Arc<Core>, project: &str) {
-    let mut state = core.boards.state.locked();
+    let mut state = core.boards().state.locked();
     let Some(board) = state.boards.get(project) else {
         return;
     };
@@ -78,7 +86,7 @@ fn close_parents(core: &Arc<Core>, project: &str) {
             Err(error) => eprintln!("sikemux core: the board did not close #{id}: {error}"),
         }
     }
-    core.boards.save(&mut state, project);
+    core.boards().save(&mut state, project);
     drop(state);
     send_notices(core, notices);
 }
@@ -137,7 +145,7 @@ fn put_aside(core: &Core, state: &mut State, project: &str, now: u64) -> Option<
         }
     }
     if changed {
-        core.boards.save(state, project);
+        core.boards().save(state, project);
     }
     next
 }

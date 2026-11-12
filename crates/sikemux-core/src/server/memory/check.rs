@@ -2,6 +2,7 @@
 //! it on a test that was not fresh. Every test starts here, a few at a time,
 //! and nothing waits for one: a brief carries what the last test found.
 
+use crate::server::parts::Parts;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
@@ -33,7 +34,7 @@ pub(crate) fn settle(core: &Arc<Core>) {
     let mut next: Option<u64> = None;
     let mut due = Vec::new();
     {
-        let mut state = core.memory.state.locked();
+        let mut state = core.memory().state.locked();
         let mut room = MAX_AT_ONCE.saturating_sub(state.checking.len());
         for held in state.held.values() {
             for known in &held.knowledge {
@@ -77,7 +78,7 @@ pub(crate) fn settle(core: &Arc<Core>) {
         });
     }
     if let Some(next) = next {
-        core.memory.wake.at(next);
+        core.memory().wake.at(next);
     }
 }
 
@@ -127,18 +128,18 @@ async fn run(folder: &Path, check: &MemoryCheck) -> LastCheck {
 }
 
 fn record(core: &Core, due: &Due, result: LastCheck) {
-    let mut state = core.memory.state.locked();
+    let mut state = core.memory().state.locked();
     state.checking.remove(&due.id);
     let Some(known) = state
         .held
         .get_mut(&due.folder)
         .and_then(|held| held.knowledge.iter_mut().find(|known| known.id == due.id))
     else {
-        core.memory.wake.now();
+        core.memory().wake.now();
         return;
     };
     if known.check.as_ref() != Some(&due.check) {
-        core.memory.wake.now();
+        core.memory().wake.now();
         return;
     }
     let was_stale = known.stale.is_some();
@@ -154,7 +155,7 @@ fn record(core: &Core, due: &Due, result: LastCheck) {
     }
     let stale_moved = was_stale != known.stale.is_some();
     known.checked = Some(result);
-    core.memory.save(&mut state, &due.folder);
+    core.memory().save(&mut state, &due.folder);
     drop(state);
     tell_clients(core, stale_moved);
 }
@@ -162,11 +163,11 @@ fn record(core: &Core, due: &Due, result: LastCheck) {
 /// Asks for knowledge a brief carries to be tested soon when its last test
 /// is not fresh.
 pub(super) fn want(core: &Core, ids: impl IntoIterator<Item = u64>) {
-    let mut state = core.memory.state.locked();
+    let mut state = core.memory().state.locked();
     let before = state.wanted.len();
     state.wanted.extend(ids);
     if state.wanted.len() != before {
         drop(state);
-        core.memory.wake.now();
+        core.memory().wake.now();
     }
 }

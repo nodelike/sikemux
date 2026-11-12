@@ -7,6 +7,7 @@
 //! a fresh one.
 
 use crate::server::changed::What;
+use crate::server::parts::Parts;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -444,7 +445,7 @@ fn most_building() -> usize {
 /// The waiting reviews a place has come up for, longest-waiting first, taken off the wait. A
 /// reviewer blocked on the person holds no place, as it builds nothing until they answer.
 pub(super) fn admit(core: &Core) -> Vec<(String, u64)> {
-    let mut state = core.boards.state.locked();
+    let mut state = core.boards().state.locked();
     let mut waiting = Vec::new();
     let mut building = 0;
     for (project, board) in &state.boards {
@@ -460,7 +461,7 @@ pub(super) fn admit(core: &Core) -> Vec<(String, u64)> {
                     waiting.push((since, project.clone(), card.id));
                 }
                 None if reviewer.running == Running::Required
-                    && !core.harness.questions.blocks_on_person(&reviewer.agent) =>
+                    && !core.harness().questions.blocks_on_person(&reviewer.agent) =>
                 {
                     building += 1;
                 }
@@ -481,7 +482,7 @@ pub(super) fn admit(core: &Core) -> Vec<(String, u64)> {
             }
             run.note = Some(STARTING.to_owned());
         }
-        core.boards.save(&mut state, &project);
+        core.boards().save(&mut state, &project);
         admitted.push((project, id));
     }
     admitted
@@ -587,7 +588,7 @@ fn judge(core: &Core, step: &Step, head: &str) -> Result<Judged, String> {
     }
     let (diff, cut) = git::diff(repo, &from, head, MAX_DIFF_BYTES)?;
     let past: Vec<RunRecord> = {
-        let state = core.boards.state.locked();
+        let state = core.boards().state.locked();
         (state.boards.get(&step.project).into_iter())
             .flat_map(|board| &board.cards)
             .filter(|card| card.id != step.id)
@@ -675,7 +676,7 @@ pub(super) async fn start(
         .cli()
         .or_else(|| step.card.owner.as_ref().and_then(|owner| owner.cli.clone()));
     let chosen = step.settings.reviewer.clone();
-    let Some(launcher) = core.workspaces.reviewer_launcher(
+    let Some(launcher) = core.workspaces().reviewer_launcher(
         chosen.as_ref().map(|chosen| chosen.launcher.as_str()),
         builder.as_deref(),
     )?
@@ -726,14 +727,14 @@ pub(super) async fn start(
             let (provider, model) = chosen
                 .map(|chosen| (chosen.provider, chosen.model))
                 .unwrap_or_default();
-            let (mut launch, launcher) = core.workspaces.board_launch(
+            let (mut launch, launcher) = core.workspaces().board_launch(
                 Some(&launcher),
                 &cwd,
                 provider.as_deref(),
                 model,
                 super::auto::PICKED_IN,
             )?;
-            let (named, _) = core.names.give(
+            let (named, _) = core.names().give(
                 Starting {
                     agent_id: &agent,
                     project,
@@ -742,7 +743,7 @@ pub(super) async fn start(
                 },
                 core.open_agents(),
             );
-            core.names.make_blind(&agent);
+            core.names().make_blind(&agent);
             launch.agent_id = agent.clone();
             launch
                 .env
@@ -786,7 +787,7 @@ pub(super) async fn settle(core: &Arc<Core>, step: Step) {
         if let Some(reviewer) = &step.run.reviewer {
             if recover::hangs_at(core, &reviewer.agent).is_some_and(|at| at <= epoch_ms()) {
                 let name = core
-                    .names
+                    .names()
                     .name(&reviewer.agent)
                     .unwrap_or_else(|| "Its reviewer".to_owned());
                 let why = format!(
@@ -863,7 +864,7 @@ pub(super) async fn settle(core: &Arc<Core>, step: Step) {
         if findings.len() == 1 { "" } else { "s" }
     );
     let found = findings.len() as u32;
-    core.boards.edit(&step.project, step.id, |card| {
+    core.boards().edit(&step.project, step.id, |card| {
         if let Some(record) = card.record.as_mut() {
             record.findings += found;
         }
@@ -878,7 +879,7 @@ pub(super) fn record(core: &Core, agent_id: &str, params: &Value) -> Result<Valu
         .ok_or("approve must be true or false")?;
     let findings = findings(params.get("findings"))?;
     let (stage, reviewer) = {
-        let state = core.boards.state.locked();
+        let state = core.boards().state.locked();
         let (_, card) = reviewed_card(&state, agent_id).ok_or(
             "review_verdict is only for a reviewer Auto started, while its review is open",
         )?;
@@ -904,7 +905,7 @@ pub(super) fn record(core: &Core, agent_id: &str, params: &Value) -> Result<Valu
         graded_verdict(core, agent_id, &reviewer, approve, findings, params)?
     };
     let what_changes = verdict.to_change(&reviewer.criteria).len();
-    let mut state = core.boards.state.locked();
+    let mut state = core.boards().state.locked();
     let (project, card) = state
         .boards
         .iter_mut()
@@ -926,9 +927,9 @@ pub(super) fn record(core: &Core, agent_id: &str, params: &Value) -> Result<Valu
     run.verdict = Some(verdict);
     card.updated_at = epoch_ms();
     let project = project.clone();
-    core.boards.save(&mut state, &project);
+    core.boards().save(&mut state, &project);
     drop(state);
-    core.boards.wake.now();
+    core.boards().wake.now();
     Ok(json!({
         "recorded": true,
         "note": "End your turn now; Auto takes it from here.",
@@ -992,7 +993,7 @@ fn must_have_used_it(
         return Err("Approval refused: this change can be run and exercised lists nothing. Build it, use it the way its user would, and list what you did and saw. If you cannot run it, approve false and say why.".into());
     }
     let ran = core
-        .chats
+        .chats()
         .get(agent_id)
         .is_some_and(|chat| chat.feed.ran_something());
     if !ran {
@@ -1150,7 +1151,7 @@ fn findings(value: Option<&Value>) -> Result<Vec<Finding>, String> {
 /// to the person.
 pub(crate) fn turn_ended(core: &Arc<Core>, agent_id: &str, ending: &Ending) -> bool {
     let found = {
-        let state = core.boards.state.locked();
+        let state = core.boards().state.locked();
         reviewed_card(&state, agent_id).and_then(|(project, card)| {
             let run = card.auto.as_ref()?;
             Some((
@@ -1177,11 +1178,11 @@ pub(crate) fn turn_ended(core: &Arc<Core>, agent_id: &str, ending: &Ending) -> b
         return true;
     }
     let name = core
-        .names
+        .names()
         .name(agent_id)
         .unwrap_or_else(|| "Its reviewer".to_owned());
     let why = match ending {
-        Ending::Finished if core.harness.questions.waits_on_answer(agent_id) => return true,
+        Ending::Finished if core.harness().questions.waits_on_answer(agent_id) => return true,
         Ending::Finished => format!("{name} ended its review without a verdict"),
         Ending::Stopped => format!("{name} was stopped before it gave a verdict"),
         Ending::Failed(reason) => format!("{name}'s review failed: {reason}"),
@@ -1198,12 +1199,12 @@ pub(crate) fn turn_ended(core: &Arc<Core>, agent_id: &str, ending: &Ending) -> b
 
 /// Stops a reviewer and takes its checkout away once Auto's next look runs.
 pub(super) fn dismiss_later(core: &Core, reviewer: Reviewer) {
-    core.boards.state.locked().dismissed.push(reviewer);
-    core.boards.wake.now();
+    core.boards().state.locked().dismissed.push(reviewer);
+    core.boards().wake.now();
 }
 
 pub(super) fn clear_dismissed(core: &Arc<Core>) {
-    let dismissed = std::mem::take(&mut core.boards.state.locked().dismissed);
+    let dismissed = std::mem::take(&mut core.boards().state.locked().dismissed);
     for reviewer in dismissed {
         let core = core.clone();
         tokio::spawn(async move { dismiss(&core, reviewer).await });
@@ -1211,7 +1212,7 @@ pub(super) fn clear_dismissed(core: &Arc<Core>) {
 }
 
 pub(super) async fn dismiss(core: &Arc<Core>, reviewer: Reviewer) {
-    if core.chats.stop(&reviewer.agent) {
+    if core.chats().stop(&reviewer.agent) {
         core.note_agent_gone(&reviewer.agent);
     }
     crate::server::harness::stop_runs(core, RunSelector::of_agent(&reviewer.agent)).await;

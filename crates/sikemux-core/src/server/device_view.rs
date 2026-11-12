@@ -2,6 +2,7 @@
 //! sent again whenever anything in it changes.
 
 use crate::server::changed::What;
+use crate::server::parts::Parts;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -42,7 +43,7 @@ pub(crate) struct DeviceViews {
 
 impl Core {
     pub(crate) fn view_watched(&self) {
-        self.device_view.watched.notify_one();
+        self.device_view().watched.notify_one();
     }
 
     /// Tells [`Seen`] the agents each phone shows: the chats and terminals it
@@ -64,7 +65,7 @@ impl Core {
         for phone in phones {
             let mut shown = HashSet::new();
             if phone.in_front() {
-                shown.extend(self.chats.followed_by(phone.id));
+                shown.extend(self.chats().followed_by(phone.id));
                 shown.extend(
                     agent_sessions
                         .iter()
@@ -72,7 +73,7 @@ impl Core {
                         .map(|(_, agent_id)| agent_id.clone()),
                 );
             }
-            self.seen.show(phone.id, shown, true);
+            self.seen().show(phone.id, shown, true);
         }
     }
 
@@ -83,18 +84,18 @@ impl Core {
             .all_sessions()
             .iter()
             .map(|s| s.info())
-            .filter(|info| !self.spares.hides(info.pane_id.as_deref()))
+            .filter(|info| !self.spares().hides(info.pane_id.as_deref()))
             .collect();
         sessions.sort_by_key(|info| info.id);
-        self.workspaces.place(&mut sessions);
+        self.workspaces().place(&mut sessions);
         for info in &mut sessions {
             if let Some(agent_id) = &info.agent_id {
-                info.agent_name = self.names.name(agent_id);
-                info.title = self.workspaces.title(agent_id);
-                info.unread = self.seen.unread(agent_id);
-                info.active_at = self.seen.active_at(agent_id);
-                info.next_trigger = self.triggers.next_at(agent_id);
-                info.called_at = self.seen.called_at(agent_id);
+                info.agent_name = self.names().name(agent_id);
+                info.title = self.workspaces().title(agent_id);
+                info.unread = self.seen().unread(agent_id);
+                info.active_at = self.seen().active_at(agent_id);
+                info.next_trigger = self.triggers().next_at(agent_id);
+                info.called_at = self.seen().called_at(agent_id);
             }
             let asking = info
                 .agent_id
@@ -107,10 +108,10 @@ impl Core {
 
     /// Whether what the agent is doing waits on the person, as Needs you lists it.
     fn needs_person(&self, agent_id: &str) -> bool {
-        self.harness.questions.asks_person(agent_id)
-            || self.ship.holds(agent_id)
+        self.harness().questions.asks_person(agent_id)
+            || self.ship().holds(agent_id)
             || self
-                .chats
+                .chats()
                 .heard(agent_id)
                 .is_some_and(|feed| feed.has_guests())
     }
@@ -118,14 +119,14 @@ impl Core {
     /// The chats under the app's names, most recently active first, with
     /// whether the person has seen what each last did.
     pub(crate) fn chat_infos(&self) -> Vec<sikemux_wire::protocol::ChatInfo> {
-        let mut chats = self.workspaces.listed(self.chats.list());
+        let mut chats = self.workspaces().listed(self.chats().list());
         for chat in &mut chats {
-            chat.name = self.names.name(&chat.agent_id);
+            chat.name = self.names().name(&chat.agent_id);
             chat.pending_permissions.sort();
-            chat.unread = self.seen.unread(&chat.agent_id);
-            chat.active_at = self.seen.active_at(&chat.agent_id);
-            chat.next_trigger = self.triggers.next_at(&chat.agent_id);
-            chat.called_at = self.seen.called_at(&chat.agent_id);
+            chat.unread = self.seen().unread(&chat.agent_id);
+            chat.active_at = self.seen().active_at(&chat.agent_id);
+            chat.next_trigger = self.triggers().next_at(&chat.agent_id);
+            chat.called_at = self.seen().called_at(&chat.agent_id);
             let asking = self.needs_person(&chat.agent_id);
             display::show_chat(chat, asking);
         }
@@ -143,11 +144,11 @@ impl Core {
     ) {
         let mut sessions = self.session_infos();
         let mut chats = self.chat_infos();
-        let said_at = self.workspaces.said_at();
+        let said_at = self.workspaces().said_at();
         display::rank(
             &mut chats,
             &mut sessions,
-            |agent_id| self.seen.started_at(agent_id),
+            |agent_id| self.seen().started_at(agent_id),
             |agent_id| said_at.get(agent_id).copied(),
         );
         (chats, sessions)
@@ -155,9 +156,9 @@ impl Core {
 
     /// The workspace's agents as clients are sent them, each under its name and in its face.
     pub(crate) fn workspace_agents(&self) -> Vec<sikemux_view::workspace::WorkspaceAgent> {
-        let mut agents = self.workspaces.view().agents;
-        self.names.fill(&mut agents);
-        self.faces.fill(&mut agents);
+        let mut agents = self.workspaces().view().agents;
+        self.names().fill(&mut agents);
+        self.faces().fill(&mut agents);
         agents
     }
 
@@ -174,16 +175,16 @@ impl Core {
     /// in its face. How each project stands is left out: it costs the turns of every agent.
     pub(crate) fn workspace_view(&self) -> sikemux_view::workspace::Workspace {
         let preferences = self.preferences.get();
-        let mut workspace = self.workspaces.view();
+        let mut workspace = self.workspaces().view();
         workspace.palette = self.look.tokens_by_name();
         workspace.backdrop.look = Some(super::backdrop::look(
             &preferences,
             &self.look.palette().tokens,
         ));
         workspace.disabled_plugins = super::plugins::disabled_in(self.config.plugins);
-        self.names.fill(&mut workspace.agents);
-        self.faces.fill(&mut workspace.agents);
-        let accounts = self.workspaces.accounts();
+        self.names().fill(&mut workspace.agents);
+        self.faces().fill(&mut workspace.agents);
+        let accounts = self.workspaces().accounts();
         let preferred = preferences.last_agent_type.as_deref().and_then(|kind| {
             let ids = workspace
                 .launchers
@@ -202,15 +203,15 @@ impl Core {
             if fresh && preferred.is_some() {
                 project.launcher.clone_from(&preferred);
             }
-            (project.code_host, project.git) = self.git.shown(&folder);
-            project.cloning = self.clones.of(&project.id);
+            (project.code_host, project.git) = self.git().shown(&folder);
+            project.cloning = self.clones().of(&project.id);
         }
         workspace::sort_projects(
             &mut workspace.projects,
             preferences.project_sort,
-            &self.workspaces.last_active(),
+            &self.workspaces().last_active(),
         );
-        self.hosts.copies.fold(self, &mut workspace);
+        self.hosts().copies.fold(self, &mut workspace);
         workspace
     }
 
@@ -226,13 +227,13 @@ impl Core {
         }) || sessions
             .iter()
             .any(|session| session.group == Some(AgentGroup::Working));
-        let mut attentions = self.chats.attentions();
+        let mut attentions = self.chats().attentions();
         attentions.extend(inbox::foreign_attentions(self));
         attentions.sort_by(|a, b| (a.at, &a.id).cmp(&(b.at, &b.id)));
-        let recent = self.workspaces.recent(&chats, &self.triggers.held());
+        let recent = self.workspaces().recent(&chats, &self.triggers().held());
         let inbox = inbox::view(self, &chats, &sessions);
         let mut workers: HashMap<&String, Vec<&String>> = HashMap::new();
-        let leads = self.workspaces.agent_leads();
+        let leads = self.workspaces().agent_leads();
         for (worker, lead) in &leads {
             workers.entry(lead).or_default().push(worker);
         }
@@ -241,14 +242,14 @@ impl Core {
             .collect();
         let chiefs = super::chief::seated(self);
         for agent in &inbox.agents {
-            if let Some(chat) = self.chats.get(&agent.agent_id) {
+            if let Some(chat) = self.chats().get(&agent.agent_id) {
                 chat.feed.set_turn(agent.turn.clone());
                 let hears = (agent.project.as_ref())
                     .and_then(|project| chiefs.get(project))
                     .filter(|chief| **chief != agent.agent_id);
                 chat.feed.set_chief_hears(hears.cloned());
                 chat.feed.set_shown(
-                    self.pictures.turns_of(&agent.agent_id),
+                    self.pictures().turns_of(&agent.agent_id),
                     (workers.get(&agent.agent_id))
                         .map(|workers| super::pictures::results(self, workers, &turns))
                         .unwrap_or_default(),
@@ -271,11 +272,11 @@ impl Core {
             calls,
             pins: super::pins::shown(self),
             layout,
-            account: self.account.shown().map(Box::new),
-            face_style: Box::new(self.faces.style()),
+            account: self.account().shown().map(Box::new),
+            face_style: Box::new(self.faces().style()),
             load: self.shows_load().then(|| {
                 let load = host_stats::load(self);
-                *self.device_view.shown_load.locked() = Some(host_stats::shown_load(&load));
+                *self.device_view().shown_load.locked() = Some(host_stats::shown_load(&load));
                 load
             }),
             alerts: host_stats::alerts(self),
@@ -300,7 +301,7 @@ impl Core {
             .iter()
             .any(|client| match &client.peer {
                 access::Peer::Device { id } => !self
-                    .remote
+                    .remote()
                     .device_platform(id)
                     .is_some_and(|platform| matches!(platform.as_str(), "ios" | "android")),
                 peer => !matches!(peer, access::Peer::Share { .. }),
@@ -309,7 +310,7 @@ impl Core {
 
     /// Whether what the rows show of `load` moved since the view last went out.
     pub(crate) fn load_moved(&self, load: &sikemux_view::device::HostLoad) -> bool {
-        *self.device_view.shown_load.locked() != Some(host_stats::shown_load(load))
+        *self.device_view().shown_load.locked() != Some(host_stats::shown_load(load))
     }
 
     /// Sends every paired device what it shows of this host, when that changed since they were
@@ -320,7 +321,7 @@ impl Core {
             return false;
         }
         let fronted = layout::fronted(self);
-        let mut last = self.device_view.sent.locked();
+        let mut last = self.device_view().sent.locked();
         let mut frames: HashMap<Option<String>, Option<Arc<[u8]>>> = HashMap::new();
         let mut moving = false;
         for client in devices {
@@ -345,7 +346,7 @@ impl Core {
 
     /// A device that just connected starts from the whole view.
     pub(crate) fn send_device_view(&self, client: &ClientConn) {
-        let _last = self.device_view.sent.locked();
+        let _last = self.device_view().sent.locked();
         if let Some((frame, _)) = self.device_view_frame(client.peer.device_id().as_deref()) {
             client.send(frame.into());
         }
@@ -362,16 +363,16 @@ pub(super) async fn serve(core: Arc<Core>) {
     let mut built = tokio::time::Instant::now();
     loop {
         if core.view_watchers().is_empty() {
-            core.device_view.watched.notified().await;
+            core.device_view().watched.notified().await;
             ticker.reset();
         }
         let changed = if moving {
             tokio::select! {
                 _ = ticker.tick() => false,
-                () = core.device_view.stale.notified() => true,
+                () = core.device_view().stale.notified() => true,
             }
         } else {
-            core.device_view.stale.notified().await;
+            core.device_view().stale.notified().await;
             true
         };
         if changed {
@@ -381,7 +382,7 @@ pub(super) async fn serve(core: Arc<Core>) {
             );
             tokio::select! {
                 () = gathered => {}
-                () = core.device_view.due.notified() => {}
+                () = core.device_view().due.notified() => {}
             }
         }
         core.show_phones();
@@ -410,8 +411,8 @@ fn stand_projects(
     calls: &[PersonCall],
 ) {
     let now = sikemux_process::clock::epoch_ms();
-    let places = core.workspaces.places();
-    let chiefs = core.workspaces.chiefs();
+    let places = core.workspaces().places();
+    let chiefs = core.workspaces().chiefs();
     let snoozed = |agent_id: &str| {
         !chiefs.contains(agent_id)
             && (places.get(agent_id))
@@ -419,7 +420,7 @@ fn stand_projects(
                 .is_some()
     };
     let mut phases: HashMap<String, Vec<TurnPhase>> = HashMap::new();
-    for (agent_id, project) in core.workspaces.agent_projects() {
+    for (agent_id, project) in core.workspaces().agent_projects() {
         if let Some(turn) = turns.get(&agent_id) {
             let phase = match turn.state {
                 TurnPhase::NeedsYou if snoozed(&agent_id) => continue,

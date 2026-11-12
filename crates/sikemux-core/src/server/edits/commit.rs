@@ -3,6 +3,7 @@
 //! moves only if no one moved it meanwhile. The checkout's files stay as they
 //! are, and the shared index takes in only what was committed.
 
+use crate::server::parts::Parts;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Component, Path, PathBuf};
@@ -289,13 +290,13 @@ fn checkout_for(
     named: &[String],
 ) -> Result<(PathBuf, Vec<String>), String> {
     let own = core
-        .workspaces
+        .workspaces()
         .agent(agent_id)
         .map_or_else(|| project.to_owned(), |agent| agent.cwd);
     let mut edited: Option<HashSet<String>> = None;
     let mut changed = || -> HashSet<String> {
         edited
-            .get_or_insert_with(|| core.edits.paths_of(core, agent_id))
+            .get_or_insert_with(|| core.edits().paths_of(core, agent_id))
             .clone()
     };
     let named: Vec<String> = named
@@ -522,7 +523,7 @@ pub(crate) fn commit(
         let signer = me
             .map(|me| agent(core, me))
             .or_else(|| known(core, dir, agent_id));
-        let key = core.remote.host_key();
+        let key = core.remote().host_key();
         let attributed = attributed(dir);
         let signed = |commit: &Commit| {
             if !attributed {

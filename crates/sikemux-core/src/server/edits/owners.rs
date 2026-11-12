@@ -4,6 +4,7 @@
 //! those of a file something the record does not know of changed, are left
 //! without an owner.
 
+use crate::server::parts::Parts;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -326,9 +327,9 @@ fn record_over(core: &Core, dir: &Path, staged: bool, diff: &Diff) -> Owners {
         .collect();
     let mut owners = Owners::default();
     if !paths.is_empty() {
-        let project = core.workspaces.project_of(dir);
+        let project = core.workspaces().project_of(dir);
         let wanted = paths.keys().cloned().collect();
-        let edits = core.edits.touching(&project, &wanted);
+        let edits = core.edits().touching(&project, &wanted);
         let mut agents = Agents::default();
         let mut by_path: HashMap<&str, Vec<(usize, &Edit)>> = HashMap::new();
         for edit in &edits {
@@ -486,18 +487,18 @@ fn notes(changes: &[(u64, u64)], lines: &[Run]) -> Vec<Note> {
 
 /// `agent_id` as its latest edit in `dir`'s project names it.
 pub(super) fn latest(core: &Core, dir: &Path, agent_id: &str) -> Option<Author> {
-    let project = core.workspaces.project_of(dir);
-    core.edits
+    let project = core.workspaces().project_of(dir);
+    core.edits()
         .matching(&project, |edit| edit.agent_id == agent_id)
         .pop()
-        .map(|edit| author(core, &edit, &core.names.open_with(core.open_agents())))
+        .map(|edit| author(core, &edit, &core.names().open_with(core.open_agents())))
 }
 
 /// What an agent no longer open, whose name is gone, is called.
 const GONE: &str = "an agent no longer open";
 
 fn author(core: &Core, edit: &Edit, open: &HashSet<String>) -> Author {
-    let name = |agent_id: &str| core.names.name(agent_id);
+    let name = |agent_id: &str| core.names().name(agent_id);
     let name = if edit.shared.is_empty() {
         name(&edit.agent_id)
             .or_else(|| edit.name.clone())
@@ -522,7 +523,7 @@ fn author(core: &Core, edit: &Edit, open: &HashSet<String>) -> Author {
         model: edit.model.clone(),
         feed: edit.feed.clone(),
         shared: edit.shared.clone(),
-        open: core.names.still_open(&edit.agent_id, open),
+        open: core.names().still_open(&edit.agent_id, open),
     }
 }
 
@@ -565,7 +566,7 @@ impl<'a> Agents<'a> {
         files.retain(|file| !file.lines.is_empty() || !file.removed.is_empty());
         let mut numbers: Vec<Option<usize>> = vec![None; self.latest.len()];
         let mut authors = Vec::new();
-        let open = core.names.open_with(core.open_agents());
+        let open = core.names().open_with(core.open_agents());
         files.sort_unstable_by(|a, b| a.path.cmp(&b.path));
         let mut renumber = |agent: &mut usize| {
             *agent = *numbers[*agent].get_or_insert_with(|| {
@@ -917,12 +918,12 @@ fn paths_as_written(dir: &Path) -> Git<'static> {
 /// The authors that stand for `agent_id`: the agent, an earlier run of its
 /// CLI's session, or agents at work together when it was one of them.
 pub(super) fn standing_for(owners: &Owners, core: &Core, agent_id: &str) -> HashSet<usize> {
-    let session = core.names.last_session(agent_id);
+    let session = core.names().last_session(agent_id);
     let is_it = |id: &str| {
         id == agent_id
             || session
                 .as_deref()
-                .is_some_and(|session| core.names.last_session(id).as_deref() == Some(session))
+                .is_some_and(|session| core.names().last_session(id).as_deref() == Some(session))
     };
     owners
         .authors
@@ -951,8 +952,8 @@ mod tests {
                 resume_id: None,
             };
             let kept = ["closed", "first", "again"].map(str::to_owned);
-            core.names.give(starting, HashSet::from(kept));
-            core.names.note_session(agent_id, session);
+            core.names().give(starting, HashSet::from(kept));
+            core.names().note_session(agent_id, session);
         };
         give("closed", "gone");
         give("first", "taken-up");
@@ -972,7 +973,7 @@ mod tests {
             total: None,
         };
         let open = HashSet::from(["again".to_owned()]);
-        assert!(core.names.get("closed").is_some());
+        assert!(core.names().get("closed").is_some());
         assert!(!author(&core, &edit("closed"), &open).open);
         assert!(author(&core, &edit("again"), &open).open);
         assert!(author(&core, &edit("first"), &open).open);

@@ -1,5 +1,6 @@
 //! The computer this core runs on, as a paired device shows it.
 
+use crate::server::parts::Parts;
 use std::sync::OnceLock;
 
 use crate::accounts::protocol::Platform;
@@ -43,7 +44,7 @@ pub(crate) fn shown_name(core: &super::Core) -> String {
     let named = (ACCOUNT_NAME.lock())
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .clone()
-        .filter(|_| core.remote.owner().is_some());
+        .filter(|_| core.remote().owner().is_some());
     named.unwrap_or_else(|| info().name)
 }
 

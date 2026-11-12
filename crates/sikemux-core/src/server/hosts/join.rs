@@ -4,6 +4,7 @@
 //! while they asked to approve each new host. From then on both keep the other
 //! as linked.
 
+use crate::server::parts::Parts;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -47,7 +48,7 @@ pub(crate) struct LinkParams {
 /// devices and links.
 pub(crate) async fn link_host(core: &Arc<Core>, params: LinkParams) -> CoreResult<RemotePairing> {
     let name = clean(&params.name, NAME_LIMIT);
-    core.remote.undecline_link(&params.ticket.host);
+    core.remote().undecline_link(&params.ticket.host);
     if let Linking::Declined = link_with(core, params).await? {
         return Err(format!("{name} did not allow the link").into());
     }
@@ -75,7 +76,7 @@ struct Hello {
 
 pub(super) async fn link_with(core: &Arc<Core>, params: LinkParams) -> CoreResult<Linking> {
     let own = core
-        .remote
+        .remote()
         .core_id()
         .ok_or_else(|| CoreError::from("this host's key has not loaded"))?;
     let ticket = params.ticket;
@@ -126,7 +127,7 @@ pub(super) async fn link_with(core: &Arc<Core>, params: LinkParams) -> CoreResul
         ),
         platform => platform,
     };
-    core.remote.add_link(StoredLink {
+    core.remote().add_link(StoredLink {
         id: ticket.host.clone(),
         name: if name.is_empty() {
             clean(reply["name"].as_str().unwrap_or("Host"), NAME_LIMIT)
@@ -175,7 +176,7 @@ pub(super) async fn answer(core: Arc<Core>, connection: Connection) {
         finish(incoming, &connection, refused).await;
         return;
     };
-    if let Err(refusal) = core.remote.check_join(&hello.ticket, &host) {
+    if let Err(refusal) = core.remote().check_join(&hello.ticket, &host) {
         eprintln!(
             "sikemux core: refused a link from {}: {}",
             host.get(..8).unwrap_or(&host),
@@ -188,8 +189,8 @@ pub(super) async fn answer(core: Arc<Core>, connection: Connection) {
     let name = clean(&hello.name, NAME_LIMIT);
     let platform = clean(&hello.platform, PLATFORM_LIMIT);
     let addresses = addresses_of(&hello.addresses);
-    if core.remote.requires_approval_of(&host) {
-        core.remote.forget_device_requests(&host);
+    if core.remote().requires_approval_of(&host) {
+        core.remote().forget_device_requests(&host);
         let request = PendingDevice {
             id: uuid::Uuid::new_v4().to_string(),
             device_id: host.clone(),
@@ -198,20 +199,21 @@ pub(super) async fn answer(core: Arc<Core>, connection: Connection) {
             from_account: true,
             expires_at: epoch_ms() + APPROVAL_TIMEOUT.as_millis() as u64,
         };
-        let answered = core.remote.ask(
+        let answered = core.remote().ask(
             request.clone(),
             hello.ticket.account.clone(),
             Some(addresses),
             None,
         );
         remote::announce(&core);
-        core.notify.send(Signal::Pairing(request.clone()));
+        core.notify().send(Signal::Pairing(request.clone()));
         // The person may answer after the other host gave up waiting; the
         // link is kept, and either host uses it the next time.
         let answer = tokio::time::timeout(APPROVAL_TIMEOUT, answered).await;
-        core.remote.forget_pending(&request.id);
+        core.remote().forget_pending(&request.id);
         remote::announce(&core);
-        core.notify.send(Signal::PairingSettled { id: request.id });
+        core.notify()
+            .send(Signal::PairingSettled { id: request.id });
         match answer {
             Ok(Ok(Some(_))) => {}
             Ok(Ok(None)) => {
@@ -225,7 +227,7 @@ pub(super) async fn answer(core: Arc<Core>, connection: Connection) {
             }
         }
     } else {
-        let linked = core.remote.add_link(StoredLink {
+        let linked = core.remote().add_link(StoredLink {
             id: host.clone(),
             name: if name.is_empty() { "Host".into() } else { name },
             platform,
@@ -245,5 +247,5 @@ pub(super) async fn answer(core: Arc<Core>, connection: Connection) {
     incoming.reply(Ok(reply)).await;
     adopt(&core, &host, connection);
     // The account's name for the new host replaces the one it gave itself.
-    core.hosts.relink.now();
+    core.hosts().relink.now();
 }

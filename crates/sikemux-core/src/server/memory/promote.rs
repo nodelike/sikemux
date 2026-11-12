@@ -3,6 +3,7 @@
 //! versioned with it. The core then forgets it, so it lives in one place. The
 //! file is left uncommitted for the person to review.
 
+use crate::server::parts::Parts;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -74,11 +75,11 @@ pub(crate) async fn promote(
     let id = params.id;
     let core = core.clone();
     run(move || {
-        let _one_at_a_time = core.memory.promotes.locked();
-        let folder = core.memory.state.locked().folder_of(&project, id)?;
+        let _one_at_a_time = core.memory().promotes.locked();
+        let folder = core.memory().state.locked().folder_of(&project, id)?;
         let path = agents_file(&folder);
         let (text, file) = {
-            let mut state = core.memory.state.locked();
+            let mut state = core.memory().state.locked();
             let rule = (state.held.get(&folder))
                 .and_then(|held| held.rules.iter().find(|rule| rule.id == id))
                 .ok_or_else(|| format!("#{id} is not a rule, and only rules go into {FILE}"))?;
@@ -87,7 +88,7 @@ pub(crate) async fn promote(
             }
             let text = rule.text.clone();
             state.promoting = Some(id);
-            (text, core.memory.save(&mut state, &folder))
+            (text, core.memory().save(&mut state, &folder))
         };
         let gone_on_disk = match file {
             Some(file) => {
@@ -101,14 +102,14 @@ pub(crate) async fn promote(
             Ok(path) => write(path, &text),
             Err(stays) => Err(refusal(id, &folder, *stays)),
         });
-        let mut state = core.memory.state.locked();
+        let mut state = core.memory().state.locked();
         state.promoting = None;
         if written.is_ok() {
             if let Some(held) = state.held.get_mut(&folder) {
                 held.rules.retain(|rule| rule.id != id);
             }
         }
-        core.memory.save(&mut state, &folder);
+        core.memory().save(&mut state, &folder);
         drop(state);
         written?;
         tell_clients(&core, false);

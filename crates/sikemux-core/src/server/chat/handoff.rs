@@ -3,6 +3,7 @@
 //! person, chosen to fit a budget rather than written up by an agent: the first request, the
 //! latest exchanges word for word, and how the commands run went. Every app shows it before then.
 
+use crate::server::parts::Parts;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -132,12 +133,12 @@ fn cut_end(text: &str, most: usize) -> String {
 /// What the chat said, from the feed the core holds of it, or for a chat asleep without one, from
 /// its agent's saved session.
 fn said(core: &Core, agent: &WorkspaceAgent) -> Option<HandedOver> {
-    if let Ok(feed) = core.chats.readable(&agent.id) {
+    if let Ok(feed) = core.chats().readable(&agent.id) {
         return Some(feed.handed_over());
     }
     let session = agent.resume_id.as_deref()?;
     let kind = AgentKind::from_name(&agent.provider)?;
-    let book = core.workspaces.accounts().unwrap_or_default();
+    let book = core.workspaces().accounts().unwrap_or_default();
     let homes = (book.with_built_ins().profiles.into_iter())
         .filter(|profile| profile.provider == agent.provider)
         .filter_map(|profile| profile.config_path.map(PathBuf::from));
@@ -269,8 +270,8 @@ fn build(said: HandedOver, from: &str, source: &str, forked: bool) -> Option<Pen
 
 /// Tells the chat's apps what its next message hands over, or that nothing waits to be.
 fn tell(core: &Core, agent_id: &str) {
-    if let Some(feed) = core.chats.heard(agent_id) {
-        feed.set_handoff(core.chats.handoffs.shown(agent_id));
+    if let Some(feed) = core.chats().heard(agent_id) {
+        feed.set_handoff(core.chats().handoffs.shown(agent_id));
     }
 }
 
@@ -302,8 +303,8 @@ pub struct ChatHandedOff {
 /// Hands the chat to another agent, or forks it, and has the chat that carries on wait for the
 /// person with the handoff shown.
 pub(crate) async fn hand_off(core: &Arc<Core>, params: HandOffParams) -> CoreResult<ChatHandedOff> {
-    let source = core.workspaces.agent_or_gone(&params.agent_id)?;
-    if !params.fork && core.chats.at_work(&params.agent_id) {
+    let source = core.workspaces().agent_or_gone(&params.agent_id)?;
+    if !params.fork && core.chats().at_work(&params.agent_id) {
         return Err("Stop the chat's turn before handing it to another agent".into());
     }
     let said = said(core, &source)
@@ -327,7 +328,7 @@ pub(crate) async fn hand_off(core: &Arc<Core>, params: HandOffParams) -> CoreRes
             terminal: false,
         };
         let (agent_id, _) = crate::server::launching::start_new(core, None, choice).await?;
-        core.chats.handoffs.set(&agent_id, pending);
+        core.chats().handoffs.set(&agent_id, pending);
         tell(core, &agent_id);
         return Ok(ChatHandedOff {
             agent_id,
@@ -335,11 +336,11 @@ pub(crate) async fn hand_off(core: &Arc<Core>, params: HandOffParams) -> CoreRes
         });
     }
     let agent_id = params.agent_id;
-    core.chats.resets.cancel(&agent_id);
-    if let Some(chat) = core.chats.get(&agent_id) {
-        core.workspaces.note_stopping(&chat);
-        if core.chats.stop(&agent_id) {
-            core.chats.rest(&chat);
+    core.chats().resets.cancel(&agent_id);
+    if let Some(chat) = core.chats().get(&agent_id) {
+        core.workspaces().note_stopping(&chat);
+        if core.chats().stop(&agent_id) {
+            core.chats().rest(&chat);
         }
     }
     let patch = AgentPatch {
@@ -358,7 +359,7 @@ pub(crate) async fn hand_off(core: &Arc<Core>, params: HandOffParams) -> CoreRes
             patch,
         },
     )?;
-    core.chats.handoffs.set(&agent_id, pending);
+    core.chats().handoffs.set(&agent_id, pending);
     crate::server::launching::start_saved(core, &agent_id, true).await?;
     tell(core, &agent_id);
     Ok(ChatHandedOff {
@@ -375,7 +376,7 @@ pub struct DropHandoffParams {
 
 /// The chat's next message goes without the handoff waiting for it.
 pub(crate) fn drop_handoff(core: &Core, params: DropHandoffParams) -> CoreResult<()> {
-    if core.chats.handoffs.forget(&params.agent_id) {
+    if core.chats().handoffs.forget(&params.agent_id) {
         tell(core, &params.agent_id);
     }
     Ok(())
@@ -387,7 +388,7 @@ pub(crate) fn offer_another_agent(chat: &super::Chat, launch: &sikemux_wire::pro
     let Some(core) = chat.core.upgrade() else {
         return;
     };
-    let book = core.workspaces.accounts().unwrap_or_default();
+    let book = core.workspaces().accounts().unwrap_or_default();
     if !book.smart {
         return;
     }

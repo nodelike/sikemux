@@ -4,6 +4,7 @@
 //! findings sit on the board where anyone, Auto too, can take them up. That card, its findings
 //! and the earlier findings done since make the project's health digest.
 
+use crate::server::parts::Parts;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -85,13 +86,13 @@ pub(crate) async fn person_audit_every(
     let core = core.clone();
     blocking(move || {
         let project = project_at(&core, &params.project)?;
-        let mut state = core.boards.state.locked();
+        let mut state = core.boards().state.locked();
         let board = (state.boards.entry(project.clone())).or_insert_with(|| Board::empty(&project));
         let now = epoch_ms();
         board.audits.next_at =
             (params.every.as_ref()).and_then(|every| next_after(every, now, now));
         board.audits.every = params.every;
-        core.boards.save(&mut state, &project);
+        core.boards().save(&mut state, &project);
         drop(state);
         Ok(project_view(&core, &project))
     })
@@ -118,7 +119,7 @@ pub(super) fn due(core: &Arc<Core>) -> Option<u64> {
     let mut next = None;
     let mut starting = Vec::new();
     {
-        let mut state = core.boards.state.locked();
+        let mut state = core.boards().state.locked();
         let projects: Vec<String> = state.boards.keys().cloned().collect();
         for project in projects {
             let Some(board) = state.boards.get_mut(&project) else {
@@ -136,7 +137,7 @@ pub(super) fn due(core: &Arc<Core>) -> Option<u64> {
             if !latest_running(board) {
                 starting.push(project.clone());
             }
-            core.boards.save(&mut state, &project);
+            core.boards().save(&mut state, &project);
         }
     }
     for project in starting {
@@ -151,7 +152,7 @@ pub(super) fn due(core: &Arc<Core>) -> Option<u64> {
 }
 
 fn running(core: &Core, project: &str) -> bool {
-    let state = core.boards.state.locked();
+    let state = core.boards().state.locked();
     state.boards.get(project).is_some_and(latest_running)
 }
 
@@ -170,7 +171,7 @@ async fn start(core: &Arc<Core>, project: &str) -> Result<(), String> {
         let (core, agent, project) = (core.clone(), agent.clone(), project.to_owned());
         blocking(move || {
             let since = {
-                let state = core.boards.state.locked();
+                let state = core.boards().state.locked();
                 (state.boards.get(&project))
                     .and_then(|board| board.audits.runs.last())
                     .map(|run| (run.head.clone(), run.at))
@@ -189,21 +190,21 @@ async fn start(core: &Arc<Core>, project: &str) -> Result<(), String> {
                 None => 0,
             };
             let settings = core
-                .boards
+                .boards()
                 .state
                 .locked()
                 .boards
                 .get(&project)
                 .map(|board| board.settings.clone());
             let settings = settings.unwrap_or_default();
-            let (mut launch, launcher) = core.workspaces.board_launch(
+            let (mut launch, launcher) = core.workspaces().board_launch(
                 settings.launcher.as_deref(),
                 folder,
                 settings.provider.as_deref(),
                 settings.model.clone(),
                 "in the board's Auto settings",
             )?;
-            core.names.give(
+            core.names().give(
                 Starting {
                     agent_id: &agent,
                     project: project.clone(),
@@ -214,7 +215,7 @@ async fn start(core: &Arc<Core>, project: &str) -> Result<(), String> {
             );
             launch.agent_id = agent.clone();
             let chat = chat::begin(&core, launch, None, Some(launcher), false, false)
-                .inspect_err(|_| core.names.forget(&agent))?;
+                .inspect_err(|_| core.names().forget(&agent))?;
             let adding = Adding {
                 title: TITLE.to_owned(),
                 ..Adding::default()
@@ -227,7 +228,7 @@ async fn start(core: &Arc<Core>, project: &str) -> Result<(), String> {
                 }
             };
             {
-                let mut state = core.boards.state.locked();
+                let mut state = core.boards().state.locked();
                 if let Some(board) = state.boards.get_mut(&project) {
                     board.audits.runs.push(Run {
                         card,
@@ -237,7 +238,7 @@ async fn start(core: &Arc<Core>, project: &str) -> Result<(), String> {
                     });
                     let over = board.audits.runs.len().saturating_sub(KEEP);
                     board.audits.runs.drain(..over);
-                    core.boards.save(&mut state, &project);
+                    core.boards().save(&mut state, &project);
                 }
             }
             core.changed(What::Event(&Event::ChatBegun { chat: chat.info() }));

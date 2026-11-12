@@ -11,6 +11,7 @@ mod link;
 mod seal;
 
 use crate::server::changed::What;
+use crate::server::parts::Parts;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -178,14 +179,14 @@ fn save(core: &Core, inner: &Inner) {
         ..stored.clone()
     }));
     shares.sort_by(|a, b| a.id.cmp(&b.id));
-    if let Err(error) = core.remote.keep_shares(shares) {
+    if let Err(error) = core.remote().keep_shares(shares) {
         eprintln!("sikemux core: could not save the shared chats: {error}");
     }
 }
 
 /// Has a link waiting out a failure connect again now, if one runs.
 pub(crate) fn network_back(core: &Core) {
-    if let Some(link) = &core.shares.inner.locked().link {
+    if let Some(link) = &core.shares().inner.locked().link {
         let _ = link.send(ToLink::Retry);
     }
 }
@@ -200,7 +201,7 @@ fn tell(core: &Arc<Core>, inner: &mut Inner, message: ToLink) {
         },
         None => message,
     };
-    let Some(base) = core.remote.signed_in_api() else {
+    let Some(base) = core.remote().signed_in_api() else {
         return;
     };
     let (sender, receiver) = mpsc::unbounded_channel();
@@ -229,7 +230,7 @@ fn begin(core: &Arc<Core>, inner: &mut Inner, stored: StoredShare) -> CoreResult
             let Some(core) = weak.upgrade() else {
                 return;
             };
-            let mut inner = core.shares.inner.locked();
+            let mut inner = core.shares().inner.locked();
             tell(&core, &mut inner, ToLink::Heard(id.clone(), frame, taken));
         }
     });
@@ -262,13 +263,13 @@ pub(crate) fn share_chat(
     title: Option<String>,
 ) -> CoreResult<ShareView> {
     let title = title.as_deref().and_then(chat::feed::title);
-    if core.remote.signed_in_api().is_none() {
+    if core.remote().signed_in_api().is_none() {
         return Err("Sign in to Sikemux to share chats.".into());
     }
-    if core.chats.get(agent_id).is_none() {
+    if core.chats().get(agent_id).is_none() {
         return Err("This chat is not running, so there is nothing to share yet.".into());
     }
-    let mut inner = core.shares.inner.locked();
+    let mut inner = core.shares().inner.locked();
     if let Some(running) = inner
         .running
         .values_mut()
@@ -308,7 +309,7 @@ pub(crate) fn share_chat(
 
 /// Stops a share for good. Its viewers are told it was stopped.
 pub(crate) fn stop(core: &Arc<Core>, id: &str) -> CoreResult<()> {
-    let mut inner = core.shares.inner.locked();
+    let mut inner = core.shares().inner.locked();
     let running = inner
         .running
         .remove(id)
@@ -320,7 +321,7 @@ pub(crate) fn stop(core: &Arc<Core>, id: &str) -> CoreResult<()> {
         .values()
         .any(|other| &other.stored.agent_id == agent_id);
     if !still_shared {
-        if let Some(feed) = core.chats.heard(agent_id) {
+        if let Some(feed) = core.chats().heard(agent_id) {
             guests_gone(core, agent_id, feed.clear_guests());
         }
     }
@@ -336,7 +337,7 @@ pub(crate) fn stop(core: &Arc<Core>, id: &str) -> CoreResult<()> {
 }
 
 pub(crate) fn list(core: &Core) -> Vec<ShareView> {
-    let inner = core.shares.inner.locked();
+    let inner = core.shares().inner.locked();
     let mut views: Vec<ShareView> = inner.running.values().map(view_of).collect();
     views.sort_by(|a, b| a.id.cmp(&b.id));
     views
@@ -345,8 +346,8 @@ pub(crate) fn list(core: &Core) -> Vec<ShareView> {
 /// Takes up the shares a core before this one ran.
 pub(crate) fn restore(core: &Arc<Core>) {
     let now = epoch_ms();
-    let mut inner = core.shares.inner.locked();
-    for stored in core.remote.shares() {
+    let mut inner = core.shares().inner.locked();
+    for stored in core.remote().shares() {
         if stored.expires_at <= now {
             continue;
         }
@@ -418,7 +419,7 @@ fn snapshot(
         ChatAttachment::Resumed { changes, .. } => strip_heads(changes),
         ChatAttachment::Missing => {}
     }
-    let info = core.chats.get(agent_id).map(|chat| chat.info());
+    let info = core.chats().get(agent_id).map(|chat| chat.info());
     ShareFrame::Snapshot {
         chat: SharedChat {
             agent_id: agent_id.to_owned(),
@@ -454,7 +455,7 @@ fn published<'a>(core: &Core, id: &str, frame: &'a [u8]) -> Option<(Cow<'a, [u8]
             response: Response::ChatAttached { attachment },
             ..
         } => {
-            let mut inner = core.shares.inner.locked();
+            let mut inner = core.shares().inner.locked();
             let running = inner.running.get_mut(id)?;
             running.feed = match &attachment {
                 ChatAttachment::Live { mark, .. } | ChatAttachment::Resumed { mark, .. } => {
@@ -478,23 +479,23 @@ fn published<'a>(core: &Core, id: &str, frame: &'a [u8]) -> Option<(Cow<'a, [u8]
 /// Asks the chat for everything a viewer starting now needs, which comes back
 /// through the share's client as a snapshot.
 fn take_snapshot(core: &Arc<Core>, id: &str) {
-    let Some((client, agent_id)) = core
-        .shares
-        .inner
-        .locked()
-        .running
-        .get_mut(id)
-        .map(|running| {
-            running.chat = core
-                .chats
-                .get(&running.stored.agent_id)
-                .map(|chat| Arc::as_ptr(&chat) as usize);
-            (running.client.clone(), running.stored.agent_id.clone())
-        })
+    let Some((client, agent_id)) =
+        core.shares()
+            .inner
+            .locked()
+            .running
+            .get_mut(id)
+            .map(|running| {
+                running.chat = core
+                    .chats()
+                    .get(&running.stored.agent_id)
+                    .map(|chat| Arc::as_ptr(&chat) as usize);
+                (running.client.clone(), running.stored.agent_id.clone())
+            })
     else {
         return;
     };
-    let request_id = core.shares.next_request.fetch_add(1, Ordering::Relaxed);
+    let request_id = core.shares().next_request.fetch_add(1, Ordering::Relaxed);
     let core = core.clone();
     tokio::spawn(async move {
         chat::attach(&core, &client, request_id, &agent_id, None).await;
@@ -505,7 +506,7 @@ fn take_snapshot(core: &Arc<Core>, id: &str) {
 /// question it cannot read.
 async fn answer(core: Arc<Core>, id: String, viewer: String, sealed: String) -> Option<ToLink> {
     let (seal, agent_id) = {
-        let inner = core.shares.inner.locked();
+        let inner = core.shares().inner.locked();
         let running = inner.running.get(&id)?;
         (running.seal.clone(), running.stored.agent_id.clone())
     };
@@ -581,13 +582,13 @@ fn guest_wrote(
         ));
     }
     let feed = core
-        .chats
+        .chats()
         .heard(agent_id)
         .ok_or("this chat is not running on its host right now")?;
     let guest = feed
         .add_guest(name, text.to_owned())
         .ok_or("too many messages wait for the sharer already")?;
-    core.notify.send(Signal::Guest {
+    core.notify().send(Signal::Guest {
         agent_id: agent_id.to_owned(),
         guest,
     });
@@ -598,7 +599,7 @@ fn guest_wrote(
 /// The person dealt with these viewers' messages, so what told them of each goes.
 fn guests_gone(core: &Core, agent_id: &str, gone: impl IntoIterator<Item = GuestMessage>) {
     for guest in gone {
-        core.notify.send(Signal::GuestCleared {
+        core.notify().send(Signal::GuestCleared {
             agent_id: agent_id.to_owned(),
             id: guest.id,
         });
@@ -616,7 +617,7 @@ pub struct GuestMessageParams {
 /// Sends a viewer's waiting message to the agent as the person's own.
 pub(crate) async fn send_guest(core: &Arc<Core>, params: GuestMessageParams) -> CoreResult<()> {
     let guest = core
-        .chats
+        .chats()
         .heard(&params.agent_id)
         .and_then(|feed| feed.take_guest(&params.id))
         .ok_or("that message is no longer waiting")?;
@@ -631,7 +632,7 @@ pub(crate) async fn send_guest(core: &Arc<Core>, params: GuestMessageParams) -> 
 
 pub(crate) fn dismiss_guest(core: &Core, params: GuestMessageParams) {
     let gone = core
-        .chats
+        .chats()
         .heard(&params.agent_id)
         .and_then(|feed| feed.take_guest(&params.id));
     guests_gone(core, &params.agent_id, gone);

@@ -4,6 +4,7 @@
 //! notification, kept off a phone with Sikemux in front; the window decides for
 //! itself whether the person is looking.
 
+use crate::server::parts::Parts;
 use std::collections::btree_map::Entry;
 use std::collections::BTreeMap;
 use std::time::Duration;
@@ -95,7 +96,7 @@ impl Notifier {
 /// Tells of what was gathered, as one notification, unless the person turned
 /// these off.
 pub(super) fn tell(core: &Core, now: u64) {
-    let gathered = std::mem::take(&mut core.notify.state.locked().goals);
+    let gathered = std::mem::take(&mut core.notify().state.locked().goals);
     if !core.preferences.get().goal_notifications {
         return;
     }

@@ -2,6 +2,7 @@
 //! board moves its oldest ones there at once, so a large reservoir keeps taking cards without
 //! the person clearing any.
 
+use crate::server::parts::Parts;
 use std::io::Write;
 
 use super::*;
@@ -56,7 +57,7 @@ pub(super) fn finished_long_ago(
         .partition(|card| card.updated_at + KEPT_MS <= now);
     let next = young.iter().map(|card| card.updated_at + KEPT_MS).min();
     let going = old.iter().map(|card| card.id).collect();
-    move_off(&core.boards, state, project, going);
+    move_off(core.boards(), state, project, going);
     next
 }
 

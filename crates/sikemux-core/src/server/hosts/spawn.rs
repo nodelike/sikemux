@@ -4,6 +4,7 @@
 //! in its own checkout. Each time the worker's turn ends, its new commits come
 //! back before its report.
 
+use crate::server::parts::Parts;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -102,12 +103,15 @@ pub(crate) async fn spawn(
     let packed = match packed {
         Ok(packed) => packed,
         Err(error) => {
-            core.names.forget(&agent_id);
+            core.names().forget(&agent_id);
             return Err(error.to_string());
         }
     };
-    let lead_name = core.names.name(&lead_id).unwrap_or_else(|| lead_id.clone());
-    let depth = core.names.depth(&lead_id);
+    let lead_name = core
+        .names()
+        .name(&lead_id)
+        .unwrap_or_else(|| lead_id.clone());
+    let depth = core.names().depth(&lead_id);
     let Handed {
         name,
         answer,
@@ -212,7 +216,7 @@ pub(crate) async fn hand_over(
         wait,
     } = handing;
     let id = super::call_id();
-    core.hosts.team.add(Foreign {
+    core.hosts().team.add(Foreign {
         agent_id: agent_id.clone(),
         host: link.id.clone(),
         name: given.clone(),
@@ -317,9 +321,9 @@ pub(crate) async fn hand_over(
 fn started_as(core: &Core, agent_id: &str, given: &str, answer: &Value) -> String {
     let name = answer["name"].as_str().unwrap_or(given).to_owned();
     if name != given {
-        core.names.set_name(agent_id, &name);
+        core.names().set_name(agent_id, &name);
     }
-    core.hosts.team.update(agent_id, |worker| {
+    core.hosts().team.update(agent_id, |worker| {
         worker.name = name.clone();
         worker.pending = None;
     });
@@ -328,11 +332,11 @@ fn started_as(core: &Core, agent_id: &str, given: &str, answer: &Value) -> Strin
 }
 
 fn not_started(core: &Core, agent_id: &str) {
-    if let Some(worker) = core.hosts.team.remove(agent_id) {
-        core.harness
+    if let Some(worker) = core.hosts().team.remove(agent_id) {
+        core.harness()
             .note_agent(&worker.project, Happened::Gone.kind(), agent_id);
     }
-    core.names.forget(agent_id);
+    core.names().forget(agent_id);
     pin(core);
     super::changed(core);
 }
@@ -345,7 +349,7 @@ struct Settling<'a> {
 
 impl<'a> Settling<'a> {
     fn claim(core: &'a Core, agent_id: &str) -> Option<Self> {
-        let mut state = core.hosts.state.locked();
+        let mut state = core.hosts().state.locked();
         state.settling.insert(agent_id.to_owned()).then(|| Self {
             core,
             agent_id: agent_id.to_owned(),
@@ -356,7 +360,7 @@ impl<'a> Settling<'a> {
 impl Drop for Settling<'_> {
     fn drop(&mut self) {
         self.core
-            .hosts
+            .hosts()
             .state
             .locked()
             .settling
@@ -366,7 +370,7 @@ impl Drop for Settling<'_> {
 
 /// The workers being started on `host` whose start is not known yet find out how it went.
 pub(crate) fn settle_pending_on(core: &Arc<Core>, host: &str) {
-    for worker in core.hosts.team.on(host) {
+    for worker in core.hosts().team.on(host) {
         if worker.pending.is_none() {
             continue;
         }
@@ -385,7 +389,7 @@ async fn settle_pending(core: &Arc<Core>, host: &str, agent_id: &str, first: Dur
     };
     tokio::time::sleep(first).await;
     loop {
-        let Some(worker) = core.hosts.team.get(agent_id) else {
+        let Some(worker) = core.hosts().team.get(agent_id) else {
             return;
         };
         let (Some(id), Some(lead)) = (worker.pending.clone(), worker.parent.clone()) else {
@@ -411,7 +415,7 @@ async fn settle_pending(core: &Arc<Core>, host: &str, agent_id: &str, first: Dur
                 format!("{} may have started on {place}, but {place} runs an older Sikemux that cannot say, so Sikemux stopped it there. Start it again if you still need it.", worker.name)
             }
             Ok(Stands::Running) | Err(_) => {
-                if core.hosts.connected(host).is_none() {
+                if core.hosts().connected(host).is_none() {
                     return;
                 }
                 tokio::time::sleep(PENDING_AGAIN).await;
@@ -470,7 +474,7 @@ pub(super) async fn start_here(
     if params.cli.trim().is_empty() {
         return Err("the worker needs a cli".into());
     }
-    if core.names.get(&params.agent_id).is_some() {
+    if core.names().get(&params.agent_id).is_some() {
         return Err("that agent already runs here".into());
     }
     let host_name = name_of(core, host);
@@ -504,10 +508,10 @@ pub(super) async fn start_here(
         Checked::Ready(tree, cwd) => (tree, cwd),
     };
     tree.auto = params.auto;
-    let project = core.workspaces.project_of(&cwd);
+    let project = core.workspaces().project_of(&cwd);
     let lead = &params.lead;
-    if core.hosts.team.get(&lead.agent_id).is_none() {
-        core.hosts.team.add(Foreign {
+    if core.hosts().team.get(&lead.agent_id).is_none() {
+        core.hosts().team.add(Foreign {
             agent_id: lead.agent_id.clone(),
             host: host.to_owned(),
             name: lead.name.clone(),
@@ -524,7 +528,7 @@ pub(super) async fn start_here(
             branch: None,
             pending: None,
         });
-        core.names.adopt(
+        core.names().adopt(
             Adopted {
                 agent_id: &lead.agent_id,
                 name: &lead.name,
@@ -538,7 +542,7 @@ pub(super) async fn start_here(
         );
     }
     pin(core);
-    core.hosts.team.add_tree(tree.clone());
+    core.hosts().team.add_tree(tree.clone());
     let plan = ForHost {
         agent_id: params.agent_id.clone(),
         name: params.name.clone(),
@@ -570,7 +574,7 @@ pub(super) async fn start_here(
             Ok(answer)
         }
         Err(error) => {
-            core.hosts.team.remove_tree(&params.agent_id);
+            core.hosts().team.remove_tree(&params.agent_id);
             let (repo, path, branch) = (tree.repo, tree.path, tree.branch);
             let _ = blocking(move || {
                 worktree::remove(&repo, &path, &branch);
@@ -585,14 +589,14 @@ pub(super) async fn start_here(
 /// Before a worker here reports to its lead on another host, its commits
 /// since the last went back are sent ahead of the report.
 pub(crate) async fn send_commits(core: &Arc<Core>, worker: &str) {
-    let Some(tree) = core.hosts.team.tree(worker) else {
+    let Some(tree) = core.hosts().team.tree(worker) else {
         return;
     };
     let Some(host) = core
-        .names
+        .names()
         .get(worker)
         .and_then(|named| named.parent)
-        .and_then(|lead| core.hosts.team.get(&lead))
+        .and_then(|lead| core.hosts().team.get(&lead))
         .map(|lead| lead.host)
     else {
         return;
@@ -601,7 +605,7 @@ pub(crate) async fn send_commits(core: &Arc<Core>, worker: &str) {
 }
 
 async fn send_commits_to(core: &Arc<Core>, worker: &str, tree: Tree, host: &str) {
-    let into = core.hosts.outbox.body_path(&format!(
+    let into = core.hosts().outbox.body_path(&format!(
         "{worker}-{}.bundle",
         uuid::Uuid::new_v4().simple()
     ));
@@ -628,7 +632,7 @@ async fn send_commits_to(core: &Arc<Core>, worker: &str, tree: Tree, host: &str)
                 .from(worker)
                 .about(worker),
             );
-            core.hosts.team.tree_sent(worker, &head);
+            core.hosts().team.tree_sent(worker, &head);
         }
         Ok(None) => {}
         Err(error) => {
@@ -648,7 +652,7 @@ pub(super) fn commits_for(
     if super::route::lead_host(core, &wanted.agent_id).as_deref() != Some(host) {
         return Err("that worker's lead is not on your host".into());
     }
-    core.hosts
+    core.hosts()
         .outbox
         .pulled_body(host, |post| {
             post.params["agentId"] == wanted.agent_id.as_str()
@@ -680,7 +684,7 @@ pub(crate) async fn auto_turn_ended(
 ) {
     send_commits_to(core, &worker, tree, &host).await;
     let cost_usd = core
-        .chats
+        .chats()
         .get(&worker)
         .and_then(|chat| chat.feed.cost_usd());
     post(

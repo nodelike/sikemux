@@ -2,6 +2,7 @@
 //! only when what the command says has changed since the last time, so a look that finds
 //! nothing new posts nothing in the chat.
 
+use crate::server::parts::Parts;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
@@ -57,7 +58,7 @@ async fn run(command: &str, dir: &str) -> Result<String, String> {
 /// Runs the check of trigger `id` and fires it with what the check says, when that changed.
 pub(super) async fn look(core: Arc<Core>, id: u64) {
     let check = {
-        let state = core.triggers.state.locked();
+        let state = core.triggers().state.locked();
         let trigger = state.triggers.iter().find(|trigger| trigger.id == id);
         trigger.and_then(|trigger| trigger.check.clone())
     };
@@ -69,7 +70,7 @@ pub(super) async fn look(core: Arc<Core>, id: u64) {
     if said == check.said {
         return;
     }
-    let trigger = core.triggers.change(|state| {
+    let trigger = core.triggers().change(|state| {
         let trigger = state.triggers.iter_mut().find(|trigger| trigger.id == id)?;
         trigger.check.as_mut()?.said = said.clone();
         Some(trigger.clone())

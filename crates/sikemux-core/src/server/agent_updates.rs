@@ -1,6 +1,7 @@
 //! Which release of each agent's CLI this host has, which its chats run, and the newest
 //! out, and the agent's own updater, run at the person's asking one agent at a time.
 
+use crate::server::parts::Parts;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -70,7 +71,7 @@ fn looked() -> &'static Mutex<HashMap<&'static str, Looked>> {
 /// Fills in each agent's releases and how its update goes, and looks up the newest
 /// releases out again behind the answer once they are old.
 pub(super) fn add_versions(core: &Arc<Core>, agents: &mut [Installed]) {
-    let chats = core.chats.all();
+    let chats = core.chats().all();
     let updating = updates().locked().clone();
     for agent in agents.iter_mut() {
         let Some(def) = agent_catalog::agent(&agent.kind) else {

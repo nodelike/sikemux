@@ -1,6 +1,7 @@
 //! `sikemux chat` run outside every agent: it asks the person to let it in once, then calls the
 //! chat tools with the token it was given, over the tool endpoint.
 
+use crate::server::parts::Parts;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -25,12 +26,12 @@ pub(crate) async fn sign_in(core: &Arc<Core>, request: &HarnessRequest) -> Resul
     outside_only(request)?;
     let name = text_param(&request.params, "name", super::NAME_LIMIT)?.unwrap_or("A terminal");
     let id = core
-        .outside
+        .outside()
         .ask(name, Via::Cli, None)
         .map_err(|error| error.to_string())?;
     changed(core);
     let check = core
-        .outside
+        .outside()
         .waiting_shown(&id)
         .map(|shown| shown.check)
         .unwrap_or_default();
@@ -43,10 +44,13 @@ pub(crate) async fn sign_in_wait(
 ) -> Result<Value, String> {
     outside_only(request)?;
     let id = text_param(&request.params, "id", 64)?.ok_or("id is required")?;
-    match core.outside.wait_for_answer(id, WAIT_STEP).await {
+    match core.outside().wait_for_answer(id, WAIT_STEP).await {
         Answer::Waiting => Ok(json!({ "waiting": true })),
         Answer::Allowed(_) => {
-            let (token, client) = core.outside.admit(id).map_err(|error| error.to_string())?;
+            let (token, client) = core
+                .outside()
+                .admit(id)
+                .map_err(|error| error.to_string())?;
             changed(core);
             Ok(json!({ "token": token, "access": client.access, "expiresAt": client.expires_at }))
         }
@@ -61,7 +65,7 @@ pub(crate) async fn call(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
     outside_only(request)?;
     let token = text_param(&request.params, "token", 256)?.ok_or("token is required")?;
     let caller = core
-        .outside
+        .outside()
         .caller(token)
         .ok_or("This terminal's sign-in has expired or was removed in Sikemux; sign in again")?;
     let tool = text_param(&request.params, "tool", 64)?.ok_or("tool is required")?;

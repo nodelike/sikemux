@@ -1,3 +1,4 @@
+use crate::server::parts::Parts;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -241,7 +242,7 @@ async fn handshake(
     };
     // A client that connected while the core hands itself over talks to the
     // replacement instead.
-    if core.updating.is_frozen() {
+    if core.updating().is_frozen() {
         return false;
     }
     let pid = std::process::id();

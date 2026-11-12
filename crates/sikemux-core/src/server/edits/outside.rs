@@ -5,6 +5,7 @@
 //! person's when none was. A file's lines are told against what it held
 //! after its last change, kept in [`Priors`].
 
+use crate::server::parts::Parts;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, Weak};
@@ -143,7 +144,7 @@ impl Outside {
         let Some(watcher) = watch(&top, seen.clone(), Arc::downgrade(core)) else {
             return;
         };
-        let project = core.workspaces.project_of(&top);
+        let project = core.workspaces().project_of(&top);
         reconcile(store, &top, &seen, Look::Whole { since });
         let mut checkouts = self.checkouts.locked();
         if checkouts.len() >= MAX_CHECKOUTS {
@@ -171,7 +172,7 @@ impl Outside {
         if let Some(top) = self.tops.locked().get(agent_id) {
             return top.clone();
         }
-        let cwd = match core.chats.get(agent_id) {
+        let cwd = match core.chats().get(agent_id) {
             Some(chat) => Some(chat.launch.cwd.clone()),
             None => core
                 .all_sessions()
@@ -300,7 +301,7 @@ impl Outside {
                 })
             };
             let (shells, terminals) = core
-                .collisions
+                .collisions()
                 .at_work(core, agents, &project, &top, now, GRACE_MS);
             if !mid_turn && shells.is_empty() && terminals.is_empty() {
                 self.checkouts.locked().remove(&top);
@@ -358,7 +359,7 @@ fn watch(top: &Path, seen: Arc<Mutex<Seen>>, core: Weak<Core>) -> Option<Recomme
             idle && !seen.idle()
         };
         if let (true, Some(core)) = (woke, core.upgrade()) {
-            core.edits.wake();
+            core.edits().wake();
         }
     });
     let mut watcher = match started {
@@ -490,7 +491,7 @@ fn look(
 ) {
     let mut due: Vec<(String, PathBuf, Written)> = due
         .into_iter()
-        .filter(|(path, _)| !core.collisions.editing(path))
+        .filter(|(path, _)| !core.collisions().editing(path))
         .filter_map(|(path, at)| Some((inside(top, &path)?, path, at)))
         .collect();
     if due.len() > MANY {
@@ -578,7 +579,7 @@ fn look_at(
                 .into_iter()
                 .flat_map(|written| {
                     let (shells, terminals) = core
-                        .collisions
+                        .collisions()
                         .writers(core, listed, project, place, written);
                     shells.into_iter().chain(terminals)
                 })
@@ -699,8 +700,8 @@ fn record(
             Writer::Person => {}
             Writer::Shared(agents) => edit.shared = agents,
             Writer::Agent(agent_id) => {
-                edit.name = core.names.name(&agent_id);
-                match core.chats.get(&agent_id) {
+                edit.name = core.names().name(&agent_id);
+                match core.chats().get(&agent_id) {
                     Some(chat) => {
                         edit.cli = chat.provider().to_owned();
                         edit.model = chat.current_launch().model;

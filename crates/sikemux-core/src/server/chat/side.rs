@@ -2,6 +2,7 @@
 //! project. Its first message tells it what the other chat has been saying, and the other
 //! chat is never told.
 
+use crate::server::parts::Parts;
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
@@ -35,14 +36,14 @@ pub struct SideChat {
 
 /// Starts a side chat of `params.agent_id`, waiting for the person's first message.
 pub(crate) async fn start(core: &Arc<Core>, params: SideChatParams) -> CoreResult<SideChat> {
-    let main = (core.workspaces.agent(&params.agent_id))
+    let main = (core.workspaces().agent(&params.agent_id))
         .ok_or_else(|| CoreError::from("That chat is no longer open"))?;
     if main.terminal {
         return Err("A side chat opens beside a chat, not an agent in a terminal".into());
     }
     let own = (main.profile_id.as_ref()).map(|profile| format!("{}:{profile}", main.provider));
     let launcher = own
-        .filter(|own| core.workspaces.launcher(own).is_ok())
+        .filter(|own| core.workspaces().launcher(own).is_ok())
         .unwrap_or_else(|| main.provider.clone());
     let choice = ChatChoice {
         launcher,
@@ -56,7 +57,7 @@ pub(crate) async fn start(core: &Arc<Core>, params: SideChatParams) -> CoreResul
         terminal: false,
     };
     let (agent_id, _) = crate::server::launching::start_new(core, None, choice).await?;
-    core.workspaces
+    core.workspaces()
         .edit_agent(&agent_id, |agent| agent.side_of = Some(main.id.clone()))?;
     core.changed(crate::server::changed::What::View);
     if let Some(text) = params.text.filter(|text| !text.trim().is_empty()) {
@@ -68,16 +69,16 @@ pub(crate) async fn start(core: &Arc<Core>, params: SideChatParams) -> CoreResul
 
 /// Adds to the first message of a side chat what its main chat has been saying.
 pub(crate) fn tell(core: &Core, agent_id: &str, context: &mut Vec<ChatContext>) {
-    let Some(main) = (core.workspaces.agent(agent_id)).and_then(|agent| agent.side_of) else {
+    let Some(main) = (core.workspaces().agent(agent_id)).and_then(|agent| agent.side_of) else {
         return;
     };
-    let first = (core.chats.running(agent_id)).is_ok_and(|chat| chat.feed.turn_start().is_none());
+    let first = (core.chats().running(agent_id)).is_ok_and(|chat| chat.feed.turn_start().is_none());
     if !first || context.iter().any(|item| item.uri.starts_with(SIDE_URI)) {
         return;
     }
-    let name = core.names.name(&main).unwrap_or_else(|| main.clone());
-    let title = (core.workspaces.agent(&main)).map(|agent| agent.title);
-    let exchanges = (core.chats.running(&main))
+    let name = core.names().name(&main).unwrap_or_else(|| main.clone());
+    let title = (core.workspaces().agent(&main)).map(|agent| agent.title);
+    let exchanges = (core.chats().running(&main))
         .map(|chat| chat.feed.exchanges(EXCHANGES, LONGEST_SAID))
         .unwrap_or_default();
     context.push(ChatContext {

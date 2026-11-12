@@ -3,6 +3,7 @@
 //! test, so the open card that holds one takes it again, and what one commit
 //! broke goes on one card.
 
+use crate::server::parts::Parts;
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
@@ -145,7 +146,7 @@ fn failures(jobs: &[FailedJob]) -> Vec<Failure> {
 pub(crate) fn ci_ruled(core: &Arc<Core>, project: &str, sha: &str, jobs: &[FailedJob]) {
     let failed = failures(jobs);
     let again: Vec<Failure> = {
-        let mut state = core.boards.state.locked();
+        let mut state = core.boards().state.locked();
         let board = state
             .boards
             .entry(project.to_owned())
@@ -192,7 +193,7 @@ pub(crate) fn ci_ruled(core: &Arc<Core>, project: &str, sha: &str, jobs: &[Faile
         1 => String::new(),
         n => format!(" and {} more", n - 1),
     };
-    let owner = core.checks.failure_owner(project);
+    let owner = core.checks().failure_owner(project);
     let title = format!("CI keeps failing: {}{more}", broke.failures[0].label());
     let adding = Adding {
         title: clipped(&title, MAX_TITLE_CHARS),

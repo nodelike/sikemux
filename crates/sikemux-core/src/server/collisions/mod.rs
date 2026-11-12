@@ -12,6 +12,7 @@ mod merge;
 mod watch;
 
 use crate::server::changed::What;
+use crate::server::parts::Parts;
 use sikemux_fold::UpdateKind;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
@@ -398,12 +399,12 @@ impl Collisions {
             for path in &call.paths {
                 let Some(text) = read(path) else { continue };
                 if reading {
-                    core.collisions.keep_seen(&agent_id, path, text);
+                    core.collisions().keep_seen(&agent_id, path, text);
                 } else {
-                    core.collisions.observe(path, text, None);
+                    core.collisions().observe(path, text, None);
                 }
             }
-            core.collisions.watch_files();
+            core.collisions().watch_files();
         });
         began
     }
@@ -595,7 +596,7 @@ impl Collisions {
                 .priors
                 .remove(&(edit.agent_id.clone(), path.clone()));
             let Some(prior) = prior else { continue };
-            let earlier = core.edits.of_file(project, &edit.path, Some(edit));
+            let earlier = core.edits().of_file(project, &edit.path, Some(edit));
             let (lines, total) = authors(&earlier);
             if total.is_some_and(|total| total != line_count(&prior)) {
                 continue;
@@ -638,7 +639,7 @@ impl Collisions {
                     })
                     .map(|(_, start, end)| (*start, *end))
                     .collect();
-                if touched.is_empty() || core.names.get(owner).is_none() {
+                if touched.is_empty() || core.names().get(owner).is_none() {
                     continue;
                 }
                 self.overlapped(project, &path, &edit.agent_id, owner, &touched);
@@ -698,7 +699,7 @@ impl Collisions {
             .filter(|claim| {
                 claim.agent != *agent
                     && now.saturating_sub(claim.at) < CLAIM_MS
-                    && core.names.get(&claim.agent).is_some()
+                    && core.names().get(&claim.agent).is_some()
             })
             .map(|claim| (claim.agent.clone(), claim.at));
         let Some((holder, held_at)) = holder else {
@@ -818,13 +819,13 @@ impl Collisions {
                 .map(|id| id.to_string())
                 .unwrap_or_default();
             let before = core
-                .collisions
+                .collisions()
                 .state
                 .locked()
                 .heads
                 .insert(project.clone(), at.clone());
             if before.is_some_and(|before| before != at) {
-                core.harness.note_repository(&project, "git.moved");
+                core.harness().note_repository(&project, "git.moved");
             }
             super::checks::head_moved(&core, &project, &dir);
         });
@@ -832,14 +833,14 @@ impl Collisions {
 }
 
 fn in_project(core: &Core, project: &str, agent: &str) -> bool {
-    core.names
+    core.names()
         .get(agent)
         .is_some_and(|named| named.project == project)
 }
 
 /// Whether `agent` works in the checkout that holds `place`.
 fn holds(core: &Core, place: &Path, agent: &str) -> bool {
-    core.edits
+    core.edits()
         .checkout_of(core, agent)
         .is_none_or(|top| place.starts_with(&top))
 }
@@ -900,7 +901,7 @@ fn changed_by(core: &Core, state: &State, agent_id: &str, path: &Path, since: u6
     {
         let name = match &version.by {
             Some(by) if by == agent_id => continue,
-            Some(by) => core.names.name_or_id(by),
+            Some(by) => core.names().name_or_id(by),
             None => "someone outside the agents' edit tools".to_owned(),
         };
         if !names.contains(&name) {
@@ -919,7 +920,7 @@ fn mended_note(
     base: &Copy,
     kept: &[std::ops::Range<usize>],
 ) -> String {
-    let project = core.workspaces.project_of(path);
+    let project = core.workspaces().project_of(path);
     let file = shown(path, &project);
     let mut by = changed_by(core, state, agent_id, path, base.at);
     if by.is_empty() {
@@ -987,7 +988,7 @@ struct Unclaimed {
 /// edit tool claimed, and starts the checks that wait. Runs whenever the
 /// collisions' wake is woken.
 pub(crate) fn settle(core: &Arc<Core>) {
-    let collisions = &core.collisions;
+    let collisions = core.collisions();
     let now = epoch_ms();
     let mut next = None;
     let mut state = collisions.state.locked();
@@ -1003,7 +1004,7 @@ pub(crate) fn settle(core: &Arc<Core>) {
         state.hits.front().map(|hit| hit.at + REPEAT_WINDOW_MS),
     );
     state.claims.retain(|_, claim| {
-        now.saturating_sub(claim.at) < CLAIM_MS && core.names.get(&claim.agent).is_some()
+        now.saturating_sub(claim.at) < CLAIM_MS && core.names().get(&claim.agent).is_some()
     });
     next = sooner(
         next,
@@ -1016,7 +1017,7 @@ pub(crate) fn settle(core: &Arc<Core>) {
         .seen
         .keys()
         .map(|(agent, _)| agent.clone())
-        .filter(|agent| core.names.get(agent).is_none())
+        .filter(|agent| core.names().get(agent).is_none())
         .collect();
     for agent in gone {
         let mut freed = 0;
@@ -1095,7 +1096,7 @@ pub(crate) fn settle(core: &Arc<Core>) {
         let core = core.clone();
         tokio::task::spawn_blocking(move || {
             for change in unclaimed {
-                core.collisions.unclaimed(&core, change);
+                core.collisions().unclaimed(&core, change);
             }
         });
     }
@@ -1114,7 +1115,7 @@ fn warn(
     now: u64,
 ) {
     let (path, writer, owner) = key;
-    let name = |id: &str| core.names.name_or_id(id);
+    let name = |id: &str| core.names().name_or_id(id);
     let file = shown(path, &overlap.project);
     let lines = spoken(&overlap.lines);
     let owner_name = name(owner);
@@ -1140,7 +1141,7 @@ fn warn(
     );
     let leads: Vec<String> = [writer, owner]
         .iter()
-        .filter_map(|agent| core.names.get(agent).and_then(|named| named.parent))
+        .filter_map(|agent| core.names().get(agent).and_then(|named| named.parent))
         .filter(|lead| lead != writer && lead != owner)
         .collect::<std::collections::BTreeSet<_>>()
         .into_iter()
@@ -1167,7 +1168,7 @@ impl Collisions {
             written,
         } = change;
         let at = written.at;
-        let project = core.workspaces.project_of(&path);
+        let project = core.workspaces().project_of(&path);
         let listed = super::roster::listed(core);
         let (shells, terminals) = self.writers(core, &listed, &project, &path, written);
         let writer = match (shells.len(), terminals.len()) {
@@ -1216,7 +1217,9 @@ impl Collisions {
             }
             fit(&mut state);
         }
-        let mut all = core.edits.of_file(&project, &path.to_string_lossy(), None);
+        let mut all = core
+            .edits()
+            .of_file(&project, &path.to_string_lossy(), None);
         all.retain(|edit| edit.at <= at);
         let (lines, total) = authors(&all);
         if total.is_some_and(|total| total != line_count(&prior)) {
@@ -1260,7 +1263,7 @@ impl Collisions {
                 .filter(|(line, _, _)| open.as_ref().is_none_or(|open| open.contains(line)))
                 .map(|(_, start, end)| (*start, *end))
                 .collect();
-            if !touched.is_empty() && core.names.get(owner).is_some() && !maybe_own(owner) {
+            if !touched.is_empty() && core.names().get(owner).is_some() && !maybe_own(owner) {
                 self.overlapped(&project, &path, &writer_id, owner, &touched);
             }
         }
@@ -1300,7 +1303,7 @@ impl Collisions {
         if unclaimed.is_empty() {
             return false;
         }
-        let project = core.workspaces.project_of(path);
+        let project = core.workspaces().project_of(path);
         let listed = super::roster::listed(core);
         unclaimed.into_iter().any(|written| {
             let (shells, terminals) = self.writers(core, &listed, &project, path, written);
@@ -1406,7 +1409,7 @@ impl Collisions {
 /// The chat agents in `project` with subagents or background tasks going,
 /// in the checkout holding `place`: whatever those run reports no command.
 fn in_background(core: &Core, project: &str, place: &Path) -> BTreeSet<String> {
-    core.chats
+    core.chats()
         .list()
         .into_iter()
         .filter(|chat| chat.subagents > 0 || chat.tasks > 0)
@@ -1474,7 +1477,7 @@ impl crate::server::part::Part for Collisions {
     fn start(&self, core: &Arc<Core>) -> Vec<tokio::task::JoinHandle<()>> {
         vec![crate::server::part::on_wake(
             core,
-            |core| &core.collisions.wake,
+            |core| &core.collisions().wake,
             settle,
         )]
     }

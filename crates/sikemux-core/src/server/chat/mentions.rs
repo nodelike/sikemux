@@ -3,6 +3,7 @@
 //! An earlier chat the person names is opened again first, in a tab of its own.
 
 use crate::server::changed::What;
+use crate::server::parts::Parts;
 use std::sync::Arc;
 
 use crate::server::connection::blocking;
@@ -56,7 +57,7 @@ async fn woken(
     };
     if let Some((agent_id, _)) = &found.open {
         let name = core
-            .names
+            .names()
             .name(agent_id)
             .unwrap_or_else(|| agent_id.clone());
         let text = note(core, caller, agent_id).ok_or_else(|| {
@@ -71,14 +72,14 @@ async fn woken(
             text,
         });
     }
-    let launcher = core.workspaces.launcher(&found.cli)?;
-    let project = core.workspaces.project_for(&found.project)?;
-    let agent = core.workspaces.put_agent(WorkspaceAgent {
+    let launcher = core.workspaces().launcher(&found.cli)?;
+    let project = core.workspaces().project_for(&found.project)?;
+    let agent = core.workspaces().put_agent(WorkspaceAgent {
         title: found.title.clone(),
         resume_id: Some(found.session_id.clone()),
         profile_id: LauncherId::parse(&launcher.id).account.map(str::to_owned),
         ..new_agent(
-            (core.names).returning_id(Some(&found.cli), &found.session_id, core.open_agents()),
+            (core.names()).returning_id(Some(&found.cli), &found.session_id, core.open_agents()),
             found.cli.clone(),
             project,
             found.project.clone(),
@@ -147,7 +148,7 @@ pub(crate) fn fill(core: &Core, caller: &str, context: &mut Vec<ChatContext>) {
         match note(core, caller, id) {
             Some(note) => {
                 item.text = note;
-                core.seen.called(id);
+                core.seen().called(id);
                 named = true;
                 true
             }
@@ -160,16 +161,16 @@ pub(crate) fn fill(core: &Core, caller: &str, context: &mut Vec<ChatContext>) {
 }
 
 fn note(core: &Core, caller: &str, id: &str) -> Option<String> {
-    let Some(mate) = core.workspaces.agent(id) else {
+    let Some(mate) = core.workspaces().agent(id) else {
         return note_elsewhere(core, id);
     };
-    let name = core.names.name(id)?;
+    let name = core.names().name(id)?;
     let elsewhere = core
-        .workspaces
+        .workspaces()
         .agent(caller)
         .filter(|caller| caller.project != mate.project)
         .map(|_| {
-            core.workspaces
+            core.workspaces()
                 .project_info(&mate.project)
                 .map_or_else(|| mate.project.clone(), |project| project.name)
         });
@@ -195,7 +196,7 @@ fn note(core: &Core, caller: &str, id: &str) -> Option<String> {
 /// The note for a teammate on a linked host, which messages and reads reach by its name and
 /// that host's.
 fn note_elsewhere(core: &Core, id: &str) -> Option<String> {
-    let mate = core.hosts.team.get(id)?;
+    let mate = core.hosts().team.get(id)?;
     let host = crate::server::hosts::name_of(core, &mate.host);
     let to = format!("{} on {host}", mate.name);
     let shown = crate::server::inbox::foreign_shown(core, &mate);

@@ -4,6 +4,7 @@
 //! failed turn leaves it open with nobody on it. Pins live per project in a file of lines, each
 //! the whole pin after a change, the last one counting, and their pictures by id beside it.
 
+use crate::server::parts::Parts;
 use std::collections::{HashMap, HashSet};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -264,7 +265,7 @@ fn cut(text: &str, most: usize) -> String {
 /// The pins every client draws: the open and the answered ones, with whether their agent is at
 /// work on them now.
 pub(crate) fn shown(core: &Core) -> Vec<Pin> {
-    let mut pins: Vec<Pin> = (core.pins.by_id.locked().values())
+    let mut pins: Vec<Pin> = (core.pins().by_id.locked().values())
         .filter(|pin| pin.state == PinState::Open || pin.state == PinState::Answered)
         .cloned()
         .collect();
@@ -272,8 +273,8 @@ pub(crate) fn shown(core: &Core) -> Vec<Pin> {
         pin.working = pin.state == PinState::Open
             && !pin.stopped
             && pin.turn.is_some()
-            && core.seen.started_at(&pin.agent_id) == pin.turn
-            && core.inbox.ending(&pin.agent_id).is_none_or(|ended| {
+            && core.seen().started_at(&pin.agent_id) == pin.turn
+            && core.inbox().ending(&pin.agent_id).is_none_or(|ended| {
                 ended.started_at != pin.turn.unwrap_or_default() || ended.at.is_none()
             });
     }
@@ -287,14 +288,14 @@ pub(crate) async fn place(core: &Arc<Core>, params: PlacePinParams) -> CoreResul
     if note.is_empty() {
         return Err(CoreError::from("Say what to change"));
     }
-    let named = core.names.get(&params.agent_id);
+    let named = core.names().get(&params.agent_id);
     let cwd = (core
-        .chats
+        .chats()
         .get(&params.agent_id)
         .map(|chat| chat.launch.cwd.clone()))
-    .or_else(|| (core.workspaces.agent(&params.agent_id)).map(|agent| agent.cwd.clone()));
+    .or_else(|| (core.workspaces().agent(&params.agent_id)).map(|agent| agent.cwd.clone()));
     let project = (named.as_ref().map(|named| named.project.clone()))
-        .or_else(|| cwd.as_ref().map(|cwd| core.workspaces.project_of(cwd)))
+        .or_else(|| cwd.as_ref().map(|cwd| core.workspaces().project_of(cwd)))
         .ok_or_else(|| CoreError::from("That agent is gone"))?;
     let commit = cwd.and_then(|cwd| {
         Git::quick(&cwd)
@@ -302,7 +303,7 @@ pub(crate) async fn place(core: &Arc<Core>, params: PlacePinParams) -> CoreResul
             .ok()
     });
     let before = match params.before.as_deref() {
-        Some(data) => Some(core.pins.keep_picture(data)?),
+        Some(data) => Some(core.pins().keep_picture(data)?),
         None => None,
     };
     let now = epoch_ms();
@@ -335,9 +336,9 @@ pub(crate) async fn place(core: &Arc<Core>, params: PlacePinParams) -> CoreResul
         working: false,
     };
     let markup = cut(&params.html, MAX_MARKUP);
-    core.pins.keep(vec![pin.clone()]);
+    core.pins().keep(vec![pin.clone()]);
     if let Err(error) = send(core, &pin, &pin.notes[0].words, Some(&markup)).await {
-        core.pins.keep(vec![Pin {
+        core.pins().keep(vec![Pin {
             state: PinState::Closed,
             ..pin
         }]);
@@ -353,7 +354,7 @@ pub(crate) async fn note(core: &Arc<Core>, params: PinNoteParams) -> CoreResult<
     if words.is_empty() {
         return Err(CoreError::from("Say what is still off"));
     }
-    let was = core.pins.get(&params.id)?;
+    let was = core.pins().get(&params.id)?;
     let mut pin = was.clone();
     let now = epoch_ms();
     pin.reopened |= pin.state != PinState::Open;
@@ -365,13 +366,13 @@ pub(crate) async fn note(core: &Arc<Core>, params: PinNoteParams) -> CoreResult<
     pin.after_by_hand = false;
     pin.after_private = false;
     add_note(&mut pin, PinBy::Person, words.clone(), now);
-    core.pins.keep(vec![pin.clone()]);
+    core.pins().keep(vec![pin.clone()]);
     if let Err(error) = send(core, &pin, &words, None).await {
-        core.pins.keep(vec![was]);
+        core.pins().keep(vec![was]);
         return Err(error);
     }
     if let Some(after) = after {
-        core.pins.forget_pictures(&Pin {
+        core.pins().forget_pictures(&Pin {
             before: None,
             after: Some(after),
             ..pin
@@ -390,35 +391,35 @@ fn add_note(pin: &mut Pin, by: PinBy, words: String, at: u64) {
 
 /// The person says the spot looks right: the pin and its pictures go.
 pub(crate) fn looks_right(core: &Core, params: PinParams) -> CoreResult<()> {
-    let mut pin = core.pins.get(&params.id)?;
+    let mut pin = core.pins().get(&params.id)?;
     pin.state = PinState::Closed;
     pin.since = epoch_ms();
-    core.pins.keep(vec![pin]);
+    core.pins().keep(vec![pin]);
     core.changed(What::View);
     Ok(())
 }
 
 /// The picture of an answered pin's spot, or that none could be taken without the person.
 pub(crate) fn after(core: &Core, params: PinAfterParams) -> CoreResult<()> {
-    let mut pin = core.pins.get(&params.id)?;
+    let mut pin = core.pins().get(&params.id)?;
     if pin.state != PinState::Answered || pin.after.is_some() {
         return Ok(());
     }
     match params.after.as_deref() {
-        Some(data) => pin.after = Some(core.pins.keep_picture(data)?),
+        Some(data) => pin.after = Some(core.pins().keep_picture(data)?),
         None => pin.after_by_hand = true,
     }
-    core.pins.keep(vec![pin]);
+    core.pins().keep(vec![pin]);
     core.changed(What::View);
     Ok(())
 }
 
 /// One of a pin's pictures, as a client draws it.
 pub(crate) fn picture(core: &Core, params: PinPictureParams) -> CoreResult<PinPicture> {
-    let named = (core.pins.by_id.locked().values()).any(|pin| {
+    let named = (core.pins().by_id.locked().values()).any(|pin| {
         pin.before.as_ref() == Some(&params.id) || pin.after.as_ref() == Some(&params.id)
     });
-    let folder = core.pins.pictures().filter(|_| named);
+    let folder = core.pins().pictures().filter(|_| named);
     let bytes = folder
         .and_then(|folder| std::fs::read(folder.join(format!("{}.jpg", params.id))).ok())
         .ok_or_else(|| CoreError::from("That picture is gone"))?;
@@ -430,10 +431,10 @@ pub(crate) fn picture(core: &Core, params: PinPictureParams) -> CoreResult<PinPi
 
 /// A turn began: the open pins of its agent that no turn has taken yet are its own.
 pub(crate) fn turn_started(core: &Core, agent_id: &str) {
-    let Some(started) = core.seen.started_at(agent_id) else {
+    let Some(started) = core.seen().started_at(agent_id) else {
         return;
     };
-    let taken: Vec<Pin> = (core.pins.by_id.locked().values())
+    let taken: Vec<Pin> = (core.pins().by_id.locked().values())
         .filter(|pin| {
             pin.agent_id == agent_id
                 && pin.state == PinState::Open
@@ -447,16 +448,16 @@ pub(crate) fn turn_started(core: &Core, agent_id: &str) {
             pin
         })
         .collect();
-    core.pins.keep(taken);
+    core.pins().keep(taken);
 }
 
 /// A turn ended. Ended by itself, it answers the pins it took with what the agent said; stopped
 /// or failed, it leaves them open with nobody on them.
 pub(crate) fn turn_ended(core: &Core, agent_id: &str, by_itself: bool) {
-    let Some(started) = core.seen.started_at(agent_id) else {
+    let Some(started) = core.seen().started_at(agent_id) else {
         return;
     };
-    let taken: Vec<Pin> = (core.pins.by_id.locked().values())
+    let taken: Vec<Pin> = (core.pins().by_id.locked().values())
         .filter(|pin| {
             pin.agent_id == agent_id && pin.state == PinState::Open && pin.turn == Some(started)
         })
@@ -467,7 +468,7 @@ pub(crate) fn turn_ended(core: &Core, agent_id: &str, by_itself: bool) {
     }
     let said = by_itself
         .then(|| {
-            core.chats
+            core.chats()
                 .get(agent_id)
                 .and_then(|chat| chat.feed.last_answer())
         })
@@ -490,7 +491,7 @@ pub(crate) fn turn_ended(core: &Core, agent_id: &str, by_itself: bool) {
             pin
         })
         .collect();
-    core.pins.keep(changed);
+    core.pins().keep(changed);
     core.changed(What::View);
     if by_itself {
         decide_after(core, agent_id);
@@ -510,7 +511,7 @@ fn decide_after(core: &Core, agent_id: &str) {
             .and_then(|dir| super::pictures::served_at(&core, &dir))
             .and_then(|url| url::Url::parse(&url).ok())
             .and_then(|url| url.port());
-        let decided: Vec<Pin> = (core.pins.by_id.locked().values())
+        let decided: Vec<Pin> = (core.pins().by_id.locked().values())
             .filter(|pin| {
                 pin.agent_id == agent_id
                     && pin.state == PinState::Answered
@@ -529,7 +530,7 @@ fn decide_after(core: &Core, agent_id: &str) {
             })
             .collect();
         if !decided.is_empty() {
-            core.pins.keep(decided);
+            core.pins().keep(decided);
             core.changed(What::View);
         }
     });
@@ -537,7 +538,7 @@ fn decide_after(core: &Core, agent_id: &str) {
 
 /// Agents closed: their open pins close, as nobody is left to answer them.
 pub(crate) fn agents_closed(core: &Core, gone: &[&String]) {
-    let closed: Vec<Pin> = (core.pins.by_id.locked().values())
+    let closed: Vec<Pin> = (core.pins().by_id.locked().values())
         .filter(|pin| gone.iter().any(|agent| **agent == pin.agent_id))
         .filter(|pin| pin.state == PinState::Open)
         .cloned()
@@ -546,12 +547,12 @@ pub(crate) fn agents_closed(core: &Core, gone: &[&String]) {
             pin
         })
         .collect();
-    core.pins.keep(closed);
+    core.pins().keep(closed);
 }
 
 /// A project was removed: its pins and their pictures go.
 pub(crate) fn project_removed(core: &Core, project: &str) {
-    let closed: Vec<Pin> = (core.pins.by_id.locked().values())
+    let closed: Vec<Pin> = (core.pins().by_id.locked().values())
         .filter(|pin| pin.project == project)
         .cloned()
         .map(|mut pin| {
@@ -559,8 +560,8 @@ pub(crate) fn project_removed(core: &Core, project: &str) {
             pin
         })
         .collect();
-    core.pins.keep(closed);
-    if let Some(file) = core.pins.file(project) {
+    core.pins().keep(closed);
+    if let Some(file) = core.pins().file(project) {
         let _ = std::fs::remove_file(file);
     }
 }
@@ -574,7 +575,7 @@ fn page_text(words: &str) -> String {
 /// them, and what the page says of the spot for the agent alone, marked as the page's own text.
 /// It answers none of the calls waiting in that chat.
 async fn send(core: &Arc<Core>, pin: &Pin, words: &str, markup: Option<&str>) -> CoreResult<()> {
-    if core.workspaces.in_terminal(&pin.agent_id) {
+    if core.workspaces().in_terminal(&pin.agent_id) {
         return Err(CoreError::from(
             "Pins go to a chat; switch this agent to GUI to pin its page",
         ));
@@ -609,8 +610,8 @@ async fn send(core: &Arc<Core>, pin: &Pin, words: &str, markup: Option<&str>) ->
         text: page,
     }];
     super::chat::wake_for_prompt(core, &pin.agent_id, &mut context).await?;
-    core.workspaces.person_said(&pin.agent_id);
-    core.activity_log
+    core.workspaces().person_said(&pin.agent_id);
+    core.activity_log()
         .person_wrote(super::chief::is_chief(core, &pin.agent_id));
     super::chief::person_wrote(core, &pin.agent_id);
     super::chat::prompt(

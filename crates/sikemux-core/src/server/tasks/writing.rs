@@ -1,6 +1,7 @@
 //! Writing tasks and the check into a project's `sikemux.json`, as the person asks.
 
 use super::*;
+use crate::server::parts::Parts;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
@@ -48,7 +49,7 @@ pub(crate) async fn add(
             detect::save_team(&project, &task)?
         } else {
             let task_id = detect::save_personal(&project, &task)?;
-            core.tasks.grant(
+            core.tasks().grant(
                 Grant::Personal(TrustedTask {
                     project: params.project.clone(),
                     cwd: if cwd == "." {
@@ -97,10 +98,10 @@ pub(crate) async fn set_check(core: &Arc<Core>, params: SetCheckParams) -> CoreR
             },
         ) = (trusted, config::load(&project))
         {
-            core.tasks
+            core.tasks()
                 .grant(Grant::Config(TrustedConfig { path, fingerprint }), None);
         }
-        core.harness.changed();
+        core.harness().changed();
         core.changed(What::ReadIn(Topic::Tasks, Some(&params.project), None));
         Ok(Value::Null)
     })

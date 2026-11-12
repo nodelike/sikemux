@@ -2,6 +2,7 @@
 //! has none, wraps its key for hosts that join, replaces it when one leaves, moves this host's
 //! sign-ins in, writes back what changed here and takes in what changed elsewhere.
 
+use crate::server::parts::Parts;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Weak};
@@ -39,7 +40,7 @@ const RENEW_RETRY_MS: u64 = 60 * 60 * 1000;
 const RECOVERY_HOLDER: &str = "recovery";
 
 pub(super) async fn run(core: Weak<Core>) {
-    let Some(wake) = core.upgrade().map(|core| core.vault.wake.clone()) else {
+    let Some(wake) = core.upgrade().map(|core| core.vault().wake.clone()) else {
         return;
     };
     if let Some(core) = core.upgrade() {
@@ -51,7 +52,7 @@ pub(super) async fn run(core: Weak<Core>) {
         }
         let Some(core) = core.upgrade() else { return };
         match round(&core).await {
-            Ok(()) => core.vault.state.locked().failures = 0,
+            Ok(()) => core.vault().state.locked().failures = 0,
             Err(error) => failed(&core, &error),
         }
     }
@@ -64,7 +65,7 @@ const FAILURES_SHOWN: u32 = 3;
 fn failed(core: &Core, error: &CoreError) {
     eprintln!("sikemux core: the account vault did not sync: {error}");
     let changed = {
-        let mut state = core.vault.state.locked();
+        let mut state = core.vault().state.locked();
         state.failures = state.failures.saturating_add(1);
         let said = if error.is_unreachable() {
             "Can't reach Sikemux's server. Trying again."
@@ -107,11 +108,11 @@ fn new_id() -> CoreResult<String> {
 
 async fn round(core: &Arc<Core>) -> CoreResult<()> {
     let (Some(account), Some(host), true) = (
-        core.remote.owner(),
-        core.remote.host_key(),
-        core.remote.signed_in_api().is_some(),
+        core.remote().owner(),
+        core.remote().host_key(),
+        core.remote().signed_in_api().is_some(),
     ) else {
-        let mut state = core.vault.state.locked();
+        let mut state = core.vault().state.locked();
         if state.account.is_some() || state.status != Status::Off {
             *state = State::default();
             drop(state);
@@ -120,7 +121,7 @@ async fn round(core: &Arc<Core>) -> CoreResult<()> {
         return Ok(());
     };
     let me = host.public().to_string();
-    let moved = core.vault.state.locked().account.as_deref() != Some(account.as_str());
+    let moved = core.vault().state.locked().account.as_deref() != Some(account.as_str());
     if moved {
         let reading = account.clone();
         let data_dir = core.config.data_dir.clone();
@@ -136,7 +137,7 @@ async fn round(core: &Arc<Core>) -> CoreResult<()> {
             Ok((local::recovery(&reading), kept, rules))
         })
         .await?;
-        *core.vault.state.locked() = State {
+        *core.vault().state.locked() = State {
             account: Some(account.clone()),
             me: Some(me.clone()),
             rules,
@@ -185,7 +186,7 @@ async fn open(
         .as_deref()
         .and_then(|wrapped| seal::unwrap(wrapped, secret, &context));
     let changed = {
-        let mut state = core.vault.state.locked();
+        let mut state = core.vault().state.locked();
         let before = (
             state.status.clone(),
             state.holders.clone(),
@@ -220,7 +221,7 @@ async fn open(
     let Some(key) = key else { return Ok(None) };
     if vault.rotate {
         rotate(core, account, me, &vault, &key).await?;
-        core.vault.wake();
+        core.vault().wake();
         return Ok(None);
     }
     if !vault.waiting.is_empty() {
@@ -244,7 +245,7 @@ async fn check_recovery_key(core: &Core, account: &str, recovery_key: &str) -> C
         ));
     }
     let stale = core
-        .vault
+        .vault()
         .state
         .locked()
         .recovery_text
@@ -255,7 +256,7 @@ async fn check_recovery_key(core: &Core, account: &str, recovery_key: &str) -> C
             })
         });
     if stale {
-        core.vault.state.locked().recovery_text = None;
+        core.vault().state.locked().recovery_text = None;
         let account = account.to_owned();
         blocking(move || local::forget_recovery(&account).map_err(CoreError::from)).await?;
         super::inbox_changed(core);
@@ -288,7 +289,7 @@ async fn create(core: &Arc<Core>, account: &str, me: &str, secret: &Key) -> Core
     let keeping = (account.to_owned(), text.clone());
     blocking(move || local::keep_recovery(&keeping.0, &keeping.1).map_err(CoreError::from)).await?;
     host_request(core, Method::POST, "/v1/vault", Some(json!(create))).await?;
-    core.vault.state.locked().recovery_text = Some(text);
+    core.vault().state.locked().recovery_text = Some(text);
     super::inbox_changed(core);
     Ok(())
 }
@@ -699,7 +700,7 @@ async fn reconcile(
         }
     }
     let pending = {
-        let mut state = core.vault.state.locked();
+        let mut state = core.vault().state.locked();
         let pending: Vec<(String, Body)> = std::mem::take(&mut state.pending)
             .into_iter()
             .filter_map(|id| {
@@ -717,7 +718,7 @@ async fn reconcile(
         pending
     };
     let compare = {
-        let mut state = core.vault.state.locked();
+        let mut state = core.vault().state.locked();
         let compare = state.dirty || !state.compared;
         state.dirty = false;
         state.compared = true;
@@ -779,7 +780,7 @@ async fn reconcile(
         let written: VaultEntry = match as_host(core, Method::PUT, &path, Some(json!(put))).await {
             Ok(written) => written,
             Err(error) => {
-                core.vault.state.locked().dirty = true;
+                core.vault().state.locked().dirty = true;
                 return Err(error);
             }
         };
@@ -808,7 +809,7 @@ async fn reconcile(
         entries.remove(&id);
     }
     {
-        let mut state = core.vault.state.locked();
+        let mut state = core.vault().state.locked();
         state.entries = entries.clone();
         state.reindex();
     }
@@ -835,10 +836,10 @@ async fn keep_to_rules(core: &Core) {
     let Ok(Some(local)) = blocking(move || Ok(local::read(data_dir.as_deref()))).await else {
         return;
     };
-    if core.remote.owner().as_deref() != Some(local.account.as_str()) {
+    if core.remote().owner().as_deref() != Some(local.account.as_str()) {
         return;
     }
-    let mut state = core.vault.state.locked();
+    let mut state = core.vault().state.locked();
     if state.account.is_none() && !local.host.is_empty() {
         state.me = Some(local.host);
         state.rules = local.rules;
@@ -878,7 +879,7 @@ struct KeptUse {
 
 /// Writes the unsent uses to disk a moment after each new one, and again once they are sent.
 pub(super) async fn keep_uses(core: Weak<Core>) {
-    let Some(used) = core.upgrade().map(|core| core.vault.used.clone()) else {
+    let Some(used) = core.upgrade().map(|core| core.vault().used.clone()) else {
         return;
     };
     loop {
@@ -891,7 +892,7 @@ pub(super) async fn keep_uses(core: Weak<Core>) {
 
 async fn save_uses(core: &Core) {
     let unsent = {
-        let state = core.vault.state.locked();
+        let state = core.vault().state.locked();
         let Some(account) = state.account.clone() else {
             return;
         };
@@ -920,7 +921,7 @@ async fn save_uses(core: &Core) {
 /// Sends the uses logged since the last time, keeping them for next time if it fails.
 async fn send_uses(core: &Arc<Core>) {
     let (taken, uses) = {
-        let mut state = core.vault.state.locked();
+        let mut state = core.vault().state.locked();
         let taken = std::mem::take(&mut state.uses);
         let uses: Vec<VaultUse> = taken
             .iter()
@@ -958,7 +959,7 @@ async fn send_uses(core: &Arc<Core>) {
         }
     }
     if !sent {
-        let mut state = core.vault.state.locked();
+        let mut state = core.vault().state.locked();
         for (key, tally) in taken {
             let kept = state.uses.entry(key).or_default();
             kept.first = if kept.count == 0 {
@@ -979,7 +980,7 @@ async fn send_uses(core: &Arc<Core>) {
 async fn renew_due(core: &Arc<Core>, me: &str) {
     let now = epoch_ms();
     let due: Vec<(String, String, String)> = {
-        let state = core.vault.state.locked();
+        let state = core.vault().state.locked();
         state
             .entries
             .iter()
@@ -1015,7 +1016,7 @@ async fn renew_due(core: &Arc<Core>, me: &str) {
             continue;
         };
         if renewer.renew(&identity).await.is_err() {
-            core.vault.state.locked().renew_failed.insert(id, now);
+            core.vault().state.locked().renew_failed.insert(id, now);
         }
     }
 }
@@ -1023,7 +1024,7 @@ async fn renew_due(core: &Arc<Core>, me: &str) {
 /// Opens the vault on a host that holds no key, with the recovery key the person kept.
 pub(super) async fn recover(core: &Arc<Core>, typed: &str) -> CoreResult<()> {
     let (account, me, generation, wrap) = {
-        let state = core.vault.state.locked();
+        let state = core.vault().state.locked();
         (
             state.account.clone(),
             state.me.clone(),
@@ -1049,7 +1050,7 @@ pub(super) async fn recover(core: &Arc<Core>, typed: &str) -> CoreResult<()> {
         keys: vec![mine],
     };
     host_request(core, Method::PUT, "/v1/vault/keys", Some(json!(add))).await?;
-    core.vault.wake();
+    core.vault().wake();
     Ok(())
 }
 
@@ -1060,7 +1061,7 @@ pub(super) async fn set_access(
     change: impl FnOnce(&mut Body),
 ) -> CoreResult<()> {
     let (generation, key, entry) = {
-        let state = core.vault.state.locked();
+        let state = core.vault().state.locked();
         (state.generation, state.key, state.entries.get(id).cloned())
     };
     let (Some(key), Some(mut entry)) = (key, entry) else {
@@ -1084,6 +1085,6 @@ pub(super) async fn set_access(
         };
         host_request(core, Method::PUT, &path, Some(json!(put))).await?;
     }
-    core.vault.wake();
+    core.vault().wake();
     Ok(())
 }

@@ -2,6 +2,7 @@
 //! a pushed branch or a CI trigger waits on, once however many wait, and tells them all when
 //! its runs move.
 
+use crate::server::parts::Parts;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
@@ -51,7 +52,7 @@ pub(crate) struct Ci(Mutex<State>);
 /// Starts checking, unless it already runs; it stops by itself once nothing
 /// waits.
 pub(crate) fn start(core: &Arc<Core>) {
-    if !std::mem::replace(&mut core.ci.0.locked().checking, true) {
+    if !std::mem::replace(&mut core.ci().0.locked().checking, true) {
         tokio::spawn(serve(core.clone()));
     }
 }
@@ -62,10 +63,10 @@ async fn serve(core: Arc<Core>) {
             let shown: HashSet<Shown> = crate::server::board::waiting_on_ci(&core)
                 .into_iter()
                 .chain(crate::server::git::pending_pulls(&core))
-                .chain(core.checks.waiting_on_ci())
+                .chain(core.checks().waiting_on_ci())
                 .chain(crate::server::triggers::waiting_on_ci(&core))
                 .collect();
-            let mut state = core.ci.0.locked();
+            let mut state = core.ci().0.locked();
             if shown.is_empty() {
                 state.seen.clear();
                 state.checking = false;
@@ -108,7 +109,7 @@ async fn check(core: &Arc<Core>, repo: Shown) {
             .any(|run| run.get("status").and_then(Value::as_str) != Some("completed"))
     });
     let moved = {
-        let mut state = core.ci.0.locked();
+        let mut state = core.ci().0.locked();
         let before = state.seen.get(&repo);
         let moved = before.is_some_and(|before| before.runs != fingerprint);
         state.seen.insert(
@@ -125,7 +126,7 @@ async fn check(core: &Arc<Core>, repo: Shown) {
     if moved {
         crate::server::board::ci_moved(core, &repo);
         crate::server::git::ci_moved(core, &repo);
-        core.checks.ci_moved(&repo);
+        core.checks().ci_moved(&repo);
         crate::server::triggers::ci_moved(core, &repo);
     }
 }

@@ -2,6 +2,7 @@
 //! device gains a method here without its native code changing, so one a
 //! released app calls is never removed or renamed.
 
+use crate::server::parts::Parts;
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
@@ -147,13 +148,13 @@ calls! { core, client, method, params;
     "agentNameTheme" AgentNameTheme (NoParams) -> names::NameThemeParams: Full => names::name_theme(&core),
     "setAgentNameTheme" SetAgentNameTheme (names::NameThemeParams) -> names::NameThemeParams: Owner, counted => names::set_name_theme(&core, params),
     "hostLoad": Watch, any_program => answer(super::host_stats::load(&core)),
-    "stopBuild" StopBuild (StopBuildParams) -> (): Owner => core.builds.stop(params.id).map_err(CoreError::from)?,
+    "stopBuild" StopBuild (StopBuildParams) -> (): Owner => core.builds().stop(params.id).map_err(CoreError::from)?,
     "stopChatIfIdle": NoDevice => answer(json!({ "stopped": super::lifecycle::sleep(&core, &parse::<AgentParams>(params)?.agent_id) })),
     "switchAgentView" SwitchAgentView (super::agent_view::AgentViewParams) -> Value: Owner => super::agent_view::switch(&core, params).await?,
     "sleepAgent" SleepAgent (AgentParams) -> (): Owner, counted => super::lifecycle::sleep_agent(&core, &params.agent_id)?,
     "sleepIdleChats" SleepIdleChats (NoParams) -> Value: NoDevice => json!({ "slept": super::lifecycle::sleep_idle(&core) }),
     "startTerminalAgent": NoDevice, counted => super::launching::start_terminal_at(&core, parse(params)?).await,
-    "commandUsed" CommandUsed (super::activity_log::CommandUsed) -> (): NoDevice => core.activity_log.command_used(&params.id),
+    "commandUsed" CommandUsed (super::activity_log::CommandUsed) -> (): NoDevice => core.activity_log().command_used(&params.id),
     "composing" Composing (AgentParams) -> (): Owner => super::chat::composing(&core, &params.agent_id),
     "startChat" StartChat (super::launching::StartParams) -> (): NoDevice, counted => {
         super::launching::start_asked(&core, params).await?
@@ -206,7 +207,7 @@ calls! { core, client, method, params;
         answer(super::agent::explain_of(core, parse::<AgentParams>(params)?.agent_id).await?)
     },
     "runCommand": NoDevice => answer(super::custom_command::run(parse(params)?).await?),
-    "updateStatus" UpdateStatus (NoParams) -> sikemux_view::updates::UpdateStatus: Watch, any_program => core.updates.status(),
+    "updateStatus" UpdateStatus (NoParams) -> sikemux_view::updates::UpdateStatus: Watch, any_program => core.updates().status(),
     "updateCheck" UpdateCheck (NoParams) -> sikemux_view::updates::UpdateStatus: Owner => super::updates::check(&core).await?,
     "updateInstall" UpdateInstall (super::updates::UpdateInstallParams) -> sikemux_view::updates::UpdateStatus: Owner, counted => super::updates::install(&core, params)?,
     "updateCancel" UpdateCancel (NoParams) -> sikemux_view::updates::UpdateStatus: Owner => super::updates::cancel(&core),
@@ -271,7 +272,7 @@ calls! { core, client, method, params;
     "modelProviderAdd" ModelProviderAdd (model_providers::adding::Entered) -> model_providers::ModelProvider: Owner => model_providers::add(&core, params).await?,
     "modelProviderRemove" ModelProviderRemove (model_providers::ProviderParams) -> (): Owner => model_providers::remove(&core, params).await?,
     "setModelHelper" SetModelHelper (model_providers::HelperParams) -> (): Owner => model_providers::set_helper(&core, params).await?,
-    "agentAccounts" AgentAccounts (NoParams) -> crate::agent_accounts::Book: Full, any_program => core.workspaces.accounts().unwrap_or_default().with_built_ins(),
+    "agentAccounts" AgentAccounts (NoParams) -> crate::agent_accounts::Book: Full, any_program => core.workspaces().accounts().unwrap_or_default().with_built_ins(),
     "agentStatus": Full, any_program => answer(agent_accounts::status(&core, parse(params)?).await?),
     "installedAgents": Full, any_program => answer(agent_accounts::installed(&core).await?),
     "agentSetup" AgentSetup (NoParams) -> Vec<agent_accounts::Installed>: Full, any_program => agent_accounts::setup(&core).await?,
@@ -301,8 +302,8 @@ calls! { core, client, method, params;
     "closePane" ClosePane (super::layout::PaneParams) -> (): Full => super::layout::close_pane(&core, params)?,
     "separatePane" SeparatePane (super::layout::PaneParams) -> String: Full, counted => super::layout::separate_pane(&core, params)?,
     "resizeSplit" ResizeSplit (super::layout::ResizeSplit) -> (): Full => super::layout::resize_split(&core, params)?,
-    "account": Watch => answer(core.account.shown()),
-    "remoteImage" RemoteImage (super::remote_image::ImageParams) -> super::remote_image::PictureData: Watch => super::remote_image::fetch(&core.remote_images, params).await?,
+    "account": Watch => answer(core.account().shown()),
+    "remoteImage" RemoteImage (super::remote_image::ImageParams) -> super::remote_image::PictureData: Watch => super::remote_image::fetch(core.remote_images(), params).await?,
     "accountPicture" AccountPicture (super::account::AccountPictureParams) -> Option<super::remote_image::PictureData>: Watch => super::account::picture(&core, &params.hash).await,
     "accountSignIn" AccountSignIn (NoParams) -> super::account::SignInPage: Owner => super::account::sign_in(&core, client.peer.clone()).await?,
     "accountSignInFinish" AccountSignInFinish (NoParams) -> sikemux_view::device::AccountInfo: Owner => super::account::sign_in_finished(&core).await?,
@@ -355,8 +356,8 @@ calls! { core, client, method, params;
     "deviceJoinTicket": Owner => {
         answer(super::account::devices::device_join_ticket(&core, parse(params)?).await?)
     },
-    "signHostRequest": NoDevice => core.remote.host_request_signature(&parse(params)?),
-    "signShareViewer": NoDevice => core.remote.share_viewer_signature(parse(params)?),
+    "signHostRequest": NoDevice => core.remote().host_request_signature(&parse(params)?),
+    "signShareViewer": NoDevice => core.remote().share_viewer_signature(parse(params)?),
     "answerPairing" AnswerPairing (remote::PairingAnswer) -> remote::RemotePairing: Owner, counted => remote::answer_pairing(&core, params)?,
     "changeDevice" ChangeDevice (remote::DeviceChange) -> remote::RemotePairing: Owner => remote::change_device(&core, params)?,
     "projectFiles" ProjectFiles (super::project_files::ProjectFilesParams) -> super::project_files::ProjectFiles: Full => {
@@ -381,11 +382,11 @@ calls! { core, client, method, params;
     },
     "foundProjects" FoundProjects (NoParams) -> crate::sessions::found_projects::FoundProjects: Full => {
         workspace::launchers_known(&core).await;
-        let accounts = core.workspaces.chat_accounts();
+        let accounts = core.workspaces().chat_accounts();
         blocking(move || Ok(crate::sessions::found_projects::found_projects(accounts, sikemux_process::clock::epoch_ms()))).await?
     },
     "sshConfigFile" SshConfigFile (NoParams) -> String: Full => blocking(|| super::ssh::config_file().map_err(CoreError::from)).await?,
-    "faceStyle": Watch => answer(core.faces.style()),
+    "faceStyle": Watch => answer(core.faces().style()),
     "setFaceStyle" SetFaceStyle (super::faces::FaceStyleChange) -> sikemux_view::device::FaceStyle: Owner, counted => super::faces::set_style_shown(&core, params)?,
     "preferences" Preferences (NoParams) -> Preferences: Watch => core.shown_preferences(),
     "mods" Mods (NoParams) -> super::mods::ModList: Watch => super::mods::list(&core).await?,
@@ -415,7 +416,7 @@ calls! { core, client, method, params;
     "vaultRecoverySaved" VaultRecoverySaved (NoParams) -> (): Owner => super::vault::shown::recovery_saved(&core).await?,
     "vaultRecover" VaultRecover (super::vault::shown::RecoverParams) -> (): Owner => super::vault::shown::recover(&core, params).await?,
     "vaultUses" VaultUses (super::vault::shown::UsesParams) -> Vec<super::vault::shown::ShownUse>: Owner => super::vault::shown::uses(&core, params).await?,
-    "drafts" Drafts (Option<super::drafts::DraftsParams>) -> std::collections::BTreeMap<String, super::drafts::Draft>: Watch => core.drafts.get(params.unwrap_or_default().keys.as_deref()),
+    "drafts" Drafts (Option<super::drafts::DraftsParams>) -> std::collections::BTreeMap<String, super::drafts::Draft>: Watch => core.drafts().get(params.unwrap_or_default().keys.as_deref()),
     "setDraft" SetDraft (super::drafts::SetDraftParams) -> (): Owner => super::drafts::set(&core, params)?,
     "diagramLayout" DiagramLayout (super::diagrams::DiagramParams) -> super::diagrams::DiagramLayout: Owner => super::diagrams::layout(&core, params),
     "setDiagramLayout" SetDiagramLayout (super::diagrams::DiagramParams) -> Value: Owner => super::diagrams::set_layout(&core, params)?,
@@ -441,7 +442,7 @@ calls! { core, client, method, params;
     "codeHostTracked" CodeHostTracked (super::codehost::CodeHostProjectParams) -> plugins::PluginOutcome: Watch => {
         super::codehost::tracked(&core, client.id, params).await
     },
-    "outsideAccess" OutsideAccess (NoParams) -> super::outside::OutsideView: NoDevice => core.outside.view(),
+    "outsideAccess" OutsideAccess (NoParams) -> super::outside::OutsideView: NoDevice => core.outside().view(),
     "answerOutside" AnswerOutside (super::outside::OutsideAnswer) -> super::outside::OutsideView: NoDevice, counted => super::outside::answer(&core, params)?,
     "changeOutside" ChangeOutside (super::outside::OutsideChange) -> super::outside::OutsideView: NoDevice, counted => super::outside::change(&core, params)?,
     "hosts" Hosts (NoParams) -> Vec<super::hosts::HostRow>: Watch => super::hosts::rows(&core),
@@ -457,7 +458,7 @@ calls! { core, client, method, params;
     "moveChatToHost" MoveChatToHost (super::hosts::chat_move::MoveChatToHostParams) -> super::hosts::chat_move::ChatMoved: Owner, counted => super::hosts::chat_move::move_chat(&core, params).await?,
     "sendSession" SendSession (super::hosts::transfer::SendParams) -> super::hosts::transfer::SessionSent: Owner, counted => super::hosts::transfer::send_session(&core, params).await?,
     "requireApproval" RequireApproval (NoParams) -> remote::ApprovalSetting: Owner => remote::ApprovalSetting {
-        require_approval: core.remote.requires_approval(),
+        require_approval: core.remote().requires_approval(),
     },
     "setRequireApproval" SetRequireApproval (remote::ApprovalSetting) -> RemoteStatus: Owner => {
         remote::set_require_approval(&core, params)?

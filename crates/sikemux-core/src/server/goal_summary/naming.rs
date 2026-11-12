@@ -3,6 +3,7 @@
 //! title that agent's chat got. Nothing waits for
 //! it: until it comes, the goal goes by the first clause of what the person asked.
 
+use crate::server::parts::Parts;
 use std::sync::Arc;
 
 use super::answer::MAX_TITLE_CHARS;
@@ -72,7 +73,7 @@ async fn name(core: &Arc<Core>, project: String, card: u64, agent: String) {
         Ok(None) => eprintln!("sikemux core: a goal's name came back as no name"),
         Err(error) => eprintln!("sikemux core: a goal was not named: {error}"),
     }
-    if let Some(title) = core.workspaces.own_title(&agent) {
+    if let Some(title) = core.workspaces().own_title(&agent) {
         chat_titled(core, &agent, &title);
     }
 }
@@ -100,7 +101,7 @@ fn name_in(said: &str) -> Option<String> {
 }
 
 fn keep(core: &Core, goal: &Goal, name: String) {
-    if core.goal_summaries.name(goal, name) {
+    if core.goal_summaries().name(goal, name) {
         core.changed(What::ReadIn(Topic::Boards, Some(&goal.0), None));
     }
 }

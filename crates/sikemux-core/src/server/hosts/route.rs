@@ -5,6 +5,7 @@
 //! `agent_wait` and show it.
 
 use crate::server::changed::What;
+use crate::server::parts::Parts;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -39,20 +40,20 @@ const MAX_CHAIN: usize = 8;
 
 /// Names this host keeps for agents on linked hosts while they run there.
 pub(crate) fn pin(core: &Core) {
-    core.names.pin(core.hosts.team.ids());
+    core.names().pin(core.hosts().team.ids());
 }
 
 /// The hosts that know `agent_id`, an agent here, as one of a team's: the one
 /// its lead runs on, and those its workers run on.
 fn watchers(core: &Core, agent_id: &str) -> HashSet<String> {
     let mut hosts = HashSet::new();
-    let team = core.hosts.team.all();
+    let team = core.hosts().team.all();
     if team.is_empty() {
         return hosts;
     }
     let mut current = agent_id.to_owned();
     for _ in 0..MAX_CHAIN {
-        let Some(parent) = core.names.get(&current).and_then(|named| named.parent) else {
+        let Some(parent) = core.names().get(&current).and_then(|named| named.parent) else {
             break;
         };
         if let Some(foreign) = team.iter().find(|agent| agent.agent_id == parent) {
@@ -74,8 +75,8 @@ fn watchers(core: &Core, agent_id: &str) -> HashSet<String> {
 pub(crate) fn lead_host(core: &Core, agent_id: &str) -> Option<String> {
     let mut current = agent_id.to_owned();
     for _ in 0..MAX_CHAIN {
-        let parent = core.names.get(&current)?.parent?;
-        if let Some(foreign) = core.hosts.team.get(&parent) {
+        let parent = core.names().get(&current)?.parent?;
+        if let Some(foreign) = core.hosts().team.get(&parent) {
             return (foreign.role == Role::Lead).then_some(foreign.host);
         }
         current = parent;
@@ -125,18 +126,18 @@ pub(crate) fn asleep(core: &Core, agent_id: &str) {
 /// Something the agents here show changed: the hosts their teammates run on hear each row
 /// that differs from what they were last told.
 pub(crate) fn rows_moved(core: &Core) {
-    core.hosts.rows.now();
+    core.hosts().rows.now();
 }
 
 /// Tells the changed rows once the changes have gathered.
 pub(super) fn tell_rows_soon(core: &Arc<Core>) {
-    if core.hosts.team.is_empty() || core.hosts.rows_due.swap(true, Ordering::AcqRel) {
+    if core.hosts().team.is_empty() || core.hosts().rows_due.swap(true, Ordering::AcqRel) {
         return;
     }
     let core = core.clone();
     tokio::spawn(async move {
         tokio::time::sleep(ROWS_GATHER).await;
-        core.hosts.rows_due.store(false, Ordering::Release);
+        core.hosts().rows_due.store(false, Ordering::Release);
         let _ = blocking(move || {
             tell_rows(&core);
             Ok(())
@@ -161,7 +162,7 @@ const TOLD: [InboxKind; 6] = [
 fn said(core: &Core) -> HashMap<String, Said> {
     let (chats, sessions) = core.ranked_infos();
     let listed = inbox::view(core, &chats, &sessions);
-    let attentions = core.chats.attentions();
+    let attentions = core.chats().attentions();
     (listed.agents.into_iter())
         .chain(listed.kept)
         .map(|shown| {
@@ -183,7 +184,7 @@ fn said(core: &Core) -> HashMap<String, Said> {
 }
 
 fn tell_rows(core: &Core) {
-    let mut told = core.hosts.rows_told.locked();
+    let mut told = core.hosts().rows_told.locked();
     let mut watched = HashSet::new();
     for (agent_id, said) in said(core) {
         for host in watchers(core, &agent_id) {
@@ -256,12 +257,12 @@ fn tell(
 /// An agent here was closed: its checkout's record goes, and so does a lead on another host
 /// that has no other worker here.
 fn local_gone(core: &Core, agent_id: &str) {
-    core.hosts.team.remove_tree(agent_id);
-    let Some(lead) = core.names.get(agent_id).and_then(|named| named.parent) else {
+    core.hosts().team.remove_tree(agent_id);
+    let Some(lead) = core.names().get(agent_id).and_then(|named| named.parent) else {
         return;
     };
     let Some(foreign) = core
-        .hosts
+        .hosts()
         .team
         .get(&lead)
         .filter(|lead| lead.role == Role::Lead)
@@ -272,12 +273,12 @@ fn local_gone(core: &Core, agent_id: &str) {
     let others = open.iter().any(|other| {
         other != agent_id
             && core
-                .names
+                .names()
                 .get(other)
                 .is_some_and(|named| named.parent.as_deref() == Some(&foreign.agent_id))
     });
     if !others {
-        core.hosts.team.remove(&foreign.agent_id);
+        core.hosts().team.remove(&foreign.agent_id);
         pin(core);
     }
 }
@@ -303,7 +304,7 @@ fn heard(foreign: &mut Foreign, status: AgentStatus, said: Option<Said>) {
 
 pub(super) fn happened_here(core: &Core, host: &str, params: HappenedParams) -> CoreResult<Value> {
     let Some(foreign) = core
-        .hosts
+        .hosts()
         .team
         .get(&params.agent_id)
         .filter(|foreign| foreign.host == host)
@@ -316,14 +317,14 @@ pub(super) fn happened_here(core: &Core, host: &str, params: HappenedParams) -> 
         kind => Happened::of(kind),
     };
     let closed = params.kind == Happened::Gone.kind();
-    core.hosts.team.update(&foreign.agent_id, |foreign| {
+    core.hosts().team.update(&foreign.agent_id, |foreign| {
         if params.said.is_none() {
             foreign.active_at = Some(epoch_ms());
         }
         heard(foreign, params.status, params.said);
     });
     if let Some(happened) = happened {
-        core.harness
+        core.harness()
             .note_agent(&foreign.project, happened.kind(), &foreign.agent_id);
         if foreign.role == Role::Lead
             && matches!(
@@ -334,7 +335,7 @@ pub(super) fn happened_here(core: &Core, host: &str, params: HappenedParams) -> 
             core.note_linked_turn_ended(&foreign.agent_id);
         }
         if closed && !super::super::board::elsewhere::holds(core, &foreign.agent_id) {
-            core.hosts.team.remove(&foreign.agent_id);
+            core.hosts().team.remove(&foreign.agent_id);
             pin(core);
         }
     }
@@ -346,7 +347,7 @@ pub(super) fn happened_here(core: &Core, host: &str, params: HappenedParams) -> 
 /// The agents here that `host` knows as teammates, with what each is doing,
 /// so it can tell which of them still run after the link was down.
 pub(crate) fn resync(core: &Arc<Core>, host: &str) {
-    let foreign = core.hosts.team.on(host);
+    let foreign = core.hosts().team.on(host);
     if foreign.is_empty() {
         return;
     }
@@ -381,7 +382,7 @@ pub(crate) fn resync(core: &Arc<Core>, host: &str) {
                         AgentStatus::Working
                     }
                     None => {
-                        core.names.get(agent_id)?;
+                        core.names().get(agent_id)?;
                         AgentStatus::Asleep
                     }
                 };
@@ -408,7 +409,7 @@ pub(crate) fn resync(core: &Arc<Core>, host: &str) {
 /// they sent while this host was away and that never landed are sent again. A host too old to
 /// be asked only pushes them.
 pub(crate) fn ask_after_workers(core: &Arc<Core>, host: &str) {
-    let workers: Vec<Held> = (core.hosts.team.on(host).into_iter())
+    let workers: Vec<Held> = (core.hosts().team.on(host).into_iter())
         .filter(|foreign| foreign.role == Role::Worker && foreign.pending.is_none())
         .map(|foreign| Held {
             agent_id: foreign.agent_id,
@@ -456,10 +457,10 @@ pub(super) fn workers_here(
         if lead_host(&core, &held.agent_id).as_deref() != Some(host) {
             continue;
         }
-        let Some(tree) = core.hosts.team.tree(&held.agent_id) else {
+        let Some(tree) = core.hosts().team.tree(&held.agent_id) else {
             continue;
         };
-        let waiting = (core.hosts.outbox)
+        let waiting = (core.hosts().outbox)
             .pulled_body(host, |post| {
                 post.params["agentId"] == held.agent_id.as_str()
             })
@@ -467,7 +468,7 @@ pub(super) fn workers_here(
         if waiting || tree.sent.is_none() || tree.sent == held.landed {
             continue;
         }
-        core.hosts.team.tree_unsent(&held.agent_id);
+        core.hosts().team.tree_unsent(&held.agent_id);
         let core = core.clone();
         tokio::spawn(async move { super::spawn::send_commits(&core, &held.agent_id).await });
     }
@@ -496,18 +497,21 @@ pub(super) fn team_here(core: &Core, host: &str, params: TeamParams) -> CoreResu
         .into_iter()
         .map(|standing| (standing.agent_id, (standing.status, standing.said)))
         .collect();
-    for foreign in core.hosts.team.on(host) {
+    for foreign in core.hosts().team.on(host) {
         match present.get(&foreign.agent_id) {
             None if foreign.pending.is_some() => {}
             Some((status, said)) => {
-                core.hosts.team.update(&foreign.agent_id, |foreign| {
+                core.hosts().team.update(&foreign.agent_id, |foreign| {
                     heard(foreign, *status, said.clone());
                 });
             }
             None => {
-                core.harness
-                    .note_agent(&foreign.project, Happened::Gone.kind(), &foreign.agent_id);
-                core.hosts.team.remove(&foreign.agent_id);
+                core.harness().note_agent(
+                    &foreign.project,
+                    Happened::Gone.kind(),
+                    &foreign.agent_id,
+                );
+                core.hosts().team.remove(&foreign.agent_id);
                 if let (Role::Worker, Some(lead)) = (foreign.role, foreign.parent.clone()) {
                     let host = name_of(core, host);
                     notice(core, lead, format!("{} no longer runs on {host}: it stopped while {host} was out of reach, so it reports no more. What it committed and did not report yet stays in its checkout there; start another agent if the work is not done.", foreign.name));
@@ -535,7 +539,7 @@ fn workers_of(core: &Core, lead: &str) -> Vec<String> {
     core.running_agents()
         .into_iter()
         .filter(|agent_id| {
-            core.names
+            core.names()
                 .get(agent_id)
                 .is_some_and(|named| named.parent.as_deref() == Some(lead))
         })
@@ -546,7 +550,7 @@ fn workers_of(core: &Core, lead: &str) -> Vec<String> {
 /// the workers here of its leads, hear of it once.
 pub(super) fn out_of_reach(core: &Core, host: &str) {
     let name = name_of(core, host);
-    for foreign in core.hosts.team.on(host) {
+    for foreign in core.hosts().team.on(host) {
         match foreign.role {
             Role::Worker => {
                 if let Some(lead) = foreign.parent.clone() {
@@ -565,7 +569,7 @@ pub(super) fn out_of_reach(core: &Core, host: &str) {
 /// `host` came back after its teammates here heard it was out of reach.
 pub(super) fn back_in_reach(core: &Core, host: &str) {
     let name = name_of(core, host);
-    for foreign in core.hosts.team.on(host) {
+    for foreign in core.hosts().team.on(host) {
         let to = match foreign.role {
             Role::Worker => foreign.parent.clone().into_iter().collect(),
             Role::Lead => workers_of(core, &foreign.agent_id),
@@ -587,13 +591,13 @@ pub(super) fn back_in_reach(core: &Core, host: &str) {
 /// and their teammates here hear why.
 pub(super) fn host_gone(core: &Core, host: &str, why: &str) {
     let name = name_of(core, host);
-    let gone = core.hosts.team.remove_host(host);
+    let gone = core.hosts().team.remove_host(host);
     if gone.is_empty() {
         return;
     }
     pin(core);
     for foreign in gone {
-        core.harness
+        core.harness()
             .note_agent(&foreign.project, Happened::Gone.kind(), &foreign.agent_id);
         match foreign.role {
             Role::Worker => {
@@ -619,7 +623,7 @@ pub(crate) async fn deliver(
     carried: Carried,
 ) -> Result<Value, String> {
     let foreign = core
-        .hosts
+        .hosts()
         .team
         .get(agent_id)
         .ok_or("Sikemux no longer knows which host that agent runs on")?;
@@ -650,7 +654,7 @@ pub(crate) async fn deliver(
             Err(_) => {}
         }
     }
-    let reachable = core.hosts.reachable(&foreign.host);
+    let reachable = core.hosts().reachable(&foreign.host);
     post(core, &foreign.host, {
         let sending = Sending::new("deliver", params)
             .from(&from)
@@ -683,12 +687,12 @@ pub(super) async fn deliver_here(
 ) -> Result<Value, String> {
     let carried: Carried = serde_json::from_value(params).map_err(|error| error.to_string())?;
     let teammate = core
-        .hosts
+        .hosts()
         .team
         .get(&carried.from_id)
         .is_some_and(|foreign| foreign.host == host);
     let answer_copy = carried.answered.is_some()
-        && core.hosts.team.on(host).iter().any(|foreign| {
+        && core.hosts().team.on(host).iter().any(|foreign| {
             foreign.role == Role::Worker && foreign.parent.as_deref() == Some(carried.to.as_str())
         });
     if !teammate && !answer_copy {
@@ -696,7 +700,7 @@ pub(super) async fn deliver_here(
     }
     let landed = if carried.kind == MessageKind::Report {
         let mut landed = None;
-        core.hosts
+        core.hosts()
             .team
             .update(&carried.from_id, |foreign| landed = foreign.landed.take());
         landed
@@ -715,7 +719,7 @@ pub(crate) async fn read(
     cursor: Option<String>,
 ) -> Result<Value, String> {
     let foreign = core
-        .hosts
+        .hosts()
         .team
         .get(agent_id)
         .ok_or("Sikemux no longer knows which host that agent runs on")?;
@@ -758,7 +762,7 @@ pub(super) async fn read_here(
     params: ReadParams,
 ) -> Result<Value, String> {
     if core
-        .hosts
+        .hosts()
         .team
         .get(&params.caller)
         .is_none_or(|foreign| foreign.host != host)
@@ -778,7 +782,7 @@ pub(crate) async fn close(
     agent_id: &str,
 ) -> Result<String, String> {
     let foreign = core
-        .hosts
+        .hosts()
         .team
         .get(agent_id)
         .ok_or("Sikemux no longer knows which host that agent runs on")?;
@@ -813,13 +817,13 @@ pub(super) struct CloseParams {
 
 pub(super) fn close_here(core: &Core, host: &str, params: CloseParams) -> CoreResult<Value> {
     let from_there = core
-        .hosts
+        .hosts()
         .team
         .get(&params.caller)
         .is_some_and(|foreign| foreign.host == host);
     if !from_there
         || !core
-            .names
+            .names()
             .leads_of(&params.agent_id)
             .contains(&params.caller)
     {
@@ -874,7 +878,7 @@ pub(super) struct HireParams {
 
 pub(super) fn hire_here(core: &Core, host: &str, params: HireParams) -> CoreResult<Value> {
     let lead = core
-        .hosts
+        .hosts()
         .team
         .get(&params.lead)
         .filter(|lead| lead.host == host)
@@ -883,7 +887,7 @@ pub(super) fn hire_here(core: &Core, host: &str, params: HireParams) -> CoreResu
         return Err("that is not an agent id".into());
     }
     let named = core
-        .names
+        .names()
         .hire(
             Worker {
                 agent_id: &params.agent_id,
@@ -896,7 +900,7 @@ pub(super) fn hire_here(core: &Core, host: &str, params: HireParams) -> CoreResu
             core.open_agents(),
         )
         .map_err(String::from)?;
-    core.hosts.team.add(Foreign {
+    core.hosts().team.add(Foreign {
         agent_id: params.agent_id,
         host: host.to_owned(),
         name: named.name.clone(),
@@ -943,13 +947,13 @@ pub(crate) fn forget_hired(core: &Core, host: &str, agent_id: &str) {
 pub(super) fn forget_here(core: &Core, host: &str, params: AboutAgent) -> CoreResult<Value> {
     let agent_id = params.agent_id.as_str();
     if core
-        .hosts
+        .hosts()
         .team
         .get(agent_id)
         .is_some_and(|foreign| foreign.host == host)
     {
-        core.hosts.team.remove(agent_id);
-        core.names.forget(agent_id);
+        core.hosts().team.remove(agent_id);
+        core.names().forget(agent_id);
         pin(core);
         super::changed(core);
     }
@@ -960,15 +964,15 @@ pub(super) fn forget_here(core: &Core, host: &str, params: AboutAgent) -> CoreRe
 /// forgets it here. Whatever it sends after this is not taken.
 pub(crate) fn stop_worker(core: &Core, agent_id: &str) {
     let Some(worker) = core
-        .hosts
+        .hosts()
         .team
         .get(agent_id)
         .filter(|foreign| foreign.role == Role::Worker)
     else {
         return;
     };
-    core.hosts.team.remove(agent_id);
-    core.harness
+    core.hosts().team.remove(agent_id);
+    core.harness()
         .note_agent(&worker.project, Happened::Gone.kind(), agent_id);
     pin(core);
     post(
@@ -991,7 +995,7 @@ pub(super) fn stop_here(core: &Core, host: &str, params: AboutAgent) -> CoreResu
     if lead_host(core, agent_id).as_deref() != Some(host) {
         return Ok(Value::Null);
     }
-    if core.chats.stop(agent_id) {
+    if core.chats().stop(agent_id) {
         core.note_agent_gone(agent_id);
     }
     local_gone(core, agent_id);
@@ -1001,7 +1005,7 @@ pub(super) fn stop_here(core: &Core, host: &str, params: AboutAgent) -> CoreResu
 /// An agent here did work besides messaging: hosts where its teammates run
 /// let go of messages held between them, at most every so often.
 pub(crate) fn worked(core: &Core, agent_id: &str) {
-    if core.hosts.team.ids().is_empty() || !core.hosts.worked_due(agent_id, WORKED_EVERY_MS) {
+    if core.hosts().team.ids().is_empty() || !core.hosts().worked_due(agent_id, WORKED_EVERY_MS) {
         return;
     }
     for host in watchers(core, agent_id) {
@@ -1023,7 +1027,7 @@ pub(crate) fn worked(core: &Core, agent_id: &str) {
 pub(super) fn worked_here(core: &Core, host: &str, params: AboutAgent) -> CoreResult<Value> {
     let agent_id = params.agent_id.as_str();
     if core
-        .hosts
+        .hosts()
         .team
         .get(agent_id)
         .is_some_and(|foreign| foreign.host == host)
@@ -1056,13 +1060,14 @@ pub(crate) fn elsewhere(
     method: &str,
     params: Value,
 ) -> (Vec<(String, Value)>, Option<Value>) {
-    if !crate::server::calls::ROW_ACTIONS.contains(&method) || core.hosts.team.is_empty() {
+    if !crate::server::calls::ROW_ACTIONS.contains(&method) || core.hosts().team.is_empty() {
         return (Vec::new(), Some(params));
     }
     let mut there: Vec<(String, Vec<String>)> = Vec::new();
     let mut here = Vec::new();
     for agent_id in named(&params) {
-        let worker = (core.hosts.team.get(&agent_id)).filter(|worker| worker.role == Role::Worker);
+        let worker =
+            (core.hosts().team.get(&agent_id)).filter(|worker| worker.role == Role::Worker);
         match worker {
             Some(worker) => match there.iter_mut().find(|(host, _)| *host == worker.host) {
                 Some((_, workers)) => workers.push(agent_id),
@@ -1143,7 +1148,7 @@ pub(crate) fn permit(core: &Core, worker: &Foreign, request_id: &str, option_id:
             .kept()
             .about(&worker.agent_id),
     );
-    core.hosts.team.update(&worker.agent_id, |foreign| {
+    core.hosts().team.update(&worker.agent_id, |foreign| {
         if let Some(said) = &mut foreign.said {
             said.attentions
                 .retain(|attention| attention.id != request_id);
@@ -1246,7 +1251,7 @@ pub(super) struct PassOnParams {
 pub(super) fn pass_on_here(core: &Core, host: &str, params: PassOnParams) -> Result<Value, String> {
     let lead = params.lead.as_str();
     if core
-        .hosts
+        .hosts()
         .team
         .get(lead)
         .is_none_or(|foreign| foreign.host != host)

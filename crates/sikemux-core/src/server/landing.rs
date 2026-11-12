@@ -2,6 +2,7 @@
 //! Playbook's Landing page; until then it is read from how the project's latest changes reached
 //! its branch, once an hour at most.
 
+use crate::server::parts::Parts;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -87,13 +88,13 @@ pub(crate) async fn set_landed_means(
 
 fn history(core: &Core, project: &str) -> Option<LandingHistory> {
     let now = epoch_ms();
-    if let Some((at, history)) = core.landing.0.locked().get(project) {
+    if let Some((at, history)) = core.landing().0.locked().get(project) {
         if now.saturating_sub(*at) < READ_AGAIN_MS {
             return history.clone();
         }
     }
     let history = read(Path::new(project));
-    (core.landing.0.locked()).insert(project.to_owned(), (now, history.clone()));
+    (core.landing().0.locked()).insert(project.to_owned(), (now, history.clone()));
     history
 }
 

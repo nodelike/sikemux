@@ -1,5 +1,6 @@
 //! What the chat's own methods take, and what they do with more than one part of a chat.
 
+use crate::server::parts::Parts;
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
@@ -80,7 +81,7 @@ pub(crate) async fn edit_with(
     paths: Vec<String>,
     mut context: Vec<ChatContext>,
 ) -> CoreResult<()> {
-    core.workspaces.person_said(&agent_id);
+    core.workspaces().person_said(&agent_id);
     crate::server::chief::person_wrote(core, &agent_id);
     super::wake_for_message(core, &agent_id, &mut context).await?;
     super::edit(core, &agent_id, message_id, text, paths, context).await
@@ -88,7 +89,7 @@ pub(crate) async fn edit_with(
 
 /// What the person says to an agent running in a terminal goes in as a message.
 pub(crate) fn steer_terminal(core: &Arc<Core>, agent_id: &str, text: String) -> CoreResult<String> {
-    core.workspaces.person_said(agent_id);
+    core.workspaces().person_said(agent_id);
     crate::server::chief::person_wrote(core, agent_id);
     crate::server::messages::from_person(core, agent_id, text)?;
     Ok("queued".to_owned())
@@ -101,7 +102,7 @@ pub(crate) async fn steer_chat(
     paths: Vec<String>,
     mut context: Vec<ChatContext>,
 ) -> CoreResult<String> {
-    core.workspaces.person_said(agent_id);
+    core.workspaces().person_said(agent_id);
     crate::server::chief::person_wrote(core, agent_id);
     super::wake_for_message(core, agent_id, &mut context).await?;
     let whose = super::Whose::typed_to(core, agent_id);
@@ -138,7 +139,7 @@ impl PromptChatParams {
 /// Whether the message must wait for its chat, or a chat it names, to wake, rather than going
 /// at once, in the order it came.
 pub(crate) fn must_wake(core: &Core, params: &PromptChatParams) -> bool {
-    !core.workspaces.in_terminal(&params.agent_id)
+    !core.workspaces().in_terminal(&params.agent_id)
         && (super::stopped(core, &params.agent_id) || super::mentions::wakes(&params.context))
 }
 
@@ -152,13 +153,13 @@ pub(crate) fn prompt_awake(core: &Arc<Core>, params: PromptChatParams) -> CoreRe
         paths,
         context,
     } = params;
-    core.workspaces.person_said(&agent_id);
+    core.workspaces().person_said(&agent_id);
     let typed = super::Whose::typed_to(core, &agent_id);
     let answered = crate::server::person_calls::written(core, &agent_id, &text).max(typed.answered);
-    core.activity_log
+    core.activity_log()
         .person_wrote(crate::server::chief::is_chief(core, &agent_id));
     crate::server::chief::person_wrote(core, &agent_id);
-    if core.workspaces.in_terminal(&agent_id) {
+    if core.workspaces().in_terminal(&agent_id) {
         crate::server::messages::from_person(core, &agent_id, text)
     } else {
         let whose = super::Whose {
@@ -176,7 +177,7 @@ pub(crate) async fn prompt_from_mod(
     agent_id: &str,
     text: String,
 ) -> CoreResult<()> {
-    if core.workspaces.in_terminal(agent_id) {
+    if core.workspaces().in_terminal(agent_id) {
         return crate::server::messages::from_person(core, agent_id, text);
     }
     let mut context = Vec::new();
@@ -195,7 +196,7 @@ pub(crate) async fn prompt_from_mod(
 /// Sends the person's message, waking first what it needs: the agents, earlier chats and issues
 /// it names.
 pub(crate) async fn prompt_chat(core: &Arc<Core>, mut params: PromptChatParams) -> CoreResult<()> {
-    if !core.workspaces.in_terminal(&params.agent_id) {
+    if !core.workspaces().in_terminal(&params.agent_id) {
         super::wake_for_prompt(core, &params.agent_id, &mut params.context).await?;
     }
     prompt_awake(core, params)

@@ -1,6 +1,7 @@
 //! Whether the person trusts a project's stated tasks and checks, and asking when not.
 
 use super::*;
+use crate::server::parts::Parts;
 
 pub(super) fn config_ask(
     path: &str,
@@ -31,7 +32,7 @@ pub(crate) fn config_needs(core: &Core, config: &ConfigLoad) -> Option<TrustAsk>
         return None;
     };
     let ask = config_ask(path, fingerprint, config);
-    (trust.requires_approval && !core.tasks.trusts(&ask.grant)).then_some(ask)
+    (trust.requires_approval && !core.tasks().trusts(&ask.grant)).then_some(ask)
 }
 
 pub(super) fn personal_ask(project: &Path, task: &Definition) -> TrustAsk {
@@ -60,7 +61,7 @@ pub(super) fn personal_ask(project: &Path, task: &Definition) -> TrustAsk {
 /// The person let this agent run anything, so its tasks skip the trust question.
 pub(super) fn bypasses(core: &Core, agent_id: Option<&str>) -> bool {
     agent_id
-        .and_then(|agent_id| core.workspaces.run_of(agent_id))
+        .and_then(|agent_id| core.workspaces().run_of(agent_id))
         .is_some_and(|run| run.permission_mode == PermissionMode::Bypass)
 }
 
@@ -74,7 +75,7 @@ pub(super) fn trust_for(
         Source::Project => config_needs(core, config),
         Source::Personal => {
             let ask = personal_ask(project, task);
-            (!core.tasks.trusts(&ask.grant)).then_some(ask)
+            (!core.tasks().trusts(&ask.grant)).then_some(ask)
         }
         Source::Detected | Source::Rerun | Source::Command => None,
     }
@@ -90,7 +91,7 @@ pub(crate) async fn ask_person(
 ) -> bool {
     let id = uuid::Uuid::new_v4().to_string();
     let grant = ask.grant.clone();
-    core.tasks.state.locked().asking.insert(
+    core.tasks().state.locked().asking.insert(
         id.clone(),
         Asked {
             id: id.clone(),
@@ -100,18 +101,18 @@ pub(crate) async fn ask_person(
         },
     );
     if let Some(execution_id) = execution_id {
-        core.harness.awaiting_trust(execution_id);
+        core.harness().awaiting_trust(execution_id);
     }
     core.changed(What::Read(Topic::Trust));
     let until = Instant::now() + TRUST_WAIT;
     let answer = loop {
-        let mut changed = core.harness.subscribe();
-        if core.tasks.trusts(&grant) {
+        let mut changed = core.harness().subscribe();
+        if core.tasks().trusts(&grant) {
             break true;
         }
-        let waiting = core.tasks.state.locked().asking.contains_key(&id)
+        let waiting = core.tasks().state.locked().asking.contains_key(&id)
             && execution_id.is_none_or(|execution_id| {
-                core.harness
+                core.harness()
                     .run_of(execution_id)
                     .is_some_and(|run| run.status.is_active())
             });
@@ -123,7 +124,7 @@ pub(crate) async fn ask_person(
             _ = tokio::time::sleep_until(until) => {}
         }
     };
-    core.tasks.state.locked().asking.remove(&id);
+    core.tasks().state.locked().asking.remove(&id);
     core.changed(What::Read(Topic::Trust));
     answer
 }
@@ -153,7 +154,7 @@ pub(crate) async fn config_trusted(
 }
 
 pub(crate) fn asks(core: &Core) -> Vec<TrustQuestion> {
-    (core.tasks.state.locked().asking.values())
+    (core.tasks().state.locked().asking.values())
         .map(|asked| TrustQuestion {
             id: asked.id.clone(),
             project: asked.project.clone(),
@@ -174,19 +175,19 @@ pub(crate) fn answer_trust(
     answered_by: Option<String>,
 ) -> CoreResult<()> {
     let asked = core
-        .tasks
+        .tasks()
         .state
         .locked()
         .asking
         .remove(id)
         .ok_or("Nothing waits on that answer any more")?;
     if trust {
-        core.tasks.grant(asked.ask.grant, answered_by);
+        core.tasks().grant(asked.ask.grant, answered_by);
         core.changed(What::ReadIn(Topic::Tasks, Some(&asked.project), None));
     } else if let Some(execution_id) = &asked.execution_id {
-        core.harness
+        core.harness()
             .launch_failed(execution_id, "Project configuration was not approved");
     }
-    core.harness.changed();
+    core.harness().changed();
     Ok(())
 }

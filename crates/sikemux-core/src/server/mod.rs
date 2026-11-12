@@ -77,6 +77,7 @@ pub mod open_files;
 pub mod outside;
 mod overlap;
 mod part;
+mod parts;
 pub(crate) mod person_calls;
 pub mod pictures;
 mod pins;
@@ -164,6 +165,7 @@ use sikemux_wire::protocol::{BuildIdentity, ErrorKind, Event, SessionId};
 
 use changed::What;
 use connection::{ClientConn, ClientId};
+use parts::Parts;
 use session::Session;
 
 pub const DEFAULT_IDLE_EXIT: Duration = Duration::from_secs(5 * 60);
@@ -427,93 +429,24 @@ pub(crate) struct Core {
     pub(crate) config: ServerConfig,
     pub(crate) detection: RwLock<ManifestRegistry>,
     manifest_dir: Mutex<Option<PathBuf>>,
-    pub(crate) harness: harness::Harness,
     pub(crate) window: window::Window,
-    pub(crate) updating: upgrade::Updating,
     pub(crate) listening: Listening,
-    pub(crate) tools: Mutex<Option<tools::ToolEndpoint>>,
     pub(crate) model_proxy: model_proxy::ModelProxy,
-    pub(crate) chats: chat::Chats,
-    pub(crate) remote: remote::Remote,
-    /// Programs Sikemux did not start that the person lets drive its chats.
-    pub(crate) outside: outside::Outside,
-    pub(crate) shares: share::Shares,
-    pub(crate) hooks: hooks::Hooks,
-    pub(crate) workspaces: workspace::Workspaces,
-    pub(crate) seen: seen::Seen,
-    pub(crate) settling: settling::Settling,
-    pub(crate) stalls: stalls::Stalls,
-    pub(crate) lifecycle: lifecycle::Lifecycle,
-    /// Agents' actions that leave this machine, held for the person.
-    pub(crate) ship: ship::Ships,
-    /// The decisions put to the person.
-    pub(crate) person_calls: person_calls::PersonCalls,
-    pub(crate) places: places::store::Store,
-    pub(crate) pins: pins::Pins,
-    pub(crate) build_outputs: worktree::build_output::BuildOutputs,
-    /// Builds agents start, taking turns.
-    pub(crate) builds: builds::Builds,
-    pub(crate) session_watch: session_watch::SessionWatch,
-    pub(crate) activity_log: Arc<activity_log::ActivityLog>,
-    pub(crate) device_view: device_view::DeviceViews,
-    pub(crate) host_watch: host_stats::HostWatch,
-    pub(crate) names: names::Names,
-    pub(crate) boards: board::Boards,
-    pub(crate) goal_summaries: goal_summary::Summaries,
-    pub(crate) goals: goals::Goals,
-    pub(crate) repo_events: repo_events::RepoEvents,
-    pub(crate) memory: memory::Memory,
-    pub(crate) triggers: triggers::Triggers,
-    pub(crate) landing: landing::Histories,
-    pub(crate) land_queue: edits::queue::LandQueue,
     pub(crate) waits: waits::Waits,
-    pub(crate) pictures: pictures::Pictures,
     pub(crate) changes: changed::Changes,
     pub(crate) ports: ports::Ports,
-    pub(crate) spares: spare::Spares,
-    pub(crate) updates: updates::Updates,
-    pub(crate) remote_images: remote_image::RemoteImages,
     /// Rings when a window opens, so the day's usage counts it at once.
     pub(crate) usage_wake: Notify,
-    pub(crate) tasks: tasks::Tasks,
-    pub(crate) git: git::Projects,
-    /// The code-host lists clients look at, kept and read again while they do.
-    pub(crate) code_host_lists: codehost::Lists,
-    /// The files clients have open, watched wherever they are.
-    pub(crate) open_files: open_files::OpenFiles,
-    pub(crate) layouts: layout::Layouts,
-    /// Who this host is signed in to Sikemux as.
-    pub(crate) account: account::Account,
-    /// The account's vault of sign-ins, as this host holds it.
-    pub(crate) vault: vault::Vault,
     /// The rail numbers running loose terminals have.
     rail_numbers: Mutex<BTreeSet<u32>>,
     /// Watches the SSH config once a client has listed its hosts.
     pub(crate) ssh_watch: OnceLock<Option<::notify::RecommendedWatcher>>,
-    pub(crate) ci: codehost::ci::Ci,
-    pub(crate) edits: edits::Edits,
-    pub(crate) collisions: collisions::Collisions,
-    pub(crate) checks: checks::ProjectChecks,
-    pub(crate) notify: notify::Notifier,
-    pub(crate) inbox: inbox::Turns,
-    pub(crate) joins: join::Joins,
-    /// Hosts linked with this one, and the agents of teams shared with them.
-    pub(crate) hosts: hosts::Hosts,
-    /// The faces agents wear, and the style the person picked for them.
-    pub(crate) faces: faces::Faces,
     pub(crate) preferences: preferences::Prefs,
-    /// What the person has typed and not sent yet, by what it is for.
-    pub(crate) drafts: drafts::Drafts,
-    /// Where the person moved each diagram's tables, by what it is a diagram of.
-    pub(crate) diagrams: diagrams::Diagrams,
-    pub(crate) mods: mods::Mods,
-    pub(crate) mcp_apps: mcp_apps::McpApps,
     /// Answers in parts on the connections that asked for them.
     pub(crate) streams: streams::Streams,
-    /// The repositories coming down into new projects.
-    pub(crate) clones: new_project::Clones,
     pub(crate) look: themes::Look,
-    pub(crate) chiefs: chief::Chiefs,
+    /// What each feature keeps, read through [`parts::Parts`].
+    parts: parts::Fields,
 }
 
 /// Session and window call ids start from the clock, so an id a client still
@@ -604,76 +537,78 @@ impl Core {
             config,
             detection: RwLock::new(detection),
             manifest_dir: Mutex::new(None),
-            harness,
             window: window::Window::new(first_session_id()),
-            updating: upgrade::Updating::default(),
             listening,
-            tools: Mutex::new(None),
             model_proxy: model_proxy::ModelProxy::default(),
-            chats: chat::Chats::new(data_dir),
-            remote: remote::Remote::default(),
-            outside: outside::Outside::new(data_dir),
-            shares: share::Shares::default(),
-            hooks: hooks::Hooks::default(),
-            workspaces: workspace::Workspaces::new(data_dir),
-            seen: seen::Seen::default(),
-            settling: settling::Settling::default(),
-            stalls: stalls::Stalls::default(),
-            lifecycle: lifecycle::Lifecycle::default(),
-            ship: ship::Ships::default(),
-            person_calls,
-            pins: pins::Pins::new(data_dir),
-            build_outputs: Default::default(),
-            builds: builds::Builds::default(),
-            session_watch: session_watch::SessionWatch::default(),
-            activity_log,
-            device_view: device_view::DeviceViews::default(),
-            host_watch: host_stats::HostWatch::default(),
-            names,
-            boards: board::Boards::new(data_dir),
-            places: places::store::Store::new(data_dir),
-            goal_summaries: goal_summary::Summaries::new(data_dir),
-            goals: goals::Goals::default(),
-            repo_events: repo_events::RepoEvents::default(),
-            landing: landing::Histories::default(),
-            land_queue: Default::default(),
             waits: waits::Waits::new(data_dir),
-            pictures: pictures::Pictures::new(data_dir),
-            memory: memory::Memory::new(data_dir),
-            triggers: triggers::Triggers::new(data_dir),
             changes: changed::Changes::default(),
             ports: ports::Ports::default(),
-            spares: spare::Spares::default(),
-            updates: updates::Updates::default(),
-            remote_images: remote_image::RemoteImages::default(),
             usage_wake: Notify::new(),
-            tasks: tasks::Tasks::new(data_dir),
-            git: git::Projects::default(),
-            code_host_lists: Default::default(),
-            open_files: Default::default(),
-            layouts: layout::Layouts::new(data_dir),
-            account: Default::default(),
-            vault: vault::Vault::default(),
             rail_numbers: Mutex::default(),
             ssh_watch: OnceLock::new(),
-            ci: Default::default(),
-            edits: edits::Edits::new(data_dir, me.clone()),
-            collisions: collisions::Collisions::new(me.clone()),
-            checks: Default::default(),
-            notify: notify::Notifier::default(),
-            inbox: inbox::Turns::new(data_dir),
-            joins: Default::default(),
-            hosts,
-            faces: faces::Faces::new(data_dir),
             preferences: preferences::Prefs::new(data_dir),
-            drafts: drafts::Drafts::new(data_dir),
-            diagrams: diagrams::Diagrams::new(data_dir),
-            mods: mods::Mods::new(data_dir),
-            mcp_apps: mcp_apps::McpApps::new(data_dir),
             streams: streams::Streams::default(),
-            clones: new_project::Clones::default(),
             look: themes::Look::default(),
-            chiefs: chief::Chiefs::new(data_dir),
+            parts: parts::Fields {
+                harness,
+                updating: upgrade::Updating::default(),
+                tools: Mutex::new(None),
+                chats: chat::Chats::new(data_dir),
+                remote: remote::Remote::default(),
+                outside: outside::Outside::new(data_dir),
+                shares: share::Shares::default(),
+                hooks: hooks::Hooks::default(),
+                workspaces: workspace::Workspaces::new(data_dir),
+                seen: seen::Seen::default(),
+                settling: settling::Settling::default(),
+                stalls: stalls::Stalls::default(),
+                lifecycle: lifecycle::Lifecycle::default(),
+                ship: ship::Ships::default(),
+                person_calls,
+                pins: pins::Pins::new(data_dir),
+                build_outputs: Default::default(),
+                builds: builds::Builds::default(),
+                session_watch: session_watch::SessionWatch::default(),
+                activity_log,
+                device_view: device_view::DeviceViews::default(),
+                host_watch: host_stats::HostWatch::default(),
+                names,
+                boards: board::Boards::new(data_dir),
+                places: places::store::Store::new(data_dir),
+                goal_summaries: goal_summary::Summaries::new(data_dir),
+                goals: goals::Goals::default(),
+                repo_events: repo_events::RepoEvents::default(),
+                landing: landing::Histories::default(),
+                land_queue: Default::default(),
+                pictures: pictures::Pictures::new(data_dir),
+                memory: memory::Memory::new(data_dir),
+                triggers: triggers::Triggers::new(data_dir),
+                spares: spare::Spares::default(),
+                updates: updates::Updates::default(),
+                remote_images: remote_image::RemoteImages::default(),
+                tasks: tasks::Tasks::new(data_dir),
+                git: git::Projects::default(),
+                code_host_lists: Default::default(),
+                open_files: Default::default(),
+                layouts: layout::Layouts::new(data_dir),
+                account: Default::default(),
+                vault: vault::Vault::default(),
+                ci: Default::default(),
+                edits: edits::Edits::new(data_dir, me.clone()),
+                collisions: collisions::Collisions::new(me.clone()),
+                checks: Default::default(),
+                notify: notify::Notifier::default(),
+                inbox: inbox::Turns::new(data_dir),
+                joins: Default::default(),
+                hosts,
+                faces: faces::Faces::new(data_dir),
+                drafts: drafts::Drafts::new(data_dir),
+                diagrams: diagrams::Diagrams::new(data_dir),
+                mods: mods::Mods::new(data_dir),
+                mcp_apps: mcp_apps::McpApps::new(data_dir),
+                clones: new_project::Clones::default(),
+                chiefs: chief::Chiefs::new(data_dir),
+            },
         });
         from_app::carry(&core, data_dir);
         pictures::tidy(&core, false);
@@ -755,7 +690,7 @@ impl Core {
     }
 
     pub(crate) fn running_agents(&self) -> HashSet<String> {
-        let mut running: HashSet<String> = self.chats.ids().into_iter().collect();
+        let mut running: HashSet<String> = self.chats().ids().into_iter().collect();
         running.extend(self.all_sessions().iter().filter_map(|session| {
             session
                 .agent
@@ -769,7 +704,7 @@ impl Core {
     /// workspace holds, asleep or not.
     pub(crate) fn open_agents(&self) -> HashSet<String> {
         let mut open = self.running_agents();
-        open.extend(self.workspaces.agent_ids());
+        open.extend(self.workspaces().agent_ids());
         open
     }
 
@@ -785,19 +720,19 @@ impl Core {
     ) -> (names::AgentName, Option<names::Returned>) {
         let starting = names::Starting {
             agent_id,
-            project: self.workspaces.project_of(cwd),
+            project: self.workspaces().project_of(cwd),
             provider,
             resume_id,
         };
-        let reopened = (self.names).come_back(agent_id, &starting.project, self.open_agents());
+        let reopened = (self.names()).come_back(agent_id, &starting.project, self.open_agents());
         if let Some(buddy) = reopened.as_ref().and_then(|back| back.buddy.as_ref()) {
             let _ = self
-                .workspaces
+                .workspaces()
                 .edit_agent(agent_id, |agent| agent.buddy = Some(buddy.clone()));
         }
-        let (named, changed) = self.names.give(starting, self.open_agents());
-        if let Some(agent) = self.workspaces.agent(agent_id) {
-            (self.names).note_runs(vec![(agent.id, agent.profile_id, agent.terminal)]);
+        let (named, changed) = self.names().give(starting, self.open_agents());
+        if let Some(agent) = self.workspaces().agent(agent_id) {
+            (self.names()).note_runs(vec![(agent.id, agent.profile_id, agent.terminal)]);
         }
         if changed || reopened.is_some() {
             self.changed(What::View);
@@ -883,16 +818,16 @@ impl Core {
         self.sessions
             .locked()
             .values()
-            .filter(|s| s.is_running() && !self.spares.is_spare(s.id))
+            .filter(|s| s.is_running() && !self.spares().is_spare(s.id))
             .count()
     }
 
     fn is_idle(&self) -> bool {
-        !self.remote.is_enabled()
+        !self.remote().is_enabled()
             && self.clients.locked().is_empty()
             && self.running_sessions() == 0
-            && self.chats.count() == 0
-            && !board::auto::has_work(&self.boards)
+            && self.chats().count() == 0
+            && !board::auto::has_work(self.boards())
     }
 
     pub(crate) fn client_conn(&self, id: ClientId) -> Option<Arc<ClientConn>> {
@@ -932,7 +867,7 @@ impl Core {
     pub(crate) fn permit(&self, peer: &access::Peer, needs: access::Needs) -> CoreResult<()> {
         let standing = match peer {
             access::Peer::App | access::Peer::Local | access::Peer::Share { .. } => None,
-            access::Peer::Device { id } => self.remote.standing_of(id),
+            access::Peer::Device { id } => self.remote().standing_of(id),
         };
         access::permit(peer, standing, needs)
     }
@@ -1187,7 +1122,7 @@ pub async fn serve(config: ServerConfig) -> Result<(), ServerError> {
         lock_fd: lock.as_raw_fd(),
     };
     let core = Core::open(config, listening, 0)?;
-    *core.tools.locked() = start_tools(&core).await;
+    *core.tools().locked() = start_tools(&core).await;
     chat::restore(&core);
     // Only a core started afresh: one that took over keeps the tabs that were open.
     workspace::restore(&core);
@@ -1210,15 +1145,15 @@ pub(crate) async fn run_core(
     lock: File,
 ) -> Result<(), ServerError> {
     let config = core.config.clone();
-    core.chats.clear_history();
+    core.chats().clear_history();
     local_peer::settle();
     listener.set_nonblocking(true)?;
     let listener = tokio::net::UnixListener::from_std(listener)?;
     remote::start(&core, &config).await;
     runtime_file::write(
         &remote::file_path(&config.socket),
-        core.remote.owner(),
-        core.remote.core_id(),
+        core.remote().owner(),
+        core.remote().core_id(),
     );
     if config.plugins.is_some() {
         vault::start(&core);
@@ -1242,7 +1177,7 @@ pub(crate) async fn run_core(
         tokio::spawn(network_watch::run(core.clone())),
     ]);
     let mut shutdown = core.shutdown.subscribe();
-    let mut frozen = core.updating.watch();
+    let mut frozen = core.updating().watch();
     crate::waiting::wake(&config.socket);
     let mut ticker = tokio::time::interval(
         (config.idle_exit / 10).clamp(Duration::from_millis(10), Duration::from_secs(1)),
@@ -1274,7 +1209,7 @@ pub(crate) async fn run_core(
                 break;
             }
             _ = ticker.tick() => {
-                if core.is_idle() && !core.updating.is_frozen() {
+                if core.is_idle() && !core.updating().is_frozen() {
                     let since = *idle_since.get_or_insert_with(Instant::now);
                     if since.elapsed() >= config.idle_exit {
                         eprintln!(
@@ -1297,7 +1232,7 @@ pub(crate) async fn run_core(
     remote::stop_network(&core);
     within_stop_limit("remote access", remote::stop(&core)).await;
     remote::stop_live(&core);
-    let tools = core.tools.locked().take();
+    let tools = core.tools().locked().take();
     if let Some(tools) = tools {
         tools.stop();
     }

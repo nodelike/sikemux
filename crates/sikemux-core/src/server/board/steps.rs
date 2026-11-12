@@ -177,6 +177,7 @@ pub(super) fn settle_cards(core: &Core, state: &mut State, project: &str) -> Set
 
 #[cfg(test)]
 mod tests {
+    use crate::server::parts::Parts;
     use serde_json::json;
     use sikemux_process::sync::Locked;
 
@@ -196,7 +197,7 @@ mod tests {
     #[test]
     fn a_proposal_changes_no_setting() {
         let core = Core::new(Default::default(), None).unwrap();
-        let mut state = core.boards.state.locked();
+        let mut state = core.boards().state.locked();
         let board = state
             .boards
             .entry(PROJECT.to_owned())

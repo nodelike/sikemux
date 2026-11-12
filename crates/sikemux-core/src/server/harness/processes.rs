@@ -1,10 +1,11 @@
 //! Tasks an agent starts, reads and stops, and telling it when one fails.
 
 use super::*;
+use crate::server::parts::Parts;
 
 pub(crate) async fn stop_run(core: &Arc<Core>, execution_id: &str) -> Result<Run, String> {
     let kill = core
-        .harness
+        .harness()
         .change(|state| -> Result<Option<SessionId>, String> {
             let run = state
                 .runs
@@ -33,7 +34,7 @@ pub(crate) async fn stop_run(core: &Arc<Core>, execution_id: &str) -> Result<Run
             })
             .await;
         }
-        core.harness.change(|state| {
+        core.harness().change(|state| {
             if state
                 .runs
                 .by_execution(execution_id)
@@ -43,7 +44,7 @@ pub(crate) async fn stop_run(core: &Arc<Core>, execution_id: &str) -> Result<Run
             }
         });
     }
-    core.harness.read(|state| {
+    core.harness().read(|state| {
         state
             .runs
             .by_execution(execution_id)
@@ -83,7 +84,7 @@ impl RunSelector {
 /// Stops the active runs that match, such as the ones a closed project or
 /// agent leaves behind.
 pub(crate) async fn stop_runs(core: &Arc<Core>, selector: RunSelector) {
-    let matching = core.harness.read(|state| {
+    let matching = core.harness().read(|state| {
         state.runs.matching(|run| {
             run.status.is_active()
                 && selector
@@ -183,7 +184,7 @@ pub(super) fn begin_start(
     key: &str,
     restart: bool,
 ) -> Result<Begun, String> {
-    core.harness.change(|state| {
+    core.harness().change(|state| {
         let (task_id, mut spec) = launch_target(state, project, params, restart)?;
         if !restart {
             if let Some(existing) = state.runs.keyed(project, key, &task_id)? {
@@ -245,7 +246,7 @@ pub(super) fn launch_finished(
     execution_id: &str,
     result: Result<Option<String>, String>,
 ) {
-    core.harness.change(|state| {
+    core.harness().change(|state| {
         let Some(run) = state.runs.by_execution_mut(execution_id) else {
             return;
         };
@@ -314,7 +315,7 @@ pub(crate) fn start_for_person(
     else {
         return Err("The process did not start".into());
     };
-    let others = core.harness.read(|state| {
+    let others = core.harness().read(|state| {
         state.runs.matching(|run| {
             run.project == project
                 && run.agent_id.is_none()
@@ -378,7 +379,7 @@ pub(super) async fn answer_start(
     until: Instant,
     ready_when: Option<String>,
 ) -> Result<Value, String> {
-    let harness = &core.harness;
+    let harness = core.harness();
     loop {
         let mut changed = harness.changes.subscribe();
         let run = harness.read(|state| state.run(project, execution_id))?;
@@ -430,9 +431,9 @@ pub(super) async fn output_appears(
     until: Instant,
 ) -> Result<bool, String> {
     loop {
-        let mut changed = core.harness.changes.subscribe();
+        let mut changed = core.harness().changes.subscribe();
         let run = core
-            .harness
+            .harness()
             .read(|state| state.run(project, execution_id))?;
         if run_printed(core, &run, pattern).await {
             return Ok(true);

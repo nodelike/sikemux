@@ -5,6 +5,7 @@
 //! turn the network cut short, or one the person keeps alive, is never put to sleep. A terminal agent that crashes comes back on
 //! its saved session below its last screen, unless it crashes again at once.
 
+use crate::server::parts::Parts;
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::sync::atomic::Ordering;
@@ -82,8 +83,8 @@ where
         if let Some(running) = running() {
             return Ok(running);
         }
-        let started = core.lifecycle.started.notified();
-        if let Some(_starting) = core.lifecycle.claim(agent_id) {
+        let started = core.lifecycle().started.notified();
+        if let Some(_starting) = core.lifecycle().claim(agent_id) {
             return match running() {
                 Some(running) => Ok(running),
                 None => start().await,
@@ -103,7 +104,7 @@ pub(crate) async fn ensure_running(
     start_once(
         core,
         agent_id,
-        || core.chats.get(agent_id).map(drop),
+        || core.chats().get(agent_id).map(drop),
         || async {
             launching::start_agent(core, None, agent_id, waits_for_person)
                 .await
@@ -117,15 +118,15 @@ pub(crate) async fn ensure_running(
 /// keeping how it ran so it wakes on its saved conversation. Answers whether
 /// it is asleep now.
 pub(crate) fn sleep(core: &Core, agent_id: &str) -> bool {
-    let chat = core.chats.get(agent_id);
+    let chat = core.chats().get(agent_id);
     if let Some(chat) = &chat {
-        core.workspaces.note_stopping(chat);
+        core.workspaces().note_stopping(chat);
     }
-    let stopped = core.chats.stop_if_idle(agent_id);
+    let stopped = core.chats().stop_if_idle(agent_id);
     if let Some(chat) = chat.filter(|_| stopped) {
-        core.chats.rest(&chat);
+        core.chats().rest(&chat);
         super::chief::chat_rested(core, agent_id, chat.feed.id());
-        core.workspaces.set_asleep(agent_id, true);
+        core.workspaces().set_asleep(agent_id, true);
         core.note_agent_asleep(agent_id);
     }
     stopped
@@ -137,22 +138,22 @@ pub(crate) fn sleep(core: &Core, agent_id: &str) -> bool {
 /// the person, or an agent they set going again, opens or writes to it, so mail
 /// sent as things stop wakes none.
 pub(crate) fn sleep_all(core: &Core) {
-    core.workspaces.hold_all();
-    for chat in core.chats.stop_all() {
-        core.workspaces.note_stopping(&chat);
-        core.chats.rest(&chat);
+    core.workspaces().hold_all();
+    for chat in core.chats().stop_all() {
+        core.workspaces().note_stopping(&chat);
+        core.chats().rest(&chat);
         super::chief::chat_rested(core, chat.agent_id(), chat.feed.id());
-        core.workspaces.set_asleep(chat.agent_id(), true);
+        core.workspaces().set_asleep(chat.agent_id(), true);
     }
-    super::part::Part::flush(&core.workspaces);
+    super::part::Part::flush(core.workspaces());
 }
 
 /// Puts the agent to sleep at the person's word: a chat as [`sleep`] does, and
 /// a terminal agent by ending its terminal, to start again on its saved
 /// session when next shown.
 pub(crate) fn sleep_agent(core: &Core, agent_id: &str) -> CoreResult<()> {
-    let agent = core.workspaces.agent_or_gone(agent_id)?;
-    if core.chats.get(agent_id).is_some() {
+    let agent = core.workspaces().agent_or_gone(agent_id)?;
+    if core.chats().get(agent_id).is_some() {
         return match sleep(core, agent_id) {
             true => Ok(()),
             false => Err("the agent is at work; it can sleep once its turn ends".into()),
@@ -168,7 +169,7 @@ pub(crate) fn sleep_agent(core: &Core, agent_id: &str) -> CoreResult<()> {
         return Err("the agent is at work; it can sleep once its turn ends".into());
     }
     session::kill(core, &terminal);
-    core.workspaces.edit_agent(agent_id, |agent| {
+    core.workspaces().edit_agent(agent_id, |agent| {
         agent.pty_id = None;
         agent.asleep = true;
     })?;
@@ -217,7 +218,7 @@ pub(crate) fn terminal_exited(
     signal: Option<&str>,
     killed: bool,
 ) {
-    let Some(agent) = core.workspaces.agent(agent_id) else {
+    let Some(agent) = core.workspaces().agent(agent_id) else {
         return;
     };
     let resumable = agent.pty_id == Some(pty) && agent.resume_id.is_some() && !agent.asleep;
@@ -225,7 +226,7 @@ pub(crate) fn terminal_exited(
         return;
     }
     let now = Instant::now();
-    let mut resumed = core.lifecycle.resumed.locked();
+    let mut resumed = core.lifecycle().resumed.locked();
     resumed.retain(|_, at| now.duration_since(*at) < RESUME_WINDOW);
     if resumed.insert(agent_id.to_owned(), now).is_some() {
         return;
@@ -259,17 +260,17 @@ pub(crate) fn terminal_exited(
 /// has nothing left to show.
 fn settle_terminals(core: &Core) {
     let gone: Vec<_> = core
-        .workspaces
+        .workspaces()
         .agent_ids()
         .into_iter()
-        .filter_map(|agent_id| core.workspaces.agent(&agent_id))
+        .filter_map(|agent_id| core.workspaces().agent(&agent_id))
         .filter(|agent| agent.pty_id.is_some_and(|pty| core.session(pty).is_none()))
         .collect();
     let mut closed = Vec::new();
     for agent in gone {
         if agent.resume_id.is_some() {
             let _ = core
-                .workspaces
+                .workspaces()
                 .edit_agent(&agent.id, |agent| agent.pty_id = None);
         } else {
             closed.push(agent.id);
@@ -283,7 +284,7 @@ fn settle_terminals(core: &Core) {
 /// Puts every idle chat to sleep now, on screen or not, but those the person
 /// keeps alive. Answers how many slept.
 pub(crate) fn sleep_idle(core: &Core) -> usize {
-    core.chats
+    core.chats()
         .ids()
         .into_iter()
         .filter(|agent_id| kept(core, agent_id) && idle(core, agent_id))
@@ -314,12 +315,16 @@ pub(crate) async fn serve(core: Arc<Core>) {
 /// and the oldest beyond [`MAX_WARM`] of the rest.
 fn due(core: &Core, began: u64, now: u64) -> Vec<String> {
     let mut idle: Vec<(u64, String)> = core
-        .chats
+        .chats()
         .ids()
         .into_iter()
         .filter(|agent_id| may_sleep(core, agent_id))
         .map(|agent_id| {
-            let quiet = core.seen.quiet_since(&agent_id).unwrap_or(began).max(began);
+            let quiet = core
+                .seen()
+                .quiet_since(&agent_id)
+                .unwrap_or(began)
+                .max(began);
             (quiet, agent_id)
         })
         .collect();
@@ -340,13 +345,13 @@ fn due(core: &Core, began: u64, now: u64) -> Vec<String> {
 /// it can be woken on.
 fn may_sleep(core: &Core, agent_id: &str) -> bool {
     kept(core, agent_id)
-        && !core.seen.viewed(agent_id)
+        && !core.seen().viewed(agent_id)
         && idle(core, agent_id)
         && !super::chat::cap::holds_awake(core, agent_id, epoch_ms())
 }
 
 fn kept(core: &Core, agent_id: &str) -> bool {
-    core.workspaces
+    core.workspaces()
         .agent(agent_id)
         .is_some_and(|agent| !agent.keep_alive)
 }
@@ -354,7 +359,7 @@ fn kept(core: &Core, agent_id: &str) -> bool {
 /// A chat waking from sleep reads as idle while it starts, since it keeps the feed it slept with,
 /// so only a ready one counts.
 fn idle(core: &Core, agent_id: &str) -> bool {
-    core.chats.get(agent_id).is_some_and(|chat| {
+    core.chats().get(agent_id).is_some_and(|chat| {
         chat.is_ready()
             && !chat.offline_failed.load(Ordering::Acquire)
             && chat.state_now() == AgentState::Idle

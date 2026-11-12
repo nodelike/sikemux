@@ -1,6 +1,7 @@
 //! Every chat this core runs, and the feeds of those at rest.
 
 use super::*;
+use crate::server::parts::Parts;
 
 /// A chat the core cannot hand over to its replacement now.
 #[derive(Clone, Debug)]
@@ -407,7 +408,7 @@ impl Chats {
             .retain(|resting| resting.agent_id != chat.agent_id());
         chats.insert(chat.agent_id().to_owned(), chat.clone());
         // A goal that ended while it slept gets its line in the chat now.
-        core.boards.wake.now();
+        core.boards().wake.now();
         Ok((chat, queue))
     }
 }

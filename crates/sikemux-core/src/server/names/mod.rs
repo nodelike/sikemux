@@ -9,6 +9,7 @@
 mod words;
 
 use crate::server::changed::What;
+use crate::server::parts::Parts;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -1358,7 +1359,7 @@ pub(crate) async fn name_agent(
         let buddy = match kept.and_then(|back| back.buddy) {
             Some(buddy) => Some(buddy),
             None => {
-                core.names
+                core.names()
                     .note_look(&params.agent_id, params.buddy, params.title);
                 None
             }
@@ -1385,7 +1386,7 @@ pub(crate) async fn rename_agent(
     let core = core.clone();
     blocking(move || {
         let named = core
-            .names
+            .names()
             .rename(&params.agent_id, &params.name, core.open_agents())?;
         core.changed(What::View);
         Ok(named)
@@ -1400,8 +1401,8 @@ pub(crate) async fn agent_names(core: &Arc<Core>) -> CoreResult<Vec<AgentName>> 
     let core = core.clone();
     blocking(move || {
         let mut agents = core.running_agents();
-        agents.extend(core.hosts.team.ids());
-        Ok(core.names.of(&agents))
+        agents.extend(core.hosts().team.ids());
+        Ok(core.names().of(&agents))
     })
     .await
 }
@@ -1420,20 +1421,20 @@ pub(crate) async fn closed_agents(
 ) -> CoreResult<Vec<ClosedAgent>> {
     let core = core.clone();
     blocking(move || {
-        let project = core.workspaces.project_of(&params.cwd);
-        Ok(core.names.closed(&project, core.open_agents()))
+        let project = core.workspaces().project_of(&params.cwd);
+        Ok(core.names().closed(&project, core.open_agents()))
     })
     .await
 }
 
 pub(crate) fn name_theme(core: &Core) -> NameThemeParams {
     NameThemeParams {
-        theme: core.names.theme(),
+        theme: core.names().theme(),
     }
 }
 
 pub(crate) fn set_name_theme(core: &Core, params: NameThemeParams) -> NameThemeParams {
-    core.names.set_theme(params.theme);
+    core.names().set_theme(params.theme);
     params
 }
 

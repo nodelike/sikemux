@@ -10,6 +10,7 @@ mod darwin;
 mod linux;
 
 use crate::server::changed::What;
+use crate::server::parts::Parts;
 use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
 use std::path::Path;
@@ -222,9 +223,9 @@ fn attribute(
 }
 
 fn agent_label(core: &Core, agent_id: &str) -> String {
-    core.workspaces
+    core.workspaces()
         .title(agent_id)
-        .or_else(|| core.names.name(agent_id))
+        .or_else(|| core.names().name(agent_id))
         .unwrap_or_else(|| "agent".into())
 }
 
@@ -234,7 +235,7 @@ fn describe(
     owners: &HashMap<SessionId, super::prepare::Owner>,
 ) -> Option<(Option<String>, PortOwner)> {
     let agent = |agent_id: String, session_id| {
-        let project = core.names.get(&agent_id).map(|name| name.project);
+        let project = core.names().get(&agent_id).map(|name| name.project);
         let label = agent_label(core, &agent_id);
         (
             project,
@@ -338,7 +339,7 @@ pub(crate) fn agent_url(core: &Core, agent_id: &str) -> Option<String> {
 }
 
 fn anything_runs(core: &Core) -> bool {
-    core.running_sessions() > 0 || core.chats.count() > 0
+    core.running_sessions() > 0 || core.chats().count() > 0
 }
 
 /// The work [`Ports::wake`] runs: a look while a client watches, and the

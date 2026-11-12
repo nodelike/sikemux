@@ -5,6 +5,7 @@
 //! the messages waiting for it together once its turn ends.
 
 use crate::server::changed::What;
+use crate::server::parts::Parts;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::Path;
@@ -285,7 +286,7 @@ fn capped(core: &Core, agent_id: &str, queued: &Queued) -> bool {
     let own_report = queued.origin.as_ref().is_some_and(|origin| {
         origin.kind == MessageKind::Report
             && core
-                .names
+                .names()
                 .get(&origin.from)
                 .and_then(|named| named.parent)
                 .as_deref()
@@ -740,7 +741,7 @@ pub(crate) fn called(name: &str, agent_id: &str) -> String {
 
 /// [`called`] for an agent by its id, under the name it has now.
 pub(crate) fn called_now(core: &Core, agent_id: &str) -> String {
-    called(&core.names.name_or_id(agent_id), agent_id)
+    called(&core.names().name_or_id(agent_id), agent_id)
 }
 
 /// The agent that sent `prompt`, when it is a message from another agent rather than from
@@ -802,9 +803,9 @@ pub(crate) async fn hand_task(
     agent_id: &str,
     task: String,
 ) -> Result<(), String> {
-    let mailbox = &core.harness.mailbox;
+    let mailbox = &core.harness().mailbox;
     let from = core
-        .names
+        .names()
         .get(agent_id)
         .and_then(|named| named.parent)
         .unwrap_or_else(|| Sender::Auto.id().to_owned());
@@ -843,12 +844,12 @@ pub(crate) async fn hand_task(
 /// The latest messages between agents in `project`, newest first.
 pub(crate) fn logged(core: &Core, project: &str, limit: Option<usize>) -> Vec<MessageEntry> {
     let limit = limit.unwrap_or(log::MAX_READ).min(log::MAX_READ);
-    core.harness.mailbox.log.read(project, limit)
+    core.harness().mailbox.log.read(project, limit)
 }
 
 /// The project's messages between agents, one row each, newest first.
 pub(crate) fn logged_rows(core: &Core, project: &str) -> Vec<log::MessageRow> {
-    log::rows(&logged(core, project, None), |id| core.names.name(id))
+    log::rows(&logged(core, project, None), |id| core.names().name(id))
 }
 
 /// Notes in the log of the project of agent `to` what became of messages
@@ -867,21 +868,21 @@ fn log<'a>(
             .is_some_and(|origin| origin.kind == MessageKind::Answer)
     });
     if answers && !matches!(outcome, MessageOutcome::Waiting | MessageOutcome::Returned) {
-        core.harness.questions.delivered(to);
+        core.harness().questions.delivered(to);
     }
-    let Some(project) = core.names.get(to).map(|named| named.project) else {
+    let Some(project) = core.names().get(to).map(|named| named.project) else {
         return;
     };
     let at = epoch_ms();
-    let to_name = core.names.name(to);
+    let to_name = core.names().name(to);
     let mut logged = false;
     for queued in queued {
         let from = queued.origin.as_ref().map(|origin| origin.from.clone());
-        core.harness.mailbox.log.append(
+        core.harness().mailbox.log.append(
             &project,
             &MessageEntry {
                 at,
-                from_name: from.as_deref().and_then(|from| core.names.name(from)),
+                from_name: from.as_deref().and_then(|from| core.names().name(from)),
                 from,
                 kind: queued.origin.as_ref().map(|origin| origin.kind),
                 to: to.to_owned(),
@@ -933,9 +934,9 @@ async fn send_team(
     request: &HarnessRequest,
     from: &str,
 ) -> Result<Value, String> {
-    let top = core.names.team_of(from);
+    let top = core.names().team_of(from);
     let members: Vec<String> = core
-        .names
+        .names()
         .team(&top)
         .into_iter()
         .filter(|member| member != from)
@@ -945,7 +946,7 @@ async fn send_team(
     }
     let named = members
         .into_iter()
-        .map(|member| (core.names.name_or_id(&member), member))
+        .map(|member| (core.names().name_or_id(&member), member))
         .collect();
     Ok(send_each(core, request, named).await)
 }
@@ -1033,7 +1034,7 @@ pub(crate) async fn send(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
                                 .is_some_and(|name| name.eq_ignore_ascii_case(wanted))
                                 && super::roster::reaches(&core, agent, &project, &from)
                     };
-                    return match core.names.closed_worker(&from, wanted) {
+                    return match core.names().closed_worker(&from, wanted) {
                         Some(ran) if answers.is_none() && !agents.iter().any(named) => {
                             Ok(Found::Closed(wanted.to_owned(), ran))
                         }
@@ -1062,7 +1063,7 @@ pub(crate) async fn send(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
             if let Some(Answering { id, .. }) = answers.as_ref().filter(|_| target.reach != Reach::Remote) {
                 let name = target.name.as_deref().unwrap_or(&target.agent_id);
                 let asked = core
-                    .harness
+                    .harness()
                     .questions
                     .asked_of(&letter.from_id, &target.agent_id, id)
                     .ok_or_else(|| format!("{name} has no open question {id} that it asked you; it was answered already, or leave out answers to send this as a plain message"))?;
@@ -1084,7 +1085,7 @@ pub(crate) async fn send(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
     }
     let answer = letter.text.clone();
     let sent = deliver(core, &target, letter).await?;
-    core.seen.called(&target.agent_id);
+    core.seen().called(&target.agent_id);
     core.changed(What::Agents);
     if let Some(answering) = answers {
         settle_answer(core, from, target.agent_id.clone(), answering, answer).await;
@@ -1169,7 +1170,7 @@ async fn carry(
     letter: Letter,
     question: Option<Answering>,
 ) -> Result<Value, String> {
-    core.harness.mailbox.note_sent(&letter, &target.agent_id);
+    core.harness().mailbox.note_sent(&letter, &target.agent_id);
     let queued = Queued {
         text: String::new(),
         origin: Some(Origin {
@@ -1248,7 +1249,7 @@ pub(crate) async fn from_host(
     }
     if let Some(Answering { id, .. }) = &carried.question {
         let asked = core
-            .harness
+            .harness()
             .questions
             .asked_of(&letter.from_id, &target.agent_id, id)
             .ok_or_else(|| format!("{name} has no open question {id} that it asked you; it was answered already, or leave out answers to send this as a plain message"))?;
@@ -1301,10 +1302,10 @@ pub(crate) fn blind_between(
     to: &str,
     to_name: &str,
 ) -> Result<(), String> {
-    if core.names.is_blind(from) {
+    if core.names().is_blind(from) {
         return Err("You review a card blind for Auto, so you may not reach other agents; ask the person with ask if you must".into());
     }
-    if core.names.is_blind(to) {
+    if core.names().is_blind(to) {
         return Err(format!(
             "{to_name} reviews a card blind for Auto, so no agent may reach it"
         ));
@@ -1359,7 +1360,7 @@ pub(crate) async fn answer(
         .await
         .map_err(|error| error.to_string())?
     };
-    let chat = core.chats.get(&target.agent_id).is_some();
+    let chat = core.chats().get(&target.agent_id).is_some();
     let mut letters = answers.into_iter().map(|(answered, text, note, paths)| {
         let (text, paths) = match chat && !paths.is_empty() {
             true => (super::questions::without_attached(&text, &paths), paths),
@@ -1442,7 +1443,7 @@ pub(crate) async fn from_trigger(
     note: String,
 ) -> Result<Value, String> {
     let mut target = running(core, to.clone()).await?;
-    if target.reach == Reach::Asleep && !core.workspaces.held(&to) {
+    if target.reach == Reach::Asleep && !core.workspaces().held(&to) {
         launching::wake(core, to.clone())
             .await
             .map_err(|error| format!("it is asleep and did not wake: {error}"))?;
@@ -1606,7 +1607,7 @@ pub(crate) fn auto_task(core: &Core, agent_id: &str, text: String) -> String {
 /// Auto tells an agent of its own what its card needs next.
 pub(crate) async fn from_auto(core: &Arc<Core>, to: String, text: String) -> Result<Value, String> {
     let mut letter = auto_letter(text);
-    if let Some(lead) = core.hosts.team.get(&to).and_then(|worker| worker.parent) {
+    if let Some(lead) = core.hosts().team.get(&to).and_then(|worker| worker.parent) {
         letter.from_id = lead;
     }
     let target = running(core, to).await?;
@@ -1618,7 +1619,7 @@ pub(crate) fn withdraw(core: &Core, agent_id: &str, mark: &str) {
     if !is_waiting(core, agent_id, mark) {
         return;
     }
-    let withdrawn = core.harness.mailbox.change(|state| {
+    let withdrawn = core.harness().mailbox.change(|state| {
         let Some(waiting) = state.waiting.get_mut(agent_id) else {
             return Vec::new();
         };
@@ -1633,7 +1634,7 @@ pub(crate) fn withdraw(core: &Core, agent_id: &str, mark: &str) {
 
 /// Whether the message known by `mark` still waits for the agent's turn to end.
 pub(crate) fn is_waiting(core: &Core, agent_id: &str, mark: &str) -> bool {
-    core.harness
+    core.harness()
         .mailbox
         .state
         .locked()
@@ -1675,7 +1676,7 @@ fn letter_from(
 /// about how its turn ended. A lead that has stopped gets it once it is
 /// opened again; only one the person closed goes without.
 pub(crate) async fn report(core: &Arc<Core>, worker: String, lead: String, text: String) {
-    let name = core.names.name(&worker);
+    let name = core.names().name(&worker);
     report_as(core, worker, name, lead, text).await;
 }
 
@@ -1758,7 +1759,7 @@ async fn handed(
         .clone()
         .unwrap_or_else(|| target.agent_id.clone());
     let answer = |delivery: &str, note: String| json!({ "to": name, "agentId": target.agent_id, "delivery": delivery, "note": note });
-    let mailbox = &core.harness.mailbox;
+    let mailbox = &core.harness().mailbox;
     match mailbox.admit(&letter, &target.agent_id, &name)? {
         Admitted::Yes => {}
         Admitted::Repeat { seconds_ago } => {
@@ -1798,11 +1799,11 @@ async fn handed(
         Reach::Chat | Reach::Terminal => {}
         Reach::Asleep if notice => held = Some("is asleep"),
         Reach::Asleep
-            if !core.window.is_open() && core.hosts.team.get(&letter.from_id).is_none() =>
+            if !core.window.is_open() && core.hosts().team.get(&letter.from_id).is_none() =>
         {
             held = Some("is asleep while Sikemux is closed")
         }
-        Reach::Asleep if core.workspaces.held(&target.agent_id) && !lifts_hold(core, &letter) => {
+        Reach::Asleep if core.workspaces().held(&target.agent_id) && !lifts_hold(core, &letter) => {
             held = Some("was put to sleep when the person stopped everything")
         }
         Reach::Asleep => {
@@ -1923,15 +1924,15 @@ fn lifts_hold(core: &Core, letter: &Letter) -> bool {
     match Sender::of(&letter.from_id) {
         Some(sender) => sender == Sender::Person,
         None => {
-            core.workspaces.agent(&letter.from_id).is_some()
-                && !core.workspaces.held(&letter.from_id)
+            core.workspaces().agent(&letter.from_id).is_some()
+                && !core.workspaces().held(&letter.from_id)
         }
     }
 }
 
 /// When the agent will have rested `settle_ms` since its last turn, unless it has.
 fn rests_until(core: &Core, agent_id: &str, settle_ms: u64) -> Option<u64> {
-    core.seen
+    core.seen()
         .active_at(agent_id)
         .map(|at| at + settle_ms)
         .filter(|until| *until > epoch_ms())
@@ -1944,7 +1945,7 @@ fn rested(core: &Core, agent_id: &str, settle_ms: u64) -> bool {
 /// Hands `queued` to the chat as one message, or says why it cannot take it
 /// now.
 async fn hand(core: &Core, agent_id: &str, queued: &[Queued]) -> Result<Delivery, &'static str> {
-    let chat = core.chats.get(agent_id).ok_or("is not running")?;
+    let chat = core.chats().get(agent_id).ok_or("is not running")?;
     if !chat.is_ready() {
         chat.start_agent();
         return Err("is still starting");
@@ -2001,7 +2002,7 @@ fn ready_terminal(
 fn paste(core: &Arc<Core>, agent_id: &str, terminal: Arc<Session>, texts: Vec<Queued>) {
     let typed = session::pasted(&terminal, &joined(&texts));
     took_turn(core, agent_id, &texts);
-    core.harness.mailbox.change(|state| {
+    core.harness().mailbox.change(|state| {
         state.delivering.insert(agent_id.to_owned());
         state.pasted.insert(
             agent_id.to_owned(),
@@ -2027,7 +2028,7 @@ fn paste(core: &Arc<Core>, agent_id: &str, terminal: Arc<Session>, texts: Vec<Qu
             Box::new(drop),
         );
         if let Some(pasted) = core
-            .harness
+            .harness()
             .mailbox
             .state
             .locked()
@@ -2041,7 +2042,7 @@ fn paste(core: &Arc<Core>, agent_id: &str, terminal: Arc<Session>, texts: Vec<Qu
 
 /// The paste the agent did not take waits again, ahead of the rest.
 fn unpasted(core: &Core, agent_id: &str) {
-    let returned = core.harness.mailbox.change(|state| {
+    let returned = core.harness().mailbox.change(|state| {
         state.delivering.remove(agent_id);
         let pasted = state.pasted.remove(agent_id)?;
         put_back(state, agent_id, pasted.texts.clone());
@@ -2062,7 +2063,7 @@ pub(crate) fn from_person(core: &Arc<Core>, agent_id: &str, text: String) -> Cor
     let text = session::typable(&text).ok_or("there is nothing to send")?;
     worked(core, agent_id);
     person_wrote(core, agent_id);
-    let mailbox = &core.harness.mailbox;
+    let mailbox = &core.harness().mailbox;
     mailbox.wait(
         agent_id,
         Queued {
@@ -2085,7 +2086,7 @@ fn took_turn(core: &Core, agent_id: &str, queued: &[Queued]) {
         return;
     }
     let stopped = {
-        let mut state = core.harness.mailbox.state.locked();
+        let mut state = core.harness().mailbox.state.locked();
         let turns = state.auto_turns.entry(agent_id.to_owned()).or_default();
         turns.taken += 1;
         let stops = turns.taken >= MAX_AUTO_TURNS && turns.stopped_at.is_none();
@@ -2102,7 +2103,7 @@ fn took_turn(core: &Core, agent_id: &str, queued: &[Queued]) {
 /// The person wrote to the agent, so it may take turns of its own again, and what waited for
 /// them goes on.
 pub(crate) fn person_wrote(core: &Core, agent_id: &str) {
-    let mailbox = &core.harness.mailbox;
+    let mailbox = &core.harness().mailbox;
     let turns = mailbox.state.locked().auto_turns.remove(agent_id);
     if turns.is_some_and(|turns| turns.stopped_at.is_some()) {
         mailbox.change(|state| {
@@ -2120,7 +2121,7 @@ pub(crate) fn person_wrote(core: &Core, agent_id: &str) {
 /// The agent did something besides messaging other agents, which ends any
 /// loop it was in: the messages held between it and another agent go on.
 pub(crate) fn worked(core: &Core, agent_id: &str) {
-    let mailbox = &core.harness.mailbox;
+    let mailbox = &core.harness().mailbox;
     let now = epoch_ms();
     let looped = {
         let mut state = mailbox.state.locked();
@@ -2149,8 +2150,8 @@ pub(crate) fn worked(core: &Core, agent_id: &str) {
 
 /// The agent called a tool, by the name its CLI gives it.
 pub(crate) fn used_tool(core: &Core, agent_id: &str, tool: &str) {
-    core.seen.used_tool(agent_id);
-    core.stalls.worked(core, agent_id);
+    core.seen().used_tool(agent_id);
+    core.stalls().worked(core, agent_id);
     if !MESSAGING_TOOLS
         .iter()
         .any(|messaging| tool.ends_with(messaging))
@@ -2163,7 +2164,7 @@ pub(crate) fn used_tool(core: &Core, agent_id: &str, tool: &str) {
 /// The terminal agent was seen at work on a turn or asking the person
 /// during one, so it took what was pasted, if anything was.
 pub(crate) fn prompt_taken(core: &Core, agent_id: &str) {
-    let mailbox = &core.harness.mailbox;
+    let mailbox = &core.harness().mailbox;
     let taken = {
         let mut state = mailbox.state.locked();
         state.missed_pastes.remove(agent_id);
@@ -2194,7 +2195,7 @@ pub(crate) fn prompt_taken(core: &Core, agent_id: &str) {
 /// turn of its own makes it worth typing into again.
 pub(crate) fn prompt_settled(core: &Core, agent_id: &str, last_output_ms: u64) {
     let entered_at = {
-        let mut state = core.harness.mailbox.state.locked();
+        let mut state = core.harness().mailbox.state.locked();
         match state.pasted.get(agent_id) {
             Some(pasted) => pasted.entered_at,
             None => {
@@ -2215,11 +2216,11 @@ pub(crate) fn prompt_settled(core: &Core, agent_id: &str, last_output_ms: u64) {
 /// agents that are gone. Runs when an agent's state or its messages change,
 /// and again when an agent still resting from a turn is due.
 pub(crate) fn settle(core: &Arc<Core>) {
-    let mailbox = &core.harness.mailbox;
+    let mailbox = &core.harness().mailbox;
     let capped: Vec<String> = mailbox.state.locked().capped.keys().cloned().collect();
     for agent_id in capped
         .into_iter()
-        .filter(|agent_id| core.workspaces.closed(agent_id))
+        .filter(|agent_id| core.workspaces().closed(agent_id))
     {
         let dropped = mailbox.change(|state| {
             state.auto_turns.remove(&agent_id);
@@ -2253,7 +2254,7 @@ pub(crate) fn settle(core: &Arc<Core>) {
     let mut next = None;
     for agent_id in due {
         let rest = mailbox.rest_for(&agent_id);
-        if let Some(chat) = core.chats.get(&agent_id) {
+        if let Some(chat) = core.chats().get(&agent_id) {
             if !chat.is_ready() {
                 chat.start_agent();
                 continue;
@@ -2281,11 +2282,11 @@ pub(crate) fn settle(core: &Arc<Core>) {
                 }
             }
         } else if core
-            .workspaces
+            .workspaces()
             .agent(&agent_id)
             .is_some_and(|agent| agent.asleep || agent.terminal)
         {
-            if !core.window.is_open() || core.workspaces.held(&agent_id) {
+            if !core.window.is_open() || core.workspaces().held(&agent_id) {
                 continue;
             }
             let failed = mailbox.state.locked().wake_failed.get(&agent_id).copied();
@@ -2293,7 +2294,7 @@ pub(crate) fn settle(core: &Arc<Core>) {
                 Some(retry) if retry > epoch_ms() => next = sooner(next, Some(retry)),
                 _ => deliver_later(core, agent_id, Pending::Asleep),
             }
-        } else if core.workspaces.closed(&agent_id) {
+        } else if core.workspaces().closed(&agent_id) {
             log(
                 core,
                 &agent_id,
@@ -2313,13 +2314,13 @@ enum Pending {
 }
 
 fn deliver_later(core: &Arc<Core>, agent_id: String, pending: Pending) {
-    let mailbox = &core.harness.mailbox;
+    let mailbox = &core.harness().mailbox;
     if !mailbox.state.locked().delivering.insert(agent_id.clone()) {
         return;
     }
     let core = core.clone();
     tokio::spawn(async move {
-        let mailbox = &core.harness.mailbox;
+        let mailbox = &core.harness().mailbox;
         match pending {
             Pending::Chat => {
                 let texts = mailbox.take(&agent_id);
@@ -2330,7 +2331,7 @@ fn deliver_later(core: &Arc<Core>, agent_id: String, pending: Pending) {
                     }
                 }
             }
-            Pending::Asleep if core.workspaces.held(&agent_id) => {}
+            Pending::Asleep if core.workspaces().held(&agent_id) => {}
             Pending::Asleep => {
                 let woke = launching::wake(&core, agent_id.clone()).await;
                 let mut state = mailbox.state.locked();
@@ -2375,7 +2376,7 @@ async fn in_project<T: Send + 'static>(
     }
     let (core, path) = (core.clone(), path.to_owned());
     blocking(move || {
-        let project = core.workspaces.project_of(&path);
+        let project = core.workspaces().project_of(&path);
         Ok(read(&core, project))
     })
     .await

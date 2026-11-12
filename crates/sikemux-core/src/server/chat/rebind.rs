@@ -2,6 +2,7 @@
 //! own ran out of usage, or after a sign-in, with the prompt that failed sent
 //! again once the agent is back.
 
+use crate::server::parts::Parts;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sikemux_fold::UpdateKind;
@@ -117,7 +118,7 @@ pub(super) fn name_accounts(core: &Core, launch: &mut ChatLaunch) {
     if !launch.fallbacks.is_empty() {
         return;
     }
-    let book = core.workspaces.accounts().unwrap_or_default();
+    let book = core.workspaces().accounts().unwrap_or_default();
     let folder = crate::launch::named_account(&launch.provider, &launch.env);
     let current = match &launch.account {
         Some(account) => Some(account.id.clone()),
@@ -135,7 +136,7 @@ pub(super) fn name_accounts(core: &Core, launch: &mut ChatLaunch) {
 pub(super) fn switches_at_limit(chat: &Chat) -> bool {
     chat.core
         .upgrade()
-        .is_none_or(|core| core.workspaces.accounts().unwrap_or_default().smart)
+        .is_none_or(|core| core.workspaces().accounts().unwrap_or_default().smart)
 }
 
 /// The account to move to that has usage left to try and is signed in: of those, the one with
@@ -149,7 +150,7 @@ pub(super) fn next_account<'a>(
     let book = chat
         .core
         .upgrade()
-        .and_then(|core| core.workspaces.accounts());
+        .and_then(|core| core.workspaces().accounts());
     let open: Vec<&ChatAccount> = (launch.fallbacks.iter())
         .filter(|fallback| {
             !exhausted.contains(&fallback.id)
@@ -167,7 +168,7 @@ pub(super) fn next_account<'a>(
             cwd: Some(launch.cwd.clone()),
         };
         crate::server::agent_accounts::placement(
-            &core.workspaces.accounts().unwrap_or_default(),
+            &core.workspaces().accounts().unwrap_or_default(),
             provider,
             &chat,
             crate::agent_accounts::allocate::Aim::Headroom,

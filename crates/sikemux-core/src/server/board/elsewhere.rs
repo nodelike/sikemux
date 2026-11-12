@@ -3,6 +3,7 @@
 //! time the builder's turn ends its commits come back into it, and shipping, the reviewer and
 //! the merge queue read that worktree as they do for an agent here.
 
+use crate::server::parts::Parts;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
@@ -89,7 +90,7 @@ fn busy_on(board: &Board, host: &str) -> usize {
 pub(super) fn free_places(core: &Core, board: &Board) -> Vec<String> {
     let slots = board.settings.slots as usize;
     (board.settings.hosts.iter())
-        .filter(|host| core.remote.link(host).is_some() && core.hosts.reachable(host))
+        .filter(|host| core.remote().link(host).is_some() && core.hosts().reachable(host))
         .flat_map(|host| {
             std::iter::repeat_n(host.clone(), slots.saturating_sub(busy_on(board, host)))
         })
@@ -99,23 +100,23 @@ pub(super) fn free_places(core: &Core, board: &Board) -> Vec<String> {
 fn at_work(core: &Core, worker: &Foreign) -> bool {
     worker.role == Role::Worker
         && !matches!(worker.status, AgentStatus::Stopped | AgentStatus::Asleep)
-        && core.hosts.reachable(&worker.host)
+        && core.hosts().reachable(&worker.host)
 }
 
 /// The agents at work on linked hosts as far as this host can tell.
 pub(super) fn working(core: &Core) -> impl Iterator<Item = String> + '_ {
-    (core.hosts.team.all().into_iter())
+    (core.hosts().team.all().into_iter())
         .filter(|worker| at_work(core, worker))
         .map(|worker| worker.agent_id)
 }
 
 pub(super) fn works_now(core: &Core, agent: &str) -> bool {
-    (core.hosts.team.get(agent)).is_some_and(|worker| at_work(core, &worker))
+    (core.hosts().team.get(agent)).is_some_and(|worker| at_work(core, &worker))
 }
 
 fn out_of_reach(core: &Core, run: &AutoRun) -> bool {
     (run.elsewhere.as_ref()).is_some_and(|elsewhere| {
-        !core.hosts.reachable(&elsewhere.host) && core.hosts.team.get(&run.agent).is_some()
+        !core.hosts().reachable(&elsewhere.host) && core.hosts().team.get(&run.agent).is_some()
     })
 }
 
@@ -140,7 +141,7 @@ pub(super) fn why_gone(core: &Core, run: &AutoRun, name: &str) -> Option<String>
 }
 
 fn run_of(core: &Core, agent: &str, matches: impl Fn(&AutoRun) -> bool) -> Option<(String, u64)> {
-    let state = core.boards.state.locked();
+    let state = core.boards().state.locked();
     state.boards.iter().find_map(|(project, board)| {
         (board.cards.iter()).find_map(|card| {
             let run = card.kept_run()?;
@@ -157,7 +158,7 @@ pub(crate) fn holds(core: &Core, agent: &str) -> bool {
 
 /// Whether `lead` is who Auto goes by on a linked host, for one of its runs.
 pub(crate) fn leads_a_run(core: &Core, lead: &str) -> bool {
-    let state = core.boards.state.locked();
+    let state = core.boards().state.locked();
     (state.boards.values())
         .flat_map(|board| board.cards.iter())
         .filter_map(Card::kept_run)
@@ -198,7 +199,7 @@ async fn start_on(
     prompt: String,
 ) -> Result<bool, String> {
     let settings = {
-        let state = core.boards.state.locked();
+        let state = core.boards().state.locked();
         let board = state.boards.get(project).ok_or("the board is gone")?;
         board.settings.clone()
     };
@@ -209,7 +210,7 @@ async fn start_on(
             .file_name()
             .map(|name| name.to_string_lossy().into_owned());
         blocking(move || {
-            let (launch, _) = core.workspaces.board_launch(
+            let (launch, _) = core.workspaces().board_launch(
                 settings.launcher.as_deref(),
                 &cwd,
                 None,
@@ -223,7 +224,7 @@ async fn start_on(
         .await
         .map_err(|error| error.to_string())?
     };
-    let (named, _) = core.names.give(
+    let (named, _) = core.names().give(
         Starting {
             agent_id: agent,
             project: project.to_owned(),
@@ -232,7 +233,7 @@ async fn start_on(
         },
         core.open_agents(),
     );
-    core.names.count_as_started(agent);
+    core.names().count_as_started(agent);
     let Handed { name, .. } = hand_over(
         core,
         &link,
@@ -291,15 +292,15 @@ pub(crate) fn turn_ended(core: &Arc<Core>, host: &str, turn: AutoTurn) -> Result
         answer,
         cost_usd,
     } = turn;
-    if (core.hosts.team.get(&agent_id)).is_none_or(|worker| worker.host != host) {
+    if (core.hosts().team.get(&agent_id)).is_none_or(|worker| worker.host != host) {
         return Ok(Value::Null);
     }
     let mut landed = None;
-    core.hosts
+    core.hosts()
         .team
         .update(&agent_id, |worker| landed = worker.landed.take());
     if let Some((project, id)) = run_of(core, &agent_id, |_| true) {
-        core.boards.edit_if(&project, id, |card| {
+        core.boards().edit_if(&project, id, |card| {
             if let (Some(elsewhere), Some((branch, _))) = (
                 card.auto.as_mut().and_then(|run| run.elsewhere.as_mut()),
                 landed.take(),
@@ -317,7 +318,7 @@ pub(crate) fn turn_ended(core: &Arc<Core>, host: &str, turn: AutoTurn) -> Result
     }
     auto::turn_ended(core, &agent_id, &ending);
     if matches!(ending, Ending::Gone { .. }) {
-        core.hosts.team.remove(&agent_id);
+        core.hosts().team.remove(&agent_id);
         pin(core);
     }
     Ok(Value::Null)

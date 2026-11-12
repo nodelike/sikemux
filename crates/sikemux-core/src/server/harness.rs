@@ -3,6 +3,7 @@
 //! hands everything that needs the window to it.
 
 use super::{CoreError, CoreResult};
+use crate::server::parts::Parts;
 use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -388,7 +389,7 @@ impl Harness {
 /// New output from a task session. Several arrivals close together make one
 /// event.
 pub(crate) fn note_output(core: &Arc<Core>, id: SessionId) {
-    let pending = core.harness.read(|state| {
+    let pending = core.harness().read(|state| {
         let run = state.runs.by_pty_mut(id)?;
         let execution_id = run.execution_id.clone();
         let project = run.project.clone();
@@ -403,7 +404,7 @@ pub(crate) fn note_output(core: &Arc<Core>, id: SessionId) {
     let core = core.clone();
     tokio::spawn(async move {
         tokio::time::sleep(OUTPUT_EVENT_GAP).await;
-        core.harness.change(|state| {
+        core.harness().change(|state| {
             state.output_pending.remove(&execution_id);
             state
                 .journals
@@ -530,7 +531,7 @@ pub(crate) async fn call(
     }
     let tool = tool_name(&request);
     let result = dispatch(core, request, grant).await;
-    if let (Some(tool), Some(path)) = (tool, core.harness.tool_calls.clone()) {
+    if let (Some(tool), Some(path)) = (tool, core.harness().tool_calls.clone()) {
         let succeeded = result.is_ok();
         tokio::task::spawn_blocking(move || record_tool_call(&path, &tool, succeeded));
     }
@@ -554,7 +555,7 @@ async fn dispatch(
         .into_owned();
     if let Some(agent_id) = &request.agent_id {
         messages::used_tool(core, agent_id, &tool_word(&request.method));
-        if core.names.is_blind(agent_id) && methods::of(&request.method).blind_refused {
+        if core.names().is_blind(agent_id) && methods::of(&request.method).blind_refused {
             return Err(format!(
                 "You review a card blind for Auto, so {} is not yours to use; judge the change from the card, the diff and your folder",
                 tool_word(&request.method)
@@ -565,16 +566,16 @@ async fn dispatch(
         "process.read" => process_read(core, &request).await,
         "process.stop" => {
             let execution_id = core
-                .harness
+                .harness()
                 .read(|state| state.execution_for(&request.project, &request.params))?;
-            core.harness
+            core.harness()
                 .read(|state| state.run(&request.project, &execution_id))?;
             stop_run(core, &execution_id)
                 .await
                 .map(|run| with_fields(&run, json!({})))
         }
         "events.wait" if super::wait_for::asked(&request.params) => {
-            let _slot = core.harness.wait_slot()?;
+            let _slot = core.harness().wait_slot()?;
             super::wait_for::call(&request).await
         }
         "events.wait" => events_wait(core, &request).await,
@@ -625,7 +626,7 @@ async fn dispatch(
             let project = request.project.clone();
             let knowing = core.clone();
             let sites = tokio::task::spawn_blocking(move || {
-                let project = knowing.workspaces.project_of(Path::new(&project));
+                let project = knowing.workspaces().project_of(Path::new(&project));
                 super::places::allowed_sites(&knowing, &project)
             })
             .await
@@ -643,7 +644,7 @@ async fn dispatch(
             }
             Ok(answer)
         }
-        PLUGINS_CHANGED_METHOD => plugins_wait(&core.harness, &request.params).await,
+        PLUGINS_CHANGED_METHOD => plugins_wait(core.harness(), &request.params).await,
         "plugins.tools" => super::plugins::agent_tools(core, &request.project).await,
         "plugins.call" => super::plugins::call_agent_tool(core, &request).await,
         "skills.manage" => skills_call(core, &request).await,
@@ -667,7 +668,7 @@ async fn read_output(core: &Core, id: SessionId, query: OutputQuery) -> Result<O
 
 async fn process_read(core: &Core, request: &HarnessRequest) -> Result<Value, String> {
     let params = &request.params;
-    let run = core.harness.read(|state| {
+    let run = core.harness().read(|state| {
         let execution_id = state.execution_for(&request.project, params)?;
         state.run(&request.project, &execution_id)
     })?;
@@ -717,12 +718,12 @@ impl super::part::Part for Harness {
         vec![
             on_wake(
                 core,
-                |core| &core.harness.mailbox.wake,
+                |core| &core.harness().mailbox.wake,
                 super::messages::settle,
             ),
             on_wake(
                 core,
-                |core| &core.harness.questions.wake,
+                |core| &core.harness().questions.wake,
                 super::questions::settle,
             ),
         ]
@@ -750,7 +751,7 @@ async fn ui_open(core: &Arc<Core>, request: HarnessRequest) -> Result<Value, Str
     if kind.as_deref() == Some("terminal") {
         let execution_id = required_text(&request.params, "executionId")?;
         let run = core
-            .harness
+            .harness()
             .read(|state| state.run(&request.project, execution_id))?;
         if let Some(session) = run.pty_id {
             request.params["session"] = session.into();
@@ -783,7 +784,7 @@ async fn ui_open(core: &Arc<Core>, request: HarnessRequest) -> Result<Value, Str
     let project = request.project.clone();
     let value = forward(core, request).await?;
     if kind.as_deref() != Some("preview") {
-        core.harness.change(|state| {
+        core.harness().change(|state| {
             state.journals.append(&project, "ui.opened", None, None);
         });
     }

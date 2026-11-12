@@ -5,6 +5,7 @@
 //! it, or keeps a copy of its own in its data folder. The worker's commits come
 //! back as a bundle onto a branch named for it, which the lead merges or not.
 
+use crate::server::parts::Parts;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -332,7 +333,7 @@ fn watched(git: Git, args: &[&str], dir: &Path) -> Result<String, String> {
 /// repository identity, which a repository with no remote has too, else, from a host that sends
 /// none, one of the same remote.
 fn projects_with(core: &Core, code: &Code) -> Vec<PathBuf> {
-    let mut repos: Vec<PathBuf> = (core.workspaces.project_paths().into_iter())
+    let mut repos: Vec<PathBuf> = (core.workspaces().project_paths().into_iter())
         .filter_map(|project| {
             let repo = Git::quick(&project)
                 .trimmed(&["rev-parse", "--path-format=absolute", "--show-toplevel"])
@@ -644,7 +645,7 @@ fn chosen_clone(
     if let Some(repo) = repos.iter().find(standing) {
         return Ok(Some(repo.clone()));
     }
-    let chosen = (there.and_then(|id| core.workspaces.project_info(id)))
+    let chosen = (there.and_then(|id| core.workspaces().project_info(id)))
         .and_then(|project| toplevel(&project.path))
         .filter(|repo| repos.contains(repo));
     match (chosen, repos.as_slice()) {
@@ -664,7 +665,7 @@ fn chosen_clone(
 
 /// Whether `dir` is the repository of one of this host's projects.
 fn is_project_repo(core: &Core, dir: &Path) -> bool {
-    core.workspaces.project_paths().iter().any(|project| {
+    core.workspaces().project_paths().iter().any(|project| {
         Git::quick(project)
             .trimmed(&["rev-parse", "--path-format=absolute", "--show-toplevel"])
             .is_ok_and(|top| Path::new(&top) == dir)
@@ -930,7 +931,7 @@ pub(super) async fn land(
 ) -> Result<Value, Refusal> {
     let landing = params;
     let worker = core
-        .hosts
+        .hosts()
         .team
         .get(&landing.agent_id)
         .filter(|worker| worker.host == host && worker.role == Role::Worker)
@@ -985,7 +986,7 @@ pub(super) async fn land(
     .await;
     let branch = landed.map_err(|error| Refusal::retry(error.to_string()))?;
     let count = landing.count;
-    core.hosts.team.update(&landing.agent_id, |worker| {
+    core.hosts().team.update(&landing.agent_id, |worker| {
         worker.landed = Some((branch.clone(), count));
         worker.landed_head = Some(landing.head.clone());
         worker.branch = Some(branch.clone());

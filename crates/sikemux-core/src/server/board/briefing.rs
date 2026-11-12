@@ -3,6 +3,7 @@
 //! card stands with the person's notes on it. A teammate works toward its lead's goal until it
 //! holds a card of its own.
 
+use crate::server::parts::Parts;
 use sikemux_process::sync::Locked;
 use sikemux_view::slice::{Gate, GateState, SliceView};
 
@@ -22,16 +23,16 @@ pub(crate) fn goal_for(core: &Core, agent_id: &str) -> Option<GoalRef> {
 
 fn lead(core: &Core, agent_id: &str) -> Option<String> {
     let started_by = core
-        .chats
+        .chats()
         .get(agent_id)
         .and_then(|chat| chat.origin.started_by.clone());
-    started_by.or_else(|| core.hosts.team.get(agent_id)?.parent)
+    started_by.or_else(|| core.hosts().team.get(agent_id)?.parent)
 }
 
 /// The goal's own words, its slices, and `agent_id`'s card, as sections of its brief. A blind
 /// reviewer gets only the goal's words, which are the person's.
 pub(crate) fn sections(core: &Core, agent_id: &str, goal: &GoalRef, blind: bool) -> Vec<String> {
-    let state = core.boards.state.locked();
+    let state = core.boards().state.locked();
     let Some(board) = state.boards.get(&goal.project) else {
         return Vec::new();
     };

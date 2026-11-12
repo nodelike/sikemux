@@ -1,5 +1,6 @@
 //! Calling the accounts API as this host, signed with its key.
 
+use crate::server::parts::Parts;
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 
@@ -107,7 +108,7 @@ pub(crate) async fn host_send_any(
     body: Option<Upload>,
 ) -> CoreResult<reqwest::Response> {
     let base = core
-        .remote
+        .remote()
         .signed_in_api()
         .ok_or_else(|| CoreError::from("this host is not signed in"))?;
     let body_sha256 = hex::encode(Sha256::digest(
@@ -122,7 +123,7 @@ pub(crate) async fn host_send_any(
         time,
         body_sha256,
     };
-    let (key, signature) = core.remote.sign_host_request(&request)?;
+    let (key, signature) = core.remote().sign_host_request(&request)?;
     let mut sent = crate::accounts::client()
         .map_err(CoreError::from)?
         .request(method, format!("{}{path}", base.trim_end_matches('/')))

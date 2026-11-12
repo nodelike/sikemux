@@ -1,6 +1,7 @@
 //! What happens to a project's commits, told once by the code that commits,
 //! lands and checks them, for the board to follow in the order it happened.
 
+use crate::server::parts::Parts;
 use std::collections::{BTreeSet, VecDeque};
 use std::path::Path;
 use std::sync::Mutex;
@@ -72,7 +73,7 @@ pub(crate) struct CommitMade<'a> {
 /// of the project's events, and what else follows from it follows from here.
 pub(crate) fn commit_made(core: &Core, made: CommitMade<'_>) {
     super::board::backup::committed(core, made.agent);
-    let (project, on_branch) = core.workspaces.project_checkout(made.top);
+    let (project, on_branch) = core.workspaces().project_checkout(made.top);
     if on_branch {
         let mut agents: Vec<String> = crate::trailers::agents(made.message)
             .into_iter()
@@ -87,18 +88,19 @@ pub(crate) fn commit_made(core: &Core, made: CommitMade<'_>) {
             agents,
             asked: false,
         };
-        core.checks
+        core.checks()
             .wait_for(project.clone(), std::path::PathBuf::from(&project), commit);
         super::board::roles::landed(core, &project);
         super::chief::landed(core, &project, made.agent);
     }
-    core.repo_events.tell(RepoEvent::Committed {
+    core.repo_events().tell(RepoEvent::Committed {
         project,
         agent: made.agent.to_owned(),
         sha: made.sha.to_owned(),
         on_branch,
     });
-    core.collisions.committed(made.agent, made.top, made.paths);
+    core.collisions()
+        .committed(made.agent, made.top, made.paths);
 }
 
 impl RepoEvent {

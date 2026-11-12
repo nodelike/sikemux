@@ -1,6 +1,7 @@
 //! A resumed chat says nothing of its context window until it runs a turn, so
 //! the transcript its CLI saved tells every app how full the window was.
 
+use crate::server::parts::Parts;
 use serde_json::json;
 
 use crate::agent_catalog::AgentKind;
@@ -35,7 +36,7 @@ impl Chat {
             let size = saved
                 .size
                 .unwrap_or_else(|| saved_window(&start.setup, launch.model.as_deref(), saved.used));
-            let Some(chat) = core.upgrade().and_then(|core| core.chats.get(&agent_id)) else {
+            let Some(chat) = core.upgrade().and_then(|core| core.chats().get(&agent_id)) else {
                 return;
             };
             let mut update = sikemux_fold::update::usage(saved.used, size);

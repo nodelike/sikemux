@@ -2,6 +2,7 @@
 //! with a newer binary in the same process, restarting it from its own, and
 //! stopping everything.
 
+use crate::server::parts::Parts;
 use std::io::Read;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
@@ -153,7 +154,7 @@ pub(crate) async fn answer(
         Ok(FrozenRequest::Restart) => restart(core, writer).await,
         Ok(FrozenRequest::UpdateBlockers) => {
             let chats = core
-                .chats
+                .chats()
                 .blockers()
                 .into_iter()
                 .map(|blocker| UpdateBlocker {
@@ -224,7 +225,7 @@ async fn hand_over_when_ready(
     later: &str,
     writer: &mut FrameWriter,
 ) -> String {
-    if !core.chats.all_handable() {
+    if !core.chats().all_handable() {
         reply(
             writer,
             &FrozenReply::Deferred {
@@ -234,11 +235,11 @@ async fn hand_over_when_ready(
         .await;
         drop_writer(writer).await;
         settle_chats(core, force).await;
-        core.updating.frozen.send_replace(true);
+        core.updating().frozen.send_replace(true);
     } else {
         // Frozen before the answer goes out, so a client that hears it never
         // reaches this core again, only its replacement.
-        core.updating.frozen.send_replace(true);
+        core.updating().frozen.send_replace(true);
         reply(writer, &FrozenReply::Accepted).await;
     }
     finish(core, binary).await
@@ -260,21 +261,21 @@ pub(crate) async fn replace_with(
         settle_chats(core, true).await;
     } else {
         let deadline = tokio::time::Instant::now() + limit;
-        while !core.chats.all_handable() {
+        while !core.chats().all_handable() {
             if tokio::time::Instant::now() >= deadline {
-                core.updating.started.store(false, Ordering::Release);
+                core.updating().started.store(false, Ordering::Release);
                 return "a chat could not hand its agent over".into();
             }
             tokio::time::sleep(HANDOVER_POLL).await;
         }
     }
-    core.updating.frozen.send_replace(true);
+    core.updating().frozen.send_replace(true);
     finish(core, binary).await
 }
 
 async fn begin(core: &Arc<Core>, binary: &Path, replacement: Replacement) -> Result<(), String> {
     if core
-        .updating
+        .updating()
         .started
         .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
         .is_err()
@@ -286,7 +287,7 @@ async fn begin(core: &Arc<Core>, binary: &Path, replacement: Replacement) -> Res
     let preflight =
         blocking(move || check_binary(&checked, &own, replacement).map_err(Into::into)).await;
     if let Err(error) = preflight {
-        core.updating.started.store(false, Ordering::Release);
+        core.updating().started.store(false, Ordering::Release);
         return Err(error.to_string());
     }
     Ok(())
@@ -294,7 +295,7 @@ async fn begin(core: &Arc<Core>, binary: &Path, replacement: Replacement) -> Res
 
 async fn settle_chats(core: &Arc<Core>, force: bool) {
     let deadline = tokio::time::Instant::now() + core.config.handover_settle;
-    while !core.chats.all_handable() && (!force || tokio::time::Instant::now() < deadline) {
+    while !core.chats().all_handable() && (!force || tokio::time::Instant::now() < deadline) {
         tokio::time::sleep(HANDOVER_POLL).await;
     }
 }
@@ -400,10 +401,10 @@ fn upgrade_info(binary: &Path) -> Result<UpgradeInfo, String> {
 /// Returns only if that failed.
 async fn hand_over(core: &Arc<Core>, binary: PathBuf) -> String {
     super::spare::discard(core);
-    if !core.updating.launching.settle(LAUNCH_SETTLE).await {
+    if !core.updating().launching.settle(LAUNCH_SETTLE).await {
         return "a session was still starting".into();
     }
-    if !core.updating.pumping.settle(READER_SETTLE).await {
+    if !core.updating().pumping.settle(READER_SETTLE).await {
         return "a terminal reader did not stop".into();
     }
     let flushing: Vec<_> = core
@@ -414,14 +415,18 @@ async fn hand_over(core: &Arc<Core>, binary: PathBuf) -> String {
     for flush in flushing {
         let _ = flush.await;
     }
-    let calls = core.tools.locked().as_ref().map(|tools| tools.open_calls());
+    let calls = core
+        .tools()
+        .locked()
+        .as_ref()
+        .map(|tools| tools.open_calls());
     if let Some(calls) = calls {
         let deadline = Instant::now() + TOOL_SETTLE;
         while calls.load(Ordering::Acquire) > 0 && Instant::now() < deadline {
             tokio::time::sleep(Duration::from_millis(5)).await;
         }
     }
-    let chats = core.chats.hand_over().await;
+    let chats = core.chats().hand_over().await;
     let replacing = core.clone();
     let replaced = blocking(move || {
         let mut chats = chats;
@@ -471,9 +476,9 @@ fn restart_chats(core: &Arc<Core>, chats: Vec<HandOver>) {
 }
 
 fn thaw(core: &Arc<Core>) {
-    core.updating.frozen.send_replace(false);
+    core.updating().frozen.send_replace(false);
     for target in core.all_sessions() {
         session::thaw(core, target);
     }
-    core.updating.started.store(false, Ordering::Release);
+    core.updating().started.store(false, Ordering::Release);
 }

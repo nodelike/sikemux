@@ -27,6 +27,7 @@ pub(crate) mod team;
 pub mod transfer;
 
 use crate::server::changed::What;
+use crate::server::parts::Parts;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::net::SocketAddr;
 use std::path::Path;
@@ -314,12 +315,12 @@ pub struct LinkedHost {
 }
 
 pub(crate) fn views(core: &Core) -> Vec<LinkedHost> {
-    let team = core.hosts.team.all();
-    core.remote
+    let team = core.hosts().team.all();
+    core.remote()
         .links()
         .into_iter()
         .map(|link| LinkedHost {
-            connected: core.hosts.connected(&link.id).is_some(),
+            connected: core.hosts().connected(&link.id).is_some(),
             agents: team.iter().filter(|agent| agent.host == link.id).count(),
             id: link.id,
             name: link.name,
@@ -332,7 +333,7 @@ pub(crate) fn views(core: &Core) -> Vec<LinkedHost> {
 
 /// The linked host an agent names, by the name this host gives it or its key.
 pub(crate) fn find(core: &Core, wanted: &str) -> Result<StoredLink, String> {
-    let links = core.remote.links();
+    let links = core.remote().links();
     let wanted = wanted.trim();
     let matching: Vec<&StoredLink> = links
         .iter()
@@ -363,14 +364,14 @@ pub(crate) fn find(core: &Core, wanted: &str) -> Result<StoredLink, String> {
 }
 
 pub(crate) fn name_of(core: &Core, id: &str) -> String {
-    core.remote
+    core.remote()
         .link(id)
         .map(|link| link.name)
         .unwrap_or_else(|| id.get(..8).unwrap_or(id).to_owned())
 }
 
 fn own_addresses(core: &Core) -> Vec<String> {
-    core.remote
+    core.remote()
         .endpoint()
         .map(|endpoint| {
             endpoint
@@ -399,7 +400,7 @@ fn addr_of(core: &Core, id: &str, addresses: &[String]) -> Result<EndpointAddr, 
         .parse()
         .map_err(|_| "that is not a host's key".to_owned())?;
     let with_relays = core
-        .remote
+        .remote()
         .relays()
         .iter()
         .filter_map(|relay| relay.url.parse::<RelayUrl>().ok())
@@ -527,7 +528,7 @@ impl DialFailure {
 
 async fn dial(core: &Core, id: &str, addresses: &[String]) -> Result<Connection, DialError> {
     let failed = |failure, message: String| DialError { failure, message };
-    let endpoint = core.remote.endpoint().ok_or_else(|| {
+    let endpoint = core.remote().endpoint().ok_or_else(|| {
         failed(
             DialFailure::Off,
             "remote access is off on this host, so it reaches no other host".into(),
@@ -547,17 +548,17 @@ async fn dial(core: &Core, id: &str, addresses: &[String]) -> Result<Connection,
 
 /// The connection to a linked host, made now if there is none.
 async fn connection(core: &Arc<Core>, host: &str) -> Result<Connection, Failed> {
-    if let Some(connection) = core.hosts.connected(host) {
+    if let Some(connection) = core.hosts().connected(host) {
         return Ok(connection);
     }
     let link = core
-        .remote
+        .remote()
         .link(host)
         .ok_or_else(|| Failed::Refused(format!("{} is no longer linked", name_of(core, host))))?;
     match dial(core, host, &link.addresses).await {
         Ok(connection) => Ok(adopt(core, host, connection)),
         Err(error) => {
-            core.hosts.note_down(host);
+            core.hosts().note_down(host);
             changed(core);
             Err(Failed::Unreachable(format!(
                 "{} is out of reach: {error}",
@@ -642,7 +643,7 @@ async fn asking(
 /// `host` no longer has the link with this one, though the person there could not tell this
 /// host when they removed it: this host lets it go too.
 fn unlinked_there(core: &Core, host: &str) {
-    if core.remote.forget_link(host) {
+    if core.remote().forget_link(host) {
         unlinked(core, host, "the person there removed the link");
     }
 }
@@ -650,22 +651,22 @@ fn unlinked_there(core: &Core, host: &str) {
 /// Sends a linked host something that must arrive, behind whatever already
 /// waits for it.
 pub(crate) fn post(core: &Core, host: &str, sending: Sending) {
-    core.hosts.outbox.push(host, sending);
+    core.hosts().outbox.push(host, sending);
     match core.arc() {
-        Some(core) if core.hosts.connected(host).is_some() => flush(&core, host),
-        _ => core.hosts.wake.now(),
+        Some(core) if core.hosts().connected(host).is_some() => flush(&core, host),
+        _ => core.hosts().wake.now(),
     }
 }
 
 /// Whether something sent to `host` now would go at once, rather than wait
 /// behind what is queued for it.
 pub(crate) fn goes_now(core: &Core, host: &str, about: &str) -> bool {
-    core.hosts
+    core.hosts()
         .outbox
         .lanes(host)
         .iter()
         .all(|lane| lane != about)
-        && core.hosts.reachable(host)
+        && core.hosts().reachable(host)
 }
 
 /// Sends what waits for `host` while it stays reachable, each lane in order and every lane at
@@ -673,8 +674,8 @@ pub(crate) fn goes_now(core: &Core, host: &str, about: &str) -> bool {
 fn flush(core: &Arc<Core>, host: &str) {
     let now = epoch_ms();
     let lanes: Vec<String> = {
-        let mut state = core.hosts.state.locked();
-        (core.hosts.outbox.lanes(host).into_iter())
+        let mut state = core.hosts().state.locked();
+        (core.hosts().outbox.lanes(host).into_iter())
             .filter(|lane| {
                 let key = (host.to_owned(), lane.clone());
                 let held = state.held.get(&key).is_some_and(|until| *until > now);
@@ -688,8 +689,8 @@ fn flush(core: &Arc<Core>, host: &str) {
 }
 
 async fn flush_lane(core: Arc<Core>, host: String, lane: String) {
-    while let Some(post) = core.hosts.outbox.front(&host, &lane) {
-        let Some(connection) = core.hosts.connected(&host) else {
+    while let Some(post) = core.hosts().outbox.front(&host, &lane) {
+        let Some(connection) = core.hosts().connected(&host) else {
             break;
         };
         let body = post.body.as_deref().filter(|_| !post.pulled);
@@ -705,7 +706,7 @@ async fn flush_lane(core: Arc<Core>, host: String, lane: String) {
         .await;
         match sent {
             Ok(_) => {
-                core.hosts.outbox.sent(&host, post.seq);
+                core.hosts().outbox.sent(&host, post.seq);
                 if post.method == "question" {
                     if let Some(id) = post.params["id"].as_str() {
                         super::questions::relay_arrived(&core, id);
@@ -715,12 +716,12 @@ async fn flush_lane(core: Arc<Core>, host: String, lane: String) {
             Err(Failed::Refused(why))
                 if post.pulled && why == format!("{UNKNOWN_ASK}{}", post.method) =>
             {
-                core.hosts
+                core.hosts()
                     .outbox
                     .carry(&host, post.seq, calls::Commits::METHOD);
             }
             Err(Failed::Refused(why)) => {
-                if core.hosts.outbox.sent(&host, post.seq) {
+                if core.hosts().outbox.sent(&host, post.seq) {
                     turned_away(&core, &host, &post, &why);
                 }
             }
@@ -729,18 +730,18 @@ async fn flush_lane(core: Arc<Core>, host: String, lane: String) {
                 break;
             }
             Err(Failed::Retry(_) | Failed::Unreachable(_) | Failed::Unknown(_)) => {
-                core.hosts.hold(&host, &lane, RETRY_MS);
+                core.hosts().hold(&host, &lane, RETRY_MS);
                 break;
             }
         }
     }
-    core.hosts
+    core.hosts()
         .state
         .locked()
         .flushing
         .remove(&(host.clone(), lane));
-    if core.hosts.outbox.has(&host) {
-        core.hosts.wake.now();
+    if core.hosts().outbox.has(&host) {
+        core.hosts().wake.now();
     }
 }
 
@@ -755,7 +756,7 @@ fn turned_away(core: &Core, host: &str, post: &outbox::Post, why: &str) {
         [calls::Commits::METHOD, calls::CommitsReady::METHOD].contains(&post.method.as_str());
     if commits {
         if let Some(worker) = &post.from {
-            core.hosts.team.tree_unsent(worker);
+            core.hosts().team.tree_unsent(worker);
         }
     }
     if let (Some(asked), "answer") = (post.back.clone(), post.method.as_str()) {
@@ -781,9 +782,9 @@ fn turned_away(core: &Core, host: &str, post: &outbox::Post, why: &str) {
 /// unless it lost it. When both hosts dialed at once, each keeps the connection the host with
 /// the lower key dialed and closes the other, so they agree. Answers the connection kept.
 fn adopt(core: &Arc<Core>, host: &str, connection: Connection) -> Connection {
-    core.boards.wake.now();
+    core.boards().wake.now();
     let (was_down, replaced) = {
-        let mut state = core.hosts.state.locked();
+        let mut state = core.hosts().state.locked();
         let racing = (state.adopted.get(host))
             .is_some_and(|at| epoch_ms().saturating_sub(*at) < DIALED_AT_ONCE_MS);
         if let Some(kept) = state.connections.get(host).filter(|kept| {
@@ -808,7 +809,7 @@ fn adopt(core: &Arc<Core>, host: &str, connection: Connection) -> Connection {
     if let Some(replaced) = replaced {
         replaced.close(DUPLICATE.into(), b"replaced by a newer connection");
     }
-    core.remote.link_seen(host, None);
+    core.remote().link_seen(host, None);
     tokio::spawn(answer_asks(
         core.clone(),
         host.to_owned(),
@@ -820,7 +821,7 @@ fn adopt(core: &Arc<Core>, host: &str, connection: Connection) -> Connection {
         connection.clone(),
     ));
     flush(core, host);
-    core.hosts.copies.reached(host);
+    core.hosts().copies.reached(host);
     route::resync(core, host);
     spawn::settle_pending_on(core, host);
     route::ask_after_workers(core, host);
@@ -836,7 +837,7 @@ fn replaces(core: &Core, host: &str, old: &Connection, new: &Connection) -> bool
     if old.side() == new.side() {
         return true;
     }
-    let own = core.remote.core_id().unwrap_or_default();
+    let own = core.remote().core_id().unwrap_or_default();
     let dialer = |connection: &Connection| match connection.side() {
         iroh::endpoint::Side::Client => own.as_str(),
         iroh::endpoint::Side::Server => host,
@@ -878,7 +879,7 @@ async fn answer_asks(core: Arc<Core>, host: String, connection: Connection) {
 async fn until_closed(core: Arc<Core>, host: String, connection: Connection) {
     let closed = connection.closed().await;
     let current = {
-        let mut state = core.hosts.state.locked();
+        let mut state = core.hosts().state.locked();
         let current = state
             .connections
             .get(&host)
@@ -889,10 +890,10 @@ async fn until_closed(core: Arc<Core>, host: String, connection: Connection) {
         current
     };
     if current {
-        core.hosts.note_down(&host);
+        core.hosts().note_down(&host);
         if let iroh::endpoint::ConnectionError::ApplicationClosed(close) = closed {
             if DialFailure::closed(&close) == DialFailure::NotLinked {
-                if let Some(down) = core.hosts.state.locked().down.get_mut(&host) {
+                if let Some(down) = core.hosts().state.locked().down.get_mut(&host) {
                     down.last = Some(DialFailure::NotLinked);
                 }
             }
@@ -904,7 +905,7 @@ async fn until_closed(core: Arc<Core>, host: String, connection: Connection) {
 /// A linked host opened a connection to this one.
 pub(crate) async fn serve(core: Arc<Core>, connection: Connection) {
     let host = connection.remote_id().to_string();
-    if core.remote.link(&host).is_some() {
+    if core.remote().link(&host).is_some() {
         adopt(&core, &host, connection);
         return;
     }
@@ -915,7 +916,7 @@ pub(crate) async fn serve(core: Arc<Core>, connection: Connection) {
 /// if it can, and the agents working across the link are let go.
 pub(crate) fn unlink(core: &Core, host: &str) {
     let connection = {
-        let mut state = core.hosts.state.locked();
+        let mut state = core.hosts().state.locked();
         state.connections.remove(host)
     };
     unlinked(core, host, "the person removed the link");
@@ -938,11 +939,11 @@ pub(crate) fn unlink(core: &Core, host: &str) {
 /// `host` is no longer linked with this one, for the reason `why`: what
 /// waits for it is dropped, and the leads of workers there are told.
 pub(crate) fn unlinked(core: &Core, host: &str, why: &str) {
-    core.hosts.outbox.forget(host);
-    core.hosts.receipts.forget(host);
-    core.hosts.copies.forget(host);
+    core.hosts().outbox.forget(host);
+    core.hosts().receipts.forget(host);
+    core.hosts().copies.forget(host);
     let connection = {
-        let mut state = core.hosts.state.locked();
+        let mut state = core.hosts().state.locked();
         state.down.remove(host);
         state.connections.remove(host)
     };
@@ -956,7 +957,7 @@ pub(crate) fn unlinked(core: &Core, host: &str, why: &str) {
 /// Remote access went off: every link connection closes with it.
 pub(crate) fn halt(core: &Core) {
     let connections: Vec<Connection> = {
-        let mut state = core.hosts.state.locked();
+        let mut state = core.hosts().state.locked();
         state
             .connections
             .drain()
@@ -978,11 +979,11 @@ fn changed(core: &Core) {
 /// Tries hosts out of reach again while something waits for them or agents
 /// work across the link, and tells leads when a host stays out of reach.
 pub(crate) fn settle(core: &Arc<Core>) {
-    let links = core.remote.links();
+    let links = core.remote().links();
     let linked: Vec<String> = links.iter().map(|link| link.id.clone()).collect();
-    core.hosts.outbox.keep_only(&linked);
-    if core.remote.endpoint().is_none() {
-        let mut state = core.hosts.state.locked();
+    core.hosts().outbox.keep_only(&linked);
+    if core.remote().endpoint().is_none() {
+        let mut state = core.hosts().state.locked();
         state.down.clear();
         state.dialing.clear();
         return;
@@ -994,7 +995,7 @@ pub(crate) fn settle(core: &Arc<Core>) {
     let mut tell = Vec::new();
     let mut flushes = Vec::new();
     {
-        let mut state = core.hosts.state.locked();
+        let mut state = core.hosts().state.locked();
         state.down.retain(|host, _| linked.contains(host));
         state
             .held
@@ -1002,15 +1003,16 @@ pub(crate) fn settle(core: &Arc<Core>) {
         next = (state.held.values()).fold(next, |next, until| sooner(next, Some(*until)));
         flushes.extend(
             (state.connections.keys())
-                .filter(|host| core.hosts.outbox.has(host))
+                .filter(|host| core.hosts().outbox.has(host))
                 .cloned(),
         );
         for link in &links {
-            let needed = core.hosts.outbox.has(&link.id)
-                || core.hosts.team.has_host(&link.id)
-                || core.hosts.listed.load(Ordering::Acquire);
+            let needed = core.hosts().outbox.has(&link.id)
+                || core.hosts().team.has_host(&link.id)
+                || core.hosts().listed.load(Ordering::Acquire);
             let for_copies = window
-                && (core.hosts.copies.holds(&link.id) || !core.hosts.copies.heard_from(&link.id));
+                && (core.hosts().copies.holds(&link.id)
+                    || !core.hosts().copies.heard_from(&link.id));
             if !(needed || for_copies)
                 || state.connections.contains_key(&link.id)
                 || state.dialing.contains(&link.id)
@@ -1024,7 +1026,7 @@ pub(crate) fn settle(core: &Arc<Core>) {
                 last: None,
                 told: false,
             });
-            if !down.told && core.hosts.team.has_host(&link.id) {
+            if !down.told && core.hosts().team.has_host(&link.id) {
                 if now >= down.since + OUT_OF_REACH_MS {
                     down.told = true;
                     tell.push(link.id.clone());
@@ -1048,7 +1050,7 @@ pub(crate) fn settle(core: &Arc<Core>) {
         tokio::spawn(async move {
             let dialed = dial(&core, &link.id, &link.addresses).await;
             {
-                let mut state = core.hosts.state.locked();
+                let mut state = core.hosts().state.locked();
                 state.dialing.remove(&link.id);
                 if let Err(error) = &dialed {
                     if let Some(down) = state.down.get_mut(&link.id) {
@@ -1065,7 +1067,7 @@ pub(crate) fn settle(core: &Arc<Core>) {
                 }
                 Err(_) => {
                     core.changed(What::Read(Topic::Hosts));
-                    core.hosts.wake.now();
+                    core.hosts().wake.now();
                 }
             }
         });
@@ -1077,7 +1079,7 @@ pub(crate) fn settle(core: &Arc<Core>) {
         route::out_of_reach(core, &host);
     }
     if let Some(next) = next {
-        core.hosts.wake.at(next);
+        core.hosts().wake.at(next);
     }
 }
 
@@ -1108,10 +1110,10 @@ impl crate::server::part::Part for Hosts {
     fn start(&self, core: &Arc<Core>) -> Vec<tokio::task::JoinHandle<()>> {
         use crate::server::part::on_wake;
         vec![
-            on_wake(core, |core| &core.hosts.wake, settle),
-            on_wake(core, |core| &core.hosts.relink, account::relink),
-            on_wake(core, |core| &core.hosts.copies.wake, copies::share),
-            on_wake(core, |core| &core.hosts.rows, route::tell_rows_soon),
+            on_wake(core, |core| &core.hosts().wake, settle),
+            on_wake(core, |core| &core.hosts().relink, account::relink),
+            on_wake(core, |core| &core.hosts().copies.wake, copies::share),
+            on_wake(core, |core| &core.hosts().rows, route::tell_rows_soon),
         ]
     }
 }

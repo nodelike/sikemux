@@ -2,6 +2,7 @@
 //! way a commit is made here: the git panel, `git_commit`, Auto, and an
 //! agent's own `git commit` through the git shim.
 
+use crate::server::parts::Parts;
 use std::cell::Cell;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -104,7 +105,7 @@ fn footer(
         tree: &tree,
         parents: &parents,
     };
-    let key = core.remote.host_key();
+    let key = core.remote().host_key();
     let note = staged
         .ok()
         .and_then(|(owners, diff)| note::of(&owners, &diff, &keys, fallback.is_none()))
@@ -266,7 +267,7 @@ fn made_of(dir: &Path, index: Option<&Path>, amend: bool) -> Result<(String, Vec
 /// `author` as it is now: the CLI's version and the model of its open chat,
 /// else the model of its latest edit, and the Sikemux it runs in.
 pub(super) fn agent(core: &Core, author: &Author) -> Agent {
-    let chat = core.chats.get(&author.agent_id);
+    let chat = core.chats().get(&author.agent_id);
     Agent {
         name: author.name.clone(),
         cli: author.cli.clone(),
@@ -275,7 +276,7 @@ pub(super) fn agent(core: &Core, author: &Author) -> Agent {
             .and_then(|chat| chat.current_launch().model)
             .or_else(|| author.model.clone()),
         sikemux: Some(core.config.build.version.clone()),
-        session: core.names.last_session(&author.agent_id),
+        session: core.names().last_session(&author.agent_id),
         chat: author.agent_id.clone(),
     }
 }
@@ -286,7 +287,7 @@ pub(super) fn known(core: &Core, dir: &Path, agent_id: &str) -> Option<Agent> {
     if let Some(author) = latest(core, dir, agent_id) {
         return Some(agent(core, &author));
     }
-    let chat = core.chats.get(agent_id);
+    let chat = core.chats().get(agent_id);
     let cli = match &chat {
         Some(chat) => chat.provider().to_owned(),
         None => core.all_sessions().iter().find_map(|session| {
@@ -296,14 +297,14 @@ pub(super) fn known(core: &Core, dir: &Path, agent_id: &str) -> Option<Agent> {
                 .flatten()
         })?,
     };
-    let name = core.names.name(agent_id).unwrap_or_else(|| cli.clone());
+    let name = core.names().name(agent_id).unwrap_or_else(|| cli.clone());
     Some(Agent {
         name,
         cli,
         cli_version: chat.as_ref().and_then(|chat| chat.cli_version()),
         model: chat.and_then(|chat| chat.current_launch().model),
         sikemux: Some(core.config.build.version.clone()),
-        session: core.names.last_session(agent_id),
+        session: core.names().last_session(agent_id),
         chat: agent_id.to_owned(),
     })
 }
@@ -315,7 +316,7 @@ pub(super) fn known(core: &Core, dir: &Path, agent_id: &str) -> Option<Agent> {
 /// A commit `git rebase` made again keeps the footer signed for where it stood,
 /// so it is told by the commit it was made from.
 pub(crate) fn verified(core: &Core, dir: &Path, commit: &str) -> Result<Vec<Agent>, String> {
-    let hosts = core.remote.host_keys();
+    let hosts = core.remote().host_keys();
     let signed = |id: &str| -> Result<Option<Vec<Agent>>, String> {
         let (tree, parents, message) = read_commit(dir, id)?;
         let commit = Commit {
@@ -334,7 +335,7 @@ pub(crate) fn verified(core: &Core, dir: &Path, commit: &str) -> Result<Vec<Agen
     let Some(agents) = agents else {
         return Ok(Vec::new());
     };
-    let project = core.workspaces.project_of(dir);
+    let project = core.workspaces().project_of(dir);
     Ok(agents
         .into_iter()
         .filter(|agent| recorded(core, &project, agent))
@@ -401,11 +402,11 @@ fn recorded(core: &Core, project: &str, agent: &Agent) -> bool {
     agent
         .session
         .as_deref()
-        .is_some_and(|session| core.names.knows_session(session))
-        || core.names.name(chat).is_some()
-        || core.names.last_session(chat).is_some()
+        .is_some_and(|session| core.names().knows_session(session))
+        || core.names().name(chat).is_some()
+        || core.names().last_session(chat).is_some()
         || !core
-            .edits
+            .edits()
             .matching(project, |edit| edit.agent_id == chat)
             .is_empty()
         || agent

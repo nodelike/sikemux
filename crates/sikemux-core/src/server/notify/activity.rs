@@ -1,6 +1,7 @@
 //! The Live Activity a phone shows of this host's agents, kept current while the phone is locked: the host
 //! seals what its agents are doing for each phone that started one, and the account passes it on unread.
 
+use crate::server::parts::Parts;
 use serde::{Deserialize, Serialize};
 use sikemux_process::sync::Locked;
 use sikemux_view::push::ActivityGlance;
@@ -26,9 +27,9 @@ pub(crate) fn live_activity(core: &Core, peer: &Peer, params: ActivityParams) ->
     let id = peer
         .device_id()
         .ok_or("only a phone shows a Live Activity")?;
-    core.remote.set_activity(&id, params.token)?;
-    core.notify.state.locked().activities.remove(&id);
-    core.notify.inbox_moved();
+    core.remote().set_activity(&id, params.token)?;
+    core.notify().state.locked().activities.remove(&id);
+    core.notify().inbox_moved();
     Ok(())
 }
 
@@ -49,19 +50,19 @@ const CARD: &str = "activity";
 
 /// Sends each phone showing a Live Activity of this host what its agents do now, when that changed.
 pub(super) fn tell(core: &Core, now: u64) {
-    let Some((host, targets)) = core.remote.activity_targets() else {
+    let Some((host, targets)) = core.remote().activity_targets() else {
         return;
     };
     if targets.is_empty() {
-        core.notify.state.locked().activities.clear();
+        core.notify().state.locked().activities.clear();
         return;
     }
     let (chats, sessions) = core.ranked_infos();
     let glance = crate::server::inbox::view(core, &chats, &sessions).glance;
-    let outbox = core.remote.outbox();
+    let outbox = core.remote().outbox();
     for (target, token) in targets {
         let last = core
-            .notify
+            .notify()
             .state
             .locked()
             .activities
@@ -92,11 +93,11 @@ pub(super) fn tell(core: &Core, now: u64) {
             blob,
             expires_at: now + LIFE_MS,
         });
-        let mut state = core.notify.state.locked();
+        let mut state = core.notify().state.locked();
         if kind == PushKind::ActivityEnd {
             state.activities.remove(&target.device_id);
             drop(state);
-            core.remote.activity_gone(&target.device_id, &token);
+            core.remote().activity_gone(&target.device_id, &token);
         } else {
             let sent = Sent {
                 glance: glance.clone(),
@@ -110,7 +111,7 @@ pub(super) fn tell(core: &Core, now: u64) {
 
 /// Whether a glance a phone holds is old enough to send again, so the tick builds one only then.
 pub(super) fn refresh_due(core: &Core, now: u64) -> bool {
-    (core.notify.state.locked().activities.values())
+    (core.notify().state.locked().activities.values())
         .any(|sent| sent.glance.active() && now.saturating_sub(sent.at) >= REFRESH_MS)
 }
 

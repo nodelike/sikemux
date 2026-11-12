@@ -3,6 +3,7 @@
 //! checkout, only when it has no changes, no untracked files, no commits of its own and no
 //! merge or rebase under way, and no agent is at work in it. Anything else, it leaves alone.
 
+use crate::server::parts::Parts;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -43,7 +44,7 @@ async fn serve(core: Arc<Core>) {
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     loop {
         ticker.tick().await;
-        let projects = core.workspaces.project_paths();
+        let projects = core.workspaces().project_paths();
         let core = core.clone();
         let _ = blocking(move || {
             lowest_priority();
@@ -145,9 +146,9 @@ fn default_branch_upstream(checkout: &Path) -> Option<(String, String)> {
 /// Whether nobody is at work in `checkout`: no agent busy there, nothing changed or added in
 /// it, and no merge or rebase under way.
 fn untouched(core: &Core, checkout: &Path) -> bool {
-    let agents_busy = (core.workspaces.agent_ids().into_iter())
+    let agents_busy = (core.workspaces().agent_ids().into_iter())
         .filter(|id| busy(core, id))
-        .filter_map(|id| core.workspaces.agent(&id))
+        .filter_map(|id| core.workspaces().agent(&id))
         .any(|agent| agent.cwd.starts_with(checkout));
     if agents_busy {
         return false;

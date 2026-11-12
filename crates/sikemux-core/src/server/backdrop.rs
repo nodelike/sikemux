@@ -1,6 +1,7 @@
 //! What devices draw behind their panes: the host's grain, and the picture in its place, taken
 //! from the person's preferences so that no app has to send it.
 
+use crate::server::parts::Parts;
 use sikemux_view::prefs::{PaneColours, Preferences};
 use sikemux_view::theme::UiTokens;
 use sikemux_view::workspace::BackdropLook;
@@ -22,7 +23,7 @@ pub(crate) fn follow(core: &Core) {
     };
     tokio::task::spawn_blocking(move || {
         let id = picture_id(&path);
-        if id.is_some() && id == core.workspaces.backdrop_image_id() {
+        if id.is_some() && id == core.workspaces().backdrop_image_id() {
             return;
         }
         let image = id.and_then(|id| shrunk(&path, id));
@@ -58,7 +59,7 @@ pub(crate) fn look(preferences: &Preferences, tokens: &UiTokens) -> BackdropLook
 }
 
 fn publish(core: &Core, texture: bool, image: Option<BackdropImage>) {
-    match core.workspaces.publish_backdrop(texture, image) {
+    match core.workspaces().publish_backdrop(texture, image) {
         Ok(()) => core.changed(What::View),
         Err(error) => eprintln!("sikemux core: the pane picture is not sent to devices: {error}"),
     }

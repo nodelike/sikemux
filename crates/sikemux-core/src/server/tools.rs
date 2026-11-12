@@ -3,6 +3,7 @@
 //! names the port and a token; before a client sends the token it makes the
 //! core prove it holds the same one.
 
+use crate::server::parts::Parts;
 use std::net::{Ipv4Addr, SocketAddrV4};
 use std::os::fd::{AsRawFd, RawFd};
 use std::path::PathBuf;
@@ -236,7 +237,7 @@ async fn serve(core: Arc<Core>, stream: TcpStream, secret: &str, port: u16) {
         return;
     };
     let (read_half, mut writer) = stream.into_split();
-    if core.updating.is_frozen() {
+    if core.updating().is_frozen() {
         write(
             &mut writer,
             &CliServerResponse::Error {
@@ -294,7 +295,7 @@ async fn serve(core: Arc<Core>, stream: TcpStream, secret: &str, port: u16) {
             Ok(()) => {
                 let answer = tokio::select! {
                     answer = harness::call(&core, request, peer, port) => answer,
-                    () = core.updating.until_frozen() => Err(CUT_BY_UPDATE.into()),
+                    () = core.updating().until_frozen() => Err(CUT_BY_UPDATE.into()),
                 };
                 Ok(match answer {
                     Ok(value) => CliServerResponse::Result { value },
@@ -314,7 +315,7 @@ async fn serve(core: Arc<Core>, stream: TcpStream, secret: &str, port: u16) {
             }
             tokio::select! {
                 () = build(&core, &mut reader, &mut writer, request) => {}
-                () = core.updating.until_frozen() => {}
+                () = core.updating().until_frozen() => {}
             }
             return;
         }
@@ -331,7 +332,7 @@ async fn serve(core: Arc<Core>, stream: TcpStream, secret: &str, port: u16) {
             }
             let closed = tokio::select! {
                 () = open(&core, &mut writer, request) => false,
-                () = core.updating.until_frozen() => true,
+                () = core.updating().until_frozen() => true,
             };
             if closed {
                 write(

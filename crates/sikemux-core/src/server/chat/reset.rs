@@ -3,6 +3,7 @@
 //! list is kept on disk so a core that restarts goes on waiting.
 
 use crate::server::changed::What;
+use crate::server::parts::Parts;
 use sikemux_fold::update::notice;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -196,7 +197,7 @@ pub(super) fn schedule(
     let Some(core) = chat.core.upgrade() else {
         return;
     };
-    let resets = &core.chats.resets;
+    let resets = &core.chats().resets;
     let ticket = resets.tickets.fetch_add(1, Ordering::Relaxed);
     {
         let mut slots = resets.slots.locked();
@@ -218,7 +219,7 @@ pub(super) fn schedule(
             None => reset_from_usage(&core, &launch).await,
             known => known,
         };
-        let resets = &core.chats.resets;
+        let resets = &core.chats().resets;
         let mut slots = resets.slots.locked();
         let current = slots.get(chat.agent_id());
         if !matches!(current, Some(Slot::Looking { ticket: own }) if *own == ticket) {
@@ -244,7 +245,7 @@ pub(super) fn schedule(
 }
 
 fn not_retrying(core: &Core, chat: &Chat) {
-    core.inbox.not_retrying(chat.agent_id());
+    core.inbox().not_retrying(chat.agent_id());
     crate::server::board::recover::stopped_waiting(core, chat.agent_id());
     core.changed(What::View);
 }
@@ -253,19 +254,23 @@ fn not_retrying(core: &Core, chat: &Chat) {
 /// takes the place of its stopped prompt.
 pub(super) fn cancel(chat: &Chat) {
     if let Some(core) = chat.core.upgrade() {
-        core.chats.resets.cancel(chat.agent_id());
+        core.chats().resets.cancel(chat.agent_id());
     }
 }
 
 /// The chat's stopped prompt, when its limit reset while it was not running.
 pub(super) fn take_due(chat: &Chat) -> Option<Replay> {
-    chat.core.upgrade()?.chats.resets.take_due(chat.agent_id())
+    chat.core
+        .upgrade()?
+        .chats()
+        .resets
+        .take_due(chat.agent_id())
 }
 
 /// Stops the chat waiting at the person's word, and says so in it.
 pub(crate) fn cancel_by_person(core: &Core, agent_id: &str) {
-    if core.chats.resets.cancel(agent_id) {
-        if let Some(chat) = core.chats.get(agent_id) {
+    if core.chats().resets.cancel(agent_id) {
+        if let Some(chat) = core.chats().get(agent_id) {
             let mut update = notice(
                 "info",
                 "This chat will not resume when the limit resets",
@@ -293,14 +298,14 @@ fn arm(core: &Arc<Core>, waiting: &Waiting) -> tokio::task::AbortHandle {
 /// takes the prompt up as it starts; one that cannot be woken now takes it up
 /// whenever it next starts.
 async fn resume(core: &Arc<Core>, agent_id: String) {
-    let resets = &core.chats.resets;
-    if let Some(chat) = core.chats.get(&agent_id) {
+    let resets = &core.chats().resets;
+    if let Some(chat) = core.chats().get(&agent_id) {
         if let Some(prompt) = resets.take_due(&agent_id) {
             let _ = chat.send(ChatCommand::Resume { prompt });
         }
         return;
     }
-    if core.workspaces.closed(&agent_id) {
+    if core.workspaces().closed(&agent_id) {
         resets.cancel(&agent_id);
         return;
     }
@@ -314,7 +319,7 @@ async fn reset_from_usage(core: &Core, launch: &ChatLaunch) -> Option<u64> {
     let provider = launch.provider.as_str();
     let folder = crate::launch::named_account(provider, &launch.env);
     let program = core
-        .workspaces
+        .workspaces()
         .account_spec(provider, folder)
         .program()
         .await

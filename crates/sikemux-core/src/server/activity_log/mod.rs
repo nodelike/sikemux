@@ -16,6 +16,7 @@ use super::changed::Topic;
 use super::connection::blocking;
 use super::CoreResult;
 use crate::server::changed::What;
+use crate::server::parts::Parts;
 use std::collections::HashMap;
 use std::fs;
 use std::io::{Read, Seek, SeekFrom};
@@ -68,7 +69,7 @@ pub(crate) struct Transcript {
 /// Where the agent `agent_id` works and the transcript its CLI writes, for a
 /// chat or an agent in a terminal.
 pub(crate) fn place(core: &Core, agent_id: &str) -> Option<Place> {
-    if let Some(chat) = core.chats.get(agent_id) {
+    if let Some(chat) = core.chats().get(agent_id) {
         let launch = chat.current_launch();
         let home = named_account(&launch.provider, &launch.env).map(PathBuf::from);
         let session = chat.feed.start().map(|start| start.session_id);
@@ -86,13 +87,13 @@ pub(crate) fn place(core: &Core, agent_id: &str) -> Option<Place> {
     Some(Place {
         transcript: transcript_of(
             &agent,
-            core.names.session_of(agent_id),
+            core.names().session_of(agent_id),
             owner.account_home.as_deref(),
         ),
         cwd: owner.project.clone()?,
         agent,
         chat: agent_id.to_owned(),
-        account: (core.workspaces.agent(agent_id))
+        account: (core.workspaces().agent(agent_id))
             .and_then(|agent| agent.profile_id)
             .unwrap_or_default(),
     })
@@ -124,7 +125,7 @@ pub(crate) fn chat_launched(core: &Core, launch: &sikemux_wire::protocol::ChatLa
             .map(|account| account.id.clone())
             .unwrap_or_default(),
     };
-    core.activity_log
+    core.activity_log()
         .launched(place, "chat", launch.resume_id.is_some());
 }
 
@@ -150,7 +151,7 @@ pub(crate) fn terminal_launched(
         chat: owner.agent_id.clone().unwrap_or_default(),
         account: String::new(),
     };
-    core.activity_log
+    core.activity_log()
         .launched(place, "terminal", resumed.is_some());
 }
 
@@ -1126,7 +1127,7 @@ pub(crate) async fn summary_for(
 ) -> CoreResult<ActivitySummary> {
     let core = core.clone();
     blocking(move || {
-        Ok(core.activity_log.summary(
+        Ok(core.activity_log().summary(
             params.utc_offset_minutes * 60_000,
             params.project.as_deref(),
         ))
@@ -1135,7 +1136,7 @@ pub(crate) async fn summary_for(
 }
 
 pub(crate) fn set_price_for(core: &Core, params: ActivityPriceParams) -> CoreResult<()> {
-    core.activity_log.set_price(&params.model, params.price)?;
+    core.activity_log().set_price(&params.model, params.price)?;
     core.changed(What::Read(Topic::Activity));
     Ok(())
 }

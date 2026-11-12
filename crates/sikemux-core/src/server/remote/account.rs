@@ -1,6 +1,7 @@
 //! The account this host belongs to: signing in and out, and the live connection that tells it of devices, hosts and phones the account adds or revokes.
 
 use super::*;
+use crate::server::parts::Parts;
 
 /// Signing in starts the live connection to the account and turns remote
 /// access on, forgetting every device that joined through another account.
@@ -14,12 +15,12 @@ pub(crate) async fn set_owner(
 ) -> CoreResult<RemoteStatus> {
     if let Some(owner) = &owner {
         sikemux_client::accounts::check_user_id(owner).map_err(CoreError::from)?;
-        core.remote.may_join(owner, peer)?;
-        core.remote.bind(Some(owner.clone()))?;
+        core.remote().may_join(owner, peer)?;
+        core.remote().bind(Some(owner.clone()))?;
     }
-    let live = core.remote.inner.locked().accounts_api.is_some();
+    let live = core.remote().inner.locked().accounts_api.is_some();
     let mut dropped = Vec::new();
-    let leaving = core.remote.change(|stored| {
+    let leaving = core.remote().change(|stored| {
         match owner {
             Some(owner) => {
                 if stored.owner.as_ref() != Some(&owner) {
@@ -43,10 +44,10 @@ pub(crate) async fn set_owner(
     for device in &dropped {
         core.close_device_clients(Some(device));
     }
-    if core.remote.owner().is_none() {
+    if core.remote().owner().is_none() {
         unlink_all(core);
     }
-    if core.remote.is_enabled() {
+    if core.remote().is_enabled() {
         if let Err(error) = listen(core).await {
             eprintln!("sikemux core: remote access did not start: {error}");
         }
@@ -54,12 +55,12 @@ pub(crate) async fn set_owner(
         stop(core).await;
     }
     ensure_live(core);
-    core.vault.wake();
+    core.vault().wake();
     if leaving {
         let confirmed = async {
             loop {
-                let left = core.remote.left.notified();
-                if core.remote.inner.locked().stored.pending_leave.is_none() {
+                let left = core.remote().left.notified();
+                if core.remote().inner.locked().stored.pending_leave.is_none() {
                     return;
                 }
                 left.await;
@@ -73,7 +74,7 @@ pub(crate) async fn set_owner(
 /// Starts the live connection if the host wants one and has none, or wakes
 /// the one it has to look again.
 pub(crate) fn ensure_live(core: &Arc<Core>) {
-    let mut inner = core.remote.inner.locked();
+    let mut inner = core.remote().inner.locked();
     if let Some(live) = &inner.live {
         let _ = live.changed.send(());
         return;
@@ -98,7 +99,7 @@ pub(crate) fn ensure_live(core: &Arc<Core>) {
 /// Takes the host that held the retired key off its account, trying again
 /// until the account answers.
 pub(super) fn leave_with_retired_key(core: &Arc<Core>) {
-    let inner = core.remote.inner.locked();
+    let inner = core.remote().inner.locked();
     let (Some(key), Some(base)) = (inner.retired.clone(), inner.accounts_api.clone()) else {
         return;
     };
@@ -117,7 +118,7 @@ pub(super) fn leave_with_retired_key(core: &Arc<Core>) {
 }
 
 pub(crate) fn stop_live(core: &Core) {
-    let mut inner = core.remote.inner.locked();
+    let mut inner = core.remote().inner.locked();
     inner.link = None;
     if let Some(live) = inner.live.take() {
         live.task.abort();
@@ -129,7 +130,7 @@ pub(super) struct HostAccount(Weak<Core>);
 
 impl live::Account for HostAccount {
     fn sign_live(&self, nonce: &str) -> Option<(String, String)> {
-        self.0.upgrade()?.remote.sign_live(nonce)
+        self.0.upgrade()?.remote().sign_live(nonce)
     }
 
     fn want(&self) -> Want {
@@ -137,7 +138,7 @@ impl live::Account for HostAccount {
             return Want::Stop;
         };
         let want = {
-            let mut inner = core.remote.inner.locked();
+            let mut inner = core.remote().inner.locked();
             let want = inner.stored.want();
             if want == Want::Stop {
                 inner.live = None;
@@ -152,9 +153,9 @@ impl live::Account for HostAccount {
     }
 
     fn cursor(&self) -> i64 {
-        self.0
-            .upgrade()
-            .map_or(0, |core| core.remote.inner.locked().stored.account_event_id)
+        self.0.upgrade().map_or(0, |core| {
+            core.remote().inner.locked().stored.account_event_id
+        })
     }
 
     fn apply(&self, events: &[AccountEvent]) {
@@ -168,10 +169,10 @@ impl live::Account for HostAccount {
         let Some(core) = self.0.upgrade() else {
             return;
         };
-        if core.remote.inner.locked().stored.account_event_id <= latest {
+        if core.remote().inner.locked().stored.account_event_id <= latest {
             return;
         }
-        let rewound = core.remote.change(|stored| {
+        let rewound = core.remote().change(|stored| {
             stored.account_event_id = 0;
             Ok(())
         });
@@ -185,7 +186,7 @@ impl live::Account for HostAccount {
             return;
         };
         let changed = {
-            let mut inner = core.remote.inner.locked();
+            let mut inner = core.remote().inner.locked();
             let changed = inner.link.map(|(current, _)| current) != Some(link);
             if changed {
                 inner.link = Some((link, epoch_ms()));
@@ -204,8 +205,8 @@ impl live::Account for HostAccount {
                     eprintln!("sikemux core: could not check the account's phones: {error}");
                 }
             });
-            core.hosts.relink.now();
-            core.vault.wake();
+            core.hosts().relink.now();
+            core.vault().wake();
             crate::server::stash::catch_up(&core);
             crate::server::hooks::connect(&core);
         }
@@ -222,11 +223,11 @@ impl live::Account for HostAccount {
         if let Some(core) = self.0.upgrade() {
             if let Some(token) = &push.activity_token {
                 if result == PushResult::NoToken {
-                    core.remote.activity_gone(&push.to, token);
+                    core.remote().activity_gone(&push.to, token);
                 }
                 return;
             }
-            if core.remote.note_pushed(&push, result) {
+            if core.remote().note_pushed(&push, result) {
                 announce(&core);
             }
         }
@@ -246,7 +247,7 @@ impl live::Account for RetiredHost {
 
     fn want(&self) -> Want {
         match self.core.upgrade() {
-            Some(core) if core.remote.inner.locked().retired.is_some() => Want::Leave,
+            Some(core) if core.remote().inner.locked().retired.is_some() => Want::Leave,
             _ => Want::Stop,
         }
     }
@@ -263,7 +264,7 @@ impl live::Account for RetiredHost {
 
     fn removed(&self, _: Option<RevokeReason>) {
         if let Some(core) = self.core.upgrade() {
-            core.remote.forget_retired();
+            core.remote().forget_retired();
         }
     }
 
@@ -281,7 +282,7 @@ pub(super) fn revoke_reason(reason: Option<RevokeReason>) -> &'static str {
 /// Forgets each phone the account revoked and lets go of the account if it
 /// let go of this host, then moves the cursor past `events`.
 pub(super) fn apply_events(core: &Core, events: &[AccountEvent]) {
-    let own = core.remote.core_id();
+    let own = core.remote().core_id();
     let mut revoked = Vec::new();
     let mut released = None;
     for event in events {
@@ -299,13 +300,13 @@ pub(super) fn apply_events(core: &Core, events: &[AccountEvent]) {
                 released = Some(Some(RevokeReason::AccountDeleted));
             }
             AccountEventType::DeviceChanged if event.role == Some(DeviceRole::Host) => {
-                core.hosts.relink.now();
+                core.hosts().relink.now();
             }
-            AccountEventType::VaultChanged => core.vault.wake(),
+            AccountEventType::VaultChanged => core.vault().wake(),
             AccountEventType::DeviceAdded => {
                 if event.role == Some(DeviceRole::Host) {
-                    core.hosts.relink.now();
-                    core.vault.wake();
+                    core.hosts().relink.now();
+                    core.vault().wake();
                 }
                 // Events a host missed while offline come all at once; only a
                 // device that joined lately is news.
@@ -322,7 +323,7 @@ pub(super) fn apply_events(core: &Core, events: &[AccountEvent]) {
     }
     let last = events.iter().map(|event| event.id).max().unwrap_or(0);
     let mut unlinked = Vec::new();
-    let forgotten = core.remote.change(|stored| {
+    let forgotten = core.remote().change(|stored| {
         let mut forgotten = Vec::new();
         for (key, reason, at) in &revoked {
             if stored.links.iter().any(|link| link.id == *key) {
@@ -344,7 +345,7 @@ pub(super) fn apply_events(core: &Core, events: &[AccountEvent]) {
         Vec::new()
     });
     {
-        let mut inner = core.remote.inner.locked();
+        let mut inner = core.remote().inner.locked();
         inner.pending.retain(|pending| {
             !revoked
                 .iter()
@@ -379,7 +380,7 @@ pub(super) fn apply_events(core: &Core, events: &[AccountEvent]) {
 /// links with them again by itself once it signs in.
 pub(super) fn unlink_all(core: &Core) {
     let links = core
-        .remote
+        .remote()
         .change(|stored| Ok(std::mem::take(&mut stored.links)));
     for link in links.unwrap_or_default() {
         crate::server::hosts::unlinked(core, &link.id, "this host left your account");
@@ -387,7 +388,7 @@ pub(super) fn unlink_all(core: &Core) {
 }
 
 pub(super) fn let_go(core: &Core, reason: Option<RevokeReason>) {
-    let released = core.remote.change(|stored| {
+    let released = core.remote().change(|stored| {
         let asked = stored.pending_leave.is_some();
         stored.enabled = false;
         if stored.owner.take().is_some() {
@@ -411,7 +412,7 @@ pub(super) fn let_go(core: &Core, reason: Option<RevokeReason>) {
         if asked {
             Ok(())
         } else {
-            core.remote.bind(None)
+            core.remote().bind(None)
         }
     });
     unlink_all(core);
@@ -421,7 +422,7 @@ pub(super) fn let_go(core: &Core, reason: Option<RevokeReason>) {
     if let Some(endpoint) = halt(core) {
         tokio::spawn(async move { endpoint.close().await });
     }
-    core.remote.left.notify_waiters();
+    core.remote().left.notify_waiters();
 }
 
 /// Takes a device or linked host off this host only, as the person chose. A
@@ -439,7 +440,7 @@ pub(crate) fn forget_leaving(core: &Core, id: &str) -> CoreResult<RemoteStatus> 
 }
 
 fn take_off(core: &Core, id: &str, by_the_person: bool) -> CoreResult<RemoteStatus> {
-    let linked = core.remote.change(|stored| {
+    let linked = core.remote().change(|stored| {
         let linked = stored.links.iter().any(|link| link.id == id);
         let device = stored.forget(id);
         if by_the_person {

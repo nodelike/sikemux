@@ -5,6 +5,7 @@
 //! started it.
 
 use crate::server::changed::What;
+use crate::server::parts::Parts;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -78,7 +79,7 @@ impl Spawning {
 /// The agents that keep their names, with those being opened now.
 fn open(core: &Core) -> HashSet<String> {
     let mut open = core.open_agents();
-    open.extend(core.harness.spawning.opening().iter().cloned());
+    open.extend(core.harness().spawning.opening().iter().cloned());
     open
 }
 
@@ -146,8 +147,8 @@ pub(crate) fn lead_of(
     lead_id: &str,
     project: &str,
 ) -> Result<(Lead, PathBuf), String> {
-    let run = core.workspaces.run_of(lead_id);
-    if let Some(chat) = core.chats.get(lead_id) {
+    let run = core.workspaces().run_of(lead_id);
+    if let Some(chat) = core.chats().get(lead_id) {
         let launch = chat.current_now();
         return Ok((
             Lead {
@@ -181,7 +182,7 @@ pub(crate) fn lead_of(
 
 /// Names a worker for its lead, one spawn at a time.
 pub(crate) fn hire(core: &Core, worker: Worker<'_>) -> Result<AgentName, String> {
-    let _one_at_a_time = core.harness.spawning.one_at_a_time();
+    let _one_at_a_time = core.harness().spawning.one_at_a_time();
     hire_held(core, worker).map(|(named, _)| named)
 }
 
@@ -190,10 +191,10 @@ pub(crate) fn hire(core: &Core, worker: Worker<'_>) -> Result<AgentName, String>
 /// and answers which.
 fn hire_held(core: &Core, worker: Worker<'_>) -> Result<(AgentName, Option<String>), String> {
     let lead = worker.lead.to_owned();
-    let (named, closed) = match core.names.hire(worker.clone(), open(core)) {
+    let (named, closed) = match core.names().hire(worker.clone(), open(core)) {
         Err(Unhired::Full(why)) => {
             let closed = make_room(core, &lead).map_err(|done| format!("{why}.{done}"))?;
-            (core.names.hire(worker, open(core))?, Some(closed))
+            (core.names().hire(worker, open(core))?, Some(closed))
         }
         hired => (hired?, None),
     };
@@ -205,7 +206,7 @@ fn hire_held(core: &Core, worker: Worker<'_>) -> Result<(AgentName, Option<Strin
 /// land, and answers its name. Otherwise says which are done but still hold work.
 fn make_room(core: &Core, lead: &str) -> Result<String, String> {
     let open = core.open_agents();
-    let done: Vec<String> = (core.names.workers(lead).into_iter())
+    let done: Vec<String> = (core.names().workers(lead).into_iter())
         .filter(|worker| open.contains(worker))
         .filter(|worker| {
             let now = core.agent_now(worker);
@@ -217,7 +218,7 @@ fn make_room(core: &Core, lead: &str) -> Result<String, String> {
         if holds_work(core, &worker) {
             holding.push(super::messages::called_now(core, &worker));
         } else if super::workspace::close(core, std::slice::from_ref(&worker)).is_ok() {
-            return Ok(core.names.name_or_id(&worker));
+            return Ok(core.names().name_or_id(&worker));
         }
     }
     Err(match holding.as_slice() {
@@ -232,11 +233,11 @@ fn make_room(core: &Core, lead: &str) -> Result<String, String> {
 /// Whether the agent changed files it has not committed, or has commits in its own checkout
 /// that are not on its base branch yet.
 fn holds_work(core: &Core, agent_id: &str) -> bool {
-    let Some(agent) = core.workspaces.agent(agent_id) else {
+    let Some(agent) = core.workspaces().agent(agent_id) else {
         return false;
     };
     let project = core
-        .names
+        .names()
         .get(agent_id)
         .map_or(agent.project.clone(), |named| named.project);
     if super::inbox::uncommitted(core, &project, agent_id, &agent.cwd) {
@@ -269,7 +270,7 @@ pub(crate) struct ForHost {
 /// Starts a worker for a lead on a linked host, on this host's own sign-in
 /// for its CLI, and hands it its task once it is ready.
 pub(crate) fn start_for_host(core: &Arc<Core>, plan: ForHost) -> Result<Value, String> {
-    let _one_at_a_time = core.harness.spawning.one_at_a_time();
+    let _one_at_a_time = core.harness().spawning.one_at_a_time();
     let lead = Lead {
         provider: String::new(),
         launch: None,
@@ -279,7 +280,7 @@ pub(crate) fn start_for_host(core: &Arc<Core>, plan: ForHost) -> Result<Value, S
             .as_deref()
             .and_then(|mode| PermissionMode::parse(mode).ok()),
     };
-    let (mut launch, launcher) = core.workspaces.worker_launch(
+    let (mut launch, launcher) = core.workspaces().worker_launch(
         &lead,
         &plan.provider,
         &plan.cwd,
@@ -296,8 +297,8 @@ pub(crate) fn start_for_host(core: &Arc<Core>, plan: ForHost) -> Result<Value, S
     {
         launch.permission_mode = PermissionMode::parse(mode)?;
     }
-    let project = core.workspaces.project_of(&launch.cwd);
-    let named = core.names.adopt(
+    let project = core.workspaces().project_of(&launch.cwd);
+    let named = core.names().adopt(
         Adopted {
             agent_id: &plan.agent_id,
             name: &plan.name,
@@ -312,7 +313,7 @@ pub(crate) fn start_for_host(core: &Arc<Core>, plan: ForHost) -> Result<Value, S
     launch.agent_id = plan.agent_id.clone();
     let model = launch.model.clone();
     let chat = chat::begin_worker(core, launch, &plan.lead_id, launcher).map_err(|error| {
-        core.names.forget(&plan.agent_id);
+        core.names().forget(&plan.agent_id);
         error.to_string()
     })?;
     core.changed(What::Event(&Event::ChatBegun { chat: chat.info() }));
@@ -373,7 +374,7 @@ fn start(
             "repo names the repository of an own checkout; pass checkout: \"own\" too".into(),
         );
     }
-    let _one_at_a_time = core.harness.spawning.one_at_a_time();
+    let _one_at_a_time = core.harness().spawning.one_at_a_time();
     if let Some((agent_id, name)) =
         resume.and_then(|saved| saved::open_now(core, &saved.cli, &saved.session_id))
     {
@@ -405,7 +406,7 @@ fn start(
     } else {
         (Unclaimed(None), cwd)
     };
-    let helper = core.workspaces.helper().filter(|helper| {
+    let helper = core.workspaces().helper().filter(|helper| {
         resume.is_none()
             && model.is_none()
             && named_provider.is_none()
@@ -423,7 +424,7 @@ fn start(
         (None, None) => (model, Paid::AsLead),
     };
     let (mut launch, launcher) = core
-        .workspaces
+        .workspaces()
         .worker_launch(&lead, &provider, &cwd, model, paid)?;
     if let Some(effort) = effort_param(params, &provider)? {
         launch.effort = Some(effort);
@@ -432,11 +433,11 @@ fn start(
         saved::same_account(&provider, &launch, saved)?;
     }
     launch.resume_id = resume.map(|saved| saved.session_id.clone());
-    let project = core.workspaces.project_of(&launch.cwd);
+    let project = core.workspaces().project_of(&launch.cwd);
     let mut made_room = None;
     let (agent_id, named) = match hired {
         Some(hired) => {
-            let named = core.names.adopt(
+            let named = core.names().adopt(
                 Adopted {
                     agent_id: &hired.agent_id,
                     name: &hired.name,
@@ -453,7 +454,7 @@ fn start(
         None => {
             let agent_id = match resume {
                 Some(saved) => {
-                    (core.names).returning_id(Some(&saved.cli), &saved.session_id, open(core))
+                    (core.names()).returning_id(Some(&saved.cli), &saved.session_id, open(core))
                 }
                 None => crate::server::names::new_agent_id(),
             };
@@ -476,13 +477,13 @@ fn start(
     let model = launch.model.clone();
     let paid_by = launch.model_provider.clone();
     let chat = chat::begin_worker(core, launch, &lead_id, launcher).map_err(|error| {
-        core.names.forget(&agent_id);
+        core.names().forget(&agent_id);
         error.to_string()
     })?;
     let own_tree = (checkout.0.as_ref()).or_else(|| resumed.as_ref()?.worktree.as_ref());
     if let Some(checkout) = own_tree {
         let kept = core
-            .workspaces
+            .workspaces()
             .edit_agent(&agent_id, |agent| agent.worktree = Some(checkout.clone()));
         if let Err(error) = kept {
             eprintln!("sikemux core: a worker's own checkout was not kept on its record: {error}");
@@ -490,7 +491,10 @@ fn start(
     }
     core.changed(What::Event(&Event::ChatBegun { chat: chat.info() }));
     core.changed(What::View);
-    let lead_name = core.names.name(&lead_id).unwrap_or_else(|| lead_id.clone());
+    let lead_name = core
+        .names()
+        .name(&lead_id)
+        .unwrap_or_else(|| lead_id.clone());
     Ok(Opened::New(Started {
         agent_id,
         name: named.name,
@@ -554,8 +558,9 @@ pub(crate) async fn spawn(core: &Arc<Core>, request: &HarnessRequest) -> Result<
         None => None,
     };
     if let (Some(saved), Some(caller)) = (&saved, &request.agent_id) {
-        let returning = (core.names).returning_id(Some(&saved.cli), &saved.session_id, open(core));
-        if core.names.leads(&returning, caller) {
+        let returning =
+            (core.names()).returning_id(Some(&saved.cli), &saved.session_id, open(core));
+        if core.names().leads(&returning, caller) {
             return reopen_own_lead(core, request, saved, returning, prompt).await;
         }
     }
@@ -563,7 +568,11 @@ pub(crate) async fn spawn(core: &Arc<Core>, request: &HarnessRequest) -> Result<
         (None, Some(lead)) => {
             let provider = text_param(&request.params, "cli", 64)?
                 .map(|cli| cli.trim().to_lowercase())
-                .or_else(|| core.chats.get(lead).map(|chat| chat.provider().to_owned()))
+                .or_else(|| {
+                    core.chats()
+                        .get(lead)
+                        .map(|chat| chat.provider().to_owned())
+                })
                 .unwrap_or_default();
             elsewhere::hire_elsewhere(core, lead, &provider, reports_back(&request.params)?).await?
         }
@@ -687,7 +696,7 @@ async fn reopen_own_lead(
         .await
         .map_err(|error| format!("reopening \"{title}\" failed: {error}"))?;
     let agent_id = taken.agent_id;
-    let name = core.names.name_or_id(&agent_id);
+    let name = core.names().name_or_id(&agent_id);
     let mut message = request.clone();
     message.params = json!({ "to": agent_id, "text": prompt });
     let sent = messages::send(core, &message).await?;
@@ -816,7 +825,7 @@ fn plan_terminal(core: &Core, request: &HarnessRequest) -> Result<Opening, Strin
     if super::hosts::route::lead_host(core, &lead_id).is_some() {
         return Err("your team's lead runs on another host, so the agents you start run as chats; leave out mode".into());
     }
-    let _one_at_a_time = core.harness.spawning.one_at_a_time();
+    let _one_at_a_time = core.harness().spawning.one_at_a_time();
     let (lead, _) = lead_of(core, &lead_id, &request.project)?;
     let same = lead.provider == provider;
     let permission_mode = lead.worker_mode();
@@ -839,8 +848,11 @@ fn plan_terminal(core: &Core, request: &HarnessRequest) -> Result<Opening, Strin
             reports,
         },
     )?;
-    core.harness.spawning.opening().insert(agent_id.clone());
-    let lead_name = core.names.name(&lead_id).unwrap_or_else(|| lead_id.clone());
+    core.harness().spawning.opening().insert(agent_id.clone());
+    let lead_name = core
+        .names()
+        .name(&lead_id)
+        .unwrap_or_else(|| lead_id.clone());
     Ok(Opening {
         agent_id,
         name: named.name,
@@ -861,7 +873,7 @@ fn plan_terminal(core: &Core, request: &HarnessRequest) -> Result<Opening, Strin
 /// workspace every client shows, on the lead's account when it runs the same CLI.
 async fn open_terminal(core: &Arc<Core>, opening: &Opening) -> Result<(), String> {
     let lead = core
-        .workspaces
+        .workspaces()
         .agent(&opening.lead_id)
         .ok_or("the agent that asked for it is no longer open in Sikemux")?;
     let same = lead.provider == opening.provider;
@@ -872,7 +884,7 @@ async fn open_terminal(core: &Arc<Core>, opening: &Opening) -> Result<(), String
         .filter(|launcher| launcher.kind == opening.provider)
         .and_then(|launcher| launcher.account)
         .map(str::to_owned);
-    core.workspaces
+    core.workspaces()
         .put_agent(WorkspaceAgent {
             lead: Some(lead.id),
             profile_id: on_launcher.or(lead.profile_id.filter(|_| same)),
@@ -911,9 +923,9 @@ async fn spawn_terminal(
             .map_err(|error| error.to_string())?
     };
     let opened = open_terminal(core, &opening).await;
-    core.harness.spawning.opening().remove(&opening.agent_id);
+    core.harness().spawning.opening().remove(&opening.agent_id);
     if let Err(error) = opened {
-        core.names.forget(&opening.agent_id);
+        core.names().forget(&opening.agent_id);
         return Err(format!("{} did not start: {error}", opening.name));
     }
     let task = messages::task(
@@ -925,7 +937,7 @@ async fn spawn_terminal(
         opening.reports,
         prompt,
     );
-    core.harness.mailbox.task_waits(&opening.agent_id, task);
+    core.harness().mailbox.task_waits(&opening.agent_id, task);
     let watcher = core.clone();
     let (agent_id, name, lead_id) = (
         opening.agent_id.clone(),
@@ -982,17 +994,17 @@ pub(crate) enum Ending {
 
 /// Sends a worker's lead how its turn ended, unless all it did was ignore the board's offer.
 pub(super) fn report_to_lead(core: &Arc<Core>, agent_id: &str, ending: Ending, ignored: bool) {
-    let Some(lead) = core.names.reports_to(agent_id) else {
+    let Some(lead) = core.names().reports_to(agent_id) else {
         return;
     };
     if ignored && matches!(ending, Ending::Finished) {
         return;
     }
     let chat_answer = core
-        .chats
+        .chats()
         .get(agent_id)
         .map(|chat| chat.feed.last_answer().map(TerminalAnswer::Said));
-    let for_auto = (core.hosts.team.tree(agent_id))
+    let for_auto = (core.hosts().team.tree(agent_id))
         .filter(|tree| tree.auto)
         .zip(super::hosts::route::lead_host(core, agent_id));
     let (core, worker) = (core.clone(), agent_id.to_owned());
@@ -1006,7 +1018,7 @@ pub(super) fn report_to_lead(core: &Arc<Core>, agent_id: &str, ending: Ending, i
                 };
                 let Ok(turn) = turn else { return };
                 let running = core.running_agents();
-                let mut reported = core.harness.spawning.reported();
+                let mut reported = core.harness().spawning.reported();
                 reported.retain(|agent, _| *agent == worker || running.contains(agent));
                 if matches!(ending, Ending::Finished) {
                     if let Some(start) = turn.start {

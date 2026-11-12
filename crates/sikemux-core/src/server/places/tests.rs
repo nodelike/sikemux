@@ -1,3 +1,4 @@
+use crate::server::parts::Parts;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -67,7 +68,7 @@ fn a_dev_job_is_not_held() {
         try_ship(&core, at("dev/backend/deploy-api", false)),
         Ok(true)
     );
-    assert!(core.ship.waiting().is_empty());
+    assert!(core.ship().waiting().is_empty());
 }
 
 #[test]
@@ -75,7 +76,7 @@ fn a_staging_job_waits_on_the_check_and_asks_nobody() {
     let core = core_set(project());
     let said = try_ship(&core, at("staging/deploy", false)).unwrap_err();
     assert!(said.contains("once the project's check passes"), "{said}");
-    assert!(core.ship.waiting().is_empty());
+    assert!(core.ship().waiting().is_empty());
 }
 
 /// What a project couldn't recognise held as production until 2026-11-12; a job in a
@@ -85,7 +86,7 @@ fn production_holds_for_the_person_and_a_qa_job_runs() {
     let core = core_set(project());
     assert!(try_ship(&core, at("prod/deploy", false)).is_err());
     assert_eq!(try_ship(&core, at("qa/deploy", false)), Ok(false));
-    let held: Vec<Option<String>> = (core.ship.waiting().into_iter())
+    let held: Vec<Option<String>> = (core.ship().waiting().into_iter())
         .map(|waiting| waiting.hold.environment)
         .collect();
     assert_eq!(held, [Some("Production".to_owned())]);
@@ -287,7 +288,7 @@ fn reading_the_places_writes_nothing() {
     let read = of(&core, &path);
     assert_eq!(read.places.len(), 1);
     assert!(read.places[0].production);
-    assert!(core.places.of(&path).places.is_empty());
+    assert!(core.places().of(&path).places.is_empty());
 }
 
 #[test]
@@ -304,7 +305,7 @@ fn what_nothing_places_runs_and_is_listed_once() {
         let ran = crate::server::ship::check(&core, "agent", ship, Path::new(PROJECT));
         assert_eq!(ran.map(|deploy| deploy.is_some()), Ok(false));
     }
-    let seen = core.places.of(PROJECT).unplaced;
+    let seen = core.places().of(PROJECT).unplaced;
     assert_eq!(seen.len(), 1);
     assert_eq!(seen[0].seen.times, 2);
 }

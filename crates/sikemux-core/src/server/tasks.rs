@@ -5,6 +5,7 @@
 
 use super::access::Peer;
 use crate::server::changed::What;
+use crate::server::parts::Parts;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -310,7 +311,7 @@ fn offered(core: &Core, project: &Path) -> Offered {
         .any(|task| task.java.is_some())
         .then(java::runtimes);
     let project_key = project.to_string_lossy().into_owned();
-    let state = core.tasks.state.locked();
+    let state = core.tasks().state.locked();
     let mut found: Vec<Definition> = found
         .into_iter()
         .map(|task| {
@@ -485,7 +486,7 @@ pub(crate) async fn project_config(
 /// own, once the person trusts the file. Answers the tab.
 pub(crate) async fn start_preview(core: &Arc<Core>, project: String) -> CoreResult<String> {
     let info = core
-        .workspaces
+        .workspaces()
         .project_info(&project)
         .ok_or("that project is not on this host")?;
     let config = {
@@ -529,11 +530,11 @@ pub(crate) async fn trust_project(
         if now != fingerprint {
             return Err("sikemux.json changed; look at it again".into());
         }
-        core.tasks.grant(
+        core.tasks().grant(
             Grant::Config(TrustedConfig { path, fingerprint }),
             answered_by,
         );
-        core.harness.changed();
+        core.harness().changed();
         core.changed(What::ReadIn(Topic::Tasks, Some(&project), None));
         Ok(())
     })
@@ -545,7 +546,7 @@ pub(crate) async fn list(core: &Arc<Core>, project: String) -> CoreResult<TaskLi
     let core = core.clone();
     blocking(move || {
         let project = PathBuf::from(project);
-        let runs = core.harness.all_runs();
+        let runs = core.harness().all_runs();
         let person_run = |task: &Definition| {
             runs.iter().rev().find(|run| {
                 run.agent_id.is_none()
@@ -753,7 +754,7 @@ async fn spawn(core: &Arc<Core>, request: TaskSpawnRequest) -> Result<SessionId,
     let id = task.id();
     let stopped = task
         .task()
-        .is_some_and(|task| core.harness.session_started(id, task));
+        .is_some_and(|task| core.harness().session_started(id, task));
     task.start(core);
     if stopped {
         if let Some(target) = core.take_session_for_kill(id) {
@@ -778,7 +779,10 @@ pub(crate) async fn launch(
     previous: Option<String>,
     checked: bool,
 ) -> Result<Option<String>, String> {
-    let run = core.harness.run_of(execution_id).ok_or("The run is gone")?;
+    let run = core
+        .harness()
+        .run_of(execution_id)
+        .ok_or("The run is gone")?;
     let project = PathBuf::from(&run.project);
     let resolved = {
         let (core, project, task_id, spec) = (
@@ -920,7 +924,7 @@ fn fix(core: &Core, project: &Path, task: &Definition, found: &[Check]) -> Resul
                 env_var: Some(variable),
                 ..
             } => {
-                core.tasks.state.locked().moved.insert(
+                core.tasks().state.locked().moved.insert(
                     (project.to_string_lossy().into_owned(), task.id.clone()),
                     (variable.clone(), *port),
                 );
@@ -1011,11 +1015,11 @@ pub(crate) async fn rerun_failed(
     params: RerunParams,
 ) -> CoreResult<RerunStarted> {
     let run = core
-        .harness
+        .harness()
         .run_of(&params.execution_id)
         .ok_or("That run is gone")?;
     let failures = core
-        .tasks
+        .tasks()
         .tests_of(&params.execution_id)
         .map(|tests| tests.failures)
         .unwrap_or_default();
@@ -1053,7 +1057,7 @@ pub(crate) async fn rerun_failed(
     .await?;
     let task_id = rerun.id.clone();
     {
-        let mut state = core.tasks.state.locked();
+        let mut state = core.tasks().state.locked();
         let reruns = state.reruns.entry(run.project.clone()).or_default();
         reruns.retain(|known| known.id != task_id);
         reruns.push(rerun);
@@ -1071,10 +1075,10 @@ pub(crate) async fn rerun_failed(
 /// Every run as clients show it, with what it waits on the person for and
 /// the test results it left.
 pub(crate) fn runs(core: &Core) -> Vec<RunView> {
-    let runs = core.harness.all_runs();
-    core.tasks
+    let runs = core.harness().all_runs();
+    core.tasks()
         .retain(|id| runs.iter().any(|run| run.execution_id == id));
-    let state = core.tasks.state.locked();
+    let state = core.tasks().state.locked();
     runs.into_iter()
         .map(|run| RunView {
             agent_id: run.agent_id.clone(),
@@ -1088,7 +1092,7 @@ pub(crate) fn runs(core: &Core) -> Vec<RunView> {
 /// A task session ended: a Gradle build's errors go beside the language
 /// servers' diagnostics, and a test task's results are read for the person to see.
 pub(crate) fn ended(core: &Core, pty_id: SessionId) {
-    let Some(run) = core.harness.run_on(pty_id) else {
+    let Some(run) = core.harness().run_on(pty_id) else {
         return;
     };
     let (Some(cwd), Some(core)) = (run.cwd.clone(), core.arc()) else {
@@ -1116,19 +1120,19 @@ pub(crate) fn ended(core: &Core, pty_id: SessionId) {
             .started_at
             .map(|ms| std::time::UNIX_EPOCH + Duration::from_millis(ms));
         if let Some(found) = results::read(Path::new(&cwd), started) {
-            core.tasks
+            core.tasks()
                 .state
                 .locked()
                 .tests
                 .insert(run.execution_id, found);
-            core.harness.changed();
+            core.harness().changed();
         }
     });
 }
 
 /// Tells clients when a run changes, which they read again with `taskRuns`.
 pub(crate) async fn publish_runs(core: Arc<Core>) {
-    let mut changes = core.harness.subscribe();
+    let mut changes = core.harness().subscribe();
     let mut last = Value::Array(Vec::new());
     while changes.changed().await.is_ok() {
         let now = serde_json::to_value(runs(&core)).unwrap_or_default();
@@ -1159,7 +1163,7 @@ pub struct TrustAnswerParams {
 /// The name of the device the person acted from, when it was not this host's own window.
 pub(crate) fn answered_by(core: &Core, peer: &Peer) -> Option<String> {
     let device = peer.device_id()?;
-    Some(core.remote.device_name(&device).unwrap_or(device))
+    Some(core.remote().device_name(&device).unwrap_or(device))
 }
 
 pub(crate) async fn trust_project_for(

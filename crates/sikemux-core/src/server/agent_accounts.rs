@@ -2,6 +2,7 @@
 //! settings and rail make.
 
 use crate::server::changed::What;
+use crate::server::parts::Parts;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock, Mutex, Once};
@@ -156,7 +157,7 @@ pub struct Adding {
 /// The program the account's agent runs as, found afresh.
 async fn program(core: &Core, account: &Account) -> CoreResult<PathBuf> {
     let spec = core
-        .workspaces
+        .workspaces()
         .account_spec(&account.provider, account.config_path.as_deref());
     Ok(spec.program().await?)
 }
@@ -167,9 +168,9 @@ async fn change(
     core: &Arc<Core>,
     edit: impl FnOnce(&mut Book) -> Result<(), String>,
 ) -> CoreResult<Book> {
-    let mut book = core.workspaces.accounts().unwrap_or_default();
+    let mut book = core.workspaces().accounts().unwrap_or_default();
     edit(&mut book)?;
-    core.workspaces.set_accounts(book.clone())?;
+    core.workspaces().set_accounts(book.clone())?;
     refresh_launchers(core.clone()).await;
     core.changed(What::Read(Topic::AgentAccounts));
     Ok(book.with_built_ins())
@@ -180,8 +181,8 @@ async fn change(
 /// terminal stay where they are.
 async fn move_chats(core: &Core, provider: &str, id: &str) -> (Vec<MovedChat>, Vec<StayedChat>) {
     let (mut moved, mut stayed) = (Vec::new(), Vec::new());
-    for agent_id in core.workspaces.agent_ids() {
-        let Some(agent) = core.workspaces.agent(&agent_id) else {
+    for agent_id in core.workspaces().agent_ids() {
+        let Some(agent) = core.workspaces().agent(&agent_id) else {
             continue;
         };
         let on = agent.profile_id.clone().unwrap_or_default();
@@ -229,7 +230,7 @@ fn pick_turn(provider: &str) -> Arc<tokio::sync::Mutex<()>> {
 }
 
 pub(super) async fn set(core: &Arc<Core>, book: Book) -> CoreResult<()> {
-    core.workspaces.set_accounts(book)?;
+    core.workspaces().set_accounts(book)?;
     refresh_launchers(core.clone()).await;
     Ok(())
 }
@@ -255,7 +256,7 @@ pub(super) async fn select(core: &Arc<Core>, choosing: Choosing) -> CoreResult<B
 pub(super) async fn pick(core: &Arc<Core>, choosing: Choosing) -> CoreResult<Picked> {
     let turn = pick_turn(&choosing.provider);
     let _turn = turn.lock().await;
-    let before = core.workspaces.accounts().unwrap_or_default();
+    let before = core.workspaces().accounts().unwrap_or_default();
     let back_to = before.chosen(&choosing.provider);
     let pinned_before = before.pinned.get(&choosing.provider).cloned();
     let (provider, id) = (choosing.provider.clone(), choosing.id.clone());
@@ -305,7 +306,7 @@ pub(super) async fn unpick(core: &Arc<Core>, undoing: Unpicking) -> CoreResult<B
     })
     .await?;
     for moved in &undoing.moved {
-        let Some(agent) = core.workspaces.agent(&moved.agent_id) else {
+        let Some(agent) = core.workspaces().agent(&moved.agent_id) else {
             continue;
         };
         let on = agent.profile_id.as_deref();
@@ -571,7 +572,7 @@ fn note_cost(core: &Core, account: &str, reading: &usage::Usage) {
         (cost.at, cost.used, cost.weight) = (now, used, weight);
         (since, risen)
     };
-    let (log, account) = (core.activity_log.clone(), account.to_owned());
+    let (log, account) = (core.activity_log().clone(), account.to_owned());
     tokio::task::spawn_blocking(move || {
         let tokens = log.tokens_on(&account, since.0, now);
         if tokens == 0 {
@@ -657,14 +658,14 @@ async fn recheck(
     shared(&CHECKING, flight, async {
         let keys = {
             let (core, provider) = (core.clone(), provider.clone());
-            blocking(move || Ok(core.workspaces.provider_keys(&provider)))
+            blocking(move || Ok(core.workspaces().provider_keys(&provider)))
                 .await
                 .unwrap_or_default()
         };
         let config_path = config_path.as_deref();
         let checked = status::ask(&provider, &program, config_path, keys).await;
         if status::keep(&provider, config_path, &checked, generation) {
-            core.workspaces
+            core.workspaces()
                 .note_status(&provider, config_path, &checked.status);
             core.changed(What::View);
             core.changed(What::Read(Topic::AgentStatus));
@@ -719,7 +720,7 @@ fn follow_late_answers(core: &Arc<Core>) {
 pub(super) async fn availability(core: &Arc<Core>, account: Account) -> CoreResult<Availability> {
     follow_late_answers(core);
     let (provider, config_path) = (&account.provider, account.config_path.as_deref());
-    let spec = core.workspaces.account_spec(provider, config_path);
+    let spec = core.workspaces().account_spec(provider, config_path);
     let (program, failures) = status::locate(&spec).await;
     let status = match &program {
         Some(program) => checked(core, provider, config_path, program).await.status,
@@ -778,7 +779,7 @@ pub struct UsedReset {
 
 /// Spends one of the account's limit resets and reads its limits again, telling clients.
 pub(super) async fn use_reset(core: &Arc<Core>, using: UsingReset) -> CoreResult<UsedReset> {
-    let Some(found) = (core.workspaces.usage_accounts().into_iter())
+    let Some(found) = (core.workspaces().usage_accounts().into_iter())
         .find(|account| account.launcher == using.launcher)
     else {
         return Err("That account is no longer offered".into());
@@ -824,7 +825,7 @@ pub(super) fn mark_signed_out(core: &Core, account: Account) {
 /// A chat on `account`, one of the person's profiles or the default one when absent, was
 /// refused for sign-in: the account is signed out now, whatever its CLI last said.
 pub(crate) fn chat_refused(core: &Core, provider: &str, account: Option<&str>) {
-    let book = core.workspaces.accounts().unwrap_or_default();
+    let book = core.workspaces().accounts().unwrap_or_default();
     let config_path = account
         .and_then(|id| book.profile(id))
         .and_then(|profile| profile.config_path.clone());
@@ -833,18 +834,18 @@ pub(crate) fn chat_refused(core: &Core, provider: &str, account: Option<&str>) {
 
 fn signed_out(core: &Core, provider: &str, config_path: Option<&str>) {
     let signed_out = status::AgentStatus::SignedOut;
-    core.workspaces
+    core.workspaces()
         .note_status(provider, config_path, &signed_out);
     status::remember(provider, config_path, signed_out);
     core.changed(What::View);
 }
 
 pub(super) fn retry_failed(core: &Core, failed: ChatAccountsParams) -> CoreResult<()> {
-    core.chats.running(&failed.agent_id)?.retry_failed()
+    core.chats().running(&failed.agent_id)?.retry_failed()
 }
 
 pub(super) fn discard_failed(core: &Core, failed: ChatAccountsParams) -> CoreResult<()> {
-    core.chats.running(&failed.agent_id)?.discard_failed()
+    core.chats().running(&failed.agent_id)?.discard_failed()
 }
 
 pub(super) fn chat_accounts(core: &Core, chat: ChatAccountsParams) -> CoreResult<ChatAccounts> {
@@ -907,7 +908,7 @@ pub(crate) fn note_live(
     live: Vec<usage::UsageWindow>,
 ) {
     let book = core
-        .workspaces
+        .workspaces()
         .accounts()
         .unwrap_or_default()
         .with_built_ins();
@@ -945,7 +946,7 @@ pub(super) async fn read_usages(core: &Arc<Core>) -> Vec<AccountUsage> {
 
 async fn usages_read(core: &Arc<Core>, ask: bool) -> Vec<AccountUsage> {
     let mut found = Vec::new();
-    for account in core.workspaces.usage_accounts() {
+    for account in core.workspaces().usage_accounts() {
         let config_path = account.config_path.as_deref();
         let problem = match ask {
             false => usage::last_problem(&account.provider, config_path),
@@ -1009,7 +1010,7 @@ fn note_sign_in(
 
 /// Marks the account each agent's next new chat goes to, and the one the person pinned.
 fn mark_next(core: &Core, found: &mut [AccountUsage]) {
-    let book = core.workspaces.accounts().unwrap_or_default();
+    let book = core.workspaces().accounts().unwrap_or_default();
     let providers: std::collections::BTreeSet<String> = found
         .iter()
         .map(|account| account.provider.clone())
@@ -1069,7 +1070,7 @@ pub struct Installed {
 /// The agents found on this host, each on the account chosen for it. An agent that
 /// keeps accounts is listed even when it is not found, so its account can be set up.
 pub(super) async fn installed(core: &Arc<Core>) -> CoreResult<Vec<Installed>> {
-    let book = core.workspaces.accounts().unwrap_or_default();
+    let book = core.workspaces().accounts().unwrap_or_default();
     let listed = AGENTS.iter().filter_map(|def| {
         let chosen = book.chosen(def.kind);
         let accounts = || {

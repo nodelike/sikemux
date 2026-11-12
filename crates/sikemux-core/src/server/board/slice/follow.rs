@@ -1,6 +1,7 @@
 //! How the board follows a project's commits, landings and checks, in the order they happened, and what it does to the slices they are about.
 
 use super::*;
+use crate::server::parts::Parts;
 
 /// The card `agent` works now on `board`, when that is a slice in progress.
 pub(crate) fn working_slice(board: &Board, agent: &str) -> Option<u64> {
@@ -124,17 +125,17 @@ pub(crate) fn file_fix(core: &Core, board: &mut Board, id: u64, sha: &str) -> Op
 /// unread is treated as lost.
 pub(crate) async fn follow(core: Arc<Core>) {
     let every = core
-        .boards
+        .boards()
         .state
         .locked()
         .boards
         .keys()
         .cloned()
         .collect::<Vec<_>>();
-    core.repo_events.lost(every);
+    core.repo_events().lost(every);
     let mut panics = 0;
     loop {
-        let told = core.repo_events.next().await;
+        let told = core.repo_events().next().await;
         let projects: BTreeSet<String> = told
             .events
             .iter()
@@ -155,7 +156,7 @@ pub(crate) async fn follow(core: Arc<Core>) {
                 panics += 1;
                 eprintln!("sikemux core: the board did not follow the repository, trying again: {error}");
                 tokio::time::sleep(std::time::Duration::from_secs(1 << panics)).await;
-                core.repo_events.lost(projects);
+                core.repo_events().lost(projects);
             }
             Err(error) => eprintln!(
                 "sikemux core: the board gave up following {projects:?} after it failed {MAX_PANICS} times: {error}"
@@ -177,7 +178,7 @@ fn heard_all(core: &Arc<Core>, told: Told) {
 /// the board heard before: each holds what git says now, and is checked again.
 fn lost(core: &Arc<Core>, project: &str) {
     let rechecks = {
-        let state = core.boards.state.locked();
+        let state = core.boards().state.locked();
         let Some(board) = state.boards.get(project) else {
             return;
         };
@@ -204,7 +205,7 @@ fn lost(core: &Arc<Core>, project: &str) {
 fn heard(core: &Arc<Core>, event: RepoEvent) {
     if let RepoEvent::Committed { agent, .. } = &event {
         super::super::chat_goal::committed(core, agent);
-        core.inbox.committed(agent);
+        core.inbox().committed(agent);
     }
     if let RepoEvent::Committed { agent, .. } | RepoEvent::Landed { agent, .. } = &event {
         crate::server::turn_state::read_work(core, agent);
@@ -216,7 +217,7 @@ fn heard(core: &Arc<Core>, event: RepoEvent) {
         ..
     } = &event
     {
-        for (agent, turn, head) in core.inbox.showing(project, covered) {
+        for (agent, turn, head) in core.inbox().showing(project, covered) {
             crate::server::pictures::take(core, &agent, project, turn, head);
         }
     }
@@ -231,13 +232,13 @@ fn heard(core: &Arc<Core>, event: RepoEvent) {
             passed && !crate::server::board::is_production(core, project, &ran.environment),
             ran.head.clone(),
         ) {
-            core.inbox.staged(agent, head);
+            core.inbox().staged(agent, head);
             core.changed(crate::server::changed::What::View);
         }
     }
     let known = match &event {
         RepoEvent::Committed { project, agent, .. } | RepoEvent::Landed { project, agent, .. } => {
-            let state = core.boards.state.locked();
+            let state = core.boards().state.locked();
             state.boards.get(project).and_then(|board| {
                 let card = board.working_card(agent)?;
                 card.slice.as_ref()?.head().map(str::to_owned)
@@ -282,7 +283,7 @@ fn heard(core: &Arc<Core>, event: RepoEvent) {
     };
     let mut notices = Vec::new();
     let (project, touched) = {
-        let mut state = core.boards.state.locked();
+        let mut state = core.boards().state.locked();
         let State { boards, runs, .. } = &mut *state;
         let mut moved = |project: &str, agent: &str, head: Head, new_work: bool| {
             let board = boards.get_mut(project)?;
@@ -338,7 +339,7 @@ fn heard(core: &Arc<Core>, event: RepoEvent) {
                     board.checking.started(covered, run);
                 }
                 drop(state);
-                core.boards.wake.now();
+                core.boards().wake.now();
                 return;
             }
             RepoEvent::Checked {
@@ -415,7 +416,7 @@ fn heard(core: &Arc<Core>, event: RepoEvent) {
         .collect();
     let mut later = Later::default();
     {
-        let mut state = core.boards.state.locked();
+        let mut state = core.boards().state.locked();
         for (id, seen) in seen {
             match super::super::advance(core, &mut state, &project, &By::Auto("Board"), id, &seen) {
                 Ok((sent, more)) => {
@@ -425,7 +426,7 @@ fn heard(core: &Arc<Core>, event: RepoEvent) {
                 Err(error) => eprintln!("sikemux core: the board did not follow #{id}: {error}"),
             }
         }
-        core.boards.save(&mut state, &project);
+        core.boards().save(&mut state, &project);
     }
     later.run(core);
     send_notices(core, notices);

@@ -3,6 +3,7 @@
 //! page in place of the call, also when the chat is read again later. The page talks only to
 //! its own server, through the agent that called it.
 
+use crate::server::parts::Parts;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -241,7 +242,7 @@ fn escape_attribute(text: &str) -> String {
 
 pub(crate) async fn read(core: &Core, params: McpAppParams) -> CoreResult<McpApp> {
     let core_held = core.arc().ok_or("the core is stopping")?;
-    let record = tokio::task::spawn_blocking(move || core_held.mcp_apps.read(&params.id))
+    let record = tokio::task::spawn_blocking(move || core_held.mcp_apps().read(&params.id))
         .await
         .map_err(|error| CoreError::from(error.to_string()))??;
     let meta = format!(
@@ -265,7 +266,7 @@ pub(crate) async fn request(core: &Core, params: McpAppRequestParams) -> CoreRes
     }
     let core_held = core.arc().ok_or("the core is stopping")?;
     let id = params.id.clone();
-    let record = tokio::task::spawn_blocking(move || core_held.mcp_apps.read(&id))
+    let record = tokio::task::spawn_blocking(move || core_held.mcp_apps().read(&id))
         .await
         .map_err(|error| CoreError::from(error.to_string()))??;
     let request = ServerRequest {

@@ -2,6 +2,7 @@
 //! edit tool reported, by the person, a command or an agent in a terminal,
 //! is seen as it happens.
 
+use crate::server::parts::Parts;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, Weak};
@@ -37,7 +38,7 @@ impl Watch {
                     }
                     let Some(core) = core.upgrade() else { return };
                     for path in &event.paths {
-                        core.collisions.disk_changed(path);
+                        core.collisions().disk_changed(path);
                     }
                 });
             match started {

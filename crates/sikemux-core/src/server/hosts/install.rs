@@ -6,6 +6,7 @@
 //! alias, and asked afresh what it runs.
 
 use crate::server::changed::What;
+use crate::server::parts::Parts;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -108,14 +109,14 @@ fn checked_alias(alias: &str) -> CoreResult<&str> {
 pub(crate) async fn install_host(core: &Arc<Core>, params: InstallParams) -> CoreResult<Value> {
     let alias = checked_alias(&params.alias)?.to_owned();
     let signs_in = matches!(params.work, SetUpWork::Install | SetUpWork::SignIn);
-    if signs_in && core.remote.owner().is_none() {
+    if signs_in && core.remote().owner().is_none() {
         return Err(format!(
             "this host is not signed in to your Sikemux account, so it cannot add {alias} to it"
         )
         .into());
     }
     let run = {
-        let mut setups = core.hosts.setups.locked();
+        let mut setups = core.hosts().setups.locked();
         if setups
             .get(&alias)
             .is_some_and(|setup| setup.ended.borrow().is_none())
@@ -171,7 +172,7 @@ pub(crate) async fn install_host(core: &Arc<Core>, params: InstallParams) -> Cor
 
 pub(crate) async fn host_setup(core: &Arc<Core>, params: AliasParams) -> CoreResult<SetupEnded> {
     let mut ended = core
-        .hosts
+        .hosts()
         .setups
         .locked()
         .get(&params.alias)
@@ -200,7 +201,7 @@ pub(crate) async fn host_setup(core: &Arc<Core>, params: AliasParams) -> CoreRes
 
 /// Takes a set-up that stopped short off its host's row.
 pub(crate) fn dismiss_host_setup(core: &Core, params: AliasParams) -> CoreResult<()> {
-    let mut setups = core.hosts.setups.locked();
+    let mut setups = core.hosts().setups.locked();
     if setups
         .get(&params.alias)
         .is_some_and(|setup| setup.ended.borrow().is_none())
@@ -215,7 +216,7 @@ pub(crate) fn dismiss_host_setup(core: &Core, params: AliasParams) -> CoreResult
 
 /// The set-ups that are running or stopped short, by alias, for the hosts' rows.
 pub(crate) fn rows(core: &Core) -> Vec<(String, SetupRow)> {
-    core.hosts
+    core.hosts()
         .setups
         .locked()
         .iter()
@@ -239,7 +240,7 @@ pub(crate) fn rows(core: &Core) -> Vec<(String, SetupRow)> {
 /// Ends set-up `run` of `alias`, unless a newer one has begun.
 fn settle(core: &Core, alias: &str, run: u64, ended: Done) {
     if let Some(setup) = core
-        .hosts
+        .hosts()
         .setups
         .locked()
         .get_mut(alias)
@@ -381,7 +382,7 @@ async fn sign_in(core: &Arc<Core>, alias: &str) -> Done {
                     ..
                 }) => {
                     outcome = Some(match account {
-                        Some(account) if Some(&account) != core.remote.owner().as_ref() => {
+                        Some(account) if Some(&account) != core.remote().owner().as_ref() => {
                             Err(format!("{alias} is signed in to another Sikemux account"))
                         }
                         _ => Ok(()),

@@ -20,6 +20,7 @@ pub fn change_prompt(name: &str, folder: &str, id: &str, asked: &str) -> String 
 }
 
 use crate::server::changed::What;
+use crate::server::parts::Parts;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -280,7 +281,7 @@ fn list_in(folder: &Path) -> Vec<ModInfo> {
 }
 
 pub(super) async fn list(core: &Arc<Core>) -> CoreResult<ModList> {
-    let folder = core.mods.folder()?;
+    let folder = core.mods().folder()?;
     let mut mods = blocking(move || {
         let examples = EXAMPLES
             .iter()
@@ -301,11 +302,11 @@ pub(super) async fn list(core: &Arc<Core>) -> CoreResult<ModList> {
         })
     })
     .await?;
-    let badges = core.mods.badges.locked();
+    let badges = core.mods().badges.locked();
     for shown in &mut mods.mods {
-        shown.allowed = core.mods.allowed(&shown.id, &shown.writes);
+        shown.allowed = core.mods().allowed(&shown.id, &shown.writes);
         shown.badge = badges.get(&shown.id).cloned();
-        let settled = core.mods.settled.locked();
+        let settled = core.mods().settled.locked();
         shown.project = settled.pinned.get(&shown.id).cloned();
         shown.off = settled.off.contains(&shown.id);
     }
@@ -337,11 +338,11 @@ pub(super) async fn allow(core: &Arc<Core>, params: AllowParams) -> CoreResult<(
             if writes != manifest.writes {
                 return Err("this mod's writes changed since; open it again to be asked".into());
             }
-            core.mods.settle(|settled| {
+            core.mods().settle(|settled| {
                 settled.allowed.insert(params.id, writes);
             });
         }
-        None => core.mods.settle(|settled| {
+        None => core.mods().settle(|settled| {
             settled.allowed.remove(&params.id);
         }),
     }
@@ -370,7 +371,7 @@ pub(super) fn set_badge(core: &Core, params: BadgeParams) -> CoreResult<()> {
                 .collect::<String>()
         })
         .filter(|badge| !badge.is_empty());
-    let mut badges = core.mods.badges.locked();
+    let mut badges = core.mods().badges.locked();
     let moved = match badge {
         Some(badge) if badges.len() < MAX_MODS || badges.contains_key(&params.id) => {
             badges.insert(params.id, badge.clone()) != Some(badge)
@@ -413,7 +414,7 @@ fn mod_folder(core: &Core, id: &str) -> CoreResult<PathBuf> {
     if !is_mod_id(id) {
         return Err("that is not a mod's id".into());
     }
-    Ok(core.mods.folder()?.join(id))
+    Ok(core.mods().folder()?.join(id))
 }
 
 /// The name of the mod `id`, when it can show, for an agent opening it.
@@ -434,7 +435,7 @@ pub(super) async fn title(core: &Core, id: &str) -> Result<String, String> {
 
 /// The folder of a mod that is on, which alone shows and reads.
 fn shown_folder(core: &Core, id: &str) -> CoreResult<PathBuf> {
-    match core.mods.is_off(id) {
+    match core.mods().is_off(id) {
         true => Err("this mod is turned off; Settings, Mods turns it on".into()),
         false => mod_folder(core, id),
     }
@@ -449,7 +450,7 @@ pub struct PinModParams {
 
 pub(super) fn pin(core: &Core, params: PinModParams) -> CoreResult<()> {
     mod_folder(core, &params.id)?;
-    core.mods.settle(|settled| match params.project {
+    core.mods().settle(|settled| match params.project {
         Some(project) => {
             settled.pinned.insert(params.id, project);
         }
@@ -469,7 +470,7 @@ pub struct OffParams {
 
 pub(super) fn turn_off(core: &Core, params: OffParams) -> CoreResult<()> {
     mod_folder(core, &params.id)?;
-    core.mods.settle(|settled| {
+    core.mods().settle(|settled| {
         match params.off {
             true => settled.off.insert(params.id.clone()),
             false => settled.off.remove(&params.id),
@@ -506,12 +507,12 @@ pub(super) async fn remove(core: &Arc<Core>, params: ModParams) -> CoreResult<()
     let folder = mod_folder(core, &params.id)?;
     blocking(move || trash::delete(&folder).map_err(|error| CoreError::from(error.to_string())))
         .await?;
-    core.mods.settle(|settled| {
+    core.mods().settle(|settled| {
         settled.allowed.remove(&params.id);
         settled.pinned.remove(&params.id);
         settled.off.remove(&params.id);
     });
-    core.mods.badges.locked().remove(&params.id);
+    core.mods().badges.locked().remove(&params.id);
     settled_changed(core);
     Ok(())
 }
@@ -531,7 +532,7 @@ fn touched(folder: &Path, paths: &[PathBuf]) -> BTreeSet<String> {
 /// Follows the mods folder while the core runs, including before it is made, and tells every
 /// client which mods changed, so a list reads again and an open mod shows its new page.
 pub(crate) fn watch(core: &Arc<Core>) {
-    let Some(folder) = core.mods.folder.clone() else {
+    let Some(folder) = core.mods().folder.clone() else {
         return;
     };
     let core = Arc::downgrade(core);

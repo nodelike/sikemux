@@ -3,6 +3,7 @@
 //! slice is matched to an open pull request by its latest commit, or is the one Auto opened.
 //! The first write to each pull request waits for the person to post the exact block.
 
+use crate::server::parts::Parts;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
@@ -36,7 +37,7 @@ struct Due {
 pub(super) fn due(core: &Arc<Core>) {
     let mut writes = Vec::new();
     {
-        let mut state = core.boards.state.locked();
+        let mut state = core.boards().state.locked();
         let State { boards, proofs, .. } = &mut *state;
         for (project, board) in boards.iter() {
             if proofs.writing.contains(project) {
@@ -71,7 +72,7 @@ pub(super) fn due(core: &Arc<Core>) {
         let core = core.clone();
         tokio::spawn(async move {
             write(&core, &project, dues).await;
-            core.boards.state.locked().proofs.writing.remove(&project);
+            core.boards().state.locked().proofs.writing.remove(&project);
         });
     }
 }
@@ -79,7 +80,7 @@ pub(super) fn due(core: &Arc<Core>) {
 /// A pull request was just opened, so slices with none look for theirs again.
 pub(crate) fn pull_opened(core: &Arc<Core>) {
     {
-        let mut state = core.boards.state.locked();
+        let mut state = core.boards().state.locked();
         let State { boards, proofs, .. } = &mut *state;
         proofs.said.retain(|(project, card), _| {
             (boards.get(project).and_then(|board| board.card(*card).ok()))
@@ -87,7 +88,7 @@ pub(crate) fn pull_opened(core: &Arc<Core>) {
                 .is_some_and(|slice| slice.pull.is_some())
         });
     }
-    core.boards.wake.now();
+    core.boards().wake.now();
 }
 
 async fn write(core: &Arc<Core>, project: &str, dues: Vec<Due>) {
@@ -135,7 +136,7 @@ enum Consent {
 
 async fn rewrite(core: &Arc<Core>, project: &str, card: u64, pull: AutoPull) -> Result<(), String> {
     let (consent, picture, kept, owner) = {
-        let state = core.boards.state.locked();
+        let state = core.boards().state.locked();
         let board = state.boards.get(project).ok_or("the board is gone")?;
         let held = board.card(card).map_err(|error| error.to_string())?;
         let slice = held.slice.as_ref().ok_or("the slice is gone")?;
@@ -175,7 +176,7 @@ async fn rewrite(core: &Arc<Core>, project: &str, card: u64, pull: AutoPull) -> 
         return Ok(());
     };
     let block = {
-        let state = core.boards.state.locked();
+        let state = core.boards().state.locked();
         let slice = (state.boards.get(project))
             .and_then(|board| board.card(card).ok())
             .and_then(|card| card.slice.as_ref())
@@ -187,7 +188,7 @@ async fn rewrite(core: &Arc<Core>, project: &str, card: u64, pull: AutoPull) -> 
     if written != body {
         codehost::describe(core, &pull, &written).await?;
     }
-    core.boards.edit_if(project, card, |card| {
+    core.boards().edit_if(project, card, |card| {
         let linked = card.slice.as_mut()?.pull.as_mut()?;
         if linked.picture == kept {
             return None;
@@ -212,7 +213,7 @@ fn ask(
         return Ok(());
     };
     let block = {
-        let state = core.boards.state.locked();
+        let state = core.boards().state.locked();
         let slice = (state.boards.get(project))
             .and_then(|board| board.card(card).ok())
             .and_then(|card| card.slice.as_ref())
@@ -233,7 +234,7 @@ fn ask(
         card,
     };
     questions::put_proof_to_person(core, &owner, asked, header, text)?;
-    core.boards.edit(project, card, |card| {
+    core.boards().edit(project, card, |card| {
         if let Some(slice) = &mut card.slice {
             slice.pull = Some(SlicePull {
                 at: pull,
@@ -249,15 +250,15 @@ fn ask(
 
 /// The person posted the slice's proof to its pull request, or skipped it for good.
 pub(crate) fn answered(core: &Arc<Core>, asked: &ProofAsk, post: bool) {
-    core.boards.edit_if(&asked.project, asked.card, |card| {
+    core.boards().edit_if(&asked.project, asked.card, |card| {
         let linked = card.slice.as_mut()?.pull.as_mut()?;
         linked.asked = false;
         linked.posted = post;
         linked.skipped = !post;
         Some(())
     });
-    (core.boards.state.locked().proofs.said).remove(&(asked.project.clone(), asked.card));
-    core.boards.wake.now();
+    (core.boards().state.locked().proofs.said).remove(&(asked.project.clone(), asked.card));
+    core.boards().wake.now();
 }
 
 /// A name for the picture no other slice's or pull request's shares.
