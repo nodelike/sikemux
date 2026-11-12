@@ -194,7 +194,46 @@ pub fn row_parts(
     control: impl IntoElement,
     cx: &App,
 ) -> Div {
+    laid_out(mark, label, about, control, false, cx)
+}
+
+/// A row whose name and line under it end in an ellipsis where the row is too narrow, so its
+/// control always keeps its place.
+pub fn row_keeping_control(
+    mark: Option<AnyElement>,
+    label: impl Into<SharedString>,
+    about: Option<SharedString>,
+    control: impl IntoElement,
+    cx: &App,
+) -> Div {
     let t = Tokens::get(cx);
+    let about = about.map(|about| {
+        div()
+            .truncate()
+            .text_size(crate::theme::ui_text(TEXT_2XS_H))
+            .line_height(crate::theme::ui_text(TEXT_LG))
+            .text_color(t.text_tertiary)
+            .child(about)
+            .into_any_element()
+    });
+    let label = div().truncate().child(label.into());
+    laid_out(mark, label, about, control, true, cx)
+}
+
+fn laid_out(
+    mark: Option<AnyElement>,
+    label: impl IntoElement,
+    about: Option<AnyElement>,
+    control: impl IntoElement,
+    name_gives_way: bool,
+    cx: &App,
+) -> Div {
+    let t = Tokens::get(cx);
+    let control = div().child(control);
+    let control = match name_gives_way {
+        true => control.flex_none(),
+        false => control.min_w_0().overflow_hidden(),
+    };
     div()
         .flex()
         .items_center()
@@ -207,19 +246,21 @@ pub fn row_parts(
         .child(
             div()
                 .flex_1()
+                .when(name_gives_way, |column| column.min_w_0())
                 .flex()
                 .flex_col()
                 .gap(SPACE_0)
                 .child(
                     div()
                         .whitespace_nowrap()
+                        .when(name_gives_way, |name| name.min_w_0())
                         .text_size(crate::theme::ui_text(TEXT_SM))
                         .text_color(t.text_primary)
                         .child(label),
                 )
                 .children(about.map(|about| div().min_w_0().child(about))),
         )
-        .child(div().min_w_0().overflow_hidden().child(control))
+        .child(control)
 }
 
 /// A switch that sets a boolean preference, as `change` says.

@@ -174,7 +174,7 @@ pub fn render(
         ),
         false => div()
             .children(clients.iter().map(|client| {
-                rows::row_with(
+                rows::row_keeping_control(
                     Some(ui::picture(Icon::Terminal, 16., ink)),
                     client.name.clone(),
                     Some(about(client)),
