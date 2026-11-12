@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { Alert, Linking, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 
 import { errorText } from '@shared/lib/format';
+import { translate } from '@/i18n';
 
 import { DeviceIcon, Icon, type DeviceKind } from './Icon';
 import type { IconName } from './icons.generated';
@@ -18,7 +19,7 @@ export function alertFailure(title: string): (error: unknown) => void {
 
 /** Opens a link outside the app, saying so when the phone cannot. */
 export function openLink(url: string) {
-  Linking.openURL(url).catch(alertFailure("Couldn't open the link"));
+  Linking.openURL(url).catch(alertFailure(translate("Couldn't open the link")));
 }
 
 function isDevice(glyph: Glyph): glyph is DeviceKind {

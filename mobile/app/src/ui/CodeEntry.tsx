@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useT } from '@/i18n';
 
 import { haptics } from './haptics';
 import { fonts, keyboardFor, type Palette, translucent, useColors, useStyles } from './theme';
@@ -45,6 +46,7 @@ export function CodeEntry({
   failed?: boolean;
   disabled?: boolean;
 }) {
+  const t = useT();
   const colors = useColors();
   const input = useRef<TextInput>(null);
 
@@ -54,14 +56,16 @@ export function CodeEntry({
     input.current?.focus();
   }, [failed]);
 
-  const spoken = code ? `${code.split('').join(' ')}, ${code.length} of ${LENGTH} digits` : 'Empty';
+  const spoken = code
+    ? t('{digits}, {count} of {total} digits', { digits: code.split('').join(' '), count: code.length, total: LENGTH })
+    : t('Empty');
   return (
     <Pressable
       onPress={() => input.current?.focus()}
       accessible
-      accessibilityLabel={failed ? 'Code, wrong' : 'Code'}
+      accessibilityLabel={failed ? t('Code, wrong') : t('Code')}
       accessibilityValue={{ text: spoken }}
-      accessibilityHint={`Type the ${LENGTH} digits`}>
+      accessibilityHint={t('Type the {count} digits', { count: LENGTH })}>
       <CodeTiles code={code} state={failed ? 'failed' : disabled ? 'locked' : 'typing'} />
       <TextInput
         ref={input}

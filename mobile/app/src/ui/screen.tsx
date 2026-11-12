@@ -1,6 +1,7 @@
 import { useContext, useEffect, useState, type ReactNode } from 'react';
 import { Keyboard, Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useT } from '@/i18n';
 
 import { Backdrop, BackdropContext, backdropUnderStack } from './Backdrop';
 import { Icon } from './Icon';
@@ -39,11 +40,17 @@ export function Screen({ children, style }: { children: ReactNode; style?: Style
 }
 
 export function Nav({ back, title, end, onBack }: { back?: string; title?: ReactNode; end?: ReactNode; onBack?: () => void }) {
+  const t = useT();
   const colors = useColors();
   const styles = useStyles(makeStyles);
   return (
     <View style={styles.nav}>
-      <Pressable style={styles.back} onPress={onBack ?? goBack} hitSlop={8} accessibilityRole="button" accessibilityLabel={back ?? 'Back'}>
+      <Pressable
+        style={styles.back}
+        onPress={onBack ?? goBack}
+        hitSlop={8}
+        accessibilityRole="button"
+        accessibilityLabel={back ?? t('Back')}>
         <View style={styles.backChevron}>
           <Icon name="IconChevron" size={18} color={colors.secondary} />
         </View>

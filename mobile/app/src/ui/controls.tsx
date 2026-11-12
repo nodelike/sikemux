@@ -12,6 +12,8 @@ import {
   type ViewStyle,
 } from 'react-native';
 
+import { useT } from '@/i18n';
+
 import { haptics } from './haptics';
 import { DrawnIcon, Icon } from './Icon';
 import type { IconName } from './icons.generated';
@@ -104,6 +106,7 @@ export function Field({ icon, ...props }: TextInputProps & { icon?: IconName }) 
 
 export function PasswordField(props: Omit<TextInputProps, 'secureTextEntry'>) {
   const styles = useStyles(makeStyles);
+  const t = useT();
   const colors = useColors();
   const [shown, setShown] = useState(false);
   return (
@@ -113,7 +116,7 @@ export function PasswordField(props: Omit<TextInputProps, 'secureTextEntry'>) {
         onPress={() => setShown((was) => !was)}
         style={styles.reveal}
         accessibilityRole="button"
-        accessibilityLabel={shown ? 'Hide password' : 'Show password'}
+        accessibilityLabel={shown ? t('Hide password') : t('Show password')}
         hitSlop={6}>
         {shown ? <DrawnIcon name="eyeOff" size={18} color={colors.tertiary} /> : <Icon name="IconEye" size={18} color={colors.tertiary} />}
       </Pressable>

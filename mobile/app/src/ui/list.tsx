@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
+import { useT } from '@/i18n';
 
 import { Icon } from './Icon';
 import { fonts, type Palette, translucent, typeFor, useColors, useStyles } from './theme';
@@ -59,9 +60,10 @@ export function Row({
   /** A control of its own at the row's end, beside the row's press rather than inside it, as nested presses misbehave on iOS. */
   after?: ReactNode;
 }) {
+  const t = useT();
   const colors = useColors();
   const styles = useStyles(makeStyles);
-  const where = host ? `on ${host}` : undefined;
+  const where = host ? t('on {host}', { host }) : undefined;
   const handle = name ? `@${name}` : undefined;
   const label = title ?? handle;
   const named = title && handle ? [handle, where].filter(Boolean).join(' ') : undefined;
