@@ -1124,7 +1124,8 @@ impl Workbench {
             .questions_outside_calls()
             .filter(|question| question.asks(&agent.id))
             .collect();
-        let asking = chat.current(&open).is_some() && !chat.is_folded(&open);
+        let asking = chat.current(&open).is_some() && !chat.is_folded(&open)
+            || self.keyed_call(chat.target.place(), &agent.id).is_some();
         (asking && !chat.sending_answers()).then_some(agent.id)
     }
 

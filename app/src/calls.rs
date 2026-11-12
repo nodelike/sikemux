@@ -21,6 +21,7 @@ use sikemux_view::calls::{
 };
 use sikemux_view::device::DeviceView;
 
+use crate::chat::Press;
 use crate::core::Target;
 use crate::hosts::Place;
 use crate::icons::Icon;
@@ -58,6 +59,10 @@ struct Held {
     chosen: Option<Vec<String>>,
     field: Entity<InputState>,
     sending: bool,
+    /// The row the arrows rest on, on a call that takes several.
+    cursor: Option<usize>,
+    /// What runs on a yes shows.
+    action_open: bool,
     _typed: Subscription,
 }
 
@@ -72,6 +77,73 @@ impl Cards {
             Some(chosen) => chosen,
             None => call.pick.iter().cloned().collect(),
         }
+    }
+
+    fn cursor(&self, id: &str) -> Option<usize> {
+        self.held.get(id).and_then(|held| held.cursor)
+    }
+
+    fn field_focused(&self, id: &str, window: &Window, cx: &App) -> bool {
+        (self.held.get(id))
+            .is_some_and(|held| held.field.read(cx).focus_handle(cx).is_focused(window))
+    }
+
+    /// A key on the card of `call`, as today's question rows take them: a number chooses its
+    /// row, or ticks it on a call that takes several; the arrows move the chosen row, or the
+    /// row Space ticks. Says whether it took it.
+    fn press(&mut self, call: &PersonCall, press: Press, cx: &mut Context<Self>) -> bool {
+        let count = call.options.len();
+        if count == 0 || !self.held.contains_key(&call.id) {
+            return false;
+        }
+        let position = |id: &String| call.options.iter().position(|option| &option.id == id);
+        let first_chosen = self.chosen(call).first().and_then(position);
+        let cursor = self.cursor(&call.id).or(first_chosen);
+        let step = |from: Option<usize>, up: bool| match (from, up) {
+            (Some(at), true) => (at + count - 1) % count,
+            (Some(at), false) => (at + 1) % count,
+            (None, true) => count - 1,
+            (None, false) => 0,
+        };
+        match (press, call.multi) {
+            (Press::Choose(ix), _) if ix < count => {
+                if let Some(held) = self.held.get_mut(&call.id) {
+                    held.cursor = Some(ix);
+                }
+                match call.multi {
+                    true => self.choose(call, &call.options[ix].id, cx),
+                    false => self.set_chosen(call, vec![call.options[ix].id.clone()], cx),
+                }
+            }
+            (Press::Up | Press::Down, true) => {
+                let at = step(cursor, press == Press::Up);
+                if let Some(held) = self.held.get_mut(&call.id) {
+                    held.cursor = Some(at);
+                }
+                cx.notify();
+            }
+            (Press::Up | Press::Down, false) => {
+                let at = step(first_chosen, press == Press::Up);
+                self.set_chosen(call, vec![call.options[at].id.clone()], cx);
+            }
+            (Press::Tick, true) => {
+                let at = cursor.unwrap_or(0);
+                self.choose(call, &call.options[at].id, cx);
+            }
+            _ => return false,
+        }
+        true
+    }
+
+    fn set_chosen(&mut self, call: &PersonCall, chosen: Vec<String>, cx: &mut Context<Self>) {
+        if let Some(held) = self.held.get_mut(&call.id) {
+            held.chosen = Some(chosen);
+        }
+        cx.notify();
+    }
+
+    fn action_open(&self, id: &str) -> bool {
+        self.held.get(id).is_some_and(|held| held.action_open)
     }
 
     fn sending(&self, id: &str) -> bool {
@@ -118,6 +190,8 @@ impl Cards {
                 chosen: None,
                 field: field.clone(),
                 sending: false,
+                cursor: None,
+                action_open: false,
                 _typed: typed,
             },
         );
@@ -291,6 +365,55 @@ impl Workbench {
         self.calls.update(cx, |cards, _| cards.keep(&open));
     }
 
+    /// The call whose card takes the keys of `agent`'s chat: the oldest it waits on, unless it
+    /// asks for a secret, whose field takes them.
+    pub(crate) fn keyed_call(&self, place: &Place, agent: &str) -> Option<String> {
+        (self.waiting_call(place, agent))
+            .filter(|call| !call.secret)
+            .map(|call| call.id.clone())
+    }
+
+    /// A key on call `id`'s card. Return answers it, as Go with this does; the rest choose its
+    /// rows, unless its field holds the keys. Says whether the card took it.
+    pub(crate) fn press_call(
+        &mut self,
+        id: &str,
+        press: Press,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some((_, call)) = self.call_at(id) else {
+            return false;
+        };
+        let call = call.clone();
+        let cards = self.calls.clone();
+        if press == Press::Pick {
+            self.go_with(id, cx);
+            return true;
+        }
+        if cards.read(cx).field_focused(id, window, cx) {
+            return false;
+        }
+        cards.update(cx, |cards, cx| cards.press(&call, press, cx))
+    }
+
+    /// Hands call `id` back to its asker's lead, or its asker, to decide.
+    pub(crate) fn not_mine(&mut self, id: &str, cx: &mut Context<Self>) {
+        let Some((place, _)) = self.call_at(id) else {
+            return;
+        };
+        let handed = Target::new(&self.asks, place)
+            .request_typed::<call::CallNotMine>(CallParams { id: id.to_owned() });
+        cx.spawn(async move |bench, cx| {
+            if let Err(error) = handed.await {
+                bench
+                    .update(cx, |bench, cx| bench.notify(crate::toast::error(error), cx))
+                    .ok();
+            }
+        })
+        .detach();
+    }
+
     /// Answers call `id` with what its card holds.
     pub(crate) fn go_with(&mut self, id: &str, cx: &mut Context<Self>) {
         let Some((place, call)) = self.call_at(id) else {
@@ -460,7 +583,8 @@ fn card(
                 .into_any_element()
             }),
     };
-    let rows = (call.options.iter()).map(|option| {
+    let cursor = cards.read(cx).cursor(&call.id).filter(|_| call.multi);
+    let rows = (call.options.iter()).enumerate().map(|(ix, option)| {
         let on = chosen.contains(&option.id);
         let key = match call.multi {
             true => tick(on, &t),
@@ -506,9 +630,10 @@ fn card(
             .text_size(theme::ui_text(13.))
             .text_color(t.text_primary)
             .disabled(sending)
-            .map(|row| match on {
-                true => row.bg(t.surface_chosen),
-                false => row.hover(move |style| style.bg(hover)),
+            .map(|row| match (on, cursor == Some(ix)) {
+                (true, _) => row.bg(t.surface_chosen),
+                (false, true) => row.bg(hover),
+                (false, false) => row.hover(move |style| style.bg(hover)),
             })
             .on_click(move |_, _, cx| {
                 cx.stop_propagation();
@@ -570,6 +695,11 @@ fn card(
                 )]),
             )
     });
+    let action_open = cards.read(cx).action_open(&call.id);
+    let runs = (call.kind == CallKind::Production)
+        .then_some(call.action.as_ref())
+        .flatten()
+        .map(|action| what_runs(call, action, action_open, cards, &t));
     let ready = !chosen.is_empty() || typed;
     let go = {
         let (bench, id) = (bench.clone(), call.id.clone());
@@ -605,6 +735,20 @@ fn card(
                 .ok();
         })
     });
+    let not_mine = call.can_hand_back.then(|| {
+        let (bench, id) = (bench.clone(), call.id.clone());
+        Button::new(
+            SharedString::from(format!("call-not-mine-{}", call.id)),
+            "Not mine",
+            Variant::Ghost,
+        )
+        .sized(26., 9., 12.)
+        .disabled(sending)
+        .on_click(move |_, _, cx| {
+            cx.stop_propagation();
+            bench.update(cx, |bench, cx| bench.not_mine(&id, cx)).ok();
+        })
+    });
     let foot = div()
         .mt(px(14.))
         .flex()
@@ -622,6 +766,7 @@ fn card(
                 .child(ui::icon(Icon::Clock, 11.).text_color(t.text_disabled))
                 .child(div().truncate().child("Nothing happens until you answer")),
         )
+        .children(not_mine)
         .children(open_chat)
         .child(go);
     div()
@@ -641,11 +786,65 @@ fn card(
         .child(block)
         .children(kept)
         .children(against.map(|against| div().mt(SPACE_3_PX).child(against)))
+        .children(runs)
         .child(foot)
         .into_any_element()
 }
 
 const SPACE_3_PX: gpui_kit::Pixels = theme::SPACE_3;
+
+/// What a production call runs on a yes, folded under a row that opens it.
+fn what_runs(
+    call: &PersonCall,
+    action: &str,
+    open: bool,
+    cards: &Entity<Cards>,
+    t: &Tokens,
+) -> impl IntoElement {
+    let (cards, id) = (cards.clone(), call.id.clone());
+    let hover = t.text_secondary;
+    let row = BaseButton::new(SharedString::from(format!("call-runs-{}", call.id)))
+        .flex()
+        .justify_start()
+        .items_center()
+        .gap(SPACE_1H)
+        .text_size(theme::ui_text(12.))
+        .text_color(t.text_tertiary)
+        .hover(move |style| style.text_color(hover))
+        .on_click(move |_, _, cx| {
+            cx.stop_propagation();
+            cards.update(cx, |cards, cx| {
+                if let Some(held) = cards.held.get_mut(&id) {
+                    held.action_open = !held.action_open;
+                }
+                cx.notify();
+            });
+        })
+        .child(
+            ui::icon(Icon::Chevron, 10.)
+                .text_color(t.text_tertiary)
+                .when(open, |chevron| {
+                    chevron.with_transformation(gpui_kit::Transformation::rotate(
+                        gpui_kit::Radians(std::f32::consts::FRAC_PI_2),
+                    ))
+                }),
+        )
+        .child("What runs");
+    let command = open.then(|| {
+        div()
+            .mt(SPACE_1H)
+            .font_family(theme::MONO)
+            .text_size(theme::ui_text(12.))
+            .line_height(relative(1.5))
+            .text_color(t.text_secondary)
+            .child(crate::ui::selectable::selectable(
+                SharedString::from(format!("call-action-{}", call.id)),
+                action.to_owned(),
+                std::iter::empty(),
+            ))
+    });
+    div().mt(SPACE_2).child(row).children(command)
+}
 
 /// The last row of the options: a note that goes with the option chosen, or with none chosen,
 /// the person's own answer.
@@ -848,7 +1047,6 @@ fn panel(t: &Tokens) -> gpui_kit::Div {
         .border_1()
         .border_color(t.line)
         .rounded(RADIUS_4)
-        .shadow(t.shadow_float())
 }
 
 /// What came of a call, in one quiet line where its card stood: what the person said and what
@@ -907,7 +1105,7 @@ fn notice(call: &PersonCall, t: &Tokens) -> Option<AnyElement> {
             )
             .child(div().min_w_0().truncate().child(said))
             .child(div().text_color(t.text_disabled).child("·"))
-            .child(ui::time::clock(settled_at(call)))
+            .children(crate::chat::clock(settled_at(call)))
             .into_any_element(),
     )
 }
@@ -1169,21 +1367,51 @@ fn popover(
                 .text_color(t.text_tertiary)
                 .child(name),
         );
-    div()
-        .w(px(CARD_WIDTH))
-        .p(SPACE_1H)
-        .bg(t.surface_overlay)
-        .border_1()
-        .border_color(t.line)
-        .rounded(RADIUS_4)
-        .shadow(t.shadow_float())
-        .child(head)
-        .child(shown)
-        .when(!rest.is_empty(), |pop| {
-            pop.child(div().mx(px(10.)).my(SPACE_1).h(px(1.)).bg(t.line))
-                .children(rest)
-        })
-        .into_any_element()
+    call_keys(
+        div().id("calls-popover").key_context("QuestionDock"),
+        &open.id,
+        &weak,
+    )
+    .w(px(CARD_WIDTH))
+    .p(SPACE_1H)
+    .bg(t.surface_overlay)
+    .border_1()
+    .border_color(t.line)
+    .rounded(RADIUS_4)
+    .shadow(t.shadow_float())
+    .child(head)
+    .child(shown)
+    .when(!rest.is_empty(), |pop| {
+        pop.child(div().mx(px(10.)).my(SPACE_1).h(px(1.)).bg(t.line))
+            .children(rest)
+    })
+    .into_any_element()
+}
+
+/// The keys a card takes, bound as the question rows' are, for call `id`.
+fn call_keys<E: InteractiveElement>(keyed: E, id: &str, bench: &WeakEntity<Workbench>) -> E {
+    use crate::chat::{Choose, Confirm, NextChoice, PreviousChoice, Tick};
+    fn on<A: gpui_kit::Action>(
+        id: &str,
+        bench: &WeakEntity<Workbench>,
+        press: impl Fn(&A) -> Press + 'static,
+    ) -> impl Fn(&A, &mut Window, &mut App) + 'static {
+        let (id, bench) = (id.to_owned(), bench.clone());
+        move |action, window, cx| {
+            let taken = bench.update(cx, |bench, cx| {
+                bench.press_call(&id, press(action), window, cx)
+            });
+            if !matches!(taken, Ok(true)) {
+                cx.propagate();
+            }
+        }
+    }
+    keyed
+        .on_action(on(id, bench, |choose: &Choose| Press::Choose(choose.0)))
+        .on_action(on(id, bench, |_: &PreviousChoice| Press::Up))
+        .on_action(on(id, bench, |_: &NextChoice| Press::Down))
+        .on_action(on(id, bench, |_: &Tick| Press::Tick))
+        .on_action(on(id, bench, |_: &Confirm| Press::Pick))
 }
 
 /// The amber dot on another project's row in the tree while calls of it wait on the person.

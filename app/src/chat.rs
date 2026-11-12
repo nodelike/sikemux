@@ -97,6 +97,7 @@ pub use composing::{
     Sent, START,
 };
 pub(crate) use mention::{AGENT, FILE, TRACKED};
+pub(crate) use meta::clock;
 pub use questions::{question_keys, Answering, Question};
 
 /// Turns asked for each time the reader nears the top of what is held.
@@ -1688,9 +1689,11 @@ pub fn pane(
         .composer
         .as_ref()
         .is_some_and(|composing| composing.draft.read(cx).value().is_empty());
+    let keyed_call = bench.keyed_call(chat.target.place(), &agent.id).is_some();
     let asking = empty
-        && chat.current(&open).is_some_and(|question| !question.secret)
-        && !chat.is_folded(&open);
+        && (keyed_call
+            || chat.current(&open).is_some_and(|question| !question.secret)
+                && !chat.is_folded(&open));
     let id = &agent.id;
     let composing = chat.composer.is_some();
     let pane = div()
@@ -1775,13 +1778,20 @@ fn pressed<A: gpui::Action, F: Fn(&A) -> Press + 'static>(
     bench: &WeakEntity<Workbench>,
 ) -> impl Fn(&A, &mut Window, &mut App) + use<A, F> {
     let (agent, this) = (agent.to_owned(), bench.clone());
-    move |action: &A, _: &mut Window, cx: &mut App| {
+    move |action: &A, window: &mut Window, cx: &mut App| {
         let taken = this.update(cx, |bench, cx| {
             let open: Vec<&Question> = bench
                 .feeds
                 .questions_outside_calls()
                 .filter(|question| question.asks(&agent))
                 .collect();
+            if open.is_empty() {
+                let place = bench.chats.open.get(&agent)?.target.place().clone();
+                let id = bench.keyed_call(&place, &agent)?;
+                return bench
+                    .press_call(&id, press(action), window, cx)
+                    .then_some(());
+            }
             let chat = bench.chats.open.get_mut(&agent)?;
             let (taken, ask) = chat.press(press(action), &open);
             if let Some(ask) = ask {
