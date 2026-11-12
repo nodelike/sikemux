@@ -305,9 +305,9 @@ pub fn dock(
     });
     let sheet = div()
         .w_full()
-        .pt(SPACE_0)
+        .pt(SPACE_1H)
         .px(SPACE_1H)
-        .pb(DOCK_TUCK + SPACE_1)
+        .pb(DOCK_TUCK + SPACE_1H)
         .flex()
         .flex_col()
         .rounded_t(theme::RADIUS_3)
