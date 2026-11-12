@@ -1,5 +1,5 @@
 //! A page an agent showed with `page_show`, drawn in its reply at the height the
-//! page reports, or as a card for a page shown in a tab on the agent's desk. The core keeps
+//! page reports, or as a row for a page shown in a tab on the agent's desk. The core keeps
 //! the page; its view keeps no storage and never navigates, and a link the person clicks in
 //! it opens on the agent's desk.
 
@@ -9,9 +9,10 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    deferred, div, img, linear_color_stop, linear_gradient, px, AnyElement, App, FontWeight,
-    Global, Image, InteractiveElement, IntoElement, ObjectFit, ParentElement, SharedString,
+    div, img, linear_color_stop, linear_gradient, px, AnyElement, App, FontWeight, Global, Image,
+    InteractiveElement, IntoElement, ObjectFit, ParentElement, SharedString,
     StatefulInteractiveElement, Styled, StyledImage, Window,
 };
 use gpui_native_view::{native_view, NativeSurface};
@@ -34,10 +35,10 @@ const FADE_HEIGHT: f32 = 72.;
 /// On X11 a page is a window of its own, and anything drawn over it reshapes that window on
 /// every frame, which froze the app; there Open in tab sits under the page instead.
 const DRAWS_OVER_PAGES: bool = cfg!(target_os = "macos");
-const CARD_HEIGHT: f32 = 300.;
-const CARD_BARE_HEIGHT: f32 = 64.;
-/// How wide the picture a card shows is kept, sharp on a Retina reply column.
-const THUMB_KEPT_WIDTH: u32 = 1280;
+const ROW_HEIGHT: f32 = 72.;
+const THUMB_WIDTH: f32 = 136.;
+/// How wide the picture a row shows is kept, sharp on a Retina screen.
+const THUMB_KEPT_WIDTH: u32 = 408;
 /// The picture keeps only the top of the page, as wide as this is to its height.
 const THUMB_KEPT_SHAPE: f32 = 2.4;
 
@@ -75,7 +76,7 @@ struct Shown {
     failed: Option<SharedString>,
 }
 
-pub(super) fn page(page: &PageRef, looks: &Looks, window: &mut Window, cx: &mut App) -> AnyElement {
+fn shown<'a>(page: &PageRef, looks: &Looks, window: &mut Window, cx: &'a mut App) -> &'a Shown {
     if !cx.has_global::<Pages>() {
         cx.set_global(Pages::default());
     }
@@ -93,25 +94,25 @@ pub(super) fn page(page: &PageRef, looks: &Looks, window: &mut Window, cx: &mut 
         );
         fetch(page, looks, window, cx);
     }
-    let shown = &cx.global::<Pages>().shown[&page.id];
-    let (height, surface, picture, pointer) = (
+    &cx.global::<Pages>().shown[&page.id]
+}
+
+pub(super) fn page(page: &PageRef, looks: &Looks, window: &mut Window, cx: &mut App) -> AnyElement {
+    let shown = shown(page, looks, window, cx);
+    let (height, surface, pointer) = (
         shown.height.get(),
         shown.surface.clone(),
-        shown.picture.clone(),
         shown.pointer.clone(),
     );
     if let Some(failed) = shown.failed.clone() {
         return ui::meta(format!("Could not show {}: {failed}", page.title), cx).into_any_element();
-    }
-    if page.tab {
-        return card(page, picture, looks, cx);
     }
     let t = Tokens::get(cx);
     let cut = height > MAX_HEIGHT;
     let chip = (DRAWS_OVER_PAGES && pointer.shows_chip()).then(|| {
         let reader = looks.reader.clone();
         let over_chip = pointer.over_chip.clone();
-        deferred(
+        gpui_native_view::over(
             div()
                 .id(SharedString::from(format!("page-chip-{}", page.id)))
                 .absolute()
@@ -126,7 +127,7 @@ pub(super) fn page(page: &PageRef, looks: &Looks, window: &mut Window, cx: &mut 
     });
     let fade = (DRAWS_OVER_PAGES && cut).then(|| {
         let ground = theme::page_ground(t);
-        deferred(
+        gpui_native_view::over(
             div()
                 .absolute()
                 .left_0()
@@ -179,72 +180,104 @@ pub(super) fn page(page: &PageRef, looks: &Looks, window: &mut Window, cx: &mut 
         .into_any_element()
 }
 
-/// A page shown in a tab on the desk: the top of it fading out under its title, opening the tab
-/// when clicked.
-fn card(page: &PageRef, picture: Option<Arc<Image>>, looks: &Looks, cx: &App) -> AnyElement {
+/// Pages shown in tabs on the desk, one row each in a shared frame: the top of the page, its
+/// title, and Open, which brings its tab forward, as a click anywhere on the row does.
+pub(super) fn tabs(
+    pages: &[&PageRef],
+    looks: &Looks,
+    window: &mut Window,
+    cx: &mut App,
+) -> AnyElement {
+    let rows: Vec<AnyElement> = pages
+        .iter()
+        .enumerate()
+        .map(|(at, page)| {
+            let shown = shown(page, looks, window, cx);
+            let (picture, failed) = (shown.picture.clone(), shown.failed.clone());
+            tab_row(page, picture, failed, at > 0, looks, cx)
+        })
+        .collect();
     let t = Tokens::get(cx);
-    let height = if picture.is_some() {
-        CARD_HEIGHT
-    } else {
-        CARD_BARE_HEIGHT
-    };
-    let fade = gpui_kit::Hsla {
-        a: 0.,
-        ..t.surface_raised
-    };
     div()
-        .id(SharedString::from(format!("page-card-{}", page.id)))
-        .relative()
         .w_full()
-        .h(px(height))
+        .flex()
+        .flex_col()
         .rounded(px(10.))
         .overflow_hidden()
         .border_1()
         .border_color(t.border)
         .bg(t.surface_raised)
-        .cursor_pointer()
-        .hover(|card| card.border_color(t.border_strong))
-        .on_click(opens_tab(page, looks))
-        .children(picture.map(|picture| {
-            img(picture)
-                .absolute()
+        .children(rows)
+        .into_any_element()
+}
+
+fn tab_row(
+    page: &PageRef,
+    picture: Option<Arc<Image>>,
+    failed: Option<SharedString>,
+    below_another: bool,
+    looks: &Looks,
+    cx: &App,
+) -> AnyElement {
+    let t = Tokens::get(cx);
+    let thumb = div()
+        .flex_none()
+        .w(px(THUMB_WIDTH))
+        .h(px(THUMB_WIDTH / THUMB_KEPT_SHAPE))
+        .rounded(px(6.))
+        .overflow_hidden()
+        .border_1()
+        .border_color(t.border)
+        .bg(t.surface)
+        .flex()
+        .items_center()
+        .justify_center()
+        .child(match picture {
+            Some(picture) => img(picture)
                 .size_full()
+                .rounded(px(6.))
                 .object_fit(ObjectFit::Cover)
-        }))
-        .child(div().absolute().size_full().bg(linear_gradient(
-            180.,
-            linear_color_stop(fade, 0.3),
-            linear_color_stop(t.surface_raised, 0.8),
-        )))
+                .into_any_element(),
+            None => ui::icon(Icon::Tabs, 16.)
+                .text_color(t.text_tertiary)
+                .into_any_element(),
+        });
+    let place = match failed {
+        Some(failed) => ui::meta(format!("Could not show it: {failed}"), cx).truncate(),
+        None => ui::meta("In a tab on the desk", cx),
+    };
+    div()
+        .id(SharedString::from(format!("page-card-{}", page.id)))
+        .h(px(ROW_HEIGHT))
+        .flex()
+        .items_center()
+        .gap(px(14.))
+        .pl(px(8.))
+        .pr(px(14.))
+        .when(below_another, |row| row.border_t_1().border_color(t.border))
+        .cursor_pointer()
+        .hover(|row| row.bg(t.surface_hover))
+        .on_click(opens_tab(page, looks))
+        .child(thumb)
         .child(
             div()
-                .absolute()
-                .left_0()
-                .right_0()
-                .bottom_0()
+                .flex_1()
+                .min_w_0()
                 .flex()
-                .items_end()
-                .gap(px(10.))
-                .px(px(14.))
-                .pb(px(12.))
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .flex()
-                        .flex_col()
-                        .child(ui::text(page.title.clone(), 14., FontWeight::MEDIUM).truncate())
-                        .child(ui::meta("In a tab on the desk", cx)),
-                )
-                .child(
-                    ui::Button::new(
-                        SharedString::from(format!("page-card-open-{}", page.id)),
-                        "Open",
-                        ui::Variant::Outline,
-                    )
-                    .icon(Icon::Tabs)
-                    .sized(24., 10., 11.5),
-                ),
+                .flex_col()
+                .gap(px(2.))
+                .child(ui::text(page.title.clone(), 14., FontWeight::MEDIUM).truncate())
+                .child(place),
+        )
+        .child(
+            ui::Button::new(
+                SharedString::from(format!("page-card-open-{}", page.id)),
+                "Open",
+                ui::Variant::Outline,
+            )
+            .icon(Icon::Tabs)
+            .sized(24., 10., 11.5)
+            .on_click(opens_tab(page, looks)),
         )
         .into_any_element()
 }
@@ -273,7 +306,7 @@ fn opens_tab(
     }
 }
 
-/// The top of a desk tab's picture, as a card shows it, in base64.
+/// The top of a desk tab's picture, as its row in the reply shows it, in base64.
 pub(crate) fn thumbnail(jpeg: &[u8]) -> Option<String> {
     use base64::Engine as _;
     let decoded = image::load_from_memory_with_format(jpeg, image::ImageFormat::Jpeg).ok()?;

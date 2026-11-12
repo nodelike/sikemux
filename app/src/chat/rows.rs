@@ -2,7 +2,7 @@
 //! fired triggers, and subagents. Runs of messages between agents are in `team`.
 
 use super::*;
-use sikemux_view::chat::{GoalMoment, TaskNotice};
+use sikemux_view::chat::{GoalMoment, PageRef, TaskNotice};
 use sikemux_view::slice::SliceState;
 
 use crate::theme::{
@@ -150,6 +150,7 @@ pub(super) fn row(
                     .into_any_element(),
                 Shown::Part(part) => self::part(row, part, user, pen, looks, window, cx),
                 Shown::Run(calls) => tools::run(&calls, live && at + 1 == count, looks, window, cx),
+                Shown::Tabs(pages) => self::page::tabs(&pages, looks, window, cx),
             });
         }
         if !tucked_away || whole_row_tucked {
@@ -702,13 +703,27 @@ fn answer_thread(
 pub(super) enum Shown<'a> {
     Part(&'a ChatPart),
     Run(Vec<&'a ChatPart>),
+    Tabs(Vec<&'a PageRef>),
 }
 
-/// A message's parts with each run of tool calls together; a page the agent showed stands on its own.
+/// A message's parts with each run of tool calls together, and pages shown in desk tabs one after
+/// another in one frame; a page drawn in the reply stands on its own.
 pub(super) fn runs<'a>(parts: impl Iterator<Item = &'a ChatPart>) -> Vec<Shown<'a>> {
     let mut shown = Vec::new();
     for part in parts {
         match (part, shown.last_mut()) {
+            (
+                ChatPart::Tool {
+                    page: Some(page), ..
+                },
+                Some(Shown::Tabs(pages)),
+            ) if page.tab => pages.push(page),
+            (
+                ChatPart::Tool {
+                    page: Some(page), ..
+                },
+                _,
+            ) if page.tab => shown.push(Shown::Tabs(vec![page])),
             (
                 ChatPart::Tool {
                     page: None,
@@ -1090,6 +1105,7 @@ pub(super) fn subagent(
             for (at, group) in groups.into_iter().enumerate() {
                 drawn.push(match group {
                     Shown::Part(part) => self::part(row, part, false, pen, looks, window, cx),
+                    Shown::Tabs(pages) => self::page::tabs(&pages, looks, window, cx),
                     Shown::Run(calls) => tools::run(
                         &calls,
                         live && ix + 1 == rows.len() && at + 1 == count,
