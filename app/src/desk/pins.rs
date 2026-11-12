@@ -33,12 +33,51 @@ pub(crate) struct PinsShown {
     waits: HashMap<String, Arc<AtomicBool>>,
     /// Answered pins whose after picture is being taken.
     taking: HashSet<String>,
-    /// Pictures read once as data the page can draw, by path.
-    pictures: HashMap<String, String>,
+    /// Pictures read once as data the page can draw, the most recently read last.
+    pictures: Pictures,
+}
+
+/// How many pins' pictures are kept as data at most; the least recently read go first.
+const KEPT_PICTURES: usize = 16;
+
+#[derive(Default)]
+struct Pictures {
+    by_path: HashMap<String, String>,
+    order: std::collections::VecDeque<String>,
+}
+
+impl Pictures {
+    /// The picture at `path` as data the page can draw, read from disk the first time.
+    fn data(&mut self, path: &str) -> Option<String> {
+        if !self.by_path.contains_key(path) {
+            let bytes = std::fs::read(path).ok()?;
+            let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
+            self.by_path
+                .insert(path.to_owned(), format!("data:image/jpeg;base64,{encoded}"));
+        }
+        self.order.retain(|kept| kept != path);
+        self.order.push_back(path.to_owned());
+        while self.order.len() > KEPT_PICTURES {
+            if let Some(oldest) = self.order.pop_front() {
+                self.by_path.remove(&oldest);
+            }
+        }
+        self.by_path.get(path).cloned()
+    }
+
+    fn forget(&mut self, path: &str) {
+        self.by_path.remove(path);
+        self.order.retain(|kept| kept != path);
+    }
+}
+
+/// The page a pin belongs to: its address without the query or the fragment.
+fn page_of(url: &str) -> &str {
+    url.split(['?', '#']).next().unwrap_or(url)
 }
 
 /// One page's pin as the page draws it.
-fn drawn(pin: &Pin, pictures: &mut HashMap<String, String>) -> Value {
+fn drawn(pin: &Pin, pictures: &mut Pictures) -> Value {
     let who = pin
         .agent_name
         .as_ref()
@@ -52,15 +91,7 @@ fn drawn(pin: &Pin, pictures: &mut HashMap<String, String>) -> Value {
             json!({ "by": by, "words": note.words })
         })
         .collect();
-    let mut data = |path: &Option<String>| {
-        let path = path.as_ref()?;
-        if !pictures.contains_key(path) {
-            let bytes = std::fs::read(path).ok()?;
-            let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
-            pictures.insert(path.clone(), format!("data:image/jpeg;base64,{encoded}"));
-        }
-        pictures.get(path).cloned()
-    };
+    let mut data = |path: &Option<String>| pictures.data(path.as_deref()?);
     let answered = pin.state == PinState::Answered;
     json!({
         "id": pin.id,
@@ -158,7 +189,7 @@ impl Workbench {
                 .agent_by_id(&agent)
                 .and_then(|row| row.handle().map(|name| format!("@{name}")));
             let mine: Vec<&Pin> = (pins.iter())
-                .filter(|pin| pin.agent_id == agent && pin.url == front.url)
+                .filter(|pin| pin.agent_id == agent && page_of(&pin.url) == page_of(&front.url))
                 .collect();
             let told = self.desks.update(cx, |desks, _| {
                 let shown = &mut desks.pins_shown;
@@ -297,6 +328,19 @@ impl Workbench {
         .detach();
     }
 
+    /// Lets go of the pictures of pin `id`, which leaves the page.
+    fn forget_pin_pictures(&mut self, id: &str, cx: &mut Context<Self>) {
+        let paths: Vec<String> = (self.this_view())
+            .and_then(|view| view.pins.iter().find(|pin| pin.id == id))
+            .map(|pin| pin.before.iter().chain(&pin.after).cloned().collect())
+            .unwrap_or_default();
+        self.desks.update(cx, |desks, _| {
+            for path in &paths {
+                desks.pins_shown.pictures.forget(path);
+            }
+        });
+    }
+
     /// The person answered a pin in the page's float.
     pub(crate) fn pin_answered(&mut self, answer: PinAnswer, cx: &mut Context<Self>) {
         let target = crate::core::Target::here(&self.asks);
@@ -307,10 +351,13 @@ impl Workbench {
                 Box::pin(target.request_typed::<call::NotePin>(PinNoteParams { id, words })),
                 "Sent back to the agent",
             ),
-            PinAnswer::LooksRight { id } => (
-                Box::pin(target.request_typed::<call::PinLooksRight>(PinParams { id })),
-                "",
-            ),
+            PinAnswer::LooksRight { id } => {
+                self.forget_pin_pictures(&id, cx);
+                (
+                    Box::pin(target.request_typed::<call::PinLooksRight>(PinParams { id })),
+                    "",
+                )
+            }
             PinAnswer::Nothing => return,
         };
         cx.spawn(async move |_, cx| {
