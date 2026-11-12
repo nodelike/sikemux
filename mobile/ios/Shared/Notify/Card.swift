@@ -65,8 +65,8 @@ extension NotificationCard {
 /// What a call's card says on its buttons, and the names iOS answers them by. The rest of the calls' words are in the
 /// app's `CallWords`; these sit here because the notification extension draws them.
 enum CallPush {
-    static let somethingElse = "Something else…"
-    static let reply = "Reply"
+    static let somethingElse = String(localized: "Something else…")
+    static let reply = String(localized: "Reply")
     static let category = "call:"
     static let option = "option:"
     static let words = "words"

@@ -9,9 +9,11 @@ enum StashProblem: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .signedOut: return "Open Sikemux and sign in, then share again."
-        case .unreachable: return "Check the phone is online."
-        case .unsigned: return "This phone could not sign the share with its key. Open Sikemux, then share again."
+        case .signedOut: return String(localized: "Open Sikemux and sign in, then share again.")
+        case .unreachable: return String(localized: "Check the phone is online.")
+        case .unsigned:
+            return String(
+                localized: "This phone could not sign the share with its key. Open Sikemux, then share again.")
         case .refused(let message): return message
         }
     }
@@ -94,7 +96,7 @@ final class StashUpload: Sendable {
         if (200..<300).contains(status) { return }
         if status == 401 { throw StashProblem.signedOut }
         let message = (try? JSONDecoder().decode(ApiError.self, from: answer.0))?.error.message
-        throw StashProblem.refused(message ?? "Sikemux answered \(status).")
+        throw StashProblem.refused(message ?? String(localized: "Sikemux answered \(status)."))
     }
 
     private static func sha256(of file: URL) throws -> String {

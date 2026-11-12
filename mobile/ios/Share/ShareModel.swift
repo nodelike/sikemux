@@ -80,7 +80,7 @@ final class ShareModel: ObservableObject {
         }
         items = deduplicated(found)
         guard !items.isEmpty else {
-            phase = .failed("Nothing in what was shared could be read.")
+            phase = .failed(String(localized: "Nothing in what was shared could be read."))
             return
         }
         phase = .ready
@@ -105,17 +105,23 @@ final class ShareModel: ObservableObject {
     func toChat(_ chat: ShareSnapshot.Chat) {
         send(
             to: StashTarget(hostKey: chat.host, chatId: chat.chatId),
-            done: ("Added to \(chat.name.map { "@\($0)" } ?? "the chat")'s draft", "Unsent, on \(chat.hostName)"))
+            done: (
+                chat.name.map { String(localized: "Added to @\($0)'s draft") }
+                    ?? String(localized: "Added to the chat's draft"),
+                String(localized: "Unsent, on \(chat.hostName)")
+            ))
     }
 
     func toNewChat(_ chat: ShareSnapshot.NewChat) {
         send(
             to: StashTarget(hostKey: chat.host, projectPath: chat.projectPath, newChat: true),
-            done: ("In a new chat in \(chat.project)", "Unsent, on \(chat.hostName)"))
+            done: (
+                String(localized: "In a new chat in \(chat.project)"), String(localized: "Unsent, on \(chat.hostName)")
+            ))
     }
 
     func toStash() {
-        send(to: nil, done: ("Stashed", "Attach it from + in any chat."))
+        send(to: nil, done: (String(localized: "Stashed"), String(localized: "Attach it from + in any chat.")))
     }
 
     func cleanUp() {

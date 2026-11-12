@@ -106,6 +106,7 @@ struct Keychain: Sendable {
 struct KeychainError: LocalizedError {
     let status: OSStatus
     var errorDescription: String? {
-        "The Keychain refused (\(SecCopyErrorMessageString(status, nil) as String? ?? "\(status)"))."
+        let reason = SecCopyErrorMessageString(status, nil) as String? ?? "\(status)"
+        return String(localized: "The Keychain refused (\(reason)).")
     }
 }

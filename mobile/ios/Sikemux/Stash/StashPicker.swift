@@ -153,9 +153,9 @@ struct StashPicker: View {
     {
         VStack(spacing: 8) {
             PromptGlyph(icon: icon, small: true)
-            Text(title).font(Theme.ui(16, .semibold)).foregroundStyle(palette.ink).padding(.top, 8)
-            Text(detail).font(Theme.ui(14)).lineSpacing(6).foregroundStyle(palette.tertiary).multilineTextAlignment(
-                .center)
+            Text(LocalizedStringKey(title)).font(Theme.ui(16, .semibold)).foregroundStyle(palette.ink).padding(.top, 8)
+            Text(LocalizedStringKey(detail)).font(Theme.ui(14)).lineSpacing(6).foregroundStyle(palette.tertiary)
+                .multilineTextAlignment(.center)
             extra()
         }
         .padding(.top, 70)

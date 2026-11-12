@@ -52,7 +52,7 @@ enum ShareExtension {
                         ShareSnapshot.Chat(
                             host: device.core, hostName: device.displayName, chatId: chat.agentId,
                             provider: chat.provider,
-                            title: chat.title ?? shown?.title ?? "New chat", name: chat.name,
+                            title: chat.title ?? shown?.title ?? String(localized: "New chat"), name: chat.name,
                             project: project?.name ?? folderName(chat.cwd)),
                         project?.path ?? chat.cwd,
                         shown?.activeAt ?? 0

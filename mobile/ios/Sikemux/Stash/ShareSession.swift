@@ -63,7 +63,7 @@ final class ShareSession {
                 return nil
             }.first ?? "").split(whereSeparator: \.isWhitespace).joined(separator: " ")
         if !words.isEmpty { return words.count > 80 ? "\(words.prefix(79))…" : words }
-        return "\(Catalog.label(chat?.provider ?? "agent")) chat"
+        return String(localized: "\(Catalog.label(chat?.provider ?? "agent")) chat")
     }
 
     func takeTouched() -> Touched {
@@ -324,5 +324,5 @@ final class ShareSession {
 
 /// The sharer's computer is away or would not say.
 private struct SharerSilent: LocalizedError {
-    var errorDescription: String? { "The sharer's computer did not send this." }
+    var errorDescription: String? { String(localized: "The sharer's computer did not send this.") }
 }

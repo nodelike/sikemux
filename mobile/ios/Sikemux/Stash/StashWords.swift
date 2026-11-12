@@ -21,7 +21,7 @@ enum StashWords {
             return (item.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
                 .split(separator: "\n", omittingEmptySubsequences: false).first.map(String.init) ?? ""
         default:
-            return item.name ?? "file"
+            return item.name ?? String(localized: "file")
         }
     }
 
@@ -31,14 +31,18 @@ enum StashWords {
         switch item.kind {
         case .link:
             if let site = item.preview?.site, !site.isEmpty { what = site } else { what = site(of: item.url ?? "") }
-        case .text: what = "Text"
+        case .text: what = String(localized: "Text")
         case .prompt:
             let files = item.attachments?.count ?? 0
-            what = files > 0 ? "Prompt · \(files) \(Format.counted("file", files))" : "Prompt"
+            switch files {
+            case 0: what = String(localized: "Prompt")
+            case 1: what = String(localized: "Prompt · 1 file")
+            default: what = String(localized: "Prompt · \(files) files")
+            }
         default: what = Format.bytes(item.size ?? 0)
         }
         let age = Format.age(Format.date(iso: item.createdAt), now: now)
-        return "\(what) · \(age == "now" ? "just now" : age)"
+        return "\(what) · \(age == Format.age(now, now: now) ? String(localized: "just now") : age)"
     }
 
     private static let mention = #"(^|\s)&(\S*)$"#

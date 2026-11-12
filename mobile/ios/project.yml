@@ -178,6 +178,8 @@ targets:
     sources:
       - path: Notifications
         excludes: [Info.plist, SikemuxNotifications.entitlements]
+      - path: Sikemux/Resources/Localizable.xcstrings
+        buildPhase: resources
       - path: Shared/Notify
       - path: Shared/Keychain.swift
       - path: Shared/Glance
@@ -209,6 +211,8 @@ targets:
     sources:
       - path: Share
         excludes: [Info.plist, SikemuxShare.entitlements]
+      - path: Sikemux/Resources/Localizable.xcstrings
+        buildPhase: resources
       - path: Shared/Stash
       - path: Shared/Bytes.swift
       - path: Shared/Keychain.swift

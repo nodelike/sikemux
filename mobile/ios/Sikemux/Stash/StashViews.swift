@@ -262,7 +262,7 @@ final class PromptStash {
                 shown.offer(.stashed(id: id))
             } catch {
                 shown.clear()
-                report("could not stash it: \(problem(error))")
+                report(String(localized: "could not stash it: \(problem(error))"))
             }
         }
     }
@@ -272,7 +272,7 @@ final class PromptStash {
         guard case .stashed(let id) = toast else { return }
         shown.clear()
         Task {
-            do { try await undo(id) } catch { report("could not put it back: \(problem(error))") }
+            do { try await undo(id) } catch { report(String(localized: "could not put it back: \(problem(error))")) }
         }
     }
 }

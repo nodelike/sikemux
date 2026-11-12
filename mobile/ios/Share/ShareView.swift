@@ -12,13 +12,14 @@ struct ShareView: View {
                 Spacer()
             case .signedOut:
                 Settled(
-                    icon: Icons.brand, tone: palette.secondary, title: "Sign in to Sikemux first",
-                    detail: "Open the app and sign in, then share again.")
+                    icon: Icons.brand, tone: palette.secondary, title: String(localized: "Sign in to Sikemux first"),
+                    detail: String(localized: "Open the app and sign in, then share again."))
             case .done(let title, let detail):
                 Settled(icon: Icons.check, tone: palette.live, title: title, detail: detail)
             case .failed(let problem):
                 Settled(
-                    icon: Icons.globe, tone: palette.secondary, title: "Couldn't stash this", detail: problem,
+                    icon: Icons.globe, tone: palette.secondary, title: String(localized: "Couldn't stash this"),
+                    detail: problem,
                     retry: model.retry)
             case .ready, .sending:
                 form
@@ -31,6 +32,14 @@ struct ShareView: View {
     private var sending: Double? {
         if case .sending(let share) = model.phase { return share }
         return nil
+    }
+
+    private var tooBig: String {
+        let megabytes = StashRules.mostBytes / 1024 / 1024
+        if model.tooBig.count == 1 {
+            return String(localized: "\(model.tooBig[0]) is over \(megabytes) MB, too big to stash")
+        }
+        return String(localized: "\(model.tooBig.count) files are over \(megabytes) MB, too big to stash")
     }
 
     private var header: some View {
@@ -54,10 +63,8 @@ struct ShareView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     Preview(model: model, progress: sending)
                     if !model.tooBig.isEmpty {
-                        Text(
-                            "\(model.tooBig.count == 1 ? model.tooBig[0] : "\(model.tooBig.count) files") \(model.tooBig.count == 1 ? "is" : "are") over \(StashRules.mostBytes / 1024 / 1024) MB, too big to stash"
-                        )
-                        .font(Theme.ui(13.5)).foregroundColor(palette.danger).padding(.top, 8)
+                        Text(tooBig)
+                            .font(Theme.ui(13.5)).foregroundColor(palette.danger).padding(.top, 8)
                     }
                     Group {
                         TextField(
@@ -183,7 +190,10 @@ private struct Preview: View {
             return nil
         }
         let pictures = all.filter { $0.1.hasPrefix("image/") }.count
-        let title = all.count == 1 ? all[0].0 : pictures == all.count ? "\(all.count) photos" : "\(all.count) files"
+        let title =
+            all.count == 1
+            ? all[0].0
+            : pictures == all.count ? String(localized: "\(all.count) photos") : String(localized: "\(all.count) files")
         let size = all.reduce(Int64(0)) { $0 + $1.2 }
         return HStack(spacing: 12) {
             if model.thumbnails.isEmpty {
@@ -216,7 +226,8 @@ private struct SectionLabel: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Text(text.uppercased()).font(Theme.ui(11, .medium)).tracking(1.76).foregroundColor(palette.tertiary)
+            Text(LocalizedStringKey(text)).textCase(.uppercase).font(Theme.ui(11, .medium)).tracking(1.76)
+                .foregroundColor(palette.tertiary)
             palette.ink.opacity(0.09).frame(height: 1)
         }
         .padding(.horizontal, 4)
@@ -264,8 +275,8 @@ private struct NewChatRow: View {
             HStack(spacing: 10) {
                 IconView(icon: Icons.plus, size: 18).foregroundColor(palette.secondary).frame(width: 20, height: 20)
                 VStack(alignment: .leading, spacing: 1) {
-                    (Text("New chat in ").foregroundColor(palette.secondary)
-                        + Text(chat.project).foregroundColor(palette.ink))
+                    Text("New chat in \(Text(chat.project).foregroundColor(palette.ink))")
+                        .foregroundColor(palette.secondary)
                         .font(Theme.ui(14.5, .medium)).lineLimit(1)
                     Text(chat.hostName).font(Theme.ui(12)).foregroundColor(palette.tertiary).lineLimit(1)
                 }

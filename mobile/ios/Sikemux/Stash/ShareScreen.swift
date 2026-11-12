@@ -61,21 +61,26 @@ private struct Watching: View {
         switch session.status {
         case .ended:
             session.endedBecause == .expired
-                ? (Icons.hourglass, "This share has expired.") : (Icons.stop, "Sharing this chat has stopped.")
-        case .missing: (Icons.power, "This chat is not running on its host right now.")
-        case .notFound: (Icons.unlink, "No chat is shared at this link.")
-        case .signedOut: (Icons.user, "Sign in to Sikemux to watch shared chats.")
+                ? (Icons.hourglass, String(localized: "This share has expired."))
+                : (Icons.stop, String(localized: "Sharing this chat has stopped."))
+        case .missing: (Icons.power, String(localized: "This chat is not running on its host right now."))
+        case .notFound: (Icons.unlink, String(localized: "No chat is shared at this link."))
+        case .signedOut: (Icons.user, String(localized: "Sign in to Sikemux to watch shared chats."))
         case .unreadable:
-            (Icons.unlink, "This link does not open the chat it points at. Check that the whole link was copied.")
+            (
+                Icons.unlink,
+                String(
+                    localized: "This link does not open the chat it points at. Check that the whole link was copied.")
+            )
         case .connecting, .live: nil
         }
     }
 
     private var footer: String {
         if let problem { return problem.text }
-        guard session.hostOnline else { return "Read-only · the sharer is offline" }
-        guard let ends = session.expiresAt else { return "Read-only" }
-        return "Read-only · link ends in \(Format.timeLeft(until: ends))"
+        guard session.hostOnline else { return String(localized: "Read-only · the sharer is offline") }
+        guard let ends = session.expiresAt else { return String(localized: "Read-only") }
+        return String(localized: "Read-only · link ends in \(Format.timeLeft(until: ends))")
     }
 
     var body: some View {
