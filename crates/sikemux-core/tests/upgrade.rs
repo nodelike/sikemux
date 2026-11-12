@@ -155,6 +155,20 @@ impl CoreProcess {
         }
     }
 
+    /// Waits for the core's log to hold `text`. A thread of the core's copies each line into
+    /// the log after it is written, so an answer can arrive before the line it follows.
+    async fn until_logged(&self, text: &str) {
+        let deadline = Instant::now() + WAIT;
+        while !self.log().contains(text) {
+            assert!(
+                Instant::now() < deadline,
+                "the core never logged {text}\n{}",
+                self.log()
+            );
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }
+
     fn pid(&self) -> u32 {
         self.child.id()
     }
@@ -573,7 +587,7 @@ async fn an_upgrade_keeps_every_session_and_the_harness() {
 
     client.write(shell, b"exit 5\r").await.expect("write");
     assert_eq!(stream.until_exit(&client, shell).await, Some(5));
-    assert!(core.log().contains("took over from"), "{}", core.log());
+    core.until_logged("took over from").await;
     let prefix = format!("sikemux-core-handover-{pid}-");
     let left: Vec<_> = std::fs::read_dir(std::env::temp_dir())
         .expect("temp dir")
@@ -672,7 +686,7 @@ async fn an_upgrade_to_an_older_release_is_refused() {
         message.contains("a newer Sikemux is already running"),
         "{message}"
     );
-    assert!(core.log().contains("not handing over"), "{}", core.log());
+    core.until_logged("not handing over").await;
     let hello = probe(&core.socket, WAIT).expect("still serving");
     assert_eq!(hello.pid, core.pid());
     assert_eq!(hello.build.commit, "newer");
@@ -699,11 +713,7 @@ async fn a_damaged_hand_over_keeps_the_sessions_it_can_adopt() {
     let damaging = core.binary("damaging", "second", "printf garbage > \"$3/state.json\"");
     assert_eq!(core.upgrade(&damaging, "first").await.commit, "second");
     assert!(alive(shell_pid));
-    assert!(
-        core.log().contains("UPDATE STATE DAMAGED"),
-        "{}",
-        core.log()
-    );
+    core.until_logged("UPDATE STATE DAMAGED").await;
 
     let (client, mut stream) = connect(&core).await;
     let kept = client
@@ -1316,11 +1326,7 @@ async fn an_update_waits_for_a_starting_chat_and_then_carries_it_over() {
         .await
         .unwrap_or_else(|| panic!("the chat was lost\n{}", core.log()));
     assert!(!restarted(&chat), "{}", core.log());
-    assert!(
-        core.log().contains("1 of them still running"),
-        "{}",
-        core.log()
-    );
+    core.until_logged("1 of them still running").await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
