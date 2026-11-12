@@ -14,12 +14,13 @@ const check = process.argv.includes("--check");
 const WIRE = "crates/sikemux-wire/src";
 const VIEW = "crates/sikemux-view/src";
 const CORE = "crates/sikemux-core/src";
+const COREKIT = "crates/sikemux-corekit/src";
 const PLUGIN_API = "crates/sikemux-plugin-api/src";
 const MARKDOWN = "crates/sikemux-markdown/src";
 const BASE = "crates/sikemux-base/src";
 const SOURCES = (
   await Promise.all(
-    [WIRE, VIEW, CORE, PLUGIN_API, MARKDOWN, BASE].map((crate) =>
+    [WIRE, VIEW, CORE, COREKIT, PLUGIN_API, MARKDOWN, BASE].map((crate) =>
       readdir(resolve(root, crate), { recursive: true }),
     ),
   )
@@ -28,7 +29,7 @@ const SOURCES = (
     .filter((file) => file.endsWith(".rs"))
     .map(
       (file) =>
-        `${[WIRE, VIEW, CORE, PLUGIN_API, MARKDOWN, BASE][index]}/${file}`,
+        `${[WIRE, VIEW, CORE, COREKIT, PLUGIN_API, MARKDOWN, BASE][index]}/${file}`,
     ),
 );
 
