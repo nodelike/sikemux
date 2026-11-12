@@ -86,10 +86,6 @@ pub struct Book {
     /// it off; a chat never moves to another agent's account.
     #[serde(default = "smart_by_default")]
     pub smart: bool,
-    /// The account each agent's new chats go to while smart is on, by provider, as the person
-    /// pinned it.
-    #[serde(default)]
-    pub pinned: BTreeMap<String, String>,
     /// The accounts new chats in a project may start on, by the project's folder, so a work
     /// project never lands on a personal account. A project not listed takes any.
     #[serde(default)]
@@ -106,7 +102,6 @@ impl Default for Book {
             profiles: Vec::new(),
             selected: BTreeMap::new(),
             smart: smart_by_default(),
-            pinned: BTreeMap::new(),
             projects: BTreeMap::new(),
         }
     }
@@ -133,13 +128,12 @@ impl Book {
                 || profile.environment_keys.len() > 64
         });
         let selected = |(provider, id): (&String, &String)| long(provider) || long(id);
-        let oversized =
-            oversized || self.selected.iter().any(selected) || self.pinned.iter().any(selected);
+        let oversized = oversized || self.selected.iter().any(selected);
         let listed = |(project, ids): (&String, &Vec<String>)| {
             long(project) || ids.len() > MAX_PROFILES || ids.iter().any(|id| long(id))
         };
         let oversized = oversized || self.projects.iter().any(listed);
-        let many = [self.selected.len(), self.pinned.len(), self.projects.len()]
+        let many = [self.selected.len(), self.projects.len()]
             .into_iter()
             .any(|len| len > MAX_PROFILES);
         if self.profiles.len() > MAX_PROFILES || oversized || many {
@@ -156,8 +150,6 @@ impl Book {
     /// for another provider goes.
     pub fn save(&mut self, profile: Profile) {
         self.selected
-            .retain(|provider, id| id != &profile.id || provider == &profile.provider);
-        self.pinned
             .retain(|provider, id| id != &profile.id || provider == &profile.provider);
         self.profiles.retain(|kept| kept.id != profile.id);
         self.profiles.push(profile);
@@ -193,7 +185,6 @@ impl Book {
         }
         self.profiles.retain(|profile| profile.id != id);
         self.selected.retain(|_, selected| selected != id);
-        self.pinned.retain(|_, pinned| pinned != id);
         for ids in self.projects.values_mut() {
             ids.retain(|kept| kept != id);
         }

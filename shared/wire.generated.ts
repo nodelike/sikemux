@@ -4957,8 +4957,6 @@ export interface AccountUsage {
     problem: string | null;
     /** Whether smart accounts would start the agent's next new chat on it. */
     next?: boolean;
-    /** Whether the person pinned the agent's new chats to it. */
-    pinned?: boolean;
 }
 
 export interface Usage {

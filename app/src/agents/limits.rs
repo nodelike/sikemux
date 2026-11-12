@@ -621,7 +621,6 @@ fn rest_row(view: &View, agent: &Agent, place: usize, numbers: f32, cx: &App) ->
         agent.provider,
         shown.key(agent.provider)
     ));
-    let in_use = place == agent.in_use && agent.accounts.len() > 1;
     let name = ui::text(shown.name.clone(), TEXT_2XS, FontWeight::NORMAL)
         .flex_none()
         .w(px(76.))
@@ -635,7 +634,6 @@ fn rest_row(view: &View, agent: &Agent, place: usize, numbers: f32, cx: &App) ->
         .items_center()
         .gap(SPACE_2)
         .rounded(RADIUS_2)
-        .when(in_use, |row| row.bg(t.surface_chosen))
         .child(crate::accounts::face(
             shown.avatar.clone(),
             agent.provider,
@@ -977,15 +975,8 @@ fn account_line(
             .collect(),
     };
     let smart = view.smart && agent.accounts.len() > 1;
-    let pinned = shown.usage.is_some_and(|usage| usage.pinned);
-    let target = shown.profile.filter(|_| smart || !in_use).cloned();
+    let target = shown.profile.filter(|_| !smart && !in_use).cloned();
     let pickable = target.is_some();
-    let offer = match (smart, pinned) {
-        (true, true) => t!("Unpin"),
-        (true, false) => t!("Pin new chats here"),
-        (false, _) => t!("Move chats here"),
-    };
-    let provider = agent.provider.to_owned();
     let names = line(NAME_LINE)
         .mb(px(NAME_GAP))
         .child(crate::accounts::avatar(shown.avatar.clone(), AVATAR))
@@ -997,14 +988,11 @@ fn account_line(
                 .items_center()
                 .gap(px(6.))
                 .child(name(shown.name.clone()))
-                .children(shown.tier().map(|tier| tier_pill(tier, cx)))
-                .when(smart && pinned, |names| {
-                    names.child(meta(t!("Pinned").into()))
-                }),
+                .children(shown.tier().map(|tier| tier_pill(tier, cx))),
         )
         .when(pickable, |names| {
             names.child(
-                ui::text(offer, TEXT_3XS, FontWeight::NORMAL)
+                ui::text(t!("Move chats here"), TEXT_3XS, FontWeight::NORMAL)
                     .flex_none()
                     .text_color(t.text_primary)
                     .opacity(0.)
@@ -1013,17 +1001,11 @@ fn account_line(
         });
     frame()
         .group(group.clone())
-        .when(in_use && agent.accounts.len() > 1, |account| {
-            account.bg(t.surface_chosen)
-        })
         .when_some(target, |account, target| {
             account
                 .cursor_pointer()
                 .hover(|account| account.bg(t.surface_hover))
-                .on_click(view.on(move |bench, _, cx| match pinned {
-                    true => crate::accounts::unpin(bench, &provider, cx),
-                    false => pick(bench, &target, cx),
-                }))
+                .on_click(view.on(move |bench, _, cx| pick(bench, &target, cx)))
         })
         .child(names)
         .children(lines)

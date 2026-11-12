@@ -19,7 +19,7 @@ use sikemux_core::agent_accounts::{Book, Profile};
 use sikemux_core::agent_catalog::AgentKind;
 use sikemux_core::server::agent_accounts::{
     Account as AgentAccount, AccountUsage, Adding, ChatAccounts, ChatAccountsParams, Choosing,
-    Forget, InProject, MoveChatParams, Removing, Saving, Smart, Unpicking, Unpinning,
+    Forget, InProject, MoveChatParams, Removing, Saving, Smart, Unpicking,
 };
 use sikemux_core::server::agent_sign_in::AfterSignIn;
 use sikemux_core::server::agent_sign_in::{Account as SignInAccount, Code};
@@ -232,12 +232,6 @@ impl Accounts {
     /// turned it off.
     pub fn smart(&self) -> bool {
         self.book.as_ref().is_none_or(|book| book.smart)
-    }
-
-    /// The account the person pinned the agent's new chats to, while smart is on.
-    pub fn pinned(&self, provider: &str) -> Option<&str> {
-        let book = self.book.as_ref().filter(|book| book.smart)?;
-        book.pinned.get(provider).map(String::as_str)
     }
 }
 
@@ -473,12 +467,6 @@ pub fn set_in_project(
         });
     })
     .detach();
-}
-
-/// Lets the agent's new chats go wherever smart accounts places them again.
-pub fn unpin(bench: &Workbench, provider: &str, cx: &mut Context<Workbench>) {
-    let provider = provider.to_owned();
-    change::<call::UnpinAgentAccount>(bench, Unpinning { provider }, cx);
 }
 
 /// The launcher that starts agents on the account: its own, or the agent's for a built-in

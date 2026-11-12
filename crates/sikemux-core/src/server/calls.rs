@@ -338,7 +338,6 @@ calls! { core, client, method, params;
         agent_accounts::set_smart(&core, params).await?
     },
     "setAccountInProject" SetAccountInProject (agent_accounts::InProject) -> crate::agent_accounts::Book: NoDevice, counted => agent_accounts::set_in_project(&core, params).await?,
-    "unpinAgentAccount" UnpinAgentAccount (agent_accounts::Unpinning) -> crate::agent_accounts::Book: NoDevice, counted => agent_accounts::unpin(&core, params).await?,
     "retryFailed" RetryFailed (agent_accounts::ChatAccountsParams) -> (): Full => agent_accounts::retry_failed(&core, params)?,
     "discardFailed" DiscardFailed (agent_accounts::ChatAccountsParams) -> (): Full => agent_accounts::discard_failed(&core, params)?,
     "chatAccounts" ChatAccounts (agent_accounts::ChatAccountsParams) -> agent_accounts::ChatAccounts: Full => {

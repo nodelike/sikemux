@@ -7551,8 +7551,6 @@ struct AccountUsage: Codable, Hashable, Sendable {
     var problem: String?
     /// Whether smart accounts would start the agent's next new chat on it.
     var next: Bool?
-    /// Whether the person pinned the agent's new chats to it.
-    var pinned: Bool?
 }
 
 struct Usage: Codable, Hashable, Sendable {

@@ -122,9 +122,6 @@ pub struct Unpicking {
     pub provider: String,
     pub picked: String,
     pub back_to: String,
-    /// The account new chats were pinned to before, when the pick pinned them.
-    #[serde(default)]
-    pub pinned_before: Option<String>,
     pub moved: Vec<MovedChat>,
 }
 
@@ -144,11 +141,6 @@ pub struct InProject {
 }
 
 /// The agent whose pin to take away.
-#[derive(Serialize, Deserialize)]
-pub struct Unpinning {
-    pub provider: String,
-}
-
 #[derive(Serialize, Deserialize)]
 pub struct Adding {
     pub provider: String,
@@ -252,19 +244,15 @@ pub(super) async fn select(core: &Arc<Core>, choosing: Choosing) -> CoreResult<B
     Ok(pick(core, choosing).await?.book)
 }
 
-/// Makes the account the one the agent's chats start on. While smart is on, that pins new chats
-/// to it and leaves open chats where they are; otherwise the open chats move there too.
+/// Makes the account the one the agent's chats start on while smart is off, and moves the open
+/// chats there too.
 pub(super) async fn pick(core: &Arc<Core>, choosing: Choosing) -> CoreResult<Picked> {
     let turn = pick_turn(&choosing.provider);
     let _turn = turn.lock().await;
     let before = core.workspaces().accounts().unwrap_or_default();
     let back_to = before.chosen(&choosing.provider);
-    let pinned_before = before.pinned.get(&choosing.provider).cloned();
     let (provider, id) = (choosing.provider.clone(), choosing.id.clone());
     let book = change(core, move |book| {
-        if book.smart {
-            book.pinned.insert(provider.clone(), id.clone());
-        }
         book.selected.insert(provider, id);
         Ok(())
     })
@@ -279,7 +267,6 @@ pub(super) async fn pick(core: &Arc<Core>, choosing: Choosing) -> CoreResult<Pic
             provider: choosing.provider,
             picked: choosing.id,
             back_to,
-            pinned_before,
             moved,
         },
         stayed,
@@ -298,10 +285,6 @@ pub(super) async fn unpick(core: &Arc<Core>, undoing: Unpicking) -> CoreResult<B
         if !known {
             return Err(format!("{back_to} is not an account of {provider}"));
         }
-        match &undoing.pinned_before {
-            Some(pinned) => book.pinned.insert(provider.clone(), pinned.clone()),
-            None => book.pinned.remove(&provider),
-        };
         book.selected.insert(provider, back_to);
         Ok(())
     })
@@ -365,14 +348,6 @@ pub(super) async fn set_in_project(core: &Arc<Core>, setting: InProject) -> Core
         if every.iter().all(|profile| ids.contains(&profile.id)) {
             book.projects.remove(&setting.project);
         }
-        Ok(())
-    })
-    .await
-}
-
-pub(super) async fn unpin(core: &Arc<Core>, unpinning: Unpinning) -> CoreResult<Book> {
-    change(core, move |book| {
-        book.pinned.remove(&unpinning.provider);
         Ok(())
     })
     .await
@@ -449,8 +424,8 @@ pub(crate) fn other_agent_with_room(
         .map(|agent| agent.kind)
 }
 
-/// The account a chat of `provider` on `model` goes to while smart is on, and why: the one the
-/// person pinned for a new chat, else the one [`allocate::place`] picks. None while smart is
+/// The account a chat of `provider` on `model` goes to while smart is on, and why: the one
+/// [`allocate::place`] picks. None while smart is
 /// off, the agent has one account here, or no reading leaves any room.
 pub(crate) fn placement(
     book: &Book,
@@ -465,13 +440,6 @@ pub(crate) fn placement(
     let candidates: Vec<_> = (candidates(book, provider).into_iter())
         .filter(|(profile, _)| among(profile) && allowed(profile))
         .collect();
-    let pinned = book.pinned.get(provider).filter(|_| aim == Aim::Soonest);
-    if let Some(pinned) = pinned.filter(|id| candidates.iter().any(|(p, _)| &p.id == *id)) {
-        return Some(Placement {
-            id: pinned.clone(),
-            why: "You pinned new chats to it".into(),
-        });
-    }
     let offered: Vec<Candidate> = (candidates.iter())
         .map(|(profile, reading)| {
             let usage = reading.as_ref().map(|reading| &reading.usage);
@@ -881,9 +849,6 @@ pub struct AccountUsage {
     /// Whether smart accounts would start the agent's next new chat on it.
     #[serde(default)]
     pub next: bool,
-    /// Whether the person pinned the agent's new chats to it.
-    #[serde(default)]
-    pub pinned: bool,
 }
 
 /// How old a reading may grow before it says so: three of the app's reads missed.
@@ -981,7 +946,6 @@ async fn usages_read(core: &Arc<Core>, ask: bool) -> Vec<AccountUsage> {
             usage: reading.map(|reading| reading.usage),
             problem,
             next: false,
-            pinned: false,
         });
     }
     mark_next(core, &mut found);
@@ -1009,7 +973,7 @@ fn note_sign_in(
     }
 }
 
-/// Marks the account each agent's next new chat goes to, and the one the person pinned.
+/// Marks the account each agent's next new chat goes to.
 fn mark_next(core: &Core, found: &mut [AccountUsage]) {
     let book = core.workspaces().accounts().unwrap_or_default();
     let providers: std::collections::BTreeSet<String> = found
@@ -1020,7 +984,6 @@ fn mark_next(core: &Core, found: &mut [AccountUsage]) {
         let next = placement(&book, &provider, &Placing::default(), Aim::Soonest, |_| {
             true
         });
-        let pinned = book.pinned.get(&provider).filter(|_| book.smart);
         for account in found
             .iter_mut()
             .filter(|account| account.provider == provider)
@@ -1029,7 +992,6 @@ fn mark_next(core: &Core, found: &mut [AccountUsage]) {
             account.next = next
                 .as_ref()
                 .is_some_and(|next| Some(next.id.as_str()) == id);
-            account.pinned = pinned.is_some_and(|pinned| Some(pinned.as_str()) == id);
         }
     }
 }
