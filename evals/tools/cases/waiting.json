@@ -341,6 +341,14 @@
               "tool": "events_wait"
             },
             {
+              "tool": "trigger_add",
+              "args": {
+                "ci": {
+                  "$present": true
+                }
+              }
+            },
+            {
               "tool": "Bash",
               "args": {
                 "command": "/\\bgh\\s+(run\\s+watch|pr\\s+checks\\s+[^\\n]*--watch)/"
