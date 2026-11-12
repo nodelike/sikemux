@@ -7,7 +7,7 @@
 
 use std::cell::Cell;
 use std::collections::HashMap;
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -62,8 +62,10 @@ struct Apps {
     next_view: u64,
     /// Views are being made, one each time the person rests.
     warming: bool,
-    /// When a card last moved, as the chat scrolled.
+    /// When a card last moved, as the chat scrolled or its agent wrote.
     moved: Option<Instant>,
+    /// Whether a turn is running in each chat that drew an app.
+    turns: Vec<Weak<Cell<bool>>>,
     /// The chats with an app in sight waiting for a view, told when one is made.
     waiting: Vec<Wake>,
     /// The app grown over its whole chat, as MCP Apps' fullscreen display.
@@ -181,7 +183,18 @@ fn label(title: &str) -> SharedString {
     }
 }
 
-pub(super) fn app(app: &McpAppRef, title: &str, looks: &Looks, cx: &mut App) -> AnyElement {
+pub(super) fn app(
+    app: &McpAppRef,
+    title: &str,
+    looks: &Looks,
+    running: &Rc<Cell<bool>>,
+    cx: &mut App,
+) -> AnyElement {
+    let turn = Rc::downgrade(running);
+    let turns = &mut apps(cx).turns;
+    if !turns.iter().any(|known| known.ptr_eq(&turn)) {
+        turns.push(turn);
+    }
     let shown = apps(cx)
         .shown
         .entry(app.id.clone())
@@ -570,6 +583,9 @@ fn warm(window: &mut Window, cx: &mut App) {
         .spawn(cx, async move |cx| loop {
             cx.background_executor().timer(TICK).await;
             let made = cx.update(|window, cx| {
+                if writing(apps(cx)) {
+                    return Some(false);
+                }
                 let scrolled = apps(cx).moved.is_some_and(|moved| moved.elapsed() < REST);
                 if scrolled || input_rest() < REST {
                     return Some(false);
@@ -603,6 +619,20 @@ fn warm(window: &mut Window, cx: &mut App) {
             }
         })
         .detach();
+}
+
+/// Whether an agent is writing in a chat that drew an app, which holding the main thread would
+/// stall; the time the chat moved is kept up to date while it does.
+fn writing(pool: &mut Apps) -> bool {
+    pool.turns.retain(|turn| turn.strong_count() > 0);
+    let writing = pool
+        .turns
+        .iter()
+        .any(|turn| turn.upgrade().is_some_and(|running| running.get()));
+    if writing {
+        pool.moved = Some(Instant::now());
+    }
+    writing
 }
 
 fn apps_full(cx: &mut AsyncWindowContext) -> bool {

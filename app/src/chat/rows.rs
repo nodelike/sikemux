@@ -1496,7 +1496,7 @@ pub(super) fn part(
             app: Some(app),
             tool,
             ..
-        } => self::app::app(app, &tool.title, looks, cx),
+        } => self::app::app(app, &tool.title, looks.looks, &looks.reading.running, cx),
         ChatPart::Tool {
             id, gif: Some(gif), ..
         } => gestures::gif(id, gif, looks, cx),
