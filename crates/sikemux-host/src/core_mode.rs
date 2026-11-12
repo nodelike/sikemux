@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 /// [`sikemux_host::headless`].
 pub fn run() -> i32 {
     sikemux_process::cgroups::take_own_unit();
+    leave_launch_folder();
     let args: Vec<String> = std::env::args().skip(2).collect();
     sikemux_host::cli_paths::link_cli_for_children();
     let plugins = data_dir().and_then(|data_dir| sikemux_host::provide_to_core(&data_dir));
@@ -16,6 +17,14 @@ pub fn run() -> i32 {
         rewrite_service();
     }
     sikemux_core::server::main(args.into_iter(), sikemux_host::build_identity(), plugins)
+}
+
+/// The core outlives the app that started it, and an update deletes the app's folder, which
+/// agent CLIs started without a folder of their own then refuse to run in.
+fn leave_launch_folder() {
+    if let Some(home) = sikemux_process::paths::home() {
+        let _ = std::env::set_current_dir(home);
+    }
 }
 
 /// The folder `--data-dir` names.
