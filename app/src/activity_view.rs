@@ -18,7 +18,7 @@ use sikemux_core::server::activity_log::{
 
 use crate::home::METRICS;
 use crate::theme::{
-    Tokens, SPACE_1, SPACE_1H, SPACE_2, SPACE_3, SPACE_4, TEXT_2XS, TEXT_3XS, TEXT_XL, TEXT_XS,
+    Tokens, SPACE_1, SPACE_1H, SPACE_2, SPACE_3, TEXT_2XS, TEXT_3XS, TEXT_XL, TEXT_XS,
 };
 use crate::ui::numbers::{compact, money, plural, whole};
 use crate::ui::Toggle;
@@ -121,7 +121,7 @@ pub(crate) fn overview(totals: &ActivityTotals, cx: &App) -> impl IntoElement {
             if cost > 0. { money(cost) } else { "—".into() },
             vec![match cost > 0. {
                 true => (
-                    format!("{} on writes", money(totals.costs.cache_write)),
+                    format!("${} writes", whole(totals.costs.cache_write)),
                     quiet,
                 ),
                 false => ("not priced yet".into(), quiet),
@@ -140,13 +140,13 @@ pub(crate) fn overview(totals: &ActivityTotals, cx: &App) -> impl IntoElement {
     div().flex().children(stats.into_iter().enumerate().map(
         |(index, (label, badge, value, detail))| {
             div()
-                .flex_1()
+                .flex_auto()
                 .min_w_0()
                 .flex()
                 .flex_col()
                 .gap(SPACE_1)
                 .py(SPACE_1)
-                .px(SPACE_4)
+                .px(SPACE_3)
                 .when(index == 0, |stat| stat.pl_0())
                 .when(index > 0, |stat| stat.border_l_1().border_color(t.border))
                 .child(
@@ -166,7 +166,7 @@ pub(crate) fn overview(totals: &ActivityTotals, cx: &App) -> impl IntoElement {
                 )
                 .child(div().children(detail.into_iter().map(|(line, ink)| {
                     ui::mono(line, TEXT_2XS, cx)
-                        .whitespace_normal()
+                        .whitespace_nowrap()
                         .text_color(ink)
                 })))
         },
