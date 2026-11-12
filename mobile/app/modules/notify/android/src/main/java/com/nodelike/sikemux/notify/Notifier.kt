@@ -30,6 +30,7 @@ class Notifier(private val context: Context) {
         NotificationChannel(NEEDS_YOU, "Agents that need you", NotificationManager.IMPORTANCE_HIGH),
         NotificationChannel(FINISHED, "Finished work", NotificationManager.IMPORTANCE_DEFAULT),
         NotificationChannel(PROBLEMS, "Problems", NotificationManager.IMPORTANCE_DEFAULT),
+        NotificationChannel(AT_WORK, "Agents at work", NotificationManager.IMPORTANCE_LOW),
       ),
     )
   }
@@ -134,7 +135,26 @@ class Notifier(private val context: Context) {
     return builder
   }
 
-  private fun post(tag: String, builder: NotificationCompat.Builder) {
+  /** The agents at work across hosts, held in the shade until none works or needs the person. */
+  fun showAgents(title: String, text: String?, url: String?) {
+    val builder = NotificationCompat.Builder(context, AT_WORK)
+      .setSmallIcon(smallIcon())
+      .setOngoing(true)
+      .setSilent(true)
+      .setOnlyAlertOnce(true)
+      .setShowWhen(false)
+      .setCategory(NotificationCompat.CATEGORY_PROGRESS)
+      .setContentTitle(title)
+      .setContentText(text)
+      .setProgress(0, 0, true)
+      .setContentIntent(open(AT_WORK, url))
+    color()?.let { builder.setColor(it) }
+    post(AT_WORK, builder, AGENTS_ID)
+  }
+
+  fun cancelAgents() = manager.cancel(AT_WORK, AGENTS_ID)
+
+  private fun post(tag: String, builder: NotificationCompat.Builder, id: Int = ID) {
     ensureChannels()
     if (!manager.areNotificationsEnabled()) return
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
@@ -142,7 +162,7 @@ class Notifier(private val context: Context) {
     ) {
       return
     }
-    manager.notify(tag, ID, builder.build())
+    manager.notify(tag, id, builder.build())
   }
 
   private fun text(card: NotificationCard): CharSequence {
@@ -279,6 +299,8 @@ class Notifier(private val context: Context) {
     const val FINISHED = "finished"
     const val PROBLEMS = "problems"
     const val ID = 7
+    private const val AT_WORK = "at-work"
+    private const val AGENTS_ID = 8
     const val SETTLED_MS = 4_000L
 
     /** Longer than the answer's own time limit, so a card left saying it is sending goes when the app died sending it. */

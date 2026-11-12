@@ -82,6 +82,7 @@ final class Lock {
                 return Sikemux.problem(error)
             }
             on = true
+            Glances.changed()
             return nil
         case .noPasscode: return "Set a passcode in Settings first"
         case .failed: return nil
@@ -91,6 +92,7 @@ final class Lock {
     func turnOff() async {
         Keychain.app.delete(Self.item)
         on = false
+        Glances.changed()
     }
 
     /// Nil when the Keychain refuses, as it does while the phone is locked; the app then stays locked.

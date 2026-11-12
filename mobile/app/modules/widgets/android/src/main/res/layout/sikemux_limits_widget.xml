@@ -1,0 +1,38 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+  android:id="@+id/limits_root"
+  android:layout_width="match_parent"
+  android:layout_height="match_parent"
+  android:orientation="vertical"
+  android:padding="14dp"
+  android:background="@drawable/sikemux_widget_ground">
+  <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginBottom="6dp" android:text="@string/sikemux_limits_widget" android:textSize="11.5sp" android:textColor="@color/sikemux_widget_tertiary" />
+  <TextView android:id="@+id/limits_empty" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/sikemux_limits_empty" android:textSize="12sp" android:textColor="@color/sikemux_widget_secondary" />
+  <LinearLayout android:id="@+id/limit_0" android:layout_width="match_parent" android:layout_height="25dp" android:orientation="horizontal" android:gravity="center_vertical" android:visibility="gone">
+    <TextView android:id="@+id/limit_0_label" android:layout_width="104dp" android:layout_height="wrap_content" android:textSize="12sp" android:textColor="@color/sikemux_widget_secondary" android:maxLines="1" android:ellipsize="end" />
+    <ProgressBar android:id="@+id/limit_0_bar" style="?android:attr/progressBarStyleHorizontal" android:layout_width="0dp" android:layout_weight="1" android:layout_height="5dp" android:max="100" android:progressDrawable="@drawable/sikemux_widget_bar" />
+    <ProgressBar android:id="@+id/limit_0_warn" style="?android:attr/progressBarStyleHorizontal" android:layout_width="0dp" android:layout_weight="1" android:layout_height="5dp" android:max="100" android:progressDrawable="@drawable/sikemux_widget_warn" android:visibility="gone" />
+    <TextView android:id="@+id/limit_0_used" android:layout_width="38dp" android:layout_height="wrap_content" android:gravity="end" android:textSize="12sp" android:textColor="@color/sikemux_widget_ink" />
+    <TextView android:id="@+id/limit_0_resets" android:layout_width="34dp" android:layout_height="wrap_content" android:gravity="end" android:textSize="12sp" android:textColor="@color/sikemux_widget_tertiary" />
+  </LinearLayout>
+  <LinearLayout android:id="@+id/limit_1" android:layout_width="match_parent" android:layout_height="25dp" android:orientation="horizontal" android:gravity="center_vertical" android:visibility="gone">
+    <TextView android:id="@+id/limit_1_label" android:layout_width="104dp" android:layout_height="wrap_content" android:textSize="12sp" android:textColor="@color/sikemux_widget_secondary" android:maxLines="1" android:ellipsize="end" />
+    <ProgressBar android:id="@+id/limit_1_bar" style="?android:attr/progressBarStyleHorizontal" android:layout_width="0dp" android:layout_weight="1" android:layout_height="5dp" android:max="100" android:progressDrawable="@drawable/sikemux_widget_bar" />
+    <ProgressBar android:id="@+id/limit_1_warn" style="?android:attr/progressBarStyleHorizontal" android:layout_width="0dp" android:layout_weight="1" android:layout_height="5dp" android:max="100" android:progressDrawable="@drawable/sikemux_widget_warn" android:visibility="gone" />
+    <TextView android:id="@+id/limit_1_used" android:layout_width="38dp" android:layout_height="wrap_content" android:gravity="end" android:textSize="12sp" android:textColor="@color/sikemux_widget_ink" />
+    <TextView android:id="@+id/limit_1_resets" android:layout_width="34dp" android:layout_height="wrap_content" android:gravity="end" android:textSize="12sp" android:textColor="@color/sikemux_widget_tertiary" />
+  </LinearLayout>
+  <LinearLayout android:id="@+id/limit_2" android:layout_width="match_parent" android:layout_height="25dp" android:orientation="horizontal" android:gravity="center_vertical" android:visibility="gone">
+    <TextView android:id="@+id/limit_2_label" android:layout_width="104dp" android:layout_height="wrap_content" android:textSize="12sp" android:textColor="@color/sikemux_widget_secondary" android:maxLines="1" android:ellipsize="end" />
+    <ProgressBar android:id="@+id/limit_2_bar" style="?android:attr/progressBarStyleHorizontal" android:layout_width="0dp" android:layout_weight="1" android:layout_height="5dp" android:max="100" android:progressDrawable="@drawable/sikemux_widget_bar" />
+    <ProgressBar android:id="@+id/limit_2_warn" style="?android:attr/progressBarStyleHorizontal" android:layout_width="0dp" android:layout_weight="1" android:layout_height="5dp" android:max="100" android:progressDrawable="@drawable/sikemux_widget_warn" android:visibility="gone" />
+    <TextView android:id="@+id/limit_2_used" android:layout_width="38dp" android:layout_height="wrap_content" android:gravity="end" android:textSize="12sp" android:textColor="@color/sikemux_widget_ink" />
+    <TextView android:id="@+id/limit_2_resets" android:layout_width="34dp" android:layout_height="wrap_content" android:gravity="end" android:textSize="12sp" android:textColor="@color/sikemux_widget_tertiary" />
+  </LinearLayout>
+  <LinearLayout android:id="@+id/limit_3" android:layout_width="match_parent" android:layout_height="25dp" android:orientation="horizontal" android:gravity="center_vertical" android:visibility="gone">
+    <TextView android:id="@+id/limit_3_label" android:layout_width="104dp" android:layout_height="wrap_content" android:textSize="12sp" android:textColor="@color/sikemux_widget_secondary" android:maxLines="1" android:ellipsize="end" />
+    <ProgressBar android:id="@+id/limit_3_bar" style="?android:attr/progressBarStyleHorizontal" android:layout_width="0dp" android:layout_weight="1" android:layout_height="5dp" android:max="100" android:progressDrawable="@drawable/sikemux_widget_bar" />
+    <ProgressBar android:id="@+id/limit_3_warn" style="?android:attr/progressBarStyleHorizontal" android:layout_width="0dp" android:layout_weight="1" android:layout_height="5dp" android:max="100" android:progressDrawable="@drawable/sikemux_widget_warn" android:visibility="gone" />
+    <TextView android:id="@+id/limit_3_used" android:layout_width="38dp" android:layout_height="wrap_content" android:gravity="end" android:textSize="12sp" android:textColor="@color/sikemux_widget_ink" />
+    <TextView android:id="@+id/limit_3_resets" android:layout_width="34dp" android:layout_height="wrap_content" android:gravity="end" android:textSize="12sp" android:textColor="@color/sikemux_widget_tertiary" />
+  </LinearLayout>
+</LinearLayout>

@@ -1,7 +1,7 @@
 import CoreText
 import SwiftUI
 
-/// The app's default colours, which the share sheet always draws in.
+/// The app's default colours, which its extensions always draw in.
 let palette = Palette.standard
 
 extension Theme {

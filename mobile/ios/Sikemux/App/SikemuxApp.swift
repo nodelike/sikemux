@@ -70,6 +70,7 @@ struct RootView: View {
         .task(id: account.isSignedIn) {
             guard account.isSignedIn else { return }
             ShareExtension.signIn()
+            Glances.signIn()
             StashStore.shared.start()
             try? await Notify.shared.syncPushToken()
         }

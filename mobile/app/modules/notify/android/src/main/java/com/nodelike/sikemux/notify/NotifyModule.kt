@@ -48,6 +48,14 @@ class NotifyModule : Module() {
     Function("settle") { tag: String, outcome: String ->
       AnswerService.settle(context, tag, outcome)
     }
+
+    Function("showAgents") { title: String, text: String?, url: String? ->
+      Notifier(context).showAgents(title, text, url)
+    }
+
+    Function("cancelAgents") {
+      Notifier(context).cancelAgents()
+    }
   }
 
   private fun hex(bytes: ByteArray) = bytes.joinToString("") { "%02x".format(it) }

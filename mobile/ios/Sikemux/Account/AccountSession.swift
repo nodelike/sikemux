@@ -239,6 +239,7 @@ enum Leave {
             AccountSession.shared.follow(nil)
             await Notify.shared.forget()
             ShareExtension.signOut()
+            Glances.signOut()
             StashStore.shared.forget()
             await Lock.shared.turnOff()
             await withTaskGroup(of: Void.self) { group in

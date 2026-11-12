@@ -942,6 +942,48 @@
   .lock .stacked { position: absolute; left: 10px; right: 10px; top: 240px; display: flex; flex-direction: column; gap: 8px; }
   .lock .stacked .notif { position: static; }
 
+  /* ---------- at a glance: Live Activity, Dynamic Island, widgets ---------- */
+  .la { position: absolute; left: 10px; right: 10px; top: 300px; background: rgba(20,20,26,.86); backdrop-filter: blur(30px); border-radius: 22px; padding: 12px 14px 10px; color: var(--ink); }
+  .la-head, .di-open .la-head { display: flex; align-items: center; gap: 8px; font-size: 13px; margin-bottom: 6px; }
+  .la-logo { color: var(--acc); display: grid; place-items: center; }
+  .la-sum { color: var(--text-secondary); } .la-sum b { color: var(--ink); font-weight: 600; }
+  .la-host { margin-left: auto; color: var(--text-tertiary); font-size: 12px; }
+  .la-row { display: flex; align-items: center; gap: 8px; height: 30px; font-size: 13.5px; }
+  .la-row .mark { width: 18px; height: 18px; }
+  .la-row .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .la-row .n { color: var(--text-tertiary); font-size: 12px; }
+  .la-row .turn-mins { font-size: 11.5px; color: var(--warn); }
+  .mark.claude { color: var(--brand-claude); } .mark.codex { color: var(--brand-codex); }
+  .di-wide { position: absolute; z-index: 5; top: 11px; left: 50%; translate: -50% 0; height: 36px; border-radius: 20px; background: #000; display: flex; align-items: center; padding: 0 14px 0 12px; gap: 10px; }
+  .di-wide .faces { display: flex; gap: -3px; } .di-wide .faces .mark { width: 18px; height: 18px; margin-right: -2px; }
+  .di-wide .cam { width: 96px; }
+  .di-wide .roll { display: flex; align-items: center; gap: 5px; color: var(--ink); font-size: 12px; } .di-wide .roll b { font-weight: 600; } .di-wide .roll .dot { margin-right: 6px; }
+  .dim-app { opacity: .25; background: var(--surface); }
+  .di-open { position: absolute; z-index: 6; top: 8px; left: 8px; right: 8px; background: #000; border-radius: 40px; padding: 18px 22px 14px; color: var(--ink); }
+  .phone.home { background: radial-gradient(420px 360px at 30% 20%, #2b2542, transparent 70%), radial-gradient(380px 380px at 80% 90%, #13261f, transparent 70%), #08080a; }
+  .home-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; padding: 28px 24px; }
+  .w { background: rgba(20,20,26,.9); border-radius: 22px; padding: 14px; color: var(--ink); height: 160px; box-sizing: border-box; display: flex; flex-direction: column; }
+  .w-m { grid-column: span 2; }
+  .w-head { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--text-tertiary); margin-bottom: 6px; } .w-head .ico { color: var(--acc); }
+  .w-big { font-size: 38px; font-weight: 600; color: var(--warn); line-height: 1.05; margin-bottom: 6px; }
+  .w-line { display: flex; align-items: center; gap: 5px; font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.6; } .w-line .mark { width: 14px; height: 14px; flex: none; }
+  .ring { --used: .5; width: 76px; height: 76px; margin: 2px auto 6px; border-radius: 999px; display: grid; place-items: center; background: radial-gradient(closest-side, rgba(20,20,26,1) 82%, transparent 83%), conic-gradient(var(--ink) calc(var(--used) * 100%), var(--gray-300) 0); }
+  .ring b { font-size: 17px; font-weight: 600; }
+  .w-foot { font-size: 11px; color: var(--text-tertiary); text-align: center; }
+  .lim { display: flex; align-items: center; gap: 7px; height: 25px; font-size: 12px; }
+  .lim .mark { width: 15px; height: 15px; } .lim .l { width: 46px; color: var(--text-secondary); }
+  .lim .lbar { flex: 1; height: 5px; border-radius: 3px; background: var(--gray-300); overflow: hidden; } .lim .lbar i { display: block; height: 100%; background: var(--ink); }
+  .lim .lbar.warn i { background: var(--warn); }
+  .lim .p { width: 30px; text-align: right; font-variant-numeric: tabular-nums; } .lim .r { width: 30px; text-align: right; color: var(--text-tertiary); }
+  .phone.android { border-radius: 36px; }
+  .shade { flex: 1; padding: 20px 12px; display: flex; flex-direction: column; gap: 16px; background: linear-gradient(#1a1a20, #0c0c10); }
+  .an { background: #26262e; border-radius: 22px; padding: 12px 16px 14px; color: #fff; font-family: var(--kbd); }
+  .an-h { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #c8c6d0; } .an-h .t { margin-left: auto; }
+  .an-ico { width: 20px; height: 20px; border-radius: 999px; background: var(--acc); color: #fff; display: grid; place-items: center; }
+  .an-b { margin-top: 6px; font-size: 14.5px; } .an-s { font-size: 13px; color: #b6b4be; margin-top: 2px; }
+  .an-bar { margin-top: 10px; height: 4px; border-radius: 2px; background: #3a3a44; overflow: hidden; } .an-bar i { display: block; width: 35%; height: 100%; background: var(--acc); border-radius: 2px; }
+  .aw { background: rgba(20,20,26,.95); border-radius: 26px; padding: 14px 16px; color: var(--ink); }
+
   /* the host's pane backdrop behind a device's screens, drawn by backdrop.js with the phone's shaders */
   .flow.on-host .phone > .status, .flow.on-host .phone > .screen { position: relative; }
   .has-backdrop .flow.on-host .phone::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: var(--backdrop-band); pointer-events: none;
@@ -4635,6 +4677,95 @@ expected 1 write, got 2</div>
     </figure>
 
   </div>
+</section>
+
+<!-- ================================================================ -->
+<section class="flow glance">
+  <h2>At a glance</h2>
+  <p>Away from the app, the phone still shows what the agents are doing. While any agent works or needs you, a Live Activity holds the lock screen and the Dynamic Island, as the notch's island does on a Mac, and on Android an ongoing notification does the same. Widgets on the home screen show what needs you and how much of each agent account's plan is used. Each draws only what the hosts already send: who is working, who needs you, the limits the Mac's Limits panel shows.</p>
+
+  <div class="phones">
+
+    <figure><div class="phone" style="background:#000"><div class="island"></div>
+      <div class="status" style="color:#fff"><span></span><span class="bars"><i></i><i></i></span></div>
+      <div class="lock">
+        <div class="clock"><div>Thursday 12 November</div><div>9:41</div></div>
+        <div class="la">
+          <div class="la-head"><span class="la-logo">{{Logo:14}}</span><span class="la-sum"><b>1</b> needs you · <b>3</b> working</span><span class="la-host">MacBook Pro</span></div>
+          <div class="la-row"><span class="mark claude">{{IconClaude:16}}</span><span class="t">Remote pairing screen</span><span class="n">@Otter</span><span class="turn-mins warn">4m</span><span class="dot warn still"></span></div>
+          <div class="la-row"><span class="mark codex">{{IconCodex:16}}</span><span class="t">Fix the flaky PTY replay test</span><span class="n">@Flint</span><span class="loader"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></div>
+          <div class="la-row"><span class="mark claude">{{IconClaude:16}}</span><span class="t">Tighten the rail spacing</span><span class="n">@Cedar</span><span class="loader"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></div>
+        </div>
+      </div>
+      <div class="home-bar" style="background:#fff"></div></div>
+      <figcaption><b>Live Activity</b><div class="note">The lock screen's card: what needs you and how many work, then up to three agents as the rail lists them, the one that needs you first, each with its mark, title, name and state. Tapping a row opens its chat; anywhere else opens the app. It follows the hosts while the app is open or was just left; once it has heard nothing for fifteen minutes it dims and says May be out of date in place of the host. It ends a few minutes after the last agent stops. With the lock on, rows show their host in place of the title and no name.</div></figcaption>
+    </figure>
+
+    <figure><div class="phone"><div class="di-wide"><span class="faces"><span class="mark claude">{{IconClaude:15}}</span><span class="mark codex">{{IconCodex:15}}</span><span class="mark claude">{{IconClaude:15}}</span></span><span class="cam"></span><span class="roll"><b>1</b><span class="dot warn still"></span><b>3</b><span class="loader"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></span></div>
+      <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
+      <div class="screen dim-app"></div>
+      <div class="home-bar"></div></div>
+      <figcaption><b>Dynamic Island</b><div class="note">Closed, it is the notch's island: the agents' marks on the left, up to three, and on the right how many need you with the amber dot and how many work with the rail's squares. Beside another app's activity it shrinks to the amber dot while anything needs you, else the squares.</div></figcaption>
+    </figure>
+
+    <figure><div class="phone"><div class="di-wide" style="visibility:hidden"><span class="faces"><span class="mark claude">{{IconClaude:15}}</span><span class="mark codex">{{IconCodex:15}}</span><span class="mark claude">{{IconClaude:15}}</span></span><span class="cam"></span><span class="roll"><b>1</b><span class="dot warn still"></span><b>3</b><span class="loader"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></span></div>
+      <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
+      <div class="screen dim-app"></div>
+      <div class="di-open">
+        <div class="la-head"><span class="la-logo">{{Logo:14}}</span><span class="la-sum"><b>1</b> needs you · <b>3</b> working</span></div>
+        <div class="la-row"><span class="mark claude">{{IconClaude:16}}</span><span class="t">Remote pairing screen</span><span class="n">@Otter</span><span class="turn-mins warn">4m</span><span class="dot warn still"></span></div>
+        <div class="la-row"><span class="mark codex">{{IconCodex:16}}</span><span class="t">Fix the flaky PTY replay test</span><span class="n">@Flint</span><span class="loader"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></div>
+      </div>
+      <div class="home-bar"></div></div>
+      <figcaption><b>Dynamic Island, held</b><div class="note">Held, it opens to the two agents that matter most, as the lock screen lists them; tapping a row opens its chat.</div></figcaption>
+    </figure>
+
+    <figure><div class="phone home"><div class="island"></div>
+      <div class="status" style="color:#fff"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
+      <div class="home-grid">
+        <div class="w w-s">
+          <div class="w-head">{{Logo:12}}<span>Needs you</span></div>
+          <div class="w-big">2</div>
+          <div class="w-line"><span class="mark claude">{{IconClaude:12}}</span>Remote pairing screen</div>
+          <div class="w-line"><span class="mark codex">{{IconCodex:12}}</span>Move the ledger import</div>
+        </div>
+        <div class="w w-s">
+          <div class="w-head">{{IconClaude:12}}<span>Claude · Max</span></div>
+          <div class="ring" style="--used:.62"><b>62%</b></div>
+          <div class="w-foot">5h · resets in 2h 10m</div>
+        </div>
+        <div class="w w-m">
+          <div class="w-head">{{Logo:12}}<span>Limits</span></div>
+          <div class="lim"><span class="mark claude">{{IconClaude:13}}</span><span class="l">Claude</span><span class="lbar"><i style="width:62%"></i></span><span class="p">62%</span><span class="r">2h</span></div>
+          <div class="lim"><span class="mark claude">{{IconClaude:13}}</span><span class="l">Week</span><span class="lbar"><i style="width:31%"></i></span><span class="p">31%</span><span class="r">4d</span></div>
+          <div class="lim"><span class="mark codex">{{IconCodex:13}}</span><span class="l">Codex</span><span class="lbar warn"><i style="width:88%"></i></span><span class="p">88%</span><span class="r">40m</span></div>
+          <div class="lim"><span class="mark codex">{{IconCodex:13}}</span><span class="l">Week</span><span class="lbar"><i style="width:47%"></i></span><span class="p">47%</span><span class="r">3d</span></div>
+        </div>
+      </div>
+      <div class="home-bar" style="background:#fff"></div></div>
+      <figcaption><b>Widgets</b><div class="note">Needs you: how many wait on you across hosts, the first two by title; tapping one opens its chat. Limits, small: the window nearest its limit, of any account, as a ring. Limits, medium: every signed-in account's windows as the Mac's Limits panel lists them, the used share, then when it resets; a bar past 80% turns amber, a full one red. Numbers come from the hosts' last reading; an account whose last reading failed dims.</div></figcaption>
+    </figure>
+
+    <figure><div class="phone android" style="background:#000">
+      <div class="status" style="color:#fff"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
+      <div class="shade">
+        <div class="an">
+          <div class="an-h"><span class="an-ico">{{Logo:12}}</span>Sikemux</div>
+          <div class="an-b"><b>@Otter needs you</b> · 3 working</div>
+          <div class="an-s">Remote pairing screen · MacBook Pro</div>
+          <div class="an-bar"><i></i></div>
+        </div>
+        <div class="aw">
+          <div class="w-head">{{Logo:12}}<span>Limits</span></div>
+          <div class="lim"><span class="mark claude">{{IconClaude:13}}</span><span class="l">Claude</span><span class="lbar"><i style="width:62%"></i></span><span class="p">62%</span><span class="r">2h</span></div>
+          <div class="lim"><span class="mark codex">{{IconCodex:13}}</span><span class="l">Codex</span><span class="lbar warn"><i style="width:88%"></i></span><span class="p">88%</span><span class="r">40m</span></div>
+        </div>
+      </div>
+      <div class="home-bar" style="background:#fff"></div></div>
+      <figcaption><b>Android</b><div class="note">A quiet ongoing notification while agents work: who needs you first, with how many more and how many work, else how many work, the agent's title and host beneath, with an indeterminate bar; tapping opens that agent's chat, and it goes once nothing works or needs you. With the lock on it says only An agent needs you and the counts. The Limits widget lists every account's tightest window, as the iPhone's medium one.</div></figcaption>
+    </figure>
+  </div>
+
 </section>
 
 <script type="module">{{BackdropScript}}</script>

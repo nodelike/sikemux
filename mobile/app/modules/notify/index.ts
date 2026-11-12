@@ -13,6 +13,8 @@ type NotifyModule = {
   shown(): Promise<ShownCard[]>;
   dismiss(tag: string): void;
   settle(tag: string, outcome: AnswerOutcome): void;
+  showAgents(title: string, text: string | null, url: string | null): void;
+  cancelAgents(): void;
 };
 
 /** The phone's half of notifications: the keys hosts seal cards with, and the cards showing. */

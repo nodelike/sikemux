@@ -72,7 +72,7 @@ targets:
         group: Sikemux/Resources
         buildPhase: resources
       - path: Shared
-        excludes: [Notify/Card.generated.swift]
+        excludes: [Notify/Card.generated.swift, ExtensionFonts.swift]
       - path: ../../helpers/notch/Sources/NotchKit/IconView.swift
         group: Sikemux/UI/Notch
       - path: ../../helpers/notch/Sources/NotchKit/Icons.generated.swift
@@ -102,6 +102,7 @@ targets:
       - target: SikemuxCore
       - target: SikemuxNotifications
       - target: SikemuxShare
+      - target: SikemuxWidgets
       - sdk: SystemConfiguration.framework
       - package: Sentry
         product: Sentry
@@ -119,6 +120,7 @@ targets:
         SikemuxAppGroup: group.$(SIKEMUX_BUNDLE_ID)
         SikemuxStashKeychainGroup: $(DEVELOPMENT_TEAM).$(SIKEMUX_BUNDLE_ID).stash
         UIBackgroundModes: [remote-notification]
+        NSSupportsLiveActivities: true
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
         ITSAppUsesNonExemptEncryption: false
@@ -207,6 +209,7 @@ targets:
       - path: Shared/Bytes.swift
       - path: Shared/Keychain.swift
       - path: Shared/Thumbnail.swift
+      - path: Shared/ExtensionFonts.swift
       - path: Sikemux/UI/Theme.swift
       - path: Sikemux/UI/Format.swift
       - path: ../../helpers/notch/Sources/NotchKit/IconView.swift
@@ -245,6 +248,43 @@ targets:
       base:
         TARGETED_DEVICE_FAMILY: "1"
         PRODUCT_BUNDLE_IDENTIFIER: $(SIKEMUX_BUNDLE_ID).share
+        CODE_SIGN_STYLE: Automatic
+
+  SikemuxWidgets:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: Widgets
+        excludes: [Info.plist, SikemuxWidgets.entitlements]
+      - path: Shared/Glance
+      - path: Shared/ExtensionFonts.swift
+      - path: Sikemux/UI/Theme.swift
+      - path: Sikemux/UI/Format.swift
+      - path: ../../helpers/notch/Sources/NotchKit/IconView.swift
+        group: Sikemux/UI/Notch
+      - path: ../../helpers/notch/Sources/NotchKit/Icons.generated.swift
+        group: Sikemux/UI/Notch
+    dependencies:
+      - sdk: WidgetKit.framework
+      - sdk: SwiftUI.framework
+    info:
+      path: Widgets/Info.plist
+      properties:
+        CFBundleDisplayName: $(SIKEMUX_DISPLAY_NAME)
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        SikemuxAppGroup: group.$(SIKEMUX_BUNDLE_ID)
+        SikemuxURLScheme: $(SIKEMUX_URL_SCHEME)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    entitlements:
+      path: Widgets/SikemuxWidgets.entitlements
+      properties:
+        com.apple.security.application-groups: [group.$(SIKEMUX_BUNDLE_ID)]
+    settings:
+      base:
+        TARGETED_DEVICE_FAMILY: "1"
+        PRODUCT_BUNDLE_IDENTIFIER: $(SIKEMUX_BUNDLE_ID).widgets
         CODE_SIGN_STYLE: Automatic
 
 schemes:

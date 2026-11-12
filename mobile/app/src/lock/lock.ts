@@ -48,6 +48,10 @@ function open() {
   set({ phase: active() || !lock.get().on ? 'open' : 'covered', asking: false, opened: true });
 }
 
+/** Whether the person turned the lock on, so nothing outside the app shows what agents work on. */
+export const lockOn = () => lock.get().on;
+export const onLockChange = (listener: () => void) => lock.subscribe(listener);
+
 export function useLock(): LockState {
   return useExternalValue(lock);
 }

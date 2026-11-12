@@ -28,6 +28,7 @@ import { appReady, useCrashReportsAccount, withCrashReports } from '@/crashes/re
 import { Unreachable } from '@/account/Unreachable';
 import { useShareIntake } from '@/stash/incoming';
 import { useStashFeed } from '@/stash/store';
+import { useGlanceFeed } from '@/glance/glance';
 import { UpdateRequired } from '@/network/UpdateRequired';
 import { backdropUnderStack } from '@/ui/Backdrop';
 import { swipeOptions } from '@/ui/swipeStack';
@@ -175,6 +176,7 @@ function PhoneOnAccount() {
   useAccountSequence();
   useAccountHostsFeed();
   useStashFeed();
+  useGlanceFeed();
   useHostJoins();
   return null;
 }

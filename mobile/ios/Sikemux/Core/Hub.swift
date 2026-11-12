@@ -342,6 +342,7 @@ final class Hub {
         Cards.reconcile(host: found.core, view: view, fresh: found.awaitingView)
         found.awaitingView = false
         ShareExtension.changed()
+        Glances.changed()
         if found.catalogRead {
             if found.view != view { found.view = view }
         } else {
