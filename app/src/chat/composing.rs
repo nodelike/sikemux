@@ -597,6 +597,18 @@ pub(super) fn composer(
         .usage(
             head.and_then(|head| head.usage.clone()),
             head.and_then(|head| head.compactions.clone()),
+        )
+        .expired(
+            head.and_then(|head| head.expired_cache.clone())
+                .map(|expired| {
+                    let (this, agent) = (this.clone(), agent.id.clone());
+                    let summarise: crate::chat::composer::Summarise =
+                        Rc::new(move |on: bool, _: &mut Window, cx: &mut App| {
+                            this.update(cx, |bench, _| bench.summarise_first(&agent, on))
+                                .ok();
+                        });
+                    (expired, summarise)
+                }),
         );
     let pick: crate::chat::model_picker::Set = {
         let (this, agent) = (this.clone(), agent.id.clone());

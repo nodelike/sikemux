@@ -3,6 +3,7 @@
 
 use super::*;
 use sikemux_core::server::call;
+use sikemux_core::server::chat::cap::KeepHistoryParams;
 use sikemux_core::server::chat::handoff::{DropHandoffParams, HandOffParams};
 use sikemux_core::server::workspace::AgentPatch;
 use sikemux_view::layout::{At, OpenTab, PaneKind};
@@ -92,6 +93,15 @@ impl Workbench {
     pub fn drop_handoff(&self, agent: &str) {
         (self.chat_target(agent)).call_typed::<call::DropHandoff>(DropHandoffParams {
             agent_id: agent.to_owned(),
+        });
+    }
+
+    /// Summarises `agent`'s chat before its next message, or keeps its full history, once its
+    /// prompt cache has expired.
+    pub fn summarise_first(&self, agent: &str, summarise: bool) {
+        (self.chat_target(agent)).call_typed::<call::KeepHistory>(KeepHistoryParams {
+            agent_id: agent.to_owned(),
+            keep: !summarise,
         });
     }
 

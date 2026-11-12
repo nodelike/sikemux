@@ -8,13 +8,14 @@ use gpui_kit::base::{Button as BaseButton, Popover};
 use gpui_kit::component::button::{Button as KitButton, ButtonVariants};
 use gpui_kit::component::input::{Textarea, TextareaState};
 use gpui_kit::component::menu::DropdownMenu;
+use gpui_kit::component::switch::Switch;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     div, px, radians, size, Anchor, AnyElement, AnyView, App, ClipboardItem, ElementId, Entity,
     Focusable, FontWeight, Hsla, InteractiveElement, IntoElement, ParentElement, RenderOnce,
     SharedString, StatefulInteractiveElement, Styled, Transformation, Window,
 };
-use sikemux_view::chat::{Compactions, ContextUsage};
+use sikemux_view::chat::{Compactions, ContextUsage, ExpiredCache};
 use sikemux_view::workspace::ConfigPicker;
 use sikemux_wire::protocol::PermissionMode;
 
@@ -22,13 +23,15 @@ use crate::chat::model_picker::Picked;
 use crate::icons::Icon;
 use crate::motion::{Curve, Ease};
 use crate::theme::{
-    self, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_4, TEXT_2XS, TEXT_2XS_H,
-    TEXT_3XS_H, TEXT_SM, TEXT_XS, TEXT_XS_H,
+    self, Tokens, RADIUS_3, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_4,
+    TEXT_2XS, TEXT_2XS_H, TEXT_3XS_H, TEXT_SM, TEXT_XS, TEXT_XS_H,
 };
 use crate::ui::{self, DockMenu, IconButton};
 use crate::workbench::Workbench;
 
 pub type Act = Rc<dyn Fn(&mut Window, &mut App)>;
+/// Turns summarising before the next message on or off.
+pub type Summarise = Rc<dyn Fn(bool, &mut Window, &mut App)>;
 pub type PickMode = Rc<dyn Fn(PermissionMode, &mut Window, &mut App)>;
 
 /// The permission modes an agent can switch between, the one in force, and what picking one does;
@@ -106,6 +109,8 @@ pub struct Composer {
     model_open: Option<(bool, Opened)>,
     usage: Option<ContextUsage>,
     compactions: Option<Compactions>,
+    /// The chat's prompt cache expired, and what flips summarising before the next message.
+    expired: Option<(ExpiredCache, Summarise)>,
     /// The files going with the message, the button that picks more, what a paste of
     /// files or pictures does, and how the draft draws the tags that name them.
     attachments: Option<(Option<AnyElement>, Act, Paste, Chip)>,
@@ -160,6 +165,7 @@ impl Composer {
             model_open: None,
             usage: None,
             compactions: None,
+            expired: None,
             attachments: None,
             menu: None,
             stash: None,
@@ -305,6 +311,11 @@ impl Composer {
         self.compactions = compactions;
         self
     }
+
+    pub fn expired(mut self, expired: Option<(ExpiredCache, Summarise)>) -> Self {
+        self.expired = expired;
+        self
+    }
 }
 
 impl RenderOnce for Composer {
@@ -433,10 +444,9 @@ impl RenderOnce for Composer {
             }));
         }
         let bar = bar
-            .children(
-                self.usage
-                    .map(|usage| context_meter(usage, self.compactions, &self.provider, cx)),
-            )
+            .children(self.usage.map(|usage| {
+                context_meter(usage, self.compactions, self.expired, &self.provider, cx)
+            }))
             .children(self.leading)
             .child(div().flex_1())
             .children(self.aside.map(|(_, aside)| aside(labelled)))
@@ -1150,9 +1160,10 @@ fn picker(
 fn context_meter(
     usage: ContextUsage,
     compactions: Option<Compactions>,
+    expired: Option<(ExpiredCache, Summarise)>,
     provider: &str,
     cx: &App,
-) -> impl IntoElement {
+) -> AnyElement {
     let t = Tokens::get(cx).clone();
     let percent = if usage.limit() > 0. {
         (usage.used / usage.limit() * 100.).clamp(0., 100.)
@@ -1172,37 +1183,94 @@ fn context_meter(
     } else {
         t.text_primary
     };
-    div()
-        .id("context-meter")
-        .size(px(31.))
-        .flex_none()
-        .flex()
-        .items_center()
-        .justify_center()
-        .rounded_full()
-        .hover(move |style| {
-            style.bg(Hsla {
-                a: 0.07,
-                ..t.text_primary
+    let summarising = expired.as_ref().filter(|(expired, _)| expired.summarise);
+    let ring_ink = if summarising.is_some() {
+        t.accent
+    } else {
+        signal
+    };
+    let count = summarising.map(|(expired, _)| expired.tokens);
+    let compactions_shown = compactions.as_ref().map(|compactions| compactions.count);
+    let card = Rc::new({
+        let expired = expired.clone();
+        move |interactive: bool, cx: &App| {
+            context_card(
+                usage.clone(),
+                compactions.clone(),
+                expired.as_ref().map(|(expired, summarise)| {
+                    (expired.clone(), interactive.then(|| summarise.clone()))
+                }),
+                percent,
+                signal,
+                percent_ink,
+                cx,
+            )
+        }
+    });
+    let width = if expired.is_some() { 320. } else { 236. };
+    let tip = card.clone();
+    let meter = move |open: bool| {
+        let hover = Hsla {
+            a: 0.07,
+            ..t.text_primary
+        };
+        let tip = tip.clone();
+        let ring = match compactions_shown.as_ref() {
+            None => ui::ring(Some((percent, ring_ink)), 14., 1.9, t.line).into_any_element(),
+            Some(count) => counted_ring(percent, ring_ink, *count, &t),
+        };
+        let count = count.map(|tokens| {
+            ui::text(
+                crate::ui::numbers::compact(tokens as f64),
+                TEXT_2XS_H,
+                FontWeight::MEDIUM,
+            )
+            .font_features(theme::tabular())
+            .text_color(t.accent)
+        });
+        div()
+            .id("context-meter")
+            .h(px(31.))
+            .min_w(px(31.))
+            .flex_none()
+            .flex()
+            .items_center()
+            .justify_center()
+            .gap(SPACE_1H)
+            .px(if count.is_some() { SPACE_2 } else { px(0.) })
+            .rounded_full()
+            .when(open, |meter| meter.bg(hover))
+            .hover(move |style| style.bg(hover))
+            .when(!open, |meter| {
+                meter.tooltip(ui::card_tooltip(width, move |cx| tip(false, cx)))
             })
+            .child(ring)
+            .children(count)
+    };
+    if expired.is_none() {
+        return meter(false).into_any_element();
+    }
+    let t = Tokens::get(cx).clone();
+    Popover::new("context-meter-card")
+        .anchor(Anchor::BottomLeft)
+        .offset(SPACE_1H)
+        .trigger_with(move |open, _, _| meter(open).cursor_pointer().into_any_element())
+        .content(move |_, _, cx| {
+            div()
+                .w(px(width))
+                .px(SPACE_3)
+                .pt(SPACE_2H)
+                .pb(px(11.))
+                .rounded(RADIUS_3)
+                .bg(t.surface_overlay)
+                .border_1()
+                .border_color(t.border)
+                .shadow(t.shadow_float())
+                .text_color(t.text_primary)
+                .child(card(true, cx))
+                .into_any_element()
         })
-        .tooltip(ui::card_tooltip(236., {
-            let compactions = compactions.clone();
-            move |cx| {
-                context_card(
-                    usage.clone(),
-                    compactions.clone(),
-                    percent,
-                    signal,
-                    percent_ink,
-                    cx,
-                )
-            }
-        }))
-        .child(match compactions {
-            None => ui::ring(Some((percent, signal)), 14., 1.9, t.line).into_any_element(),
-            Some(compactions) => counted_ring(percent, signal, compactions.count, &t),
-        })
+        .into_any_element()
 }
 
 /// The context ring grown to hold how often the conversation was compacted.
@@ -1236,6 +1304,7 @@ const CONTEXT_SEGMENTS: usize = 24;
 fn context_card(
     usage: ContextUsage,
     compactions: Option<Compactions>,
+    expired: Option<(ExpiredCache, Option<Summarise>)>,
     percent: f64,
     signal: Hsla,
     percent_ink: Hsla,
@@ -1373,6 +1442,55 @@ fn context_card(
                         .into_any_element(),
                     )
                 })),
+        )
+        .children(expired.map(|(expired, summarise)| expired_section(expired, summarise, cx)))
+        .into_any_element()
+}
+
+/// Under the meter's numbers, once the prompt cache has expired: what the next message costs,
+/// and the switch that summarises the chat before it. Hovered, the switch only shows.
+fn expired_section(expired: ExpiredCache, summarise: Option<Summarise>, cx: &App) -> AnyElement {
+    let t = Tokens::get(cx);
+    let tokens = crate::ui::numbers::compact(expired.tokens as f64);
+    let switch = Switch::new("context-summarise")
+        .checked(expired.summarise)
+        .when_some(summarise, |switch, summarise| {
+            switch.on_change(move |on: &bool, window: &mut Window, cx: &mut App| {
+                summarise(*on, window, cx)
+            })
+        });
+    div()
+        .flex()
+        .flex_col()
+        .child(div().mx(-SPACE_3).my(SPACE_3).h(px(1.)).bg(t.border))
+        .child(
+            ui::text(
+                t!(
+                    "Cache expired {ago} · your next message re-reads all {tokens} tokens",
+                    ago = ui::time::ago(expired.at),
+                    tokens = tokens
+                ),
+                TEXT_2XS_H,
+                FontWeight::NORMAL,
+            )
+            .text_color(t.text_secondary),
+        )
+        .child(
+            div()
+                .mt(SPACE_2H)
+                .flex()
+                .items_center()
+                .justify_between()
+                .gap(SPACE_3)
+                .child(
+                    ui::text(
+                        t!("Summarise the chat before your next message"),
+                        TEXT_2XS_H,
+                        FontWeight::NORMAL,
+                    )
+                    .text_color(t.text_primary),
+                )
+                .child(div().flex_none().child(switch)),
         )
         .into_any_element()
 }

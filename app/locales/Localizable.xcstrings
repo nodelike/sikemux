@@ -14665,6 +14665,7 @@
         }
       }
     },
+    "Cache expired {ago} · your next message re-reads all {tokens} tokens": {},
     "Cache read": {
       "localizations": {
         "es": {
@@ -98333,6 +98334,7 @@
         }
       }
     },
+    "Summarise the chat before your next message": {},
     "Sun": {
       "localizations": {
         "es": {

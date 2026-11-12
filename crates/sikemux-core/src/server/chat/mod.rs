@@ -4,7 +4,7 @@
 
 mod actions;
 pub mod calls;
-pub(crate) mod cap;
+pub mod cap;
 pub(crate) mod feed;
 pub use sikemux_drivers::server::chat::find;
 pub mod handoff;
