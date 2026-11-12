@@ -60,11 +60,13 @@ pub fn state(
 
 fn about(switch: &Switch) -> String {
     match switch {
-        Switch::Choosing { on: true } => "The first message starts this chat in a new git worktree on its own branch. Click to stay in the project folder.".into(),
-        Switch::Choosing { on: false } => "Click to start this chat in a new git worktree on its own branch.".into(),
-        Switch::Always => "Hand off always works in a git worktree of its own.".into(),
+        Switch::Choosing { on: true } => t!("The first message starts this chat in a new git worktree on its own branch. Click to stay in the project folder.").into(),
+        Switch::Choosing { on: false } => t!("Click to start this chat in a new git worktree on its own branch.").into(),
+        Switch::Always => t!("Hand off always works in a git worktree of its own.").into(),
         Switch::Preparing { step } => format!("{step}…"),
-        Switch::In { branch, path, .. } => format!("Working in worktree {branch} at {path}"),
+        Switch::In { branch, path, .. } => {
+            t!("Working in worktree {branch} at {path}", branch = branch, path = path)
+        }
     }
 }
 
@@ -78,10 +80,10 @@ pub fn toggle(id: impl Into<SharedString>, switch: &Switch, flip: Flip, cx: &App
     let settable = matches!(switch, Switch::Choosing { .. });
     let label = match switch {
         Switch::In { branch, .. } => branch.clone(),
-        _ => "worktree".into(),
+        _ => t!("worktree").into(),
     };
     BaseButton::new(id.into())
-        .accessibility_label("Worktree")
+        .accessibility_label(t!("Worktree"))
         .selected(on)
         .disabled(!settable)
         .h(px(26.))
@@ -138,7 +140,9 @@ pub fn note(switch: &Switch, cx: &App) -> Option<AnyElement> {
         .text_color(t.text_tertiary);
     match switch {
         Switch::Choosing { .. } | Switch::Always => None,
-        Switch::Preparing { step } => Some(note.child(format!("{step}…")).into_any_element()),
+        Switch::Preparing { step } => {
+            Some(note.child(t!("{step}…", step = step)).into_any_element())
+        }
         Switch::In { branch, shown, .. } => {
             let tile = div()
                 .flex_none()
@@ -167,7 +171,7 @@ pub fn note(switch: &Switch, cx: &App) -> Option<AnyElement> {
                             div()
                                 .flex_none()
                                 .whitespace_nowrap()
-                                .child("Working in a worktree on\u{a0}"),
+                                .child(format!("{}\u{a0}", t!("Working in a worktree on"))),
                         )
                         .child(
                             ui::mono(branch.clone(), TEXT_2XS, cx)

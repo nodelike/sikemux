@@ -122,7 +122,7 @@ pub struct Finder {
 
 impl Finder {
     pub fn open(window: &mut Window, cx: &mut Context<Workbench>) -> Self {
-        let input = cx.new(|cx| InputState::new(window, cx).placeholder("search files…"));
+        let input = cx.new(|cx| InputState::new(window, cx).placeholder(t!("search files…")));
         let typing = cx.subscribe(&input, |bench, input, event: &InputEvent, cx| {
             if let InputEvent::Change = event {
                 let query = input.read(cx).value().to_string();
@@ -251,11 +251,11 @@ pub fn overlay(
     let t = Tokens::get(cx).clone();
     let project = bench.project().is_some();
     let empty = if !project {
-        Some("open a project to search files")
+        Some(t!("open a project to search files"))
     } else if finder.shown.is_empty() && bench.project_files.files.is_empty() {
-        Some("indexing…")
+        Some(t!("indexing…"))
     } else if finder.shown.is_empty() {
-        Some("no matches")
+        Some(t!("no matches"))
     } else {
         None
     };

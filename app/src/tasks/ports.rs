@@ -72,7 +72,7 @@ impl PortRow {
                 (
                     Owner::Terminal,
                     tab.map_or_else(
-                        || "terminal".to_owned(),
+                        || t!("terminal").to_owned(),
                         |tab| crate::tabs::label(bench, tab).to_string(),
                     ),
                     tab.map(|_| (PaneKind::Terminal, session.clone())),
@@ -97,14 +97,14 @@ impl PortRow {
     pub fn running_item(&self, bench: &WeakEntity<Workbench>) -> PopupMenuItem {
         let port = self.port;
         let process = if self.process.is_empty() {
-            "process".to_owned()
+            t!("process").to_owned()
         } else {
             self.process.clone()
         };
         let owner = if self.owner == Owner::Agent {
             self.label.clone()
         } else {
-            "You".to_owned()
+            t!("You").to_owned()
         };
         let stop = self
             .execution
@@ -118,7 +118,7 @@ impl PortRow {
                     .p(px(3.))
                     .rounded(crate::theme::RADIUS_2)
                     .hover(move |style| style.bg(t.surface_hover))
-                    .tooltip(ui::tooltip(format!("Stop what listens on {port}")))
+                    .tooltip(ui::tooltip(t!("Stop what listens on {port}", port = port)))
                     .on_click(move |_, _, cx| {
                         cx.stop_propagation();
                         let _ = bench.update(cx, |bench, _| bench.stop_run(&execution));
@@ -136,7 +136,7 @@ impl PortRow {
                     div()
                         .font_family(crate::theme::MONO)
                         .text_color(t.text_tertiary)
-                        .child(format!(":{port}")),
+                        .child(t!(":{port}", port = port)),
                 )
                 .child(div().text_color(t.text_tertiary).child(owner.clone()))
                 .children(stop)

@@ -210,7 +210,7 @@ pub fn render(
                 .pb(SPACE_2)
                 .pt(px(3.))
                 .bg(t.surface)
-                .child(kicker("agent detection manifests")),
+                .child(kicker(t!("agent detection manifests"))),
         )
         .children(manifests.iter().map(|manifest| {
             let source = match manifest.source.kind {
@@ -281,9 +281,9 @@ pub fn render(
                     div()
                         .flex()
                         .flex_col()
-                        .child(kicker("Sikemux signal deck"))
+                        .child(kicker(t!("Sikemux signal deck")))
                         .child(
-                            ui::text("Runtime diagnostics", 22., FontWeight::MEDIUM)
+                            ui::text(t!("Runtime diagnostics"), 22., FontWeight::MEDIUM)
                                 .mt(px(3.))
                                 .letter_spacing(-0.03)
                                 .text_color(t.text_primary),
@@ -310,7 +310,7 @@ pub fn render(
                 .text_size(crate::theme::ui_text(TEXT_XS))
                 .line_height(relative(1.6))
                 .text_color(t.text_secondary)
-                .child("A redacted operational snapshot. Terminal text, environment values, credentials, and API secrets are never included."),
+                .child(t!("A redacted operational snapshot. Terminal text, environment values, credentials, and API secrets are never included.")),
         )
         .child(
             div()
@@ -340,19 +340,19 @@ pub fn render(
                 .border_t_1()
                 .border_color(t.border)
                 .children(diagnostics.saved.clone().map(|path| {
-                    div().flex_1().truncate().text_size(crate::theme::ui_text(TEXT_2XS)).text_color(t.text_tertiary).child(format!("Saved to {path}"))
+                    div().flex_1().truncate().text_size(crate::theme::ui_text(TEXT_2XS)).text_color(t.text_tertiary).child(t!("Saved to {path}", path = path))
                 }))
-                .child(button("diagnostics-reload", "Reload manifests", |bench, cx| ask(bench, Detection::Reload, cx)))
-                .child(button("diagnostics-refresh", "Refresh", |bench, cx| {
+                .child(button("diagnostics-reload", t!("Reload manifests"), |bench, cx| ask(bench, Detection::Reload, cx)))
+                .child(button("diagnostics-refresh", t!("Refresh"), |bench, cx| {
                     if let Some(diagnostics) = diagnostics_of(bench) {
                         diagnostics.error = None;
                     }
                     ask(bench, Detection::List, cx);
                 }))
-                .child(button("diagnostics-copy", "Copy JSON", |bench, cx| {
+                .child(button("diagnostics-copy", t!("Copy JSON"), |bench, cx| {
                     cx.write_to_clipboard(ClipboardItem::new_string(snapshot_text(bench)));
                 }))
-                .child(button("diagnostics-save", "Save JSON", |bench, cx| save(bench, cx))),
+                .child(button("diagnostics-save", t!("Save JSON"), |bench, cx| save(bench, cx))),
         );
     div()
         .id("diagnostics-backdrop")

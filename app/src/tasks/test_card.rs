@@ -50,15 +50,25 @@ impl Finished<'_> {
             None => "failed".into(),
         })
     }
+
+    /// How the run ended, as the person reads it.
+    fn stopped_said(&self) -> Option<String> {
+        (self.run.run.status == RunStatus::Failed).then(|| match self.run.run.exit_code {
+            Some(code) => t!("exited {code}", code = code),
+            None => t!("failed").into(),
+        })
+    }
 }
 
 /// What the chip says of the run: how many tests failed or passed, else how it stopped,
 /// and whether that went wrong.
 pub fn status(finished: &Finished) -> Option<(String, bool)> {
     match finished.tests() {
-        Some(_) if finished.failed() > 0 => Some((format!("{} failed", finished.failed()), true)),
-        Some(tests) => Some((format!("{} passed", tests.passed), false)),
-        None => finished.stopped().map(|stopped| (stopped, true)),
+        Some(_) if finished.failed() > 0 => {
+            Some((t!("{count} failed", count = finished.failed()), true))
+        }
+        Some(tests) => Some((t!("{count} passed", count = tests.passed), false)),
+        None => finished.stopped_said().map(|stopped| (stopped, true)),
     }
 }
 
@@ -174,7 +184,7 @@ pub(crate) fn head_closing(
         .gap(SPACE_2)
         .child(div().flex_1().min_w_0().child(title))
         .child(
-            IconButton::new("run-card-close", Icon::Close, "Close")
+            IconButton::new("run-card-close", Icon::Close, t!("Close"))
                 .small()
                 .on_click(cx.listener(move |bench, _, _, cx| {
                     close(bench);
@@ -191,9 +201,12 @@ fn tests_card(
     cx: &mut Context<Workbench>,
 ) -> AnyElement {
     let t = Tokens::get(cx).clone();
-    let mut rest = format!(" · {} passed", tests.passed);
+    let mut rest = format!(" · {}", t!("{count} passed", count = tests.passed));
     if tests.skipped > 0 {
-        rest.push_str(&format!(" · {} skipped", tests.skipped));
+        rest.push_str(&format!(
+            " · {}",
+            t!("{count} skipped", count = tests.skipped)
+        ));
     }
     let title = div()
         .flex()
@@ -202,7 +215,7 @@ fn tests_card(
             div()
                 .text_color(t.danger)
                 .font_weight(FontWeight::MEDIUM)
-                .child(format!("{} failed", tests.failed)),
+                .child(t!("{count} failed", count = tests.failed)),
         )
         .child(div().text_color(t.text_tertiary).child(rest))
         .into_any_element();
@@ -279,7 +292,7 @@ fn tests_card(
         .child(
             actions(output, cx)
                 .child(
-                    ui::Button::new("run-card-rerun", "Rerun failed", Variant::Outline)
+                    ui::Button::new("run-card-rerun", t!("Rerun failed"), Variant::Outline)
                         .icon(Icon::Refresh)
                         .on_click(cx.listener(move |bench, _, _, cx| {
                             bench.close_run_card();
@@ -300,7 +313,7 @@ fn failure_card(
     let t = Tokens::get(cx).clone();
     let label = finished.task.label.clone();
     let command = finished.task.command.clone();
-    let stopped = finished.stopped().unwrap_or_default();
+    let stopped = finished.stopped_said().unwrap_or_default();
     let title = div()
         .flex()
         .gap(SPACE_1H)
@@ -319,7 +332,7 @@ fn failure_card(
                 .child(ui::mono(command, TEXT_2XS, cx).text_color(t.text_secondary))
                 .child(
                     ui::text(
-                        "The reason is in its output, usually near the first error.",
+                        t!("The reason is in its output, usually near the first error."),
                         TEXT_2XS_H,
                         FontWeight::NORMAL,
                     )
@@ -337,7 +350,7 @@ fn actions(output: Option<(u64, String)>, cx: &mut Context<Workbench>) -> gpui_k
         .justify_end()
         .gap(SPACE_1H)
         .children(output.map(|(session, label)| {
-            ui::Button::new("run-card-output", "Show output", Variant::Outline)
+            ui::Button::new("run-card-output", t!("Show output"), Variant::Outline)
                 .icon(Icon::Terminal)
                 .on_click(cx.listener(move |bench, _, _, cx| {
                     bench.close_run_card();
@@ -354,7 +367,8 @@ fn fix_button(bench: &Workbench, request: String, cx: &mut Context<Workbench>) -
     ui::menu_button(
         "run-card-fix-menu",
         Anchor::TopRight,
-        ui::Button::new("run-card-fix", "Fix with an agent", Variant::Primary).icon(Icon::Agent),
+        ui::Button::new("run-card-fix", t!("Fix with an agent"), Variant::Primary)
+            .icon(Icon::Agent),
         move |mut popup, _, cx| {
             for choice in &choices {
                 let (this, to, text, provider) = (
@@ -396,7 +410,7 @@ fn rerun_failed(bench: &Workbench, execution: &str, cx: &mut Context<Workbench>)
         });
     bench.report(
         rerun,
-        "Could not rerun the failed tests",
+        t!("Could not rerun the failed tests"),
         |bench, answer, cx| bench.pick_task(&answer.task_id, cx),
         cx,
     );

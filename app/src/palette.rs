@@ -233,7 +233,7 @@ impl Spec {
         Self {
             id,
             placeholder: placeholder.into(),
-            empty: "no matches".into(),
+            empty: t!("no matches").into(),
             rows,
             width: 560.,
             pick: Rc::new(pick),
@@ -873,7 +873,7 @@ fn line_of(bench: &Workbench, line: usize, cx: &mut Context<Workbench>) -> AnyEl
     };
     let armed = palette.spec.choice.as_ref().is_some_and(Choice::armed_now);
     let meta: SharedString = match row.unarmed && armed {
-        true => "opens safe".into(),
+        true => t!("opens safe").into(),
         false => row.meta.clone(),
     };
     let selected = palette.selected == Some(line);

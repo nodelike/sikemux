@@ -94,13 +94,23 @@ impl Workbench {
                         bench.overlays.run_check = None;
                         bench.tasks.to_show.insert(execution_id);
                         bench.show_started_runs();
-                        bench.notify(toast::success(format!("Started process: {label}")), cx);
+                        bench.notify(
+                            toast::success(t!("Started process: {label}", label = label)),
+                            cx,
+                        );
                     }
                     Err(error) => {
                         if let Some(check) = bench.overlays.run_check.as_mut() {
                             check.fixing = false;
                         }
-                        bench.notify(toast::error(format!("Start process {label}: {error}")), cx);
+                        bench.notify(
+                            toast::error(t!(
+                                "Start process {label}: {error}",
+                                label = label,
+                                error = error
+                            )),
+                            cx,
+                        );
                     }
                 }
                 cx.notify();
@@ -197,7 +207,7 @@ pub fn card(bench: &Workbench, project: &str, cx: &mut Context<Workbench>) -> Op
             )
         });
     let title = ui::text(
-        format!("{} can't start yet", check.label),
+        t!("{name} can't start yet", name = check.label),
         TEXT_XS,
         FontWeight::SEMIBOLD,
     )
@@ -246,15 +256,15 @@ pub fn card(bench: &Workbench, project: &str, cx: &mut Context<Workbench>) -> Op
         .justify_end()
         .gap(SPACE_1H)
         .child(
-            ui::Button::new("run-check-anyway", "Run anyway", Variant::Outline)
+            ui::Button::new("run-check-anyway", t!("Run anyway"), Variant::Outline)
                 .disabled(check.fixing)
                 .on_click(run(How::Anyway)),
         )
         .when(fixable, |actions| {
             let label = match (check.fixing, installs) {
-                (true, _) => "Fixing…",
-                (false, true) => "Install and run",
-                (false, false) => "Fix and run",
+                (true, _) => t!("Fixing…"),
+                (false, true) => t!("Install and run"),
+                (false, false) => t!("Fix and run"),
             };
             actions.child(
                 ui::Button::new("run-check-fix", label, Variant::Primary)

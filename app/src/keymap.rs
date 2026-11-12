@@ -94,7 +94,13 @@ impl Shortcut {
 }
 
 /// The categories shortcuts are listed under, in the order they are shown.
-pub const CATEGORIES: &[&str] = &["Workspace", "Agents", "Panes", "Navigation", "Browser"];
+pub const CATEGORIES: &[&str] = &[
+    n!("Workspace"),
+    n!("Agents"),
+    n!("Panes"),
+    n!("Navigation"),
+    n!("Browser"),
+];
 
 /// Every command in the shared table.
 pub fn shortcuts() -> &'static [Shortcut] {
@@ -402,30 +408,30 @@ pub fn has_modifier(keys: &str) -> bool {
 pub fn reserved(keys: &str) -> Option<&'static str> {
     let reserved: &[(&str, &str)] = match cfg!(target_os = "macos") {
         true => &[
-            ("Meta+KeyQ", "Quit"),
-            ("Meta+KeyH", "Hide"),
-            ("Meta+Alt+KeyH", "Hide Others"),
-            ("Meta+KeyM", "Minimize"),
-            ("Meta+Tab", "the app switcher"),
-            ("Meta+Space", "Spotlight"),
-            ("Meta+KeyC", "Copy"),
-            ("Meta+KeyV", "Paste"),
-            ("Meta+KeyX", "Cut"),
-            ("Meta+KeyA", "Select All"),
-            ("Meta+KeyZ", "Undo"),
-            ("Meta+Shift+KeyZ", "Redo"),
+            ("Meta+KeyQ", n!("Quit")),
+            ("Meta+KeyH", n!("Hide")),
+            ("Meta+Alt+KeyH", n!("Hide Others")),
+            ("Meta+KeyM", n!("Minimize")),
+            ("Meta+Tab", n!("the app switcher")),
+            ("Meta+Space", n!("Spotlight")),
+            ("Meta+KeyC", n!("Copy")),
+            ("Meta+KeyV", n!("Paste")),
+            ("Meta+KeyX", n!("Cut")),
+            ("Meta+KeyA", n!("Select All")),
+            ("Meta+KeyZ", n!("Undo")),
+            ("Meta+Shift+KeyZ", n!("Redo")),
         ],
         false => &[
-            ("Alt+Tab", "the window switcher"),
-            ("Alt+F4", "closing the window"),
-            ("Ctrl+Shift+KeyC", "Copy"),
-            ("Ctrl+Shift+KeyV", "Paste"),
+            ("Alt+Tab", n!("the window switcher")),
+            ("Alt+F4", n!("closing the window")),
+            ("Ctrl+Shift+KeyC", n!("Copy")),
+            ("Ctrl+Shift+KeyV", n!("Paste")),
         ],
     };
     reserved
         .iter()
         .find(|(taken, _)| *taken == keys)
-        .map(|(_, what)| *what)
+        .map(|(_, what)| crate::i18n::tr(*what))
 }
 
 /// A binding in the table's spelling, `Meta+Shift+KeyP`, as GPUI writes it, `cmd-shift-p`.

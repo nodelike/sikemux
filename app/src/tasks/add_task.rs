@@ -57,13 +57,13 @@ impl AddTask {
                 .unwrap_or_default()
                 .to_owned()
         };
-        let label = field("Backend", text(|task| &task.label), window, cx);
+        let label = field(t!("Backend"), text(|task| &task.label), window, cx);
         label.update(cx, |state, cx| state.focus(window, cx));
         Self {
             project,
             label,
             command: field("bash tool/run.sh", text(|task| &task.command), window, cx),
-            folder: field("The project root", text(|task| &task.cwd), window, cx),
+            folder: field(t!("The project root"), text(|task| &task.cwd), window, cx),
             team: task.is_none_or(|task| task.source != Source::Personal),
             replaces: task.map(|task| task.id.clone()),
         }
@@ -89,27 +89,28 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
     let editing = adding.replaces.is_some();
     let t = Tokens::get(cx).clone();
     let note = if adding.team {
-        "Goes in sikemux.json, which you commit."
+        t!("Goes in sikemux.json, which you commit.")
     } else {
-        "Kept in .sikemux/, which Git ignores."
+        t!("Kept in .sikemux/, which Git ignores.")
     };
     let scope = vec![
-        (Icon::Agents, SharedString::from("For the team")),
-        (Icon::User, SharedString::from("Only me")),
+        (Icon::Agents, SharedString::from(t!("For the team"))),
+        (Icon::User, SharedString::from(t!("Only me"))),
     ];
     let body = dialog::marked_body()
         .pt(SPACE_3)
         .gap(SPACE_3)
-        .child(dialog::field("Name", &adding.label, false, cx))
-        .child(dialog::field("Command", &adding.command, true, cx))
-        .child(dialog::field("Folder", &adding.folder, false, cx))
+        .child(dialog::field(t!("Name"), &adding.label, false, cx))
+        .child(dialog::field(t!("Command"), &adding.command, true, cx))
+        .child(dialog::field(t!("Folder"), &adding.folder, false, cx))
         .child(
             div()
                 .flex()
                 .flex_col()
                 .gap(SPACE_1H)
                 .child(
-                    ui::text("Save it", TEXT_XS, FontWeight::MEDIUM).text_color(t.text_secondary),
+                    ui::text(t!("Save it"), TEXT_XS, FontWeight::MEDIUM)
+                        .text_color(t.text_secondary),
                 )
                 .child(
                     Segmented::new("task-scope", scope, usize::from(!adding.team)).on_select(
@@ -139,25 +140,30 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
             cx.notify();
         })
     });
-    let foot = dialog::hinted_foot(dialog::escape("cancel", cx), cx)
+    let foot = dialog::hinted_foot(dialog::escape(t!("cancel"), cx), cx)
         .child(dialog::button(
             "task-cancel",
-            "Cancel".into(),
+            t!("Cancel").into(),
             None,
             close.clone(),
             cx,
         ))
         .child(dialog::button(
             "task-add",
-            if editing { "Save" } else { "Add process" }.into(),
+            if editing {
+                t!("Save")
+            } else {
+                t!("Add process")
+            }
+            .into(),
             Some(t.accent),
             save.clone(),
             cx,
         ));
     let title = if editing {
-        "Edit process"
+        t!("Edit process")
     } else {
-        "Add a process"
+        t!("Add a process")
     };
     let tile = if editing { Icon::Pencil } else { Icon::Plus };
     Some(dialog::marked_sheet(tile, title.into(), body, foot, save, close, cx).into_any_element())
@@ -194,16 +200,22 @@ fn save_task(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbe
         let _ = bench.update_in(cx, |bench, window, cx| match added {
             Ok(answer) => {
                 bench.pick_task(&answer.task_id, cx);
-                let done = if edited { "Saved" } else { "Added" };
-                let saved = if team {
-                    format!("{done} {label} in sikemux.json; commit it to share it")
-                } else {
-                    format!("{done} {label} for you only")
+                let saved = match (edited, team) {
+                    (true, true) => t!(
+                        "Saved {name} in sikemux.json; commit it to share it",
+                        name = label
+                    ),
+                    (false, true) => t!(
+                        "Added {name} in sikemux.json; commit it to share it",
+                        name = label
+                    ),
+                    (true, false) => t!("Saved {name} for you only", name = label),
+                    (false, false) => t!("Added {name} for you only", name = label),
                 };
                 window.push_notification(toast::success(saved), cx);
             }
             Err(error) => window.push_notification(
-                toast::error(format!("Could not save the process: {error}")),
+                toast::error(t!("Could not save the process: {error}", error = error)),
                 cx,
             ),
         });

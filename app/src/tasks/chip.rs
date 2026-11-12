@@ -56,11 +56,11 @@ pub(crate) fn run_chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option
     let port_number = port.map(|port| port.listening.port);
     let needs_java = (selected.java.as_ref())
         .filter(|java| java.runs_on.is_none())
-        .map(|java| format!("needs Java {}", java.required));
+        .map(|java| t!("needs Java {version}", version = java.required));
     let said = |text: String, color: Hsla| {
         div()
             .text_color(color)
-            .child(format!("· {text}"))
+            .child(t!("· {text}", text = text))
             .into_any_element()
     };
     let status = match (port_number, running, &failed, &passed) {
@@ -91,9 +91,9 @@ pub(crate) fn run_chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option
         .filter(|finished| crate::tasks::test_card::offers_why(bench, finished))
         .map(|_| {
             let tip = if passed.is_none() && last.is_some_and(|run| run.tests.is_some()) {
-                "Show the failed tests"
+                t!("Show the failed tests")
             } else {
-                "Show why it stopped"
+                t!("Show why it stopped")
             };
             Button::new("run-why")
                 .ghost()
@@ -103,7 +103,7 @@ pub(crate) fn run_chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option
                 .text_size(crate::theme::ui_text(TEXT_2XS))
                 .text_color(t.danger)
                 .tooltip(tip)
-                .child("Why?")
+                .child(t!("Why?"))
                 .on_click(cx.listener(|bench, _, _, cx| {
                     crate::tasks::test_card::why(bench);
                     cx.notify();
@@ -149,7 +149,11 @@ pub(crate) fn run_chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option
                 .text_color(t.live)
                 .into_any_element(),
         })
-        .child(if running.is_some() { "Running" } else { "Run" })
+        .child(if running.is_some() {
+            t!("Running")
+        } else {
+            t!("Run")
+        })
         .child(
             div()
                 .flex()
@@ -211,7 +215,7 @@ impl Render for RunClock {
         let since = crate::ui::time::seconds_since(self.started_at.flatten());
         div()
             .text_color(t.text_tertiary)
-            .child(format!("· {since}s"))
+            .child(t!("· {since}s", since = since))
     }
 }
 
@@ -245,16 +249,16 @@ impl RunMenu {
             .max_h(px(480.));
         if let Some(running) = &self.running {
             let meta = match running.port {
-                Some(port) => format!("up · :{port}"),
-                None => format!(
-                    "running · {}s",
-                    crate::ui::time::seconds_since(running.started_at)
+                Some(port) => t!("up · :{port}", port = port),
+                None => t!(
+                    "running · {seconds}s",
+                    seconds = crate::ui::time::seconds_since(running.started_at)
                 ),
             };
             popup = popup.label(format!("{} · {meta}", running.label));
             let execution = running.execution.clone();
             popup = popup.item(
-                PopupMenuItem::new("Stop")
+                PopupMenuItem::new(t!("Stop"))
                     .icon(Icon::Stop)
                     .on_click(on_bench(&self.bench, move |bench, _| {
                         bench.stop_run(&execution)
@@ -263,20 +267,24 @@ impl RunMenu {
             if let Some(port) = running.port {
                 let url = format!("http://localhost:{port}");
                 popup = popup.item(
-                    PopupMenuItem::new(format!("Open localhost:{port}"))
+                    PopupMenuItem::new(t!("Open localhost:{port}", port = port))
                         .icon(Icon::Globe)
                         .on_click(move |_, _, cx| cx.open_url(&url)),
                 );
             }
             let task = running.id.clone();
-            popup = popup.item(PopupMenuItem::new("Restart").icon(Icon::Refresh).on_click(
-                on_bench(&self.bench, move |bench, cx| bench.start_task(&task, cx)),
-            ));
+            popup = popup.item(
+                PopupMenuItem::new(t!("Restart"))
+                    .icon(Icon::Refresh)
+                    .on_click(on_bench(&self.bench, move |bench, cx| {
+                        bench.start_task(&task, cx)
+                    })),
+            );
         }
         if let Some((session, label)) = &self.output {
             let (session, label) = (session.to_string(), label.clone());
             popup = popup.item(
-                PopupMenuItem::new("Show output")
+                PopupMenuItem::new(t!("Show output"))
                     .icon(Icon::Terminal)
                     .on_click(on_bench(&self.bench, move |bench, _| {
                         bench.show(PaneKind::Terminal, &session, Some(&label))
@@ -302,14 +310,14 @@ impl RunMenu {
             }
         }
         if !self.others.is_empty() {
-            popup = popup.separator().label("Running now");
+            popup = popup.separator().label(t!("Running now"));
         }
         for other in &self.others {
             popup = popup.item(other.running_item(&self.bench));
         }
         let bench = self.bench.clone();
-        let popup = popup.separator().label("Your own processes").item(
-            PopupMenuItem::new("Add a process…")
+        let popup = popup.separator().label(t!("Your own processes")).item(
+            PopupMenuItem::new(t!("Add a process…"))
                 .icon(Icon::Plus)
                 .on_click(move |_, window, cx| {
                     let bench = bench.clone();
@@ -327,7 +335,7 @@ impl RunMenu {
             self.project_name.clone(),
         );
         popup.submenu(
-            "Find processes with an agent…",
+            t!("Find processes with an agent…"),
             window,
             cx,
             ui::menu(move |menu, _, _| {
@@ -397,16 +405,16 @@ pub(crate) fn task_groups(tasks: &[TaskView], project: &str) -> Vec<TaskGroup> {
         let first = folder_tasks[0];
         let tool = (first.command.split(' ').next())
             .and_then(|program| match program {
-                "./mvnw" => Some("Maven wrapper"),
+                "./mvnw" => Some(t!("Maven wrapper")),
                 "mvn" => Some("Maven"),
-                "./gradlew" => Some("Gradle wrapper"),
+                "./gradlew" => Some(t!("Gradle wrapper")),
                 "gradle" => Some("Gradle"),
                 "go" => Some("Go"),
                 _ => None,
             })
             .map(str::to_owned);
         let java = first.java.as_ref().map(|java| match java.runs_on {
-            None => format!("needs Java {}", java.required),
+            None => t!("needs Java {version}", version = java.required),
             Some(runs_on) => format!("Java {runs_on}"),
         });
         let meta: Vec<String> = tool.into_iter().chain(java).collect();

@@ -98,7 +98,7 @@ pub fn overlay(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElem
                         .child(popup.title.clone()),
                 )
                 .child(
-                    ui::IconButton::new("command-popup-close", Icon::Close, "Close")
+                    ui::IconButton::new("command-popup-close", Icon::Close, t!("Close"))
                         .small()
                         .on_click(cx.listener(|bench, _, _, cx| bench.close_command_popup(cx))),
                 ),

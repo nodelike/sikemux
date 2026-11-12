@@ -405,7 +405,10 @@ pub fn row(
     let DiffRow(kind, number, text) = &diff.rows[index];
     if *kind == ROW_HIDDEN {
         let hover = look.hover;
-        let lines = if *number == 1 { "line" } else { "lines" };
+        let shown = match *number {
+            1 => t!("Show 1 unchanged line").to_owned(),
+            number => t!("Show {number} unchanged lines", number = number),
+        };
         return div().child(
             div()
                 .id(id)
@@ -413,7 +416,7 @@ pub fn row(
                 .w_full()
                 .cursor_pointer()
                 .hover(move |bar| bar.bg(hover))
-                .tooltip(ui::tooltip(format!("Show {number} unchanged {lines}")))
+                .tooltip(ui::tooltip(shown))
                 .on_click(move |_, window, cx| expand(window, cx)),
         );
     }
@@ -534,10 +537,10 @@ impl Notes {
                 let mut said = Vec::new();
                 if note.named {
                     let author = note.author.and_then(name);
-                    said.push(author.unwrap_or("unattributed").to_owned());
+                    said.push(author.unwrap_or(t!("unattributed")).to_owned());
                 }
                 if let Some(over) = note.over.and_then(name) {
-                    said.push(format!("changed {over}'s edit"));
+                    said.push(t!("changed {over}'s edit", over = over));
                 }
                 (note.line as u32, said.join(" · ").into())
             })

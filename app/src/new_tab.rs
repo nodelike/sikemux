@@ -41,57 +41,57 @@ fn choices() -> [Choice; 9] {
         Choice::of(
             PaneKind::Terminal,
             actions::NewTerminal::ID,
-            "A new shell",
+            t!("A new shell"),
             false,
         ),
         Choice::of(
             PaneKind::Agent,
             actions::ChooseAgent::ID,
-            "Start or resume an agent",
+            t!("Start or resume an agent"),
             true,
         ),
         Choice {
             command: actions::NewPage::ID,
-            label: "Browser",
-            detail: "A page on the agent's desk",
+            label: t!("Browser"),
+            detail: t!("A page on the agent's desk"),
             icon: Icon::Globe,
             in_project: true,
         },
         Choice {
             command: actions::NewSimulator::ID,
-            label: "Simulator",
-            detail: "Drive a phone on the agent's desk",
+            label: t!("Simulator"),
+            detail: t!("Drive a phone on the agent's desk"),
             icon: Icon::Phone,
             in_project: true,
         },
         Choice::of(
             PaneKind::Files,
             actions::OpenFile::ID,
-            "Open a project file",
+            t!("Open a project file"),
             true,
         ),
         Choice::of(
             PaneKind::Git,
             actions::FocusGit::ID,
-            "Changes, branches and stashes",
+            t!("Changes, branches and stashes"),
             true,
         ),
         Choice::of(
             PaneKind::Search,
             actions::FocusSearch::ID,
-            "Search across the project",
+            t!("Search across the project"),
             true,
         ),
         Choice::of(
             PaneKind::Hosts,
             actions::FocusHosts::ID,
-            "Hosts and paired phones",
+            t!("Hosts and paired phones"),
             false,
         ),
         Choice::of(
             PaneKind::Mod,
             actions::OpenMod::ID,
-            "A panel you or an agent made",
+            t!("A panel you or an agent made"),
             false,
         ),
     ]
@@ -116,7 +116,7 @@ impl Workbench {
                 let shut = choice.in_project && !in_project;
                 Row::new(choice.command.name(), choice.label)
                     .meta(if shut {
-                        "open a project first"
+                        t!("open a project first")
                     } else {
                         choice.detail
                     })
@@ -127,7 +127,7 @@ impl Workbench {
             .collect();
         let spec = Spec::new(
             "palette.newTab",
-            "open a new tab…",
+            t!("open a new tab…"),
             rows,
             |row, _, window, cx| {
                 keymap::dispatch_named(&row.key, window, cx);
@@ -141,18 +141,21 @@ impl Workbench {
     fn toggle_ssh_new_tab(&mut self, alias: String, window: &mut Window, cx: &mut Context<Self>) {
         let (set_up_icon, set_up_label) = self.set_up_label(&alias);
         let rows = vec![
-            Row::new(actions::NewTerminal::ID.name(), "SSH terminal")
-                .meta(format!("A new login on {alias}"))
+            Row::new(actions::NewTerminal::ID.name(), t!("SSH terminal"))
+                .meta(t!("A new login on {alias}", alias = alias))
                 .keys(keymap::hint(actions::NewTerminal::ID, cx))
                 .mark(Mark::Icon(Icon::Terminal)),
             Row::new(INSTALL, set_up_label)
-                .meta(format!("What Sikemux is on {alias}, and what sets it up"))
+                .meta(t!(
+                    "What Sikemux is on {alias}, and what sets it up",
+                    alias = alias
+                ))
                 .keys(keymap::hint(actions::NewChat::ID, cx))
                 .mark(Mark::Icon(set_up_icon)),
         ];
         let spec = Spec::new(
             "palette.newTab",
-            "open a new tab…",
+            t!("open a new tab…"),
             rows,
             move |row, bench, window, cx| match row.key.as_ref() {
                 INSTALL => bench.open_install_pane(&alias),

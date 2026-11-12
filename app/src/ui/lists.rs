@@ -660,7 +660,7 @@ impl RenderOnce for Tab {
                     .items_center()
                     .child(close_button(
                         close_id,
-                        format!("Close {label}"),
+                        t!("Close {label}", label = label),
                         move |event, window, cx| close(event, window, cx),
                         cx,
                     ))

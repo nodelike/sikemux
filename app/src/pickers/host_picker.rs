@@ -123,8 +123,8 @@ impl HostPicker {
             Place::This => None,
         };
         since.map_or_else(
-            || "away".into(),
-            |since| format!("away {}", crate::hosts::lasted(since)).into(),
+            || t!("away").into(),
+            |since| t!("away {time}", time = crate::hosts::lasted(since)).into(),
         )
     }
 
@@ -202,9 +202,9 @@ impl HostPicker {
                             .split_once('/')
                             .map_or(remote.as_str(), |(_, repo)| repo)
                             .to_owned(),
-                        "Clone",
+                        t!("Clone"),
                     ),
-                    None => (format!("from {}", self.here.host), "Copy"),
+                    None => (t!("from {host}", host = self.here.host), t!("Copy")),
                 };
                 let lit = at == self.chosen;
                 row.when(!reached, |row| row.opacity(0.45))
@@ -276,11 +276,11 @@ impl Render for HostPicker {
             }))
             .on_action(cx.listener(|picker, _: &Close, window, cx| (picker.close)(window, cx)))
             .gap_0()
-            .child(list_picker::heading(&format!("Has {name}"), cx))
+            .child(list_picker::heading(&t!("Has {name}", name = name), cx))
             .children(held)
             .when(copies < choices.len(), |popup| {
                 popup
-                    .child(list_picker::heading("Copy to", cx))
+                    .child(list_picker::heading(t!("Copy to"), cx))
                     .children(targets)
             })
     }

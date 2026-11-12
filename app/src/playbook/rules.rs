@@ -21,44 +21,44 @@ pub(super) fn page(
 ) -> Vec<AnyElement> {
     let Some(playbook) = playbook else {
         return vec![rows::section(
-            "Your rules",
+            t!("Your rules"),
             None,
             None,
             false,
-            rows::note("Reading…", cx),
+            rows::note(t!("Reading…"), cx),
             cx,
         )];
     };
     let yours = match playbook.rules.is_empty() {
         true => vec![rows::note(
-            "None yet. Tell any agent how you want things done here, and it keeps it as your rule.",
+            t!("None yet. Tell any agent how you want things done here, and it keeps it as your rule."),
             cx,
         )],
         false => (playbook.rules.iter())
-            .map(|rule| row(rule, "Undo", folder, this, cx))
+            .map(|rule| row(rule, n!("Undo"), folder, this, cx))
             .collect(),
     };
     let noted = match playbook.notes.is_empty() {
-        true => vec![rows::note("Nothing yet.", cx)],
+        true => vec![rows::note(t!("Nothing yet."), cx)],
         false => (playbook.notes.iter())
-            .map(|note| row(note, "Remove", folder, this, cx))
+            .map(|note| row(note, n!("Remove"), folder, this, cx))
             .collect(),
     };
     let count = |n: usize| (n > 0).then(|| SharedString::from(n.to_string()));
     vec![
         rows::section(
-            "Your rules",
+            t!("Your rules"),
             count(playbook.rules.len()),
-            Some("Kept from your own words when you said them. Only you change these.".into()),
+            Some(t!("Kept from your own words when you said them. Only you change these.").into()),
             false,
             gpui_kit::div().children(yours),
             cx,
         ),
         rows::section(
-            "Noted by agents",
+            t!("Noted by agents"),
             count(playbook.notes.len()),
             Some(
-                "What agents noticed while working. It guides them, and never widens what they may do."
+                t!("What agents noticed while working. It guides them, and never widens what they may do.")
                     .into(),
             ),
             false,
@@ -81,16 +81,20 @@ fn row(
         said::day(entry.learned.at)
     );
     if let Some(above) = &entry.folder {
-        words.push_str(&format!(
-            " · for every project in {}",
-            crate::ui::path::tilde(above, None)
+        words.push_str(" · ");
+        words.push_str(&t!(
+            "for every project in {folder}",
+            folder = crate::ui::path::tilde(above, None)
         ));
     }
     if entry.stale {
-        words.push_str(" · may no longer hold");
+        words.push_str(" · ");
+        words.push_str(t!("may no longer hold"));
     }
     let (id, folder) = (entry.id, folder.to_owned());
-    let retire = Action::new(undo, move |bench, cx| retire(bench, &folder, id, cx));
+    let retire = Action::new(crate::i18n::tr(undo), move |bench, cx| {
+        retire(bench, &folder, id, cx)
+    });
     let line = said::line(
         format!("playbook-rule-{id}"),
         words,
@@ -128,8 +132,8 @@ pub(crate) fn retire(bench: &mut Workbench, folder: &str, id: u64, cx: &mut Cont
         });
     bench.report(
         asked,
-        "It was not removed",
-        |bench, _, cx| bench.notify(toast::success("Removed from the Playbook"), cx),
+        t!("It was not removed"),
+        |bench, _, cx| bench.notify(toast::success(t!("Removed from the Playbook")), cx),
         cx,
     );
 }

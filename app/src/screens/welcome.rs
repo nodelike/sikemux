@@ -364,8 +364,8 @@ pub fn take_keys(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Wo
         }));
     }
     if welcome.path.is_none() {
-        let path =
-            cx.new(|cx| InputState::new(window, cx).placeholder("Find a folder or type a path"));
+        let path = cx
+            .new(|cx| InputState::new(window, cx).placeholder(t!("Find a folder or type a path")));
         let typing = cx.subscribe_in(
             &path,
             window,
@@ -779,14 +779,15 @@ fn leave(bench: &mut Workbench, cx: &mut Context<Workbench>) {
 
 fn path_problem(typed: &str, resolved: &Resolved) -> Option<String> {
     if !Path::new(&resolved.path).is_absolute() {
-        return Some("Type the whole path, starting with / or ~".to_owned());
+        return Some(t!("Type the whole path, starting with / or ~").to_owned());
     }
     match resolved.kind.as_deref() {
         Some("dir") => None,
-        Some("denied") => Some(format!("Sikemux isn't allowed to read {typed}")),
-        Some(_) => Some(format!("{typed} is a file, not a folder")),
-        None => Some(format!(
-            "Nothing at {typed}. Check the path or use Choose folder…"
+        Some("denied") => Some(t!("Sikemux isn't allowed to read {path}", path = typed)),
+        Some(_) => Some(t!("{path} is a file, not a folder", path = typed)),
+        None => Some(t!(
+            "Nothing at {path}. Check the path or use Choose folder…",
+            path = typed
         )),
     }
 }
@@ -821,7 +822,7 @@ fn add_typed(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbe
             };
             let problem = match &resolved {
                 Ok(resolved) => path_problem(&typed, resolved),
-                Err(error) => Some(format!("Could not check that path: {error}")),
+                Err(error) => Some(t!("Could not check that path: {error}", error = error)),
             };
             match (problem, resolved) {
                 (Some(problem), _) => welcome.error = Some(problem),
@@ -904,7 +905,7 @@ fn finish(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench
         let mut first = None;
         for (name, added) in adding {
             let Some(added) = added.await else {
-                let why = format!("{name} couldn't be added as a project.");
+                let why = t!("{name} couldn't be added as a project.", name = name);
                 let _ = bench.update(cx, |bench, cx| failed(bench, why, cx));
                 return;
             };
@@ -919,7 +920,7 @@ fn finish(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench
             here.start_chat(launcher, project.clone(), None, Some(started));
             let Ok(agent) = agent.await else {
                 let _ = bench.update(cx, |bench, cx| {
-                    failed(bench, "The agent did not start.".to_owned(), cx)
+                    failed(bench, t!("The agent did not start.").to_owned(), cx)
                 });
                 return;
             };
@@ -1271,9 +1272,9 @@ fn poster(
     } = poster;
     if welcome.git_missing {
         let warning = if cfg!(target_os = "macos") {
-            "Git isn't set up. Run xcode-select --install."
+            t!("Git isn't set up. Run xcode-select --install.")
         } else {
-            "Git isn't installed. The Git view needs it."
+            t!("Git isn't installed. The Git view needs it.")
         };
         lines.push(said(warning, t.warn, room));
     }
@@ -1294,7 +1295,7 @@ fn poster(
             .hover(move |close| close.text_color(ink))
             .on_mouse_down(MouseButton::Left, keep_press)
             .on_click(move |_, _, cx| this.update(cx, leave))
-            .child("Esc closes")
+            .child(t!("Esc closes"))
     });
     let size = room.mark_size(welcome.git_missing);
     let words = room.words_height(welcome.git_missing);
@@ -1338,8 +1339,8 @@ fn poster(
                         .letter_spacing(-0.04)
                         .line_height(relative(1.))
                         .text_color(t.text_primary)
-                        .child("Welcome to")
-                        .child(div().text_color(t.accent).child("Sikemux")),
+                        .child(t!("Welcome to"))
+                        .child(div().text_color(t.accent).child(t!("Sikemux"))),
                 )
                 .child(
                     div()
@@ -1564,11 +1565,10 @@ fn agents_grid(
         .gap(px(1.))
         .bg(t.border);
     if listed.is_empty() {
-        let looking = bench
-            .agent_setup
-            .found
-            .is_none()
-            .then(|| ui::shimmer::shimmer("welcome-agents-looking", "Looking on your PATH…"));
+        let looking =
+            bench.agent_setup.found.is_none().then(|| {
+                ui::shimmer::shimmer("welcome-agents-looking", t!("Looking on your PATH…"))
+            });
         return grid.child(
             div()
                 .flex_1()
@@ -1674,8 +1674,8 @@ fn project_row(
     let hovered = t.surface_sunken.blend(t.surface_hover);
     let chats = match candidate.chats {
         0 => String::new(),
-        1 => "1 chat".to_owned(),
-        chats => format!("{chats} chats"),
+        1 => t!("1 chat").to_owned(),
+        chats => t!("{count} chats", count = chats),
     };
     let right = |width: f32, text: String, ink: Hsla| {
         div()
@@ -1789,13 +1789,15 @@ fn project_list(
     if welcome.looking {
         rows.push(note(ui::shimmer::shimmer(
             "welcome-projects-looking",
-            "Reading your agents' history…",
+            t!("Reading your agents' history…"),
         )));
     } else if rows.is_empty() {
         let words = match (welcome.filter.is_empty(), welcome.scan_failed) {
-            (false, _) => Some("Nothing here matches. Type a whole path to add it."),
-            (true, true) => Some("Couldn't read your agents' history. Add a folder."),
-            (true, false) => Some("No projects found. Type a path above or choose a folder."),
+            (false, _) => Some(t!("Nothing here matches. Type a whole path to add it.")),
+            (true, true) => Some(t!("Couldn't read your agents' history. Add a folder.")),
+            (true, false) => Some(t!(
+                "No projects found. Type a path above or choose a folder."
+            )),
         };
         rows.extend(words.map(|words| note(words.into_any_element())));
     }
@@ -1851,7 +1853,7 @@ fn projects_pane(
     let t = Tokens::get(cx).clone();
     let browse = {
         let this = this.clone();
-        ui::Button::new("welcome-browse", "Choose folder…", ui::Variant::Outline)
+        ui::Button::new("welcome-browse", t!("Choose folder…"), ui::Variant::Outline)
             .solid(t.text_primary.opacity(0.09), t.text_primary.opacity(0.14))
             .sized(room.fit(48., 32.), room.fit(18., 10.), room.fit(16., 12.5))
             .pressed(lit == Some(Stop::Browse))
@@ -1931,7 +1933,7 @@ fn back_link(lit: Option<Stop>, room: Room, this: &Entity<Workbench>, t: &Tokens
     div()
         .id("welcome-back")
         .role(Role::Button)
-        .aria_label(SharedString::from("Back to Agents"))
+        .aria_label(SharedString::from(t!("Back to Agents")))
         .flex()
         .items_center()
         .gap(px(room.fit(9., 6.)))
@@ -1952,7 +1954,7 @@ fn back_link(lit: Option<Stop>, room: Room, this: &Entity<Workbench>, t: &Tokens
             })
         })
         .child("‹")
-        .child("Agents")
+        .child(t!("Agents"))
         .into_any_element()
 }
 
@@ -1966,19 +1968,26 @@ fn projects_poster(
     let ticked = welcome.ticked().count();
     let empty = welcome.rows.is_empty() && !welcome.looking;
     let older = if welcome.partial {
-        " Older ones may be missing."
+        t!("Older ones may be missing.")
     } else {
         ""
     };
     let mut lines = vec![match (ticked > MAX_PROJECTS, empty) {
         (true, _) => said(
-            format!("{ticked} selected. At most {MAX_PROJECTS} can come with you."),
+            t!(
+                "{count} selected. At most {most} can come with you.",
+                count = ticked,
+                most = MAX_PROJECTS
+            ),
             t.warn,
             room,
         ),
-        (false, true) => said("Add a folder to continue.", t.text_secondary, room),
+        (false, true) => said(t!("Add a folder to continue."), t.text_secondary, room),
         (false, false) => said(
-            format!("{}{older}", comes_with_you(welcome)),
+            match older {
+                "" => comes_with_you(welcome),
+                older => format!("{} {older}", comes_with_you(welcome)),
+            },
             t.text_secondary,
             room,
         ),
@@ -1990,9 +1999,9 @@ fn projects_poster(
             .map(|error| said(error.clone(), t.danger, room)),
     );
     let label = if welcome.opening {
-        "Opening…"
+        t!("Opening…")
     } else {
-        "Open Sikemux"
+        t!("Open Sikemux")
     };
     let enabled = can_continue_projects(welcome) && !welcome.opening;
     Poster {
@@ -2089,14 +2098,18 @@ fn agents_say(
     let sentence = match (progress.busy() || (progress.shown() && !failed), last) {
         (true, _) => progress.sheet_state().unwrap_or_default(),
         (false, Some(agent)) if failed => tile_state(bench, agent, t).sentence,
-        _ if usable_agents(bench) > 0 => "Choose who does the work.".to_owned(),
+        _ if usable_agents(bench) > 0 => t!("Choose who does the work.").to_owned(),
         _ => match &keyed {
             Some(state) => state.sentence.clone(),
-            None => "Install or sign in to one agent to continue.".to_owned(),
+            None => t!("Install or sign in to one agent to continue.").to_owned(),
         },
     };
-    let command =
-        keyed.and_then(|state| Some(format!("Return runs: {}", state.action?.1.shown_command())));
+    let command = keyed.and_then(|state| {
+        Some(t!(
+            "Return runs: {command}",
+            command = state.action?.1.shown_command()
+        ))
+    });
     (sentence, command)
 }
 
@@ -2113,7 +2126,7 @@ fn agents_poster(
     let progress = &bench.agent_setup;
     let busy = progress.busy();
     let (sentence, command) = agents_say(bench, welcome, keyboard, &t);
-    let action = "Continue".to_owned();
+    let action = t!("Continue").to_owned();
     let enabled = usable_agents(bench) > 0;
     let reason = pill_row(bench, welcome)
         .and_then(|row| listed_agents(bench).get(row).copied())
@@ -2123,11 +2136,11 @@ fn agents_poster(
             _ => None,
         });
     let check_words = if progress.checking {
-        "Checking…"
+        t!("Checking…")
     } else {
-        "Check again"
+        t!("Check again")
     };
-    let close_words = if busy { "Cancel" } else { "Close" };
+    let close_words = if busy { t!("Cancel") } else { t!("Close") };
     let mut quiet_lengths = Vec::new();
     let mut extras = Vec::new();
     if recheck_offered(bench) {
@@ -2155,10 +2168,11 @@ fn agents_poster(
         ));
     }
     if anyway_offered(bench) {
-        quiet_lengths.push("Continue anyway".len());
+        let anyway = t!("Continue anyway");
+        quiet_lengths.push(anyway.chars().count());
         extras.push(quiet(
             "welcome-anyway",
-            "Continue anyway".to_owned(),
+            anyway.to_owned(),
             Stop::Anyway,
             lit,
             room,
@@ -2328,15 +2342,15 @@ fn tile_state(bench: &Workbench, agent: &Found, t: &Tokens) -> TileState {
     match bench.agent_setup.underway(&agent.kind) {
         Some(Doing::Installing) => {
             let word = match agent.status {
-                AgentStatus::Broken { .. } => "Reinstalling…",
-                _ => "Installing…",
+                AgentStatus::Broken { .. } => t!("Reinstalling…"),
+                _ => t!("Installing…"),
             };
-            return running(word, format!("Downloading {label}…"));
+            return running(word, t!("Downloading {agent}…", agent = label));
         }
         Some(Doing::SigningIn) => {
             return running(
-                "Waiting for sign-in…",
-                "Finish in the terminal below, or the browser if one opened.".to_owned(),
+                t!("Waiting for sign-in…"),
+                t!("Finish in the terminal below, or the browser if one opened.").to_owned(),
             );
         }
         None => {}
@@ -2349,54 +2363,65 @@ fn tile_state(bench: &Workbench, agent: &Found, t: &Tokens) -> TileState {
     if let Some(doing) = failure {
         let (word, sentence) = match doing {
             Doing::Installing => (
-                "Install failed",
-                "The installer stopped. Its output is on the right.".to_owned(),
+                t!("Install failed"),
+                t!("The installer stopped. Its output is on the right.").to_owned(),
             ),
             Doing::SigningIn => (
-                "Signed out",
-                "Sign-in stopped. Its output is on the right.".to_owned(),
+                t!("Signed out"),
+                t!("Sign-in stopped. Its output is on the right.").to_owned(),
             ),
         };
         return TileState {
             word,
             ink: t.warn,
-            action: next.map(|(_, sheet)| ("Try again", sheet)),
+            action: next.map(|(_, sheet)| (t!("Try again"), sheet)),
             density: DENSITY_FAILED,
             running: false,
             sentence,
         };
     }
     let (word, density, state) = match &agent.status {
-        AgentStatus::Ready { .. } => ("Ready", DENSITY_READY, format!("{label} is ready.")),
+        AgentStatus::Ready { .. } => (
+            t!("Ready"),
+            DENSITY_READY,
+            t!("{agent} is ready.", agent = label),
+        ),
         AgentStatus::Unknown => (
-            "Installed",
+            t!("Installed"),
             DENSITY_INSTALLED,
-            format!("{label} is installed."),
+            t!("{agent} is installed.", agent = label),
         ),
         AgentStatus::Broken { .. } => (
-            "Won't start",
+            t!("Won't start"),
             DENSITY_FAILED,
             match next {
-                Some(_) => format!("{label} won't start. Return reinstalls it."),
-                None => format!("{label} won't start. Reinstall it yourself, then Check again."),
+                Some(_) => t!("{agent} won't start. Return reinstalls it.", agent = label),
+                None => t!(
+                    "{agent} won't start. Reinstall it yourself, then Check again.",
+                    agent = label
+                ),
             },
         ),
         AgentStatus::SignedOut => (
-            "Signed out",
+            t!("Signed out"),
             DENSITY_SIGNED_OUT,
             match next {
-                Some(_) => {
-                    format!("Signed out. Return opens {label}'s sign-in.")
-                }
-                None => format!("Signed out. Sign in from inside {label}, then Check again."),
+                Some(_) => t!("Signed out. Return opens {agent}'s sign-in.", agent = label),
+                None => t!(
+                    "Signed out. Sign in from inside {agent}, then Check again.",
+                    agent = label
+                ),
             },
         ),
         AgentStatus::Missing => (
-            "Not installed",
+            t!("Not installed"),
             DENSITY_MISSING,
             match next {
-                Some(_) => "Not installed. Return runs its installer.".to_owned(),
-                None => format!("Not installed. Install {label} yourself, then Check again."),
+                Some(_) => t!("Not installed. Return runs its installer.").to_owned(),
+                None => t!(
+                    "Not installed. Install {agent} yourself, then Check again.",
+                    agent = label
+                ),
             },
         ),
     };
@@ -2419,11 +2444,14 @@ fn comes_with_you(welcome: &Welcome) -> String {
     let projects = welcome.ticked().count();
     let chats: u32 = welcome.ticked().map(|row| row.chats).sum();
     match (projects, chats) {
-        (0, _) => "Tick what should come with you.".to_owned(),
-        (1, 0) => "1 project comes with you.".to_owned(),
-        (projects, 0) => format!("{projects} projects come with you."),
-        (_, 1) => "1 past chat will appear under Recent.".to_owned(),
-        (_, chats) => format!("{chats} past chats will appear under Recent."),
+        (0, _) => t!("Tick what should come with you.").to_owned(),
+        (1, 0) => t!("1 project comes with you.").to_owned(),
+        (projects, 0) => t!("{count} projects come with you.", count = projects),
+        (_, 1) => t!("1 past chat will appear under Recent.").to_owned(),
+        (_, chats) => t!(
+            "{count} past chats will appear under Recent.",
+            count = chats
+        ),
     }
 }
 

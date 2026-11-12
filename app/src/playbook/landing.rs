@@ -24,11 +24,11 @@ pub(super) fn page(
 ) -> Vec<AnyElement> {
     let Some(playbook) = playbook else {
         return vec![rows::section(
-            "Landing",
+            t!("Landing"),
             None,
             None,
             false,
-            rows::note("Reading…", cx),
+            rows::note(t!("Reading…"), cx),
             cx,
         )];
     };
@@ -41,8 +41,9 @@ pub(super) fn page(
         "playbook-lands",
         lands_word(lands),
         vec![
-            Pick::new("agents", "Agents").hint("They land their own work once its checks pass"),
-            Pick::new("person", "You").hint("Nothing counts as landed until you land it"),
+            Pick::new("agents", t!("Agents"))
+                .hint(t!("They land their own work once its checks pass")),
+            Pick::new("person", t!("You")).hint(t!("Nothing counts as landed until you land it")),
         ],
         Some(lands_key(lands).into()),
         false,
@@ -56,21 +57,23 @@ pub(super) fn page(
         },
         cx,
     );
-    let mut about = match lands {
-        Lands::Agents => "Agents land their own work".to_owned(),
-        Lands::Person => "You land the work agents leave".to_owned(),
+    let about = match (lands, history) {
+        (Lands::Agents, None) => t!("Agents land their own work").to_owned(),
+        (Lands::Person, None) => t!("You land the work agents leave").to_owned(),
+        (Lands::Agents, Some(history)) => t!(
+            "Agents land their own work · read from how work reached {branch} here",
+            branch = history.branch
+        ),
+        (Lands::Person, Some(history)) => t!(
+            "You land the work agents leave · read from how work reached {branch} here",
+            branch = history.branch
+        ),
     };
-    if let Some(history) = history {
-        about.push_str(&format!(
-            " · read from how work reached {} here",
-            history.branch
-        ));
-    }
     let branch = history.map(|history| {
         rows::row_with(
             None,
-            "Branch",
-            Some("Read from Git".into()),
+            t!("Branch"),
+            Some(t!("Read from Git").into()),
             div()
                 .text_size(theme::ui_text(TEXT_XS))
                 .text_color(Tokens::get(cx).text_primary)
@@ -81,7 +84,7 @@ pub(super) fn page(
     let body = div()
         .child(rows::row_with(
             None,
-            "Who lands",
+            t!("Who lands"),
             Some(about.into()),
             who,
             cx,
@@ -90,15 +93,15 @@ pub(super) fn page(
         .children(branch)
         .child(rows::row_with(
             None,
-            "When a turn ends, the line reads",
-            Some("With the next step as a button".into()),
+            t!("When a turn ends, the line reads"),
+            Some(t!("With the next step as a button").into()),
             done_chip(lands, cx),
             cx,
         ));
     vec![rows::section(
-        "Landing",
+        t!("Landing"),
         None,
-        Some("Who puts work on the project's branch, and what “landed” means here. The line under each chat uses these words.".into()),
+        Some(t!("Who puts work on the project's branch, and what “landed” means here. The line under each chat uses these words.").into()),
         false,
         body,
         cx,
@@ -106,9 +109,9 @@ pub(super) fn page(
 }
 
 const MEANS: [(Landed, &str); 3] = [
-    (Landed::Committed, "Committed"),
-    (Landed::Pushed, "Pushed"),
-    (Landed::Merged, "Merged"),
+    (Landed::Committed, n!("Committed")),
+    (Landed::Pushed, n!("Pushed")),
+    (Landed::Merged, n!("Merged")),
 ];
 
 /// What counts as landed, with how the latest changes reached the branch under it.
@@ -121,9 +124,12 @@ fn means_row(
     let means = means?;
     let about = match (&means.history, means.chosen) {
         (Some(history), false) => history_words(history),
-        (Some(history), true) => format!("You chose this · {}", history_words(history)),
-        (None, true) => "You chose this".to_owned(),
-        (None, false) => "Read from the project's history once it has commits".to_owned(),
+        (Some(history), true) => t!(
+            "You chose this · {history}",
+            history = history_words(history)
+        ),
+        (None, true) => t!("You chose this").to_owned(),
+        (None, false) => t!("Read from the project's history once it has commits").to_owned(),
     };
     let chosen = MEANS.iter().position(|(landed, _)| *landed == means.means);
     let (this, folder) = (this.clone(), folder.to_owned());
@@ -131,7 +137,7 @@ fn means_row(
         "playbook-landed-means",
         MEANS
             .iter()
-            .map(|(_, word)| (SharedString::from(*word), None))
+            .map(|(_, word)| (SharedString::from(crate::i18n::tr(*word)), None))
             .collect(),
         chosen.unwrap_or(usize::MAX),
     )
@@ -150,15 +156,15 @@ fn means_row(
                     });
             bench.report(
                 asked,
-                "What landed means was not changed",
-                |bench, _, cx| bench.notify(toast::success("Landing changed"), cx),
+                t!("What landed means was not changed"),
+                |bench, _, cx| bench.notify(toast::success(t!("Landing changed")), cx),
                 cx,
             );
         })
     });
     Some(rows::row_with(
         None,
-        "Landed means",
+        t!("Landed means"),
         Some(about.into()),
         control,
         cx,
@@ -168,28 +174,75 @@ fn means_row(
 /// How most of the latest changes reached the branch, as "41 of the last 50 changes were
 /// pushed straight to main".
 fn history_words(history: &LandingHistory) -> String {
-    let how = match history.means {
-        Landed::Committed => "committed on",
-        Landed::Pushed => "pushed straight to",
-        Landed::Merged => "merged into",
-        Landed::Unknown => "brought to",
-    };
-    match (history.count, history.of) {
-        (1, 1) => format!("The one change so far was {how} {}", history.branch),
-        (count, of) if count == of => {
-            format!("All {of} of the last changes were {how} {}", history.branch)
-        }
-        (count, of) => format!(
-            "{count} of the last {of} changes were {how} {}",
-            history.branch
+    let branch = &history.branch;
+    match (history.means, history.count, history.of) {
+        (Landed::Committed, 1, 1) => t!(
+            "The one change so far was committed on {branch}",
+            branch = branch
+        ),
+        (Landed::Committed, count, of) if count == of => t!(
+            "All {of} of the last changes were committed on {branch}",
+            of = of,
+            branch = branch
+        ),
+        (Landed::Committed, count, of) => t!(
+            "{count} of the last {of} changes were committed on {branch}",
+            count = count,
+            of = of,
+            branch = branch
+        ),
+        (Landed::Pushed, 1, 1) => t!(
+            "The one change so far was pushed straight to {branch}",
+            branch = branch
+        ),
+        (Landed::Pushed, count, of) if count == of => t!(
+            "All {of} of the last changes were pushed straight to {branch}",
+            of = of,
+            branch = branch
+        ),
+        (Landed::Pushed, count, of) => t!(
+            "{count} of the last {of} changes were pushed straight to {branch}",
+            count = count,
+            of = of,
+            branch = branch
+        ),
+        (Landed::Merged, 1, 1) => t!(
+            "The one change so far was merged into {branch}",
+            branch = branch
+        ),
+        (Landed::Merged, count, of) if count == of => t!(
+            "All {of} of the last changes were merged into {branch}",
+            of = of,
+            branch = branch
+        ),
+        (Landed::Merged, count, of) => t!(
+            "{count} of the last {of} changes were merged into {branch}",
+            count = count,
+            of = of,
+            branch = branch
+        ),
+        (Landed::Unknown, 1, 1) => t!(
+            "The one change so far was brought to {branch}",
+            branch = branch
+        ),
+        (Landed::Unknown, count, of) if count == of => t!(
+            "All {of} of the last changes were brought to {branch}",
+            of = of,
+            branch = branch
+        ),
+        (Landed::Unknown, count, of) => t!(
+            "{count} of the last {of} changes were brought to {branch}",
+            count = count,
+            of = of,
+            branch = branch
         ),
     }
 }
 
 fn lands_word(lands: Lands) -> &'static str {
     match lands {
-        Lands::Agents => "Agents",
-        Lands::Person => "You",
+        Lands::Agents => t!("Agents"),
+        Lands::Person => t!("You"),
     }
 }
 
@@ -204,8 +257,8 @@ fn lands_key(lands: Lands) -> &'static str {
 fn done_chip(lands: Lands, cx: &App) -> AnyElement {
     let t = Tokens::get(cx);
     let words = match lands {
-        Lands::Agents => "Done · landed · checks pass",
-        Lands::Person => "Done · committed · checks pass",
+        Lands::Agents => t!("Done · landed · checks pass"),
+        Lands::Person => t!("Done · committed · checks pass"),
     };
     div()
         .flex()
@@ -239,8 +292,8 @@ fn set_landing(
         });
     bench.report(
         asked,
-        "Who lands was not changed",
-        |bench, _, cx| bench.notify(toast::success("Landing changed"), cx),
+        t!("Who lands was not changed"),
+        |bench, _, cx| bench.notify(toast::success(t!("Landing changed")), cx),
         cx,
     );
 }

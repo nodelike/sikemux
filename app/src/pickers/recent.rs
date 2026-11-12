@@ -228,7 +228,8 @@ impl Workbench {
             self.look_for_older(false, crate::pickers::recent::PAGE, cx);
             return;
         }
-        let input = cx.new(|cx| InputState::new(window, cx).placeholder("filter recent chats…"));
+        let input =
+            cx.new(|cx| InputState::new(window, cx).placeholder(t!("filter recent chats…")));
         let changes = cx.subscribe(&input, |bench, input, event: &InputEvent, cx| {
             if let InputEvent::Change = event {
                 if let Some(filter) = bench.filter.as_mut() {

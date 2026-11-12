@@ -27,13 +27,17 @@ fn rows(themes: Vec<ThemeSummary>) -> Vec<Row> {
         .into_iter()
         .map(|summary| {
             let group = match summary.source {
-                ThemeSource::Custom => "Yours",
+                ThemeSource::Custom => t!("Yours"),
                 ThemeSource::Omarchy => "Omarchy",
                 ThemeSource::Sikemux => "Sikemux",
                 ThemeSource::Ghostty => "Ghostty",
             };
             Row::new(summary.id, summary.name)
-                .meta(if summary.dark { "dark" } else { "light" })
+                .meta(if summary.dark {
+                    t!("dark")
+                } else {
+                    t!("light")
+                })
                 .group(group)
         })
         .collect()
@@ -42,11 +46,11 @@ fn rows(themes: Vec<ThemeSummary>) -> Vec<Row> {
 impl Workbench {
     pub fn toggle_theme_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let current: SharedString = self.preferences().theme_id.clone().into();
-        let spec = Spec::new(ID, "pick a theme…", Vec::new(), |row, bench, _, _| {
+        let spec = Spec::new(ID, t!("pick a theme…"), Vec::new(), |row, bench, _, _| {
             crate::settings::set(bench, PreferenceChange::ThemeId(row.key.to_string()));
         })
         .start(current)
-        .empty("reading themes…")
+        .empty(t!("reading themes…"))
         .width(440.)
         .browse(|row, bench, _, cx| bench.wear_theme(Some(row.key.clone()), cx))
         .cancel(|bench, _, cx| bench.wear_theme(None, cx));

@@ -63,14 +63,14 @@ pub fn redraw_after_paint(window: &Window, cx: &mut App) {
 
 /// What a menu calls showing a file in the system's file manager.
 pub const REVEAL: &str = if cfg!(target_os = "macos") {
-    "Reveal in Finder"
+    n!("Reveal in Finder")
 } else {
-    "Show in Files"
+    n!("Show in Files")
 };
 pub const SHOW_IN_FILES: &str = if cfg!(target_os = "macos") {
-    "Show in Finder"
+    n!("Show in Finder")
 } else {
-    "Show in Files"
+    n!("Show in Files")
 };
 
 pub fn icon(icon: Icon, size: f32) -> Svg {

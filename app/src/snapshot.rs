@@ -104,7 +104,7 @@ impl Workbench {
                 let Some(agent) = agent else {
                     let went = bench.hand_to_front_chat(made, "SnapShots", window, cx);
                     if let Some(chat) = went.filter(|_| bring_forward) {
-                        let note = format!("SnapShot of {app} added to {chat}");
+                        let note = t!("SnapShot of {app} added to {chat}", app = app, chat = chat);
                         bench.notify(toast::success(note), cx);
                     }
                     return;
@@ -119,11 +119,11 @@ impl Workbench {
 fn missed_note(missed: Missed) -> gpui_kit::component::notification::Notification {
     match missed {
         Missed::NotAllowed => toast::info(
-            "Allow Sikemux under Screen Recording in System Settings, then reopen it to take SnapShots",
+            t!("Allow Sikemux under Screen Recording in System Settings, then reopen it to take SnapShots"),
         ),
-        Missed::NoWindow => toast::info("No other app's window is open to take"),
-        Missed::Unsupported => toast::info("SnapShots need macOS 14 or later"),
-        Missed::Failed(error) => toast::error(format!("The SnapShot failed: {error}")),
+        Missed::NoWindow => toast::info(t!("No other app's window is open to take")),
+        Missed::Unsupported => toast::info(t!("SnapShots need macOS 14 or later")),
+        Missed::Failed(error) => toast::error(t!("The SnapShot failed: {error}", error = error)),
     }
 }
 

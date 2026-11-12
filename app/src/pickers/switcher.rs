@@ -183,7 +183,7 @@ pub fn overlay(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElem
                 None => (Icon::Folder, id.clone().into(), SharedString::default()),
             },
             Strip::Host(alias) => (Icon::Server, alias.clone().into(), "SSH".into()),
-            Strip::Terminals => (Icon::Terminal, "Terminals".into(), "~".into()),
+            Strip::Terminals => (Icon::Terminal, t!("Terminals").into(), "~".into()),
         };
         let chosen = place == switcher.at;
         div()
@@ -254,8 +254,8 @@ pub fn overlay(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElem
                             .py(SPACE_2H)
                             .border_b_1()
                             .border_color(t.border)
-                            .child(ui::meta("Switch project", cx))
-                            .child(ui::meta(format!("release {held} to open"), cx)),
+                            .child(ui::meta(t!("Switch project"), cx))
+                            .child(ui::meta(t!("release {held} to open", held = held), cx)),
                     )
                     .child(
                         div()
@@ -275,9 +275,9 @@ pub fn overlay(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElem
                             .border_t_1()
                             .border_color(t.border)
                             .child(ui::kbd(format!("{held}`"), cx))
-                            .child(ui::meta("next", cx))
+                            .child(ui::meta(t!("next"), cx))
                             .child(ui::kbd("Esc", cx))
-                            .child(ui::meta("stay", cx)),
+                            .child(ui::meta(t!("stay"), cx)),
                     ),
             )
             .into_any_element(),

@@ -46,13 +46,16 @@ impl Moment {
 pub(super) fn who(learned: &Learned) -> String {
     match (&learned.agent, &learned.with) {
         (Some(_), _) => at_name(learned.name.as_deref()),
-        (None, Some(with)) => format!("You, in chat with {}", at_name(with.name.as_deref())),
-        (None, None) => "You".to_owned(),
+        (None, Some(with)) => t!(
+            "You, in chat with {name}",
+            name = at_name(with.name.as_deref())
+        ),
+        (None, None) => t!("You").to_owned(),
     }
 }
 
 pub(super) fn at_name(name: Option<&str>) -> String {
-    name.map_or_else(|| "An agent".to_owned(), |name| format!("@{name}"))
+    name.map_or_else(|| t!("An agent").to_owned(), |name| format!("@{name}"))
 }
 
 /// The day something was said, as "9 Nov".
@@ -105,7 +108,7 @@ pub(super) fn line(
     let t = Tokens::get(cx).clone();
     let id: SharedString = id.into();
     let open = moment.map(|moment| {
-        Action::new("Open", move |bench, cx| {
+        Action::new(t!("Open"), move |bench, cx| {
             open_moment(bench, moment.clone(), cx)
         })
     });

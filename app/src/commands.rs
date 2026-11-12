@@ -174,20 +174,23 @@ fn preview_rows(config: &ProjectConfigRead, project: &str) -> Vec<Row> {
         .is_some_and(|command| !command.is_empty())
     {
         let detail = url.map_or_else(
-            || "Run the checked-in preview command".to_owned(),
-            |url| format!("Serve {url}"),
+            || t!("Run the checked-in preview command").to_owned(),
+            |url| t!("Serve {url}", url = url),
         );
         rows.push(
-            Row::new(Pick::StartPreview(project).key(), "Start project preview")
-                .meta("Project · Preview")
-                .also(&detail)
-                .also("Project · Preview"),
+            Row::new(
+                Pick::StartPreview(project).key(),
+                t!("Start project preview"),
+            )
+            .meta(t!("Project · Preview"))
+            .also(&detail)
+            .also("Project · Preview"),
         );
     }
     if let Some(url) = url {
         rows.push(
-            Row::new(Pick::OpenPreview(url).key(), "Open project preview")
-                .meta("Project · Preview")
+            Row::new(Pick::OpenPreview(url).key(), t!("Open project preview"))
+                .meta(t!("Project · Preview"))
                 .also(url)
                 .also("Project · Preview"),
         );
@@ -219,10 +222,10 @@ fn action_rows(config: &ProjectConfigRead, cx: &App) -> Vec<Row> {
             let id = action.id.as_str();
             let detail = Some(action.description.as_str())
                 .filter(|detail| !detail.is_empty())
-                .map_or_else(|| format!("Run from {path}"), str::to_owned);
+                .map_or_else(|| t!("Run from {path}", path = path), str::to_owned);
             Row::new(Pick::Action(id).key(), &action.label)
                 .keys(keymap::action_hint(id, cx))
-                .meta("Project · sikemux.json")
+                .meta(t!("Project · sikemux.json"))
                 .also(&detail)
                 .also("Project · sikemux.json")
         })
@@ -239,25 +242,26 @@ fn worktree_rows(worktrees: &Vec<GitWorktree>) -> Vec<Row> {
             continue;
         }
         let current = worktree.current;
-        let branch = worktree.branch.as_deref().unwrap_or("detached");
+        let branch = worktree.branch.as_deref().unwrap_or(t!("detached"));
         let title = if current {
-            "Open current worktree".to_owned()
+            t!("Open current worktree").to_owned()
         } else {
-            format!("Open worktree: {branch}")
+            t!("Open worktree: {branch}", branch = branch)
         };
         rows.push(
             Row::new(Pick::OpenWorktree(path).key(), title)
-                .meta("worktrees")
+                .meta(t!("worktrees"))
                 .also(path),
         );
         if !current && !worktree.is_main {
             rows.push(
                 Row::new(
                     Pick::RemoveWorktree(path).key(),
-                    format!("Remove worktree: {branch}"),
+                    t!("Remove worktree: {branch}", branch = branch),
                 )
-                .meta("worktrees")
-                .also(path),
+                .meta(t!("worktrees"))
+                .also(path)
+                .also(branch),
             );
         }
     }
@@ -291,13 +295,15 @@ impl Workbench {
         if read.config_status == ConfigStatus::Invalid {
             let first = (read.config_errors.as_ref())
                 .and_then(|errors| errors.first())
-                .map_or("sikemux.json is invalid", |error| error.message.as_str());
+                .map_or(t!("sikemux.json is invalid"), |error| {
+                    error.message.as_str()
+                });
             rows.push(
                 Row::new(
                     Pick::ConfigInvalid("").key(),
-                    "Project config needs attention",
+                    t!("Project config needs attention"),
                 )
-                .meta("Project · sikemux.json")
+                .meta(t!("Project · sikemux.json"))
                 .also(first)
                 .also("Project · sikemux.json"),
             );
@@ -305,8 +311,8 @@ impl Workbench {
         let tasks = &read.tasks;
         rows.extend(tasks.iter().map(|task| {
             Row::new(Pick::RunTask(&task.id).key(), task.label.clone())
-                .meta("Processes")
-                .also(&format!("Run process from {}", task.cwd))
+                .meta(t!("Processes"))
+                .also(&t!("Run process from {cwd}", cwd = task.cwd))
                 .also("Processes")
         }));
         let Some(running) = self.person_runs().0 else {
@@ -315,8 +321,8 @@ impl Workbench {
         let task = &running.run.task_id;
         if tasks.iter().any(|listed| listed.id == *task) {
             rows.push(
-                Row::new(Pick::RestartTask(task).key(), "Restart active process")
-                    .meta("Processes")
+                Row::new(Pick::RestartTask(task).key(), t!("Restart active process"))
+                    .meta(t!("Processes"))
                     .also(
                         "Stop the current project process and start its current trusted definition",
                     ),
@@ -325,9 +331,9 @@ impl Workbench {
         rows.push(
             Row::new(
                 Pick::StopTask(&running.run.execution_id).key(),
-                "Stop active process",
+                t!("Stop active process"),
             )
-            .meta("Processes")
+            .meta(t!("Processes"))
             .also("Stop only the exact terminal owned by the current project process"),
         );
         rows
@@ -378,7 +384,7 @@ impl Workbench {
                 });
             rows.extend(custom.map(|command| {
                 Row::new(Pick::Custom(&command.id).key(), command.title)
-                    .meta("custom")
+                    .meta(t!("custom"))
                     .also(&command.detail)
                     .also(&command.command)
             }));
@@ -393,7 +399,7 @@ impl Workbench {
         let base = rows.clone();
         let spec = Spec::new(
             "palette.commands",
-            "type a command…",
+            t!("type a command…"),
             rows,
             |row, bench, window, cx| {
                 bench.remember_command(row.key.clone(), cx);
@@ -428,13 +434,14 @@ impl Workbench {
                         );
                     }
                     Some(Pick::RemoveWorktree(path)) => {
-                        bench.remove_worktree_at(path.to_owned(), row.title.to_string(), cx)
+                        let branch = row.search.rsplit(' ').next().unwrap_or_default();
+                        bench.remove_worktree_at(path.to_owned(), branch.to_owned(), cx)
                     }
                     None => {}
                 }
             },
         )
-        .empty("no commands match")
+        .empty(t!("no commands match"))
         .deck();
         self.toggle_palette(spec, window, cx);
         self.list_more(base, cx);
@@ -484,15 +491,14 @@ impl Workbench {
 
     /// Removes the worktree at `path` once the person agrees; git refuses a dirty one, and
     /// the core one a project or agent still works in.
-    fn remove_worktree_at(&mut self, path: String, title: String, cx: &mut Context<Self>) {
+    fn remove_worktree_at(&mut self, path: String, branch: String, cx: &mut Context<Self>) {
         let Some(repo) = self.git_repo() else {
             return;
         };
-        let branch = title.trim_start_matches("Remove worktree: ").to_owned();
         self.confirm(
-            format!("Remove worktree {branch}?"),
-            "Dirty worktrees will be refused.",
-            "Remove",
+            t!("Remove worktree {branch}?", branch = branch),
+            t!("Dirty worktrees will be refused."),
+            t!("Remove"),
             true,
             move |bench, yes, _, cx| {
                 if !yes {
@@ -508,9 +514,12 @@ impl Workbench {
                 let branch = branch.clone();
                 bench.report(
                     removed,
-                    "Could not remove the worktree",
+                    t!("Could not remove the worktree"),
                     move |bench, _, cx| {
-                        bench.notify(toast::success(format!("Removed worktree {branch}")), cx)
+                        bench.notify(
+                            toast::success(t!("Removed worktree {branch}", branch = branch)),
+                            cx,
+                        )
                     },
                     cx,
                 );
@@ -539,7 +548,7 @@ impl Workbench {
             if let Ok(Err(error)) = reload.await {
                 let _ = this.update(cx, |bench, cx| {
                     bench.notify(
-                        toast::error(format!("Agent manifests: {error}")).autohide(false),
+                        toast::error(t!("Agent manifests: {error}", error = error)).autohide(false),
                         cx,
                     )
                 });
@@ -565,7 +574,7 @@ impl Workbench {
             });
         self.report(
             started,
-            "The project preview did not start",
+            t!("The project preview did not start"),
             |_, _, _| {},
             cx,
         );
@@ -619,11 +628,11 @@ impl Workbench {
                     let output = result.output.trim();
                     let code = result.code;
                     let said = if output.is_empty() {
-                        format!("exit {code}")
+                        t!("exit {code}", code = code)
                     } else {
                         output.to_owned()
                     };
-                    let said = format!("{title}: {said}");
+                    let said = t!("{title}: {said}", title = title, said = said);
                     let note = if code == 0 {
                         toast::success(said)
                     } else {
@@ -632,7 +641,8 @@ impl Workbench {
                     bench.notify(note, cx);
                 }
                 Err(error) => bench.notify(
-                    toast::error(format!("{title}: {error}")).autohide(false),
+                    toast::error(t!("{title}: {error}", title = title, error = error))
+                        .autohide(false),
                     cx,
                 ),
             });

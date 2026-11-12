@@ -338,9 +338,9 @@ fn side(
     let version = news.version.clone().unwrap_or_default();
     let (release, build) = split_version(&version);
     let channel = match (update.is_some(), version.contains('-')) {
-        (true, _) => "update ready",
-        (false, true) => "nightly",
-        (false, false) => "stable",
+        (true, _) => t!("update ready"),
+        (false, true) => t!("nightly"),
+        (false, false) => t!("stable"),
     };
     let highlights = notes
         .and_then(|notes| notes.notes.as_deref())
@@ -441,13 +441,13 @@ fn side(
                 .children(
                     notes
                         .and_then(|notes| notes.commits)
-                        .map(|commits| stat("commits", commits)),
+                        .map(|commits| stat(t!("commits"), commits)),
                 )
                 .when(!people.is_empty(), |stats| {
-                    stats.child(stat("people", people.len() as u32))
+                    stats.child(stat(t!("people"), people.len() as u32))
                 })
                 .when(highlights > 0, |stats| {
-                    stats.child(stat("highlights", highlights))
+                    stats.child(stat(t!("highlights"), highlights))
                 }),
         )
         .when(!people.is_empty(), |side| {
@@ -511,7 +511,7 @@ fn contributors(
         .flex_col()
         .gap(SPACE_1H)
         .child(
-            ui::text("CONTRIBUTORS", TEXT_3XS, FontWeight::SEMIBOLD)
+            ui::text(t!("CONTRIBUTORS"), TEXT_3XS, FontWeight::SEMIBOLD)
                 .mb(SPACE_1H)
                 .letter_spacing(0.14)
                 .text_color(t.text_tertiary),
@@ -547,11 +547,7 @@ fn contributors(
                         )
                         .child(
                             ui::text(
-                                format!(
-                                    "@{} · {}",
-                                    person.login,
-                                    crate::ui::numbers::plural(f64::from(person.commits), "commit")
-                                ),
+                                format!("@{} · {}", person.login, commit_count(person.commits)),
                                 TEXT_2XS,
                                 FontWeight::NORMAL,
                             )
@@ -563,7 +559,7 @@ fn contributors(
         .when(!rest.is_empty(), |list| {
             list.child(
                 ui::text(
-                    format!("and {} more", rest.len()),
+                    t!("and {count} more", count = rest.len()),
                     TEXT_XS,
                     FontWeight::NORMAL,
                 )
@@ -584,7 +580,7 @@ fn contributors(
                             .tooltip(ui::tooltip(format!(
                                 "@{} · {}",
                                 person.login,
-                                crate::ui::numbers::plural(f64::from(person.commits), "commit")
+                                commit_count(person.commits)
                             )))
                             .on_click(open(&person.login))
                             .child(avatar(news, person, 28., cx))
@@ -641,14 +637,18 @@ fn main(
     };
     let body: AnyElement = match (&news.markdown, notes) {
         (Some(markdown), _) => notes_markdown(markdown, &t, window, cx),
-        (None, Some(Err(error))) => status(format!(
-            "The notes for v{version} could not be loaded. {error}"
+        (None, Some(Err(error))) => status(t!(
+            "The notes for v{version} could not be loaded. {error}",
+            version = version,
+            error = error
         ))
         .into_any_element(),
         (None, Some(Ok(_))) => {
-            status(format!("v{version} shipped without notes.")).into_any_element()
+            status(t!("v{version} shipped without notes.", version = version)).into_any_element()
         }
-        (None, None) => status(format!("Loading the notes for v{version}…")).into_any_element(),
+        (None, None) => {
+            status(t!("Loading the notes for v{version}…", version = version)).into_any_element()
+        }
     };
     let compare = notes
         .and_then(|notes| notes.as_ref().ok())
@@ -686,7 +686,10 @@ fn main(
                 .py(px(18.))
                 .border_b_1()
                 .border_color(t.border)
-                .child(ui::text("What’s new", 15., FontWeight::SEMIBOLD).text_color(t.text_primary))
+                .child(
+                    ui::text(t!("What’s new"), 15., FontWeight::SEMIBOLD)
+                        .text_color(t.text_primary),
+                )
                 .child(esc),
         )
         .child(
@@ -722,7 +725,7 @@ fn main(
                             .split("/compare/")
                             .nth(1)
                             .map(|range| range.replace("...", "…"))
-                            .unwrap_or_else(|| "Compare".to_owned());
+                            .unwrap_or_else(|| t!("Compare").to_owned());
                         div()
                             .id("whats-new-compare")
                             .text_size(crate::theme::ui_text(TEXT_XS))
@@ -730,7 +733,7 @@ fn main(
                             .cursor_pointer()
                             .hover(|link| link.text_color(t.live))
                             .on_click(move |_, _, cx| cx.open_url(&compare))
-                            .child(format!("{range} ↗"))
+                            .child(t!("{range} ↗", range = range))
                             .into_any_element()
                     }
                     None => div().into_any_element(),
@@ -740,7 +743,7 @@ fn main(
                     match by_installer(update) {
                         Some((_, command)) => ui::Button::new(
                             "whats-new-install",
-                            "Copy install command",
+                            t!("Copy install command"),
                             ui::Variant::Primary,
                         )
                         .on_click(move |_, _, cx| {
@@ -771,7 +774,6 @@ fn waiting(
     let blockers = update.blockers.as_slice();
     let count = blockers.len();
     let one = count == 1;
-    let them = if one { "it" } else { "them" };
     let paragraph = |text: String| div().line_height(relative(1.5)).child(text);
     let confirm = |confirming: bool| {
         let this = this.clone();
@@ -823,22 +825,23 @@ fn waiting(
             .child(label)
     };
     let keep = match news.confirming {
-        true => {
-            action("whats-new-keep-waiting", "Keep waiting".into(), false).on_click(confirm(false))
-        }
-        false => action("whats-new-not-now", "Not now".into(), false).on_click(not_now),
+        true => action("whats-new-keep-waiting", t!("Keep waiting").into(), false)
+            .on_click(confirm(false)),
+        false => action("whats-new-not-now", t!("Not now").into(), false).on_click(not_now),
     };
     let go = match news.confirming {
         true => action(
             "whats-new-force",
             match one {
-                true => "Stop it and update".into(),
-                false => format!("Stop {count} agents and update"),
+                true => t!("Stop it and update").into(),
+                false => t!("Stop {count} agents and update", count = count),
             },
             true,
         )
         .on_click(force),
-        false => action("whats-new-ask-force", "Force update".into(), true).on_click(confirm(true)),
+        false => {
+            action("whats-new-ask-force", t!("Force update").into(), true).on_click(confirm(true))
+        }
     };
     div()
         .flex()
@@ -860,19 +863,18 @@ fn waiting(
                         .font_weight(FontWeight::SEMIBOLD)
                         .child(waiting_label(count)),
                 )
-                .child(format!(
-                    "Agents at work keep running through an update, but {} still starting or in the middle of a request. The update installs on its own once {} ready.",
-                    if one { "this one is" } else { "these are" },
-                    if one { "it is" } else { "they are" },
-                )),
+                .child(match one {
+                    true => t!("Agents at work keep running through an update, but this one is still starting or in the middle of a request. The update installs on its own once it is ready."),
+                    false => t!("Agents at work keep running through an update, but these are still starting or in the middle of a request. The update installs on its own once they are ready."),
+                }),
         )
         .when(news.confirming, |section| {
             section
                 .child(div().flex().flex_col().gap(SPACE_1H).children(blockers.iter().map(|blocker| {
                     let title = blocker.title.clone().unwrap_or_else(|| blocker.agent_id.clone());
                     let state = match blocker.reason.as_str() {
-                        "starting" => "starting",
-                        _ => "busy",
+                        "starting" => t!("starting"),
+                        _ => t!("busy"),
                     };
                     div()
                         .flex()
@@ -894,10 +896,10 @@ fn waiting(
                                 .child(format!("{} · {state}", blocker.provider)),
                         )
                 })))
-                .child(paragraph(format!(
-                    "Updating now stops {them} and starts {them} again on the same chat. Whatever {} doing stops.",
-                    if one { "it was" } else { "they were" },
-                )).text_color(t.text_tertiary))
+                .child(paragraph(match one {
+                    true => t!("Updating now stops it and starts it again on the same chat. Whatever it was doing stops.").to_owned(),
+                    false => t!("Updating now stops them and starts them again on the same chat. Whatever they were doing stops.").to_owned(),
+                }).text_color(t.text_tertiary))
         })
         .child(div().flex().justify_end().gap(SPACE_2).child(keep).child(go))
 }
@@ -946,4 +948,14 @@ fn notes_markdown(
         cx,
     )
     .into_any_element()
+}
+
+fn commit_count(count: u32) -> String {
+    match count {
+        1 => t!("1 commit").to_owned(),
+        count => t!(
+            "{count} commits",
+            count = crate::ui::numbers::whole(f64::from(count))
+        ),
+    }
 }

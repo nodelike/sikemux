@@ -82,7 +82,7 @@ impl ProjectSwitcher {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let query = cx.new(|cx| InputState::new(window, cx).placeholder("Search projects…"));
+        let query = cx.new(|cx| InputState::new(window, cx).placeholder(t!("Search projects…")));
         query.update(cx, |query, cx| query.focus(window, cx));
         let typing = cx.subscribe(&query, |switcher, _, event: &InputEvent, cx| {
             if matches!(event, InputEvent::Change) {
@@ -200,9 +200,9 @@ impl Render for ProjectSwitcher {
             .then(|| {
                 list_picker::heading(
                     if choice.project.is_some() {
-                        "Open"
+                        t!("Open")
                     } else {
-                        "Found on disk"
+                        t!("Found on disk")
                     },
                     cx,
                 )
@@ -266,7 +266,7 @@ impl Render for ProjectSwitcher {
                                 .py(SPACE_2)
                                 .text_size(crate::theme::ui_text(TEXT_XS))
                                 .text_color(t.text_tertiary)
-                                .child("No matches"),
+                                .child(t!("No matches")),
                         )
                     }),
             )
@@ -300,7 +300,7 @@ pub fn around(
             let moving = core::Target::new(&asks, host)
                 .request_typed::<call::MoveAgentToProject>(MoveParams { agent_id, project });
             if let Err(error) = moving.await {
-                let note = toast::error(format!("The chat stayed where it was: {error}"));
+                let note = toast::error(t!("The chat stayed where it was: {error}", error = error));
                 let _ = bench.update(cx, |bench, cx| bench.notify(note, cx));
             }
         })

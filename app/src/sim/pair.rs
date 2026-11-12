@@ -159,7 +159,7 @@ impl Render for PairPhone {
         let quiet = |text: String| wrapped(text, TEXT_2XS, t.text_tertiary);
         let mut body = div().flex().flex_col().gap(SPACE_2);
         let mut actions = div().flex().justify_end().gap(SPACE_1H);
-        let cancel = Button::new("pair-cancel", "Cancel", Variant::Outline)
+        let cancel = Button::new("pair-cancel", t!("Cancel"), Variant::Outline)
             .on_click(cx.listener(|pairing, _, _, cx| pairing.close(cx)));
         match &self.stage {
             Stage::Scanning => {
@@ -173,12 +173,13 @@ impl Render for PairPhone {
                             .child(qr_picture(code))
                     }))
                     .child(line(
-                        "1. On the phone: Settings › Developer options › Wireless debugging".into(),
+                        t!("1. On the phone: Settings › Developer options › Wireless debugging")
+                            .into(),
                     ))
                     .child(line(
-                        "2. Tap “Pair device with QR code” and scan this".into(),
+                        t!("2. Tap “Pair device with QR code” and scan this").into(),
                     ))
-                    .child(quiet("Waiting for your phone…".into()))
+                    .child(quiet(t!("Waiting for your phone…").into()))
                     .child(
                         div()
                             .text_size(crate::theme::ui_text(TEXT_XS))
@@ -192,7 +193,7 @@ impl Render for PairPhone {
                                     cx.notify();
                                 }),
                             )
-                            .child("Use a pairing code instead"),
+                            .child(t!("Use a pairing code instead")),
                     );
                 actions = actions.child(cancel);
             }
@@ -200,16 +201,21 @@ impl Render for PairPhone {
                 let pairing = matches!(self.stage, Stage::Pairing);
                 body = body
                     .child(line(
-                        "On the phone: Wireless debugging › Pair device with pairing code.".into(),
+                        t!("On the phone: Wireless debugging › Pair device with pairing code.")
+                            .into(),
                     ))
-                    .child(quiet("IP address and port".into()))
+                    .child(quiet(t!("IP address and port").into()))
                     .child(Field::new(&self.address).mono().small())
-                    .child(quiet("Wi-Fi pairing code".into()))
+                    .child(quiet(t!("Wi-Fi pairing code").into()))
                     .child(Field::new(&self.code).mono().small());
                 actions = actions.child(cancel).child(
                     Button::new(
                         "pair-go",
-                        if pairing { "Pairing…" } else { "Pair" },
+                        if pairing {
+                            t!("Pairing…")
+                        } else {
+                            t!("Pair")
+                        },
                         Variant::Primary,
                     )
                     .when(!pairing, |button| {
@@ -219,13 +225,13 @@ impl Render for PairPhone {
             }
             Stage::Paired(name) => {
                 body = body
-                    .child(line(format!("Paired with {name}.")))
+                    .child(line(t!("Paired with {name}.", name = name)))
                     .child(quiet(
-                        "It shows in the device menu while Wireless debugging is on.".into(),
+                        t!("It shows in the device menu while Wireless debugging is on.").into(),
                     ));
                 let name = name.clone();
                 actions = actions.child(
-                    Button::new("pair-show", "Show it on the desk", Variant::Primary).on_click(
+                    Button::new("pair-show", t!("Show it on the desk"), Variant::Primary).on_click(
                         cx.listener(move |pairing, _, _, cx| pairing.show(name.clone(), cx)),
                     ),
                 );
@@ -233,7 +239,7 @@ impl Render for PairPhone {
             Stage::Failed(error) => {
                 body = body.child(line(error.clone()));
                 actions = actions.child(cancel).child(
-                    Button::new("pair-again", "Use a pairing code", Variant::Outline).on_click(
+                    Button::new("pair-again", t!("Use a pairing code"), Variant::Outline).on_click(
                         cx.listener(|pairing, _, _, cx| {
                             pairing.stage = Stage::Typing;
                             cx.notify();
@@ -254,11 +260,11 @@ impl Render for PairPhone {
                     .flex_col()
                     .gap(SPACE_1)
                     .child(
-                        ui::text("Pair a phone over Wi-Fi", TEXT_SM, FontWeight::SEMIBOLD)
+                        ui::text(t!("Pair a phone over Wi-Fi"), TEXT_SM, FontWeight::SEMIBOLD)
                             .text_color(t.text_primary),
                     )
                     .child(quiet(
-                        "The phone and this computer must be on the same network.".into(),
+                        t!("The phone and this computer must be on the same network.").into(),
                     )),
             )
             .child(body)

@@ -325,7 +325,11 @@ impl Simulators {
                     Some(error) => {
                         self.showing_next = None;
                         cx.emit(SimNews::Failed(
-                            format!("The Android Emulator was not set up: {error}").into(),
+                            t!(
+                                "The Android Emulator was not set up: {error}",
+                                error = error
+                            )
+                            .into(),
                         ));
                     }
                     None => {
@@ -459,7 +463,7 @@ impl Simulators {
         if self.android_setup.is_some() {
             return;
         }
-        self.android_setup = Some(("Starting".into(), 0.));
+        self.android_setup = Some((t!("Starting").into(), 0.));
         self.showing_next = agent.map(|agent| (agent.to_owned(), install::DEVICE_NAME.to_owned()));
         let engine = Arc::clone(&self.engine);
         crate::desk::spawn(async move {
@@ -1060,12 +1064,16 @@ impl Workbench {
     ) {
         match news {
             SimNews::Attached(agent) => self.show_simulator(agent, cx),
-            SimNews::Shot => {
-                self.notify(crate::toast::success("Screenshot saved to the Desktop"), cx)
-            }
+            SimNews::Shot => self.notify(
+                crate::toast::success(t!("Screenshot saved to the Desktop")),
+                cx,
+            ),
             SimNews::AndroidReady => {
                 crate::settings::devices_changed(self, cx);
-                self.notify(crate::toast::success("The Android Emulator is set up"), cx)
+                self.notify(
+                    crate::toast::success(t!("The Android Emulator is set up")),
+                    cx,
+                )
             }
             SimNews::Failed(error) => self.notify(crate::toast::error(error.clone()), cx),
             SimNews::Load => cx.notify(),
@@ -1091,11 +1099,11 @@ impl Workbench {
         let who = self
             .agent_by_id(&holder.agent_id)
             .and_then(|row| row.handle().map(str::to_owned))
-            .unwrap_or_else(|| "An agent".to_owned());
+            .unwrap_or_else(|| t!("An agent").to_owned());
         self.confirm(
-            format!("Shut down {}?", device.name),
-            format!("{who} is using this device."),
-            "Shut down",
+            t!("Shut down {device}?", device = device.name),
+            t!("{who} is using this device.", who = who),
+            t!("Shut down"),
             true,
             move |bench, yes, _, cx| {
                 if yes {
@@ -1185,7 +1193,7 @@ pub fn picker(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> Op
                         if group != Some(now) {
                             group = Some(now);
                             popup = popup.label(match now {
-                                Group::Running => "Running",
+                                Group::Running => t!("Running"),
                                 Group::IPhone => "iPhone",
                                 Group::IPad => "iPad",
                                 Group::Android => "Android",
@@ -1206,7 +1214,7 @@ pub fn picker(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> Op
                     if pairable {
                         let (bench, agent) = (bench_entity.clone(), agent.clone());
                         popup = popup.item(
-                            PopupMenuItem::new("Pair a phone over Wi-Fi…")
+                            PopupMenuItem::new(t!("Pair a phone over Wi-Fi…"))
                                 .icon(Icon::Phone)
                                 .on_click(move |_, window, cx| {
                                     bench.update(cx, |bench, cx| {
@@ -1222,10 +1230,10 @@ pub fn picker(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> Op
                     }
                     if let Some(bytes) = offer {
                         let (this, agent) = (this.clone(), agent.clone());
-                        popup = popup.label("Android").item(
-                            PopupMenuItem::new(format!(
-                                "Set up Android Emulator… {}",
-                                gigabytes(bytes)
+                        popup = popup.label(t!("Android")).item(
+                            PopupMenuItem::new(t!(
+                                "Set up Android Emulator… {size}",
+                                size = gigabytes(bytes)
                             ))
                             .icon(Icon::Phone)
                             .on_click(move |_, _, cx| {
@@ -1314,7 +1322,7 @@ pub fn tools(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> Any
             bar.child(button(
                 "sim-back",
                 Icon::ArrowLeft,
-                "Back",
+                t!("Back"),
                 "button",
                 fields([("button", "back".into())]),
                 cx,
@@ -1323,7 +1331,7 @@ pub fn tools(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> Any
         .child(button(
             "sim-home",
             Icon::HomeButton,
-            "Home",
+            t!("Home"),
             "button",
             fields([("button", "home".into())]),
             cx,
@@ -1331,14 +1339,14 @@ pub fn tools(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> Any
         .child(button(
             "sim-lock",
             Icon::Phone,
-            "Lock",
+            t!("Lock"),
             "button",
             fields([("button", "lock".into())]),
             cx,
         ))
         .child({
             let turning = agent.to_owned();
-            IconButton::new("sim-rotate", Icon::Rotate, "Turn the device")
+            IconButton::new("sim-rotate", Icon::Rotate, t!("Turn the device"))
                 .glyph(13.)
                 .disabled(acting)
                 .on_click(cx.listener(move |bench, _, _, cx| {
@@ -1349,14 +1357,18 @@ pub fn tools(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> Any
         })
         .child({
             let shooting = agent.to_owned();
-            IconButton::new("sim-screenshot", Icon::Camera, "Screenshot to the Desktop")
-                .glyph(13.)
-                .disabled(!sims.live(agent))
-                .on_click(cx.listener(move |bench, _, _, cx| {
-                    bench
-                        .sims
-                        .update(cx, |sims, cx| sims.screenshot(&shooting, cx))
-                }))
+            IconButton::new(
+                "sim-screenshot",
+                Icon::Camera,
+                t!("Screenshot to the Desktop"),
+            )
+            .glyph(13.)
+            .disabled(!sims.live(agent))
+            .on_click(cx.listener(move |bench, _, _, cx| {
+                bench
+                    .sims
+                    .update(cx, |sims, cx| sims.screenshot(&shooting, cx))
+            }))
         })
         .child(div().w(px(6.)))
         .child({
@@ -1365,10 +1377,10 @@ pub fn tools(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> Any
             let stopping = udid.is_some_and(|udid| sims.stopping.contains(udid));
             let live = sims.live(agent);
             let label = match (starting, stopping, live) {
-                (true, _, _) => "Starting…",
-                (_, true, _) => "Shutting down…",
-                (_, _, true) => "Shut down",
-                _ => "Start",
+                (true, _, _) => t!("Starting…"),
+                (_, true, _) => t!("Shutting down…"),
+                (_, _, true) => t!("Shut down"),
+                _ => t!("Start"),
             };
             let switching = agent.to_owned();
             IconButton::new("sim-power", Icon::Power, label)
@@ -1403,21 +1415,28 @@ pub fn body(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> AnyE
     };
     if let Some(fraction) = sims.progress {
         let percent = (fraction * 100.).round();
-        return says(format!("Getting the simulator ready… {percent}%")).into_any_element();
+        return says(t!(
+            "Getting the simulator ready… {percent}%",
+            percent = percent
+        ))
+        .into_any_element();
     }
     if let Some((step, fraction)) = &sims.android_setup {
         let percent = (fraction * 100.).round();
-        return says(format!("Setting up the Android Emulator… {percent}%"))
-            .child(ui::text(step.clone(), TEXT_XS, FontWeight::NORMAL))
-            .into_any_element();
+        return says(t!(
+            "Setting up the Android Emulator… {percent}%",
+            percent = percent
+        ))
+        .child(ui::text(step.clone(), TEXT_XS, FontWeight::NORMAL))
+        .into_any_element();
     }
     let Some(device) = sims.attached.get(agent) else {
         let message = match (&sims.problem, &sims.devices) {
             (Some(problem), _) => problem.to_string(),
             (None, Some(devices)) if devices.is_empty() => {
-                "No simulators or Android devices yet. Add an iPhone in Xcode, or an Android device with the Android Emulator.".into()
+                t!("No simulators or Android devices yet. Add an iPhone in Xcode, or an Android device with the Android Emulator.").into()
             }
-            _ => "Finding devices…".into(),
+            _ => t!("Finding devices…").into(),
         };
         let failed = sims.problem.is_some();
         let offer = sims.android_offer.filter(|_| !failed);
@@ -1426,7 +1445,10 @@ pub fn body(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> AnyE
             .when_some(offer, |column, bytes| {
                 column.child(
                     Button::new("sim-set-up-android")
-                        .label(format!("Set up Android Emulator · {}", gigabytes(bytes)))
+                        .label(t!(
+                            "Set up Android Emulator · {size}",
+                            size = gigabytes(bytes)
+                        ))
                         .on_click(cx.listener(move |bench, _, _, cx| {
                             bench
                                 .sims
@@ -1435,34 +1457,38 @@ pub fn body(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> AnyE
                 )
             })
             .when(failed, |column| {
-                column.child(Button::new("sim-list-again").label("Try again").on_click(
-                    cx.listener(|bench, _, _, cx| {
-                        bench.sims.update(cx, |sims, cx| {
-                            sims.problem = None;
-                            sims.list_devices(cx);
-                        })
-                    }),
-                ))
+                column.child(
+                    Button::new("sim-list-again")
+                        .label(t!("Try again"))
+                        .on_click(cx.listener(|bench, _, _, cx| {
+                            bench.sims.update(cx, |sims, cx| {
+                                sims.problem = None;
+                                sims.list_devices(cx);
+                            })
+                        })),
+                )
             })
             .into_any_element();
     };
     if !device.booted {
         let booting = sims.booting.contains(&device.udid);
         let message = match (&sims.problem, booting) {
-            (_, true) => format!("Starting {}…", device.name),
+            (_, true) => t!("Starting {device}…", device = device.name),
             (Some(problem), false) => problem.to_string(),
-            (None, false) => format!("{} is off.", device.name),
+            (None, false) => t!("{device} is off.", device = device.name),
         };
         let agent = agent.to_owned();
         return says(message)
             .when(!booting, |column| {
-                column.child(Button::new("sim-boot").label("Start").on_click(cx.listener(
-                    move |bench, _, _, cx| {
-                        bench
-                            .sims
-                            .update(cx, |sims, cx| sims.boot_device(&agent, cx))
-                    },
-                )))
+                column.child(
+                    Button::new("sim-boot")
+                        .label(t!("Start"))
+                        .on_click(cx.listener(move |bench, _, _, cx| {
+                            bench
+                                .sims
+                                .update(cx, |sims, cx| sims.boot_device(&agent, cx))
+                        })),
+                )
             })
             .into_any_element();
     }

@@ -8,9 +8,9 @@ use crate::theme::Tokens;
 
 pub(crate) fn gate_name(gate: Gate) -> &'static str {
     match gate {
-        Gate::Built => "Built",
-        Gate::LooksRight => "Looks right",
-        Gate::Landed => "Landed",
+        Gate::Built => t!("Built"),
+        Gate::LooksRight => t!("Looks right"),
+        Gate::Landed => t!("Landed"),
     }
 }
 

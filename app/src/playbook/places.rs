@@ -24,32 +24,32 @@ const LEVELS: [(Level, &str, &str, &str); 3] = [
     (
         Level::Yours,
         "yours",
-        "Yours",
-        "Agents ship there and report after",
+        n!("Yours"),
+        n!("Agents ship there and report after"),
     ),
     (
         Level::TellMe,
         "tellMe",
-        "Tell me",
-        "Agents ship, and tell you the moment they do",
+        n!("Tell me"),
+        n!("Agents ship, and tell you the moment they do"),
     ),
     (
         Level::Mine,
         "mine",
-        "Mine",
-        "Agents prepare it, and you say yes on a call",
+        n!("Mine"),
+        n!("Agents prepare it, and you say yes on a call"),
     ),
 ];
 
 /// What a place the person adds is recognised by, as the form offers it.
 const FACTS: [(&str, &str); 7] = [
-    ("A website", "https://hooks.example.com"),
-    ("A command", "pnpm deploy:prod"),
-    ("A Kubernetes context", "prod-eu"),
-    ("An AWS profile", "production"),
-    ("A Terraform workspace", "prod"),
-    ("A Rundeck job", "prod/deploy-*"),
-    ("A package registry", "npm"),
+    (n!("A website"), "https://hooks.example.com"),
+    (n!("A command"), "pnpm deploy:prod"),
+    (n!("A Kubernetes context"), "prod-eu"),
+    (n!("An AWS profile"), "production"),
+    (n!("A Terraform workspace"), "prod"),
+    (n!("A Rundeck job"), "prod/deploy-*"),
+    (n!("A package registry"), "npm"),
 ];
 
 /// The production places, which the tab's list counts.
@@ -69,11 +69,11 @@ pub(super) fn page(
 ) -> Vec<AnyElement> {
     let Some(playbook) = settings.playbook.as_ref() else {
         return vec![rows::section(
-            "Production places",
+            t!("Production places"),
             None,
             None,
             false,
-            rows::note("Reading…", cx),
+            rows::note(t!("Reading…"), cx),
             cx,
         )];
     };
@@ -83,7 +83,7 @@ pub(super) fn page(
     let confirmed = places.confirmed;
     let mut listed: Vec<AnyElement> = match production.is_empty() {
         true => vec![rows::note(
-            "None found. Tell any agent where the project ships, or add it here.",
+            t!("None found. Tell any agent where the project ships, or add it here."),
             cx,
         )],
         false => (production.iter())
@@ -95,15 +95,15 @@ pub(super) fn page(
     }
     let (meta, sub) = match confirmed {
         Some(at) => (
-            format!(
-                "{} · you confirmed the list on {}",
-                production.len(),
-                said::day(at)
+            t!(
+                "{count} · you confirmed the list on {day}",
+                count = production.len(),
+                day = said::day(at)
             ),
-            "Agents run everything else. A change to one of these waits for your yes on a call, unless its level says otherwise.".to_owned(),
+            t!("Agents run everything else. A change to one of these waits for your yes on a call, unless its level says otherwise.").to_owned(),
         ),
         None => (
-            "found by Sikemux, not confirmed yet".to_owned(),
+            t!("found by Sikemux, not confirmed yet").to_owned(),
             unconfirmed_words(&production),
         ),
     };
@@ -113,7 +113,7 @@ pub(super) fn page(
     let add = (confirmed.is_some() && settings.adding.is_none())
         .then(|| add_button(folder, Variant::Ghost, this).into_any_element());
     let mut page = vec![rows::section_with(
-        "Production places",
+        t!("Production places"),
         Some(meta.into()),
         add,
         Some(sub.into()),
@@ -123,7 +123,7 @@ pub(super) fn page(
     )];
     if !other.is_empty() {
         page.push(rows::section(
-            "Other places",
+            t!("Other places"),
             None,
             None,
             false,
@@ -147,19 +147,27 @@ fn unconfirmed_words(production: &[&Place]) -> String {
         }
     }
     let read = match sources.split_last() {
-        None => String::new(),
-        Some((last, [])) => format!("Read from {last}. "),
-        Some((last, rest)) => format!("Read from {} and {last}. ", rest.join(", ")),
+        None => None,
+        Some((last, [])) => Some(t!("Read from {source}.", source = last)),
+        Some((last, rest)) => Some(t!(
+            "Read from {sources} and {last}.",
+            sources = rest.join(", "),
+            last = last
+        )),
     };
-    let which = match production.len() {
+    let waits = match production.len() {
         0 => {
-            return "Until you confirm, a change to any place found waits for your yes.".to_owned()
+            return t!("Until you confirm, a change to any place found waits for your yes.")
+                .to_owned()
         }
-        1 => "it",
-        2 => "either",
-        _ => "any of them",
+        1 => t!("Until you confirm, a change to it waits for your yes."),
+        2 => t!("Until you confirm, a change to either waits for your yes."),
+        _ => t!("Until you confirm, a change to any of them waits for your yes."),
     };
-    format!("{read}Until you confirm, a change to {which} waits for your yes.")
+    match read {
+        Some(read) => format!("{read} {waits}"),
+        None => waits.to_owned(),
+    }
 }
 
 fn place_row(
@@ -172,24 +180,41 @@ fn place_row(
     let word = level_word(place.level);
     let under = match &place.said_by {
         Some(said_by) => {
-            let whom = match (&said_by.with, place.said_from.as_deref()) {
-                (Some(with), _) => format!(" in chat with {}", said::at_name(with.name.as_deref())),
-                (None, Some(from)) if from.starts_with("a ") => format!(" on {from}"),
-                (None, Some(from)) => format!(" in {from}"),
-                (None, None) => String::new(),
+            let day = said::day(said_by.at);
+            let words = match (&said_by.with, place.said_from.as_deref()) {
+                (Some(with), _) => t!(
+                    "{level}, since you said so in chat with {name} on {day}",
+                    level = word,
+                    name = said::at_name(with.name.as_deref()),
+                    day = day
+                ),
+                (None, Some(from)) if from.starts_with("a ") => t!(
+                    "{level}, since you said so on {place} on {day}",
+                    level = word,
+                    place = from,
+                    day = day
+                ),
+                (None, Some(from)) => t!(
+                    "{level}, since you said so in {place} on {day}",
+                    level = word,
+                    place = from,
+                    day = day
+                ),
+                (None, None) => t!(
+                    "{level}, since you said so on {day}",
+                    level = word,
+                    day = day
+                ),
             };
             let undo = place.was.map(|was| {
                 let (folder, id) = (folder.to_owned(), place.id.clone());
-                Action::new("Undo", move |bench, cx| {
+                Action::new(t!("Undo"), move |bench, cx| {
                     set_level(bench, &folder, &id, was, cx)
                 })
             });
             said::line(
                 format!("playbook-place-{}", place.id),
-                format!(
-                    "{word}, since you said so{whom} on {}",
-                    said::day(said_by.at)
-                ),
+                words,
                 Moment::of(said_by),
                 undo.into_iter().collect(),
                 this,
@@ -217,8 +242,8 @@ fn place_row(
 /// answered as picked".
 fn found_words(place: &Place) -> String {
     let found = place.found_in.as_ref().map_or_else(
-        || "Added by you".to_owned(),
-        |found| format!("Found in {found}"),
+        || t!("Added by you").to_owned(),
+        |found| t!("Found in {file}", file = found),
     );
     match calls_words(&place.stats) {
         Some(calls) => format!("{found} · {calls}"),
@@ -230,11 +255,18 @@ fn calls_words(stats: &PlaceStats) -> Option<String> {
     let (asked, picked, overruled) = (stats.asked, stats.as_picked, stats.overruled);
     Some(match asked {
         0 => return None,
-        1 if picked == 1 => "1 call, answered as picked".to_owned(),
-        1 if overruled == 1 => "1 call, answered against the pick".to_owned(),
-        1 => "1 call".to_owned(),
-        _ if picked == asked => format!("{asked} calls, all {asked} answered as picked"),
-        _ => format!("{asked} calls, {picked} answered as picked"),
+        1 if picked == 1 => t!("1 call, answered as picked").to_owned(),
+        1 if overruled == 1 => t!("1 call, answered against the pick").to_owned(),
+        1 => t!("1 call").to_owned(),
+        _ if picked == asked => t!(
+            "{asked} calls, all {asked} answered as picked",
+            asked = asked
+        ),
+        _ => t!(
+            "{asked} calls, {picked} answered as picked",
+            asked = asked,
+            picked = picked
+        ),
     })
 }
 
@@ -252,7 +284,7 @@ fn level_word(level: Level) -> &'static str {
     LEVELS
         .iter()
         .find(|(each, ..)| *each == level)
-        .map_or("Mine", |(_, _, word, _)| word)
+        .map_or(t!("Mine"), |(_, _, word, _)| crate::i18n::tr(*word))
 }
 
 /// The place's level as a word, whose menu says what each level lets agents do.
@@ -277,7 +309,9 @@ fn level_select(
         level_word(shown),
         LEVELS
             .iter()
-            .map(|(_, key, word, hint)| Pick::new(*key, *word).hint(*hint))
+            .map(|(_, key, word, hint)| {
+                Pick::new(*key, crate::i18n::tr(*word)).hint(crate::i18n::tr(*hint))
+            })
             .collect(),
         chosen,
         false,
@@ -310,7 +344,7 @@ fn set_level(
     let folder = folder.to_owned();
     bench.report(
         asked,
-        "The level was not changed",
+        t!("The level was not changed"),
         move |bench, _, cx| bench.reload_playbook(&folder, cx),
         cx,
     );
@@ -319,9 +353,12 @@ fn set_level(
 fn other_row(place: &Place, cx: &mut Context<Workbench>) -> AnyElement {
     let words = match &place.found_in {
         Some(found) => {
-            format!("Not production · found in {found} · agents deploy here without asking")
+            t!(
+                "Not production · found in {file} · agents deploy here without asking",
+                file = found
+            )
         }
-        None => "Not production · agents deploy here without asking".to_owned(),
+        None => t!("Not production · agents deploy here without asking").to_owned(),
     };
     rows::row_parts(
         Some(mark(place, cx)),
@@ -330,7 +367,7 @@ fn other_row(place: &Place, cx: &mut Context<Workbench>) -> AnyElement {
         div()
             .text_size(crate::theme::ui_text(crate::theme::TEXT_XS))
             .text_color(Tokens::get(cx).text_primary)
-            .child("Yours"),
+            .child(t!("Yours")),
         cx,
     )
     .into_any_element()
@@ -419,7 +456,7 @@ fn connector_mark(name: &str) -> Icon {
 
 fn add_button(folder: &str, variant: Variant, this: &Entity<Workbench>) -> Button {
     let (this, folder) = (this.clone(), folder.to_owned());
-    Button::new("playbook-place-add", "Add a place", variant).on_click(move |_, window, cx| {
+    Button::new("playbook-place-add", t!("Add a place"), variant).on_click(move |_, window, cx| {
         this.update(cx, |bench, cx| {
             if let Some(settings) = bench.settings_of(&folder) {
                 settings.adding = Some(0);
@@ -441,26 +478,30 @@ fn confirm_foot(
 ) -> AnyElement {
     let t = Tokens::get(cx).clone();
     let (confirm, confirm_folder) = (this.clone(), folder.to_owned());
-    let looks_right = Button::new("playbook-places-confirm", "Looks right", Variant::Primary)
-        .on_click(move |_, _, cx| {
-            confirm.update(cx, |bench, cx| {
-                let asked = bench
-                    .target()
-                    .request_typed::<call::ConfirmPlaces>(PlacesParams {
-                        project: confirm_folder.clone(),
-                    });
-                let folder = confirm_folder.clone();
-                bench.report(
-                    asked,
-                    "The list was not confirmed",
-                    move |bench, _, cx| {
-                        bench.notify(toast::success("Production places confirmed"), cx);
-                        bench.reload_playbook(&folder, cx);
-                    },
-                    cx,
-                );
-            })
-        });
+    let looks_right = Button::new(
+        "playbook-places-confirm",
+        t!("Looks right"),
+        Variant::Primary,
+    )
+    .on_click(move |_, _, cx| {
+        confirm.update(cx, |bench, cx| {
+            let asked = bench
+                .target()
+                .request_typed::<call::ConfirmPlaces>(PlacesParams {
+                    project: confirm_folder.clone(),
+                });
+            let folder = confirm_folder.clone();
+            bench.report(
+                asked,
+                t!("The list was not confirmed"),
+                move |bench, _, cx| {
+                    bench.notify(toast::success(t!("Production places confirmed")), cx);
+                    bench.reload_playbook(&folder, cx);
+                },
+                cx,
+            );
+        })
+    });
     div()
         .flex()
         .items_center()
@@ -473,7 +514,7 @@ fn confirm_foot(
                 .min_w_0()
                 .text_size(crate::theme::ui_text(crate::theme::TEXT_2XS_H))
                 .text_color(t.text_tertiary)
-                .child("Something missing? Tell any agent, or add it here."),
+                .child(t!("Something missing? Tell any agent, or add it here.")),
         )
         .when(!adding, |foot| {
             foot.child(add_button(folder, Variant::Ghost, this))
@@ -491,13 +532,16 @@ fn add_form(
 ) -> AnyElement {
     let kind = settings.adding.unwrap_or(0);
     let (label, _) = FACTS.get(kind).copied().unwrap_or(FACTS[0]);
+    let label = crate::i18n::tr(label);
     let picking = {
         let (this, folder) = (this.clone(), folder.to_owned());
         select(
             "playbook-place-fact",
             label,
             (FACTS.iter().enumerate())
-                .map(|(at, (label, example))| Pick::new(at.to_string(), *label).hint(*example))
+                .map(|(at, (label, example))| {
+                    Pick::new(at.to_string(), crate::i18n::tr(label)).hint(*example)
+                })
                 .collect(),
             Some(kind.to_string().into()),
             false,
@@ -517,14 +561,15 @@ fn add_form(
         )
     };
     let (save, save_folder) = (this.clone(), folder.to_owned());
-    let add =
-        Button::new("playbook-place-save", "Add", Variant::Primary).on_click(move |_, _, cx| {
+    let add = Button::new("playbook-place-save", t!("Add"), Variant::Primary).on_click(
+        move |_, _, cx| {
             let folder = save_folder.clone();
             save.update(cx, |bench, cx| add_place(bench, &folder, cx))
-        });
+        },
+    );
     let (cancel, cancel_folder) = (this.clone(), folder.to_owned());
-    let close =
-        Button::new("playbook-place-cancel", "Cancel", Variant::Ghost).on_click(move |_, _, cx| {
+    let close = Button::new("playbook-place-cancel", t!("Cancel"), Variant::Ghost).on_click(
+        move |_, _, cx| {
             let folder = cancel_folder.clone();
             cancel.update(cx, |bench, cx| {
                 if let Some(settings) = bench.settings_of(&folder) {
@@ -532,7 +577,8 @@ fn add_form(
                 }
                 bench.parts.redraw_stage(cx);
             })
-        });
+        },
+    );
     div()
         .flex()
         .flex_col()
@@ -591,7 +637,7 @@ fn add_place(bench: &mut Workbench, folder: &str, cx: &mut Context<Workbench>) {
     let folder = folder.to_owned();
     bench.report(
         asked,
-        "The place was not added",
+        t!("The place was not added"),
         move |bench, _, cx| {
             if let Some(settings) = bench.settings_of(&folder) {
                 settings.adding = None;
@@ -610,25 +656,25 @@ fn seen_section(
 ) -> AnyElement {
     let (meta, sub) = match places.seen.len() {
         0 => (
-            "none yet".to_owned(),
-            "What agents send out that nothing can place shows here after it runs.",
+            t!("none yet").to_owned(),
+            t!("What agents send out that nothing can place shows here after it runs."),
         ),
         count => (
             count.to_string(),
-            "Agents sent these out and nothing could place them, so they ran. Each is listed once.",
+            t!("Agents sent these out and nothing could place them, so they ran. Each is listed once."),
         ),
     };
     let more = (places.more_seen > 0).then(|| {
         rows::note(
-            format!(
-                "And {} more, not listed while the list is full. Count some as production to make room.",
-                places.more_seen
+            t!(
+                "And {count} more, not listed while the list is full. Count some as production to make room.",
+                count = places.more_seen
             ),
             cx,
         )
     });
     rows::section(
-        "Seen, not gated",
+        t!("Seen, not gated"),
         Some(meta.into()),
         Some(sub.into()),
         false,
@@ -651,14 +697,19 @@ fn seen_row(
     cx: &mut Context<Workbench>,
 ) -> AnyElement {
     let label = match &seen.from {
-        Some(from) => format!("{}, from {from}", seen.what),
+        Some(from) => t!("{what}, from {source}", what = seen.what, source = from),
         None => seen.what.clone(),
     };
     let who = said::at_name(seen.last_name.as_deref());
     let when = ui::time::ago(seen.last_at);
     let words = match seen.times {
-        1 => format!("Ran once · {who}, {when}"),
-        times => format!("Ran {times} times · last by {who}, {when}"),
+        1 => t!("Ran once · {who}, {when}", who = who, when = when),
+        times => t!(
+            "Ran {times} times · last by {who}, {when}",
+            times = times,
+            who = who,
+            when = when
+        ),
     };
     let tint = Tokens::get(cx).text_secondary;
     let icon = match seen.what.contains(' ') {
@@ -668,7 +719,7 @@ fn seen_row(
     let (this, folder, id) = (this.clone(), folder.to_owned(), seen.id.clone());
     let count = Button::new(
         SharedString::from(format!("playbook-seen-{}", seen.id)),
-        "Count as production",
+        t!("Count as production"),
         Variant::Outline,
     )
     .on_click(move |_, _, cx| {
@@ -682,7 +733,7 @@ fn seen_row(
                 });
             bench.report(
                 asked,
-                "It was not counted as production",
+                t!("It was not counted as production"),
                 move |bench, _, cx| bench.reload_playbook(&folder, cx),
                 cx,
             );

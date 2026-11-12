@@ -62,15 +62,15 @@ enum Page {
 
 /// What the Playbook decided, above the settings, which a hairline parts.
 const DECIDED: [(Page, &str, Icon); 4] = [
-    (Page::Rules, "Rules", Icon::Book),
-    (Page::Places, "Places", Icon::Shield),
-    (Page::Landing, "Landing", Icon::Merge),
-    (Page::Automation, "Automation", Icon::Bolt),
+    (Page::Rules, n!("Rules"), Icon::Book),
+    (Page::Places, n!("Places"), Icon::Shield),
+    (Page::Landing, n!("Landing"), Icon::Merge),
+    (Page::Automation, n!("Automation"), Icon::Bolt),
 ];
 
 const SETTINGS: [(Page, &str, Icon); 4] = [
-    (Page::General, "General", Icon::Settings),
-    (Page::Processes, "Processes", Icon::Run),
+    (Page::General, n!("General"), Icon::Settings),
+    (Page::Processes, n!("Processes"), Icon::Run),
     (Page::Git, "Git", Icon::Git),
     (Page::Config, "sikemux.json", Icon::Code),
 ];
@@ -210,7 +210,7 @@ impl Workbench {
         let folder = folder.to_owned();
         self.report(
             saving,
-            "The check command was not saved",
+            t!("The check command was not saved"),
             move |bench, _, cx| bench.reload_config(&folder, cx),
             cx,
         );
@@ -247,14 +247,14 @@ impl Workbench {
     fn remove_task(&mut self, folder: &str, task: &TaskView, cx: &mut Context<Self>) {
         let (id, label) = (&task.id, &task.label);
         let body = match task.source {
-            Source::Personal => "It comes out of .sikemux/tasks.json.",
-            _ => "It comes out of sikemux.json; commit that to remove it for the team.",
+            Source::Personal => t!("It comes out of .sikemux/tasks.json."),
+            _ => t!("It comes out of sikemux.json; commit that to remove it for the team."),
         };
         let (folder, id) = (folder.to_owned(), id.to_owned());
         self.confirm(
-            format!("Remove {label}?"),
+            t!("Remove {label}?", label = label),
             body,
-            "Remove",
+            t!("Remove"),
             true,
             move |bench, yes, _, _| {
                 if yes {
@@ -286,12 +286,14 @@ impl Workbench {
 }
 
 fn make(bench: &mut Workbench, folder: String, window: &mut Window, cx: &mut Context<Workbench>) {
-    let check = cx.new(|cx| InputState::new(window, cx).placeholder("pnpm check"));
-    let filter = cx.new(|cx| InputState::new(window, cx).placeholder("Filter processes"));
-    let place_name = cx
-        .new(|cx| InputState::new(window, cx).placeholder("Its name, such as acme.dev on Vercel"));
+    let check = cx.new(|cx| InputState::new(window, cx).placeholder(t!("pnpm check")));
+    let filter = cx.new(|cx| InputState::new(window, cx).placeholder(t!("Filter processes")));
+    let place_name = cx.new(|cx| {
+        InputState::new(window, cx).placeholder(t!("Its name, such as acme.dev on Vercel"))
+    });
     let place_fact = cx.new(|cx| {
-        InputState::new(window, cx).placeholder("Its address, command or name, as the menu shows")
+        InputState::new(window, cx)
+            .placeholder(t!("Its address, command or name, as the menu shows"))
     });
     let saving = {
         let folder = folder.clone();
@@ -366,7 +368,7 @@ fn space_choice(
     cx: &mut Context<Workbench>,
 ) -> (rows::Choice, Vec<String>) {
     let spaces = space_ids(bench);
-    let mut labels = vec![SharedString::from("No Space")];
+    let mut labels = vec![SharedString::from(t!("No Space"))];
     if let Some(view) = bench.shown() {
         labels.extend(
             view.workspace
@@ -488,7 +490,7 @@ pub fn pane(
             .when(on, |row| row.bg(t.surface_chosen))
             .when(!on, |row| row.hover(|row| row.bg(t.surface_hover)))
             .child(ui::icon(icon, 13.).text_color(ink))
-            .child(div().flex_1().child(label))
+            .child(div().flex_1().child(crate::i18n::tr(label)))
             .when(count > 0, |row| {
                 row.child(
                     div()
@@ -562,9 +564,13 @@ pub fn pane(
         .children(nav)
         .child(div().flex_1())
         .child(
-            Button::new("project-reveal", ui::REVEAL, Variant::Outline)
-                .icon(Icon::Folder)
-                .on_click(move |_, _, cx| cx.reveal_path(&revealed)),
+            Button::new(
+                "project-reveal",
+                crate::i18n::tr(ui::REVEAL),
+                Variant::Outline,
+            )
+            .icon(Icon::Folder)
+            .on_click(move |_, _, cx| cx.reveal_path(&revealed)),
         );
     let body: Vec<AnyElement> = match settings.page {
         Page::Rules => rules::page(settings.playbook.as_ref(), folder, &this, cx),
@@ -623,8 +629,8 @@ fn general(
     let defaults = preferences.agent_worktree_defaults.clone();
     let body = div()
         .child(rows::row(
-            "New chats start in a worktree",
-            Some("An agent gets its own checkout, so its edits stay off your branch until you merge them."),
+            t!("New chats start in a worktree"),
+            Some(t!("An agent gets its own checkout, so its edits stay off your branch until you merge them.")),
             Switch::new("project-worktree").checked(worktree).on_change(
                 move |on: &bool, _, cx| {
                     let on = *on;
@@ -642,8 +648,8 @@ fn general(
             cx,
         ))
         .child(rows::row(
-            "Language servers",
-            Some("They can run code from the project, such as its build scripts. Only allow them for projects you trust."),
+            t!("Language servers"),
+            Some(t!("They can run code from the project, such as its build scripts. Only allow them for projects you trust.")),
             Switch::new("project-language-servers").checked(servers).on_change(
                 move |on: &bool, _, cx| {
                     let on = *on;
@@ -655,15 +661,15 @@ fn general(
             cx,
         ))
         .child(rows::row(
-            "Space",
-            Some("The rail shows the project under this space."),
+            t!("Space"),
+            Some(t!("The rail shows the project under this space.")),
             settings.space.view(),
             cx,
         ));
     rows::section(
-        "General",
+        t!("General"),
         None,
-        Some("Kept in Sikemux, not in the repository.".into()),
+        Some(t!("Kept in Sikemux, not in the repository.").into()),
         false,
         body,
         cx,
@@ -685,7 +691,7 @@ fn run_button(
     let label = &task.label;
     let (this, folder) = (this.clone(), folder.to_owned());
     let task_id = task.id.clone();
-    IconButton::new(id, Icon::Run, format!("Run {label}"))
+    IconButton::new(id, Icon::Run, t!("Run {label}", label = label))
         .small()
         .on_click(move |_, _, cx| {
             this.update(cx, |bench, cx| {
@@ -747,9 +753,9 @@ fn tasks(
             .when(cwd != ".", |row| row.child(ui::meta(cwd, cx)))
             .child(ui::meta(
                 if task.source == Source::Personal {
-                    "Only me"
+                    t!("Only me")
                 } else {
-                    "Team"
+                    t!("Team")
                 },
                 cx,
             ))
@@ -764,7 +770,7 @@ fn tasks(
                 IconButton::new(
                     SharedString::from(format!("own-edit-{at}")),
                     Icon::Pencil,
-                    "Edit",
+                    t!("Edit"),
                 )
                 .small()
                 .on_click(move |_, window, cx| {
@@ -775,7 +781,7 @@ fn tasks(
                 IconButton::new(
                     SharedString::from(format!("own-remove-{at}")),
                     Icon::Trash,
-                    "Remove",
+                    t!("Remove"),
                 )
                 .small()
                 .on_click(move |_, _, cx| {
@@ -787,19 +793,19 @@ fn tasks(
             .into_any_element()
     });
     let mine_body: AnyElement = match (&listed, mine.is_empty()) {
-        (None, _) => rows::note("Reading the project's processes…", cx),
-        (Some(_), true) => rows::note("No processes of your own yet.", cx),
+        (None, _) => rows::note(t!("Reading the project's processes…"), cx),
+        (Some(_), true) => rows::note(t!("No processes of your own yet."), cx),
         (Some(_), false) => div().children(mine_rows).into_any_element(),
     };
     let adding = this.clone();
-    let add = Button::new("project-add-task", "Add a process", Variant::Outline)
+    let add = Button::new("project-add-task", t!("Add a process"), Variant::Outline)
         .icon(Icon::Plus)
         .on_click(move |_, window, cx| adding.update(cx, |bench, cx| bench.add_task(window, cx)));
     let mut sections = vec![rows::section_with(
-        "Your processes",
+        t!("Your processes"),
         None,
         Some(add.into_any_element()),
-        Some("Commands the run button and agents start. For the team goes in sikemux.json, which you commit; Only me stays in .sikemux/, which Git ignores.".into()),
+        Some(t!("Commands the run button and agents start. For the team goes in sikemux.json, which you commit; Only me stays in .sikemux/, which Git ignores.").into()),
         false,
         mine_body,
         cx,
@@ -848,7 +854,7 @@ fn tasks(
                     ui::icon(Icon::Chevron, 11.),
                 ))
                 .child(div().flex_1().child(if cwd == "." {
-                    "Project root".to_owned()
+                    t!("Project root").to_owned()
                 } else {
                     cwd.clone()
                 }))
@@ -923,12 +929,15 @@ fn tasks(
             )
             .children(groups)
             .when(shown.is_empty(), |body| {
-                body.child(rows::note("No process matches.", cx))
+                body.child(rows::note(t!("No process matches."), cx))
             });
         sections.push(rows::section(
-            "Found in the build files",
-            Some(format!("{} processes", shown.len()).into()),
-            Some("Read from package.json, Cargo, Maven, Gradle and the rest; change those files to change these.".into()),
+            t!("Found in the build files"),
+            Some(match shown.len() {
+                1 => t!("1 process").into(),
+                count => t!("{count} processes", count = count).into(),
+            }),
+            Some(t!("Read from package.json, Cargo, Maven, Gradle and the rest; change those files to change these.").into()),
             false,
             body,
             cx,
@@ -939,16 +948,16 @@ fn tasks(
         .as_ref()
         .is_some_and(|config| matches!(config.load, ConfigLoad::Invalid { .. }));
     sections.push(rows::section(
-        "Check",
+        t!("Check"),
         None,
-        Some("Sikemux runs it on each commit, and agents run it on a card's change when its pull request has no CI.".into()),
+        Some(t!("Sikemux runs it on each commit, and agents run it on a card's change when its pull request has no CI.").into()),
         false,
         rows::row(
-            "Check command",
+            t!("Check command"),
             Some(if invalid {
-                "sikemux.json has mistakes; fix them to change the check."
+                t!("sikemux.json has mistakes; fix them to change the check.")
             } else {
-                "Saved in sikemux.json for everyone. Leave it empty for none."
+                t!("Saved in sikemux.json for everyone. Leave it empty for none.")
             }),
             div().w(px(240.)).child(Field::new(&settings.check).mono()),
             cx,
@@ -973,12 +982,12 @@ fn git(
     let chosen = preferences.default_git_repos.get(folder).cloned();
     let body: AnyElement = match &settings.repos {
         _ if itself => rows::note(
-            "This project folder is a repository itself, so its Git views use it.",
+            t!("This project folder is a repository itself, so its Git views use it."),
             cx,
         ),
-        None => rows::note("Looking for repositories…", cx),
+        None => rows::note(t!("Looking for repositories…"), cx),
         Some(repos) if repos.is_empty() => rows::note(
-            "There is no repository in this folder or the folders directly inside it.",
+            t!("There is no repository in this folder or the folders directly inside it."),
             cx,
         ),
         Some(repos) => {
@@ -1020,7 +1029,7 @@ fn git(
                             .child(detail),
                     )
                     .when(changes > 0, |row| {
-                        row.child(ui::meta(format!("{changes} changed"), cx))
+                        row.child(ui::meta(t!("{changes} changed", changes = changes), cx))
                     })
                     .on_click(move |_, _, cx| {
                         let (repos, pick) = (repos.clone(), pick.clone());
@@ -1041,14 +1050,14 @@ fn git(
                 chosen.is_none(),
                 None,
                 if only {
-                    "The only one inside"
+                    t!("The only one inside")
                 } else {
-                    "Ask each time"
+                    t!("Ask each time")
                 }
                 .to_owned(),
                 match only {
                     true => repos[0].name.clone(),
-                    false => "the Git pane lists them".to_owned(),
+                    false => t!("the Git pane lists them").to_owned(),
                 },
                 0,
                 None,
@@ -1062,7 +1071,7 @@ fn git(
                     Some(Icon::Git),
                     repo.name.clone(),
                     if branch.is_empty() {
-                        "no commits"
+                        t!("no commits")
                     } else {
                         branch
                     }
@@ -1074,7 +1083,7 @@ fn git(
             let opened = chosen.as_deref().and_then(|chosen| {
                 Path::new(chosen)
                     .file_name()
-                    .map(|name| format!("Git views open {}.", name.to_string_lossy()))
+                    .map(|name| t!("Git views open {name}.", name = name.to_string_lossy()))
             });
             div()
                 .child(first)
@@ -1084,9 +1093,9 @@ fn git(
         }
     };
     rows::section(
-        "Default git repository",
+        t!("Default git repository"),
         None,
-        Some("When the project folder holds several repositories, its Git pane, the branch in the top bar, the diff pane and new agent worktrees use this one.".into()),
+        Some(t!("When the project folder holds several repositories, its Git pane, the branch in the top bar, the diff pane and new agent worktrees use this one.").into()),
         false,
         body,
         cx,
@@ -1106,7 +1115,7 @@ fn config(
             None,
             None,
             false,
-            rows::note("Reading sikemux.json…", cx),
+            rows::note(t!("Reading sikemux.json…"), cx),
             cx,
         );
     };
@@ -1117,28 +1126,26 @@ fn config(
     };
     let (label, about) = match (&config.load, trusted) {
         (ConfigLoad::Absent { .. }, _) => (
-            "Not made yet",
-            "Adding a process for the team makes it.".to_owned(),
+            t!("Not made yet"),
+            t!("Adding a process for the team makes it.").to_owned(),
         ),
         (ConfigLoad::Invalid { .. }, _) => (
-            "Has mistakes",
-            format!(
-                "{} {}; Sikemux ignores the file until they are fixed.",
-                errors.len(),
-                if errors.len() == 1 {
-                    "problem"
-                } else {
-                    "problems"
-                }
-            ),
+            t!("Has mistakes"),
+            match errors.len() {
+                1 => t!("1 problem; Sikemux ignores the file until it is fixed.").to_owned(),
+                count => t!(
+                    "{count} problems; Sikemux ignores the file until they are fixed.",
+                    count = count
+                ),
+            },
         ),
         (_, true) => (
-            "Trusted",
-            "Sikemux runs its commands without asking until the file changes.".to_owned(),
+            t!("Trusted"),
+            t!("Sikemux runs its commands without asking until the file changes.").to_owned(),
         ),
         (_, false) => (
-            "Not trusted yet",
-            "Sikemux asks before it runs any of its commands.".to_owned(),
+            t!("Not trusted yet"),
+            t!("Sikemux asks before it runs any of its commands.").to_owned(),
         ),
     };
     let path = PathBuf::from(match &config.load {
@@ -1156,16 +1163,18 @@ fn config(
         .gap(SPACE_1H)
         .when(valid && !trusted, |controls| {
             controls.child(
-                Button::new("config-trust", "Trust", Variant::Outline).on_click(move |_, _, cx| {
-                    trusting.update(cx, |bench, cx| bench.trust_config(&folder, cx))
-                }),
+                Button::new("config-trust", t!("Trust"), Variant::Outline).on_click(
+                    move |_, _, cx| {
+                        trusting.update(cx, |bench, cx| bench.trust_config(&folder, cx))
+                    },
+                ),
             )
         })
         .when(!absent, |controls| {
             controls.child(
-                Button::new("config-open", "Open", Variant::Outline).on_click(move |_, _, cx| {
-                    opening.update(cx, |bench, cx| bench.open_file(&path, cx))
-                }),
+                Button::new("config-open", t!("Open"), Variant::Outline).on_click(
+                    move |_, _, cx| opening.update(cx, |bench, cx| bench.open_file(&path, cx)),
+                ),
             )
         });
     let mistakes = errors.iter().map(|error| {
@@ -1190,7 +1199,7 @@ fn config(
     rows::section(
         "sikemux.json",
         None,
-        Some("The project's actions, processes and preview, checked into the repository for everyone who opens it.".into()),
+        Some(t!("The project's actions, processes and preview, checked into the repository for everyone who opens it.").into()),
         false,
         div()
             .child(rows::row_with(None, label, Some(about.into()), controls, cx))

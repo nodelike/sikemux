@@ -93,16 +93,19 @@ fn typed(query: &str) -> Option<Row> {
         };
         let mark = crate::chat::link::service_mark(&web).unwrap_or(Icon::Git);
         return Some(
-            Row::new(format!("{CLONE}{query}"), format!("Clone {name}"))
-                .meta("into a new project")
+            Row::new(format!("{CLONE}{query}"), t!("Clone {name}", name = name))
+                .meta(t!("into a new project"))
                 .mark(Mark::Place(mark)),
         );
     }
     (!query.is_empty()).then(|| {
-        Row::new(format!("{NEW}{query}"), format!("New project “{query}”"))
-            .meta("a new git repository")
-            .mark(Mark::Place(Icon::FolderPlus))
-            .trailing()
+        Row::new(
+            format!("{NEW}{query}"),
+            t!("New project “{name}”", name = query),
+        )
+        .meta(t!("a new git repository"))
+        .mark(Mark::Place(Icon::FolderPlus))
+        .trailing()
     })
 }
 
@@ -124,9 +127,9 @@ fn folder_typed(query: &str) -> Option<Row> {
     Some(
         Row::new(format!("{FOLDER}{path}"), shown)
             .meta(if folder {
-                "open as project"
+                t!("open as project")
             } else {
-                "no folder here"
+                t!("no folder here")
             })
             .mark(Mark::Place(Icon::FolderPlus))
             .disabled(!folder),
@@ -200,7 +203,10 @@ impl Workbench {
         cx.spawn(async move |bench, cx| match added.await {
             Ok(project) => Some(project.id),
             Err(error) => {
-                let note = toast::error(format!("The folder did not open as a project: {error}"));
+                let note = toast::error(t!(
+                    "The folder did not open as a project: {error}",
+                    error = error
+                ));
                 let _ = bench.update(cx, |bench, cx| bench.notify(note, cx));
                 None
             }
@@ -234,15 +240,17 @@ impl Workbench {
         });
         let placeholder = match (picking, then) {
             (_, ThenPicked::MoveAgent) => {
-                format!("move {} to…", moved.unwrap_or_default())
+                t!("move {agent} to…", agent = moved.unwrap_or_default())
             }
-            (_, ThenPicked::StartChat) => "start a chat in a project or type a path…".to_owned(),
+            (_, ThenPicked::StartChat) => {
+                t!("start a chat in a project or type a path…").to_owned()
+            }
             (Picking::Projects, _) => {
-                "open a project, type a path, a new name or a repo URL…".to_owned()
+                t!("open a project, type a path, a new name or a repo URL…").to_owned()
             }
-            (Picking::Hosts, _) => "connect to a host…".to_owned(),
+            (Picking::Hosts, _) => t!("connect to a host…").to_owned(),
             (Picking::Both, _) => {
-                "open a project or host, or type a path, name or repo URL…".to_owned()
+                t!("open a project or host, or type a path, name or repo URL…").to_owned()
             }
         };
         let spec = Spec::new(
@@ -254,9 +262,9 @@ impl Workbench {
             },
         )
         .empty(if picking == Picking::Hosts {
-            "no hosts in ~/.ssh/config match"
+            t!("no hosts in ~/.ssh/config match")
         } else {
-            "no projects match"
+            t!("no projects match")
         });
         let spec = match picking.projects() {
             true => spec
@@ -264,7 +272,7 @@ impl Workbench {
                     ThenPicked::MoveAgent => folder_typed,
                     _ => typed as fn(&str) -> Option<Row>,
                 })
-                .aside(Icon::Folder, "Open folder", move |bench, window, cx| {
+                .aside(Icon::Folder, t!("Open folder"), move |bench, window, cx| {
                     bench.close_palette(window, cx);
                     let picked = cx.prompt_for_paths(PathPromptOptions {
                         files: false,
@@ -330,7 +338,7 @@ impl Workbench {
                     Row::new(format!("{PROJECT}{}", project.id), project.name.clone())
                         .path(folder)
                         .mark(Mark::Place(Icon::Folder))
-                        .group("Projects")
+                        .group(t!("Projects"))
                         .also(&path),
                 );
             }
@@ -356,7 +364,7 @@ impl Workbench {
                     Row::new(format!("{FOLDER}{path}"), name.to_owned())
                         .path(folder)
                         .mark(Mark::Place(Icon::FolderPlus))
-                        .group("Folders")
+                        .group(t!("Folders"))
                         .also(&shown),
                 );
             }
@@ -369,7 +377,7 @@ impl Workbench {
                     Row::new(format!("{HOST}{alias}"), alias.to_owned())
                         .meta(line.clone())
                         .mark(Mark::Icon(Icon::Server))
-                        .group("SSH hosts")
+                        .group(t!("SSH hosts"))
                         .also(&line),
                 );
             }
@@ -455,8 +463,8 @@ impl Workbench {
                     let home = bench.home_at(&bench.place());
                     let path = tilde(&project.path.to_string_lossy(), home.as_deref());
                     let said = match project.cloning {
-                        Some(_) => format!("Cloning into {path}"),
-                        None => format!("Made {path}"),
+                        Some(_) => t!("Cloning into {path}", path = path),
+                        None => t!("Made {path}", path = path),
                     };
                     bench.notify(toast::success(said), cx);
                     bench.activate_project(&project.id);
@@ -464,7 +472,10 @@ impl Workbench {
                         bench.start_chat_in(&project.id, window, cx);
                     }
                 }
-                Err(error) => bench.notify(toast::error(format!("No project made: {error}")), cx),
+                Err(error) => bench.notify(
+                    toast::error(t!("No project made: {error}", error = error)),
+                    cx,
+                ),
             });
         })
         .detach();

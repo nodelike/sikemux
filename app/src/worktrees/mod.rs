@@ -35,7 +35,7 @@ impl Workbench {
             let _ = bench.update_in(cx, |bench, window, cx| match cost {
                 Ok(cost) => bench.confirm_removal(agent, &cost, pull_merged, window, cx),
                 Err(error) => window.push_notification(
-                    toast::error(format!("Could not remove the worktree: {error}")),
+                    toast::error(t!("Could not remove the worktree: {error}", error = error)),
                     cx,
                 ),
             });
@@ -53,13 +53,13 @@ impl Workbench {
     ) {
         if !cost.shared_with.is_empty() {
             return window.push_notification(
-                "Another agent or project still uses this worktree. Close it before removing the worktree.",
+                t!("Another agent or project still uses this worktree. Close it before removing the worktree."),
                 cx,
             );
         }
         if cost.busy {
             return window
-                .push_notification("Stop the agent's turn before removing its worktree", cx);
+                .push_notification(t!("Stop the agent's turn before removing its worktree"), cx);
         }
         let branch = cost.branch.clone();
         let path = cost.path.to_string_lossy().into_owned();
@@ -75,9 +75,9 @@ impl Workbench {
                 return bench.finish_removal(agent, named, discard, false, window, cx);
             }
             bench.confirm(
-                format!("Delete branch {named} too?"),
-                "It has commits that are not in the branch it started from. Deleting it loses any that were not pushed.",
-                "Delete branch",
+                t!("Delete branch {named} too?", named = named),
+                t!("It has commits that are not in the branch it started from. Deleting it loses any that were not pushed."),
+                t!("Delete branch"),
                 true,
                 move |bench, delete, window, cx| {
                     bench.finish_removal(agent.clone(), named.clone(), discard, delete, window, cx)
@@ -88,11 +88,18 @@ impl Workbench {
         if dirty == 0 {
             return then_branch(self, false, window, cx);
         }
-        let changes = if dirty == 1 { "change" } else { "changes" };
+        let lost = match dirty {
+            1 => t!("1 uncommitted change in {path} will be lost.", path = path),
+            dirty => t!(
+                "{count} uncommitted changes in {path} will be lost.",
+                count = dirty,
+                path = path
+            ),
+        };
         self.confirm(
-            format!("Remove worktree {branch}?"),
-            format!("{dirty} uncommitted {changes} in {path} will be lost."),
-            "Remove",
+            t!("Remove worktree {branch}?", branch = branch),
+            lost,
+            t!("Remove"),
             true,
             move |bench, remove, window, cx| {
                 if remove {
@@ -124,13 +131,16 @@ impl Workbench {
             let _ = cx.update(|window, cx| {
                 window.push_notification(
                     match removed {
-                        Ok(answer) if answer.branch_deleted => {
-                            toast::success(format!("Removed worktree and branch {branch}"))
-                        }
-                        Ok(_) => toast::success(format!("Removed worktree {branch}")),
-                        Err(error) => {
-                            toast::error(format!("Could not remove worktree {branch}: {error}"))
-                        }
+                        Ok(answer) if answer.branch_deleted => toast::success(t!(
+                            "Removed worktree and branch {branch}",
+                            branch = branch
+                        )),
+                        Ok(_) => toast::success(t!("Removed worktree {branch}", branch = branch)),
+                        Err(error) => toast::error(t!(
+                            "Could not remove worktree {branch}: {error}",
+                            branch = branch,
+                            error = error
+                        )),
                     },
                     cx,
                 )

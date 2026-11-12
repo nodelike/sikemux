@@ -53,17 +53,17 @@ impl Workbench {
             .flat_map(|list| &list.examples);
         rows.extend(examples.filter(|example| !example.added).map(|example| {
             Row::new(format!("{EXAMPLE}{}", example.id), example.name.clone())
-                .meta("An example to copy and change")
+                .meta(t!("An example to copy and change"))
                 .mark(Mark::Icon(Icon::Plus))
         }));
         rows.push(
-            Row::new(MAKE, "Make a mod with an agent")
-                .meta("Say what it should show")
+            Row::new(MAKE, t!("Make a mod with an agent"))
+                .meta(t!("Say what it should show"))
                 .mark(Mark::Icon(Icon::Sparkle)),
         );
         let spec = Spec::new(
             "palette.mods",
-            "open a mod…",
+            t!("open a mod…"),
             rows,
             |row, bench, _, cx| {
                 let name = row.title.to_string();
@@ -112,7 +112,7 @@ impl Workbench {
         let (id, name) = (id.to_owned(), name.to_owned());
         self.report(
             added,
-            "The example mod was not added",
+            t!("The example mod was not added"),
             move |bench, _, _| bench.open_mod(&id, &name),
             cx,
         );
@@ -140,9 +140,9 @@ impl Workbench {
     pub fn remove_mod(&mut self, shown: &ModInfo, cx: &mut Context<Self>) {
         let id = shown.id.clone();
         self.confirm(
-            format!("Remove {}?", shown.name),
-            "Its folder moves to the Trash.",
-            "Remove",
+            t!("Remove {name}?", name = shown.name),
+            t!("Its folder moves to the Trash."),
+            t!("Remove"),
             true,
             move |bench, yes, _, _| {
                 if yes {
@@ -159,8 +159,8 @@ impl Workbench {
     /// project in front.
     pub fn ask_for_mod(&mut self, editing: Option<ModInfo>, cx: &mut Context<Self>) {
         let title = match &editing {
-            Some(shown) => format!("What should change in {}?", shown.name),
-            None => "What should the new mod show?".to_owned(),
+            Some(shown) => t!("What should change in {name}?", name = shown.name),
+            None => t!("What should the new mod show?").to_owned(),
         };
         self.prompt(
             title,

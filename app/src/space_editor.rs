@@ -25,24 +25,24 @@ use sikemux_core::server::workspace::{SpacesParams, UpdateProjectParams};
 
 /// The icons a space can wear, as the Mac offers them.
 pub const SPACE_ICONS: [&str; 18] = [
-    "folder",
-    "user",
-    "globe",
-    "laptop",
-    "building",
-    "home",
-    "briefcase",
-    "code",
-    "flask",
-    "rocket",
-    "star",
-    "heart",
-    "book",
-    "bolt",
-    "leaf",
-    "cube",
-    "terminal",
-    "music",
+    n!("folder"),
+    n!("user"),
+    n!("globe"),
+    n!("laptop"),
+    n!("building"),
+    n!("home"),
+    n!("briefcase"),
+    n!("code"),
+    n!("flask"),
+    n!("rocket"),
+    n!("star"),
+    n!("heart"),
+    n!("book"),
+    n!("bolt"),
+    n!("leaf"),
+    n!("cube"),
+    n!("terminal"),
+    n!("music"),
 ];
 
 /// The icons `space` can wear, the one it wears ticked, then No icon.
@@ -65,9 +65,9 @@ pub fn icon_choices(
         }
     };
     for icon in SPACE_ICONS {
-        menu = menu.item(choice(icon, icon));
+        menu = menu.item(choice(crate::i18n::tr(icon), icon));
     }
-    menu.separator().item(choice("No icon", ""))
+    menu.separator().item(choice(t!("No icon"), ""))
 }
 
 pub struct SpaceEditor {
@@ -216,7 +216,7 @@ impl Render for SpaceEditor {
                                 IconButton::new(
                                     SharedString::from(format!("space-delete-{}", space.id)),
                                     Icon::Trash,
-                                    format!("Delete {}", space.name),
+                                    t!("Delete {name}", name = space.name),
                                 )
                                 .on_click(move |_, _, cx| {
                                     let _ = deleted.update(cx, |bench, cx| {
@@ -267,16 +267,20 @@ impl Render for SpaceEditor {
                     .border_color(t.border)
                     .flex()
                     .justify_between()
-                    .child(foot("space-edit-new", Icon::Plus, "New", false).on_click(
-                        move |_, _, cx| {
-                            let _ = made.update(cx, |bench, cx| bench.new_space(None, cx));
-                        },
-                    ))
-                    .child(foot("space-edit-done", Icon::Check, "Done", true).on_click(
-                        move |_, _, cx| {
-                            let _ = done.update(cx, |bench, cx| bench.close_space_editor(cx));
-                        },
-                    )),
+                    .child(
+                        foot("space-edit-new", Icon::Plus, t!("New"), false).on_click(
+                            move |_, _, cx| {
+                                let _ = made.update(cx, |bench, cx| bench.new_space(None, cx));
+                            },
+                        ),
+                    )
+                    .child(
+                        foot("space-edit-done", Icon::Check, t!("Done"), true).on_click(
+                            move |_, _, cx| {
+                                let _ = done.update(cx, |bench, cx| bench.close_space_editor(cx));
+                            },
+                        ),
+                    ),
             )
     }
 }
@@ -364,7 +368,7 @@ impl Workbench {
     /// project `into` it when one asked.
     pub fn new_space(&mut self, into: Option<String>, cx: &mut Context<Self>) {
         self.prompt(
-            "Create space",
+            t!("Create space"),
             "",
             move |bench, name, _, cx| {
                 let name: String = name.trim().chars().take(MAX_SPACE_NAME).collect();
@@ -417,7 +421,7 @@ impl Workbench {
             .map(|space| space.name.clone())
             .unwrap_or_default();
         self.prompt(
-            "Rename space",
+            t!("Rename space"),
             current,
             move |bench, name, _, _| bench.name_space(&id, &name),
             cx,
@@ -442,9 +446,9 @@ impl Workbench {
             .map(|space| space.name.clone())
             .unwrap_or_default();
         self.confirm(
-            format!("Delete “{name}”?"),
-            "Its projects stay open and show under All.",
-            "Delete",
+            t!("Delete “{name}”?", name = name),
+            t!("Its projects stay open and show under All."),
+            t!("Delete"),
             true,
             move |bench, yes, _, cx| {
                 if !yes {

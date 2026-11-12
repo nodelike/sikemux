@@ -281,16 +281,17 @@ impl ModPane {
         cx: &mut Context<Self>,
     ) {
         let listed: Vec<String> = writes.iter().map(|write| said(write)).collect();
-        let body = format!(
-            "{name} asks to {}. It may do so whenever it is open, until its mod.json asks for more. Settings, Mods takes this back.",
-            listed.join(", ")
+        let body = t!(
+            "{name} asks to {writes}. It may do so whenever it is open, until its mod.json asks for more. Settings, Mods takes this back.",
+            name = name,
+            writes = listed.join(", ")
         );
         let pane = cx.weak_entity();
         let _ = self.bench.update(cx, |bench, cx| {
             bench.confirm(
-                format!("Allow {name} to make changes?"),
+                t!("Allow {name} to make changes?", name = name),
                 body,
-                "Allow",
+                t!("Allow"),
                 false,
                 move |_, allowed, _, cx| {
                     let (writes, asked) = (writes.clone(), asked.clone());
@@ -424,9 +425,9 @@ fn outcome(answer: Result<Value, String>) -> String {
 /// A write as the person is asked about it.
 fn said(write: &str) -> String {
     match write {
-        "agents.send" => "message agents".into(),
-        "board.add" => "add work for agents to pick up".into(),
-        "board.update" => "change the work agents pick up".into(),
+        "agents.send" => t!("message agents").into(),
+        "board.add" => t!("add work for agents to pick up").into(),
+        "board.update" => t!("change the work agents pick up").into(),
         other => other.to_owned(),
     }
 }

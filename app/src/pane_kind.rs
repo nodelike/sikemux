@@ -44,19 +44,19 @@ pub fn of(kind: PaneKind) -> Kind {
     };
     use Separable::{Always, Never, WhenSaved};
     match kind {
-        PaneKind::Agent => kind_of(Icon::Agent, "Agent", Never, true),
-        PaneKind::Terminal => kind_of(Icon::Terminal, "Terminal", Always, true),
-        PaneKind::Files => kind_of(Icon::Editor, "Files", WhenSaved, false),
+        PaneKind::Agent => kind_of(Icon::Agent, t!("Agent"), Never, true),
+        PaneKind::Terminal => kind_of(Icon::Terminal, t!("Terminal"), Always, true),
+        PaneKind::Files => kind_of(Icon::Editor, t!("Files"), WhenSaved, false),
         PaneKind::Git => kind_of(Icon::Git, "Git", Always, true),
-        PaneKind::Search => kind_of(Icon::Search, "Search", Always, true),
-        PaneKind::Board => kind_of(Icon::Window, "Closed", Never, true),
-        PaneKind::Desk => kind_of(Icon::PanelRight, "Desk", Never, false),
-        PaneKind::ProjectSettings => kind_of(Icon::Book, "Playbook", Never, true),
+        PaneKind::Search => kind_of(Icon::Search, t!("Search"), Always, true),
+        PaneKind::Board => kind_of(Icon::Window, t!("Closed"), Never, true),
+        PaneKind::Desk => kind_of(Icon::PanelRight, t!("Desk"), Never, false),
+        PaneKind::ProjectSettings => kind_of(Icon::Book, t!("Playbook"), Never, true),
         PaneKind::InstallSikemux => kind_of(Icon::Server, "Sikemux", Never, true),
-        PaneKind::Stash => kind_of(Icon::Stack, "Stash", Never, true),
-        PaneKind::Hosts => kind_of(Icon::Gauge, "Devices", Never, true),
-        PaneKind::Mod => kind_of(Icon::Dashboard, "Mod", Always, false),
-        PaneKind::Unknown => kind_of(Icon::Window, "Needs a newer Sikemux", Never, true),
+        PaneKind::Stash => kind_of(Icon::Stack, t!("Stash"), Never, true),
+        PaneKind::Hosts => kind_of(Icon::Gauge, t!("Devices"), Never, true),
+        PaneKind::Mod => kind_of(Icon::Dashboard, t!("Mod"), Always, false),
+        PaneKind::Unknown => kind_of(Icon::Window, t!("Needs a newer Sikemux"), Never, true),
     }
 }
 
@@ -198,7 +198,7 @@ pub fn draw(
                     .justify_center()
                     .text_size(crate::theme::ui_text(TEXT_XS))
                     .text_color(Tokens::get(cx).text_tertiary)
-                    .child("This tab needs a newer Sikemux."),
+                    .child(t!("This tab needs a newer Sikemux.")),
             )
             .into_any_element(),
     }

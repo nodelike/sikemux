@@ -396,10 +396,10 @@ impl RenderOnce for Confirm {
                 .gap(SPACE_2)
                 .children(lines.map(|line| prose(line.to_owned(), &t)))
                 .into_any_element();
-            let foot = hinted_foot(escape("cancel", cx), cx)
+            let foot = hinted_foot(escape(t!("cancel"), cx), cx)
                 .child(button(
                     "confirm-no",
-                    "Cancel".into(),
+                    t!("Cancel").into(),
                     None,
                     on_no.clone(),
                     cx,
@@ -426,7 +426,7 @@ impl RenderOnce for Confirm {
         let foot = div()
             .child(button(
                 "confirm-no",
-                "cancel".into(),
+                t!("cancel").into(),
                 None,
                 on_no.clone(),
                 cx,
@@ -518,17 +518,17 @@ impl RenderOnce for Prompt {
                 .text_size(crate::theme::ui_text(TEXT_SM))
                 .text_color(t.text_primary)
                 .child(Input::new(&self.field).appearance(false));
-            let foot = hinted_foot(escape("cancel", cx), cx)
+            let foot = hinted_foot(escape(t!("cancel"), cx), cx)
                 .child(button(
                     "prompt-no",
-                    "Cancel".into(),
+                    t!("Cancel").into(),
                     None,
                     self.on_no.clone(),
                     cx,
                 ))
                 .child(button(
                     "prompt-yes",
-                    "Save".into(),
+                    t!("Save").into(),
                     Some(t.accent),
                     yes.clone(),
                     cx,
@@ -547,14 +547,14 @@ impl RenderOnce for Prompt {
         let foot = div()
             .child(button(
                 "prompt-no",
-                "cancel".into(),
+                t!("cancel").into(),
                 None,
                 self.on_no.clone(),
                 cx,
             ))
             .child(button(
                 "prompt-yes",
-                "ok".into(),
+                t!("ok").into(),
                 Some(t.accent),
                 yes.clone(),
                 cx,
@@ -751,7 +751,7 @@ impl RenderOnce for Choices {
             div()
                 .text_size(crate::theme::ui_text(TEXT_2XS))
                 .text_color(t.text_tertiary)
-                .child("esc  cancel"),
+                .child(t!("esc  cancel")),
             no.clone(),
             no,
             cx,
@@ -808,7 +808,7 @@ impl RenderOnce for Cheatsheet {
                             .mb(SPACE_1H)
                             .text_size(crate::theme::ui_text(TEXT_3XS))
                             .text_color(t.text_tertiary)
-                            .child(title.to_uppercase()),
+                            .child(crate::i18n::tr(title).to_uppercase()),
                     )
                     .children(rows.iter().map(|(keys, label)| {
                         div()
@@ -824,7 +824,11 @@ impl RenderOnce for Cheatsheet {
                                     .font_weight(FontWeight::SEMIBOLD)
                                     .child(*keys),
                             )
-                            .child(div().text_color(t.text_secondary).child(*label))
+                            .child(
+                                div()
+                                    .text_color(t.text_secondary)
+                                    .child(crate::i18n::tr(label)),
+                            )
                     }))
             });
         let close = held.back(self.on_close.clone());
@@ -842,7 +846,7 @@ impl RenderOnce for Cheatsheet {
             div()
                 .text_size(crate::theme::ui_text(TEXT_2XS))
                 .text_color(t.text_tertiary)
-                .child("esc  close"),
+                .child(t!("esc  close")),
             close.clone(),
             close,
             cx,

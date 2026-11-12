@@ -20,9 +20,9 @@ use crate::theme::{
 
 /// Where a service's sign-in says the token it takes is kept.
 #[cfg(target_os = "macos")]
-pub const KEPT: &str = "Sikemux keeps your sign-in in the macOS Keychain.";
+pub const KEPT: &str = n!("Sikemux keeps your sign-in in the macOS Keychain.");
 #[cfg(not(target_os = "macos"))]
-pub const KEPT: &str = "Sikemux keeps your sign-in where only Sikemux can read it.";
+pub const KEPT: &str = n!("Sikemux keeps your sign-in where only Sikemux can read it.");
 
 const COLUMN: f32 = 340.;
 const TILE: f32 = 56.;
@@ -264,7 +264,7 @@ pub fn waiting(
         .child(spinner(id, cx))
         .child(words.into())
         .child(
-            link(SharedString::from(format!("{id}-cancel")), "Cancel", cx)
+            link(SharedString::from(format!("{id}-cancel")), t!("Cancel"), cx)
                 .ml(SPACE_1)
                 .on_click(cancel),
         )

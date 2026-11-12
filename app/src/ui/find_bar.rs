@@ -138,17 +138,17 @@ impl RenderOnce for FindBar {
                 Toggle::new("find-regex", ".*", on).on_click(move |_, window, cx| flip(window, cx))
             }))
             .child(
-                IconButton::new("find-previous", Icon::ArrowUp, "Previous match")
+                IconButton::new("find-previous", Icon::ArrowUp, t!("Previous match"))
                     .small()
                     .on_click(stepping(false)),
             )
             .child(
-                IconButton::new("find-next", Icon::ArrowDown, "Next match")
+                IconButton::new("find-next", Icon::ArrowDown, t!("Next match"))
                     .small()
                     .on_click(stepping(true)),
             )
             .child(
-                IconButton::new("find-close", Icon::Close, "Close")
+                IconButton::new("find-close", Icon::Close, t!("Close"))
                     .small()
                     .on_click(move |_, window, cx| close(window, cx)),
             )

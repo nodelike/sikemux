@@ -11,22 +11,22 @@ use crate::theme::Tokens;
 /// closed, purple once merged, grey as a draft.
 pub fn pull_look(state: PullState, t: &Tokens) -> (Icon, Hsla, &'static str) {
     match state {
-        PullState::Open => (Icon::PullRequest, t.live, "Open"),
-        PullState::Draft => (Icon::PullRequest, t.text_tertiary, "Draft"),
-        PullState::Closed => (Icon::PullRequest, t.danger, "Closed"),
-        PullState::Merged => (Icon::Merge, t.accent, "Merged"),
+        PullState::Open => (Icon::PullRequest, t.live, t!("Open")),
+        PullState::Draft => (Icon::PullRequest, t.text_tertiary, t!("Draft")),
+        PullState::Closed => (Icon::PullRequest, t.danger, t!("Closed")),
+        PullState::Merged => (Icon::Merge, t.accent, t!("Merged")),
     }
 }
 
 /// An issue's state as a glyph, its colour and its name.
 pub fn issue_look(state: &str, reason: Option<&str>, t: &Tokens) -> (Icon, Hsla, &'static str) {
     match (state, reason) {
-        ("open", _) => (Icon::Issues, t.live, "Open"),
+        ("open", _) => (Icon::Issues, t.live, t!("Open")),
         (_, Some("not_planned")) => (
             Icon::MarkCancelled,
             t.text_tertiary,
-            "Closed as not planned",
+            t!("Closed as not planned"),
         ),
-        _ => (Icon::Check, t.accent, "Closed"),
+        _ => (Icon::Check, t.accent, t!("Closed")),
     }
 }

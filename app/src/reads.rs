@@ -617,8 +617,11 @@ impl Workbench {
             Read::SignIn | Read::SignInFinished => {
                 if std::mem::take(&mut self.signing_in) {
                     self.notify(
-                        crate::toast::error(format!("Sikemux could not sign in: {error}"))
-                            .autohide(false),
+                        crate::toast::error(t!(
+                            "Sikemux could not sign in: {error}",
+                            error = error
+                        ))
+                        .autohide(false),
                         cx,
                     );
                 }

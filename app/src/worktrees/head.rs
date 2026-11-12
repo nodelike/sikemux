@@ -143,10 +143,12 @@ pub fn badges(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> Op
     });
     let removed = agent.to_owned();
     let remove = can_remove.then(|| {
-        ui::sign_in::link("agent-worktree-remove", "Remove worktree", cx)
+        ui::sign_in::link("agent-worktree-remove", t!("Remove worktree"), cx)
             .underline()
-            .tooltip(ui::tooltip(format!(
-                "{branch} is merged. Remove its worktree at {path}."
+            .tooltip(ui::tooltip(t!(
+                "{branch} is merged. Remove its worktree at {path}.",
+                branch = branch,
+                path = path
             )))
             .on_click(cx.listener(move |bench, _, window, cx| {
                 bench.remove_worktree(&removed, pull_merged, window, cx)

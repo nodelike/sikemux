@@ -49,20 +49,20 @@ pub fn total(ms: f64) -> String {
 pub fn age(at: u64) -> String {
     let seconds = now_ms().saturating_sub(at) / 1000;
     match seconds {
-        0..60 => "now".into(),
-        60..3600 => format!("{}m", seconds / 60),
-        3600..86_400 => format!("{}h", seconds / 3600),
-        86_400..2_592_000 => format!("{}d", seconds / 86_400),
-        2_592_000..31_536_000 => format!("{}mo", seconds / 2_592_000),
-        _ => format!("{}y", seconds / 31_536_000),
+        0..60 => t!("now").into(),
+        60..3600 => t!("{count}m", count = seconds / 60),
+        3600..86_400 => t!("{count}h", count = seconds / 3600),
+        86_400..2_592_000 => t!("{count}d", count = seconds / 86_400),
+        2_592_000..31_536_000 => t!("{count}mo", count = seconds / 2_592_000),
+        _ => t!("{count}y", count = seconds / 31_536_000),
     }
 }
 
 /// How long ago in words: `now`, `5m ago`, `3h ago`.
 pub fn ago(at: u64) -> String {
     match age(at) {
-        now if now == "now" => now,
-        age => format!("{age} ago"),
+        now if now == t!("now") => now,
+        age => t!("{age} ago", age = age),
     }
 }
 
@@ -125,10 +125,10 @@ fn twelve_hour() -> bool {
 pub fn until(at: u64) -> String {
     let seconds = at.saturating_sub(now_ms()) / 1000;
     match seconds {
-        0 => "now".into(),
-        1..3600 => format!("{}m", seconds.div_ceil(60)),
-        3600..86_400 => format!("{}h", seconds / 3600),
-        _ => format!("{}d", seconds / 86_400),
+        0 => t!("now").into(),
+        1..3600 => t!("{count}m", count = seconds.div_ceil(60)),
+        3600..86_400 => t!("{count}h", count = seconds / 3600),
+        _ => t!("{count}d", count = seconds / 86_400),
     }
 }
 
@@ -136,19 +136,21 @@ pub fn until(at: u64) -> String {
 /// a week or more off, the day it falls on.
 pub fn countdown(reset: Option<chrono::DateTime<chrono::Utc>>) -> String {
     let Some(reset) = reset else {
-        return "unknown".into();
+        return t!("unknown").into();
     };
     let minutes = ((reset - chrono::Utc::now()).num_seconds().max(0) as f64 / 60.).ceil() as i64;
     let (hours, days) = (minutes / 60, minutes / 1440);
-    let with = |big: i64, unit: &str, small: i64, small_unit: &str| match small {
-        0 => format!("{big}{unit}"),
-        small => format!("{big}{unit} {small}{small_unit}"),
-    };
     match minutes {
-        0 => "resetting now".into(),
-        1..=59 => format!("{minutes}m"),
-        _ if hours < 24 => with(hours, "h", minutes % 60, "m"),
-        _ if days < 7 => with(days, "d", hours % 24, "h"),
+        0 => t!("resetting now").into(),
+        1..=59 => t!("{count}m", count = minutes),
+        _ if hours < 24 => match minutes % 60 {
+            0 => t!("{count}h", count = hours),
+            rest => t!("{hours}h {minutes}m", hours = hours, minutes = rest),
+        },
+        _ if days < 7 => match hours % 24 {
+            0 => t!("{count}d", count = days),
+            rest => t!("{days}d {hours}h", days = days, hours = rest),
+        },
         _ => reset
             .with_timezone(&chrono::Local)
             .format("%b %-d")
@@ -161,12 +163,12 @@ pub fn left(until: u64) -> String {
     let now = now_ms();
     let minutes = (until.saturating_sub(now) as f64 / 60_000.).round().max(1.) as u64;
     if minutes < 60 {
-        return format!("{minutes} min");
+        return t!("{count} min", count = minutes);
     }
     let hours = (minutes as f64 / 60.).round() as u64;
     match hours {
-        1 => "1 hour".to_owned(),
-        hours if hours < 48 => format!("{hours} hours"),
-        hours => format!("{} days", (hours as f64 / 24.).round() as u64),
+        1 => t!("1 hour").to_owned(),
+        hours if hours < 48 => t!("{count} hours", count = hours),
+        hours => t!("{count} days", count = (hours as f64 / 24.).round() as u64),
     }
 }

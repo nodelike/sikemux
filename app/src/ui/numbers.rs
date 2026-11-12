@@ -12,14 +12,6 @@ pub(crate) fn whole(value: f64) -> String {
     grouped
 }
 
-pub(crate) fn plural(count: f64, word: &str) -> String {
-    format!(
-        "{} {word}{}",
-        whole(count),
-        if count == 1. { "" } else { "s" }
-    )
-}
-
 pub fn compact(value: f64) -> String {
     let (scaled, unit) = match value {
         v if v >= 1e9 => (v / 1e9, "B"),

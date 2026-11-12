@@ -28,13 +28,13 @@ type Save = Rc<dyn Fn(BoardReviewerParams, &mut gpui_kit::App)>;
 const SLOT_CHOICES: [u32; 14] = [1, 2, 3, 4, 5, 6, 8, 10, 12, 16, 24, 32, 48, 64];
 const CEILING_CHOICES: [u32; 5] = [50, 100, 250, 500, 1000];
 const WEEKDAYS: [&str; 7] = [
-    "Sunday",
-    "Monday",
-    "Tuesday",
-    "Wednesday",
-    "Thursday",
-    "Friday",
-    "Saturday",
+    n!("Sunday"),
+    n!("Monday"),
+    n!("Tuesday"),
+    n!("Wednesday"),
+    n!("Thursday"),
+    n!("Friday"),
+    n!("Saturday"),
 ];
 
 pub(super) fn page(
@@ -47,17 +47,17 @@ pub(super) fn page(
 ) -> Vec<AnyElement> {
     let Some(playbook) = playbook else {
         return vec![rows::section(
-            "Automation",
+            t!("Automation"),
             None,
             None,
             false,
-            rows::note("Reading…", cx),
+            rows::note(t!("Reading…"), cx),
             cx,
         )];
     };
     let lines: Vec<AnyElement> = match playbook.automation.is_empty() {
         true => vec![rows::note(
-            "Nothing yet. Ask any agent to do something on a schedule, or when CI ends, and it shows here.",
+            t!("Nothing yet. Ask any agent to do something on a schedule, or when CI ends, and it shows here."),
             cx,
         )],
         false => (playbook.automation.iter())
@@ -69,9 +69,9 @@ pub(super) fn page(
     };
     let count = playbook.automation.len();
     vec![rows::section(
-        "Automation",
+        t!("Automation"),
         (count > 0).then(|| SharedString::from(count.to_string())),
-        Some("What runs with nobody asking.".into()),
+        Some(t!("What runs with nobody asking.").into()),
         false,
         div().children(lines),
         cx,
@@ -103,12 +103,12 @@ fn trigger_row(
     };
     let t = Tokens::get(cx).clone();
     let (words, moment) = match (paused, set) {
-        (Some(at), _) => (format!("Paused by you · {}", said::day(*at)), None),
+        (Some(at), _) => (t!("Paused by you · {day}", day = said::day(*at)), None),
         (None, Some(set)) => (
-            format!(
-                "{} set this up · {}",
-                said::at_name(set.name.as_deref()),
-                said::day(set.at)
+            t!(
+                "{name} set this up · {day}",
+                name = said::at_name(set.name.as_deref()),
+                day = said::day(set.at)
             ),
             Moment::of(set),
         ),
@@ -154,12 +154,21 @@ fn sentence(when: &TriggerWhen, title: &str) -> String {
         }
     };
     let ends = what.ends_with(['.', '!', '?']);
-    format!("{}, {what}{}", schedule(when), if ends { "" } else { "." })
+    t!(
+        "{when}, {what}{stop}",
+        when = schedule(when),
+        what = what,
+        stop = if ends { "" } else { "." }
+    )
 }
 
 fn schedule(when: &TriggerWhen) -> String {
     match when {
-        TriggerWhen::Once { at } => format!("On {} at {}", said::day(*at), clock_of(*at)),
+        TriggerWhen::Once { at } => t!(
+            "On {day} at {time}",
+            day = said::day(*at),
+            time = clock_of(*at)
+        ),
         TriggerWhen::Every { seconds } => every(*seconds),
         TriggerWhen::Daily { minute, weekdays } => {
             let at = format!("{}:{:02}", minute / 60, minute % 60);
@@ -167,37 +176,46 @@ fn schedule(when: &TriggerWhen) -> String {
             days.sort_unstable();
             days.dedup();
             match days.as_slice() {
-                [] => format!("Every day at {at}"),
-                [1, 2, 3, 4, 5] => format!("Every weekday at {at}"),
-                [0, 6] => format!("Every weekend at {at}"),
+                [] => t!("Every day at {at}", at = at),
+                [1, 2, 3, 4, 5] => t!("Every weekday at {at}", at = at),
+                [0, 6] => t!("Every weekend at {at}", at = at),
                 days => {
                     let names: Vec<&str> = (days.iter())
-                        .filter_map(|day| WEEKDAYS.get(usize::from(*day)).copied())
+                        .filter_map(|day| {
+                            WEEKDAYS
+                                .get(usize::from(*day))
+                                .copied()
+                                .map(crate::i18n::tr)
+                        })
                         .collect();
                     let named = match names.split_last() {
                         Some((last, [])) => (*last).to_owned(),
-                        Some((last, rest)) => format!("{} and {last}", rest.join(", ")),
+                        Some((last, rest)) => {
+                            t!("{days} and {last}", days = rest.join(", "), last = last)
+                        }
                         None => String::new(),
                     };
-                    format!("Every {named} at {at}")
+                    t!("Every {days} at {at}", days = named, at = at)
                 }
             }
         }
-        TriggerWhen::Webhook { .. } => "When its address is called".to_owned(),
-        TriggerWhen::Ci { on } => format!("When CI on {on} ends"),
+        TriggerWhen::Webhook { .. } => t!("When its address is called").to_owned(),
+        TriggerWhen::Ci { on } => t!("When CI on {branch} ends", branch = on),
     }
 }
 
 fn every(seconds: u64) -> String {
-    let (count, unit) = match seconds {
-        s if s % 604_800 == 0 => (s / 604_800, "week"),
-        s if s % 86_400 == 0 => (s / 86_400, "day"),
-        s if s % 3600 == 0 => (s / 3600, "hour"),
-        s => (s.div_ceil(60), "minute"),
-    };
-    match count {
-        1 => format!("Every {unit}"),
-        count => format!("Every {count} {unit}s"),
+    match seconds {
+        604_800 => t!("Every week").to_owned(),
+        86_400 => t!("Every day").to_owned(),
+        3600 => t!("Every hour").to_owned(),
+        s if s % 604_800 == 0 => t!("Every {count} weeks", count = s / 604_800),
+        s if s % 86_400 == 0 => t!("Every {count} days", count = s / 86_400),
+        s if s % 3600 == 0 => t!("Every {count} hours", count = s / 3600),
+        s => match s.div_ceil(60) {
+            1 => t!("Every minute").to_owned(),
+            count => t!("Every {count} minutes", count = count),
+        },
     }
 }
 
@@ -212,11 +230,23 @@ fn clock_of(at: u64) -> String {
 
 fn count_words(count: u32) -> String {
     const WORDS: [&str; 10] = [
-        "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
+        n!("one"),
+        n!("two"),
+        n!("three"),
+        n!("four"),
+        n!("five"),
+        n!("six"),
+        n!("seven"),
+        n!("eight"),
+        n!("nine"),
+        n!("ten"),
     ];
     (count.checked_sub(1))
         .and_then(|at| WORDS.get(at as usize))
-        .map_or_else(|| count.to_string(), |word| (*word).to_owned())
+        .map_or_else(
+            || count.to_string(),
+            |word| crate::i18n::tr(word).to_owned(),
+        )
 }
 
 /// Auto's line, and under it while unfolded its four settings as rows of their own.
@@ -229,20 +259,27 @@ fn auto_rows(
     cx: &mut Context<Workbench>,
 ) -> Vec<AnyElement> {
     let at_once = match auto.slots {
-        1 => "one at a time".to_owned(),
-        slots => format!("{} at once", count_words(slots)),
+        1 => t!("one at a time").to_owned(),
+        slots => t!("{count} at once", count = count_words(slots)),
     };
-    let ceiling = auto
-        .ceiling
-        .map_or_else(String::new, |dollars| format!(", stops past ${dollars}"));
-    let label = format!("Start agents on the cards nobody holds, {at_once}{ceiling}.");
+    let label = match auto.ceiling {
+        Some(dollars) => t!(
+            "Start agents on the cards nobody holds, {at_once}, stops past ${dollars}.",
+            at_once = at_once,
+            dollars = dollars
+        ),
+        None => t!(
+            "Start agents on the cards nobody holds, {at_once}.",
+            at_once = at_once
+        ),
+    };
     let under = said::line(
         if open {
             "playbook-auto-open"
         } else {
             "playbook-auto"
         },
-        "Each works on its own branch, and another agent reviews it before it lands",
+        t!("Each works on its own branch, and another agent reviews it before it lands"),
         None,
         Vec::new(),
         this,
@@ -261,14 +298,14 @@ fn auto_rows(
     };
     let pause = {
         let (this, folder) = (this.clone(), folder.to_owned());
-        Button::new("playbook-auto-hold", "Pause", Variant::Ghost).on_click(move |_, _, cx| {
+        Button::new("playbook-auto-hold", t!("Pause"), Variant::Ghost).on_click(move |_, _, cx| {
             let folder = folder.clone();
             this.update(cx, |bench, cx| {
                 change_auto(
                     bench,
                     folder,
                     |params| params.auto = Some(false),
-                    "Agents no longer start on cards by themselves",
+                    t!("Agents no longer start on cards by themselves"),
                     cx,
                 )
             })
@@ -302,7 +339,7 @@ fn auto_rows(
                         bench,
                         folder,
                         |params| params.slots = Some(slots),
-                        "Saved",
+                        t!("Saved"),
                         cx,
                     )
                 })
@@ -333,7 +370,7 @@ fn auto_rows(
                         bench,
                         folder,
                         |params| params.spend_ceiling = Some(ceiling),
-                        "Saved",
+                        t!("Saved"),
                         cx,
                     )
                 })
@@ -355,23 +392,23 @@ fn auto_rows(
         head,
         indent(rows::row_with(
             None,
-            "Builds",
-            Some("The agent that works each card".into()),
+            t!("Builds"),
+            Some(t!("The agent that works each card").into()),
             builder,
             cx,
         )),
         indent(rows::row_with(
             None,
-            "Reviews",
-            Some("Another agent reads each change before it lands".into()),
+            t!("Reviews"),
+            Some(t!("Another agent reads each change before it lands").into()),
             reviewer,
             cx,
         )),
-        indent(rows::row_with(None, "At once", None, slots, cx)),
+        indent(rows::row_with(None, t!("At once"), None, slots, cx)),
         indent(rows::row_with(
             None,
-            "Spend ceiling",
-            Some("Past it, no new card starts".into()),
+            t!("Spend ceiling"),
+            Some(t!("Past it, no new card starts").into()),
             ceiling,
             cx,
         )),
@@ -380,13 +417,13 @@ fn auto_rows(
 
 fn agents_word(slots: u32) -> String {
     match slots {
-        1 => "1 agent".to_owned(),
-        slots => format!("{slots} agents"),
+        1 => t!("1 agent").to_owned(),
+        slots => t!("{slots} agents", slots = slots),
     }
 }
 
 fn ceiling_words(ceiling: Option<u32>) -> String {
-    ceiling.map_or("Off".to_owned(), |dollars| format!("${dollars}"))
+    ceiling.map_or(t!("Off").to_owned(), |dollars| format!("${dollars}"))
 }
 
 fn change_auto(
@@ -404,7 +441,7 @@ fn change_auto(
     let asked = bench.target().request_typed::<call::BoardSettings>(params);
     bench.report(
         asked,
-        "It was not saved",
+        t!("It was not saved"),
         move |bench, _, cx| bench.notify(toast::success(said), cx),
         cx,
     );
@@ -434,7 +471,7 @@ fn agent_picker(
         .or(launchers.first())
         .cloned()
     else {
-        return ui::meta("No agents", cx).into_any_element();
+        return ui::meta(t!("No agents"), cx).into_any_element();
     };
     let profile_of = |id: &str| id.split_once(':').map(|(_, profile)| profile.to_owned());
     let mut models = shown.model.clone();
@@ -457,7 +494,7 @@ fn agent_picker(
                         }
                         Role::Reviewer => params.reviewer = Some(Some(chosen)),
                     },
-                    "Saved",
+                    t!("Saved"),
                     cx,
                 )
             })
@@ -507,8 +544,8 @@ fn agent_picker(
             .map(|choice| choice.label.clone())
     });
     let label = match (&agent.launcher, model_label) {
-        (None, _) if role == Role::Builder => "The first that works".to_owned(),
-        (None, _) => "Any other agent".to_owned(),
+        (None, _) if role == Role::Builder => t!("The first that works").to_owned(),
+        (None, _) => t!("Any other agent").to_owned(),
         (Some(_), Some(model)) => format!("{} · {model}", shown.label),
         (Some(_), None) => shown.label.clone(),
     };
@@ -537,7 +574,7 @@ fn hold_button(id: u64, paused: bool, this: &Entity<Workbench>) -> Button {
     let this = this.clone();
     Button::new(
         SharedString::from(format!("playbook-trigger-{id}-hold")),
-        if paused { "Resume" } else { "Pause" },
+        if paused { t!("Resume") } else { t!("Pause") },
         Variant::Ghost,
     )
     .on_click(move |_, _, cx| {
@@ -550,9 +587,9 @@ fn hold_button(id: u64, paused: bool, this: &Entity<Workbench>) -> Button {
                 });
             bench.report(
                 asked,
-                "It was not changed",
+                t!("It was not changed"),
                 move |bench, _, cx| {
-                    let said = if paused { "Resumed" } else { "Paused" };
+                    let said = if paused { t!("Resumed") } else { t!("Paused") };
                     bench.notify(toast::success(said), cx)
                 },
                 cx,
@@ -566,7 +603,7 @@ fn remove_button(id: u64, this: &Entity<Workbench>) -> IconButton {
     IconButton::new(
         SharedString::from(format!("playbook-trigger-{id}-remove")),
         Icon::Trash,
-        "Remove",
+        t!("Remove"),
     )
     .on_click(move |_, _, cx| {
         this.update(cx, |bench, cx| {
@@ -575,8 +612,8 @@ fn remove_button(id: u64, this: &Entity<Workbench>) -> IconButton {
                 .request_typed::<call::RemoveTrigger>(TriggerParams { trigger: id });
             bench.report(
                 asked,
-                "It was not removed",
-                |bench, _, cx| bench.notify(toast::success("Removed"), cx),
+                t!("It was not removed"),
+                |bench, _, cx| bench.notify(toast::success(t!("Removed")), cx),
                 cx,
             );
         })
