@@ -1,7 +1,8 @@
 #![cfg(unix)]
 
 //! A real core and fake agents: what the person types to answer an access call, or types while
-//! one is open, never heads the next call the agent raises, even one that call's own turn raises.
+//! one is open, never heads the next call the agent raises, even one that call's own turn raises,
+//! and is never kept on another call the same words answer.
 
 mod folded;
 
@@ -266,4 +267,37 @@ async fn words_typed_to_an_access_call_never_head_the_next_call() {
     }
     let line = raised(&root, "Which account pays for the domain?");
     assert!(line.contains("\"askedFor\""), "{line}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn words_typed_beside_an_access_call_are_not_kept_on_a_reply_card() {
+    let root = tempfile::Builder::new()
+        .prefix("asked-for")
+        .tempdir_in("/tmp")
+        .expect("temp dir");
+    let root = std::fs::canonicalize(root.path()).expect("canonical");
+    let (_core, app) = core_with_project(&root).await;
+    let socket = root.join("core.sock");
+
+    let mut carded = Agent::start(&app, &socket).await;
+    let asked = "Which name fits the Widget page, Atlas or Beacon?";
+    carded.says(asked, asked).await;
+    raised(&root, asked);
+    let token = "Which token does the Widget deploy take?";
+    let letter = json!({ "to": carded.id, "text": format!("tool agent.ask {}", raise(token)) });
+    let mut sender = Agent::start(&app, &socket).await;
+    sender
+        .says(&format!("tool agent.send {letter}"), "tool ")
+        .await;
+    raised(&root, token);
+
+    let answered = |log: &str| log.matches("\"event\":\"answered\"").count();
+    let before = answered(&calls_log(&root));
+    carded
+        .says("the deploy token is hunter2now", "hunter2now")
+        .await;
+    let log = log_once(&root, "the reply's card is answered in the chat", |log| {
+        answered(log) > before
+    });
+    assert!(!log.contains("hunter2now"), "{log}");
 }

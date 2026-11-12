@@ -743,12 +743,13 @@ fn same_decision(one: &PersonCall, other: &PersonCall) -> bool {
 
 /// Whether `agent_id` waits on a call to the person whose words are never kept.
 pub(crate) fn hides_typed(core: &Core, agent_id: &str) -> bool {
-    let book = core.person_calls().book.locked();
-    (book.iter()).map(|kept| &kept.call).any(|call| {
-        let asked = call.asker.agent_id == agent_id
-            || call.joined.iter().any(|joined| joined.agent_id == agent_id);
-        asked && call.state == CallState::Open && hides_words(call)
-    })
+    waits_on_hidden(&core.person_calls().book.locked(), agent_id)
+}
+
+fn waits_on_hidden(book: &Book, agent_id: &str) -> bool {
+    (book.iter())
+        .map(|kept| &kept.call)
+        .any(|call| waits_on(call, agent_id) && call.state == CallState::Open && hides_words(call))
 }
 
 /// What the person types to a secret or an access call is never kept: it may be a password or a
@@ -997,8 +998,9 @@ const MAX_WRITTEN_CHARS: usize = 2000;
 /// call it stopped for, one of taste, money or access, is answered only when it is the one call
 /// waiting there that writing can answer; with several, none is, and they stay open. The words
 /// reach only this chat, so a call other agents also wait on stays open for them. A production
-/// call is never answered by writing, and an access call never keeps what was typed. Answers
-/// which kind of call the words answered, for the chat's record of them.
+/// call is never answered by writing, and nothing typed while the agent waits on a secret or an
+/// access call is kept on any call, since the words may be the password. Answers which kind of
+/// call the words answered, for the chat's record of them.
 pub(crate) fn written(core: &Core, agent_id: &str, text: &str) -> Option<Answered> {
     let (stopped, replied) = core.harness().questions.answered_by_writing(agent_id);
     if stopped.is_empty() && replied.is_empty() {
@@ -1028,13 +1030,12 @@ pub(crate) fn written(core: &Core, agent_id: &str, text: &str) -> Option<Answere
     if answered.is_empty() {
         return None;
     }
-    let mut hidden = false;
+    let hidden = waits_on_hidden(&book, agent_id);
     for id in answered {
         let Some(kept) = kept(&book, &id) else {
             continue;
         };
         let call = &kept.call;
-        hidden |= hides_words(call);
         let shared = std::iter::once(&call.asker)
             .chain(&call.joined)
             .any(|asker| asker.agent_id != agent_id);
@@ -1055,8 +1056,7 @@ pub(crate) fn written(core: &Core, agent_id: &str, text: &str) -> Option<Answere
                 option: None,
                 options: Vec::new(),
                 note: None,
-                words: Some(words)
-                    .filter(|words| !words.is_empty() && call.kind != CallKind::Access),
+                words: Some(words).filter(|words| !words.is_empty() && !hidden),
                 by: CallClient::Chat,
                 at: epoch_ms(),
                 waited_ms: epoch_ms().saturating_sub(call.raised_at),
