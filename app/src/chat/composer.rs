@@ -466,9 +466,9 @@ impl RenderOnce for Composer {
                     .relative()
                     .w_full()
                     .max_w(px(WIDTH))
-                    .rounded(theme::RADIUS_3)
+                    .rounded(theme::RADIUS_4)
                     .when(yolo_on, |outer| {
-                        outer.p(px(1.)).child(ui::yolo::edge(theme::RADIUS_3, &t))
+                        outer.p(px(1.)).child(ui::yolo::edge(theme::RADIUS_4, &t))
                     })
                     .child(
                         div()
@@ -479,9 +479,9 @@ impl RenderOnce for Composer {
                             .flex_col()
                             .when(!yolo_on, |inner| inner.border_1().border_color(edge))
                             .rounded(if yolo_on {
-                                theme::RADIUS_3 - px(1.)
+                                theme::RADIUS_4 - px(1.)
                             } else {
-                                theme::RADIUS_3
+                                theme::RADIUS_4
                             })
                             .bg(fill)
                             .children(tiles)
