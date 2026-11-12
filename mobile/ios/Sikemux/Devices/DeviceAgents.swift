@@ -18,12 +18,10 @@ struct DeviceAgents: View {
         // The open agents in the order the host lists them on every device: the main list, what wants the person
         // first, then the snoozed and then the settled ones.
         let agents = view.inbox.agents.filter { listed(scope, provider, project: $0.project, type: $0.cli) }
-        let chiefs = provider != nil ? [] : chiefProjects
-        let chiefIds = Set(chiefs.map(\.id))
         let open = agents.filter { agent in
-            agent.snoozedUntil == nil && agent.settledAt == nil
-                && !(agent.chief == true && agent.project.map(chiefIds.contains) == true)
+            agent.snoozedUntil == nil && agent.settledAt == nil && (provider != nil || agent.chief != true)
         }
+        let teams = teams(open)
         let snoozed = agents.filter { $0.snoozedUntil != nil && $0.settledAt == nil }
         let settled = agents.filter { $0.settledAt != nil }
         let workers = view.inbox.remoteAgents
@@ -39,18 +37,20 @@ struct DeviceAgents: View {
         MinuteClock { now in
             VStack(spacing: 0) {
                 AwayNoteView()
-                if !chiefs.isEmpty || !open.isEmpty || !strays.isEmpty {
+                if teams.contains(where: { $0.project != nil || !$0.agents.isEmpty }) || !strays.isEmpty {
                     Rows {
-                        ForEach(chiefs, id: \.id) { project in
-                            ChiefRow(
-                                core: core, project: project,
-                                shown: view.inbox.agents.first { $0.chief == true && $0.project == project.id },
-                                mixed: scope == nil, now: now)
-                        }
-                        ForEach(open, id: \.agentId) { agent in
-                            row(agent, now: now)
-                            ForEach(workers.filter { $0.lead == agent.agentId }, id: \.agentId) {
-                                WorkerRow(worker: $0, nested: true)
+                        ForEach(teams, id: \.id) { team in
+                            if let project = team.project {
+                                ChiefRow(
+                                    core: core, project: project,
+                                    shown: view.inbox.agents.first { $0.chief == true && $0.project == project.id },
+                                    mixed: scope == nil, now: now)
+                            }
+                            ForEach(team.agents, id: \.agentId) { agent in
+                                row(agent, now: now)
+                                ForEach(workers.filter { $0.lead == agent.agentId }, id: \.agentId) {
+                                    WorkerRow(worker: $0, nested: true)
+                                }
                             }
                         }
                         ForEach(strays, id: \.agentId) { WorkerRow(worker: $0) }
@@ -69,11 +69,39 @@ struct DeviceAgents: View {
         }
     }
 
-    /// The projects whose chief leads the list: the one in view, or with every project shown, each that has a chief
-    /// or agents at work.
-    private var chiefProjects: [ProjectInfo] {
-        if let scope { return [scope] }
-        return view.workspace.projects.filter { $0.chief != nil || ($0.agents ?? 0) > 0 }
+    /// One project's chief and the agents under it; agents of no project shown go last with no chief.
+    private struct Team {
+        let project: ProjectInfo?
+        let agents: [AgentShown]
+        var id: String { project?.id ?? "" }
+    }
+
+    /// The list as teams. In one project, its chief leads it. With every project shown, each project with a chief or
+    /// agents is a team, those that most need the person first: an open call or an agent that needs you, then work
+    /// under way, then the rest, ties in the host's order of projects. A list filtered to one kind of agent has no
+    /// chiefs.
+    private func teams(_ open: [AgentShown]) -> [Team] {
+        if provider != nil { return [Team(project: nil, agents: open)] }
+        if let scope { return [Team(project: scope, agents: open)] }
+        let shown = view.workspace.projects.filter { $0.chief != nil || ($0.agents ?? 0) > 0 }
+        let ranked = shown.enumerated().sorted { (need($0.element), $0.offset) < (need($1.element), $1.offset) }
+        var teams = ranked.map { project in
+            Team(project: project.element, agents: open.filter { $0.project == project.element.id })
+        }
+        let placed = Set(shown.map(\.id))
+        let loose = open.filter { agent in agent.project.map { !placed.contains($0) } ?? true }
+        if !loose.isEmpty { teams.append(Team(project: nil, agents: loose)) }
+        return teams
+    }
+
+    /// How much a project needs the person: 0 with an open call or an agent that needs them, 1 with work under way,
+    /// else 2. The Mac and the notch order projects by the same.
+    private func need(_ project: ProjectInfo) -> Int {
+        let rows = view.inbox.agents.filter { $0.project == project.id }
+        let called = (view.calls ?? []).contains { $0.state == .open && $0.project == project.path }
+        if called || rows.contains(where: { $0.turn?.state == .needsYou }) { return 0 }
+        if rows.contains(where: { $0.turn?.state == .working || $0.turn?.state == .waiting }) { return 1 }
+        return 2
     }
 
     @ViewBuilder
@@ -121,7 +149,6 @@ private struct ChatRow: View {
                 } else {
                     if shown.subagents > 0 { SubagentCount(count: shown.subagents) }
                     if shown.tasks > 0 { ShellCount(count: shown.tasks) }
-                    Trigger(shown: shown, now: now)
                     TurnMark(turn: shown.turn, now: now)
                 }
             },
@@ -154,7 +181,6 @@ private struct TerminalAgentRow: View {
                 if snoozed, let until = shown.snoozedUntil.map(Format.date(millis:)) {
                     WakeTime(at: until, now: now)
                 } else if !away {
-                    Trigger(shown: shown, now: now)
                     TurnMark(turn: shown.turn, now: now)
                 }
             })
@@ -204,20 +230,6 @@ private struct TeamPath: Shape {
             break
         }
         return path
-    }
-}
-
-/// How long until a trigger wakes the agent, while it waits rather than works.
-private struct Trigger: View {
-    let shown: AgentShown
-    let now: Date
-
-    var body: some View {
-        if let at = shown.nextTrigger.map(Format.date(millis:)), shown.turn?.state != .working,
-            shown.turn?.state != .needsYou
-        {
-            TriggerTime(at: at, now: now)
-        }
     }
 }
 

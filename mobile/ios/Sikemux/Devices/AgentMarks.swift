@@ -103,27 +103,6 @@ struct ShellCount: View {
     }
 }
 
-/// How long until a trigger the agent set wakes it, rounded up: `now`, `1m`, `3h`, `4d`.
-struct TriggerTime: View {
-    @Environment(\.palette) private var palette
-    let at: Date
-    let now: Date
-
-    var body: some View {
-        let seconds = max(0, Int(at.timeIntervalSince(now)))
-        let left =
-            seconds == 0
-            ? "now"
-            : seconds < 3600
-                ? "\(Int((Double(seconds) / 60).rounded(.up)))m"
-                : seconds < 86_400
-                    ? "\(seconds / 3600)h"
-                    : "\(seconds / 86_400)d"
-        MarkCount(icon: Icons.timer, tint: palette.cmd, text: left)
-            .accessibilityLabel("A trigger wakes it in \(left)")
-    }
-}
-
 /// How soon a snoozed agent wakes, as the Mac rail says it: minutes, hours, then the weekday.
 struct WakeTime: View {
     @Environment(\.palette) private var palette

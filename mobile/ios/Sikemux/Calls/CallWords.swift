@@ -135,23 +135,41 @@ enum CallWords {
 
     // MARK: A row's short mark
 
-    /// The minutes beside a row's mark: how long left on a wait whose length is known, else how long it has gone;
-    /// how long a call has waited on the person.
+    /// How far a CI or check wait with an estimate has gone, which its row draws as a filling ring; nil for any other
+    /// wait, which the row draws as the pink timer.
+    static func ringShare(_ wait: TurnWait?, now: Date = Date()) -> Double? {
+        guard let wait, wait.kind == .ci || wait.kind == .check, let expected = wait.expectedMs, expected > 0 else {
+            return nil
+        }
+        let gone = now.timeIntervalSince1970 * 1000 - Double(wait.startedAt)
+        return min(1, max(0, gone / Double(expected)))
+    }
+
+    /// The time beside a row's mark: how long a call has waited, the minutes left on a wait with an estimate, or how
+    /// long until a set time; nothing else has a time.
     static func rowMinutes(_ turn: TurnState, now: Date = Date()) -> String? {
         let nowMs = Int(now.timeIntervalSince1970 * 1000)
         switch turn.state {
-        case .waiting:
-            guard let wait = turn.wait else { return nil }
-            if let until = wait.until { return "\(max(1, (until - nowMs + 59_999) / 60_000))m" }
-            if let expected = wait.expectedMs {
-                return "\(max(1, (wait.startedAt + expected - nowMs + 59_999) / 60_000))m"
-            }
-            return "\(max(1, (nowMs - wait.startedAt) / 60_000))m"
         case .needsYou:
             return turn.call.map { "\(max(1, (nowMs - $0.waitingSince) / 60_000))m" }
+        case .waiting:
+            guard let wait = turn.wait else { return nil }
+            if ringShare(wait, now: now) != nil, let expected = wait.expectedMs {
+                return "\(max(1, (wait.startedAt + expected - nowMs + 59_999) / 60_000))m"
+            }
+            return wait.until.map { countdown($0 - nowMs) }
         default:
             return nil
         }
+    }
+
+    /// Time left until something fires: now, 12m, 3h, 4d; minutes rounded up under an hour.
+    static func countdown(_ ms: Int) -> String {
+        guard ms > 0 else { return "now" }
+        let minutes = (ms + 59_999) / 60_000
+        if minutes < 60 { return "\(minutes)m" }
+        if minutes < 24 * 60 { return "\(minutes / 60)h" }
+        return "\(minutes / (24 * 60))d"
     }
 
     /// What a row's mark says to VoiceOver, the hover card's words on the Mac.
