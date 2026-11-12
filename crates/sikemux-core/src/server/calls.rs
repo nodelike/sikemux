@@ -107,6 +107,14 @@ macro_rules! calls {
             $method: &str,
             $params: Value,
         ) -> CoreResult<Value> {
+            let (there, here) = super::hosts::route::elsewhere(&$core, $method, $params);
+            let mut answered = Value::Null;
+            for (host, params) in there {
+                answered = super::hosts::route::act(&$core, &host, $method, params).await?;
+            }
+            let Some($params) = here else {
+                return Ok(answered);
+            };
             match $method {
                 $($name => calls!(@run $params, $run $(, $takes, $gives)?),)*
                 method => super::git::call(&$core, &$client.peer, method, $params).await,
@@ -642,6 +650,33 @@ pub(super) fn given<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(
 ) -> Result<Option<Option<T>>, D::Error> {
     Option::deserialize(field).map(Some)
 }
+
+/// What a row does to its agent, as the calls above run it, for the host an agent's lead runs
+/// on: [`ROW_ACTIONS`] names the same methods.
+pub(crate) async fn row_action(core: &Arc<Core>, method: &str, params: Value) -> CoreResult<Value> {
+    match method {
+        "sleepAgent" => {
+            let params: AgentParams = parse(params)?;
+            answer(super::lifecycle::sleep_agent(core, &params.agent_id)?)
+        }
+        "renameAgent" => answer(names::rename_agent(core, parse(params)?).await?),
+        "updateAgent" => answer(workspace::update_agent(core, parse(params)?)?),
+        "closeAgents" => answer(workspace::close_agents(core, parse(params)?)?),
+        "snoozeAgents" => answer(super::settling::snooze(core, parse(params)?)?),
+        "settleAgents" => answer(super::settling::settle(core, parse(params)?)?),
+        method => Err(format!("{method} is not something a row does to its agent").into()),
+    }
+}
+
+/// The calls a row makes about its agent, which the host the agent runs on answers.
+pub(crate) const ROW_ACTIONS: [&str; 6] = [
+    "sleepAgent",
+    "renameAgent",
+    "updateAgent",
+    "closeAgents",
+    "snoozeAgents",
+    "settleAgents",
+];
 
 fn answer(result: impl Serialize) -> CoreResult<Value> {
     Ok(serde_json::to_value(result)?)

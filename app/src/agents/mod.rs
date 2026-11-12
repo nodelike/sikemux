@@ -1169,14 +1169,18 @@ fn agent_row(
             .pressed(pinned)
             .on_click(move |_, window, cx| pin(window, cx))
         }))
-        .when(!elsewhere, |actions| {
-            actions.child(ui::close_button(
-                SharedString::from(format!("close-{}", agent.id)),
-                t!("Close {title}", title = agent.title),
-                cx.listener(move |bench, _, _, cx| bench.close_agents(vec![close.clone()], cx)),
-                cx,
-            ))
-        });
+        .child(ui::close_button(
+            SharedString::from(format!("close-{}", agent.id)),
+            t!("Close {title}", title = agent.title),
+            cx.listener({
+                let row = agent.clone();
+                move |bench, _, _, cx| match elsewhere {
+                    true => bench.close_elsewhere(&row, cx),
+                    false => bench.close_agents(vec![close.clone()], cx),
+                }
+            }),
+            cx,
+        ));
     let chat = bench.chat_of(&agent.id);
     let dragged = crate::drag::DraggedChat {
         agent: (agent.name.clone())

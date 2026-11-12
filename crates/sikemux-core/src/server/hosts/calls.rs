@@ -44,6 +44,7 @@ host_asks! {
     Read "read" route::ReadParams;
     Close "close" route::CloseParams;
     Permit "permit" route::PermitParams;
+    Act "act" route::ActParams;
     Happened "happened" route::HappenedParams;
     Team "team" route::TeamParams;
     Worked "worked" route::AboutAgent;
@@ -166,6 +167,7 @@ async fn dispatch(
         Read::METHOD => route::read_here(core, host, read::<Read>(params)?).await,
         Close::METHOD => answered(route::close_here(core, host, read::<Close>(params)?)),
         Permit::METHOD => answered(route::permit_here(core, host, read::<Permit>(params)?)),
+        Act::METHOD => answered(route::act_here(core, host, read::<Act>(params)?).await),
         Workers::METHOD => route::workers_here(core, host, read::<Workers>(params)?),
         Happened::METHOD => answered(route::happened_here(core, host, read::<Happened>(params)?)),
         Team::METHOD => answered(route::team_here(core, host, read::<Team>(params)?)),

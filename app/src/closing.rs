@@ -8,13 +8,46 @@ use gpui_kit::Context;
 use sikemux_view::layout::PaneKind;
 use sikemux_view::workspace::WorkspaceAgent;
 
+use crate::agents::rows::AgentRow;
 use crate::asking::Choice;
+use crate::core::Target;
 use crate::toast;
 use crate::workbench::{Strip, Workbench};
 use sikemux_core::server::call;
 use sikemux_core::server::workspace::CloseAgentsParams;
 
 impl Workbench {
+    /// Closes an agent that runs on another host, asking first while it is at work. The host
+    /// it runs on closes it: asked straight when this window holds its feed, else through this
+    /// host's core, which passes the call on for a worker of its own agents.
+    pub fn close_elsewhere(&mut self, agent: &AgentRow, cx: &mut Context<Self>) {
+        let target = match self.view_at(&agent.place) {
+            Some(_) => Target::new(&self.asks, agent.place.clone()),
+            None => Target::here(&self.asks),
+        };
+        let agent_ids = vec![agent.id.clone()];
+        let close = move || {
+            target.call_typed::<call::CloseAgents>(CloseAgentsParams {
+                agent_ids: agent_ids.clone(),
+            })
+        };
+        if !agent.busy {
+            return close();
+        }
+        self.confirm(
+            t!("Close {name}?", name = agent.title),
+            t!("{names} stops with it.", names = agent.title.clone()),
+            t!("Close"),
+            true,
+            move |_, yes, _, _| {
+                if yes {
+                    close();
+                }
+            },
+            cx,
+        );
+    }
+
     /// Closes these agents, asking first.
     pub fn close_agents(&mut self, agents: Vec<String>, cx: &mut Context<Self>) {
         let title = match agents.as_slice() {

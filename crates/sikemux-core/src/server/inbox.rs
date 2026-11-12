@@ -249,9 +249,9 @@ pub(crate) fn foreign_shown(core: &Core, foreign: &Foreign) -> AgentShown {
 }
 
 /// A teammate's own host's row of it, in the project here its team works in, called
-/// `project`. What that row says only of its host is left behind: its terminal there, its
-/// place on a team there, and whether the person there put it out of their list. Until its
-/// host sends a row, what this host knows of it stands in, titled `untitled`.
+/// `project`. What that row says only of its host is left behind: its terminal there and its
+/// place on a team there. Until its host sends a row, what this host knows of it stands in,
+/// titled `untitled`.
 pub(crate) fn shown_here(
     foreign: &Foreign,
     project: Option<String>,
@@ -273,9 +273,6 @@ pub(crate) fn shown_here(
     shown.project_name = project;
     shown.session = None;
     shown.team = None;
-    shown.snoozed_until = None;
-    shown.settled_at = None;
-    shown.auto_settled = false;
     shown
 }
 

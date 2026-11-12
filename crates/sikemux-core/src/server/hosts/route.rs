@@ -1034,6 +1034,93 @@ pub(super) fn worked_here(core: &Core, host: &str, params: AboutAgent) -> CoreRe
 }
 
 #[derive(Serialize, Deserialize)]
+pub(super) struct ActParams {
+    method: String,
+    params: Value,
+}
+
+/// The agents a row's call names.
+fn named(params: &Value) -> Vec<String> {
+    let one = params["agentId"].as_str();
+    let several = params["agentIds"].as_array().into_iter().flatten();
+    (one.into_iter())
+        .chain(several.filter_map(Value::as_str))
+        .map(str::to_owned)
+        .collect()
+}
+
+/// A call a row makes about its agents, split by who answers it: each linked host for the
+/// workers that run there, with the params naming only those, and this host for the rest.
+pub(crate) fn elsewhere(
+    core: &Core,
+    method: &str,
+    params: Value,
+) -> (Vec<(String, Value)>, Option<Value>) {
+    if !crate::server::calls::ROW_ACTIONS.contains(&method) || core.hosts.team.is_empty() {
+        return (Vec::new(), Some(params));
+    }
+    let mut there: Vec<(String, Vec<String>)> = Vec::new();
+    let mut here = Vec::new();
+    for agent_id in named(&params) {
+        let worker = (core.hosts.team.get(&agent_id)).filter(|worker| worker.role == Role::Worker);
+        match worker {
+            Some(worker) => match there.iter_mut().find(|(host, _)| *host == worker.host) {
+                Some((_, workers)) => workers.push(agent_id),
+                None => there.push((worker.host, vec![agent_id])),
+            },
+            None => here.push(agent_id),
+        }
+    }
+    if there.is_empty() {
+        return (Vec::new(), Some(params));
+    }
+    let naming = |agents: Vec<String>| {
+        let mut params = params.clone();
+        if params["agentIds"].is_array() {
+            params["agentIds"] = json!(agents);
+        }
+        params
+    };
+    let local = (!here.is_empty()).then(|| naming(here));
+    let there = (there.into_iter())
+        .map(|(host, workers)| (host, naming(workers)))
+        .collect();
+    (there, local)
+}
+
+/// Has `host` do what a row here asked of workers that run there.
+pub(crate) async fn act(
+    core: &Arc<Core>,
+    host: &str,
+    method: &str,
+    params: Value,
+) -> CoreResult<Value> {
+    let asked = params_of::<asks::Act>(&ActParams {
+        method: method.to_owned(),
+        params,
+    });
+    ask(core, host, asks::Act::METHOD, asked, None, ASK_WAIT)
+        .await
+        .map_err(|error| match error {
+            Failed::Unreachable(why) | Failed::Unknown(why) | Failed::Retry(why) => {
+                format!("{} is out of reach: {why}", name_of(core, host)).into()
+            }
+            Failed::Refused(why) | Failed::NotLinked(why) => why.into(),
+        })
+}
+
+/// The host that leads agents here asks for what a row there does to them.
+pub(super) async fn act_here(core: &Core, host: &str, asked: ActParams) -> CoreResult<Value> {
+    let agents = named(&asked.params);
+    let led = |agent: &String| lead_host(core, agent).as_deref() == Some(host);
+    if agents.is_empty() || !agents.iter().all(led) {
+        return Err("only the host an agent's lead runs on may do that to it".into());
+    }
+    let core = core.arc().ok_or("the core is stopping")?;
+    crate::server::calls::row_action(&core, &asked.method, asked.params).await
+}
+
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct PermitParams {
     agent_id: String,
@@ -1188,15 +1275,7 @@ mod tests {
 
     /// What a row says only of the host that made it, so the host showing a teammate's row
     /// says its own.
-    const HOST_OWN: [&str; 7] = [
-        "project",
-        "projectName",
-        "session",
-        "team",
-        "snoozedUntil",
-        "settledAt",
-        "autoSettled",
-    ];
+    const HOST_OWN: [&str; 4] = ["project", "projectName", "session", "team"];
 
     /// A row with every field set to something a client would draw. A field added to
     /// `AgentShown` has to be given here, and then has to cross hosts below.
@@ -1339,7 +1418,7 @@ mod tests {
     }
 
     #[test]
-    fn its_row_is_in_the_project_here_and_out_of_its_hosts_own_lists() {
+    fn its_row_is_in_the_project_here_and_off_its_hosts_terminal_and_team() {
         let mut foreign = worker();
         heard(&mut foreign, AgentStatus::Working, Some(said(&local_row())));
         let shown = shown_here(&foreign, Some("widget".into()), || "Claude".into());
@@ -1347,8 +1426,6 @@ mod tests {
         assert_eq!(shown.project_name.as_deref(), Some("widget"));
         assert_eq!(shown.session, None);
         assert_eq!(shown.team, None);
-        assert_eq!((shown.snoozed_until, shown.settled_at), (None, None));
-        assert!(!shown.auto_settled);
     }
 
     #[test]
