@@ -67,20 +67,18 @@ fn plan_entries(update: &Value) -> Option<Vec<PlanEntry>> {
     )
 }
 
-/// The steps the agent plans, as the last plan an event of `kind` carries says them, for a
-/// reader that keeps no fold.
+/// The steps the agent plans, when an event of `kind` is a plan the agent just said, for a reader
+/// that keeps no fold. Only a live event's one update is looked at, by its kind alone, so the
+/// streamed text around it costs a field read each.
 pub fn plan_in(kind: ChatEventKind, payload: &Value) -> Option<Vec<PlanEntry>> {
     if !matches!(kind, ChatEventKind::SessionUpdate) {
         return None;
     }
-    let updates: Vec<&Value> = match payload.get("updates").and_then(Value::as_array) {
-        Some(updates) => updates.iter().collect(),
-        None => vec![payload],
-    };
-    (updates.into_iter().rev())
-        .filter_map(|notification| notification.get("update"))
-        .find(|update| UpdateKind::of(update) == Some(UpdateKind::Plan))
-        .and_then(plan_entries)
+    let update = payload.get("update")?;
+    if update.get("sessionUpdate")?.as_str()? != "plan" {
+        return None;
+    }
+    plan_entries(update)
 }
 
 /// Whether a call is one of our gestures, such as a reaction, which a chat shows

@@ -227,14 +227,9 @@ fn heard(core: &Arc<Core>, event: RepoEvent) {
     } = &event
     {
         let passed = ran.verdict == Some(Verdict::Passed);
-        let head = (crate::server::pictures::checkout(core, agent)).and_then(|dir| {
-            crate::git::Git::quick(dir)
-                .trimmed(&["rev-parse", "HEAD"])
-                .ok()
-        });
         if let (true, Some(head)) = (
             passed && !crate::server::board::is_production(core, project, &ran.environment),
-            head,
+            ran.head.clone(),
         ) {
             core.inbox.staged(agent, head);
             core.changed(crate::server::changed::What::View);

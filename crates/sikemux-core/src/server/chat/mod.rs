@@ -1053,7 +1053,7 @@ impl Chat {
         }
     }
 
-    fn attentions(&self) -> Vec<Attention> {
+    pub(crate) fn attentions(&self) -> Vec<Attention> {
         self.permissions
             .locked()
             .iter()

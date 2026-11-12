@@ -2220,6 +2220,8 @@ pub(crate) struct DeployRan {
     pub output: String,
     /// The person allowed it, which passes the environment's step once it went.
     pub by_person: bool,
+    /// The commit it deployed, as its checkout was when it went.
+    pub head: Option<String>,
 }
 
 /// A deploy `agent` took ended: the card it works now keeps it as evidence
@@ -2248,6 +2250,7 @@ pub(crate) fn deployed(core: &Arc<Core>, project: &str, agent: &str, ran: Deploy
         verdict,
         output,
         by_person,
+        ..
     } = ran;
     moved_by_evidence(core, project, id, |slice| {
         let proof = Proof::Run {

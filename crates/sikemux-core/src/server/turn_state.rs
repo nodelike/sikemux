@@ -89,12 +89,8 @@ impl Gathered {
     pub(crate) fn of(core: &Core, agents: &[Seen]) -> Self {
         let mut asks: HashMap<String, Vec<Ask>> = HashMap::new();
         for attention in core.chats.attentions() {
-            let choices = attention.choices;
-            asks.entry(attention.agent_id).or_default().push(Ask {
-                id: attention.id,
-                question: choices.title.or(choices.command).unwrap_or_default(),
-                at: attention.at,
-            });
+            let agent = attention.agent_id.clone();
+            asks.entry(agent).or_default().push(ask_of(attention));
         }
         let leads = core.workspaces.agent_leads();
         let mut workers = HashMap::new();
@@ -186,9 +182,48 @@ pub(crate) fn all(core: &Core) -> HashMap<String, TurnState> {
     all_from(core, &chats, &sessions)
 }
 
-/// How `agent_id`'s turn stands, worked out now.
+/// How `agent_id`'s turn stands, worked out now from its own facts alone.
 pub(crate) fn now(core: &Core, agent_id: &str) -> Option<TurnState> {
-    all(core).remove(agent_id)
+    let mid_turn = |id: &str| core.agent_now(id).mid_turn();
+    let status = match mid_turn(agent_id) {
+        true => AgentStatus::Working,
+        false => AgentStatus::Idle,
+    };
+    let mut asks: HashMap<String, Vec<Ask>> = HashMap::new();
+    if let Some(chat) = core.chats.get(agent_id) {
+        asks.insert(
+            agent_id.to_owned(),
+            (chat.attentions().into_iter()).map(ask_of).collect(),
+        );
+    }
+    let leads = core.workspaces.agent_leads();
+    let worker = (leads.iter()).find(|(worker, lead)| *lead == agent_id && mid_turn(worker));
+    let workers = (worker.into_iter())
+        .map(|(worker, _)| {
+            let since = (core.seen.started_at(worker))
+                .or_else(|| core.seen.active_at(worker))
+                .unwrap_or_else(epoch_ms);
+            let name = core.names.name(worker).unwrap_or_default();
+            (agent_id.to_owned(), (name, since))
+        })
+        .collect();
+    let mut on_check = super::board::owners_on_check(core);
+    on_check.retain(|owner, _| owner == agent_id);
+    let gathered = Gathered {
+        asks,
+        workers,
+        on_check,
+    };
+    of(core, &gathered, agent_id, status)
+}
+
+fn ask_of(attention: sikemux_wire::protocol::Attention) -> Ask {
+    let choices = attention.choices;
+    Ask {
+        id: attention.id,
+        question: choices.title.or(choices.command).unwrap_or_default(),
+        at: attention.at,
+    }
 }
 
 fn standing(state: TurnPhase, since: u64) -> TurnState {

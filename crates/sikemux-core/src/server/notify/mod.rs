@@ -61,6 +61,9 @@ const FINISHED_LIFE_MS: u64 = 2 * 60_000;
 const CI_LIFE_MS: u64 = 30 * 60_000;
 /// What a card saying how CI ended is named by: the run, so agents waiting on one share it.
 const CI_CARD: &str = "ci|";
+/// How long one end of a run is told once, however many agents waited on it. A later end of the
+/// same run, as a rerun's, is told again.
+const CI_SHARED_MS: u64 = 2 * 60_000;
 const PROBLEM_LIFE_MS: u64 = 10 * 60_000;
 const CLEAR_LIFE_MS: u64 = 60 * 60_000;
 const MAX_TITLE_CHARS: usize = 100;
@@ -160,6 +163,8 @@ struct State {
     finished: HashMap<(String, String), u64>,
     problems: HashMap<(String, String), u64>,
     waiting_for_input: HashSet<String>,
+    /// When each phone was last told how a run's CI ended, by phone and card.
+    ci_told: HashMap<(String, String), u64>,
     /// Permission requests still waiting, by agent and request.
     pending: HashMap<(String, String), Attention>,
     /// Agents' questions still waiting on the person, by agent and question.
@@ -1171,19 +1176,19 @@ fn alert_phones(core: &Core, draft: &Draft, now: u64, also: impl Fn(&str) -> boo
 fn due(core: &Core, to: &str, draft: &Draft, now: u64) -> bool {
     let state = core.notify.state.locked();
     let ci = draft.card.starts_with(CI_CARD);
-    let once = ci
-        || matches!(
-            draft.kind,
-            NotificationKind::Permission | NotificationKind::Input | NotificationKind::Pairing
-        );
+    let once = matches!(
+        draft.kind,
+        NotificationKind::Permission | NotificationKind::Input | NotificationKind::Pairing
+    );
     if once && state.alerted.contains(&(to.to_owned(), draft.card.clone())) {
         return false;
     }
     let pair = (to.to_owned(), draft.agent_id.clone());
     let recent =
         |last: Option<&u64>, gap: u64| last.is_some_and(|last| now.saturating_sub(*last) < gap);
+    let card = (to.to_owned(), draft.card.clone());
     match draft.kind {
-        NotificationKind::Finished if ci => true,
+        NotificationKind::Finished if ci => !recent(state.ci_told.get(&card), CI_SHARED_MS),
         NotificationKind::Finished => !recent(state.finished.get(&pair), FINISHED_GAP_MS),
         NotificationKind::Problem => !recent(state.problems.get(&pair), PROBLEM_GAP_MS),
         _ => true,
@@ -1194,7 +1199,14 @@ fn sent(core: &Core, to: &str, draft: &Draft, now: u64) {
     let mut state = core.notify.state.locked();
     let pair = (to.to_owned(), draft.agent_id.clone());
     match draft.kind {
-        NotificationKind::Finished if draft.card.starts_with(CI_CARD) => {}
+        NotificationKind::Finished if draft.card.starts_with(CI_CARD) => {
+            state
+                .ci_told
+                .retain(|_, at| now.saturating_sub(*at) < CI_SHARED_MS);
+            state
+                .ci_told
+                .insert((to.to_owned(), draft.card.clone()), now);
+        }
         NotificationKind::Finished => {
             state.finished.insert(pair, now);
         }

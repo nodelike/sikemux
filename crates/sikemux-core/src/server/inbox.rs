@@ -284,8 +284,7 @@ struct Turn {
     /// The commit a deploy of the agent's to a place before production passed at, whichever
     /// turn deployed it.
     staged: Option<String>,
-    /// Where git said the chat's work was, read when a turn ends and on each commit, and kept
-    /// from one turn to the next.
+    /// Where git said the chat's work was, read when this turn ended and on each commit since.
     work: Option<turn_state::Work>,
 }
 
@@ -329,7 +328,6 @@ impl Turns {
             *turn(turns, agent_id) = Turn {
                 started_at: epoch_ms(),
                 staged: earlier.staged,
-                work: earlier.work,
                 ..Turn::default()
             };
         });

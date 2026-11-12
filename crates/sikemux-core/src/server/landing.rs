@@ -97,8 +97,9 @@ fn history(core: &Core, project: &str) -> Option<LandingHistory> {
     history
 }
 
-/// The branch a project's work lands on, whatever its checkout has out: the one its remote's
-/// HEAD names, else `main`, else `master`.
+/// The branch a project's work lands on, whatever an agent's checkout has out: the one its
+/// remote's HEAD names, else `main`, else `master`, else the one the project's own checkout at
+/// `repo` is on.
 pub(crate) fn project_branch(repo: &Path) -> Option<String> {
     let remote_head = Git::quick(repo)
         .trimmed(&[
@@ -115,6 +116,11 @@ pub(crate) fn project_branch(repo: &Path) -> Option<String> {
         .into_iter()
         .find(|branch| exists(repo, &format!("refs/heads/{branch}")))
         .map(str::to_owned)
+        .or_else(|| {
+            Git::quick(repo)
+                .trimmed(&["symbolic-ref", "--quiet", "--short", "HEAD"])
+                .ok()
+        })
 }
 
 /// Where `branch` stands on its remote: what it pushes to, else origin's copy of it.

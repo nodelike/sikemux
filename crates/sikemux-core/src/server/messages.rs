@@ -1394,10 +1394,10 @@ pub(crate) async fn step_from_person(
 ) -> Result<Value, String> {
     let target = running(core, to).await?;
     let letter = Letter::from_sender(
-        Sender::Person,
+        Sender::Sikemux,
         MessageKind::Message,
         text,
-        Some("The person took this step on your turn's line with one click; the words are Sikemux's for that step.".to_owned()),
+        Some("Sent by Sikemux because the person took this step on your turn's line with one click; the words are Sikemux's, not theirs.".to_owned()),
     );
     deliver(core, &target, letter).await
 }

@@ -78,6 +78,8 @@ pub(crate) struct Deploy {
     /// Why it went or how it was let go, as its evidence opens.
     why: String,
     by_person: bool,
+    /// The commit its checkout was at as it went, which is what it deployed.
+    head: Option<String>,
 }
 
 #[derive(Clone)]
@@ -242,6 +244,7 @@ fn check_call(
             .as_ref()
             .filter(|_| ship.kind == ShipKind::Deploy);
         deploying.map(|name| Deploy {
+            head: Git::quick(cwd).trimmed(&["rev-parse", "HEAD"]).ok(),
             agent_id: agent_id.to_owned(),
             project: project.clone(),
             environment: name.clone(),
@@ -751,6 +754,7 @@ async fn ended(core: Arc<Core>, deploy: Deploy, verdict: Option<Verdict>, output
         verdict,
         output: text.chars().skip(start).collect(),
         by_person: deploy.by_person,
+        head: deploy.head,
     };
     core.repo_events.tell(RepoEvent::Deployed {
         project: deploy.project,
