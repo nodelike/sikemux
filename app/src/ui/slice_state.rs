@@ -1,7 +1,7 @@
 //! How a slice of work stands, drawn the same wherever it shows: its mark, the colour its words
-//! take, a strip of its steps, and the names of its gates.
+//! take, and the names of its gates.
 
-use gpui_kit::{div, px, AnyElement, App, IntoElement, Length, ParentElement, Styled};
+use gpui_kit::{div, px, AnyElement, App, IntoElement, Styled};
 use sikemux_view::slice::{Gate, SliceState};
 
 use crate::theme::Tokens;
@@ -42,32 +42,4 @@ pub(crate) fn state_dot(state: SliceState, size: f32, cx: &App) -> AnyElement {
         SliceState::Failed => dot.bg(t.danger),
     }
     .into_any_element()
-}
-
-/// A row of segments, one per state, the same wherever progress shows.
-pub(crate) fn state_strip(
-    states: impl IntoIterator<Item = SliceState>,
-    width: impl Into<Length>,
-    cx: &App,
-) -> AnyElement {
-    let t = Tokens::get(cx);
-    div()
-        .w(width.into())
-        .flex_none()
-        .flex()
-        .gap(px(3.))
-        .children(states.into_iter().map(|state| {
-            let segment = div().flex_1().h(px(4.)).rounded(px(2.));
-            match state {
-                SliceState::Done => segment.bg(t.live),
-                SliceState::Moving => segment.bg(t.live.opacity(0.45)),
-                SliceState::NeedsYou => segment.bg(t.warn),
-                SliceState::Failed => segment.bg(t.danger),
-                SliceState::Waiting => segment
-                    .border_1()
-                    .border_dashed()
-                    .border_color(t.text_disabled),
-            }
-        }))
-        .into_any_element()
 }

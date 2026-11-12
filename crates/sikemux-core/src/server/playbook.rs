@@ -61,7 +61,10 @@ fn playbook(core: &Core, project: &str, peer: &Peer) -> Playbook {
     Playbook {
         rules,
         notes,
-        landing: Landing { lands },
+        landing: Landing {
+            lands,
+            means: Some(super::landing::means_now(core, project)),
+        },
         automation,
     }
 }

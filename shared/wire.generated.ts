@@ -3800,13 +3800,35 @@ export interface BoardSettings {
 
 export interface Landing {
     lands: Lands;
+    /** What counts as landed here, and how the latest changes reached the branch. */
+    means?: LandedMeans;
 }
 
 /** Who puts work on the project's branch. */
 export type Lands = "agents" | "person";
 
+/** What landing means in a project, and how its latest changes reached its branch. */
+export interface LandedMeans {
+    means: Landed;
+    /** The person set it, rather than the core reading it from `history`. */
+    chosen: boolean;
+    /** None for a project with no commits on its branch. */
+    history?: LandingHistory;
+}
+
 /** What counts as landed in a project. */
 export type Landed = "committed" | "pushed" | "merged";
+
+/**
+ * How most of a project's latest changes reached its branch: `count` of the last `of` were
+ * `means`, such as 41 of the last 50 pushed straight to main.
+ */
+export interface LandingHistory {
+    means: Landed;
+    count: number;
+    of: number;
+    branch: string;
+}
 
 export interface ReviewerChoice {
     /**

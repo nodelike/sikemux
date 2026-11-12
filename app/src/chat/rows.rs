@@ -800,11 +800,6 @@ fn goal_marker(notice: &AgentNotice, looks: &Drawn, cx: &App) -> AnyElement {
                 .flex()
                 .items_center()
                 .gap(SPACE_2)
-                .children(goal_line::steps(&goal.steps, cx))
-                .children(
-                    goal_line::progress(&goal.steps, goal.of_gates)
-                        .map(|words| div().text_color(looks.quiet).child(words)),
-                )
                 .children(goal.took.filter(|took| *took >= 1000).map(|took| {
                     div()
                         .text_size(crate::theme::ui_text(TEXT_2XS_H))

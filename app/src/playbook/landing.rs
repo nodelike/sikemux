@@ -1,15 +1,19 @@
 //! The Landing page: who puts work on the project's branch, and the words the line under each
 //! chat ends a turn with.
 
-use gpui_kit::{div, px, AnyElement, App, Context, Entity, IntoElement, ParentElement, Styled};
+use gpui_kit::{
+    div, px, AnyElement, App, Context, Entity, IntoElement, ParentElement, SharedString, Styled,
+};
 use sikemux_core::server::board::{BoardSettingsParams, Landing};
 use sikemux_core::server::call;
+use sikemux_core::server::landing::SetLandedMeansParams;
 use sikemux_view::playbook::{Lands, Playbook};
+use sikemux_view::turn::{Landed, LandedMeans, LandingHistory};
 
 use crate::settings::rows;
 use crate::theme::{self, Tokens, SPACE_1H, SPACE_2, TEXT_2XS_H};
 use crate::toast;
-use crate::ui::{select, Pick};
+use crate::ui::{select, Pick, Segmented};
 use crate::workbench::Workbench;
 
 pub(super) fn page(
@@ -29,6 +33,9 @@ pub(super) fn page(
         )];
     };
     let lands = playbook.landing.lands;
+    let means = playbook.landing.means.as_ref();
+    let history = means.and_then(|means| means.history.as_ref());
+    let landed = means_row(means, folder, this, cx);
     let (this, folder) = (this.clone(), folder.to_owned());
     let who = select(
         "playbook-lands",
@@ -49,10 +56,33 @@ pub(super) fn page(
         },
         cx,
     );
-    let about = match lands {
-        Lands::Agents => "Agents land their own work",
-        Lands::Person => "You land the work agents leave",
+    let mut about = match lands {
+        Lands::Agents => "Agents land their own work".to_owned(),
+        Lands::Person => "You land the work agents leave".to_owned(),
     };
+    if let Some(history) = history {
+        about.push_str(&format!(
+            " · read from how work reached {} here",
+            history.branch
+        ));
+    }
+    let branch = history.map(|history| {
+        rows::row_with(
+            None,
+            "Branch",
+            Some(format!("{} · from Git", history.branch).into()),
+            select(
+                "playbook-branch",
+                history.branch.clone(),
+                Vec::new(),
+                None,
+                true,
+                |_, _, _| {},
+                cx,
+            ),
+            cx,
+        )
+    });
     let body = div()
         .child(rows::row_with(
             None,
@@ -61,6 +91,8 @@ pub(super) fn page(
             who,
             cx,
         ))
+        .children(landed)
+        .children(branch)
         .child(rows::row_with(
             None,
             "When a turn ends, the line reads",
@@ -76,6 +108,87 @@ pub(super) fn page(
         body,
         cx,
     )]
+}
+
+const MEANS: [(Landed, &str); 3] = [
+    (Landed::Committed, "Committed"),
+    (Landed::Pushed, "Pushed"),
+    (Landed::Merged, "Merged"),
+];
+
+/// What counts as landed, with how the latest changes reached the branch under it.
+fn means_row(
+    means: Option<&LandedMeans>,
+    folder: &str,
+    this: &Entity<Workbench>,
+    cx: &mut Context<Workbench>,
+) -> Option<gpui_kit::Div> {
+    let means = means?;
+    let about = match (&means.history, means.chosen) {
+        (Some(history), false) => history_words(history),
+        (Some(history), true) => format!("You chose this · {}", history_words(history)),
+        (None, true) => "You chose this".to_owned(),
+        (None, false) => "Read from the project's history once it has commits".to_owned(),
+    };
+    let chosen = MEANS.iter().position(|(landed, _)| *landed == means.means);
+    let (this, folder) = (this.clone(), folder.to_owned());
+    let control = Segmented::words(
+        "playbook-landed-means",
+        MEANS
+            .iter()
+            .map(|(_, word)| (SharedString::from(*word), None))
+            .collect(),
+        chosen.unwrap_or(usize::MAX),
+    )
+    .on_select(move |at, _, cx| {
+        let Some((landed, _)) = MEANS.get(*at) else {
+            return;
+        };
+        let (folder, landed) = (folder.clone(), *landed);
+        this.update(cx, |bench, cx| {
+            let asked =
+                bench
+                    .target()
+                    .request_typed::<call::SetLandedMeans>(SetLandedMeansParams {
+                        project: folder,
+                        means: Some(landed),
+                    });
+            bench.report(
+                asked,
+                "What landed means was not changed",
+                |bench, _, cx| bench.notify(toast::success("Landing changed"), cx),
+                cx,
+            );
+        })
+    });
+    Some(rows::row_with(
+        None,
+        "Landed means",
+        Some(about.into()),
+        control,
+        cx,
+    ))
+}
+
+/// How most of the latest changes reached the branch, as "41 of the last 50 changes were
+/// pushed straight to main".
+fn history_words(history: &LandingHistory) -> String {
+    let how = match history.means {
+        Landed::Committed => "committed on",
+        Landed::Pushed => "pushed straight to",
+        Landed::Merged => "merged into",
+        Landed::Unknown => "brought to",
+    };
+    match (history.count, history.of) {
+        (1, 1) => format!("The one change so far was {how} {}", history.branch),
+        (count, of) if count == of => {
+            format!("All {of} of the last changes were {how} {}", history.branch)
+        }
+        (count, of) => format!(
+            "{count} of the last {of} changes were {how} {}",
+            history.branch
+        ),
+    }
 }
 
 fn lands_word(lands: Lands) -> &'static str {

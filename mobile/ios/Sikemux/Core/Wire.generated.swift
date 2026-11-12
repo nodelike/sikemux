@@ -5949,6 +5949,8 @@ struct BoardSettings: Codable, Hashable, Sendable {
 
 struct Landing: Codable, Hashable, Sendable {
     var lands: Lands
+    /// What counts as landed here, and how the latest changes reached the branch.
+    var means: LandedMeans?
 }
 
 /// Who puts work on the project's branch.
@@ -5965,6 +5967,15 @@ enum Lands: String, Codable, Hashable, Sendable {
     }
 }
 
+/// What landing means in a project, and how its latest changes reached its branch.
+struct LandedMeans: Codable, Hashable, Sendable {
+    var means: Landed
+    /// The person set it, rather than the core reading it from `history`.
+    var chosen: Bool
+    /// None for a project with no commits on its branch.
+    var history: LandingHistory?
+}
+
 /// What counts as landed in a project.
 enum Landed: String, Codable, Hashable, Sendable {
     case committed
@@ -5976,6 +5987,15 @@ enum Landed: String, Codable, Hashable, Sendable {
     init(from decoder: any Decoder) throws {
         self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
     }
+}
+
+/// How most of a project's latest changes reached its branch: `count` of the last `of` were
+/// `means`, such as 41 of the last 50 pushed straight to main.
+struct LandingHistory: Codable, Hashable, Sendable {
+    var means: Landed
+    var count: Int
+    var of: Int
+    var branch: String
 }
 
 struct ReviewerChoice: Codable, Hashable, Sendable {

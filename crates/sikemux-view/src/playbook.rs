@@ -43,6 +43,9 @@ pub struct Entry {
 #[serde(rename_all = "camelCase")]
 pub struct Landing {
     pub lands: Lands,
+    /// What counts as landed here, and how the latest changes reached the branch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub means: Option<crate::turn::LandedMeans>,
 }
 
 /// Who puts work on the project's branch.
