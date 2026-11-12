@@ -3659,6 +3659,8 @@ enum ChatActivity: Codable, Hashable, Sendable {
 struct ChiefAway: Codable, Hashable, Sendable {
     /// When the person was last with the chief, in Unix milliseconds.
     var since: Int
+    /// When they came back and the block began: how long they were away is `back - since`.
+    var back: Int?
     /// The project's calls open now, by id, oldest first, as the device view lists them.
     var calls: [String]?
     var decided: [AwayDecision]?
@@ -3675,6 +3677,9 @@ struct AwayDecision: Codable, Hashable, Sendable {
     var why: String?
     var by: AwayAgent?
     var at: Int
+    /// The person overruled it since the block began, so it is struck and offers no Overrule;
+    /// Undo clears it again.
+    var overruled: Bool?
 }
 
 struct AwayAgent: Codable, Hashable, Sendable {
@@ -4559,9 +4564,15 @@ struct OverruledDecision: Codable, Hashable, Sendable {
     /// The goal whose log keeps it; none for the project's own log.
     var goal: Int?
     var decision: Int
+    /// What was decided, as the agent wrote it: its first sentence, on one line. Shown as the
+    /// decision, never as the person's words.
+    var text: String?
     var rule: Int?
     /// The person undid the Overrule: the decision stands again, and the line offers no Undo.
     var undone: Bool?
+    /// The Overrule stopped Auto's run on a slice, which Undo cannot put back, so the line offers
+    /// no Undo and says why.
+    var stoppedAuto: Bool?
 }
 
 /// A week in a chief's project, counted by the core.

@@ -1747,11 +1747,19 @@ pub struct OverruledDecision {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub goal: Option<u64>,
     pub decision: u64,
+    /// What was decided, as the agent wrote it: its first sentence, on one line. Shown as the
+    /// decision, never as the person's words.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub text: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rule: Option<u64>,
     /// The person undid the Overrule: the decision stands again, and the line offers no Undo.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub undone: bool,
+    /// The Overrule stopped Auto's run on a slice, which Undo cannot put back, so the line offers
+    /// no Undo and says why.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub stopped_auto: bool,
 }
 
 /// What happened while the person was away from their project's chief, as facts the client
@@ -1761,6 +1769,9 @@ pub struct OverruledDecision {
 pub struct ChiefAway {
     /// When the person was last with the chief, in Unix milliseconds.
     pub since: u64,
+    /// When they came back and the block began: how long they were away is `back - since`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub back: Option<u64>,
     /// The project's calls open now, by id, oldest first, as the device view lists them.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub calls: Vec<String>,
@@ -1785,6 +1796,10 @@ pub struct AwayDecision {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub by: Option<AwayAgent>,
     pub at: u64,
+    /// The person overruled it since the block began, so it is struck and offers no Overrule;
+    /// Undo clears it again.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub overruled: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

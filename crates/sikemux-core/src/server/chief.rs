@@ -928,6 +928,7 @@ fn away(core: &Core, chief: &str, since: u64) -> Option<Away> {
                     agent_id,
                 }),
                 at: swarm.decision.learned.at,
+                overruled: false,
             })
             .collect();
     let landings = core
@@ -953,6 +954,7 @@ fn away(core: &Core, chief: &str, since: u64) -> Option<Away> {
     landed.sort_by_key(|landed| landed.at);
     let shown = ChiefAway {
         since,
+        back: Some(epoch_ms()),
         calls,
         decided,
         landed,
@@ -1006,12 +1008,34 @@ pub(crate) fn refresh_away(core: &Core, calls: &[PersonCall]) {
 /// `text` an agent wrote, as Sikemux quotes it in a rule or a line: one sentence of it, on one
 /// line, cut, in quotes.
 fn first_sentence(text: &str) -> String {
+    quoted(&sentence(text))
+}
+
+/// The first sentence of `text`, on one line, cut.
+fn sentence(text: &str) -> String {
     let line = crate::text::one_line(text);
     let end = line
         .char_indices()
         .find(|(at, c)| matches!(c, '.' | '?' | '!') && line[at + 1..].starts_with(' '))
         .map_or(line.len(), |(at, _)| at + 1);
-    quoted(&line[..end])
+    crate::text::clipped(&line[..end], LONGEST_QUOTE)
+}
+
+/// The decision `decision` in the chief's away block is struck as overruled, or stands again.
+fn mark_away(core: &Core, chief: &str, goal: Option<u64>, decision: u64, overruled: bool) {
+    let shown = core.chiefs().seat(chief, |seat| {
+        let away = seat.away.as_mut()?;
+        let found = (away.shown.decided.iter_mut())
+            .find(|decided| decided.goal == goal && decided.decision == decision)?;
+        if found.overruled == overruled {
+            return None;
+        }
+        found.overruled = overruled;
+        Some(away.shown.clone())
+    });
+    if let (Some(Some(shown)), Some(feed)) = (shown, core.chats().heard(chief)) {
+        feed.set_away(Some(shown));
+    }
 }
 
 /// The person overruled decision `decision` of `project` (a path), which `told` heard of: a
@@ -1062,9 +1086,12 @@ pub(crate) fn overruled(
         project: project.to_owned(),
         goal,
         decision: id,
+        text: sentence(text),
         rule,
         undone: false,
+        stopped_auto,
     };
+    mark_away(core, &chief, goal, id, true);
     put_row(
         core,
         &chief,
@@ -1140,13 +1167,16 @@ pub(crate) async fn overrule_undone(
             &chief,
             &format!("overrule|{}", overrule_key(project, goal, id)),
         );
+        mark_away(core, &chief, goal, id, false);
         if let Some(feed) = core.chats().heard(&chief) {
             let undone = OverruledDecision {
                 project: project.to_owned(),
                 goal,
                 decision: id,
+                text: sentence(text),
                 rule: overrule.rule,
                 undone: true,
+                stopped_auto: false,
             };
             let update = sikemux_fold::update::overruled_notice("Overrule undone", undone);
             emit_row(&feed, &chief, update, epoch_ms());

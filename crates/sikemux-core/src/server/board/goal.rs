@@ -962,7 +962,8 @@ pub struct OverruleParams {
 }
 
 /// The person overrules what agents decided: it is retired, and the agent that goes by it hears,
-/// as does the one that decided it.
+/// as does the one that decided it. Asked again for a decision they already overruled, as a
+/// second click sent before the first is answered, it changes nothing and answers the board.
 pub(crate) async fn overrule(
     core: &Arc<Core>,
     params: OverruleParams,
@@ -981,21 +982,32 @@ pub(crate) async fn overrule(
                 None => &mut board.decided,
             };
             let decision = (kept.decisions.iter_mut())
-                .find(|decision| decision.id == params.decision && decision.retired.is_none())
-                .ok_or("That decision has been overruled or retired already")?;
-            decision.retired = Some(by);
-            let overruled = decision.clone();
-            core.boards().save(&mut state, &project);
+                .find(|decision| decision.id == params.decision)
+                .ok_or("That decision is not kept here")?;
+            let already = (decision.retired.as_ref()).is_some_and(|by| by.agent.is_none());
+            if decision.retired.is_some() && !already {
+                return Err("That decision has been retired already".into());
+            }
+            let overruled = (!already).then(|| {
+                decision.retired = Some(by);
+                decision.clone()
+            });
+            if overruled.is_some() {
+                core.boards().save(&mut state, &project);
+            }
             drop(state);
-            let stopped_auto =
-                super::recover::overruled(&core, &project, params.goal, params.decision);
+            let stopped_auto = overruled.is_some()
+                && super::recover::overruled(&core, &project, params.goal, params.decision);
             let view = project_view(&core, &project);
-            Ok((project, (overruled, params.instead), stopped_auto, view))
+            let overruled = overruled.map(|decision| (decision, params.instead));
+            Ok((project, overruled, stopped_auto, view))
         })
         .await
         .map_err(|error| error.to_string())?
     };
-    let (decision, instead) = overruled;
+    let Some((decision, instead)) = overruled else {
+        return Ok(view);
+    };
     let told: Vec<String> = (decision.holder.iter())
         .chain(
             decision
@@ -1056,17 +1068,16 @@ pub struct UndoOverruleParams {
 /// Undoes the person's Overrule: the decision stands again, the rule that brought its kind to
 /// them is retired, and the agents the Overrule told and the chief hear it stands. Only a
 /// decision the person retired by Overrule comes back, and not one whose Overrule stopped Auto.
+/// Asked again for a decision that already stands, it changes nothing and answers the board.
 pub(crate) async fn undo_overrule(
     core: &Arc<Core>,
     params: UndoOverruleParams,
 ) -> Result<ProjectBoard, String> {
     let (goal, id) = (params.goal, params.decision);
-    let (project, overrule, text, view) = {
+    let (project, undone, view) = {
         let core = core.clone();
         blocking(move || {
             let project = project_at(&core, &params.project)?;
-            let overrule =
-                crate::server::chief::undoable(&core, &project, params.goal, params.decision)?;
             let mut state = core.boards().state.locked();
             let board = (state.boards.get_mut(&project))
                 .ok_or_else(|| "This project keeps no decisions".to_owned())?;
@@ -1075,23 +1086,37 @@ pub(crate) async fn undo_overrule(
                 None => &mut board.decided,
             };
             let decision = (kept.decisions.iter_mut())
-                .find(|decision| {
-                    decision.id == params.decision
-                        && decision
-                            .retired
-                            .as_ref()
-                            .is_some_and(|by| by.agent.is_none())
-                })
-                .ok_or("That decision is not overruled")?;
-            decision.retired = None;
-            let text = decision.text.clone();
-            core.boards().save(&mut state, &project);
+                .find(|decision| decision.id == params.decision)
+                .ok_or("That decision is not kept here")?;
+            let stands = decision.retired.is_none();
+            if !stands && !(decision.retired.as_ref()).is_some_and(|by| by.agent.is_none()) {
+                return Err("That decision is not overruled".into());
+            }
+            let undone = match stands {
+                true => None,
+                false => {
+                    let overrule = crate::server::chief::undoable(
+                        &core,
+                        &project,
+                        params.goal,
+                        params.decision,
+                    )?;
+                    decision.retired = None;
+                    Some((overrule, decision.text.clone()))
+                }
+            };
+            if undone.is_some() {
+                core.boards().save(&mut state, &project);
+            }
             drop(state);
             let view = project_view(&core, &project);
-            Ok((project, overrule, text, view))
+            Ok((project, undone, view))
         })
         .await
         .map_err(|error| error.to_string())?
+    };
+    let Some((overrule, text)) = undone else {
+        return Ok(view);
     };
     crate::server::chief::overrule_undone(core, &project, goal, (id, &text), overrule).await;
     Ok(view)

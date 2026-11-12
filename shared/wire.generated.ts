@@ -2358,6 +2358,8 @@ export type ChatActivity =
 export interface ChiefAway {
     /** When the person was last with the chief, in Unix milliseconds. */
     since: number;
+    /** When they came back and the block began: how long they were away is `back - since`. */
+    back?: number;
     /** The project's calls open now, by id, oldest first, as the device view lists them. */
     calls?: string[];
     decided?: AwayDecision[];
@@ -2374,6 +2376,11 @@ export interface AwayDecision {
     why?: string;
     by?: AwayAgent;
     at: number;
+    /**
+     * The person overruled it since the block began, so it is struck and offers no Overrule;
+     * Undo clears it again.
+     */
+    overruled?: boolean;
 }
 
 export interface AwayAgent {
@@ -2903,9 +2910,19 @@ export interface OverruledDecision {
     /** The goal whose log keeps it; none for the project's own log. */
     goal?: number;
     decision: number;
+    /**
+     * What was decided, as the agent wrote it: its first sentence, on one line. Shown as the
+     * decision, never as the person's words.
+     */
+    text?: string;
     rule?: number;
     /** The person undid the Overrule: the decision stands again, and the line offers no Undo. */
     undone?: boolean;
+    /**
+     * The Overrule stopped Auto's run on a slice, which Undo cannot put back, so the line offers
+     * no Undo and says why.
+     */
+    stoppedAuto?: boolean;
 }
 
 /** A week in a chief's project, counted by the core. */
