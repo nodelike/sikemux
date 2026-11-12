@@ -27,7 +27,7 @@ use sikemux_wire::protocol::ChatContext;
 
 use super::chat::feed::Feed;
 use super::chat::reset::{calendar, WallClock, Zone};
-use super::chat::Chat;
+use super::chat::{Chat, ChatCommand, Whose};
 use super::kept::Kept;
 use super::launching::{self, Launch};
 use super::{Core, CoreResult};
@@ -258,13 +258,22 @@ pub(crate) async fn open(core: &Arc<Core>, params: OpenChiefParams) -> CoreResul
         .ok_or("that project is not on this host")?;
     let agent_id = seat(core, &project).await?;
     if let Some(text) = greeting(core, &project, &agent_id) {
-        let (core, chief) = (core.clone(), agent_id.clone());
-        tokio::spawn(async move {
-            let why = "because the person opened you for the first time";
-            if let Err(error) = super::messages::work_from_sikemux(&core, chief, text, why).await {
-                eprintln!("sikemux core: the chief did not write its first message: {error}");
-            }
-        });
+        let ask = ChatCommand::Prompt {
+            message_id: None,
+            text: String::new(),
+            paths: Vec::new(),
+            context: vec![crate::sessions::for_agent::sikemux_context(
+                "first-message",
+                "Your first message",
+                &text,
+            )],
+            shown: true,
+            whose: Whose::NOT_PERSON,
+        };
+        let sent = core.chats().running(&agent_id).and_then(|chat| chat.send(ask));
+        if let Err(error) = sent {
+            eprintln!("sikemux core: the chief was not asked for its first message: {error}");
+        }
     }
     Ok(OpenedChief { agent_id })
 }

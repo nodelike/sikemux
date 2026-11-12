@@ -132,8 +132,8 @@ pub(super) fn replay(branch: &[&Value], cwd: &str) -> Vec<Value> {
                 let message = &entry["message"];
                 match message["role"].as_str() {
                     Some("user") => {
-                        let said = user_text(message);
-                        if !said.is_empty() {
+                        let said = crate::sessions::for_agent::person_wrote(&user_text(message));
+                        if !said.trim().is_empty() {
                             out.push(json!({
                                 "sessionUpdate": UpdateKind::UserMessageChunk,
                                 "messageId": id,

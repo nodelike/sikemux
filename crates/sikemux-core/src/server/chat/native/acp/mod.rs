@@ -55,6 +55,9 @@ pub(super) fn replay_saved(
         .ok_or_else(|| format!("{} keeps no sessions Sikemux reads", launch.provider))?;
     let servers = server_names(launch);
     for mut update in crate::sessions::history(agent, session, &launch.cwd)? {
+        if !crate::server::chat::prompt::drop_for_agent(&mut update) {
+            continue;
+        }
         mcp_calls::as_mcp_call(&mut update, &servers);
         sink.update(session, update);
     }
@@ -235,6 +238,9 @@ impl Reads for Driver {
                     .get_mut("update")
                     .map(Value::take)
                     .unwrap_or_default();
+                if !crate::server::chat::prompt::drop_for_agent(&mut update) {
+                    return;
+                }
                 mcp_calls::as_mcp_call(&mut update, &self.servers);
                 offer_compact(&mut update, self.compact);
                 let session_id = params["sessionId"].as_str().unwrap_or_default();

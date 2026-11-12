@@ -125,6 +125,27 @@ fn split_at_images(text: &str, attachments: usize) -> (Vec<(&str, usize)>, &str)
     (pieces, &text[from..])
 }
 
+/// A user message an ACP or Pi agent tells back, as when it loads a saved session, without what
+/// Sikemux told the agent alone. Answers false when nothing the person wrote is left.
+pub(crate) fn drop_for_agent(update: &mut Value) -> bool {
+    if update["sessionUpdate"] != "user_message_chunk" {
+        return true;
+    }
+    let content = &mut update["content"];
+    if (content["resource"]["uri"].as_str()).is_some_and(|uri| uri.starts_with(FOR_AGENT_URI)) {
+        return false;
+    }
+    match content["text"].as_str() {
+        Some(text) if text.contains(FOR_AGENT_URI) => {
+            let kept = without_for_agent(text, &mut Vec::new());
+            let any = !kept.trim().is_empty();
+            content["text"] = kept.into();
+            any
+        }
+        _ => true,
+    }
+}
+
 /// Takes what a message told its agent alone out of the agent's own record of that message,
 /// which holds it beside what the person wrote, for a chat read back from that record.
 pub(crate) fn take_for_agent(content: &mut Value) -> Vec<ChatContext> {
