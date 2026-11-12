@@ -31,6 +31,8 @@ const { values: options, positionals: only } = parseArgs({
 const SCENES = [
   { name: 'home', route: '/' },
   { name: 'device', route: `/device/${CORE}` },
+  // The demo host's list fits a whole phone, so a shorter screen gives it room to scroll under the tabs.
+  { name: 'device-scrolled', route: `/device/${CORE}`, scroll: 400, height: 460 },
   { name: 'terminals', route: `/device/${CORE}`, tap: 'Terminals' },
   { name: 'boards', route: `/device/${CORE}?tab=board` },
   { name: 'board', route: `/device/${CORE}?tab=board`, tap: 'acme-shop' },
@@ -161,6 +163,7 @@ const problems = [];
 page.on('pageerror', (error) => problems.push(error.message.split('\n')[0]));
 
 for (const scene of SCENES) {
+  await page.setViewportSize({ width: SCREEN.width, height: scene.height ?? SCREEN.height });
   await page.goto(origin + scene.route, { timeout: 180_000 });
   await page.waitForTimeout(3000);
   // On a cold server a chat can take longer than that pause to open.
@@ -193,7 +196,7 @@ for (const scene of SCENES) {
     await page.waitForTimeout(800);
   }
   if (scene.scroll) {
-    await page.mouse.move(SCREEN.width / 2, SCREEN.height / 2);
+    await page.mouse.move(SCREEN.width / 2, (scene.height ?? SCREEN.height) * 0.7);
     await page.mouse.wheel(0, scene.scroll);
     await page.waitForTimeout(800);
   }

@@ -55,6 +55,85 @@ function ProjectTail({ snapshot, project }: { snapshot: Snapshot; project: Proje
   );
 }
 
+/** A downward chevron, as a picker's trigger shows it. */
+function Chevron({ size }: { size: number }) {
+  const colors = useColors();
+  return (
+    <View style={{ transform: [{ rotate: '90deg' }] }}>
+      <Icon name="IconChevron" size={size} color={colors.tertiary} />
+    </View>
+  );
+}
+
+/**
+ * The host in the bar, where the screen it came from would be named: its name and whether it is online, and once
+ * the big title has scrolled under the bar, the project after it, which still opens the picker.
+ */
+function HostTitle({
+  name,
+  online,
+  project,
+  shown,
+  onPick,
+}: {
+  name: string;
+  online: boolean;
+  project?: string;
+  shown: Animated.AnimatedInterpolation<number>;
+  onPick?: () => void;
+}) {
+  const styles = useStyles(makeStyles);
+  return (
+    <View style={styles.hostTitle}>
+      <Text style={styles.hostName} numberOfLines={1}>
+        {name}
+      </Text>
+      <View style={online ? styles.online : styles.offline} accessibilityLabel={online ? 'Online' : 'Offline'} />
+      {project ? (
+        <Animated.View style={[styles.barProjectWrap, { opacity: shown }]}>
+          <Pressable
+            onPress={onPick}
+            disabled={!onPick}
+            hitSlop={8}
+            style={styles.barProject}
+            accessibilityRole="button"
+            accessibilityLabel={`Project, ${project}`}>
+            <Text style={styles.slash}>/</Text>
+            <Text style={styles.hostName} numberOfLines={1}>
+              {project}
+            </Text>
+            {onPick ? <Chevron size={12} /> : null}
+          </Pressable>
+        </Animated.View>
+      ) : null}
+    </View>
+  );
+}
+
+/** The big title: the project in view, which opens the picker, with how the host is doing under it. */
+function ProjectHead({ title, line, provider, onPick }: { title: string; line: string; provider?: string; onPick?: () => void }) {
+  const styles = useStyles(makeStyles);
+  return (
+    <View style={[styles.head, styles.projectHead]}>
+      <Pressable
+        onPress={onPick}
+        disabled={!onPick}
+        style={({ pressed }) => [styles.projectTitle, pressed && { opacity: 0.6 }]}
+        accessibilityRole="button"
+        accessibilityLabel={`Project, ${title}`}>
+        <Text style={[styles.name, styles.projectName]} numberOfLines={1} maxFontSizeMultiplier={1.4}>
+          {title}
+        </Text>
+        {provider ? <AgentIcon provider={provider} size={18} /> : null}
+        {onPick ? <Chevron size={16} /> : null}
+      </Pressable>
+      <Text style={styles.whereText} numberOfLines={1}>
+        {line}
+      </Text>
+    </View>
+  );
+}
+
 function HostHead({ name, line, online }: { name: string; line: string; online: boolean }) {
   const styles = useStyles(makeStyles);
   return (
@@ -231,6 +310,9 @@ export default function Device() {
     extrapolateRight: 'clamp',
   });
   const hostName = device ? deviceName(device) : 'Host';
+  const projectLabel = scope?.name ?? 'All projects';
+  // The title opens the project picker when there is something to pick.
+  const pickable = !!snapshot && !status.unpaired && (snapshot.workspace.projects.length > 0 || providers.length > 1);
   const switchTo = (next: Tab) => {
     if (next !== tab) haptics.select();
     setTab(next);
@@ -239,33 +321,18 @@ export default function Device() {
   return (
     <Screen>
       <Nav
-        back="Devices"
         title={
-          snapshot ? (
-            <Animated.Text style={[styles.navName, { opacity: titleShown }]} numberOfLines={1}>
-              {hostName}
-            </Animated.Text>
-          ) : undefined
+          <HostTitle
+            name={hostName}
+            online={status.online}
+            project={snapshot ? projectLabel : undefined}
+            shown={titleShown}
+            onPick={pickable ? () => setPicking(true) : undefined}
+          />
         }
         end={
           device ? (
             <View style={styles.navEnd}>
-              {snapshot && !status.unpaired && (snapshot.workspace.projects.length || filtering) ? (
-                <Pressable
-                  onPress={() => setPicking(true)}
-                  hitSlop={6}
-                  style={styles.picker}
-                  accessibilityRole="button"
-                  accessibilityLabel={scope ? `Project, ${scope.name}` : 'Project, all'}>
-                  <Icon name="IconFolder" size={18} color={colors.live} />
-                  {scope ? (
-                    <Text style={styles.pickerText} numberOfLines={1}>
-                      {scope.name}
-                    </Text>
-                  ) : null}
-                  {filtering && provider !== 'all' ? <AgentIcon provider={provider} size={14} /> : null}
-                </Pressable>
-              ) : null}
               {snapshot && starts ? (
                 <Pressable
                   onPress={() => {
@@ -326,7 +393,12 @@ export default function Device() {
                 accessibilityHint={status.online ? undefined : 'Out of date until the host answers again'}
                 contentContainerStyle={{ paddingBottom: bottom + 24 }}>
                 <View onLayout={(event) => setHeadHeight(event.nativeEvent.layout.height)}>
-                  <HostHead name={hostName} line={status.line} online={status.online} />
+                  <ProjectHead
+                    title={projectLabel}
+                    line={status.facts}
+                    provider={filtering && provider !== 'all' ? provider : undefined}
+                    onPick={pickable ? () => setPicking(true) : undefined}
+                  />
                 </View>
                 <View style={{ height: barHeight }} />
                 <View style={styles.body}>
@@ -407,7 +479,14 @@ const makeStyles = (colors: Palette) => {
     bar: { paddingHorizontal: 16, paddingTop: 4, paddingBottom: 10 },
     list: { flex: 1 },
     barFloat: { position: 'absolute', top: 0, left: 0, right: 0 },
-    navName: { fontFamily: fonts.uiSemibold, fontSize: 16, letterSpacing: -0.25, color: colors.ink },
+    hostTitle: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 6 },
+    hostName: { flexShrink: 1, fontFamily: fonts.uiSemibold, fontSize: 17, letterSpacing: -0.3, color: colors.ink },
+    barProjectWrap: { flexShrink: 1, minWidth: 0 },
+    barProject: { flexDirection: 'row', alignItems: 'center', gap: 5, minHeight: 44 },
+    slash: { fontFamily: fonts.ui, fontSize: 17, color: colors.tertiary },
+    projectHead: { paddingTop: 4 },
+    projectTitle: { flexDirection: 'row', alignItems: 'center', gap: 8, alignSelf: 'flex-start', marginBottom: 4 },
+    projectName: { marginTop: 0, flexShrink: 1 },
     tabs: {
       flexDirection: 'row',
       gap: 2,
@@ -432,8 +511,6 @@ const makeStyles = (colors: Palette) => {
     countText: { fontFamily: fonts.uiSemibold, fontSize: 11, color: colors.ground },
     navEnd: { flexDirection: 'row', alignItems: 'center' },
     navButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-    picker: { minWidth: 44, height: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5 },
-    pickerText: { maxWidth: 110, fontFamily: fonts.uiMedium, fontSize: 13, color: colors.secondary },
     body: { paddingHorizontal: 16 },
     tail: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     faces: { flexDirection: 'row' },

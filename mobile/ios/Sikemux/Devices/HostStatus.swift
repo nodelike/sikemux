@@ -13,6 +13,8 @@ struct HostStatus: Equatable {
         if case .outdated(let side) = blocked { side } else { nil }
     }
     var line: String
+    /// The line without saying it is online, for a screen whose dot already says so.
+    var facts: String
     var problem: String?
 
     @MainActor
@@ -27,13 +29,14 @@ struct HostStatus: Equatable {
             + (device?.lastSeen.map { " · seen \(Format.ago(Format.date(millis: $0), now: now))" } ?? "")
         switch live.status {
         case .open:
-            line = ["Online", device?.channelLabel, live.view.map(Self.summary)].compactMap { $0 }.joined(
-                separator: " · ")
+            facts = [device?.channelLabel, live.view.map(Self.summary)].compactMap { $0 }.joined(separator: " · ")
+            line = ["Online", facts].filter { !$0.isEmpty }.joined(separator: " · ")
         case .connecting(let failed):
             connecting = true
             problem = failed
             // Trying again after a failure still reads as offline, so the line does not flicker on every try.
             line = failed != nil ? offline : stale ? "Reconnecting…" : "Connecting…"
+            facts = line
         case .closed(let reason, let why):
             blocked = why
             problem = reason
@@ -43,6 +46,7 @@ struct HostStatus: Equatable {
             case .unpaired: line = "No longer knows this phone"
             case nil: line = offline
             }
+            facts = line
         }
     }
 

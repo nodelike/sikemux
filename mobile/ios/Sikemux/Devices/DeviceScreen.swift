@@ -42,11 +42,11 @@ private struct DeviceContent: View {
 
         Screen {
             Nav(
-                back: "Devices",
                 title: {
-                    if view != nil {
-                        NavTitle(text: hostName).opacity(titleShown)
-                    }
+                    HostTitle(
+                        name: hostName, online: status.online,
+                        project: view.map { projectLabel($0, device: device) }, shown: titleShown,
+                        onPick: view.flatMap { pickable($0, device: device) ? { picking = true } : nil })
                 },
                 end: {
                     if let view, !status.unpaired { navActions(view, device: device, status: status) }
@@ -125,17 +125,21 @@ private struct DeviceContent: View {
         ZStack(alignment: .top) {
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 0) {
-                    HostHead(name: hostName, line: status.line, online: status.online)
-                        .onGeometryChange(for: CGFloat.self) {
-                            $0.size.height
-                        } action: {
-                            headHeight = $0
-                        }
-                        .onGeometryChange(for: CGFloat.self) {
-                            $0.frame(in: .named("list")).minY
-                        } action: {
-                            scrolled = -$0
-                        }
+                    ProjectHead(
+                        title: projectLabel(view, device: device), line: status.facts,
+                        provider: filtering ? provider : nil,
+                        onPick: pickable(view, device: device) ? { picking = true } : nil
+                    )
+                    .onGeometryChange(for: CGFloat.self) {
+                        $0.size.height
+                    } action: {
+                        headHeight = $0
+                    }
+                    .onGeometryChange(for: CGFloat.self) {
+                        $0.frame(in: .named("list")).minY
+                    } action: {
+                        scrolled = -$0
+                    }
                     Color.clear.frame(height: barHeight)
                     Group {
                         switch tab {
@@ -192,35 +196,20 @@ private struct DeviceContent: View {
         }
     }
 
-    /// The project filter and New chat, in the bar beside Options.
+    /// What the big title says: the project in view, or All projects.
+    private func projectLabel(_ view: DeviceView, device: PairedDevice?) -> String {
+        view.project(id: device?.project)?.name ?? "All projects"
+    }
+
+    /// The title opens the project picker when there is something to pick.
+    private func pickable(_ view: DeviceView, device: PairedDevice?) -> Bool {
+        !view.workspace.projects.isEmpty || Self.providers(view, view.project(id: device?.project)).count > 1
+    }
+
+    /// New chat, in the bar beside Options.
     @ViewBuilder
     private func navActions(_ view: DeviceView, device: PairedDevice?, status: HostStatus) -> some View {
         let scope = view.project(id: device?.project)
-        let providers = Self.providers(view, scope)
-        let filtering = tab == .agents && providers.count > 1
-        if !view.workspace.projects.isEmpty || filtering {
-            Button {
-                picking = true
-            } label: {
-                HStack(spacing: 5) {
-                    IconView(icon: Icons.folder, size: 18).foregroundStyle(palette.live)
-                    if let scope {
-                        Text(scope.name)
-                            .font(Theme.ui(13, .medium))
-                            .foregroundStyle(palette.secondary)
-                            .lineLimit(1)
-                            .frame(maxWidth: 110)
-                    }
-                    if filtering, let provider = filter.flatMap({ providers.contains($0) ? $0 : nil }) {
-                        AgentMark(provider: provider, size: 14)
-                    }
-                }
-                .frame(minWidth: 44, minHeight: 44)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(PressFade())
-            .accessibilityLabel(scope.map { "Project, \($0.name)" } ?? "Project, all")
-        }
         if device?.access == .full && status.online {
             Button {
                 Haptics.tap()
@@ -252,6 +241,113 @@ private struct DeviceContent: View {
         let recent = view.recent.filter { scope == nil || $0.project == scope?.id }.map(\.provider)
         for provider in chats + recent where !seen.contains(provider) { seen.append(provider) }
         return seen
+    }
+}
+
+/// The host in the bar, where the screen it came from would be named: its name and whether it is online, and once
+/// the big title has scrolled under the bar, the project after it, which still opens the picker.
+private struct HostTitle: View {
+    @Environment(\.palette) private var palette
+    let name: String
+    let online: Bool
+    let project: String?
+    let shown: Double
+    let onPick: (() -> Void)?
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text(name)
+                .font(Theme.ui(17, .semibold))
+                .tracking(-0.3)
+                .foregroundStyle(palette.ink)
+                .lineLimit(1)
+                .layoutPriority(1)
+            OnlineDot(online: online)
+            if let project, shown > 0 {
+                Button {
+                    onPick?()
+                } label: {
+                    HStack(spacing: 5) {
+                        Text("/").font(Theme.ui(17)).foregroundStyle(palette.tertiary)
+                        Text(project).font(Theme.ui(17, .semibold)).tracking(-0.3).foregroundStyle(palette.ink)
+                            .lineLimit(1)
+                        if onPick != nil { Chevron(size: 12) }
+                    }
+                    .frame(minHeight: 44)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(PressFade())
+                .disabled(onPick == nil)
+                .opacity(shown)
+                .accessibilityLabel("Project, \(project)")
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .contain)
+    }
+}
+
+private struct OnlineDot: View {
+    @Environment(\.palette) private var palette
+    let online: Bool
+
+    var body: some View {
+        Group {
+            if online {
+                Circle().fill(palette.live).frame(width: 7, height: 7).shadow(color: palette.live, radius: 2.5)
+            } else {
+                Circle().strokeBorder(palette.rest, lineWidth: 1.5).frame(width: 7, height: 7)
+            }
+        }
+        .accessibilityLabel(online ? "Online" : "Offline")
+    }
+}
+
+/// A downward chevron, as a picker's trigger shows it.
+private struct Chevron: View {
+    @Environment(\.palette) private var palette
+    let size: CGFloat
+
+    var body: some View {
+        IconView(icon: Icons.chevron, size: size).foregroundStyle(palette.tertiary).rotationEffect(.degrees(90))
+    }
+}
+
+/// The big title: the project in view, which opens the picker, with how the host is doing under it.
+private struct ProjectHead: View {
+    @Environment(\.palette) private var palette
+    let title: String
+    let line: String
+    let provider: String?
+    let onPick: (() -> Void)?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Button {
+                onPick?()
+            } label: {
+                HStack(spacing: 8) {
+                    Text(title)
+                        .font(Theme.ui(32, .semibold))
+                        .tracking(-1.12)
+                        .foregroundStyle(palette.ink)
+                        .lineLimit(1)
+                        .shadow(color: palette.isLight ? .clear : .black.opacity(0.65), radius: 9, y: 2)
+                    if let provider { AgentMark(provider: provider, size: 18) }
+                    if onPick != nil { Chevron(size: 16).padding(.top, 4) }
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(PressFade())
+            .disabled(onPick == nil)
+            .accessibilityLabel("Project, \(title)")
+            .accessibilityAddTraits(.isHeader)
+            Text(line).font(Theme.ui(13)).foregroundStyle(palette.ink.opacity(0.72)).lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 18)
+        .padding(.top, 4)
+        .padding(.bottom, 16)
     }
 }
 

@@ -15,6 +15,8 @@ export type HostStatus = {
   unpaired: boolean;
   outdated?: Outdated;
   line: string;
+  /** The line without saying it is online, for a screen whose dot already says so. */
+  facts: string;
   problem: string | null;
 };
 
@@ -37,16 +39,17 @@ export function hostStatus(live: Live, device?: Pick<PairedDevice, 'channel' | '
   const online = live.status === 'open';
   const stale = !online && !!live.snapshot;
   if (live.status === 'open') {
-    const parts = ['Online', channelLabel(device?.channel), live.snapshot ? summary(live.snapshot) : null];
-    return { online, connecting: false, stale, unpaired: false, line: parts.filter(Boolean).join(' · '), problem: null };
+    const facts = [channelLabel(device?.channel), live.snapshot ? summary(live.snapshot) : null].filter(Boolean).join(' · ');
+    const line = ['Online', facts].filter(Boolean).join(' · ');
+    return { online, connecting: false, stale, unpaired: false, line, facts, problem: null };
   }
   if (live.status === 'connecting') {
     // Trying again after a failure still reads as offline, so the line does not flicker on every try.
     const line = live.problem ? offline(device, now) : stale ? 'Reconnecting…' : 'Connecting…';
-    return { online, connecting: true, stale, unpaired: false, line, problem: live.problem ?? null };
+    return { online, connecting: true, stale, unpaired: false, line, facts: line, problem: live.problem ?? null };
   }
   const { outdated, problem } = live;
   const unpaired = !!live.unpaired;
   const line = outdated ? OUTDATED_LINES[outdated] : unpaired ? 'No longer knows this phone' : offline(device, now);
-  return { online, connecting: false, stale, unpaired, outdated, line, problem };
+  return { online, connecting: false, stale, unpaired, outdated, line, facts: line, problem };
 }

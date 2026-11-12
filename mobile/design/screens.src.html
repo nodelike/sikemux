@@ -624,6 +624,18 @@
   .host-head .where .live { background: var(--live); box-shadow: 0 0 10px var(--live); }
   .host-head .where .off { border: 1.5px solid var(--gray-700); }
   .host-head h1 { margin-top: 4px; font-size: 32px; font-weight: 600; letter-spacing: -0.035em; color: var(--text-primary); text-shadow: 0 2px 18px rgba(0,0,0,.65); }
+  .host-head h1.pick { margin-top: 0; display: flex; align-items: center; gap: 8px; }
+  .host-head h1.pick .ch { display: grid; color: var(--text-tertiary); margin-top: 4px; }
+  .host-head h1.pick .ch .ico { transform: rotate(90deg); }
+  .host-head h1 + .where { margin-top: 4px; }
+  /* the host in the bar where Devices was: its name and whether it is online; scrolled, the project after it */
+  .nav .back .host { font-weight: 600; font-size: 17px; letter-spacing: -0.02em; color: var(--text-primary); margin-left: 2px; }
+  .nav .back > i { width: 7px; height: 7px; border-radius: 999px; margin-left: 7px; flex: none; }
+  .nav .back > i.live { background: var(--live); box-shadow: 0 0 6px var(--live); }
+  .nav .back > i.off { border: 1.5px solid var(--gray-700); }
+  .nav .back .sl { margin: 0 6px 0 8px; font-size: 17px; color: var(--text-tertiary); }
+  .nav .back .ch { display: grid; margin-left: 5px; color: var(--text-tertiary); }
+  .nav .back .ch .ico { transform: rotate(90deg); }
   .host-bar { padding: 4px 16px 10px; }
   .host-tabs { display: flex; gap: 2px; padding: 3px; border-radius: 12px; border: 1px solid var(--border); background: color-mix(in oklab, var(--surface-raised) 72%, transparent); backdrop-filter: blur(18px); }
   .host-tabs > span { flex: 1; min-height: 34px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; border-radius: 9px; font-size: 14px; font-weight: 600; letter-spacing: -0.01em; color: var(--text-secondary); }
@@ -1682,13 +1694,13 @@
 <!-- ================================================================ -->
 <section class="flow on-host">
   <h2>A device</h2>
-  <p>A device opens on its host's name, set large over the host's backdrop, with a line above it saying it is online and what runs on it. Under the name, Agents, Terminals and Board as one segmented control, each with its icon in its own colour: the agent mark in the accent, the terminal in amber, the board in green. The project picker and New chat sit in the top bar beside ⋯. Then the host's open agents in one list, straight on the ground, ranked by the host's core the same way the Mac's rail and the notch list them, and its recent chats under them. Running agents keep the rail's green squares.</p>
+  <p>A device names its host in the top bar, where Devices was: ‹ and the host's name with its live dot, then New chat (+) and ⋯ at the right. The big title over the host's backdrop is the project in view, or All projects, with a chevron: a tap opens the project picker. Under it, a quiet line says the channel and what runs. Under that, Agents, Terminals and Board as one segmented control, each with its icon in its own colour: the agent mark in the accent, the terminal in amber, the board in green. Then the host's open agents in one list, straight on the ground, ranked by the host's core the same way the Mac's rail and the notch list them, and its recent chats under them. Running agents keep the rail's green squares.</p>
   <div class="phones">
     <figure><div class="phone"><div class="island"></div>
       <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
       <div class="screen">
-        <div class="nav"><span class="back">{{IconChevron:18}}Devices</span><span style="flex:1"></span><span class="host-project"><span class="folder">{{IconFolder:18}}</span></span><span class="new-chat">{{IconPlus:20}}</span><span class="icon-btn">{{IconMore:18}}</span></div>
-        <div class="host-head"><div class="where"><i class="live"></i>Online · 5 agents · 2 terminals</div><h1>MacBook Pro</h1></div>
+        <div class="nav"><span class="back">{{IconChevron:18}}<b class="host">MacBook Pro</b><i class="live"></i></span><span style="flex:1"></span><span class="new-chat">{{IconPlus:20}}</span><span class="icon-btn">{{IconMore:18}}</span></div>
+        <div class="host-head"><h1 class="pick">All projects<span class="ch">{{IconChevron:16}}</span></h1><div class="where">5 agents · 2 terminals</div></div>
         <div class="host-bar"><div class="host-tabs"><span class="on"><span class="tab-ico agents">{{IconAgent:15}}</span>Agents <i class="count">2</i></span><span><span class="tab-ico terminals">{{IconTerminal:15}}</span>Terminals</span><span><span class="tab-ico board">{{IconBoard:15}}</span>Board</span></div></div>
         <div class="pad grow">
           <div class="rows">
@@ -1708,14 +1720,14 @@
         </div>
       </div>
       <div class="home-bar"></div></div>
-      <figcaption><b>Agents</b><div class="note">The host's open agents in one list, with no labels, in the order its core ranks them for the Mac's rail: what wants you first, then what finished and you have not seen, then what is working, then the rest. The phone draws them as they come and never sorts them itself. A row is one line, as the Mac's rail draws it: the agent's mark, its title, the name Sikemux gave it small and dim at the row's end, then its counts and state. An agent's teammates sit under it on the rail's spine, each turning off it on a tick, the last one on a corner, as the core orders them. The list starts a little below the tabs. The end shows how many subagents and shells it still has running, and, while it is not working or waiting on you, how long until a trigger it set wakes it (⏱ 18m beside the pink timer, counting down each minute), then its state: the rail's squares while it works, an amber dot when it needs you, an accent dot when it finished and you have not looked, and nothing when it is idle. Nothing is answered on the row; tapping it opens the chat, where permissions and questions wait. Agents running in terminals sit in the same list and open Terminals. An agent that just changed lines another agent had uncommitted carries the Mac rail's red merge mark beside its counts, and so does the other; a lockfile, migration or generated file two agents edited at once marks both in amber instead. The mark says with whom and in which file to a screen reader, and goes after ten minutes or once the agent commits that file. Under the open agents, Recent lists the saved chats the host's rail lists as recent: the first ten, Show more for the rest; tapping one resumes it on the host and opens it, and a phone that can only watch is told so under the list. The tab's count is what needs you. The project picker and the agent filter narrow both lists. The header scrolls with the list: once the name passes under the top bar, the bar takes it as its title and the Agents / Terminals / Board control stays pinned beneath it, floating on the backdrop, and rows fade out as they slide under it and into the home bar.</div></figcaption>
+      <figcaption><b>Agents</b><div class="note">The host's open agents in one list, with no labels, in the order its core ranks them for the Mac's rail: what wants you first, then what finished and you have not seen, then what is working, then the rest. The phone draws them as they come and never sorts them itself. A row is one line, as the Mac's rail draws it: the agent's mark, its title, the name Sikemux gave it small and dim at the row's end, then its counts and state. An agent's teammates sit under it on the rail's spine, each turning off it on a tick, the last one on a corner, as the core orders them. The list starts a little below the tabs. The end shows how many subagents and shells it still has running, and, while it is not working or waiting on you, how long until a trigger it set wakes it (⏱ 18m beside the pink timer, counting down each minute), then its state: the rail's squares while it works, an amber dot when it needs you, an accent dot when it finished and you have not looked, and nothing when it is idle. Nothing is answered on the row; tapping it opens the chat, where permissions and questions wait. Agents running in terminals sit in the same list and open Terminals. An agent that just changed lines another agent had uncommitted carries the Mac rail's red merge mark beside its counts, and so does the other; a lockfile, migration or generated file two agents edited at once marks both in amber instead. The mark says with whom and in which file to a screen reader, and goes after ten minutes or once the agent commits that file. Under the open agents, Recent lists the saved chats the host's rail lists as recent: the first ten, Show more for the rest; tapping one resumes it on the host and opens it, and a phone that can only watch is told so under the list. The tab's count is what needs you. The project picker and the agent filter narrow both lists. The header scrolls with the list: once the big title passes under the top bar, the bar reads host / project with the chevron, which still opens the picker, and the Agents / Terminals / Board control stays pinned beneath it, floating on the backdrop, and rows fade out as they slide under it and into the home bar.</div></figcaption>
     </figure>
 
     <figure><div class="phone"><div class="island"></div>
       <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
       <div class="screen">
-        <div class="nav"><span class="back">{{IconChevron:18}}Devices</span><span style="flex:1"></span><span class="host-project"><span class="folder">{{IconFolder:18}}</span></span><span class="new-chat">{{IconPlus:20}}</span><span class="icon-btn">{{IconMore:18}}</span></div>
-        <div class="host-head"><div class="where"><i class="live"></i>Online · 7 agents</div><h1>MacBook Pro</h1></div>
+        <div class="nav"><span class="back">{{IconChevron:18}}<b class="host">MacBook Pro</b><i class="live"></i></span><span style="flex:1"></span><span class="new-chat">{{IconPlus:20}}</span><span class="icon-btn">{{IconMore:18}}</span></div>
+        <div class="host-head"><h1 class="pick">All projects<span class="ch">{{IconChevron:16}}</span></h1><div class="where">7 agents</div></div>
         <div class="host-bar"><div class="host-tabs"><span class="on"><span class="tab-ico agents">{{IconAgent:15}}</span>Agents <i class="count">1</i></span><span><span class="tab-ico terminals">{{IconTerminal:15}}</span>Terminals</span><span><span class="tab-ico board">{{IconBoard:15}}</span>Board</span></div></div>
         <div class="pad grow">
           <div class="rows">
@@ -1742,8 +1754,8 @@
     <figure><div class="phone"><div class="island"></div>
       <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
       <div class="screen">
-        <div class="nav"><span class="back">{{IconChevron:18}}Devices</span><span style="flex:1"></span><span class="icon-btn">{{IconMore:18}}</span></div>
-        <div class="host-head"><div class="where"><i class="live"></i>Online · 7 agents</div><h1>MacBook Pro</h1></div>
+        <div class="nav"><span class="back">{{IconChevron:18}}<b class="host">MacBook Pro</b><i class="live"></i></span><span style="flex:1"></span><span class="icon-btn">{{IconMore:18}}</span></div>
+        <div class="host-head"><h1 class="pick">All projects<span class="ch">{{IconChevron:16}}</span></h1><div class="where">7 agents</div></div>
         <div class="pad grow">
           <div class="rows">
             <div class="row"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Tighten the rail spacing</div></div><span class="row-name">@Cedar</span><span class="status-slot"></span></div>
@@ -1769,8 +1781,8 @@
     <figure><div class="phone"><div class="island"></div>
       <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
       <div class="screen">
-        <div class="nav"><span class="back">{{IconChevron:18}}Devices</span><span style="flex:1"></span><span class="host-project"><span class="folder">{{IconFolder:18}}</span></span><span class="new-chat">{{IconPlus:20}}</span><span class="icon-btn">{{IconMore:18}}</span></div>
-        <div class="host-head"><div class="where"><i class="live"></i>Online · 7 agents</div><h1>MacBook Pro</h1></div>
+        <div class="nav"><span class="back">{{IconChevron:18}}<b class="host">MacBook Pro</b><i class="live"></i></span><span style="flex:1"></span><span class="new-chat">{{IconPlus:20}}</span><span class="icon-btn">{{IconMore:18}}</span></div>
+        <div class="host-head"><h1 class="pick">All projects<span class="ch">{{IconChevron:16}}</span></h1><div class="where">7 agents</div></div>
         <div class="host-bar"><div class="host-tabs"><span class="on"><span class="tab-ico agents">{{IconAgent:15}}</span>Agents</span><span><span class="tab-ico terminals">{{IconTerminal:15}}</span>Terminals</span><span><span class="tab-ico board">{{IconBoard:15}}</span>Board</span></div></div>
         <div class="pad grow">
           <div class="rows">
@@ -1792,8 +1804,8 @@
     <figure><div class="phone"><div class="island"></div>
       <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
       <div class="screen">
-        <div class="nav"><span class="back">{{IconChevron:18}}Devices</span><span style="flex:1"></span><span class="host-project"><span class="folder">{{IconFolder:18}}</span></span><span class="new-chat">{{IconPlus:20}}</span><span class="icon-btn">{{IconMore:18}}</span></div>
-        <div class="host-head"><div class="where"><i class="live"></i>Online · 4 agents</div><h1>MacBook Pro</h1></div>
+        <div class="nav"><span class="back">{{IconChevron:18}}<b class="host">MacBook Pro</b><i class="live"></i></span><span style="flex:1"></span><span class="new-chat">{{IconPlus:20}}</span><span class="icon-btn">{{IconMore:18}}</span></div>
+        <div class="host-head"><h1 class="pick">All projects<span class="ch">{{IconChevron:16}}</span></h1><div class="where">4 agents</div></div>
         <div class="host-bar"><div class="host-tabs"><span class="on"><span class="tab-ico agents">{{IconAgent:15}}</span>Agents <i class="count">1</i></span><span><span class="tab-ico terminals">{{IconTerminal:15}}</span>Terminals</span><span><span class="tab-ico board">{{IconBoard:15}}</span>Board</span></div></div>
         <div class="pad grow">
           <div class="rows">
@@ -1811,8 +1823,8 @@
     <figure><div class="phone"><div class="island"></div>
       <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
       <div class="screen">
-        <div class="nav"><span class="back">{{IconChevron:18}}Devices</span><span style="flex:1"></span><span class="host-project"><span class="folder">{{IconFolder:18}}</span></span><span class="new-chat">{{IconPlus:20}}</span><span class="icon-btn">{{IconMore:18}}</span></div>
-        <div class="host-head"><div class="where"><i class="live"></i>Online · 2 agents</div><h1>MacBook Pro</h1></div>
+        <div class="nav"><span class="back">{{IconChevron:18}}<b class="host">MacBook Pro</b><i class="live"></i></span><span style="flex:1"></span><span class="new-chat">{{IconPlus:20}}</span><span class="icon-btn">{{IconMore:18}}</span></div>
+        <div class="host-head"><h1 class="pick">All projects<span class="ch">{{IconChevron:16}}</span></h1><div class="where">2 agents</div></div>
         <div class="host-bar"><div class="host-tabs"><span class="on"><span class="tab-ico agents">{{IconAgent:15}}</span>Agents <i class="count">1</i></span><span><span class="tab-ico terminals">{{IconTerminal:15}}</span>Terminals</span><span><span class="tab-ico board">{{IconBoard:15}}</span>Board</span></div></div>
         <div class="pad grow">
           <div class="rows">
@@ -1830,8 +1842,8 @@
     <figure><div class="phone"><div class="island"></div>
       <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
       <div class="screen">
-        <div class="nav"><span class="back">{{IconChevron:18}}Devices</span><span style="flex:1"></span><span class="host-project"><span class="folder">{{IconFolder:18}}</span></span><span class="new-chat">{{IconPlus:20}}</span><span class="icon-btn">{{IconMore:18}}</span></div>
-        <div class="host-head"><div class="where"><i class="live"></i>Online · 3 agents · 2 terminals</div><h1>MacBook Pro</h1></div>
+        <div class="nav"><span class="back">{{IconChevron:18}}<b class="host">MacBook Pro</b><i class="live"></i></span><span style="flex:1"></span><span class="new-chat">{{IconPlus:20}}</span><span class="icon-btn">{{IconMore:18}}</span></div>
+        <div class="host-head"><h1 class="pick">All projects<span class="ch">{{IconChevron:16}}</span></h1><div class="where">3 agents · 2 terminals</div></div>
         <div class="host-bar"><div class="host-tabs"><span><span class="tab-ico agents">{{IconAgent:15}}</span>Agents <i class="count">1</i></span><span class="on"><span class="tab-ico terminals">{{IconTerminal:15}}</span>Terminals</span></div></div>
         <div class="pad grow">
           <div class="glabel">sikemux</div>
@@ -1852,8 +1864,8 @@
     <figure><div class="phone"><div class="island"></div>
       <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
       <div class="screen">
-        <div class="nav"><span class="back">{{IconChevron:18}}Devices</span><span style="flex:1"></span><span class="host-project"><span class="folder">{{IconFolder:18}}</span></span><span class="new-chat">{{IconPlus:20}}</span><span class="icon-btn">{{IconMore:18}}</span></div>
-        <div class="host-head"><div class="where"><i class="live"></i>Online</div><h1>MacBook Pro</h1></div>
+        <div class="nav"><span class="back">{{IconChevron:18}}<b class="host">MacBook Pro</b><i class="live"></i></span><span style="flex:1"></span><span class="new-chat">{{IconPlus:20}}</span><span class="icon-btn">{{IconMore:18}}</span></div>
+        <div class="host-head"><h1 class="pick">All projects<span class="ch">{{IconChevron:16}}</span></h1></div>
         <div class="host-bar"><div class="host-tabs"><span class="on"><span class="tab-ico agents">{{IconAgent:15}}</span>Agents</span><span><span class="tab-ico terminals">{{IconTerminal:15}}</span>Terminals</span><span><span class="tab-ico board">{{IconBoard:15}}</span>Board</span></div></div>
         <div class="pad grow">
           <div class="empty-state"><span class="prompt-glyph small">{{IconAgent:20}}</span>No agents running.</div>
@@ -1866,7 +1878,7 @@
     <figure><div class="phone"><div class="island"></div>
       <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
       <div class="screen">
-        <div class="nav"><span class="back">{{IconChevron:18}}Devices</span><span style="flex:1"></span></div>
+        <div class="nav"><span class="back">{{IconChevron:18}}<b class="host">MacBook Pro</b><i class="off"></i></span><span style="flex:1"></span></div>
         <div class="host-head"><div class="where"><i class="off"></i>Asleep or offline · seen 9:12</div><h1>MacBook Pro</h1></div>
         <div class="stack" style="padding-bottom:120px">
           <div class="prompt-glyph">{{IconLaptop:34}}</div>
@@ -1883,7 +1895,7 @@
     <figure><div class="phone"><div class="island"></div>
       <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
       <div class="screen">
-        <div class="nav"><span class="back">{{IconChevron:18}}Devices</span><span style="flex:1"></span><span class="icon-btn">{{IconMore:18}}</span></div>
+        <div class="nav"><span class="back">{{IconChevron:18}}<b class="host">MacBook Pro</b><i class="off"></i></span><span style="flex:1"></span><span class="icon-btn">{{IconMore:18}}</span></div>
         <div class="host-head"><div class="where"><i class="off"></i>Connecting…</div><h1>MacBook Pro</h1></div>
         <div class="stack" style="padding-bottom:120px">
           <div class="waiting" style="margin-top:0"><span class="loader"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></div>
@@ -1896,7 +1908,7 @@
     <figure><div class="phone"><div class="island"></div>
       <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
       <div class="screen">
-        <div class="nav"><span class="back">{{IconChevron:18}}Devices</span><span style="flex:1"></span><span class="host-project"><span class="folder">{{IconFolder:18}}</span></span><span class="new-chat">{{IconPlus:20}}</span><span class="icon-btn">{{IconMore:18}}</span></div>
+        <div class="nav"><span class="back">{{IconChevron:18}}<b class="host">MacBook Pro</b><i class="off"></i></span><span style="flex:1"></span><span class="new-chat">{{IconPlus:20}}</span><span class="icon-btn">{{IconMore:18}}</span></div>
         <div class="host-head"><div class="where"><i class="off"></i>Reconnecting…</div><h1>MacBook Pro</h1></div>
         <div class="host-bar"><div class="host-tabs"><span class="on"><span class="tab-ico agents">{{IconAgent:15}}</span>Agents <i class="count">1</i></span><span><span class="tab-ico terminals">{{IconTerminal:15}}</span>Terminals</span></div></div>
         <div class="pad grow" style="opacity:.5">
@@ -1913,7 +1925,7 @@
     <figure><div class="phone"><div class="island"></div>
       <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
       <div class="screen">
-        <div class="nav"><span class="back">{{IconChevron:18}}Devices</span><span style="flex:1"></span><span class="icon-btn">{{IconMore:18}}</span></div>
+        <div class="nav"><span class="back">{{IconChevron:18}}<b class="host">MacBook Pro</b><i class="off"></i></span><span style="flex:1"></span><span class="icon-btn">{{IconMore:18}}</span></div>
         <div class="host-head"><div class="where"><i class="off"></i>No longer knows this phone</div><h1>MacBook Pro</h1></div>
         <div class="stack" style="padding-bottom:120px">
           <div class="prompt-glyph">{{IconUnlink:34}}</div>
@@ -1928,8 +1940,8 @@
     <figure><div class="phone"><div class="island"></div>
       <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
       <div class="screen" style="opacity:.35">
-        <div class="nav"><span class="back">{{IconChevron:18}}Devices</span><span style="flex:1"></span><span class="icon-btn">{{IconMore:18}}</span></div>
-        <div class="host-head"><div class="where"><i class="live"></i>Online · 5 agents · 2 terminals</div><h1>MacBook Pro</h1></div>
+        <div class="nav"><span class="back">{{IconChevron:18}}<b class="host">MacBook Pro</b><i class="live"></i></span><span style="flex:1"></span><span class="icon-btn">{{IconMore:18}}</span></div>
+        <div class="host-head"><h1 class="pick">All projects<span class="ch">{{IconChevron:16}}</span></h1><div class="where">5 agents · 2 terminals</div></div>
       </div>
       <div class="sheet">
         <div class="grabber"></div>
@@ -2094,8 +2106,8 @@
     <figure><div class="phone"><div class="island"></div>
       <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
       <div class="screen">
-        <div class="nav"><span class="back">{{IconChevron:18}}Devices</span><span style="flex:1"></span><span class="host-project"><span class="folder">{{IconFolder:18}}</span>sikemux</span><span class="new-chat">{{IconPlus:20}}</span><span class="icon-btn">{{IconMore:18}}</span></div>
-        <div class="host-head"><div class="where"><i class="live"></i>Online · 5 agents · 2 terminals</div><h1>MacBook Pro</h1></div>
+        <div class="nav"><span class="back">{{IconChevron:18}}<b class="host">MacBook Pro</b><i class="live"></i></span><span style="flex:1"></span>sikemux</span><span class="new-chat">{{IconPlus:20}}</span><span class="icon-btn">{{IconMore:18}}</span></div>
+        <div class="host-head"><h1 class="pick">sikemux<span class="ch">{{IconChevron:16}}</span></h1><div class="where">5 agents · 2 terminals</div></div>
         <div class="host-bar"><div class="host-tabs"><span><span class="tab-ico agents">{{IconAgent:15}}</span>Agents <i class="count">2</i></span><span><span class="tab-ico terminals">{{IconTerminal:15}}</span>Terminals</span><span class="on"><span class="tab-ico board">{{IconBoard:15}}</span>Board</span></div></div>
         <div class="pad grow">
           <div class="glabel">Triggers <span class="n">1</span></div>
@@ -2129,8 +2141,8 @@
     <figure><div class="phone"><div class="island"></div>
       <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
       <div class="screen">
-        <div class="nav"><span class="back">{{IconChevron:18}}Devices</span><span style="flex:1"></span><span class="host-project"><span class="folder">{{IconFolder:18}}</span></span><span class="new-chat">{{IconPlus:20}}</span><span class="icon-btn">{{IconMore:18}}</span></div>
-        <div class="host-head"><div class="where"><i class="live"></i>Online · 5 agents · 2 terminals</div><h1>MacBook Pro</h1></div>
+        <div class="nav"><span class="back">{{IconChevron:18}}<b class="host">MacBook Pro</b><i class="live"></i></span><span style="flex:1"></span><span class="new-chat">{{IconPlus:20}}</span><span class="icon-btn">{{IconMore:18}}</span></div>
+        <div class="host-head"><h1 class="pick">All projects<span class="ch">{{IconChevron:16}}</span></h1><div class="where">5 agents · 2 terminals</div></div>
         <div class="host-bar"><div class="host-tabs"><span><span class="tab-ico agents">{{IconAgent:15}}</span>Agents <i class="count">2</i></span><span><span class="tab-ico terminals">{{IconTerminal:15}}</span>Terminals</span><span class="on"><span class="tab-ico board">{{IconBoard:15}}</span>Board</span></div></div>
         <div class="pad grow">
           <div class="glabel">Boards</div>
@@ -2147,7 +2159,7 @@
     <figure><div class="phone"><div class="island"></div>
       <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
       <div class="screen">
-        <div class="nav"><span class="back">{{IconChevron:18}}Devices</span><span style="flex:1"></span><span class="host-project"><span class="folder">{{IconFolder:18}}</span>sikemux</span><span class="new-chat">{{IconPlus:20}}</span><span class="icon-btn">{{IconMore:18}}</span></div>
+        <div class="nav"><span class="back">{{IconChevron:18}}<b class="host">MacBook Pro</b><i class="live"></i><span class="sl">/</span><b class="host">sikemux</b><span class="ch">{{IconChevron:12}}</span></span><span style="flex:1"></span><span class="new-chat">{{IconPlus:20}}</span><span class="icon-btn">{{IconMore:18}}</span></div>
         <div class="host-bar"><div class="host-tabs"><span><span class="tab-ico agents">{{IconAgent:15}}</span>Agents <i class="count">2</i></span><span><span class="tab-ico terminals">{{IconTerminal:15}}</span>Terminals</span><span class="on"><span class="tab-ico board">{{IconBoard:15}}</span>Board</span></div></div>
         <div class="pad grow">
           <div class="glabel">Done <span class="n">1</span></div>
@@ -2181,8 +2193,8 @@
     <figure><div class="phone"><div class="island"></div>
       <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
       <div class="screen">
-        <div class="nav"><span class="back">{{IconChevron:18}}Devices</span><span style="flex:1"></span><span class="host-project"><span class="folder">{{IconFolder:18}}</span></span><span class="new-chat">{{IconPlus:20}}</span><span class="icon-btn">{{IconMore:18}}</span></div>
-        <div class="host-head"><div class="where"><i class="live"></i>Online · Dev · 4 agents · 3 terminals</div><h1>MacBook Pro</h1></div>
+        <div class="nav"><span class="back">{{IconChevron:18}}<b class="host">MacBook Pro</b><i class="live"></i></span><span style="flex:1"></span><span class="new-chat">{{IconPlus:20}}</span><span class="icon-btn">{{IconMore:18}}</span></div>
+        <div class="host-head"><h1 class="pick">All projects<span class="ch">{{IconChevron:16}}</span></h1><div class="where">Dev · 4 agents · 3 terminals</div></div>
         <div class="host-bar"><div class="host-tabs"><span class="on"><span class="tab-ico agents">{{IconAgent:15}}</span>Agents <i class="count">1</i></span><span><span class="tab-ico terminals">{{IconTerminal:15}}</span>Terminals</span></div></div>
         <div class="pad grow">
           <div class="rows">
@@ -2194,14 +2206,14 @@
         </div>
       </div>
       <div class="home-bar"></div></div>
-      <figcaption><b>All projects</b><div class="note">The picker is the green folder in the top bar, because it scopes every tab. Unscoped it is the folder alone; scoped, the project's name sits beside it.</div></figcaption>
+      <figcaption><b>All projects</b><div class="note">The picker is the big title, because it scopes every tab: All projects unscoped, the project's name once one is picked, with a chevron either way. Scrolled, the bar's host / project opens it too.</div></figcaption>
     </figure>
 
     <figure><div class="phone"><div class="island"></div>
       <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
       <div class="screen">
-        <div class="nav"><span class="back">{{IconChevron:18}}Devices</span><span style="flex:1"></span></div>
-        <div class="host-head"><div class="where"><i class="live"></i>Online · Dev · 4 agents · 3 terminals</div><h1>MacBook Pro</h1></div>
+        <div class="nav"><span class="back">{{IconChevron:18}}<b class="host">MacBook Pro</b><i class="live"></i></span><span style="flex:1"></span></div>
+        <div class="host-head"><h1 class="pick">All projects<span class="ch">{{IconChevron:16}}</span></h1><div class="where">Dev · 4 agents · 3 terminals</div></div>
         <div class="host-bar"><div class="host-tabs"><span class="on"><span class="tab-ico agents">{{IconAgent:15}}</span>Agents <i class="count">1</i></span><span><span class="tab-ico terminals">{{IconTerminal:15}}</span>Terminals</span></div></div>
         <div class="scrim"></div>
         <div class="sheet project-sheet scope-sheet">
@@ -2224,8 +2236,8 @@
     <figure><div class="phone"><div class="island"></div>
       <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
       <div class="screen">
-        <div class="nav"><span class="back">{{IconChevron:18}}Devices</span><span style="flex:1"></span><span class="host-project"><span class="folder">{{IconFolder:18}}</span>sikemux<span class="claude">{{IconClaude:14}}</span></span><span class="new-chat">{{IconPlus:20}}</span><span class="icon-btn">{{IconMore:18}}</span></div>
-        <div class="host-head"><div class="where"><i class="live"></i>Online · Dev · 4 agents · 3 terminals</div><h1>MacBook Pro</h1></div>
+        <div class="nav"><span class="back">{{IconChevron:18}}<b class="host">MacBook Pro</b><i class="live"></i></span><span style="flex:1"></span><span class="new-chat">{{IconPlus:20}}</span><span class="icon-btn">{{IconMore:18}}</span></div>
+        <div class="host-head"><h1 class="pick">sikemux<span class="claude">{{IconClaude:14}}</span><span class="ch">{{IconChevron:16}}</span></h1><div class="where">Dev · 4 agents · 3 terminals</div></div>
         <div class="host-bar"><div class="host-tabs"><span class="on"><span class="tab-ico agents">{{IconAgent:15}}</span>Agents <i class="count">1</i></span><span><span class="tab-ico terminals">{{IconTerminal:15}}</span>Terminals</span></div></div>
         <div class="pad grow">
           <div class="rows">
@@ -2250,8 +2262,8 @@
     <figure><div class="phone"><div class="island"></div>
       <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
       <div class="screen">
-        <div class="nav"><span class="back">{{IconChevron:18}}Devices</span><span style="flex:1"></span><span class="host-project"><span class="folder">{{IconFolder:18}}</span>sikemux</span><span class="new-chat">{{IconPlus:20}}</span><span class="icon-btn">{{IconMore:18}}</span></div>
-        <div class="host-head"><div class="where"><i class="live"></i>Online · Dev · 4 agents · 3 terminals</div><h1>MacBook Pro</h1></div>
+        <div class="nav"><span class="back">{{IconChevron:18}}<b class="host">MacBook Pro</b><i class="live"></i></span><span style="flex:1"></span>sikemux</span><span class="new-chat">{{IconPlus:20}}</span><span class="icon-btn">{{IconMore:18}}</span></div>
+        <div class="host-head"><h1 class="pick">sikemux<span class="ch">{{IconChevron:16}}</span></h1><div class="where">Dev · 4 agents · 3 terminals</div></div>
         <div class="host-bar"><div class="host-tabs"><span class="on"><span class="tab-ico agents">{{IconAgent:15}}</span>Agents <i class="count">1</i></span><span><span class="tab-ico terminals">{{IconTerminal:15}}</span>Terminals</span></div></div>
         <div class="pad grow">
           <div class="rows">
