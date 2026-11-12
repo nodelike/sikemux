@@ -606,6 +606,8 @@ pub struct Chats {
     pub(crate) focused: Option<(String, bool)>,
     /// Text handed to agents whose composer is not made yet, put in once it is.
     pub(crate) deliveries: HashMap<String, String>,
+    /// What to find in chats opened from a search of what was said, once each one shows.
+    pub(crate) finds: HashMap<String, String>,
     /// Files and the notes about them handed to agents whose composer is not made yet.
     pub(crate) held_files: HashMap<String, (Vec<PathBuf>, Vec<ChatContext>)>,
     /// Pictures made in the app while the chat they go to starts.

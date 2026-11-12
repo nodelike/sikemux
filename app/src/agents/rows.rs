@@ -132,8 +132,10 @@ impl Workbench {
                 .map(|folded| self.agents_of_folded(&folded))
                 .unwrap_or_default()
         };
-        let filter = self.filter_text();
-        rows.retain(|row| row.title.to_lowercase().contains(filter));
+        rows.retain(|row| {
+            let chat = self.chat_of(&row.id).map(|chat| chat.id.as_str());
+            self.filter_finds(chat, &row.title)
+        });
         if let Some(tag) = &self.rails.tag {
             rows.retain(|row| row.tags.contains(tag));
         }
@@ -236,7 +238,7 @@ impl Workbench {
         self.saved_chats(project)
             .into_iter()
             .filter(|recent| self.rails.all_harnesses || provider == Some(recent.provider.as_str()))
-            .filter(|recent| recent.title.to_lowercase().contains(self.filter_text()))
+            .filter(|recent| self.filter_finds(Some(&recent.id), &recent.title))
             .collect()
     }
 }

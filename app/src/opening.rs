@@ -505,11 +505,21 @@ impl Workbench {
     /// It goes by the chat's session rather than its place in the core's list, which forgets
     /// the oldest chats any device paged to.
     pub fn resume_chat(&self, recent: &RecentInfo, cx: &mut Context<Self>) {
+        self.resume_chat_finding(recent, None, cx);
+    }
+
+    /// As [`Self::resume_chat`], opening the chat's find on `find` once it shows.
+    pub fn resume_chat_finding(
+        &self,
+        recent: &RecentInfo,
+        find: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
         let session = recent
             .id
             .strip_prefix(&format!("{}:", recent.provider))
             .unwrap_or(&recent.id);
-        self.resume_session(
+        let taken = self.resume_session(
             &recent.project,
             recent.provider.clone(),
             session.to_owned(),
@@ -517,9 +527,21 @@ impl Workbench {
             recent.title.clone(),
             cx,
         );
+        let Some(find) = find else {
+            return taken.detach();
+        };
+        cx.spawn(async move |bench, cx| {
+            if let Some(agent) = taken.await {
+                let _ = bench.update(cx, |bench, cx| {
+                    bench.find_once_attached(agent, Some(find), cx)
+                });
+            }
+        })
+        .detach();
     }
 
     /// Takes `provider`'s session up again in the project `project`, in a tab of its own.
+    /// Answers with the agent that took it up.
     pub fn resume_session(
         &self,
         project: &str,
@@ -528,9 +550,9 @@ impl Workbench {
         cwd: PathBuf,
         title: String,
         cx: &mut Context<Self>,
-    ) {
+    ) -> Task<Option<String>> {
         let Some(project) = self.projects().iter().find(|known| known.id == project) else {
-            return;
+            return Task::ready(None);
         };
         let asked = SessionChoice {
             provider,
@@ -546,15 +568,16 @@ impl Workbench {
                 target.call_typed::<call::OpenTab>(OpenTab::new(
                     At::project(&taken.project),
                     PaneKind::Agent,
-                    taken.agent_id,
+                    taken.agent_id.clone(),
                 ));
+                Some(taken.agent_id)
             }
             Err(error) => {
                 let note = toast::error(format!("The chat did not open: {error}"));
                 let _ = bench.update(cx, |bench, cx| bench.notify(note, cx));
+                None
             }
         })
-        .detach();
     }
 
     /// Brings the tab of the agent `id` to the front, in its project, opening one when none

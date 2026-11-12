@@ -180,6 +180,8 @@ pub struct Spec {
     pub browse: Option<Pick>,
     /// Heard when the palette closes with nothing picked.
     pub cancel: Option<Leave>,
+    /// Heard after each change to what is typed, and once the palette closes however it does.
+    pub typing: Option<Leave>,
     /// The row highlighted while nothing is typed, such as the theme worn now.
     pub start: Option<SharedString>,
     /// A choice beside the field that the pick reads, such as the mode an agent starts in.
@@ -237,6 +239,7 @@ impl Spec {
             pick: Rc::new(pick),
             browse: None,
             cancel: None,
+            typing: None,
             start: None,
             choice: None,
             aside: None,
@@ -431,6 +434,11 @@ impl Palette {
             .position(|line| matches!(line, Line::Row(place) if rows[*place].key == *key))
     }
 
+    /// What is typed in its field.
+    pub fn query(&self, cx: &App) -> String {
+        self.input.read(cx).value().to_string()
+    }
+
     /// The key of the row highlighted now.
     pub fn highlighted(&self) -> Option<SharedString> {
         self.selected
@@ -543,8 +551,12 @@ impl Workbench {
             |bench, input, event: &InputEvent, window, cx| {
                 if let InputEvent::Change = event {
                     let query = input.read(cx).value().to_string();
-                    if let Some(palette) = bench.overlays.palette.as_mut() {
+                    let typing = bench.overlays.palette.as_mut().and_then(|palette| {
                         palette.filter(&query);
+                        palette.spec.typing.clone()
+                    });
+                    if let Some(typing) = typing {
+                        typing(bench, window, cx);
                     }
                     bench.browse(window, cx);
                     bench.parts.redraw(&bench.parts.finder, cx);
@@ -570,8 +582,14 @@ impl Workbench {
 
     /// Closes the open palette with nothing picked.
     pub fn close_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(cancel) = self.leave_palette(window, cx).and_then(|spec| spec.cancel) {
+        let Some(spec) = self.leave_palette(window, cx) else {
+            return;
+        };
+        if let Some(cancel) = spec.cancel {
             cancel(self, window, cx);
+        }
+        if let Some(typing) = spec.typing {
+            typing(self, window, cx);
         }
     }
 
@@ -640,9 +658,12 @@ impl Workbench {
             return;
         };
         if let Some(spec) = self.leave_palette(window, cx) {
-            let pick = spec.pick;
+            let (pick, typing) = (spec.pick, spec.typing);
             cx.defer_in(window, move |bench, window, cx| {
-                pick(&row, bench, window, cx)
+                pick(&row, bench, window, cx);
+                if let Some(typing) = typing {
+                    typing(bench, window, cx);
+                }
             });
         }
     }

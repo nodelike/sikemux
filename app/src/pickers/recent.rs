@@ -7,8 +7,13 @@ use gpui_kit::Window;
 use std::time::Duration;
 
 use gpui_kit::component::input::InputState;
-use gpui_kit::{Context, Entity, Subscription};
+use gpui_kit::{
+    div, App, Context, Div, Entity, FontWeight, HighlightStyle, ParentElement, Styled, StyledText,
+    Subscription,
+};
+use sikemux_core::sessions::said::Excerpt;
 use sikemux_view::device::RecentInfo;
+use std::collections::HashMap;
 
 use crate::workbench::Workbench;
 use sikemux_core::server::call;
@@ -36,6 +41,8 @@ pub struct OlderChats {
     pub query: String,
     pub chats: Vec<RecentInfo>,
     pub next: Option<RecentCursor>,
+    /// Where each chat found by its words said them, by the chat's id.
+    pub said: HashMap<String, Excerpt>,
     loading: bool,
 }
 
@@ -47,7 +54,7 @@ impl Workbench {
             self.older = None;
             return;
         };
-        let query = self.filter_text().to_owned();
+        let query = self.chats_query(cx);
         let same = self
             .older
             .as_ref()
@@ -67,6 +74,7 @@ impl Workbench {
                 query: query.clone(),
                 chats: Vec::new(),
                 next: None,
+                said: HashMap::new(),
                 loading: true,
             });
         }
@@ -96,6 +104,7 @@ impl Workbench {
                 if let Some(page) = page {
                     older.chats.extend(page.chats);
                     older.next = page.next;
+                    older.said.extend(page.said);
                 }
                 bench.refill_agent_palette(cx);
                 cx.notify();
@@ -158,6 +167,53 @@ impl Workbench {
         chats
     }
 
+    /// What saved chats are looked for by: what ⌘⇧N holds while it is open, else the rail's filter.
+    fn chats_query(&self, cx: &App) -> String {
+        (self.overlays.palette.as_ref())
+            .filter(|palette| palette.id() == crate::agents::palette::AGENT_PALETTE)
+            .map(|palette| palette.query(cx).trim().to_lowercase())
+            .unwrap_or_else(|| self.filter_text().to_owned())
+    }
+
+    /// Where the chat `id` said the words `query` holds, when it was found by them.
+    pub fn said_for(&self, query: &str, id: &str) -> Option<&Excerpt> {
+        (self.older.as_ref())
+            .filter(|older| !query.is_empty() && older.query == query)
+            .and_then(|older| older.said.get(id))
+    }
+
+    /// Where the chat `id` said the words the rail's filter holds, when it was found by them.
+    pub fn said_in(&self, id: &str) -> Option<&Excerpt> {
+        self.said_for(self.filter_text(), id)
+    }
+
+    /// Whether the chat `id` is one the rail's filter finds, by its title or its words.
+    pub fn filter_finds(&self, id: Option<&str>, title: &str) -> bool {
+        title.to_lowercase().contains(self.filter_text())
+            || id.is_some_and(|id| self.said_in(id).is_some())
+    }
+
+    /// The words to find in the chat `id`, when the last search found it by them.
+    pub fn found_words(&self, id: &str) -> Option<String> {
+        let said = self.older.as_ref()?.said.get(id)?;
+        said.first_mark().map(str::to_owned)
+    }
+
+    /// Takes up a saved chat, and when a search found it by its words, opens its find on them.
+    pub fn take_up_chat(&mut self, recent: &RecentInfo, cx: &mut Context<Self>) {
+        let found = self.found_words(&recent.id);
+        self.resume_chat_finding(recent, found, cx);
+    }
+
+    /// Opens the agent `id`'s chat, and when a search found it by its words, its find on them.
+    pub fn open_found_agent(&mut self, id: &str, cx: &mut Context<Self>) {
+        let found = (self.chat_of(id)).and_then(|chat| self.found_words(&chat.id));
+        self.open_agent(id, cx);
+        if let Some(found) = found {
+            self.find_once_attached(id.to_owned(), Some(found), cx);
+        }
+    }
+
     /// The saved chat `id` names, recent or paged to.
     pub fn saved_chat(&self, id: &str) -> Option<&RecentInfo> {
         let recent = self.shown()?.recent.iter();
@@ -196,4 +252,24 @@ impl Workbench {
             .as_ref()
             .map_or("", |filter| filter.text.as_str())
     }
+}
+
+/// Where a chat said the words looked for: one line in the tertiary ink, the words in full ink.
+pub fn said_line(said: &Excerpt, cx: &App) -> Div {
+    let t = crate::theme::Tokens::get(cx);
+    let words = HighlightStyle {
+        color: Some(t.text_primary),
+        font_weight: Some(FontWeight::MEDIUM),
+        ..Default::default()
+    };
+    let marks = (said.marks.iter())
+        .filter(|[start, end]| start < end && *end <= said.text.len())
+        .map(|[start, end]| (*start..*end, words));
+    div()
+        .text_size(crate::theme::ui_text(crate::theme::TEXT_2XS))
+        .text_color(t.text_tertiary)
+        .whitespace_nowrap()
+        .overflow_hidden()
+        .text_ellipsis()
+        .child(StyledText::new(said.text.clone()).with_highlights(marks))
 }

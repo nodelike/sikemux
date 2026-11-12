@@ -24,13 +24,14 @@ const MODES: [PermissionMode; 3] = [
     PermissionMode::Bypass,
 ];
 const RESUME: &str = "resume:";
+pub const AGENT_PALETTE: &str = "agent.choose";
 
 impl Workbench {
     pub fn toggle_agent_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(project) = self.project().map(|project| project.id.clone()) else {
             return;
         };
-        let rows = self.agent_palette_rows(&project);
+        let rows = self.agent_palette_rows(&project, "");
         let current = self
             .this_view()
             .map_or(PermissionMode::WorkspaceWrite, |view| {
@@ -48,8 +49,8 @@ impl Workbench {
             chosen: mode.clone(),
             armed: Some(2),
         };
-        let spec = Spec::new(
-            "agent.choose",
+        let mut spec = Spec::new(
+            AGENT_PALETTE,
             "search agents",
             rows,
             move |row, bench, window, cx| {
@@ -79,10 +80,10 @@ impl Workbench {
                 } else if let Some(launcher) = key.strip_prefix(INSTALL) {
                     install(bench, launcher, window, cx);
                 } else if let Some(agent) = key.strip_prefix(OPEN) {
-                    bench.open_agent(agent, cx);
+                    bench.open_found_agent(agent, cx);
                 } else if let Some(id) = key.strip_prefix(RESUME) {
                     if let Some(recent) = bench.saved_chat(id).cloned() {
-                        bench.resume_chat(&recent, cx);
+                        bench.take_up_chat(&recent, cx);
                     }
                 }
             },
@@ -91,6 +92,13 @@ impl Workbench {
         .choice(choice)
         .on_stage()
         .ruled();
+        spec.typing = Some(Rc::new(|bench, _, cx| {
+            let limit = match bench.overlays.palette.is_some() {
+                true => crate::pickers::recent::PALETTE_PAGE,
+                false => crate::pickers::recent::PAGE,
+            };
+            bench.look_for_older(false, limit, cx);
+        }));
         self.toggle_palette(spec, window, cx);
         if self.overlays.palette.is_some() {
             self.look_for_older(true, crate::pickers::recent::PALETTE_PAGE, cx);
@@ -103,7 +111,7 @@ impl Workbench {
             .overlays
             .palette
             .as_ref()
-            .is_some_and(|palette| palette.id() == "agent.choose");
+            .is_some_and(|palette| palette.id() == AGENT_PALETTE);
         let Some(project) = self
             .project()
             .map(|project| project.id.clone())
@@ -111,13 +119,21 @@ impl Workbench {
         else {
             return;
         };
-        let rows = self.agent_palette_rows(&project);
+        let query = (self.overlays.palette.as_ref())
+            .map(|palette| palette.query(cx).trim().to_lowercase())
+            .unwrap_or_default();
+        let rows = self.agent_palette_rows(&project, &query);
         if let Some(palette) = self.overlays.palette.as_mut() {
             palette.refill(rows, cx);
         }
     }
 
-    fn agent_palette_rows(&self, project: &str) -> Vec<Row> {
+    /// The palette's rows, those found by what was said in them with where they said `query`.
+    fn agent_palette_rows(&self, project: &str, query: &str) -> Vec<Row> {
+        let said = |id: Option<&str>, row: Row| match id.and_then(|id| self.said_for(query, id)) {
+            Some(said) => row.meta(said.text.clone()).also(query),
+            None => row,
+        };
         let kind_of = |provider: &str| self.reads.catalog.kind(provider);
         let mut rows = Vec::new();
         let mut sign_ins = Vec::new();
@@ -178,6 +194,7 @@ impl Workbench {
                 .group(RESUME)
                 .also(handle.as_deref().unwrap_or_default())
                 .also(&agent.provider);
+            let row = said(self.chat_of(&agent.id).map(|chat| chat.id.as_str()), row);
             taken_up.push((pinned, agent.active_at, row));
         }
         let saved = self
@@ -195,6 +212,7 @@ impl Workbench {
                 .mark(Mark::Agent(chat.provider.clone()))
                 .group(RESUME)
                 .also(&chat.provider);
+            let row = said(Some(&chat.id), row);
             taken_up.push((chat.pinned, chat.active_at, row));
         }
         taken_up.sort_by_key(|(pinned, active_at, _)| {

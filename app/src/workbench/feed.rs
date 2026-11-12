@@ -89,6 +89,9 @@ impl Workbench {
                         None => return,
                     },
                 }
+                if self.chats.finds.contains_key(&agent) {
+                    self.find_once_attached(agent.clone(), None, cx);
+                }
                 let restage = self
                     .chats
                     .open

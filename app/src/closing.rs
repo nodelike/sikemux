@@ -196,14 +196,16 @@ impl Workbench {
                         continue;
                     };
                     let (provider, cwd) = (agent.provider.clone(), agent.cwd.clone());
-                    bench.resume_session(
-                        &agent.project,
-                        provider,
-                        session,
-                        cwd,
-                        agent.title.clone(),
-                        cx,
-                    );
+                    bench
+                        .resume_session(
+                            &agent.project,
+                            provider,
+                            session,
+                            cwd,
+                            agent.title.clone(),
+                            cx,
+                        )
+                        .detach();
                 }
             });
         });

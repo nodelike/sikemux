@@ -562,10 +562,13 @@ fn recent_row(bench: &Workbench, recent: &RecentInfo, cx: &mut Context<Workbench
     )
     .mark(22., ui::mark(&recent.provider, 20.))
     .compact(bench.rail_compact())
+    .when_some(bench.said_in(&recent.id), |row, said| {
+        row.subtitle(crate::pickers::recent::said_line(said, cx))
+    })
     .child(tail)
     .on_click(cx.listener({
         let recent = recent.clone();
-        move |bench, _, _, cx| bench.resume_chat(&recent, cx)
+        move |bench, _, _, cx| bench.take_up_chat(&recent, cx)
     }));
     let pin = pin_chat(&cx.entity(), recent);
     let unpin = recent.pinned.then(|| {
@@ -1117,11 +1120,15 @@ fn agent_row(
         .as_ref()
         .filter(|retitling| retitling.agent == agent.id && retitling.in_rail)
         .map(|retitling| crate::home::retitle_field(retitling, 13., cx).w_full());
+    let said = (bench.chat_of(&agent.id)).and_then(|chat| bench.said_in(&chat.id));
     let row = Row::new(
         SharedString::from(format!("agent-{}", agent.id)),
         agent.title.clone(),
     )
     .title_view(editing)
+    .when_some(said, |row, said| {
+        row.subtitle(crate::pickers::recent::said_line(said, cx))
+    })
     .mark(22., mark)
     .hover_padding(AGENT_ROW, if pin.is_some() { 48. } else { 28. })
     .chosen(chosen)
@@ -1146,7 +1153,7 @@ fn agent_row(
                     if worker {
                         crate::keymap::counted("chat.openWorker", cx);
                     }
-                    bench.open_agent(&id, cx)
+                    bench.open_found_agent(&id, cx)
                 }
             }
         }

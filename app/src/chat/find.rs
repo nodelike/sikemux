@@ -135,6 +135,37 @@ impl Workbench {
         self.parts.redraw_stage(cx);
     }
 
+    /// Opens `agent`'s find bar on the words it said, as soon as its chat is attached: now,
+    /// or when the core's rows for it come. `find` sets the words to look for.
+    pub fn find_once_attached(
+        &mut self,
+        agent: String,
+        find: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(find) = find {
+            self.chats.finds.insert(agent.clone(), find);
+        }
+        let attached = (self.chats.open.get(&agent)).is_some_and(|chat| chat.mark.is_some());
+        let Some(text) = self.chats.finds.remove(&agent).filter(|_| attached) else {
+            return;
+        };
+        let window = self.window_handle();
+        cx.spawn(async move |this, cx| {
+            let _ = window.update(cx, |_, window, cx| {
+                this.update(cx, |bench, cx| {
+                    bench.open_find(&agent, window, cx);
+                    if let Some(finding) = bench.finding_mut(&agent) {
+                        let input = finding.input.clone();
+                        input.update(cx, |input, cx| input.set_value(text, window, cx));
+                    }
+                    bench.search(&agent, cx);
+                })
+            });
+        })
+        .detach();
+    }
+
     /// Looks for what the bar holds, as its options say, in the rows held and across the chat.
     fn search(&mut self, agent: &str, cx: &mut Context<Self>) {
         let Some(chat) = self.chats.open.get_mut(agent) else {
