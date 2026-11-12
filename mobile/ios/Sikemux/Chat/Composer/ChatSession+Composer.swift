@@ -122,6 +122,25 @@ extension ChatSession {
         }
     }
 
+    /// Sends a share viewer's waiting message to the agent as the person's own.
+    func sendGuest(_ id: String) {
+        Task {
+            await ask("Could not send it") { connection in
+                try await connection.call(
+                    PhoneCall.SendGuestMessage.self, GuestMessageParams(agentId: self.agentId, id: id))
+            }
+        }
+    }
+
+    func dismissGuest(_ id: String) {
+        Task {
+            await ask("Could not dismiss it") { connection in
+                try await connection.call(
+                    PhoneCall.DismissGuestMessage.self, GuestMessageParams(agentId: self.agentId, id: id))
+            }
+        }
+    }
+
     /// Stops the running turn. Messages waiting behind it go back to the composer rather than out.
     func cancel() {
         let chat = feed.chat

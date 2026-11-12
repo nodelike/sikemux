@@ -327,6 +327,15 @@ export class ChatSession {
     void this.ask((connection) => callHost(connection, 'moveChatAccount', { agentId: this.agentId, accountId }), 'Could not move the chat');
   };
 
+  /** Sends a share viewer's waiting message to the agent as the person's own. */
+  sendGuest = (id: string) => {
+    void this.ask((connection) => callHost(connection, 'sendGuestMessage', { agentId: this.agentId, id }), 'Could not send it');
+  };
+
+  dismissGuest = (id: string) => {
+    void this.ask((connection) => callHost(connection, 'dismissGuestMessage', { agentId: this.agentId, id }), 'Could not dismiss it');
+  };
+
   dropQueued = (id: string) => {
     if (!this.outbox.onHostQueue([id]).length) return;
     void this.ask((connection) => callHost(connection, 'dropQueued', { agentId: this.agentId, ids: [id] }), 'Could not take it back');

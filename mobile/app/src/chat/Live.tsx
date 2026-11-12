@@ -60,7 +60,8 @@ function PieceIcon({ piece, provider }: { piece: StripPiece; provider: string })
   const colors = useColors();
   if (piece.task) return <TaskIcon kind={piece.task} color={colors.inkDim} />;
   if (piece.key === 'subagents') return <AgentIcon provider={provider} size={12} />;
-  return <Icon name={piece.key === 'queued' ? 'IconClock' : 'IconCheck'} size={12} color={colors.inkDim} />;
+  const icon: IconName = piece.key === 'guests' ? 'IconLink' : piece.key === 'queued' ? 'IconClock' : 'IconCheck';
+  return <Icon name={icon} size={12} color={colors.inkDim} />;
 }
 
 /**
@@ -204,6 +205,8 @@ export function LiveSheet({
   onStopTask,
   onSteer,
   onDrop,
+  onSendGuest,
+  onDismissGuest,
 }: {
   visible: boolean;
   onClose: () => void;
@@ -217,6 +220,8 @@ export function LiveSheet({
   onStopTask: (taskId: string) => void;
   onSteer: (ids: string[]) => void;
   onDrop: (id: string) => void;
+  onSendGuest: (id: string) => void;
+  onDismissGuest: (id: string) => void;
 }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
@@ -276,6 +281,37 @@ export function LiveSheet({
             ))}
           </Fragment>
         ))}
+        {work.guests.length ? (
+          <>
+            <SectionLabel count={work.guests.length}>from guests</SectionLabel>
+            {work.guests.map((guest) => (
+              <Line
+                key={guest.id}
+                mark={<Icon name="IconLink" size={15} color={colors.inkDim} />}
+                title={guest.text}
+                end={
+                  canAct ? (
+                    <>
+                      <SmallButton
+                        label="Send"
+                        onPress={() => onSendGuest(guest.id)}
+                        accessibilityLabel="Send the guest's message to the agent"
+                      />
+                      <Pressable
+                        onPress={() => onDismissGuest(guest.id)}
+                        hitSlop={8}
+                        style={({ pressed }) => [styles.drop, pressed && { backgroundColor: colors.active }]}
+                        accessibilityRole="button"
+                        accessibilityLabel="Dismiss the guest's message">
+                        <Icon name="IconClose" size={11} color={colors.inkDim} />
+                      </Pressable>
+                    </>
+                  ) : null
+                }
+              />
+            ))}
+          </>
+        ) : null}
         {work.queued.length ? (
           <>
             <SectionLabel

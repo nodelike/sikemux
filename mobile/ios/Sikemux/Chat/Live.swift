@@ -2,12 +2,14 @@ import SwiftUI
 
 /// What the agent still has going besides the turn, and what waits to be sent.
 struct LiveWork: Equatable {
+    var guests: [GuestMessage]
     var subagents: [SubagentCard]
     var tasks: [(kind: String, tasks: [AsyncTask])]
     var queued: [QueuedMessage]
     var plan: [PlanEntry]
 
     init(_ rows: ChatRows) {
+        guests = rows.head.guests ?? []
         subagents = rows.head.runningSubagents
         var kinds: [String] = []
         var byKind: [String: [AsyncTask]] = [:]
@@ -22,16 +24,17 @@ struct LiveWork: Equatable {
     }
 
     static func == (a: LiveWork, b: LiveWork) -> Bool {
-        a.subagents == b.subagents && a.queued == b.queued && a.plan == b.plan
+        a.guests == b.guests && a.subagents == b.subagents && a.queued == b.queued && a.plan == b.plan
             && a.tasks.map(\.kind) == b.tasks.map(\.kind) && a.tasks.map(\.tasks) == b.tasks.map(\.tasks)
     }
 
     /// Some step of the plan is still to do.
     var planOpen: Bool { plan.contains { $0.status != .completed } }
-    var any: Bool { !subagents.isEmpty || !tasks.isEmpty || !queued.isEmpty || planOpen }
+    var any: Bool { !guests.isEmpty || !subagents.isEmpty || !tasks.isEmpty || !queued.isEmpty || planOpen }
 
     struct Piece: Equatable {
         enum Kind: Hashable {
+            case guests
             case subagents
             case task(String)
             case queued
@@ -45,6 +48,9 @@ struct LiveWork: Equatable {
 
     var pieces: [Piece] {
         var pieces: [Piece] = []
+        if !guests.isEmpty {
+            pieces.append(Piece(kind: .guests, count: "\(guests.count)", word: "from guests"))
+        }
         if !subagents.isEmpty {
             pieces.append(
                 Piece(kind: .subagents, count: "\(subagents.count)", word: Format.counted("subagent", subagents.count)))
@@ -194,6 +200,7 @@ struct LiveStrip: View {
         switch piece.kind {
         case .task(let task): IconView(icon: taskIcon(task), size: 12).foregroundStyle(palette.inkDim)
         case .subagents: AgentMark(provider: provider, size: 12)
+        case .guests: IconView(icon: Icons.link, size: 12).foregroundStyle(palette.inkDim)
         case .queued: IconView(icon: Icons.clock, size: 12).foregroundStyle(palette.inkDim)
         case .plan: IconView(icon: Icons.check, size: 12).foregroundStyle(palette.inkDim)
         }
@@ -256,6 +263,27 @@ struct LiveSheet: View {
                             case .failed: IconView(icon: Icons.close, size: 11).foregroundStyle(palette.danger)
                             default: EmptyView()
                             }
+                        }
+                    }
+                }
+            }
+            if !work.guests.isEmpty {
+                SectionLabel("from guests", count: work.guests.count)
+                ForEach(work.guests, id: \.id) { guest in
+                    Line(title: guest.text, detail: nil) {
+                        IconView(icon: Icons.link, size: 15).foregroundStyle(palette.inkDim)
+                    } end: {
+                        if canAct {
+                            SmallButton(label: "Send") { session.sendGuest(guest.id) }
+                                .accessibilityLabel("Send the guest's message to the agent")
+                            Button {
+                                session.dismissGuest(guest.id)
+                            } label: {
+                                IconView(icon: Icons.close, size: 11).foregroundStyle(palette.inkDim).frame(
+                                    width: 28, height: 28)
+                            }
+                            .buttonStyle(ActiveFill(radius: 8))
+                            .accessibilityLabel("Dismiss the guest's message")
                         }
                     }
                 }

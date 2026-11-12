@@ -1,5 +1,5 @@
 import type { ChatRows } from '@shared/chat/rows';
-import type { PlanEntry, AsyncTask, SubagentCard } from '@shared/wire.generated';
+import type { PlanEntry, AsyncTask, GuestMessage, SubagentCard } from '@shared/wire.generated';
 import { groupTasks, subagentActivity, taskDetail, workflowAgentDetail } from '@shared/chat/transcript';
 import { counted } from '@/devices/words';
 import type { Held } from './outbox';
@@ -8,6 +8,7 @@ export type { PlanEntry };
 
 /** What the agent still has going besides the turn, and what waits to be sent. */
 export type LiveWork = {
+  guests: GuestMessage[];
   subagents: SubagentCard[];
   tasks: [string, AsyncTask[]][];
   queued: readonly Held[];
@@ -16,9 +17,10 @@ export type LiveWork = {
   planOpen: boolean;
 };
 
-export function liveWork(chat: Pick<ChatRows, 'plan' | 'runningSubagents' | 'tasks' | 'queued'>): LiveWork {
+export function liveWork(chat: Pick<ChatRows, 'guests' | 'plan' | 'runningSubagents' | 'tasks' | 'queued'>): LiveWork {
   const plan = chat.plan ?? [];
   return {
+    guests: chat.guests ?? [],
     subagents: chat.runningSubagents,
     tasks: groupTasks(chat.tasks),
     queued: chat.queued,
@@ -36,6 +38,7 @@ type LiveStripView = { pieces: StripPiece[]; lines: string[]; working: boolean }
 export function liveStrip(work: LiveWork): LiveStripView {
   const done = work.plan.filter((entry) => entry.status === 'completed').length;
   const pieces: StripPiece[] = [
+    ...(work.guests.length ? [{ key: 'guests', count: String(work.guests.length), word: 'from guests' }] : []),
     ...(work.subagents.length
       ? [{ key: 'subagents', count: String(work.subagents.length), word: counted('subagent', work.subagents.length) }]
       : []),
@@ -67,5 +70,5 @@ export function liveKey(work: LiveWork): string {
 }
 
 export function hasLiveWork(work: LiveWork): boolean {
-  return work.subagents.length > 0 || work.tasks.length > 0 || work.queued.length > 0 || work.planOpen;
+  return work.guests.length > 0 || work.subagents.length > 0 || work.tasks.length > 0 || work.queued.length > 0 || work.planOpen;
 }
