@@ -1167,6 +1167,8 @@ export type RaisedFor = "irreversible" | "money" | "taste" | "access";
 export interface RemoteAgent {
     agentId: string;
     name: string;
+    /** What its chat is called on its host, once it has a title of its own. */
+    title?: string;
     /** What this host calls the host it runs on. */
     host: string;
     hostId: string;

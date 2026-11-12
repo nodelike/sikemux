@@ -1946,6 +1946,8 @@ enum RaisedFor: String, Codable, Hashable, Sendable {
 struct RemoteAgent: Codable, Hashable, Sendable {
     var agentId: String
     var name: String
+    /// What its chat is called on its host, once it has a title of its own.
+    var title: String?
     /// What this host calls the host it runs on.
     var host: String
     var hostId: String

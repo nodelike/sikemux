@@ -28,6 +28,7 @@ export const WorkerRow = memo(function WorkerRow({ worker, nested }: { worker: R
             <AgentIcon provider={worker.cli} size={16} />
           </View>
         }
+        title={worker.title}
         name={worker.name}
         host={worker.host}
         place={worker.project}
