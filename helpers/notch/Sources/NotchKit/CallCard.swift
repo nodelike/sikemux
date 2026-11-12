@@ -197,11 +197,11 @@ struct CallCard: View {
         .frame(width: width, height: 132)
     }
 
-    /// A picture filling its place without widening it: a filled image wants all of its own width.
+    /// A picture filling its place from its top without widening it: a filled image wants all of its own width.
     private func tile(_ option: CallOption) -> some View {
         Theme.raised
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .overlay {
+            .overlay(alignment: .top) {
                 if let path = option.picture { picture(path) }
             }
             .clipShape(RoundedRectangle(cornerRadius: 8))
@@ -461,7 +461,7 @@ struct CallsInList: View {
         let open = island.listCall ?? store.calls.first?.id
         ForEach(store.calls, id: \.id) { call in
             VStack(alignment: .leading, spacing: 0) {
-                CallRow(store: store, call: call) { island.listCall = call.id }
+                CallRow(store: store, call: call, open: call.id == open) { island.listCall = call.id }
                 if call.id == open, let draft = store.drafts[call.id] {
                     CallCard(store: store, island: island, call: call, draft: draft, width: width - 24, showsWho: false)
                         .padding(.top, 10)
@@ -477,22 +477,24 @@ struct CallsInList: View {
     }
 }
 
-/// A waiting call in the list, laid out as an agent row: the asker's own face and what it works on, the project, who
-/// and how long the call has waited; its card under it says what it asks.
+/// A waiting call in the list. Folded, it reads as the Mac's popover's folded rows: the asker's face, the question, who
+/// asks and how long it has waited. Open, it is the asker's row, what it works on and the project, over its card.
 private struct CallRow: View {
     let store: NotchStore
     let call: PersonCall
-    let open: () -> Void
+    let open: Bool
+    let choose: () -> Void
     @State private var hovering = false
 
     var body: some View {
         let entry = store.entries.first { $0.agentId == call.asker.agentId }
-        Button(action: open) {
+        Button(action: choose) {
             HStack(spacing: 10) {
                 AgentLook(face: entry?.agent?.face, provider: call.asker.cli, mark: .needs, size: 20)
-                Text(entry?.title ?? call.question).font(Theme.ui(13, .semibold)).foregroundStyle(Theme.ink).lineLimit(1)
+                Text(open ? entry?.title ?? call.question : call.question)
+                    .font(Theme.ui(13, .semibold)).foregroundStyle(Theme.ink).lineLimit(1)
                 Spacer(minLength: 8)
-                if let project = store.projectName(call.project) {
+                if open, let project = store.projectName(call.project) {
                     Text(project).font(Theme.ui(11.5)).foregroundStyle(Theme.inkDim).lineLimit(1)
                 }
                 Text("@\(call.asker.name)").font(Theme.ui(11)).foregroundStyle(Theme.inkFaint)

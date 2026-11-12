@@ -207,7 +207,7 @@ func invoicePicture(_ label: String, file: String, tall: Bool = false) -> String
     return path
 }
 
-func asker(_ id: String, _ name: String, _ cli: String) -> CallAsker { CallAsker(agentId: id, name: name, cli: cli) }
+func asker(_ id: String, _ name: String, _ cli: String) -> CallAsker { CallAsker(agentId: id, name: name, cli: cli, chief: nil) }
 
 /// The calls the demo agents put to the person: Maple's question, naming and font, Kite's two ships to production,
 /// each with a picture where it has one.

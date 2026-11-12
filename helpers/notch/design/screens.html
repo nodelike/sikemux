@@ -1067,8 +1067,8 @@ class Island {
                 const open = waiting.find((c) => c.id === this.listCall) || waiting[0];
                 body = waiting.map((c) => `
                     <div class="call-box${c === open ? " open" : ""}">
-                        <div class="call-row" data-call-row="${c.id}"><span class="mark">${face(c.agent, "blocked")}</span><span class="q">${c.agent.title}</span><span class="sp"></span>
-                            <span class="proj">${GLYPH.folderSmall}${c.agent.project}</span><span class="agent-name">@${c.agent.name}</span><span class="age">${c.age}</span></div>
+                        <div class="call-row" data-call-row="${c.id}"><span class="mark">${face(c.agent, "blocked")}</span><span class="q">${c === open ? c.agent.title : c.question}</span><span class="sp"></span>
+                            ${c === open ? `<span class="proj">${GLYPH.folderSmall}${c.agent.project}</span>` : ""}<span class="agent-name">@${c.agent.name}</span><span class="age">${c.age}</span></div>
                         ${c === open ? callCard(c, this.card(c.id), true) : ""}
                     </div>`).join("") + (this.busy ? `
                     <div class="row">
@@ -1412,7 +1412,7 @@ const SECTIONS = [
         lede: "Opened by resting the pointer for 0.3 s. The header sits in the menu-bar band, split around the camera: tabs on the left, Sikemux on the right.",
         states: [
             { id: "O1", name: "Agents", when: "Opened on the Agents tab: by a click or a swipe, or by resting the pointer while no call waits.",
-              shows: "First, each call waiting on the person as a row: the asker's face, what it works on, the project, who and how long the call has waited. The newest is open under its row as its card, at the list's width, in a raised box; clicking another row opens that one instead. Then every open agent once, in the order the app's rail lists them, what wants you first, with no labels between them. Each row reads as the rail does: what the agent works on with how long ago, its project, then the name Sikemux gave it with its counts and state together at the end. Idle agents are listed too, with no mark at the end. A permission can be answered in place. Clicking a row opens that agent in Sikemux.",
+              shows: "First, each call waiting on the person as a row, as the Mac's popover folds them: the asker's face, the question, who asks and how long it has waited. The newest is open, its row the asker's (what it works on, the project, who and how long), with its card under it, at the list's width, in a raised box; clicking another row opens that one instead. Then every open agent once, in the order the app's rail lists them, what wants you first, with no labels between them. Each row reads as the rail does: what the agent works on with how long ago, its project, then the name Sikemux gave it with its counts and state together at the end. Idle agents are listed too, with no mark at the end. A permission can be answered in place. Clicking a row opens that agent in Sikemux.",
               leaves: "The pointer leaves, and 0.1 s later it closes.", opts: { agents: () => freshAgents(), mode: "open" } },
             { id: "O1b", name: "A tall call in the list", when: "Opened on the agents while a call with pictures is the one open.",
               shows: "The list grows to hold the open card whole, its pictures, its options and its footer, up to the screen's height. A card taller than that scrolls the list so its footer, with Go with this, stays in view.",
