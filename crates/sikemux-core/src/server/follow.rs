@@ -28,6 +28,8 @@ const RECENT_TURNS: usize = 3;
 const MAX_READ_BYTES: usize = 16 * 1024;
 const MAX_ASKED_CHARS: usize = 600;
 const MAX_SAID_BYTES: usize = 2 * 1024;
+const TURN_ASKED: usize = 6;
+const TURN_SAID: usize = 4;
 const MAX_ANSWER_BYTES: usize = 8 * 1024;
 const TOOL_TITLES: usize = 6;
 const MAX_TITLE_CHARS: usize = 80;
@@ -278,16 +280,28 @@ impl Turn {
             "state": self.ended.take().unwrap_or_else(|| "working".into()),
         });
         let fields = turn.as_object_mut().expect("a turn is an object");
+        let mut omitted = Vec::new();
+        let earlier_asked = self.asked.len().saturating_sub(TURN_ASKED);
+        if earlier_asked > 0 {
+            omitted.push(format!("{earlier_asked} earlier messages to it"));
+        }
+        let earlier_said = self.said.len().saturating_sub(TURN_SAID);
+        if earlier_said > 0 {
+            omitted.push(format!("{earlier_said} earlier things it said"));
+        }
         if !self.asked.is_empty() {
-            fields.insert("asked".into(), self.asked.into());
+            let asked: Vec<Value> = self.asked.drain(earlier_asked..).collect();
+            fields.insert("asked".into(), asked.into());
         }
         if !self.said.is_empty() {
-            let said: Vec<String> = self
-                .said
+            let said: Vec<String> = self.said[earlier_said..]
                 .iter()
                 .map(|text| cut_bytes(text, MAX_SAID_BYTES))
                 .collect();
             fields.insert("said".into(), said.into());
+        }
+        if !omitted.is_empty() {
+            fields.insert("omitted".into(), omitted.into());
         }
         if let Some(tools) = tools {
             fields.insert("tools".into(), tools.into());
