@@ -17,6 +17,7 @@ use crate::launch::homes;
 use crate::launch::terminal::{self, TerminalRun};
 use crate::launch::tools::Tools;
 use crate::launch::{AgentSpec, PermissionMode};
+use crate::sessions::roots::account_root;
 use serde_json::{json, Value};
 use sikemux_fold::UpdateKind;
 use sikemux_process::vars;
@@ -183,6 +184,16 @@ async fn launch_terminal(
         effort: agent.effort.as_deref(),
     };
     let cwd = agent.cwd.to_string_lossy().into_owned();
+    let env = match AgentKind::from_name(&agent.provider) {
+        Some(AgentKind::Claude) => {
+            let config_path = profile.and_then(|profile| profile.config_path.as_deref());
+            let root = account_root(AgentKind::Claude, config_path, &BTreeMap::new());
+            chat::terminal_cache_env(&agent.cwd, root.as_deref())
+                .into_iter()
+                .collect()
+        }
+        _ => Default::default(),
+    };
     let spawn = TerminalSpawn {
         cols,
         rows,
@@ -210,7 +221,7 @@ async fn launch_terminal(
             initial_prompt_submitted: false,
             shell_integration: false,
         }),
-        env: Default::default(),
+        env,
         continues,
     };
     let target = Box::new(SpawnTarget::Terminal(spawn));

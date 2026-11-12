@@ -64,6 +64,7 @@ use super::{Core, CoreError, CoreResult};
 use feed::{Feed, FeedState, Standing};
 use kept::{Keeper, KeptAgent, KeptChat};
 pub(crate) use native::kill_and_reap;
+pub(crate) use native::terminal_cache_env;
 use native::Begin;
 pub(crate) use sikemux_fold::ChatEventKind;
 use sikemux_process::clock::epoch_ms;

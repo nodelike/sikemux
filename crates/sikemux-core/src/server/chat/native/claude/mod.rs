@@ -42,7 +42,7 @@ use super::servers;
 use super::session::{Backend, Opened, Prompt, Sink, Steered, Telling};
 use crate::sessions::for_agent::context_text;
 pub(crate) use compaction::AutoCompact;
-pub(crate) use config::saved_window;
+pub(crate) use config::{saved_window, terminal_cache_env};
 use control::Control;
 use reader::{Asking, Reader, ReaderState, Shared, Turn};
 

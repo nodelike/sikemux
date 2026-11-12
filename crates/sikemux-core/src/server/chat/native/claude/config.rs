@@ -4,6 +4,7 @@
 
 use crate::launch::claude_model;
 use std::collections::BTreeMap;
+use std::path::Path;
 
 use serde_json::{json, Map, Value};
 
@@ -58,6 +59,40 @@ pub(crate) fn cache_lifetimes(
         lifetimes.insert("subagentPromptCacheTtl".into(), json!("5m"));
     }
     lifetimes
+}
+
+/// The environment a Claude terminal starts with to cache its prompt as a chat does, reading the
+/// settings Claude Code would: local, then project, then the account's. Its subagents keep the
+/// CLI's own default.
+pub(crate) fn terminal_cache_env(
+    cwd: &Path,
+    account_root: Option<&Path>,
+) -> Option<(String, String)> {
+    let files = [
+        Some(cwd.join(".claude/settings.local.json")),
+        Some(cwd.join(".claude/settings.json")),
+        account_root.map(|root| root.join("settings.json")),
+    ];
+    let mut settings = json!({ "env": {} });
+    for found in files
+        .into_iter()
+        .flatten()
+        .filter_map(|file| super::compaction::read(&file))
+    {
+        if settings.get("promptCacheTtl").is_none() {
+            if let Some(ttl) = found.get("promptCacheTtl") {
+                settings["promptCacheTtl"] = ttl.clone();
+            }
+        }
+        if let Some(ttl) = found["env"].get("CLAUDE_CODE_PROMPT_CACHE_TTL") {
+            settings["env"]["CLAUDE_CODE_PROMPT_CACHE_TTL"] = ttl.clone();
+        }
+    }
+    let ttl = cache_lifetimes(&settings, &BTreeMap::new(), false).remove("promptCacheTtl")?;
+    Some((
+        "CLAUDE_CODE_PROMPT_CACHE_TTL".to_owned(),
+        ttl.as_str()?.to_owned(),
+    ))
 }
 
 pub(crate) fn permission_mode(mode: PermissionMode) -> &'static str {

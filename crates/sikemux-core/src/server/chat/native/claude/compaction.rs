@@ -84,7 +84,7 @@ impl AutoCompact {
     }
 }
 
-fn read(file: &Path) -> Option<Value> {
+pub(super) fn read(file: &Path) -> Option<Value> {
     serde_json::from_str(&std::fs::read_to_string(file).ok()?).ok()
 }
 
