@@ -1315,5 +1315,6 @@ pub(super) fn part(
                 .into_any_element()
         }
         ChatPart::Content { content, .. } => content::content(id, content, looks, cx),
+        ChatPart::Rotation { .. } => div().into_any_element(),
     }
 }

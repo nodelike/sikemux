@@ -151,6 +151,60 @@ impl Replay {
         said
     }
 
+    /// The newest `count` exchanges with the person, oldest first: each message of theirs and
+    /// what the agent wrote back in that turn, each side cut past `longest` characters and
+    /// marked `[cut]`. A turn another agent's message started is no exchange with the person.
+    pub(in super::super) fn exchanges(
+        &self,
+        count: usize,
+        longest: usize,
+    ) -> Vec<(String, String)> {
+        let mut exchanges: Vec<(String, String)> = Vec::new();
+        let mut open = false;
+        for entry in &self.entries {
+            let payload = &entry.event.payload;
+            match entry.event.kind {
+                ChatEventKind::Prompt => {
+                    let text = payload
+                        .get("text")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .trim();
+                    open = !text.starts_with("<agent-message ")
+                        && !text.starts_with("<task-notification>");
+                    if open {
+                        exchanges.push((text.to_owned(), String::new()));
+                    }
+                }
+                ChatEventKind::SessionUpdate if open && !self.work.in_subagent(payload) => {
+                    if UpdateKind::within(payload) != Some(UpdateKind::AgentMessageChunk) {
+                        continue;
+                    }
+                    let said = payload
+                        .pointer("/update/content/text")
+                        .and_then(Value::as_str);
+                    if let (Some(said), Some((_, answer))) = (said, exchanges.last_mut()) {
+                        answer.push_str(said);
+                    }
+                }
+                _ => {}
+            }
+        }
+        let first = exchanges.len().saturating_sub(count);
+        let cut = |text: &str| {
+            let text = text.trim();
+            let mut kept: String = text.chars().take(longest).collect();
+            if kept.len() < text.len() {
+                kept.push_str(" [cut]");
+            }
+            kept
+        };
+        exchanges[first..]
+            .iter()
+            .map(|(asked, answered)| (cut(asked), cut(answered)))
+            .collect()
+    }
+
     /// What the agent wrote last in its latest turn: its text after its last
     /// tool call, or before it when it wrote nothing after.
     pub(in super::super) fn last_answer(&self) -> Option<String> {

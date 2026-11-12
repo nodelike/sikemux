@@ -1281,6 +1281,20 @@ impl Fold {
                 }
                 self.append_part(index, &None, |id| ChatPart::Account { id, moved }, false);
             }
+            UpdateKind::SessionRotated => {
+                let Some(rotation) = update
+                    .get("rotation")
+                    .and_then(|rotation| serde_json::from_value(rotation.clone()).ok())
+                else {
+                    return;
+                };
+                self.append_part(
+                    index,
+                    &None,
+                    |id| ChatPart::Rotation { id, rotation },
+                    false,
+                );
+            }
             UpdateKind::SessionInfoUpdate => {
                 if let Some(title) = text_of(update.get("title")) {
                     self.head.title = Some(title.to_owned());

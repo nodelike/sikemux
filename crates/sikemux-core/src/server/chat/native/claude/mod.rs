@@ -662,7 +662,11 @@ impl Backend for Claude {
     }
 
     async fn cancel(&mut self) -> Result<(), String> {
-        self.shared.locked().quiet = None;
+        {
+            let mut shared = self.shared.locked();
+            shared.quiet = None;
+            shared.hushed = false;
+        }
         let running = match self.shared.locked().turn.as_mut() {
             Some(turn) => {
                 turn.cancelled = true;
@@ -737,6 +741,44 @@ impl Backend for Claude {
         self.writer()
             .send(&user_message(&uuid, vec![command], None))
             .inspect_err(|_| self.shared.locked().quiet = None)
+    }
+
+    async fn handoff(&mut self) -> Result<String, String> {
+        const WAIT: std::time::Duration = std::time::Duration::from_secs(120);
+        const LOOK: std::time::Duration = std::time::Duration::from_millis(200);
+        let uuid = Uuid::new_v4().to_string();
+        {
+            let mut shared = self.shared.locked();
+            if shared.turn.is_some() || shared.quiet.is_some() {
+                return Err("Claude is at work".to_owned());
+            }
+            shared.sent.insert(uuid.clone());
+            shared.quiet = Some(uuid.clone());
+            shared.hushed = true;
+            shared.handed = None;
+        }
+        let ask = json!({ "type": "text", "text": super::super::rotation::HANDOFF_ASK });
+        if let Err(error) = self.writer().send(&user_message(&uuid, vec![ask], None)) {
+            let mut shared = self.shared.locked();
+            shared.quiet = None;
+            shared.hushed = false;
+            return Err(error);
+        }
+        let waited = tokio::time::timeout(WAIT, async {
+            loop {
+                if let Some(note) = self.shared.locked().handed.take() {
+                    return note;
+                }
+                tokio::time::sleep(LOOK).await;
+            }
+        })
+        .await;
+        waited.map_err(|_| {
+            let mut shared = self.shared.locked();
+            shared.quiet = None;
+            shared.hushed = false;
+            "Claude wrote no handoff note in time".to_owned()
+        })
     }
 
     async fn stop_task(&mut self, task_id: &str) -> Result<(), String> {

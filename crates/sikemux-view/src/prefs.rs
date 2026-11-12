@@ -61,6 +61,9 @@ pub struct ProjectRoot {
 pub struct Preferences {
     /// What sending does while an agent's turn runs.
     pub mid_turn_send: MidTurnSend,
+    /// The chief's chat starts a fresh session from a brief when its old one grows full,
+    /// goes cold or changes model or account, rather than compacting it.
+    pub chief_rotation: bool,
     /// One of 1, 1.1 and 1.25.
     pub ui_text_scale: f64,
     pub terminal_font_size: u32,
@@ -214,6 +217,7 @@ macro_rules! preference_changes {
 
 preference_changes! {
     MidTurnSend mid_turn_send: MidTurnSend,
+    ChiefRotation chief_rotation: bool,
     UiTextScale ui_text_scale: f64,
     TerminalFontSize terminal_font_size: u32,
     ChatTextScale chat_text_scale: f64,
@@ -367,6 +371,7 @@ impl Default for Preferences {
     fn default() -> Self {
         Self {
             mid_turn_send: MidTurnSend::default(),
+            chief_rotation: false,
             ui_text_scale: UI_TEXT_SCALES[0],
             terminal_font_size: DEFAULT_TERMINAL_FONT_SIZE,
             chat_text_scale: DEFAULT_TEXT_SCALE,

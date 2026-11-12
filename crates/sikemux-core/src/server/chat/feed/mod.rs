@@ -909,6 +909,14 @@ impl Feed {
         inner.replay.persons_words(budget, longest)
     }
 
+    /// The newest exchanges with the person, as [`Replay::exchanges`] picks them.
+    pub(crate) fn exchanges(&self, count: usize, longest: usize) -> Vec<(String, String)> {
+        let mut inner = self.inner.locked();
+        inner.replay.reload();
+        self.account(&inner);
+        inner.replay.exchanges(count, longest)
+    }
+
     /// Where the turn in progress, or the last one, starts in the history.
     pub(crate) fn turn_start(&self) -> Option<u64> {
         let mut inner = self.inner.locked();

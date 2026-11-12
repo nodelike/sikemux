@@ -200,6 +200,25 @@ pub(crate) struct Standing {
     pub rules: Vec<GoalRule>,
 }
 
+/// The project's decisions still standing that were made since `since`, newest first, at
+/// most `most`: every goal's, and those made on no goal.
+pub(crate) fn standing_since(core: &Core, project: &str, since: u64, most: usize) -> Vec<Decision> {
+    let state = core.boards.state.locked();
+    let Some(board) = state.boards.get(project) else {
+        return Vec::new();
+    };
+    let mut decisions: Vec<Decision> = (board.cards.iter())
+        .map(|card| &card.goal)
+        .chain([&board.decided])
+        .flat_map(|goal| goal.decisions.iter())
+        .filter(|decision| decision.retired.is_none() && decision.learned.at >= since)
+        .cloned()
+        .collect();
+    decisions.sort_by_key(|decision| std::cmp::Reverse(decision.learned.at));
+    decisions.truncate(most);
+    decisions
+}
+
 pub(crate) fn standing(core: &Core, goal: &GoalRef) -> Standing {
     let state = core.boards.state.locked();
     let Some(card) = state

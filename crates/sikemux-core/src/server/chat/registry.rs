@@ -377,6 +377,7 @@ impl Chats {
             brief: Mutex::new(None),
             meter: Default::default(),
             capped: AtomicBool::new(chief),
+            rotation: Default::default(),
             wanted: tokio::sync::Notify::new(),
             saved_shown: AtomicBool::new(history_shown),
             saved_reading: watch::channel(false).0,

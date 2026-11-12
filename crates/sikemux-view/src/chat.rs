@@ -1164,6 +1164,11 @@ pub enum ChatPart {
         #[serde(rename = "move")]
         moved: AccountMove,
     },
+    /// The core started a fresh session under the chat, from a brief it built.
+    Rotation {
+        id: String,
+        rotation: SessionRotation,
+    },
 }
 
 impl ChatPart {
@@ -1176,7 +1181,8 @@ impl ChatPart {
             | Self::Subagent { id, .. }
             | Self::Notice { id, .. }
             | Self::AgentNotice { id, .. }
-            | Self::Account { id, .. } => id,
+            | Self::Account { id, .. }
+            | Self::Rotation { id, .. } => id,
         }
     }
 }
@@ -1566,6 +1572,95 @@ pub enum GoalMoment {
 pub enum MoveReason {
     Limit,
     Chosen,
+}
+
+/// Why the core started a fresh session under a chat.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum RotationReason {
+    /// The old session's context had grown past what a call should carry.
+    Full,
+    /// The person came back after the prompt cache had died.
+    Away,
+    /// The chat moved to another model.
+    Model,
+    /// The chat moved to another account.
+    Account,
+    /// A value a newer core sends.
+    #[serde(other)]
+    Unknown,
+}
+
+/// The core started a fresh session under the chat, from a brief it built from what it keeps.
+/// The chat stays one conversation; this is the line that says so.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionRotation {
+    /// Unix milliseconds.
+    pub at: u64,
+    pub reason: RotationReason,
+    pub from_session: String,
+    pub to_session: String,
+    pub brief: RotationBrief,
+}
+
+/// What a fresh session started from, part by part.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RotationBrief {
+    /// About how many tokens it holds in all.
+    pub tokens: u64,
+    pub sections: Vec<BriefSection>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BriefSection {
+    pub kind: BriefSectionKind,
+    /// About how many tokens it holds.
+    pub tokens: u64,
+    #[serde(default)]
+    pub counts: BriefCounts,
+    /// Word for word, as the session was given it.
+    pub text: String,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum BriefSectionKind {
+    /// How the seat works and the project's rules, in the session's instructions.
+    Seat,
+    Decisions,
+    /// Workers, waits and open calls.
+    Work,
+    /// What the old session said it was in the middle of.
+    Handoff,
+    /// The latest exchanges with the person, word for word.
+    Exchanges,
+    /// A value a newer core sends.
+    #[serde(other)]
+    Unknown,
+}
+
+/// What a section holds, counted, for a client to word.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BriefCounts {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rules: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decisions: Option<u32>,
+    /// How many days back the decisions reach.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub days: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workers: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub waits: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub calls: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exchanges: Option<u32>,
 }
 
 /// The chat moved to another of the person's accounts.

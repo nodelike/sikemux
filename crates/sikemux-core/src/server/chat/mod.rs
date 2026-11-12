@@ -19,6 +19,7 @@ mod rebind;
 pub(crate) use rebind::on_account;
 mod registry;
 pub(crate) mod reset;
+pub(crate) mod rotation;
 mod start;
 mod states;
 mod turn;
@@ -169,6 +170,9 @@ pub(crate) enum ChatCommand {
     DiscardFailed,
     /// Compacts the agent's session between turns, with nothing in the chat to show for it.
     Compact,
+    /// Asks the agent's session for a handoff note between turns, while its cache is warm, for
+    /// the fresh session that may replace it.
+    TakeHandoff,
     /// Lets go of the agent, still running, for a core that replaces this one.
     HandOver {
         reply: oneshot::Sender<Result<native::Handed, String>>,
@@ -283,6 +287,7 @@ pub(crate) struct Chat {
     pub(crate) meter: cap::Meter,
     /// Its agent's session is kept small.
     capped: AtomicBool,
+    pub(crate) rotation: rotation::State,
 }
 
 impl Chat {
@@ -1136,7 +1141,8 @@ impl Chat {
                 ChatCommand::Cancel
                 | ChatCommand::StopTask { .. }
                 | ChatCommand::DiscardFailed
-                | ChatCommand::Compact => return Ok(()),
+                | ChatCommand::Compact
+                | ChatCommand::TakeHandoff => return Ok(()),
                 ChatCommand::HandOver { reply } => {
                     let _ = reply.send(Err("it had not started".into()));
                     return Ok(());

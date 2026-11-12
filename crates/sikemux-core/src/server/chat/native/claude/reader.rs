@@ -77,6 +77,11 @@ pub(crate) struct Shared {
     pub untitled: Option<String>,
     /// The core's own compaction runs on this message, so the chat sees no turn for it.
     pub quiet: Option<String>,
+    /// The quiet turn is the core's ask for a handoff note, so nothing it says reaches the chat.
+    #[serde(default)]
+    pub hushed: bool,
+    /// The handoff note it wrote, once its turn ended.
+    pub handed: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -478,6 +483,9 @@ impl Reader {
     /// Sends `update` to the session `parent` names: the chat's own, or the
     /// subagent a tool call spawned. A subagent not yet announced holds it.
     fn send(&mut self, parent: Option<&str>, update: Value) {
+        if self.shared.locked().hushed {
+            return;
+        }
         let Some(parent) = parent else {
             self.sink.update(&self.data.session_id, update);
             return;
@@ -989,6 +997,9 @@ impl Reader {
             let quiet = answers.is_some() && shared.quiet.as_deref() == answers;
             if quiet {
                 shared.quiet = None;
+                if std::mem::take(&mut shared.hushed) {
+                    shared.handed = Some(result.result.clone().unwrap_or_default());
+                }
             }
             quiet
         };

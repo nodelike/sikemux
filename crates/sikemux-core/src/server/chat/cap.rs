@@ -77,6 +77,21 @@ impl Meter {
         since > 0 && epoch_ms().saturating_sub(since) < COMPACTING_MS
     }
 
+    pub(crate) fn context(&self) -> u64 {
+        self.context.load(Ordering::Acquire)
+    }
+
+    pub(crate) fn last_call_ms(&self) -> u64 {
+        self.last_call_ms.load(Ordering::Acquire)
+    }
+
+    /// A fresh session starts with nothing in it, and no call yet.
+    pub(crate) fn started_fresh(&self) {
+        self.last_call_ms.store(0, Ordering::Release);
+        self.context.store(0, Ordering::Release);
+        self.compacted.store(false, Ordering::Release);
+    }
+
     pub(crate) fn compaction_over(&self) {
         self.compacting_since.store(0, Ordering::Release);
     }
@@ -134,7 +149,7 @@ pub(crate) fn facts(core: &Core, agent_id: &str) -> Option<String> {
 
 /// The calls open to the person in the chat's project, what the chat waits on, and where each
 /// of its workers stands.
-fn open_work(core: &Core, agent_id: &str) -> Vec<String> {
+pub(crate) fn open_work(core: &Core, agent_id: &str) -> Vec<String> {
     let listed = roster::listed(core);
     let Some(own) = listed.iter().find(|agent| agent.agent_id == agent_id) else {
         return Vec::new();
@@ -256,7 +271,12 @@ pub(crate) fn compact_idle(core: &Core, now: u64) {
         if due {
             chat.meter.compacted.store(true, Ordering::Release);
             chat.meter.compacting_since.store(now, Ordering::Release);
-            let _ = chat.send(ChatCommand::Compact);
+            let command = if super::rotation::on(core) {
+                ChatCommand::TakeHandoff
+            } else {
+                ChatCommand::Compact
+            };
+            let _ = chat.send(command);
         }
     }
 }

@@ -25,17 +25,17 @@ use crate::server::inbox::Fault;
 use super::SessionEnd;
 use sikemux_fold::update::turn_answer;
 use sikemux_fold::{ChatEventKind, UpdateKind};
-use sikemux_view::chat::StopReason;
+use sikemux_view::chat::{SessionRotation, StopReason};
 use sikemux_view::questions::QuestionChoice;
 use sikemux_wire::protocol::{ChatAccount, ChatContext, ChatLaunch, ChatStart};
 
-use super::super::cap;
 use super::super::feed::{Earlier, Reach};
 use super::super::kept::Progress;
 use super::super::rebind::{
     error_message, next_account, on_account, switch_notice, switches_at_limit, Carried, Outcome,
     Rebind, Replay,
 };
+use super::super::{cap, rotation};
 use super::super::{reset, stall_later, Asked, Chat, ChatCommand, Delivery, Respond};
 use super::process::{AgentRecord, Lines, Process, Released, Writer};
 use crate::server::activity_log::{Compaction, ModelCall};
@@ -595,6 +595,12 @@ pub(crate) trait Backend: Sized + Send {
         async { Ok(()) }
     }
 
+    /// Asks the session between turns what a fresh one would need to know, with no turn in
+    /// the chat to show for it, and answers with what it wrote.
+    fn handoff(&mut self) -> impl std::future::Future<Output = Result<String, String>> + Send {
+        async { Err("This agent writes no handoff note".to_owned()) }
+    }
+
     /// The person answered a dialog the agent is blocked on.
     fn answer_dialog(&mut self, _id: &str, _answer: String, _choice: Option<usize>) {}
 
@@ -826,6 +832,7 @@ pub(crate) async fn run<B: Backend>(
     };
 
     let (stalled_tx, mut stalled_rx) = mpsc::unbounded_channel::<u64>();
+    let telling = sink(false);
     let mut running = Running {
         chat,
         launch: &launch,
@@ -834,9 +841,15 @@ pub(crate) async fn run<B: Backend>(
         state,
         stalled: stalled_tx,
         letter_turn: false,
+        sink: telling,
+        rotation_brief: None,
     };
+    running.chat.rotation.runs_on(running.footing());
     running.opened(replay).await;
     let end = loop {
+        if !running.chat.prompted() && commands.is_empty() {
+            running.rotate_if_due(false).await;
+        }
         running.rest();
         // What the agent already said is taken in before the next command,
         // so a turn's failure or end is never cut off by letting go of the
@@ -881,6 +894,10 @@ struct Running<'a, B> {
     stalled: mpsc::UnboundedSender<u64>,
     /// The running turn was started by another agent's message.
     letter_turn: bool,
+    /// Tells the chat what a fresh session under it says.
+    sink: Sink,
+    /// What a fresh session is told with its first message.
+    rotation_brief: Option<ChatContext>,
 }
 
 impl<B: Backend> Running<'_, B> {
@@ -898,6 +915,76 @@ impl<B: Backend> Running<'_, B> {
             }
             self.send(replay).await;
         }
+    }
+
+    /// The session the chat runs on now, and its model and account.
+    fn footing(&self) -> rotation::Footing {
+        rotation::Footing {
+            session: self.state.session_id.clone(),
+            model: self
+                .chat
+                .relaunch(self.launch)
+                .and_then(|launch| launch.model),
+            account: self.chat.current_launch().account.map(|account| account.id),
+        }
+    }
+
+    /// Starts a fresh session under the chat when its old one is full, cold or on another model
+    /// or account, from a brief the core builds; the old one carries on when that fails. `asked`
+    /// when a message is about to start a turn.
+    async fn rotate_if_due(&mut self, asked: bool) {
+        let Some(core) = self.chat.core.upgrade() else {
+            return;
+        };
+        let Some(reason) = rotation::due(&core, &self.chat, self.footing(), asked) else {
+            return;
+        };
+        let handoff = if rotation::asks_handoff(reason) {
+            self.backend.handoff().await.ok()
+        } else {
+            rotation::earlier_handoff(&self.chat)
+        };
+        let brief = rotation::brief(&core, &self.chat, handoff);
+        let Some(mut launch) = self.chat.relaunch(self.launch) else {
+            return;
+        };
+        launch.resume_id = None;
+        let started = match self.chat.with_model_token(&launch) {
+            Ok(launch) => B::start(&launch, Some(&brief.instructions), self.sink.clone()).await,
+            Err(error) => Err(error),
+        };
+        let (backend, opened) = match started {
+            Ok(started) => started,
+            Err(error) => {
+                eprintln!("sikemux core: the chat goes on in its old session, as a fresh one did not start: {error}");
+                self.chat.rotation.failed();
+                return;
+            }
+        };
+        self.sink.loaded();
+        let from = std::mem::replace(&mut self.state.session_id, opened.session_id);
+        self.state.setup = opened.setup;
+        self.state.capabilities = opened.capabilities;
+        self.backend = backend;
+        self.state.reloadable = self.backend.reloadable();
+        self.chat.note_agent(self.backend.pid());
+        self.chat.meter.started_fresh();
+        let start = self.state.start();
+        self.chat.mark_ready(start.clone());
+        self.chat.emit(ChatEventKind::Ready, json!(start));
+        self.chat.rotation.runs_on(self.footing());
+        let rotation = SessionRotation {
+            at: sikemux_process::clock::epoch_ms(),
+            reason,
+            from_session: from,
+            to_session: self.state.session_id.clone(),
+            brief: brief.shown,
+        };
+        self.sink.update(
+            &self.state.session_id,
+            json!({ "sessionUpdate": UpdateKind::SessionRotated, "rotation": rotation }),
+        );
+        self.rotation_brief = Some(brief.message);
     }
 
     /// Writes down where the chat stands before the loop waits for what comes next.
@@ -930,6 +1017,9 @@ impl<B: Backend> Running<'_, B> {
     async fn send(&mut self, mut replay: Replay) {
         self.state.turn += 1;
         self.chat.begin_turn();
+        if !crate::server::chat::prompt::is_command(&replay.text) {
+            replay.context.extend(self.rotation_brief.take());
+        }
         // A slash command takes what follows it as its arguments, so the brief waits for
         // the next message. Kept on the replay, it goes again with the message.
         let carries = !B::INSTRUCTIONS
@@ -1150,6 +1240,14 @@ impl<B: Backend> Running<'_, B> {
                 self.backend.answer_dialog(&id, answer, choice)
             }
             ChatCommand::Cancel => self.cancel().await,
+            ChatCommand::TakeHandoff => {
+                if !self.chat.prompted() {
+                    match self.backend.handoff().await {
+                        Ok(note) => self.chat.rotation.note_handoff(note),
+                        Err(error) => eprintln!("sikemux core: no handoff note was taken: {error}"),
+                    }
+                }
+            }
             ChatCommand::Compact => {
                 if !self.chat.prompted() {
                     if let Err(error) = self.backend.compact().await {
@@ -1257,6 +1355,7 @@ impl<B: Backend> Running<'_, B> {
         if !shown {
             self.show(&replay);
         }
+        self.rotate_if_due(true).await;
         self.send(replay).await;
         ControlFlow::Continue(())
     }

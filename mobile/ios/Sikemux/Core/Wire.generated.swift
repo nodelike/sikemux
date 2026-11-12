@@ -3540,6 +3540,8 @@ enum ChatPart: Codable, Hashable, Sendable {
     case notice(Notice)
     case agentNotice(AgentNoticePayload)
     case account(Account)
+    /// The core started a fresh session under the chat, from a brief it built.
+    case rotation(Rotation)
     /// One added after this build, by its `kind`.
     case unknown(String)
 
@@ -3598,6 +3600,11 @@ enum ChatPart: Codable, Hashable, Sendable {
         var move: AccountMove
     }
 
+    struct Rotation: Codable, Hashable, Sendable {
+        var id: String
+        var rotation: SessionRotation
+    }
+
     private enum TagKey: String, CodingKey {
         case tag = "kind"
     }
@@ -3621,6 +3628,8 @@ enum ChatPart: Codable, Hashable, Sendable {
             self = .agentNotice(try AgentNoticePayload(from: decoder))
         case "account":
             self = .account(try Account(from: decoder))
+        case "rotation":
+            self = .rotation(try Rotation(from: decoder))
         default:
             self = .unknown(tag)
         }
@@ -3653,6 +3662,9 @@ enum ChatPart: Codable, Hashable, Sendable {
         case .account(let value):
             try value.encode(to: encoder)
             tag = "account"
+        case .rotation(let value):
+            try value.encode(to: encoder)
+            tag = "rotation"
         case .unknown(let value):
             tag = value
         }
@@ -4171,6 +4183,81 @@ struct KeptRule: Codable, Hashable, Sendable {
     var project: String
 }
 
+/// The core started a fresh session under the chat, from a brief it built from what it keeps.
+/// The chat stays one conversation; this is the line that says so.
+struct SessionRotation: Codable, Hashable, Sendable {
+    /// Unix milliseconds.
+    var at: Int
+    var reason: RotationReason
+    var fromSession: String
+    var toSession: String
+    var brief: RotationBrief
+}
+
+/// Why the core started a fresh session under a chat.
+enum RotationReason: String, Codable, Hashable, Sendable {
+    /// The old session's context had grown past what a call should carry.
+    case full
+    /// The person came back after the prompt cache had died.
+    case away
+    /// The chat moved to another model.
+    case model
+    /// The chat moved to another account.
+    case account
+    /// One added after this build.
+    case unknown
+
+    init(from decoder: any Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
+}
+
+/// What a fresh session started from, part by part.
+struct RotationBrief: Codable, Hashable, Sendable {
+    /// About how many tokens it holds in all.
+    var tokens: Int
+    var sections: [BriefSection]
+}
+
+struct BriefSection: Codable, Hashable, Sendable {
+    var kind: BriefSectionKind
+    /// About how many tokens it holds.
+    var tokens: Int
+    var counts: BriefCounts?
+    /// Word for word, as the session was given it.
+    var text: String
+}
+
+enum BriefSectionKind: String, Codable, Hashable, Sendable {
+    /// How the seat works and the project's rules, in the session's instructions.
+    case seat
+    case decisions
+    /// Workers, waits and open calls.
+    case work
+    /// What the old session said it was in the middle of.
+    case handoff
+    /// The latest exchanges with the person, word for word.
+    case exchanges
+    /// One added after this build.
+    case unknown
+
+    init(from decoder: any Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
+}
+
+/// What a section holds, counted, for a client to word.
+struct BriefCounts: Codable, Hashable, Sendable {
+    var rules: Int?
+    var decisions: Int?
+    /// How many days back the decisions reach.
+    var days: Int?
+    var workers: Int?
+    var waits: Int?
+    var calls: Int?
+    var exchanges: Int?
+}
+
 /// A stretch of a sent message's text: its words, or a chip its draft wrote there.
 struct SentSpan: Codable, Hashable, Sendable {
     var text: String
@@ -4595,6 +4682,9 @@ struct OutputImage: Codable, Hashable, Sendable {
 struct Preferences: Codable, Hashable, Sendable {
     /// What sending does while an agent's turn runs.
     var midTurnSend: MidTurnSend
+    /// The chief's chat starts a fresh session from a brief when its old one grows full,
+    /// goes cold or changes model or account, rather than compacting it.
+    var chiefRotation: Bool
     /// One of 1, 1.1 and 1.25.
     var uiTextScale: Double
     var terminalFontSize: Int

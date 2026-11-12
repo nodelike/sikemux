@@ -2302,6 +2302,12 @@ export type ChatPart =
           kind: "account";
           id: string;
           move: AccountMove;
+      }
+    /** The core started a fresh session under the chat, from a brief it built. */
+    | {
+          kind: "rotation";
+          id: string;
+          rotation: SessionRotation;
       };
 
 /** The core's markdown tree of a part's text and how much of the text it covers. */
@@ -2545,6 +2551,52 @@ export type GoalMoment = "started" | "step" | "done" | "stopped";
 export interface KeptRule {
     id: number;
     project: string;
+}
+
+/**
+ * The core started a fresh session under the chat, from a brief it built from what it keeps.
+ * The chat stays one conversation; this is the line that says so.
+ */
+export interface SessionRotation {
+    /** Unix milliseconds. */
+    at: number;
+    reason: RotationReason;
+    fromSession: string;
+    toSession: string;
+    brief: RotationBrief;
+}
+
+/** Why the core started a fresh session under a chat. */
+export type RotationReason = "full" | "away" | "model" | "account";
+
+/** What a fresh session started from, part by part. */
+export interface RotationBrief {
+    /** About how many tokens it holds in all. */
+    tokens: number;
+    sections: BriefSection[];
+}
+
+export interface BriefSection {
+    kind: BriefSectionKind;
+    /** About how many tokens it holds. */
+    tokens: number;
+    counts?: BriefCounts;
+    /** Word for word, as the session was given it. */
+    text: string;
+}
+
+export type BriefSectionKind = "seat" | "decisions" | "work" | "handoff" | "exchanges";
+
+/** What a section holds, counted, for a client to word. */
+export interface BriefCounts {
+    rules?: number;
+    decisions?: number;
+    /** How many days back the decisions reach. */
+    days?: number;
+    workers?: number;
+    waits?: number;
+    calls?: number;
+    exchanges?: number;
 }
 
 /** A stretch of a sent message's text: its words, or a chip its draft wrote there. */
@@ -2855,6 +2907,11 @@ export interface OutputImage {
 export interface Preferences {
     /** What sending does while an agent's turn runs. */
     midTurnSend: MidTurnSend;
+    /**
+     * The chief's chat starts a fresh session from a brief when its old one grows full,
+     * goes cold or changes model or account, rather than compacting it.
+     */
+    chiefRotation: boolean;
     /** One of 1, 1.1 and 1.25. */
     uiTextScale: number;
     terminalFontSize: number;
