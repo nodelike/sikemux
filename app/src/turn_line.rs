@@ -109,7 +109,9 @@ pub enum Mark {
     Working,
     /// A ring that fills as a wait on CI or the checks runs, `through` of the way, once Sikemux
     /// knows how long that takes.
-    Waiting { through: f32 },
+    Waiting {
+        through: f32,
+    },
     /// The timer of any other wait.
     Timer,
     NeedsYou,
