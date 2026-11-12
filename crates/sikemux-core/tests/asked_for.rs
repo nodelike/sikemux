@@ -131,15 +131,46 @@ fn raise(question: &str) -> Value {
     json!({ "question": question, "reason": "access", "breaks": "the deploy" })
 }
 
-/// The calls file's line that raised the call asking `question`.
-fn raised(root: &Path, question: &str) -> String {
-    std::fs::read_dir(root.join("data").join("person-calls"))
-        .expect("the calls' log")
+/// The calls' log, every line the core has written so far.
+fn calls_log(root: &Path) -> String {
+    let Ok(files) = std::fs::read_dir(root.join("data").join("person-calls")) else {
+        return String::new();
+    };
+    files
         .flatten()
         .filter_map(|entry| std::fs::read_to_string(entry.path()).ok())
-        .flat_map(|log| log.lines().map(str::to_owned).collect::<Vec<_>>())
+        .collect()
+}
+
+/// The line of `log` that raised the call asking `question`.
+fn raised_in(log: &str, question: &str) -> Option<String> {
+    (log.lines())
         .find(|line| line.contains("\"event\":\"raised\"") && line.contains(question))
-        .unwrap_or_else(|| panic!("no call asking {question} was raised"))
+        .map(str::to_owned)
+}
+
+/// The calls' log once it holds what `ready` looks for. The core puts a call to the person after
+/// `ask` has answered, so a turn can end before its call is written.
+fn log_once(root: &Path, waiting_for: &str, ready: impl Fn(&str) -> bool) -> String {
+    let deadline = Instant::now() + WAIT;
+    loop {
+        let log = calls_log(root);
+        if ready(&log) {
+            return log;
+        }
+        assert!(Instant::now() < deadline, "{waiting_for}: {log}");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+/// The calls file's line that raised the call asking `question`, once the core has written it.
+fn raised(root: &Path, question: &str) -> String {
+    let log = log_once(
+        root,
+        &format!("no call asking {question} was raised"),
+        |log| raised_in(log, question).is_some(),
+    );
+    raised_in(&log, question).unwrap_or_default()
 }
 
 async fn core_with_project(root: &Path) -> (KilledOnDrop, CoreClient) {
@@ -213,15 +244,14 @@ async fn words_typed_to_an_access_call_never_head_the_next_call() {
         )
         .await;
 
-    let calls = std::fs::read_dir(root.join("data").join("person-calls"))
-        .expect("the calls' log")
-        .flatten()
-        .filter_map(|entry| std::fs::read_to_string(entry.path()).ok())
-        .collect::<String>();
-    let shared = raised(&root, "Which token does production take?");
-    assert!(
-        calls.contains("\"event\":\"joined\"") || shared.contains("\"joined\":["),
-        "the second agent joins the call the first raised: {shared}"
+    let shared = "Which token does production take?";
+    log_once(
+        &root,
+        "the second agent joins the call the first raised",
+        |log| {
+            log.contains("\"event\":\"joined\"")
+                || raised_in(log, shared).is_some_and(|line| line.contains("\"joined\":["))
+        },
     );
     for question in [
         "Which key signs the release?",
