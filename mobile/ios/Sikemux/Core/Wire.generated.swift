@@ -644,6 +644,10 @@ struct ProjectInfo: Codable, Hashable, Sendable {
     /// How many saved chats it has that no agent holds, by the agent that saved
     /// them. The core fills it in.
     var savedChats: [String: Int]?
+    /// Its chief, @Chief, by agent id. The core keeps it; clients only read it.
+    var chief: String?
+    /// How many agents are open in it, the chief's whole team. The core fills it in.
+    var agents: Int?
 }
 
 /// A repository or account picked for a project on one code host.
@@ -1916,6 +1920,9 @@ enum TeamLink: String, Codable, Hashable, Sendable {
 /// How devices show an open agent here.
 struct AgentShown: Codable, Hashable, Sendable {
     var agentId: String
+    /// It is its project's chief, @Chief: the one chat of the project every other agent there
+    /// works under.
+    var chief: Bool?
     /// What the core calls it, such as Otter.
     var name: String?
     /// The CLI it runs, such as `claude`.
@@ -2226,6 +2233,8 @@ struct CallAsker: Codable, Hashable, Sendable {
     /// Its name, such as Wren.
     var name: String
     var cli: String
+    /// The asker is its project's chief.
+    var chief: Bool?
 }
 
 /// One of the answers the person picks among.
@@ -2766,6 +2775,9 @@ struct ChatHead: Codable, Hashable, Sendable {
     var activity: ChatActivity?
     /// How its turn stands; none before its first turn.
     var turn: TurnState?
+    /// It is its project's chief, @Chief: the one chat of the project every other agent there
+    /// works under.
+    var chief: Bool?
     /// The pages its latest turns changed, as the core took them, oldest first.
     var shown: [TurnShown]?
     /// Its workers' finished work, oldest first; empty for a chat that leads nobody.
