@@ -1,9 +1,10 @@
 //! What each agent is called: a word the core gives it from a built-in list
-//! when it starts. No two open agents of a project share one. An agent holds
-//! its name while it is open and lets it go when it closes; opened again, it
-//! gets a new one. A name the person chose stays the agent's after it closes,
-//! and comes back when its chat is opened again. Kept in `agent-names.json` in the data folder, so names
-//! outlive a window reload, a restart and an update.
+//! when it starts. No two open agents of a project share one. A chat is one
+//! agent for life: closed, it keeps its id and name in its closed record, and
+//! opened again it comes back as that agent. A closed chat's name goes to a
+//! new agent only once the list has no word left, the longest-closed first,
+//! and never one the person chose. Kept in `agent-names.json` in the data
+//! folder, so names outlive a window reload, a restart and an update.
 
 mod words;
 
@@ -106,8 +107,8 @@ struct Book {
     /// under, so the chain of leads stays whole after a lead in it closes.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     closed_leads: HashMap<String, String>,
-    /// The provider session each recently closed agent ran, so its commits
-    /// still lead back to a session that can be resumed.
+    /// Each recently closed agent, newest first, so its commits still lead
+    /// back to a session that can be resumed and its chat comes back as it.
     #[serde(default, skip_serializing_if = "VecDeque::is_empty")]
     closed_sessions: VecDeque<ClosedSession>,
     /// The list new agents' names are taken from.
@@ -139,10 +140,23 @@ struct ClosedSession {
     agent_id: String,
     #[serde(flatten)]
     ran: RanSession,
+    /// None once a new agent took it because the list ran out.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     lead: Option<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    quiet: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    blind: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    by_auto: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    chosen: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    buddy: Option<AgentBuddy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    title: Option<String>,
 }
 
 /// The provider session an agent ran, and the project it ran in.
@@ -166,7 +180,7 @@ pub struct AgentName {
     pub parent: Option<String>,
 }
 
-/// A closed agent the person named, which can be opened again under its name.
+/// A closed agent the person named, which can be opened again as itself.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ClosedAgent {
@@ -377,7 +391,9 @@ impl Names {
     pub(crate) fn give(&self, starting: Starting<'_>, open: HashSet<String>) -> (AgentName, bool) {
         let mut book = self.book.locked();
         let open = self.open_with(open);
-        let (named, mut changed) = book.give(starting, &open);
+        let mut changed = book.release(&open);
+        let (named, given) = book.give(starting, &open);
+        changed |= given;
         changed |= book.release(&open);
         if changed {
             self.save(&book);
@@ -428,12 +444,23 @@ impl Names {
                 "this project already has {MAX_SPAWNED_PER_PROJECT} agents open that agents or Auto started, the most it may have; give one of them the work, or close one of yours that is done with agent_close"
             )));
         }
-        let former = worker
-            .session
-            .and_then(|session| book.former_name(session, &project));
+        if book.restore(worker.agent_id, &project, &open).is_some() {
+            let entry = book
+                .entry_mut(worker.agent_id)
+                .expect("restore puts the agent back in the book");
+            entry.parent = Some(worker.lead.to_owned());
+            entry.quiet = !worker.reports;
+            entry.provider = Some(worker.provider.to_owned());
+            if let Some(session) = worker.session {
+                entry.session_id = Some(session.to_owned());
+            }
+            let named = entry.view();
+            self.save(&book);
+            return Ok(named);
+        }
         let entry = Entry {
             agent_id: worker.agent_id.to_owned(),
-            name: former.unwrap_or_else(|| book.fresh(&project, worker.agent_id, &open)),
+            name: book.fresh(&project, worker.agent_id, &open),
             project,
             parent: Some(worker.lead.to_owned()),
             quiet: !worker.reports,
@@ -627,17 +654,18 @@ impl Names {
         })
     }
 
-    /// The session of the newest closed agent called `name` that `lead` started, or started an
-    /// agent that did.
-    pub(crate) fn closed_worker(&self, lead: &str, name: &str) -> Option<RanSession> {
+    /// The session of the newest closed agent with the id or name `wanted` that `lead` started,
+    /// or started an agent that did.
+    pub(crate) fn closed_worker(&self, lead: &str, wanted: &str) -> Option<RanSession> {
         let book = self.book.locked();
         book.closed_sessions
             .iter()
             .find(|closed| {
-                closed
-                    .name
-                    .as_deref()
-                    .is_some_and(|called| same(called, name))
+                (closed.agent_id == wanted
+                    || closed
+                        .name
+                        .as_deref()
+                        .is_some_and(|called| same(called, wanted)))
                     && closed
                         .lead
                         .as_deref()
@@ -730,6 +758,13 @@ impl Names {
         book.remove(|entry| {
             entry.agent_id != agent_id && entry.project == project && same(&entry.name, &name)
         });
+        for closed in &mut book.closed_sessions {
+            if closed.ran.project == project
+                && closed.name.as_deref().is_some_and(|held| same(held, &name))
+            {
+                closed.name = None;
+            }
+        }
         let entry = book
             .entry_mut(agent_id)
             .ok_or("Sikemux has not named that agent yet")?;
@@ -740,33 +775,45 @@ impl Names {
         Ok(named)
     }
 
-    /// Gives a new agent opening a closed agent's chat again that agent's
-    /// name, when the person chose it, and the character it wore. `open`
-    /// holds the agents open here.
-    pub(crate) fn reopen(
+    /// The agent id a chat taken up again from `session` comes back as: the newest closed
+    /// agent that ran it, unless one open has that id, else a new id. `open` holds the agents
+    /// open here.
+    pub(crate) fn returning_id(
         &self,
-        starting: &Starting<'_>,
+        provider: Option<&str>,
+        session: &str,
+        open: HashSet<String>,
+    ) -> String {
+        let mut book = self.book.locked();
+        let open = self.open_with(open);
+        if book.release(&open) {
+            self.save(&book);
+        }
+        let book = &*book;
+        (book.closed_sessions.iter())
+            .find(|closed| {
+                closed.ran.session_id == session
+                    && provider.is_none_or(|provider| closed.ran.provider == provider)
+                    && !book
+                        .agents
+                        .iter()
+                        .any(|entry| entry.agent_id == closed.agent_id)
+            })
+            .map_or_else(new_agent_id, |closed| closed.agent_id.clone())
+    }
+
+    /// Brings a closed agent back as itself when its chat opens again under its id, and the
+    /// character it wore. `open` holds the agents open here.
+    pub(crate) fn come_back(
+        &self,
+        agent_id: &str,
+        project: &str,
         open: HashSet<String>,
     ) -> Option<Option<AgentBuddy>> {
-        let session = starting.resume_id?;
         let mut book = self.book.locked();
-        if book.entry_mut(starting.agent_id).is_some() {
-            return None;
-        }
         let open = self.open_with(open);
-        let entry = book.agents.iter_mut().find(|entry| {
-            entry.chosen
-                && entry.project == starting.project
-                && !open.contains(&entry.agent_id)
-                && entry.session_id.as_deref() == Some(session)
-                && starting
-                    .provider
-                    .is_none_or(|provider| entry.provider.as_deref() == Some(provider))
-        })?;
-        entry.agent_id = starting.agent_id.to_owned();
-        entry.seen = false;
-        entry.at = epoch_ms();
-        let buddy = entry.buddy.clone();
+        book.release(&open);
+        let buddy = book.restore(agent_id, project, &open)?;
         self.save(&book);
         Some(buddy)
     }
@@ -801,24 +848,18 @@ impl Names {
     pub(crate) fn closed(&self, project: &str, open: HashSet<String>) -> Vec<ClosedAgent> {
         let book = self.book.locked();
         let open = self.open_with(open);
-        let mut closed: Vec<&Entry> = book
-            .agents
-            .iter()
-            .filter(|entry| {
-                entry.chosen && entry.project == project && !open.contains(&entry.agent_id)
+        (book.closed_sessions.iter())
+            .filter(|closed| {
+                closed.chosen && closed.ran.project == project && !open.contains(&closed.agent_id)
             })
-            .collect();
-        closed.sort_by_key(|entry| std::cmp::Reverse(entry.at));
-        closed
-            .into_iter()
-            .filter_map(|entry| {
+            .filter_map(|closed| {
                 Some(ClosedAgent {
-                    agent_id: entry.agent_id.clone(),
-                    name: entry.name.clone(),
-                    provider: entry.provider.clone()?,
-                    session_id: entry.session_id.clone()?,
-                    title: entry.title.clone(),
-                    buddy: entry.buddy.clone(),
+                    agent_id: closed.agent_id.clone(),
+                    name: closed.name.clone()?,
+                    provider: closed.ran.provider.clone(),
+                    session_id: closed.ran.session_id.clone(),
+                    title: closed.title.clone(),
+                    buddy: closed.buddy.clone(),
                 })
             })
             .collect()
@@ -890,6 +931,12 @@ impl Book {
                     },
                     name: Some(entry.name.clone()),
                     lead: entry.parent.clone(),
+                    quiet: entry.quiet,
+                    blind: entry.blind,
+                    by_auto: entry.by_auto,
+                    chosen: entry.chosen,
+                    buddy: entry.buddy.clone(),
+                    title: entry.title.clone(),
                 });
                 self.closed_sessions.truncate(MAX_CLOSED_SESSIONS);
             }
@@ -987,6 +1034,18 @@ impl Book {
                 return (entry.view(), changed);
             }
         }
+        if self.restore(agent_id, &project, open).is_some() {
+            let entry = self
+                .entry_mut(agent_id)
+                .expect("restore puts the agent back in the book");
+            if let Some(provider) = provider {
+                entry.provider = Some(provider.to_owned());
+            }
+            if let Some(session) = resume_id {
+                entry.session_id = Some(session.to_owned());
+            }
+            return (entry.view(), true);
+        }
         let name = self.fresh(&project, agent_id, open);
         let entry = Entry {
             agent_id: agent_id.to_owned(),
@@ -1017,32 +1076,59 @@ impl Book {
         })
     }
 
-    /// A word no agent of the project has, starting differently from the
-    /// open ones' so they are told apart at a glance.
-    /// The name the agent that last ran `session` closed with, unless another in `project` has it.
-    fn former_name(&self, session: &str, project: &str) -> Option<String> {
-        let name = self
-            .closed_sessions
-            .iter()
-            .find(|closed| closed.ran.session_id == session)?
-            .name
-            .clone()?;
-        let taken = self
-            .agents
-            .iter()
-            .any(|entry| entry.project == project && same(&entry.name, &name));
-        (!taken).then_some(name)
+    /// Puts the closed agent `agent_id` back in the book as it closed, in `project`, under its
+    /// old name unless an agent of the project has it now, and answers the character it wore.
+    fn restore(
+        &mut self,
+        agent_id: &str,
+        project: &str,
+        open: &HashSet<String>,
+    ) -> Option<Option<AgentBuddy>> {
+        if self.agents.iter().any(|entry| entry.agent_id == agent_id) {
+            return None;
+        }
+        let index = (self.closed_sessions.iter()).position(|closed| closed.agent_id == agent_id)?;
+        let closed = self.closed_sessions.remove(index)?;
+        let kept = (closed.name).filter(|name| !self.taken(project, name, agent_id));
+        let chosen = closed.chosen && kept.is_some();
+        let name = kept.unwrap_or_else(|| self.fresh(project, agent_id, open));
+        let buddy = closed.buddy.clone();
+        self.agents.push(Entry {
+            agent_id: closed.agent_id,
+            name,
+            project: project.to_owned(),
+            parent: closed.lead,
+            quiet: closed.quiet,
+            blind: closed.blind,
+            by_auto: closed.by_auto,
+            provider: Some(closed.ran.provider),
+            session_id: Some(closed.ran.session_id),
+            above: 0,
+            at: epoch_ms(),
+            seen: false,
+            chosen,
+            buddy: closed.buddy,
+            title: closed.title,
+            profile: closed.ran.profile,
+        });
+        Some(buddy)
     }
 
+    /// A word no open or closed agent of the project has, starting differently from the open
+    /// ones' so they are told apart at a glance. With none left, the name of the project's
+    /// longest-closed agent the person did not name.
     fn fresh(&mut self, project: &str, agent_id: &str, open: &HashSet<String>) -> String {
         let others: Vec<&Entry> = self
             .agents
             .iter()
             .filter(|entry| entry.project == project && entry.agent_id != agent_id)
             .collect();
-        let used: HashSet<String> = others
-            .iter()
-            .map(|entry| entry.name.to_lowercase())
+        let closed_names = (self.closed_sessions.iter())
+            .filter(|closed| closed.ran.project == project && closed.agent_id != agent_id)
+            .filter_map(|closed| closed.name.as_deref());
+        let used: HashSet<String> = (others.iter().map(|entry| entry.name.as_str()))
+            .chain(closed_names)
+            .map(str::to_lowercase)
             .collect();
         let open_starts: HashSet<String> = others
             .iter()
@@ -1063,22 +1149,14 @@ impl Book {
         if let Some(word) = pick(&distinct).or_else(|| pick(&unused)) {
             return word.to_owned();
         }
-        let oldest_past = self
-            .agents
-            .iter()
-            .enumerate()
-            .filter(|(_, entry)| {
-                entry.project == project
-                    && entry.agent_id != agent_id
-                    && !entry.chosen
-                    && !open.contains(&entry.agent_id)
-            })
-            .min_by_key(|(_, entry)| entry.at)
-            .map(|(index, _)| index);
-        if let Some(index) = oldest_past {
-            let name = self.agents[index].name.clone();
-            let gone = self.agents[index].agent_id.clone();
-            self.remove(|entry| entry.agent_id == gone);
+        let taken_by = |name: &str| others.iter().any(|entry| same(&entry.name, name));
+        let longest_closed = (self.closed_sessions.iter_mut().rev()).find(|closed| {
+            closed.ran.project == project
+                && closed.agent_id != agent_id
+                && !closed.chosen
+                && closed.name.as_deref().is_some_and(|name| !taken_by(name))
+        });
+        if let Some(name) = longest_closed.and_then(|closed| closed.name.take()) {
             return name;
         }
         let word = pick(words).unwrap_or("Agent");
@@ -1099,7 +1177,7 @@ impl Book {
                 entry.seen = true;
                 return false;
             }
-            !entry.chosen && (entry.seen || now.saturating_sub(entry.at) >= STARTING_MS)
+            entry.seen || now.saturating_sub(entry.at) >= STARTING_MS
         });
         removed || seen
     }
@@ -1265,4 +1343,43 @@ pub(crate) fn name_theme(core: &Core) -> NameThemeParams {
 pub(crate) fn set_name_theme(core: &Core, params: NameThemeParams) -> NameThemeParams {
     core.names.set_theme(params.theme);
     params
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_worker_reopened_from_its_session_comes_back_as_the_same_agent() {
+        let names = Names::new(None);
+        let lead = Starting {
+            agent_id: "agent-lead",
+            project: "/p".into(),
+            provider: Some("claude"),
+            resume_id: None,
+        };
+        names.give(lead, HashSet::from(["agent-lead".to_owned()]));
+        let worker = |agent_id| Worker {
+            agent_id,
+            lead: "agent-lead",
+            project: None,
+            provider: "claude",
+            session: Some("ses-1"),
+            reports: true,
+        };
+        let open = |ids: &[&str]| ids.iter().map(|id| (*id).to_owned()).collect();
+        let first = names
+            .hire(worker("agent-w"), open(&["agent-lead"]))
+            .ok()
+            .unwrap();
+        names.settle(open(&["agent-lead", "agent-w"]));
+        names.settle(open(&["agent-lead"]));
+        let back = names.returning_id(Some("claude"), "ses-1", open(&["agent-lead"]));
+        assert_eq!(back, "agent-w");
+        let again = names
+            .hire(worker(&back), open(&["agent-lead"]))
+            .ok()
+            .unwrap();
+        assert_eq!(again, first);
+    }
 }

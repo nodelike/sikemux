@@ -213,11 +213,10 @@ fn make_room(core: &Core, lead: &str) -> Result<String, String> {
         .collect();
     let mut holding = Vec::new();
     for worker in done {
-        let name = core.names.name_or_id(&worker);
         if holds_work(core, &worker) {
-            holding.push(name);
+            holding.push(super::messages::called_now(core, &worker));
         } else if super::workspace::close(core, std::slice::from_ref(&worker)).is_ok() {
-            return Ok(name);
+            return Ok(core.names.name_or_id(&worker));
         }
     }
     Err(match holding.as_slice() {
@@ -451,7 +450,12 @@ fn start(
             (hired.agent_id.clone(), named)
         }
         None => {
-            let agent_id = crate::server::names::new_agent_id();
+            let agent_id = match resume {
+                Some(saved) => {
+                    (core.names).returning_id(Some(&saved.cli), &saved.session_id, open(core))
+                }
+                None => crate::server::names::new_agent_id(),
+            };
             let (named, closed) = hire_held(
                 core,
                 Worker {

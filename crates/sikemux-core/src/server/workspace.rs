@@ -1487,7 +1487,16 @@ pub(crate) struct CreateAgentParams {
 }
 
 /// Adds an agent to the workspace, or replaces the one with its id.
-pub(crate) fn create_agent(core: &Core, params: CreateAgentParams) -> CoreResult<WorkspaceAgent> {
+pub(crate) fn create_agent(
+    core: &Core,
+    mut params: CreateAgentParams,
+) -> CoreResult<WorkspaceAgent> {
+    let draft = &mut params.agent;
+    if let (None, Some(Value::String(session))) = (draft.get("id"), draft.get("resumeId")) {
+        let provider = draft.get("provider").and_then(Value::as_str);
+        let id = (core.names).returning_id(provider, session, core.open_agents());
+        draft.insert("id".into(), Value::String(id));
+    }
     core.workspaces.put_agent_draft(params.agent)
 }
 

@@ -654,8 +654,11 @@ async fn start_new(
     client: Option<&Arc<ClientConn>>,
     choice: ChatChoice,
 ) -> CoreResult<(String, ChatStart)> {
-    let agent_id = crate::server::names::new_agent_id();
     let kind = LauncherId::parse(&choice.launcher).kind.to_owned();
+    let agent_id = match &choice.resume_id {
+        Some(session) => (core.names).returning_id(Some(&kind), session, core.open_agents()),
+        None => crate::server::names::new_agent_id(),
+    };
     let project = core.workspaces.project_path(&choice.project)?;
     let resumed = match choice.cwd {
         Some(cwd) => {

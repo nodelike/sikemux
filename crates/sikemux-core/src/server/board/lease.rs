@@ -6,7 +6,6 @@
 //! bring it back by itself. A plain card under another loses such an owner too, and goes back to
 //! Open with a line naming who left it, as nobody is asked to bring a plain card's owner back.
 
-use crate::server::changed::What;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -446,16 +445,7 @@ async fn bring_back(core: &Arc<Core>, stalled: &Stalled) -> Result<String, Strin
     )
     .await
     .map_err(|error| format!("@{}'s session did not start again: {error}", stalled.name))?;
-    let resumed = started.agent_id;
-    let (owner, kept, name) = (core.clone(), resumed.clone(), stalled.name.clone());
-    let _ = blocking(move || {
-        // Only a name the person chose comes back by itself; another agent may have this one now.
-        let _ = (owner.names).rename(&kept, &name, owner.open_agents());
-        owner.changed(What::View);
-        Ok(())
-    })
-    .await;
-    Ok(resumed)
+    Ok(started.agent_id)
 }
 
 /// The person resumes the owner a slice lost, which holds it again. Answers with the board.

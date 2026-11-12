@@ -78,7 +78,7 @@ async fn woken(
         resume_id: Some(found.session_id.clone()),
         profile_id: LauncherId::parse(&launcher.id).account.map(str::to_owned),
         ..new_agent(
-            crate::server::names::new_agent_id(),
+            (core.names).returning_id(Some(&found.cli), &found.session_id, core.open_agents()),
             found.cli.clone(),
             project,
             found.project.clone(),
