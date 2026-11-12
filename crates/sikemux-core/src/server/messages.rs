@@ -279,6 +279,21 @@ fn awaited<'a>(queued: impl IntoIterator<Item = &'a Queued>) -> bool {
     })
 }
 
+/// Whether `queued` counts toward [`MAX_AUTO_TURNS`] and waits once the agent reaches it: nobody
+/// waits on it, and it is no report from one of the agent's own workers.
+fn capped(core: &Core, agent_id: &str, queued: &Queued) -> bool {
+    let own_report = queued.origin.as_ref().is_some_and(|origin| {
+        origin.kind == MessageKind::Report
+            && core
+                .names
+                .get(&origin.from)
+                .and_then(|named| named.parent)
+                .as_deref()
+                == Some(agent_id)
+    });
+    !own_report && !awaited([queued])
+}
+
 fn settle_ms<'a>(queued: impl IntoIterator<Item = &'a Queued>) -> u64 {
     match awaited(queued) {
         true => SETTLE_MS,
@@ -341,6 +356,8 @@ struct State {
     /// How many turns each agent started in a row on messages nobody waits on, since the person
     /// last wrote to it, and when it reached [`MAX_AUTO_TURNS`].
     auto_turns: HashMap<String, AutoTurns>,
+    /// Messages held for each agent stopped at [`MAX_AUTO_TURNS`], until the person writes to it.
+    capped: HashMap<String, Vec<Queued>>,
 }
 
 #[derive(Default)]
@@ -389,6 +406,12 @@ impl State {
             let mut texts = pasted.texts.clone();
             texts.append(queued);
             *queued = texts;
+        }
+        for (agent_id, capped) in &self.capped {
+            waiting
+                .entry(agent_id.clone())
+                .or_default()
+                .extend(capped.iter().cloned());
         }
         MailboxRecord { waiting }
     }
@@ -546,26 +569,26 @@ impl Mailbox {
         turns.is_some_and(|turns| turns.stopped_at.is_some())
     }
 
-    /// How long the agent rests after a turn before what waits for it goes, or none while that
-    /// waits for the person.
-    fn rest_for(&self, agent_id: &str) -> Option<u64> {
+    /// How long the agent rests after a turn before what waits for it goes.
+    fn rest_for(&self, agent_id: &str) -> u64 {
         let state = self.state.locked();
-        let waiting = state.waiting.get(agent_id)?;
-        if awaited(waiting) {
-            return Some(SETTLE_MS);
-        }
-        let turns = state.auto_turns.get(agent_id);
-        match turns.is_some_and(|turns| turns.stopped_at.is_some()) {
-            true => None,
-            false => Some(AUTO_SETTLE_MS),
-        }
+        state.waiting.get(agent_id).map_or(SETTLE_MS, settle_ms)
     }
 
-    /// The agents stopped after [`MAX_AUTO_TURNS`] turns of their own that have messages waiting.
+    /// Holds `queued` for the agent stopped at [`MAX_AUTO_TURNS`], until the person writes to it.
+    fn cap(&self, agent_id: &str, queued: Queued) -> usize {
+        self.change(|state| {
+            let capped = state.capped.entry(agent_id.to_owned()).or_default();
+            capped.push(queued);
+            capped.len()
+        })
+    }
+
+    /// The agents stopped after [`MAX_AUTO_TURNS`] turns of their own that have messages held.
     pub(crate) fn stopped_agents(&self) -> Vec<Stopped> {
         let state = self.state.locked();
         (state.auto_turns.iter())
-            .filter(|(agent_id, _)| state.waiting.contains_key(*agent_id))
+            .filter(|(agent_id, _)| state.capped.contains_key(*agent_id))
             .filter_map(|(agent_id, turns)| {
                 Some(Stopped {
                     agent_id: agent_id.clone(),
@@ -1760,7 +1783,7 @@ async fn handed(
     if Sender::of(&letter.from_id) == Some(Sender::Person) {
         person_wrote(core, &target.agent_id);
     }
-    let stopped = !awaited([queued]) && mailbox.stopped(&target.agent_id);
+    let stopped = capped(core, &target.agent_id, queued) && mailbox.stopped(&target.agent_id);
     let mut woke = "";
     let not_woken;
     let mut held = None;
@@ -1872,7 +1895,10 @@ async fn handed(
             MessageOutcome::Dropped,
         ));
     }
-    let (waiting, superseded) = mailbox.wait(&target.agent_id, queued.clone());
+    let (waiting, superseded) = match stopped {
+        true => (mailbox.cap(&target.agent_id, queued.clone()), Vec::new()),
+        false => mailbox.wait(&target.agent_id, queued.clone()),
+    };
     log(core, &target.agent_id, &superseded, MessageOutcome::Dropped);
     if stopped {
         core.changed(What::View);
@@ -2051,7 +2077,7 @@ const STOPPED_NOTE: &str =
 
 /// The agent started a turn on `queued`. One nobody waits on counts toward [`MAX_AUTO_TURNS`].
 fn took_turn(core: &Core, agent_id: &str, queued: &[Queued]) {
-    if awaited(queued) {
+    if awaited(queued) || !queued.iter().any(|queued| capped(core, agent_id, queued)) {
         return;
     }
     let stopped = {
@@ -2075,7 +2101,14 @@ pub(crate) fn person_wrote(core: &Core, agent_id: &str) {
     let mailbox = &core.harness.mailbox;
     let turns = mailbox.state.locked().auto_turns.remove(agent_id);
     if turns.is_some_and(|turns| turns.stopped_at.is_some()) {
-        mailbox.wake.now();
+        mailbox.change(|state| {
+            let capped = state.capped.remove(agent_id).unwrap_or_default();
+            state
+                .waiting
+                .entry(agent_id.to_owned())
+                .or_default()
+                .extend(capped);
+        });
         core.changed(What::View);
     }
 }
@@ -2177,6 +2210,17 @@ pub(crate) fn prompt_settled(core: &Core, agent_id: &str, last_output_ms: u64) {
 /// and again when an agent still resting from a turn is due.
 pub(crate) fn settle(core: &Arc<Core>) {
     let mailbox = &core.harness.mailbox;
+    let capped: Vec<String> = mailbox.state.locked().capped.keys().cloned().collect();
+    for agent_id in capped
+        .into_iter()
+        .filter(|agent_id| core.workspaces.closed(agent_id))
+    {
+        let dropped = mailbox.change(|state| {
+            state.auto_turns.remove(&agent_id);
+            state.capped.remove(&agent_id).unwrap_or_default()
+        });
+        log(core, &agent_id, &dropped, MessageOutcome::Dropped);
+    }
     let pasted: Vec<String> = mailbox.state.locked().pasted.keys().cloned().collect();
     for agent_id in pasted {
         if core.agent_session(&agent_id).is_none() {
@@ -2204,7 +2248,6 @@ pub(crate) fn settle(core: &Arc<Core>) {
     for agent_id in due {
         let rest = mailbox.rest_for(&agent_id);
         if let Some(chat) = core.chats.get(&agent_id) {
-            let Some(rest) = rest else { continue };
             if !chat.is_ready() {
                 chat.start_agent();
                 continue;
@@ -2217,7 +2260,6 @@ pub(crate) fn settle(core: &Arc<Core>) {
                 None => deliver_later(core, agent_id, Pending::Chat),
             }
         } else if let Some(terminal) = core.agent_session(&agent_id) {
-            let Some(rest) = rest else { continue };
             if mailbox.missed_pastes(&agent_id) >= MAX_MISSED_PASTES
                 || !agent::takes_prompt(core, &terminal)
             {
@@ -2237,7 +2279,7 @@ pub(crate) fn settle(core: &Arc<Core>) {
             .agent(&agent_id)
             .is_some_and(|agent| agent.asleep || agent.terminal)
         {
-            if rest.is_none() || !core.window.is_open() || core.workspaces.held(&agent_id) {
+            if !core.window.is_open() || core.workspaces.held(&agent_id) {
                 continue;
             }
             let failed = mailbox.state.locked().wake_failed.get(&agent_id).copied();
