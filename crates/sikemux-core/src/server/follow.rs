@@ -73,7 +73,7 @@ impl Happened {
             .find(|happened| happened.kind() == kind)
     }
 
-    fn words(self) -> &'static str {
+    pub(crate) fn words(self) -> &'static str {
         match self {
             Happened::Working => "started working",
             Happened::Done => "finished its turn",
@@ -86,7 +86,7 @@ impl Happened {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Until {
+pub(crate) enum Until {
     /// No longer at work, for any reason.
     Idle,
     /// Its turn ended, or it stopped running.
@@ -99,20 +99,24 @@ impl Until {
     fn of(params: &Value) -> Result<Self, String> {
         match params.get("until") {
             None | Some(Value::Null) => Ok(Until::Idle),
-            Some(Value::String(until)) => match until.as_str() {
-                "idle" => Ok(Until::Idle),
-                "done" => Ok(Until::Done),
-                "needs_you" => Ok(Until::NeedsYou),
-                "any" => Ok(Until::Any),
-                other => Err(format!(
-                    "until must be idle, done, needs_you or any, not {other}"
-                )),
-            },
+            Some(Value::String(until)) => Self::named(until),
             Some(_) => Err("until must be idle, done, needs_you or any".into()),
         }
     }
 
-    fn heard(self, happened: Happened) -> bool {
+    pub(crate) fn named(until: &str) -> Result<Self, String> {
+        match until {
+            "idle" => Ok(Until::Idle),
+            "done" => Ok(Until::Done),
+            "needs_you" => Ok(Until::NeedsYou),
+            "any" => Ok(Until::Any),
+            other => Err(format!(
+                "until must be idle, done, needs_you or any, not {other}"
+            )),
+        }
+    }
+
+    pub(crate) fn heard(self, happened: Happened) -> bool {
         match self {
             Until::Any => true,
             Until::NeedsYou => happened == Happened::NeedsYou,
@@ -126,7 +130,7 @@ impl Until {
 
     /// Whether an agent standing at `status` already is where the wait would
     /// take it. `None` is an agent that is gone.
-    fn already(self, status: Option<AgentStatus>) -> bool {
+    pub(crate) fn already(self, status: Option<AgentStatus>) -> bool {
         let Some(status) = status else {
             return self != Until::NeedsYou && self != Until::Any;
         };
@@ -677,11 +681,11 @@ pub(crate) fn read_target(
 
 /// An agent a wait is on. `status` is `None` once it is gone.
 #[derive(Clone)]
-struct Waited {
-    agent_id: String,
-    name: String,
-    project: String,
-    status: Option<AgentStatus>,
+pub(crate) struct Waited {
+    pub(crate) agent_id: String,
+    pub(crate) name: String,
+    pub(crate) project: String,
+    pub(crate) status: Option<AgentStatus>,
 }
 
 fn agents_param(params: &Value) -> Result<Vec<String>, String> {
@@ -705,7 +709,7 @@ fn agents_param(params: &Value) -> Result<Vec<String>, String> {
 
 /// The agents `wanted` names, as they stand now. An agent id Sikemux named
 /// once but no longer runs is an agent that is gone.
-fn waited(
+pub(crate) fn waited(
     core: &Core,
     request: &HarnessRequest,
     wanted: &[String],

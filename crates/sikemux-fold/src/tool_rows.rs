@@ -763,7 +763,12 @@ pub(super) const SPECS: &[(&str, Spec)] = &[
             kind: "edit",
             icon: "bolt",
             target: &["{title}"],
-            detail: &["after CI on {ci}", "daily at {daily}"],
+            detail: &[
+                "after CI on {ci}",
+                "for {process}",
+                "for {agent}",
+                "daily at {daily}",
+            ],
             plugin: None,
         },
     ),

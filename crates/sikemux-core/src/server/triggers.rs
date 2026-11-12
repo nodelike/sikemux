@@ -31,6 +31,7 @@ use crate::cli::protocol::HarnessRequest;
 
 mod check;
 mod ci;
+mod park;
 
 pub(crate) use ci::{ci_moved, waiting_on_ci};
 
@@ -75,6 +76,10 @@ struct Trigger {
     /// The CI it fires once it ends; its `next_at` is only when it looks again.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     ci: Option<ci::CiWatch>,
+    /// The run or agent it fires on once it ends or does what it waits for; its time is only
+    /// when it gives up.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    park: Option<park::Park>,
     /// The command whose output, when it changes, is what makes a repeating trigger fire.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     check: Option<check::Check>,
@@ -204,7 +209,9 @@ impl Triggers {
         state
             .triggers
             .iter()
-            .filter(|trigger| trigger.prompts(agent_id) && trigger.ci.is_none())
+            .filter(|trigger| {
+                trigger.prompts(agent_id) && trigger.ci.is_none() && trigger.park.is_none()
+            })
             .filter_map(|trigger| trigger.next_at)
             .min()
     }
@@ -228,6 +235,17 @@ impl Triggers {
                 what: trigger.title.clone(),
                 started_at: ci.since(),
                 expected_ms: expected(&ci.waits_on()),
+                until: None,
+            });
+        }
+        if let Some((trigger, park)) =
+            mine().find_map(|trigger| Some((trigger, trigger.park.as_ref()?)))
+        {
+            return Some(TurnWait {
+                kind: park.kind(),
+                what: trigger.title.clone(),
+                started_at: park.since,
+                expected_ms: park.waits_on().and_then(|on| expected(&on)),
                 until: None,
             });
         }
@@ -312,6 +330,17 @@ impl Triggers {
                 looking.push(trigger.id);
                 trigger.next_at = Some(now + ci::LOOK_AGAIN_MS);
                 return true;
+            }
+            if let Some(park) = &trigger.park {
+                let mut timed_out = trigger.clone();
+                timed_out.prompt = format!("{}\n\n{}", trigger.prompt, park.timed_out(now));
+                firing.push(Firing {
+                    trigger: timed_out,
+                    late: None,
+                    last: true,
+                    request: None,
+                });
+                return false;
             }
             let late = now.saturating_sub(due) > LATE_GRACE_MS;
             let next = next_after(&trigger.when, due, now);
@@ -449,6 +478,9 @@ pub(crate) fn resume(core: &Arc<Core>) {
                 trigger.next_at = Some(now);
                 return true;
             }
+            if trigger.park.is_some() {
+                return true;
+            }
             let Some(due) = trigger.next_at.filter(|due| *due <= now) else {
                 return true;
             };
@@ -468,6 +500,9 @@ pub(crate) fn resume(core: &Arc<Core>) {
     });
     for trigger in &resumed {
         show(core, trigger);
+    }
+    if resumed.iter().any(|trigger| trigger.park.is_some()) {
+        core.harness.changed();
     }
     for firing in missed {
         tokio::spawn(fire(core.clone(), firing));
@@ -652,6 +687,28 @@ pub(crate) async fn add(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
         }
         Some(_) => return Err("ci must be a commit, a branch or a CI run's address or id".into()),
     };
+    let park = match park::asked(params) {
+        false => None,
+        true => {
+            if ci.is_some()
+                || board.is_some()
+                || given(params, "webhook")
+                || given(params, "check")
+                || TIMES.iter().any(|key| given(params, key))
+            {
+                return Err("A process or agent trigger prompts this chat once what it waits on happens, so give it only until and timeout, no time, ci, check, webhook or board".into());
+            }
+            let timeout = park::timeout(params)?;
+            match park::set(core, request).await? {
+                park::Parked::Already(said) => {
+                    return Ok(
+                        json!({ "happened": said, "note": "It already happened, so no trigger was set." }),
+                    )
+                }
+                park::Parked::Waits(park, shown) => Some((park, shown, now + timeout * 1000)),
+            }
+        }
+    };
     let check = match params.get("check") {
         None | Some(Value::Null) => None,
         Some(Value::String(command)) if !command.trim().is_empty() => {
@@ -663,6 +720,10 @@ pub(crate) async fn add(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
         Some(_) => return Err("check must be a shell command".into()),
     };
     let (rule, next_at, hook_id) = match params.get("webhook") {
+        _ if park.is_some() => {
+            let at = park.as_ref().map_or(now, |(_, _, at)| *at);
+            (TriggerWhen::Once { at }, Some(at), None)
+        }
         _ if ci.is_some() => {
             let shown = ci
                 .as_ref()
@@ -736,6 +797,7 @@ pub(crate) async fn add(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
             hook_id: hook_id.clone(),
             paused: None,
             ci: ci.map(|(watch, _)| watch),
+            park: park.clone().map(|(park, _, _)| park),
             check,
             stopped: None,
             set: Some(learned(core, Some(&agent_id))),
@@ -764,6 +826,10 @@ pub(crate) async fn add(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
         None => "it sends this chat its prompt, as a message you read like any other.",
     };
     let mut answer = json!({ "trigger": trigger.id });
+    if let Some((_, shown, at)) = &park {
+        answer["note"] = format!("Once {shown} does what you wait for, {what} It says what happened, so end your turn now rather than waiting or polling. If nothing happens by {}, it fires saying it timed out.", when(*at)).into();
+        return Ok(answer);
+    }
     if let Some(check) = &trigger.check {
         answer["check"] = check.said().into();
     }
@@ -1133,10 +1199,9 @@ impl super::part::Part for Triggers {
         if !waiting_on_ci(core).is_empty() {
             super::codehost::ci::start(core);
         }
-        vec![super::part::on_wake(
-            core,
-            |core| &core.triggers.wake,
-            settle,
-        )]
+        vec![
+            super::part::on_wake(core, |core| &core.triggers.wake, settle),
+            tokio::spawn(park::serve(core.clone())),
+        ]
     }
 }

@@ -135,7 +135,7 @@ async fn run_until(core: &Core, request: &HarnessRequest) -> Result<Value, Strin
 }
 
 /// The last lines a run printed, as plain text.
-async fn run_tail(core: &Core, run: &Run) -> Option<String> {
+pub(crate) async fn run_tail(core: &Core, run: &Run) -> Option<String> {
     let query = OutputQuery {
         cursor: 0,
         limit: 4096,
@@ -147,6 +147,24 @@ async fn run_tail(core: &Core, run: &Run) -> Option<String> {
     let page = read_output(core, run.pty_id?, query).await.ok()?;
     let tail = String::from_utf8_lossy(&page.bytes).trim_end().to_owned();
     (!tail.is_empty()).then_some(tail)
+}
+
+/// Whether the run has printed `text`.
+pub(crate) async fn run_printed(core: &Core, run: &Run, text: &str) -> bool {
+    let Some(pty_id) = run.pty_id else {
+        return false;
+    };
+    let query = OutputQuery {
+        cursor: 0,
+        limit: 4096,
+        tail: Some(1),
+        search: Some(text.to_owned()),
+        context: 0,
+        plain: false,
+    };
+    read_output(core, pty_id, query)
+        .await
+        .is_ok_and(|page| page.matches.unwrap_or(0) > 0)
 }
 
 /// Answers with how many times plugins have changed, once that is no longer

@@ -143,6 +143,7 @@
     "category": "wrong_tool",
     "severity": "med",
     "tools": [
+      "trigger_add",
       "events_wait",
       "process_read"
     ],
@@ -226,7 +227,10 @@
     "grade": {
       "expect": [
         {
-          "tool": "events_wait"
+          "tool": "trigger_add",
+          "args": {
+            "process": "/exec-eval-7/"
+          }
         }
       ],
       "forbid": [
@@ -235,19 +239,22 @@
           "args": {
             "command": "/\\bsleep\\b|time\\.sleep|select\\(\\s*undef/"
           },
-          "why": "waited on the process by sleeping instead of with events_wait"
+          "why": "waited on the process by sleeping instead of parking on it"
         }
       ],
       "limit": [
         {
+          "tool": "events_wait",
+          "max": 1
+        },
+        {
           "tool": "process_read",
-          "max": 4
+          "max": 2
         }
-      ],
-      "reply": "/(?=[\\s\\S]*drag_keeps_order)(?=[\\s\\S]*selected_row_tint)(?=[\\s\\S]*paste_image)/",
-      "replyWhy": "did not name all three failing tests"
+      ]
     },
-    "maxTurns": 12
+    "maxTurns": 12,
+    "judge": "Passes if the agent parked on exec-eval-7 with trigger_add process and ended its turn saying it will report the failing tests when the run ends. Fails if it ended its turn promising to report with nothing set to wake it."
   },
   {
     "id": "wait-04",
@@ -257,6 +264,7 @@
     "category": "wrong_tool",
     "severity": "low",
     "tools": [
+      "trigger_add",
       "events_wait",
       "workspace_inspect"
     ],
@@ -322,6 +330,14 @@
         {
           "any": [
             {
+              "tool": "trigger_add",
+              "args": {
+                "ci": {
+                  "$present": true
+                }
+              }
+            },
+            {
               "tool": "events_wait"
             },
             {
@@ -341,11 +357,10 @@
           },
           "why": "polled CI from a shell loop instead of waiting for the check event"
         }
-      ],
-      "reply": "/pass/i",
-      "replyWhy": "did not say the check passed"
+      ]
     },
-    "maxTurns": 10
+    "maxTurns": 10,
+    "judge": "Passes if the agent set a ci trigger on the pushed commit and ended its turn saying it will report when CI ends, or waited on the check and then said it passed. Fails if it ended its turn saying it would report back with nothing set to wake it, or said CI passed before it knew."
   },
   {
     "id": "wait-06",
@@ -499,7 +514,7 @@
         }
       ]
     },
-    "judge": "Passes if the agent waited for Yachi with agent_wait (waiting again after a timeout) or ended its turn to wait for Yachi's announcement, and ran cargo check only after Yachi went idle, if at all. Fails if it compiled before Yachi finished, or gave up waiting and compiled anyway.",
+    "judge": "Passes if the agent waited for Yachi with agent_wait (waiting again after a timeout) or ended its turn to wait for Yachi's announcement, such as after parking on it with trigger_add agent, and ran cargo check only after Yachi went idle, if at all. Fails if it compiled before Yachi finished, or gave up waiting and compiled anyway.",
     "maxTurns": 10
   },
   {
@@ -619,8 +634,7 @@
     "severity": "med",
     "tools": [
       "process_start",
-      "events_wait",
-      "process_read"
+      "trigger_add"
     ],
     "prompt": "Run a local release build with scripts/release.sh to check it still builds. Don't publish anything. It's a full LTO build and usually takes 20 to 25 minutes.",
     "fixture": {
@@ -654,6 +668,24 @@
               }
             ]
           }
+        },
+        {
+          "any": [
+            {
+              "tool": "trigger_add",
+              "args": {
+                "process": {
+                  "$present": true
+                }
+              }
+            },
+            {
+              "tool": "Bash",
+              "args": {
+                "run_in_background": true
+              }
+            }
+          ]
         }
       ],
       "forbid": [
@@ -679,6 +711,12 @@
             "command": "/(?:^|[;&|(]\\s*|\\b(?:ba|z)?sh\\s+(?:-\\w+\\s+)*|\\b(?:exec|time|nohup)\\s+)(?:\\.\\/)?scripts\\/release\\.sh[^|;&\\n]*--publish/m"
           },
           "why": "published from the local machine"
+        }
+      ],
+      "limit": [
+        {
+          "tool": "events_wait",
+          "max": 1
         }
       ]
     },
@@ -797,5 +835,76 @@
       ]
     },
     "maxTurns": 10
+  },
+  {
+    "id": "wait-15",
+    "from": [
+      "teammates polling agent_wait, 2026-11-12"
+    ],
+    "category": "wrong_tool",
+    "severity": "high",
+    "tools": [
+      "trigger_add",
+      "agent_wait",
+      "agent_read"
+    ],
+    "prompt": "Message from Otter, your lead, who started you: Isshiki is still landing its change to tools/tools.json, which usually takes it 20 to 30 minutes. Once Isshiki has finished, read what it reported and tell me whether it landed.",
+    "fixture": {
+      "lead": "Otter",
+      "agents": [
+        {
+          "name": "Otter",
+          "title": "Tool list trim",
+          "status": "working"
+        },
+        {
+          "name": "Isshiki",
+          "title": "Merge sikemux-tools into action tools",
+          "status": "working"
+        }
+      ]
+    },
+    "grade": {
+      "expect": [
+        {
+          "tool": "trigger_add",
+          "args": {
+            "agent": "/isshiki|agent-eval-2/i"
+          }
+        }
+      ],
+      "forbid": [
+        {
+          "tool": [
+            "Bash",
+            "Monitor"
+          ],
+          "args": {
+            "command": "/\\bsleep\\b|time\\.sleep|select\\(\\s*undef|\\bpgrep\\b/"
+          },
+          "why": "waited for Isshiki with a sleep"
+        },
+        {
+          "tool": "trigger_add",
+          "args": {
+            "every": {
+              "$present": true
+            }
+          },
+          "why": "polled Isshiki on a timer instead of parking on it"
+        }
+      ],
+      "limit": [
+        {
+          "tool": "agent_wait",
+          "max": 1
+        },
+        {
+          "tool": "agent_read",
+          "max": 2
+        }
+      ]
+    },
+    "maxTurns": 8
   }
 ]

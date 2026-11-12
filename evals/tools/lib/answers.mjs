@@ -251,6 +251,13 @@ function builtIn(tool, args, { state, pages, agents, project, fixture, previewPr
           cursor: String(++state.cursor),
         },
       };
+    case 'trigger_add': {
+      const on = args.process ?? args.agent ?? args.ci;
+      const note = on
+        ? `Once ${on} ends or gets where until says, it sends this chat its prompt with what happened, so end your turn now rather than waiting or polling.`
+        : 'When it fires, it sends this chat its prompt, as a message you read like any other.';
+      return { value: { trigger: 1, note } };
+    }
     case 'agent_list':
       return { value: { project, agents } };
     case 'agent_send': {

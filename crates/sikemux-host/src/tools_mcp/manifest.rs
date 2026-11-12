@@ -206,7 +206,7 @@ impl Manifest {
         let guide = &self.guide.name;
         let mut instructions = format!(
             "Sikemux runs the person's project and your desk's browser. Read {guide} before your first process or browser call.\n\
-             - process_start for dev servers, builds and anything the person may watch, not your shell. It runs in this project only: never cd or pass a path out of it in the command. Wait with events_wait, process_read, agent_wait or trigger_add ci; never sleep or poll.\n\
+             - process_start for dev servers, builds and anything the person may watch, not your shell. It runs in this project only: never cd or pass a path out of it in the command. To wait over a minute (build, CI, agent) set trigger_add process, ci or agent, then end your turn; never sleep or poll.\n\
              - Pages: browser_navigate on your desk (WebKit), never headless Chromium or curl. Look there before saying a change works; for a page bug, open it there, reproduce the bug and read browser_console before changing any code. Load browser_navigate, _act, _state, _find, _click, _type, _wait and _screenshot together.\n\
              - Desk tabs are signed in as the person: read them (a mailbox) before asking. Leave a tab they type or pay in; use newTab: true. grok.com: a new chat, Expert or Auto, not the bot.\n\
              - Visuals: an HTML page, page_preview, then page_show (pages topic of {guide}); browser_navigate it only when the person asks for the browser or a tab. Schemas: ```dbml.\n\

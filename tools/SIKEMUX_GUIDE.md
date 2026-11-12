@@ -170,8 +170,14 @@ in the output, such as `Ready in` for a dev server. The result then carries
 with a `note` when it is still running; keep waiting with `events_wait` and
 `until: "ready"`.
 
-To wait on a run you started, such as a build or a test run, pass
-`events_wait` its `executionId` and `until`: `"exit"` until it ends,
+To wait on a run that takes more than a minute, such as a cargo build, a test
+suite or a run queued behind other builds, park instead: `trigger_add` with
+`process` set to its `executionId`, then end your turn. Sikemux starts your
+next turn when it ends, with its status, exit code and last lines, and your
+turn costs nothing while it runs. Each `events_wait` call is another turn that
+reads your whole conversation again.
+
+For a short wait, pass `events_wait` the run's `executionId` and `until`: `"exit"` until it ends,
 `"ready"` until its `readyWhen` text appears, or any other text until its
 output holds that. One call holds up to 50 seconds and answers `met`, the
 run's `status` and `exitCode`, and its last lines in `tail`; when it is not met
@@ -1395,8 +1401,11 @@ agent already where `until` says answers at once. An agent whose task or
 messages still wait for it counts as starting, not idle, until it takes them. A
 timeout is normal: wait again, or carry on.
 
-Wait only when you cannot go on without the result, such as when you need two
-agents' work before you can merge it. An agent you started reports to you by
+When you cannot go on until another agent finishes, lands or asks the person
+something, park on it rather than calling `agent_wait` again and again:
+`trigger_add` with `agent` and `until`, then end your turn. Keep `agent_wait`
+for a wait of seconds. Wait only when you cannot go on without the result, such
+as when you need two agents' work before you can merge it. An agent you started reports to you by
 itself when its turn ends, so after `agent_spawn` carry on with your own work
 rather than waiting, and read its report when it arrives.
 
@@ -1733,6 +1742,17 @@ waiting in a loop.
   `["mon", "fri"]` to fire only on those days.
 - `ci`: once CI ends on a commit, a branch (its newest commit here), `HEAD`,
   or a CI run's address or id, on GitHub, Bitbucket, GitLab or Forgejo.
+- `process`: once a run of `process_start` ends, by its `executionId`, or
+  with `until` once it prints that text (`"ready"` for its `readyWhen`).
+- `agent`: once another agent, by name, gets where `until` says: `done` (the
+  default), `needs_you`, `idle` or `any`, as `agent_wait` reads them.
+
+`process` and `agent` triggers park you: end your turn right after setting one.
+It fires once, with what happened added to your prompt, or after `timeout`
+seconds (two hours unless you say, at most a day) saying it timed out. When it
+already happened, `trigger_add` answers with that in `happened` and sets
+nothing. Park on anything you expect to take over a minute; never end a turn
+saying you are waiting without one of these set, since nothing would wake you.
 
 A `ci` trigger is how you wait for CI: set it after pushing and end your
 turn, rather than sleeping, polling the pipeline, or setting a repeating
@@ -1750,8 +1770,8 @@ time it comes due, such as a `curl` of a status page. The trigger fires only
 when the end of what the command prints differs from the last time, with that
 output added to your prompt, so make its output stable, without times or
 counters that change on every run. `trigger_add` runs it once and answers
-what it says now in `check`. Wait on a run with `events_wait` and `until`, on
-CI with `ci`, and on another service with `webhook`.
+what it says now in `check`. Wait on a run with `process`, on another agent
+with `agent`, on CI with `ci`, and on another service with `webhook`.
 
 Write the prompt for yourself later: say what to look at and what to do with
 it, since a long conversation may have moved on by then. A chat holds up to 20

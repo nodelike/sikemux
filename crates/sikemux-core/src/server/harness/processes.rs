@@ -434,21 +434,8 @@ pub(super) async fn output_appears(
         let run = core
             .harness
             .read(|state| state.run(project, execution_id))?;
-        if let Some(pty_id) = run.pty_id {
-            let query = OutputQuery {
-                cursor: 0,
-                limit: 4096,
-                tail: Some(1),
-                search: Some(pattern.to_owned()),
-                context: 0,
-                plain: false,
-            };
-            if read_output(core, pty_id, query)
-                .await
-                .is_ok_and(|page| page.matches.unwrap_or(0) > 0)
-            {
-                return Ok(true);
-            }
+        if run_printed(core, &run, pattern).await {
+            return Ok(true);
         }
         if !matches!(run.status, RunStatus::Starting | RunStatus::Running)
             || Instant::now() >= until

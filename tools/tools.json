@@ -2359,7 +2359,7 @@
     },
     {
       "name": "trigger_add",
-      "row": {"verb": "trigger", "kind": "edit", "icon": "bolt", "target": ["{title}"], "detail": ["after CI on {ci}", "daily at {daily}"]},
+      "row": {"verb": "trigger", "kind": "edit", "icon": "bolt", "target": ["{title}"], "detail": ["after CI on {ci}", "for {process}", "for {agent}", "daily at {daily}"]},
       "method": "trigger.add",
       "description": "Prompt this chat later.",
       "properties": {
@@ -2414,6 +2414,24 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 4096
+        },
+        "process": {
+          "description": "Instead of a time: fire once this executionId ends",
+          "type": "string"
+        },
+        "agent": {
+          "description": "Instead of a time: fire once this agent gets to until",
+          "type": "string"
+        },
+        "until": {
+          "description": "process: text it prints, or ready. agent: done, needs_you, idle or any",
+          "type": "string"
+        },
+        "timeout": {
+          "description": "Seconds process or agent waits before firing anyway",
+          "type": "integer",
+          "minimum": 60,
+          "maximum": 86400
         },
         "weekdays": {
           "description": "With daily, the days it fires on; every day when left out",

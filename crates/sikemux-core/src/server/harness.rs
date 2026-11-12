@@ -54,8 +54,8 @@ pub(crate) use processes::{
 };
 use skills_tool::*;
 use tally::*;
-pub(crate) use waits::WaitSlot;
 use waits::*;
+pub(crate) use waits::{run_printed, run_tail, WaitSlot};
 
 /// MCP hosts give up on a tool call after about a minute, so a start answers
 /// well before that with whatever state it reached.
