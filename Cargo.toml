@@ -86,6 +86,8 @@ opt-level = "z"
 opt-level = "z"
 [profile.release.package.sikemux-plugin-database]
 opt-level = "z"
+[profile.release.package.sikemux-plugin-forgejo]
+opt-level = "z"
 [profile.release.package.sikemux-plugin-github]
 opt-level = "z"
 [profile.release.package.sikemux-plugin-gitlab]

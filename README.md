@@ -45,9 +45,9 @@ curl -fsSL https://sikemux.com/install | sh -s -- --host
 
 - **Projects** with a code editor, terminals, Git, and search, all in one working directory
 - **Coding agents**: Claude, Codex, Hermes, Pi and OpenCode, several at once, each with its own browser tabs, and one list of every agent and recent chat across your open projects
-- **Chats that know your work**: `@` attaches project files, `#` hands over GitHub, GitLab or Bitbucket issues and pull requests, and an optional worktree gives a chat its own branch. Terminal selections, problems and logs can be sent to any agent
+- **Chats that know your work**: `@` attaches project files, `#` hands over GitHub, GitLab, Bitbucket or Forgejo issues and pull requests, and an optional worktree gives a chat its own branch. Terminal selections, problems and logs can be sent to any agent
 - **Nothing stops when you quit**: terminals, agents and processes keep running in the background and come back where they were. Quit and Stop Everything (`⌥⌘Q`) ends them
-- **Connectors** for GitHub, GitLab, Bitbucket, Jira, Linear, Slack, Vercel, AWS, Rundeck, SigNoz and your PostgreSQL, MySQL and SQLite databases: sign in once in Settings, and every agent's tools use them for you
+- **Connectors** for GitHub, GitLab, Bitbucket, Forgejo and Gitea, Jira, Linear, Slack, Vercel, AWS, Rundeck, SigNoz and your PostgreSQL, MySQL and SQLite databases: sign in once in Settings, and every agent's tools use them for you
 - **Hosts**: this host, every host on your account and the SSH hosts you have open, in one list. Chats and terminals run on whichever you pick, with no SSH, and **Install Sikemux here** turns an SSH host into one of them in a click
 - Twelve themes of its own, over 450 from Ghostty, and an editor for your own
 

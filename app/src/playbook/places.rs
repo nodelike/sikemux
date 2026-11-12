@@ -403,6 +403,8 @@ fn connector_mark(name: &str) -> Icon {
         ("linear", Icon::Linear),
         ("github", Icon::Github),
         ("gitlab", Icon::Gitlab),
+        ("forgejo", Icon::Forgejo),
+        ("gitea", Icon::Gitea),
         ("bitbucket", Icon::Bitbucket),
         ("vercel", Icon::Vercel),
         ("rundeck", Icon::Rundeck),

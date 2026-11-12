@@ -25,6 +25,8 @@ const SERVICE_FILES = {
   IconBitbucket: 'bitbucket.svg',
   IconJira: 'jira.svg',
   IconGitlab: 'gitlab.svg',
+  IconForgejo: 'forgejo.svg',
+  IconGitea: 'gitea.svg',
   IconLinear: 'linear.svg',
   IconVercel: 'vercel.svg',
   IconSlack: 'slack.svg',

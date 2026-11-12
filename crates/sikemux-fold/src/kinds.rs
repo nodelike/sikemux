@@ -170,7 +170,7 @@ fn named(name: &str, tool: &ToolCall, args: &Map<String, Value>) -> Option<Kind>
         _ => {
             let (prefix, _) = name.split_once('_')?;
             let family = match prefix {
-                "bitbucket" | "github" | "gitlab" => F::Git,
+                "bitbucket" | "forgejo" | "github" | "gitlab" => F::Git,
                 "signoz" | "aws" | "rundeck" | "vercel" | "db" | "app" => F::Ops,
                 "jira" | "board" | "linear" => F::Trackers,
                 _ => return None,
@@ -192,7 +192,7 @@ fn service(server: &str, name: &str) -> ToolFamily {
     let has = |words: &[&str]| words.iter().any(|word| said.contains(word));
     if has(&["browser", "chrome", "playwright", "puppeteer"]) {
         ToolFamily::Browser
-    } else if has(&["github", "gitlab", "bitbucket"]) {
+    } else if has(&["github", "gitlab", "bitbucket", "forgejo", "gitea"]) {
         ToolFamily::Git
     } else if has(&["jira", "atlassian", "linear", "confluence"]) {
         ToolFamily::Trackers

@@ -210,7 +210,7 @@ any `NSView`, and `document.rs` draws PDFs in PDFKit and office files in Quick L
 
 Plugins are compiled in; there is no marketplace and no runtime loading
 ([ADR 0022](./0022-plugins-are-connectors-and-mods-are-their-panels.md)). The eleven built-ins are
-AWS, Bitbucket, Database, GitHub, GitLab, Jira, Linear, Rundeck, SigNoz, Slack and Vercel.
+AWS, Bitbucket, Database, Forgejo, GitHub, GitLab, Jira, Linear, Rundeck, SigNoz, Slack and Vercel.
 
 - **In the core:** a crate in `plugins/<name>/` implements the `Plugin` trait from
   `sikemux-plugin-api`. `sikemux-host` gives each one a Cargo feature of the same name, all on

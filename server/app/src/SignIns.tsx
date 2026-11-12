@@ -10,6 +10,7 @@ const SERVICE_NAMES: Record<string, string> = {
   "sikemux.github": "GitHub",
   "sikemux.gitlab": "GitLab",
   "sikemux.bitbucket": "Bitbucket",
+  "sikemux.forgejo": "Forgejo",
   "sikemux.jira": "Jira",
   "sikemux.linear": "Linear",
   "sikemux.slack": "Slack",

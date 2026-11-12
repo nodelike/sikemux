@@ -575,6 +575,8 @@ enum ServiceMark {
         (["bitbucket.org"], "IconBitbucket"),
         (["atlassian.net"], "IconJira"),
         (["gitlab.com"], "IconGitlab"),
+        (["codeberg.org"], "IconForgejo"),
+        (["gitea.com"], "IconGitea"),
         (["linear.app"], "IconLinear"),
         (["vercel.com", "vercel.app"], "IconVercel"),
         (["slack.com"], "IconSlack"),

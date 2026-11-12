@@ -957,9 +957,10 @@ For anything else, run the `aws` CLI yourself, read-only.
   whole with `bitbucket pull`. `author` keeps those opened by a nickname or
   display name, `head` those from one branch, and `perPage` (at most 50) with
   `page` reads further back.
-- `bitbucket step_log` and `gitlab job_log` answer at most 30,000 characters,
-  each line clipped at 2,000. With nothing else they give the last `tail` lines
-  (200 by default). `grep` keeps the lines that contain it, ignoring case, and
+- `bitbucket step_log`, `gitlab job_log` and `forgejo job_log` answer at most
+  30,000 characters, each line clipped at 2,000. With nothing else they give
+  the last `tail` lines (200 by default). `grep` keeps the lines that contain
+  it, ignoring case, and
   `context` keeps that many lines around each, up to 50. `from` and `to` read
   a range of line numbers, forward from `from`. When lines were left out,
   `truncated` is true and `note` names them; read them with `from` and `to`.
@@ -1725,7 +1726,7 @@ waiting in a loop.
 - `daily`: `HH:MM` on this host's clock, with `weekdays` such as
   `["mon", "fri"]` to fire only on those days.
 - `ci`: once CI ends on a commit, a branch (its newest commit here), `HEAD`,
-  or a CI run's address or id, on GitHub, Bitbucket or GitLab.
+  or a CI run's address or id, on GitHub, Bitbucket, GitLab or Forgejo.
 
 A `ci` trigger is how you wait for CI: set it after pushing and end your
 turn, rather than sleeping, polling the pipeline, or setting a repeating

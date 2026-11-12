@@ -23,11 +23,12 @@ pub(crate) enum Reach {
 }
 
 /// Code hosts a remote of the project's own lives on.
-const CODE_HOSTS: [&str; 5] = [
+const CODE_HOSTS: [&str; 6] = [
     "github.com",
     "gitlab.com",
     "bitbucket.org",
     "codeberg.org",
+    "gitea.com",
     "git.sr.ht",
 ];
 /// Long options of `git push` that change nothing of where it goes, spelled out in full: git

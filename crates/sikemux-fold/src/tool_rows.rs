@@ -1193,6 +1193,83 @@ pub(super) const SPECS: &[(&str, Spec)] = &[
         },
     ),
     (
+        "forgejo_pulls",
+        Spec {
+            verb: "list",
+            kind: "read",
+            icon: "pull-request",
+            target: &["{name} pull requests"],
+            detail: &["{state}"],
+            plugin: Some("sikemux.forgejo"),
+        },
+    ),
+    (
+        "forgejo_pull_files",
+        Spec {
+            verb: "diff",
+            kind: "read",
+            icon: "pull-request",
+            target: &["{name}#{number}"],
+            detail: &["{paths}"],
+            plugin: Some("sikemux.forgejo"),
+        },
+    ),
+    (
+        "forgejo_comments",
+        Spec {
+            verb: "read",
+            kind: "read",
+            icon: "pull-request",
+            target: &["comments on {name}#{number}"],
+            detail: &[],
+            plugin: Some("sikemux.forgejo"),
+        },
+    ),
+    (
+        "forgejo_issues",
+        Spec {
+            verb: "list",
+            kind: "read",
+            icon: "issue",
+            target: &["{name} issues"],
+            detail: &["{state}"],
+            plugin: Some("sikemux.forgejo"),
+        },
+    ),
+    (
+        "forgejo_runs",
+        Spec {
+            verb: "list",
+            kind: "read",
+            icon: "workflow",
+            target: &["{name} runs"],
+            detail: &["{branch}", "{status}"],
+            plugin: Some("sikemux.forgejo"),
+        },
+    ),
+    (
+        "forgejo_run",
+        Spec {
+            verb: "read",
+            kind: "read",
+            icon: "workflow",
+            target: &["run {runId}"],
+            detail: &["{name}"],
+            plugin: Some("sikemux.forgejo"),
+        },
+    ),
+    (
+        "forgejo_job_log",
+        Spec {
+            verb: "logs",
+            kind: "read",
+            icon: "log-lines",
+            target: &["job {jobId}"],
+            detail: &["“{grep}”"],
+            plugin: Some("sikemux.forgejo"),
+        },
+    ),
+    (
         "gitlab_merge_requests",
         Spec {
             verb: "list",

@@ -9988,6 +9988,7 @@ dependencies = [
  "sikemux-plugin-aws",
  "sikemux-plugin-bitbucket",
  "sikemux-plugin-database",
+ "sikemux-plugin-forgejo",
  "sikemux-plugin-github",
  "sikemux-plugin-gitlab",
  "sikemux-plugin-googleplay",
@@ -10154,6 +10155,21 @@ dependencies = [
  "tokio-postgres",
  "tokio-rustls",
  "uuid",
+ "workspace-hack",
+]
+
+[[package]]
+name = "sikemux-plugin-forgejo"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "reqwest",
+ "rustls",
+ "serde",
+ "serde_json",
+ "sikemux-plugin-api",
+ "sikemux-process",
+ "tokio",
  "workspace-hack",
 ]
 

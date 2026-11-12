@@ -10,6 +10,8 @@ pub fn plugins() -> Vec<Arc<dyn Plugin>> {
         sikemux_plugin_bitbucket::plugin(),
         #[cfg(feature = "database")]
         sikemux_plugin_database::plugin(),
+        #[cfg(feature = "forgejo")]
+        sikemux_plugin_forgejo::plugin(),
         #[cfg(feature = "github")]
         sikemux_plugin_github::plugin(),
         #[cfg(feature = "gitlab")]

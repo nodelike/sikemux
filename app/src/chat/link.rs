@@ -27,6 +27,10 @@ pub fn service_mark(href: &str) -> Option<Icon> {
         Icon::Jira
     } else if on("gitlab.com") {
         Icon::Gitlab
+    } else if on("codeberg.org") {
+        Icon::Forgejo
+    } else if on("gitea.com") {
+        Icon::Gitea
     } else if on("linear.app") {
         Icon::Linear
     } else if on("vercel.com") || on("vercel.app") {

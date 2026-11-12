@@ -1,0 +1,156 @@
+{
+  "id": "sikemux.forgejo",
+  "name": "Forgejo",
+  "callTimeoutSecs": 120,
+  "accountMethods": ["setDefaultAccount", "signInWithToken", "signOut"],
+  "tokenForm": {
+    "method": "signInWithToken",
+    "lede": "Tools for your agents to read and work on pull requests, Actions runs and issues, on Forgejo or Gitea.",
+    "fields": [
+      { "name": "host", "label": "Server", "placeholder": "codeberg.org" },
+      { "name": "token", "label": "Access token", "placeholder": "Repository, issue and notification access", "secret": true }
+    ],
+    "tokenPage": "https://{server}/user/settings/applications",
+    "defaultServer": "codeberg.org"
+  },
+  "codeHost": {
+    "label": "Forgejo",
+    "ciName": "Actions",
+    "runPath": "/actions/runs/",
+    "pullHeads": "pull",
+    "webHosts": ["codeberg.org", "gitea.com", "forgejo.*", "gitea.*"],
+    "compare": {
+      "path": "compare/{branch}",
+      "query": {}
+    },
+    "pulls": {
+      "mergeMethods": ["merge", "squash", "rebase"],
+      "requestChanges": true,
+      "reopen": true,
+      "mergeability": true
+    },
+    "ci": {
+      "attempts": false,
+      "approvals": false,
+      "dispatch": false,
+      "annotations": false,
+      "summaries": false,
+      "artifacts": false,
+      "billing": false,
+      "workflowFile": false,
+      "rerunFailed": true,
+      "rerunJob": true,
+      "debugLogs": false,
+      "deleteRuns": true,
+      "deleteLogs": false
+    }
+  },
+  "family": {"name": "forgejo", "description": "Forgejo and Gitea pull requests, issues and Actions runs."},
+  "tools": [
+    {
+      "name": "forgejo_pulls",
+      "row": {"verb": "list", "kind": "read", "icon": "pull-request", "target": ["{name} pull requests"], "detail": ["{state}"]},
+      "method": "pulls",
+      "description": "Pull requests on Forgejo or Gitea, most recently updated first, with state, branches, reviewers and whether each can merge. owner, name and host come from the git remote.",
+      "properties": {
+        "owner": { "type": "string", "description": "The user or organisation." },
+        "name": { "type": "string", "description": "The repository." },
+        "host": { "type": "string", "description": "The server in the git remote, e.g. codeberg.org." },
+        "state": { "type": "string", "enum": ["open", "closed", "merged", "all"], "description": "Default open." }
+      },
+      "required": ["owner", "name"]
+    },
+    {
+      "name": "forgejo_pull_files",
+      "row": {"verb": "diff", "kind": "read", "icon": "pull-request", "target": ["{name}#{number}"], "detail": ["{paths}"]},
+      "method": "pullFiles",
+      "description": "The files a pull request changes, with status and line counts. Name paths for their diffs; a long diff comes in parts, with a note on the rest.",
+      "properties": {
+        "owner": { "type": "string", "description": "The user or organisation." },
+        "name": { "type": "string", "description": "The repository." },
+        "host": { "type": "string", "description": "The server in the git remote, e.g. codeberg.org." },
+        "number": { "type": "integer", "description": "The pull request's number." },
+        "paths": { "type": "array", "items": { "type": "string" }, "description": "Only these files, each with its patch." },
+        "offset": { "type": "integer", "description": "Patch line to start from, from 0. The note gives the next one." },
+        "lines": { "type": "integer", "description": "Patch lines to return. Default 400, at most 1000; a patch also stops at 32 KB." }
+      },
+      "required": ["owner", "name", "number"]
+    },
+    {
+      "name": "forgejo_comments",
+      "row": {"verb": "read", "kind": "read", "icon": "pull-request", "target": ["comments on {name}#{number}"]},
+      "method": "comments",
+      "description": "What people wrote on a pull request or an issue, oldest first. Pull requests and issues share one count.",
+      "properties": {
+        "owner": { "type": "string", "description": "The user or organisation." },
+        "name": { "type": "string", "description": "The repository." },
+        "host": { "type": "string", "description": "The server in the git remote, e.g. codeberg.org." },
+        "number": { "type": "integer", "description": "The pull request's or issue's number." }
+      },
+      "required": ["owner", "name", "number"]
+    },
+    {
+      "name": "forgejo_issues",
+      "row": {"verb": "list", "kind": "read", "icon": "issue", "target": ["{name} issues"], "detail": ["{state}"]},
+      "method": "issues",
+      "description": "A repository's issues on Forgejo or Gitea, 30 to a page, with labels and assignees.",
+      "properties": {
+        "owner": { "type": "string", "description": "The user or organisation." },
+        "name": { "type": "string", "description": "The repository." },
+        "host": { "type": "string", "description": "The server in the git remote, e.g. codeberg.org." },
+        "state": { "type": "string", "enum": ["open", "closed", "all"], "description": "Default open." },
+        "labels": { "type": "string", "description": "Only issues with these labels, comma separated." },
+        "page": { "type": "integer", "description": "From 1." }
+      },
+      "required": ["owner", "name"]
+    },
+    {
+      "name": "forgejo_runs",
+      "row": {"verb": "list", "kind": "read", "icon": "workflow", "target": ["{name} runs"], "detail": ["{branch}", "{status}"]},
+      "method": "runs",
+      "description": "Recent Actions runs, newest first, with status, conclusion, branch and the pull request each ran for. A server too old for Actions in its API says so.",
+      "properties": {
+        "owner": { "type": "string", "description": "The user or organisation." },
+        "name": { "type": "string", "description": "The repository." },
+        "host": { "type": "string", "description": "The server in the git remote, e.g. codeberg.org." },
+        "branch": { "type": "string" },
+        "status": { "type": "string", "enum": ["queued", "in_progress", "waiting", "success", "failure", "cancelled", "skipped"], "description": "A state or a conclusion." },
+        "headSha": { "type": "string", "description": "A commit." },
+        "perPage": { "type": "integer", "description": "Default 30, at most 50." },
+        "page": { "type": "integer", "description": "From 1." }
+      },
+      "required": ["owner", "name"]
+    },
+    {
+      "name": "forgejo_run",
+      "row": {"verb": "read", "kind": "read", "icon": "workflow", "target": ["run {runId}"], "detail": ["{name}"]},
+      "method": "run",
+      "description": "One Actions run with its jobs and their steps' status, to see which job failed.",
+      "properties": {
+        "owner": { "type": "string", "description": "The user or organisation." },
+        "name": { "type": "string", "description": "The repository." },
+        "host": { "type": "string", "description": "The server in the git remote, e.g. codeberg.org." },
+        "runId": { "type": "string", "description": "The run's id from forgejo runs." }
+      },
+      "required": ["owner", "name", "runId"]
+    },
+    {
+      "name": "forgejo_job_log",
+      "row": {"verb": "logs", "kind": "read", "icon": "log-lines", "target": ["job {jobId}"], "detail": ["“{grep}”"]},
+      "method": "jobLogExcerpt",
+      "description": "One Actions job's log without colour codes: its end, grep matches or a line range, at most 30,000 characters. Start with the default tail or a grep for the error.",
+      "properties": {
+        "owner": { "type": "string", "description": "The user or organisation." },
+        "name": { "type": "string", "description": "The repository." },
+        "host": { "type": "string", "description": "The server in the git remote, e.g. codeberg.org." },
+        "jobId": { "type": "string", "description": "A job's id from forgejo run." },
+        "tail": { "type": "integer", "description": "Lines kept, from the end or from from. Default 200, at most 2000." },
+        "grep": { "type": "string", "description": "Only lines containing this, ignoring case." },
+        "context": { "type": "integer", "description": "Lines around each grep match." },
+        "from": { "type": "integer", "description": "First line." },
+        "to": { "type": "integer", "description": "Last line." }
+      },
+      "required": ["owner", "name", "jobId"]
+    }
+  ]
+}

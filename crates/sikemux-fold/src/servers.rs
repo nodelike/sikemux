@@ -12,6 +12,8 @@ const MAX_VERB_CHARS: usize = 12;
 const BRANDS: &[&str] = &[
     "github",
     "gitlab",
+    "forgejo",
+    "gitea",
     "bitbucket",
     "linear",
     "slack",

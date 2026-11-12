@@ -2,6 +2,6 @@
   "name": "Pull requests",
   "icon": "pull-request",
   "description": "The project's open pull requests and its latest CI runs, with each pull request's checks.",
-  "reads": ["repo", "github", "gitlab", "bitbucket"],
-  "writes": ["github.rerun", "gitlab.rerun", "bitbucket.rerun"]
+  "reads": ["repo", "github", "gitlab", "bitbucket", "forgejo"],
+  "writes": ["github.rerun", "gitlab.rerun", "bitbucket.rerun", "forgejo.rerun"]
 }

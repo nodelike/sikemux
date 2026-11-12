@@ -12,9 +12,10 @@ name = "sikemux-host"
 path = "src/main.rs"
 
 [features]
-default = ["aws", "bitbucket", "database", "github", "gitlab", "googleplay", "jira", "linear", "rundeck", "signoz", "slack", "vercel"]
+default = ["aws", "bitbucket", "database", "forgejo", "github", "gitlab", "googleplay", "jira", "linear", "rundeck", "signoz", "slack", "vercel"]
 aws = ["dep:sikemux-plugin-aws"]
 bitbucket = ["dep:sikemux-plugin-bitbucket"]
+forgejo = ["dep:sikemux-plugin-forgejo"]
 gitlab = ["dep:sikemux-plugin-gitlab"]
 googleplay = ["dep:sikemux-plugin-googleplay"]
 database = ["dep:sikemux-plugin-database"]
@@ -54,6 +55,7 @@ sikemux-pty = { path = "../sikemux-pty" }
 sikemux-plugin-api = { path = "../sikemux-plugin-api" }
 sikemux-plugin-aws = { path = "../../plugins/aws", optional = true }
 sikemux-plugin-bitbucket = { path = "../../plugins/bitbucket", optional = true }
+sikemux-plugin-forgejo = { path = "../../plugins/forgejo", optional = true }
 sikemux-plugin-gitlab = { path = "../../plugins/gitlab", optional = true }
 sikemux-plugin-database = { path = "../../plugins/database", optional = true }
 sikemux-plugin-github = { path = "../../plugins/github", optional = true }
