@@ -283,6 +283,7 @@ fn apply(book: &mut Book, entry: Entry) {
             call.state = CallState::Open;
             call.answer = None;
             call.outcome = None;
+            kept.started = None;
         }
         Entry::Came { outcome, .. } => {
             if call.state == CallState::Open {
@@ -394,7 +395,6 @@ impl PersonCalls {
             let picked = (kept.call.answer.as_ref()).and_then(|answer| answer.option.as_deref());
             let yes = match &kept.yes {
                 Some(_) => picked.is_some_and(|option| allows(kept, option)),
-                None if kept.call.kind == CallKind::Production => picked != Some(HOLD_REFUSE),
                 None => {
                     after_start.undelivered.push(id);
                     continue;
@@ -437,6 +437,20 @@ impl PersonCalls {
     /// power loss before anything runs on it. Nothing is applied when it could not be.
     fn write_sure(&self, book: &mut Book, entry: Entry) -> Result<(), String> {
         self.record(book, entry, true)
+    }
+
+    /// Writes `entry` down, sure of a production call's raising: one the file could not take
+    /// is not raised, so it never lives in memory alone, and the next look raises it again.
+    fn put(&self, book: &mut Book, entry: Entry) -> Result<(), String> {
+        match &entry {
+            Entry::Raised { call, .. } if call.kind == CallKind::Production => {
+                self.write_sure(book, entry)
+            }
+            _ => {
+                self.write(book, entry);
+                Ok(())
+            }
+        }
     }
 
     fn record(&self, book: &mut Book, entry: Entry, sure: bool) -> Result<(), String> {
@@ -608,7 +622,9 @@ impl PersonCalls {
         }
         let moved = !entries.is_empty();
         for entry in entries {
-            self.write(&mut book, entry);
+            if let Err(error) = self.put(&mut book, entry) {
+                eprintln!("sikemux core: a call was not raised: {error}");
+            }
         }
         drop(book);
         if moved {
@@ -729,12 +745,12 @@ fn settled_at(call: &PersonCall) -> u64 {
 }
 
 /// Puts a call to the person, or joins `raise.asker` to the open call of the project with the
-/// same key. Answers the call's id.
+/// same key. Answers the call's id, or why a production call could not be raised.
 #[expect(
     dead_code,
     reason = "the gates by place raise production calls through it"
 )]
-pub(crate) fn raise(core: &Core, raise: Raise) -> String {
+pub(crate) fn raise(core: &Core, raise: Raise) -> Result<String, String> {
     let id = {
         let mut book = core.person_calls.book.locked();
         let same = book.iter().find(|kept| {
@@ -765,13 +781,13 @@ pub(crate) fn raise(core: &Core, raise: Raise) -> String {
                     key,
                     yes,
                 };
-                core.person_calls.write(&mut book, raised);
+                core.person_calls.put(&mut book, raised)?;
                 id
             }
         }
     };
     core.person_calls.changed(core);
-    id
+    Ok(id)
 }
 
 /// Puts a call the person is only told of, already settled with `outcome`: a production change
@@ -942,16 +958,6 @@ pub(crate) fn close_left(core: &Core, gone: impl Fn(&str) -> bool) {
     }
     drop(book);
     core.person_calls.changed(core);
-}
-
-/// The production place a call `ask` raised changes, and the key the gate there finds its yes
-/// by, so the person answers it once. The gates by place work them out.
-pub(crate) fn ask_key(
-    _core: &Core,
-    _agent_id: &str,
-    _project: &str,
-) -> Option<(CallPlace, String)> {
-    None
 }
 
 /// The longest answer typed in a chat that a call keeps.

@@ -246,9 +246,16 @@ impl Question {
     }
 
     /// The option of its call that runs what it holds, on an approval of a plugin call.
+    /// The option of its call that lets what it is about run: an approval's Approve, or for a
+    /// change to a production place, the asker's pick.
     fn allows(&self) -> Option<String> {
-        let approving = self.approval.as_ref()?.approving()?;
-        Some((approving + 1).to_string())
+        if let Some(approval) = &self.approval {
+            return approval
+                .approving()
+                .map(|approving| (approving + 1).to_string());
+        }
+        let pick = self.choices.iter().position(|choice| choice.recommended)?;
+        self.production().then(|| (pick + 1).to_string())
     }
 
     /// It as a call to the person.
@@ -2917,11 +2924,10 @@ fn tell_phones(core: &Core) {
     }
 }
 
-/// The questions put to the person, as calls. One that changes a production place carries the
-/// key the gate there looks its yes up by, so the person answers it once. A call nobody is left
-/// to hear the answer of closes.
+/// The questions put to the person, as calls. A call nobody is left to hear the answer of
+/// closes.
 fn tell_calls(core: &Core) {
-    let asked: Vec<(PersonCall, Option<String>)> = {
+    let wanted = {
         let state = core.harness.questions.state.locked();
         let asked = (state.open.iter())
             .filter(|question| question.listed_for_devices())
@@ -2929,25 +2935,15 @@ fn tell_calls(core: &Core) {
         let replied = (state.reply_questions.iter())
             .filter(|question| question.waits())
             .map(|question| (question.call(), None));
-        asked.chain(replied).collect()
-    };
-    let wanted = (asked.into_iter())
-        .map(|(mut call, yes)| {
-            let gate = (call.kind == CallKind::Production)
-                .then(|| person_calls::ask_key(core, &call.asker.agent_id, &call.project))
-                .flatten();
-            let key = gate.map(|(place, key)| {
-                call.place = Some(place);
-                key
-            });
-            person_calls::Wanted {
+        (asked.chain(replied))
+            .map(|(call, yes)| person_calls::Wanted {
                 source: person_calls::Source::Question(call.id.clone()),
                 call,
-                key,
+                key: None,
                 yes,
-            }
-        })
-        .collect();
+            })
+            .collect()
+    };
     person_calls::sync_questions(core, wanted);
     person_calls::close_left(core, |agent_id| gone(core, agent_id));
 }
