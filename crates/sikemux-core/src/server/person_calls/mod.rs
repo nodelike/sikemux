@@ -393,18 +393,14 @@ impl PersonCalls {
                 continue;
             }
             let picked = (kept.call.answer.as_ref()).and_then(|answer| answer.option.as_deref());
-            let yes = match &kept.yes {
-                Some(_) => picked.is_some_and(|option| allows(kept, option)),
-                None => {
-                    after_start.undelivered.push(id);
-                    continue;
-                }
-            };
-            let mut outcome = outcome(CallResult::NotShipped);
-            if yes {
-                outcome.why = Some(CallWhy::Restarted);
-                after_start.lapsed.push(id.clone());
+            let yes = kept.yes.is_some() && picked.is_some_and(|option| allows(kept, option));
+            if !yes {
+                after_start.undelivered.push(id);
+                continue;
             }
+            let mut outcome = outcome(CallResult::NotShipped);
+            outcome.why = Some(CallWhy::Restarted);
+            after_start.lapsed.push(id.clone());
             closing.push(Entry::Came { id, outcome });
         }
         for entry in closing {
@@ -1526,6 +1522,17 @@ async fn redeliver(core: &Arc<Core>, id: &str) {
     };
     let typed = answer.note.clone().or(answer.words.clone());
     let picked = answer.option.is_some() || !answer.options.is_empty();
+    if let Source::Hold(_) = source {
+        if let Some(said) = said(&call, typed) {
+            let text = format!(
+                "Sikemux restarted as the person answered \"{}\", so the action it held no longer waits. They said:\n{said}",
+                call.question
+            );
+            tell(core, &call, &text).await;
+        }
+        core.person_calls.settle(id, CallResult::NotShipped);
+        return;
+    }
     if let Source::Question(_) = source {
         let questions = core.person_calls.questions_of(id);
         let open = (questions.iter()).any(|question| core.harness.questions.is_open(question));
