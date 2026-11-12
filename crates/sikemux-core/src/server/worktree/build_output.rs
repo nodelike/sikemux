@@ -179,8 +179,12 @@ fn clear_once_stopped(core: &Core, mut trees: Vec<PathBuf>, reason: ClearedFor) 
 
 /// With `free` of `total` bytes left under the floor, removes the build output of agent
 /// worktrees on the home disk that no awake agent works in, least recently built first, until
-/// enough is free again.
+/// enough is free again. Only an installed core does: a development or trial core sees the same
+/// worktrees and would take them from under the agents of the core the person runs.
 pub(crate) fn make_room(core: &Core, free: u64, total: u64) {
+    if cfg!(debug_assertions) {
+        return;
+    }
     if free >= FREE_FLOOR.min(total / 10) {
         core.build_outputs().stuck.store(false, Ordering::Release);
         return;
