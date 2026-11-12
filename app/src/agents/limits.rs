@@ -726,10 +726,7 @@ fn percent_cell(window: &UsageWindow, now: u64, cx: &App) -> Div {
 
 /// How much of a window is used, as every limit says it.
 fn used_label(used: f64) -> String {
-    match used >= 100. {
-        true => "used up".to_owned(),
-        false => format!("{}% used", used.round()),
-    }
+    format!("{}% used", used.round().min(100.))
 }
 
 /// When the window is back. Past its reset with reads failing it says how old the reading is,
@@ -740,7 +737,7 @@ fn when_cell(window: &UsageWindow, now: u64, age: Option<&str>, cx: &App) -> Div
     let full = window.used_at(now) >= 100.;
     let text = match (full, reset, age.filter(|_| window.is_past_reset(now))) {
         (_, _, Some(age)) => format!("read {age}"),
-        (true, Some(reset), _) => format!("back {}", time_of_day(reset)),
+        (true, Some(reset), _) => time_of_day(reset),
         (_, None, _) => String::new(),
         (false, Some(reset), _) => ui::time::countdown(Some(reset)),
     };
