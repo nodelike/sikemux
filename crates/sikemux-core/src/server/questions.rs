@@ -769,6 +769,17 @@ impl Questions {
         )
     }
 
+    /// The questions other agents asked that went through `lead_id`, their lead, on their way
+    /// to the person.
+    pub(crate) fn passed_through(&self, lead_id: &str) -> Vec<String> {
+        (self.state.locked().open.iter())
+            .filter(|question| {
+                matches!(&question.stage, Stage::Person { lead: Some((lead, _)), .. } if lead == lead_id)
+            })
+            .map(|question| question.id.clone())
+            .collect()
+    }
+
     pub(crate) fn is_open(&self, id: &str) -> bool {
         let state = self.state.locked();
         (state.open.iter().map(|question| &question.id))

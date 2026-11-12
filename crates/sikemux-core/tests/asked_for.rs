@@ -2,7 +2,8 @@
 
 //! A real core and fake agents: what the person types to answer an access call, or types while
 //! one is open, never heads the next call the agent raises, even one that call's own turn raises,
-//! and is never kept on another call the same words answer.
+//! and is never kept on another call the same words answer. The same holds in the chat of a lead
+//! whose worker's access call went through it.
 
 mod folded;
 
@@ -299,5 +300,62 @@ async fn words_typed_beside_an_access_call_are_not_kept_on_a_reply_card() {
     let log = log_once(&root, "the reply's card is answered in the chat", |log| {
         answered(log) > before
     });
+    assert!(!log.contains("hunter2now"), "{log}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn words_typed_to_a_lead_beside_its_workers_access_call_are_kept_nowhere() {
+    let root = tempfile::Builder::new()
+        .prefix("asked-for")
+        .tempdir_in("/tmp")
+        .expect("temp dir");
+    let root = std::fs::canonicalize(root.path()).expect("canonical");
+    let (_core, app) = core_with_project(&root).await;
+    let socket = root.join("core.sock");
+
+    let mut lead = Agent::start(&app, &socket).await;
+    let token = "Which token does the Widget deploy take?";
+    let task = format!("tool agent.ask {}", raise(token));
+    let spawn = json!({ "cli": "opencode", "prompt": task });
+    let spawned = lead
+        .says(&format!("tool agent.spawn {spawn}"), "tool ")
+        .await;
+    let spawned = spawned
+        .split_once("tool answered: ")
+        .map(|(_, answer)| answer);
+    let spawned: Value = serde_json::from_str(spawned.unwrap_or_default()).expect("a worker");
+    let kept = root.join("data").join("agent-questions.json");
+    let deadline = Instant::now() + WAIT;
+    while !std::fs::read_to_string(&kept).is_ok_and(|kept| kept.contains(token)) {
+        assert!(Instant::now() < deadline, "the worker never asked its lead");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let mut passed = raise(token);
+    passed["for"] = spawned["agentId"].clone();
+    lead.says(&format!("tool agent.ask {passed}"), "tool ")
+        .await;
+    raised(&root, token);
+
+    let plan = "Which plan should the Widget host run on?";
+    let money = json!({
+        "question": plan,
+        "reason": "money",
+        "choices": ["Small", "Large"],
+        "pick": "Small",
+        "breaks": "the launch",
+    });
+    let typed = format!("tool agent.ask {money}\nuse hunter2now for the widget deploy");
+    lead.says(&typed, "hunter2now").await;
+    let line = raised(&root, plan);
+    assert!(!line.contains("askedFor"), "{line}");
+
+    let answered = |log: &str| log.matches("\"event\":\"answered\"").count();
+    let before = answered(&calls_log(&root));
+    lead.says("hunter2now is the one", "hunter2now").await;
+    let log = log_once(
+        &root,
+        "the lead's own call is answered in the chat",
+        |log| answered(log) > before,
+    );
     assert!(!log.contains("hunter2now"), "{log}");
 }

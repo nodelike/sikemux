@@ -741,15 +741,22 @@ fn same_decision(one: &PersonCall, other: &PersonCall) -> bool {
         && one.assumption.is_some() == other.assumption.is_some()
 }
 
-/// Whether `agent_id` waits on a call to the person whose words are never kept.
+/// Whether what the person types to `agent_id` may answer a call whose words are never kept: one
+/// it waits on, or one a worker of its asked that went through it, which the person may as well
+/// answer in the lead's chat.
 pub(crate) fn hides_typed(core: &Core, agent_id: &str) -> bool {
-    waits_on_hidden(&core.person_calls().book.locked(), agent_id)
+    let passed = core.harness().questions.passed_through(agent_id);
+    hears_hidden(&core.person_calls().book.locked(), agent_id, &passed)
 }
 
-fn waits_on_hidden(book: &Book, agent_id: &str) -> bool {
-    (book.iter())
-        .map(|kept| &kept.call)
-        .any(|call| waits_on(call, agent_id) && call.state == CallState::Open && hides_words(call))
+/// [`hides_typed`] with the book held: `passed` are the questions that went through the agent.
+fn hears_hidden(book: &Book, agent_id: &str, passed: &[String]) -> bool {
+    book.iter().any(|kept| {
+        let call = &kept.call;
+        let through = (kept.sources())
+            .any(|source| matches!(source, Source::Question(id) if passed.contains(id)));
+        (waits_on(call, agent_id) || through) && call.state == CallState::Open && hides_words(call)
+    })
 }
 
 /// What the person types to a secret or an access call is never kept: it may be a password or a
@@ -998,14 +1005,15 @@ const MAX_WRITTEN_CHARS: usize = 2000;
 /// call it stopped for, one of taste, money or access, is answered only when it is the one call
 /// waiting there that writing can answer; with several, none is, and they stay open. The words
 /// reach only this chat, so a call other agents also wait on stays open for them. A production
-/// call is never answered by writing, and nothing typed while the agent waits on a secret or an
-/// access call is kept on any call, since the words may be the password. Answers which kind of
-/// call the words answered, for the chat's record of them.
+/// call is never answered by writing, and nothing typed while a secret or an access call waits
+/// on what the person says to this agent is kept on any call, since the words may be the
+/// password. Answers which kind of call the words answered, for the chat's record of them.
 pub(crate) fn written(core: &Core, agent_id: &str, text: &str) -> Option<Answered> {
     let (stopped, replied) = core.harness().questions.answered_by_writing(agent_id);
     if stopped.is_empty() && replied.is_empty() {
         return None;
     }
+    let passed = core.harness().questions.passed_through(agent_id);
     let asked_in = |kept: &Kept, questions: &[String]| {
         kept.sources()
             .any(|source| matches!(source, Source::Question(id) if questions.contains(id)))
@@ -1030,7 +1038,7 @@ pub(crate) fn written(core: &Core, agent_id: &str, text: &str) -> Option<Answere
     if answered.is_empty() {
         return None;
     }
-    let hidden = waits_on_hidden(&book, agent_id);
+    let hidden = hears_hidden(&book, agent_id, &passed);
     for id in answered {
         let Some(kept) = kept(&book, &id) else {
             continue;
