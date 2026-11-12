@@ -1,0 +1,47 @@
+#!/usr/bin/env node
+// Names the people on PostHog's "People leaderboard" tile. The app reports each account only as
+// sha256("sikemux-usage|<account id>"), so this hashes every account the same way, looks up its
+// name in Clerk and rewrites the tile's transform(...) lookup with the result.
+import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
+
+const { CLERK_SECRET_KEY, POSTHOG_API_KEY } = process.env;
+const project = process.env.POSTHOG_PROJECT ?? "286203";
+const insight = process.env.POSTHOG_LEADERBOARD_INSIGHT ?? "7331966";
+const posthog = `https://eu.posthog.com/api/projects/${project}/insights/${insight}/`;
+
+const ids = execFileSync("psql", ["-At", "-d", "sikemux", "-c", "select id from users order by created_at"], {
+  encoding: "utf8",
+})
+  .split("\n")
+  .filter(Boolean);
+
+const quoted = (text) => `'${text.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'`;
+const hashes = [];
+const names = [];
+for (const id of ids) {
+  const response = await fetch(`https://api.clerk.com/v1/users/${id}`, {
+    headers: { Authorization: `Bearer ${CLERK_SECRET_KEY}` },
+  });
+  if (!response.ok) continue;
+  const user = await response.json();
+  const name =
+    [user.first_name, user.last_name].filter(Boolean).join(" ") ||
+    user.username ||
+    user.email_addresses?.[0]?.email_address?.split("@")[0] ||
+    id;
+  hashes.push(quoted(createHash("sha256").update(`sikemux-usage|${id}`).digest("hex")));
+  names.push(quoted(name));
+}
+
+const headers = { Authorization: `Bearer ${POSTHOG_API_KEY}`, "Content-Type": "application/json" };
+const tile = await (await fetch(posthog, { headers })).json();
+const source = tile.query?.source;
+const lookup = /transform\(properties\.user, \[[^\]]*\], \[[^\]]*\],/;
+if (!source?.query || !lookup.test(source.query)) {
+  throw new Error(`insight ${insight} has no transform(properties.user, [...], [...], ...) lookup to rewrite`);
+}
+source.query = source.query.replace(lookup, () => `transform(properties.user, [${hashes}], [${names}],`);
+const saved = await fetch(posthog, { method: "PATCH", headers, body: JSON.stringify({ query: tile.query }) });
+if (!saved.ok) throw new Error(`PostHog refused the update: ${saved.status} ${await saved.text()}`);
+console.log(`named ${names.length} of ${ids.length} accounts`);
