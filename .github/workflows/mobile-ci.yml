@@ -31,7 +31,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: mobile-ci-${{ github.ref }}
+  group: mobile-ci-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
