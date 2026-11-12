@@ -144,6 +144,7 @@ calls! { core, client, method, params;
     "renameAgent" RenameAgent (names::RenameAgentParams) -> names::AgentName: Full, counted => names::rename_agent(&core, params).await?,
     "startSideChat" StartSideChat (super::chat::side::SideChatParams) -> super::chat::side::SideChat: Full, counted => super::chat::side::start(&core, params).await?,
     "promptChat" PromptChat (chat_calls::PromptChatParams) -> (): Full => chat_calls::prompt_chat(&core, params).await?,
+    "onScreen" OnScreen (super::seen::OnScreenParams) -> (): Full => super::seen::on_screen(&core, client.id, params.agent_ids, params.focused, false),
     "closedAgents" ClosedAgents (names::ClosedAgentsParams) -> Vec<names::ClosedAgent>: Full => names::closed_agents(&core, params).await?,
     "agentNames": Watch, any_program => answer(names::agent_names(&core).await?),
     "agentCatalog" AgentCatalog (NoParams) -> Vec<CatalogAgent>: Watch, any_program => super::catalog::view(),

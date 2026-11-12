@@ -469,10 +469,7 @@ pub(super) async fn run(
                 client.answer::<ask::BackdropImage>(request_id, Ok(data_url));
             }
             Request::PublishOnScreen(ask::PublishOnScreen { agent_ids, focused }) => {
-                super::launching::show_terminals(&core, &agent_ids);
-                super::chief::on_screen(&core, &agent_ids, focused);
-                core.seen().show(client.id, agent_ids, focused);
-                core.changed(What::View);
+                super::seen::on_screen(&core, client.id, agent_ids, focused, true);
                 client.answer::<ask::PublishOnScreen>(request_id, Ok(()));
             }
             Request::FocusAgent(ask::FocusAgent { agent_id }) => {

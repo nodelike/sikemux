@@ -169,6 +169,7 @@ enum PhoneCall {
     enum HandOff {}
     enum LiveActivity {}
     enum MoveChatAccount {}
+    enum OnScreen {}
     enum OpenChief {}
     enum Pairing {}
     enum Preferences {}
@@ -364,6 +365,12 @@ extension PhoneCall.LiveActivity: PhoneCallable {
 extension PhoneCall.MoveChatAccount: PhoneCallable {
     static let method = "moveChatAccount"
     typealias Params = MoveChatParams
+    typealias Answer = WireNull
+}
+
+extension PhoneCall.OnScreen: PhoneCallable {
+    static let method = "onScreen"
+    typealias Params = OnScreenParams
     typealias Answer = WireNull
 }
 
@@ -8010,6 +8017,16 @@ struct ActivityParams: Codable, Hashable, Sendable {
 struct MoveChatParams: Codable, Hashable, Sendable {
     var agentId: String
     var accountId: String
+}
+
+/// What a phone shows. It sends an empty list when it goes behind or locks, since a listed chat
+/// stays awake, and calls this only once it draws the chief's Overrule and week lines, since a
+/// line shown while the person looks is let go of as seen.
+struct OnScreenParams: Codable, Hashable, Sendable {
+    /// The agents whose chats the client shows now, replacing what it showed before.
+    var agentIds: [String]
+    /// The person is looking at them: the app in front and the phone unlocked.
+    var focused: Bool
 }
 
 struct OpenChiefParams: Codable, Hashable, Sendable {

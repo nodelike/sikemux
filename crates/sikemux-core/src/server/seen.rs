@@ -11,7 +11,9 @@ use std::sync::Mutex;
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 
+use super::changed::ChangedCore;
 use super::connection::ClientId;
+use super::parts::Parts;
 
 #[derive(Default)]
 struct View {
@@ -184,6 +186,38 @@ impl super::part::Part for Seen {
     fn client_gone(&self, _core: &std::sync::Arc<super::Core>, client: ClientId) {
         self.forget_client(client);
     }
+}
+
+/// What a phone shows. It sends an empty list when it goes behind or locks, since a listed chat
+/// stays awake, and calls this only once it draws the chief's Overrule and week lines, since a
+/// line shown while the person looks is let go of as seen.
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OnScreenParams {
+    /// The agents whose chats the client shows now, replacing what it showed before.
+    pub agent_ids: Vec<String>,
+    /// The person is looking at them: the app in front and the phone unlocked.
+    pub focused: bool,
+}
+
+/// `client` shows `agent_ids` now, `focused` when the person is looking at them: the Mac's
+/// window in front, or a phone's app in front and unlocked. Each client says this the same way.
+/// An agent listed stays awake, focused or not; one shown while the person looks counts as read
+/// and, for a chief, has the person with it, which lets go of the chief's kept lines shown there.
+/// Only a client that `draws_terminals` has a terminal agent's ended terminal started again.
+pub(crate) fn on_screen(
+    core: &std::sync::Arc<super::Core>,
+    client: ClientId,
+    agent_ids: Vec<String>,
+    focused: bool,
+    draws_terminals: bool,
+) {
+    if draws_terminals {
+        super::launching::show_terminals(core, &agent_ids);
+    }
+    super::chief::on_screen(core, &agent_ids, focused);
+    core.seen().show(client, agent_ids, focused);
+    core.changed(super::changed::What::View);
 }
 
 #[cfg(test)]

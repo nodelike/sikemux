@@ -5289,6 +5289,18 @@ export interface MoveChatParams {
     accountId: string;
 }
 
+/**
+ * What a phone shows. It sends an empty list when it goes behind or locks, since a listed chat
+ * stays awake, and calls this only once it draws the chief's Overrule and week lines, since a
+ * line shown while the person looks is let go of as seen.
+ */
+export interface OnScreenParams {
+    /** The agents whose chats the client shows now, replacing what it showed before. */
+    agentIds: string[];
+    /** The person is looking at them: the app in front and the phone unlocked. */
+    focused: boolean;
+}
+
 export interface OpenChiefParams {
     /** The project, by id. */
     project: string;
@@ -5458,6 +5470,7 @@ export interface CoreCalls {
     handOff: { params: HandOffParams; answer: ChatHandedOff };
     liveActivity: { params: ActivityParams; answer: null };
     moveChatAccount: { params: MoveChatParams; answer: null };
+    onScreen: { params: OnScreenParams; answer: null };
     openChief: { params: OpenChiefParams; answer: OpenedChief };
     pairing: { params: NoParams; answer: RemotePairing };
     preferences: { params: NoParams; answer: Preferences };
