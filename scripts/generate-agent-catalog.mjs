@@ -161,7 +161,9 @@ for (const agent of agents) {
           (chat.modes === undefined ||
             (isName(chat.modes.normal) && isName(chat.modes.bypass))) &&
           (chat.compact === undefined || isName(chat.compact))
-        : chat.args === undefined && chat.modes === undefined && chat.compact === undefined)
+        : chat.args === undefined &&
+          chat.modes === undefined &&
+          chat.compact === undefined)
     )
   )
     fail(
