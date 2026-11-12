@@ -1,5 +1,6 @@
 import type { PersonCall, TurnPhase, TurnState, TurnStep, TurnWait, WorkAt } from "../wire.generated";
 import { clockLabel } from "../chat/messageMeta";
+import { english, type Say } from "../lib/say";
 
 /**
  * Every word a phone says about how a turn stands and about a call, in one table, as the Mac's
@@ -17,52 +18,52 @@ export type Said = { word: string; phase: TurnPhase; parts: string[] };
  * What `turn` says for an agent of `maker` (its own name, such as Claude). Working with nothing said about what it is
  * on says nothing, so the chat shows its live activity instead.
  */
-export function said(turn: TurnState, maker: string, now = Date.now()): Said | undefined {
+export function said(turn: TurnState, maker: string, now = Date.now(), say: Say = english): Said | undefined {
     const minutes = (from: number) => Math.max(1, Math.floor((now - from) / MINUTE));
     switch (turn.state) {
         case "working":
             if (!turn.on) return undefined;
-            return { word: "Working", phase: "working", parts: [lowered(turn.on), elapsed(Math.floor((now - turn.since) / 1000))] };
+            return { word: say("Working"), phase: "working", parts: [lowered(turn.on), elapsed(Math.floor((now - turn.since) / 1000))] };
         case "waiting": {
             if (!turn.wait) return undefined;
-            const gone = waited(turn.wait, now);
-            return { word: waitingOn(turn.wait), phase: "waiting", parts: gone ? [gone] : [] };
+            const gone = waited(turn.wait, now, say);
+            return { word: waitingOn(turn.wait, say), phase: "waiting", parts: gone ? [gone] : [] };
         }
         case "needsYou": {
             const call = turn.call;
             if (!call) return undefined;
-            const more = call.count > 1 ? ` and ${call.count - 1} more` : "";
-            return { word: "Needs you", phase: "needsYou", parts: [`${call.question}${more}`, `${minutes(call.waitingSince)} min`] };
+            const asked = call.count > 1 ? say("{question} and {more} more", { question: call.question, more: call.count - 1 }) : call.question;
+            return { word: say("Needs you"), phase: "needsYou", parts: [asked, say("{minutes} min", { minutes: minutes(call.waitingSince) })] };
         }
         case "done": {
             const done = turn.done;
-            if (!done) return { word: "Done", phase: "done", parts: [] };
-            const parts = [changed(done.changes)];
+            if (!done) return { word: say("Done"), phase: "done", parts: [] };
+            const parts = [changed(done.changes, say)];
             if (done.changes !== "none") {
-                if (done.checks === "pass") parts.push(done.tests != null ? `${done.tests} tests pass` : "checks pass");
-                else if (done.checks === "failed") parts.push("checks fail");
+                if (done.checks === "pass") parts.push(done.tests != null ? say("{tests} tests pass", { tests: done.tests }) : say("checks pass"));
+                else if (done.checks === "failed") parts.push(say("checks fail"));
             }
-            return { word: "Done", phase: "done", parts };
+            return { word: say("Done"), phase: "done", parts };
         }
         case "stopped": {
             const parts = turn.stopped?.left ? [lowered(turn.stopped.left)] : [];
-            parts.push("nothing set to wake it");
-            return { word: "Stopped", phase: "stopped", parts };
+            parts.push(say("nothing set to wake it"));
+            return { word: say("Stopped"), phase: "stopped", parts };
         }
         case "failed": {
             const failed = turn.failed;
             if (!failed) return undefined;
             const why =
                 failed.why === "limit"
-                    ? `${maker}'s limit`
+                    ? say("{maker}'s limit", { maker })
                     : failed.why === "signIn"
-                      ? `signed out of ${maker}`
+                      ? say("signed out of {maker}", { maker })
                       : failed.why === "network"
-                        ? `lost the connection to ${maker}`
-                        : (failed.said ?? "the turn did not finish");
+                        ? say("lost the connection to {maker}", { maker })
+                        : (failed.said ?? say("the turn did not finish"));
             const parts = [why];
-            if (failed.resetsAt != null && failed.resetsAt > now) parts.push(`resets ${clockLabel(failed.resetsAt, now)}`);
-            return { word: "Failed", phase: "failed", parts };
+            if (failed.resetsAt != null && failed.resetsAt > now) parts.push(say("resets {when}", { when: clockLabel(failed.resetsAt, now) }));
+            return { word: say("Failed"), phase: "failed", parts };
         }
         default:
             return undefined;
@@ -73,72 +74,72 @@ export function said(turn: TurnState, maker: string, now = Date.now()): Said | u
  * The line over a call docked on the chat, which already shows the question: the word, how many calls wait when more
  * than one does, and how long.
  */
-export function docked(line: Said, waiting: number): Said {
+export function docked(line: Said, waiting: number, say: Say = english): Said {
     if (line.phase !== "needsYou") return line;
-    return { ...line, parts: [...(waiting > 1 ? [`${waiting} calls`] : []), ...line.parts.slice(-1)] };
+    return { ...line, parts: [...(waiting > 1 ? [say("{count} calls", { count: waiting })] : []), ...line.parts.slice(-1)] };
 }
 
-export function waitingOn(wait: TurnWait): string {
+export function waitingOn(wait: TurnWait, say: Say = english): string {
     switch (wait.kind) {
         case "ci":
-            return "Waiting on CI";
+            return say("Waiting on CI");
         case "deploy":
-            return "Waiting on the deploy";
+            return say("Waiting on the deploy");
         case "check":
-            return "Waiting on the checks";
+            return say("Waiting on the checks");
         case "agent":
-            return wait.what.startsWith("@") ? `Waiting on ${wait.what}` : `Waiting on @${wait.what}`;
+            return say("Waiting on {what}", { what: wait.what.startsWith("@") ? wait.what : `@${wait.what}` });
         case "timer":
-            return wait.until != null ? `Waiting until ${clockLabel(wait.until)}` : "Waiting";
+            return wait.until != null ? say("Waiting until {when}", { when: clockLabel(wait.until) }) : say("Waiting");
         default:
-            return `Waiting on ${wait.what}`;
+            return say("Waiting on {what}", { what: wait.what });
     }
 }
 
 /** How long a wait has gone, against how long it usually takes once that is known. */
-export function waited(wait: TurnWait, now = Date.now()): string | undefined {
+export function waited(wait: TurnWait, now = Date.now(), say: Say = english): string | undefined {
     if (wait.kind === "timer") return undefined;
     const gone = Math.floor(Math.max(0, now - wait.startedAt) / MINUTE);
-    if (wait.expectedMs == null) return `${gone} min`;
-    return `${gone} of ~${Math.ceil(wait.expectedMs / MINUTE)} min`;
+    if (wait.expectedMs == null) return say("{minutes} min", { minutes: gone });
+    return say("{minutes} of ~{expected} min", { minutes: gone, expected: Math.ceil(wait.expectedMs / MINUTE) });
 }
 
-export function changed(changes: WorkAt): string {
+export function changed(changes: WorkAt, say: Say = english): string {
     switch (changes) {
         case "uncommitted":
-            return "uncommitted";
+            return say("uncommitted");
         case "committed":
-            return "committed";
+            return say("committed");
         case "landed":
-            return "landed";
+            return say("landed");
         case "staged":
-            return "on staging";
+            return say("on staging");
         case "shipped":
-            return "shipped";
+            return say("shipped");
         default:
-            return "no changes";
+            return say("no changes");
     }
 }
 
 /** The words on a step's button. */
-export function stepLabel(step: TurnStep): string | undefined {
+export function stepLabel(step: TurnStep, say: Say = english): string | undefined {
     switch (step) {
         case "commit":
-            return "Commit";
+            return say("Commit");
         case "push":
-            return "Push";
+            return say("Push");
         case "deployStaging":
-            return "Deploy to staging";
+            return say("Deploy to staging");
         case "shipProduction":
-            return "Ship to production…";
+            return say("Ship to production…");
         case "rollBack":
-            return "Roll back";
+            return say("Roll back");
         case "tryIt":
-            return "Try it";
+            return say("Try it");
         case "carryOn":
-            return "Carry on";
+            return say("Carry on");
         case "undo":
-            return "Undo";
+            return say("Undo");
         default:
             return undefined;
     }
@@ -202,21 +203,21 @@ export function countdown(ms: number): string {
 }
 
 /** What a row's mark says to a screen reader, the hover card's words on the Mac. */
-export function rowLabel(turn: TurnState, now = Date.now()): string {
+export function rowLabel(turn: TurnState, now = Date.now(), say: Say = english): string {
     const time = rowMinutes(turn, now) ?? "";
     switch (turn.state) {
         case "working":
-            return "Working";
+            return say("Working");
         case "waiting":
-            return turn.wait ? `${waitingOn(turn.wait)}, ${time}` : "Waiting";
+            return turn.wait ? `${waitingOn(turn.wait, say)}, ${time}` : say("Waiting");
         case "needsYou":
-            return `Needs you, ${time}`;
+            return say("Needs you, {time}", { time });
         case "done":
-            return "Done";
+            return say("Done");
         case "stopped":
-            return "Stopped";
+            return say("Stopped");
         case "failed":
-            return "Failed";
+            return say("Failed");
         default:
             return "";
     }
@@ -229,17 +230,18 @@ export const CHIEF = "@Chief";
 /** The composer's words in the chief's own chat. */
 export const TELL_CHIEF = "Tell @Chief what you want";
 /** The composer's words in a worker's chat, in a project with a chief. */
-export const sendTo = (name: string) => `Send to @${name}`;
+export const sendTo = (name: string, say: Say = english) => say("Send to @{name}", { name });
 /** Under the chief's row when a tap cannot reach the host to open its chat. */
 export const CHIEF_OFFLINE = "Not connected to this host yet, so its chief can't open.";
 
 // An assumption
 
 /** After the agent's name: what it went on assuming. */
-export const assumed = (assumption: string) => `assumed ${assumption}`;
+export const assumed = (assumption: string, say: Say = english) => say("assumed {assumption}", { assumption });
 export const FINE = "Fine";
 export const CHANGE = "Change";
-export const couldNotRead = (problem: string) => `could not read this agent's questions: ${problem}`;
+export const couldNotRead = (problem: string, say: Say = english) =>
+    say("could not read this agent's questions: {problem}", { problem });
 
 // The call card
 
@@ -251,19 +253,21 @@ export const SECRET_FIELD = "Type or paste it…";
 export const GO_WITH_THIS = "Go with this";
 export const NOT_MINE = "Not mine";
 export const WHAT_RUNS = "What runs";
-export const kept = (name: string) => `Kept private: @${name} reads it, and it never shows in the chat.`;
+export const kept = (name: string, say: Say = english) =>
+    say("Kept private: @{name} reads it, and it never shows in the chat.", { name });
 /** Go with this while the host has not yet taken that this phone drew the call. */
 export const CONNECTING = "Connecting…";
 /** Which of an agent's waiting calls the card shows: `1 of 3`. */
-export const place = (index: number, count: number) => `${index} of ${count}`;
+export const place = (index: number, count: number, say: Say = english) => say("{index} of {count}", { index, count });
 /** On the card when the answer sent from its notification did not go. */
-export const pushFailed = (why: string) => `Your answer from the notification didn't go: ${why}`;
+export const pushFailed = (why: string, say: Say = english) => say("Your answer from the notification didn't go: {why}", { why });
 
 /** How much a hidden answer holds, so the person can see their typing and paste landed. */
-export function hidden(text: string): string {
+export function hidden(text: string, say: Say = english): string {
     const lines = (text.endsWith("\n") ? text.slice(0, -1) : text).split("\n").length;
-    const characters = `${text.length} character${text.length === 1 ? "" : "s"} hidden`;
-    return lines > 1 ? `${lines} lines, ${characters}` : characters;
+    const characters =
+        text.length === 1 ? say("1 character hidden") : say("{count} characters hidden", { count: text.length });
+    return lines > 1 ? say("{lines} lines, {characters}", { lines, characters }) : characters;
 }
 
 /** The name on a picture's corner: an evidence item's own words, when they are short enough to be a name, else none. */
@@ -276,9 +280,10 @@ export function pictureLabel(words: string): string | undefined {
 /** Said when an answer to a call carries context chips, which a call's answer does not take. */
 export const NO_CHIPS = "A call's answer takes words and files, not chips. Take the chips off, or send them to the agent.";
 /** The composer's chip while a call waits in the chat. */
-export const answering = (name: string, question: string) => `Answering @${name} · ${question}`;
+export const answering = (name: string, question: string, say: Say = english) =>
+    say("Answering @{name} · {question}", { name, question });
 /** The composer's placeholder while a call waits in the chat. */
-export const typeYourAnswer = (name: string) => `Or type your answer to @${name}`;
+export const typeYourAnswer = (name: string, say: Say = english) => say("Or type your answer to @{name}", { name });
 
 /** A weighty call's brief, which stands as its context. */
 export function context(call: PersonCall): string | undefined {
@@ -292,27 +297,27 @@ export const ANSWERED = "Answered";
 export const NO_CALLS = "Nothing waits on you.";
 
 /** What came of an answered or closed call, as its row in the calls tab says it. */
-export function cameOf(call: PersonCall): string {
+export function cameOf(call: PersonCall, say: Say = english): string {
     switch (call.outcome?.result) {
         case "shipped":
-            return call.outcome.healthy === true ? "shipped · healthy" : call.outcome.healthy === false ? "shipped · unhealthy" : "shipped";
+            return say(call.outcome.healthy === true ? "shipped · healthy" : call.outcome.healthy === false ? "shipped · unhealthy" : "shipped");
         case "notShipped":
-            return "not shipped";
+            return say("not shipped");
         case "failed":
-            return "it failed";
+            return say("it failed");
         case "mayHaveRun":
-            return "may have run, Sikemux restarted";
+            return say("may have run, Sikemux restarted");
         case "handedBack":
-            return "handed back";
+            return say("handed back");
         case "withdrawn":
-            return "went on without you";
+            return say("went on without you");
     }
     const answer = call.answer;
-    if (!answer) return "closed";
-    if (call.secret) return "answered, kept private";
-    if (answer.words != null) return "in your words";
+    if (!answer) return say("closed");
+    if (call.secret) return say("answered, kept private");
+    if (answer.words != null) return say("in your words");
     const picked = answer.option != null ? [answer.option] : (answer.options ?? []);
-    if (picked.length === 1 && picked[0] === call.pick) return "as picked";
+    if (picked.length === 1 && picked[0] === call.pick) return say("as picked");
     const labels = picked.map((id) => call.options.find((option) => option.id === id)?.label).filter((label) => label != null);
     return labels.length ? labels.map((label) => `“${label}”`).join(", ") : "answered";
 }

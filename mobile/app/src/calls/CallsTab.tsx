@@ -4,6 +4,7 @@ import { router } from 'expo-router';
 
 import { formatAge } from '@shared/lib/format';
 import { ANSWERED, cameOf, NO_CALLS } from '@shared/calls/words';
+import { useT } from '@/i18n';
 import type { PersonCall, ProjectInfo } from '@shared/wire.generated';
 import type { Snapshot } from '@/core/protocol';
 import type { ConnectionLike } from '@sikemux/native';
@@ -38,6 +39,7 @@ export function CallsTab({
   const styles = useStyles(makeStyles);
   const minute = useMinute();
   const [unfolded, setUnfolded] = useState<string>();
+  const t = useT();
   const chatless = (call: PersonCall) => !snapshot.chats.some((chat) => chat.agentId === call.asker.agentId);
   const open = openCalls(snapshot, scope);
   const settled = settledCalls(snapshot, scope);
@@ -100,7 +102,7 @@ export function CallsTab({
               row(
                 call,
                 <Text style={styles.end} numberOfLines={1}>
-                  {cameOf(call)}
+                  {cameOf(call, t)}
                 </Text>,
               ),
             )}

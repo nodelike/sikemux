@@ -7,6 +7,7 @@ import { FlashList, type FlashListRef } from '@shopify/flash-list';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { activityDoing } from '@shared/chat/chatStatus';
+import { useT } from '@/i18n';
 import { subagentsOf } from '@shared/chat/subagents';
 import type { ChatMessage } from '@shared/wire.generated';
 import { shareUrl } from '@shared/account/live';
@@ -134,8 +135,9 @@ function SharedChat({ session }: { session: ShareSession }) {
   const marks = useMemo(() => [liveId, openWork], [liveId, openWork]);
   const [since] = useState(Date.now);
   const now = useMinute() * 60_000;
+  const t = useT();
   const live = snapshot.status === 'live';
-  const activity = live ? activityDoing(state.activity) : null;
+  const activity = live ? activityDoing(state.activity, t) : null;
   const problem = problemOf(snapshot);
   const list = useRef<FlashListRef<ChatMessage>>(null);
   const scroll = useTranscriptScroll(list, {

@@ -42,6 +42,7 @@ import { type Glyph, PromptGlyph } from '@/ui/prompt';
 import { Nav, Screen, useKeyboardShown } from '@/ui/screen';
 import { Working } from '@/devices/AgentMarks';
 import { Sheet, SheetLabel } from '@/ui/Sheet';
+import { useT } from '@/i18n';
 import { fonts, type Palette, useColors, useStyles, useType } from '@/ui/theme';
 
 /** How long typing rests before the new chat's draft is written down. */
@@ -51,8 +52,6 @@ function keepNewChat(store: ReturnType<typeof newChatDraft>, held: NewChatDraft)
   if (held.text || held.attachments.length || held.chips.length) store.save(held);
   else store.clear();
 }
-
-const IDLE = composerPlaceholder({ connection: 'ready', running: false }, { resuming: false, disconnected: false });
 
 /** The account a launcher runs on, as the core names it after the agent: "Claude · Work" is Work. */
 const accountName = (launcher: LauncherInfo) => {
@@ -173,6 +172,7 @@ export default function NewChat() {
   const colors = useColors();
   const styles = useStyles(makeStyles);
   const type = useType();
+  const t = useT();
   const {
     core,
     project: linkedProject,
@@ -440,7 +440,7 @@ export default function NewChat() {
               value={draft}
               tokens={tagTokens(draft, attachments.length)}
               onChangeText={setDraft}
-              placeholder={IDLE}
+              placeholder={composerPlaceholder({ connection: 'ready', running: false }, { resuming: false, disconnected: false }, t)}
               editable={!starting}
               autoFocus
               onFocus={() => setFocused(true)}

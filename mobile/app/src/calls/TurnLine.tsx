@@ -50,9 +50,9 @@ export function TurnLine({
   const [taking, setTaking] = useState<TurnStep>();
   const [refused, setRefused] = useState<string>();
   if (turn.state === 'failed') return null;
-  const line = said(turn, agentLabel(provider), now);
+  const line = said(turn, agentLabel(provider), now, t);
   if (!line) return null;
-  const shown: Said = callDocked ? docked(line, turn.call?.count ?? 1) : line;
+  const shown: Said = callDocked ? docked(line, turn.call?.count ?? 1, t) : line;
 
   /** Takes a step; a production step raises its call, which docks on this chat to be answered. */
   const take = async (step: TurnStep) => {
@@ -68,8 +68,8 @@ export function TurnLine({
     }
   };
   const chip = (step: TurnStep, primary: boolean) => {
-    const label = stepLabel(step);
-    return label ? <Chip key={step} title={t(label)} primary={primary} busy={taking === step} onPress={() => void take(step)} /> : null;
+    const label = stepLabel(step, t);
+    return label ? <Chip key={step} title={label} primary={primary} busy={taking === step} onPress={() => void take(step)} /> : null;
   };
   const buttons = !canAct ? null : turn.state === 'done' ? (
     (turn.done?.next ?? []).map((next) => chip(next.step, next.primary))
@@ -85,11 +85,11 @@ export function TurnLine({
         <View style={styles.mark}>
           <Mark phase={turn.state} />
         </View>
-        <View style={styles.words} accessible accessibilityLabel={[t(shown.word), ...shown.parts].join(', ')}>
+        <View style={styles.words} accessible accessibilityLabel={[shown.word, ...shown.parts].join(', ')}>
           {shown.phase === 'working' ? (
-            <Shimmer style={[styles.word, { color: colors.ink }]}>{t(shown.word)}</Shimmer>
+            <Shimmer style={[styles.word, { color: colors.ink }]}>{shown.word}</Shimmer>
           ) : (
-            <Text style={[styles.word, { color: tint(shown.phase, colors) }]}>{t(shown.word)}</Text>
+            <Text style={[styles.word, { color: tint(shown.phase, colors) }]}>{shown.word}</Text>
           )}
           {shown.parts.map((part, index) => (
             <View key={index} style={styles.part}>

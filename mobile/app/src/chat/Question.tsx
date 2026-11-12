@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { assumed, CHANGE, FINE } from '@shared/calls/words';
+import { useT } from '@/i18n';
 import type { AgentQuestion } from '@shared/wire.generated';
 import { haptics } from '@/ui/haptics';
 import { Icon } from '@/ui/Icon';
@@ -82,6 +83,7 @@ export function AssumedQuestion({
 }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
+  const t = useT();
   const act = (label: string, onPress: () => void) => (
     <Text
       style={styles.act}
@@ -99,7 +101,7 @@ export function AssumedQuestion({
         <Icon name="IconCheck" size={13} color={colors.inkDim} />
       </View>
       <Text style={styles.assumedText}>
-        <Text style={styles.name}>@{question.name}</Text> {assumed(question.assumption ?? '')}
+        <Text style={styles.name}>@{question.name}</Text> {assumed(question.assumption ?? '', t)}
         {canAnswer ? (
           <>
             {'  ·  '}

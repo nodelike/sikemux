@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ConnectionLike } from '@sikemux/native';
 
 import { couldNotRead } from '@shared/calls/words';
+import { useT } from '@/i18n';
 import type { AgentQuestion, AnswerParams, ChatContext } from '@shared/wire.generated';
 
 import { callHost, useHostCall } from '@/core/hostCalls';
@@ -35,14 +36,15 @@ export function useAssumptions(
   seen: string,
   onError: (problem: string) => void,
 ): Assumptions {
+  const t = useT();
   const [sent, setSent] = useState<ReadonlySet<string>>(() => new Set());
   const [changingId, setChangingId] = useState<string | null>(null);
   const [reads, setReads] = useState(0);
   const read = useHostCall(connection, 'questions', {}, `${seen}|${reads}`);
   const all = read.data ?? NONE;
   useEffect(() => {
-    if (read.problem) onError(couldNotRead(read.problem));
-  }, [read.problem, onError]);
+    if (read.problem) onError(couldNotRead(read.problem, t));
+  }, [read.problem, onError, t]);
 
   const assumed = useMemo(
     () => all.filter((question) => question.agentId === agentId && question.state === 'assumed' && !sent.has(question.id)),

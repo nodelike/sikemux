@@ -5,6 +5,7 @@ import Svg, { Circle } from 'react-native-svg';
 
 import type { AgentGroup, TurnState } from '@shared/wire.generated';
 import { ringShare, rowLabel, rowMinutes } from '@shared/calls/words';
+import { useT } from '@/i18n';
 import { counted } from './words';
 
 import { Icon } from '@/ui/Icon';
@@ -146,12 +147,13 @@ export function WakeTime({ at, now }: { at: number; now: number }) {
 export function TurnMark({ turn, now }: { turn?: TurnState; now: number }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
+  const t = useT();
   if (!turn) return null;
   const share = turn.state === 'waiting' ? ringShare(turn.wait, now) : undefined;
   const time = rowMinutes(turn, now);
   const tint = turn.state === 'needsYou' ? colors.warn : turn.state === 'waiting' && share == null ? colors.cmd : colors.tertiary;
   return (
-    <View style={styles.count} accessible accessibilityLabel={rowLabel(turn, now)}>
+    <View style={styles.count} accessible accessibilityLabel={rowLabel(turn, now, t)}>
       {time ? <Text style={[styles.time, { color: tint }]}>{time}</Text> : null}
       <View style={styles.markBox}>
         {turn.state === 'working' ? (

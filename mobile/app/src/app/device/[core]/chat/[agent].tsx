@@ -29,7 +29,7 @@ import { useAssumptions } from '@/chat/assumptions';
 import { CallDock } from '@/calls/CallDock';
 import { TurnLine } from '@/calls/TurnLine';
 import { answerWritten, composingCall, queueOf, stopComposing, useKept, waitingCall } from '@/calls/hostCalls';
-import { NO_CHIPS, TELL_CHIEF, answering as answeringWords, sendTo } from '@shared/calls/words';
+import { NO_CHIPS, TELL_CHIEF, answering as answeringWords, sendTo, typeYourAnswer } from '@shared/calls/words';
 import { hasLiveWork, liveKey, liveWork } from '@/chat/liveWork';
 import { stripOf, stripOwner } from '@/chat/messageMeta';
 import { ToolDetailContext } from '@/chat/Tools';
@@ -164,7 +164,7 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
     setEditing(message.id);
   };
   const editingRow = useEditingRow(editing, setEditing, session, scroll, rows);
-  const doing = chat.stoppingTurn ? { verb: 'Stopping' } : chat.permissions.length > 0 ? null : activityDoing(state.activity);
+  const doing = chat.stoppingTurn ? { verb: t('Stopping') } : chat.permissions.length > 0 ? null : activityDoing(state.activity, t);
   const liveRun = liveRunKey(state.messages, state.activeTool);
   // While the run holding the running call is open, its line already names what runs.
   const runShown = useSyncExternalStore(session.folds.subscribe, () => liveRun !== null && session.folds.isOpen(liveRun, true));
@@ -208,15 +208,15 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
   const docked = waitingCall(queue, keptCalls, agentId);
   // Change on an assumption wins over a call docked in the same chat, until it is sent or taken off.
   const changing = watchOnly ? null : assumptions.changing;
-  const composing = watchOnly || changing ? undefined : answeringIn(composingCall(docked, keptCalls));
+  const composing = watchOnly || changing ? undefined : answeringIn(composingCall(docked, keptCalls), t);
   const canAnswerCall = !watchOnly && live.status === 'open';
   // In a project with a chief the composer says who an idle chat's words go to, as the Mac does.
   const projectId = live.snapshot ? projectOf(live.snapshot, agentId) : undefined;
   const hasChief = !!live.snapshot?.workspace.projects.find((project) => project.id === projectId)?.chief;
   const composerTo = state.chief
-    ? { words: TELL_CHIEF, commands: true, said: t(TELL_CHIEF) }
+    ? { words: t(TELL_CHIEF), commands: true }
     : hasChief && info?.name
-      ? { words: sendTo(info.name), commands: false, said: t('Send to @{name}', { name: info.name }) }
+      ? { words: sendTo(info.name, t), commands: false }
       : undefined;
   // React's compiler keeps this element while its inputs stay the same, so a view from the host leaves the card be.
   const dock = docked ? (
@@ -448,18 +448,18 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
                   answering={chat.answering}
                   placeholder={
                     changing
-                      ? t('Or type your answer to @{name}', { name: changing.name })
+                      ? typeYourAnswer(changing.name, t)
                       : composing
-                        ? t('Or type your answer to @{name}', { name: composing.asker })
-                        : placeholderIn(
-                            composerPlaceholder(state, {
+                        ? typeYourAnswer(composing.asker, t)
+                        : composerPlaceholder(
+                            state,
+                            {
                               resuming: false,
                               disconnected: live.status !== 'open',
                               commands: state.commands.length > 0,
                               steers,
                               to: composerTo,
-                            }),
-                            composerTo,
+                            },
                             t,
                           )
                   }
@@ -479,7 +479,7 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
                   question={
                     changing
                       ? {
-                          chip: answeringWords(changing.name, changing.text),
+                          chip: answeringWords(changing.name, changing.text, t),
                           cli: changing.cli,
                           onRemove: assumptions.stopChanging,
                           onAnswer: (written) => assumptions.answer(changing, written),
@@ -591,19 +591,13 @@ const makeStyles = (colors: Palette) => {
 };
 
 /** What the composer says while it answers `call`, worked out apart from the call so the docked card keeps its element. */
-function answeringIn(call: PersonCall | undefined) {
+function answeringIn(call: PersonCall | undefined, t: Translate) {
   return (
     call && {
       id: call.id,
       cli: call.asker.cli,
-      chip: answeringWords(call.asker.name, call.question),
+      chip: answeringWords(call.asker.name, call.question, t),
       asker: call.asker.name,
     }
   );
-}
-
-/** The composer's hint in the person's language; a hint naming who the words go to is said with that name in it. */
-function placeholderIn(english: string, to: { words: string; said: string } | undefined, t: Translate): string {
-  if (!to || !english.startsWith(to.words)) return t(english);
-  return english === to.words ? to.said : t('{to}, or type / for commands', { to: to.said });
 }

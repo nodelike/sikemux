@@ -3,7 +3,6 @@ import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
 
 import type { Doing } from '@shared/chat/chatStatus';
 import { durationLabel } from '@shared/chat/durationLabel';
-import { useT } from '@/i18n';
 import { AgentIcon } from '@/ui/Icon';
 import { fonts, type Palette, useStyles } from '@/ui/theme';
 import { useAnimating, useSecond } from '@/ui/motion';
@@ -12,8 +11,6 @@ import { Shimmer } from '@/ui/Shimmer';
 /** The line under the last row: the agent's mark, a sweep on what it is doing, then what it is on and for how long. */
 export function Activity({ provider, doing, since }: { provider: string; doing: Doing; since: number }) {
   const styles = useStyles(makeStyles);
-  const t = useT();
-  const verb = t(doing.verb);
   const [breath] = useState(() => new Animated.Value(1));
   const animating = useAnimating();
   const [first] = useState(() => Math.round((Date.now() - since) / 1000));
@@ -31,16 +28,17 @@ export function Activity({ provider, doing, since }: { provider: string; doing: 
     return () => loop.stop();
   }, [breath, animating]);
   return (
-    <View style={styles.activity} accessible accessibilityLabel={doing.what ? `${verb} ${doing.what}` : verb}>
+    <View style={styles.activity} accessible accessibilityLabel={[doing.verb, doing.what, doing.after].filter(Boolean).join(' ')}>
       <Animated.View style={{ opacity: breath }}>
         <AgentIcon provider={provider} size={20} />
       </Animated.View>
-      <Shimmer style={styles.verb}>{verb}</Shimmer>
+      {doing.verb ? <Shimmer style={styles.verb}>{doing.verb}</Shimmer> : null}
       {doing.what ? (
         <Text style={[styles.what, doing.typed && styles.typed]} numberOfLines={1}>
           {doing.what}
         </Text>
       ) : null}
+      {doing.what && doing.after ? <Shimmer style={styles.verb}>{doing.after}</Shimmer> : null}
       {seconds > 0 ? <Text style={styles.time}>{durationLabel(seconds * 1000)}</Text> : null}
     </View>
   );

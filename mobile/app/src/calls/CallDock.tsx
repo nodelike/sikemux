@@ -21,6 +21,7 @@ import {
   SECRET_FIELD,
   WHAT_RUNS,
 } from '@shared/calls/words';
+import { useT } from '@/i18n';
 import type { CallOption, PersonCall } from '@shared/wire.generated';
 import { AskerMark } from '@/calls/AskerMark';
 import { answer, answerOf, choose, chosenIn, draftOf, edit, focus, notMine, see, useKept } from '@/calls/hostCalls';
@@ -66,6 +67,7 @@ export const CallDock = memo(function CallDock({
   const styles = useStyles(makeStyles);
   const minute = useMinute();
   const held = useKept(core);
+  const t = useT();
   const store = draftOf(calls, call);
   const draft = useExternalValue(store);
   const chosen = chosenIn(draft, call);
@@ -102,7 +104,7 @@ export const CallDock = memo(function CallDock({
           <Text style={styles.name}>@{call.asker.name}</Text>
           <Text style={styles.sep}>·</Text>
           <Text style={styles.age}>{formatAge(call.raisedAt, minute * 60_000)}</Text>
-          {queue.length > 1 && at >= 0 ? <Text style={styles.place}>{place(at + 1, queue.length)}</Text> : null}
+          {queue.length > 1 && at >= 0 ? <Text style={styles.place}>{place(at + 1, queue.length, t)}</Text> : null}
         </View>
         <Text style={styles.question}>{call.question}</Text>
         {context ? (
@@ -215,11 +217,11 @@ export const CallDock = memo(function CallDock({
         ) : null}
         {secret ? (
           <>
-            {typed ? <Text style={styles.hiddenSize}>{hidden(draft.typed)}</Text> : null}
-            <Text style={styles.kept}>{kept(call.asker.name)}</Text>
+            {typed ? <Text style={styles.hiddenSize}>{hidden(draft.typed, t)}</Text> : null}
+            <Text style={styles.kept}>{kept(call.asker.name, t)}</Text>
           </>
         ) : null}
-        {failed ? <Text style={styles.failed}>{pushFailed(failed)}</Text> : null}
+        {failed ? <Text style={styles.failed}>{pushFailed(failed, t)}</Text> : null}
         <Pressable
           onPress={go}
           disabled={!ready}
