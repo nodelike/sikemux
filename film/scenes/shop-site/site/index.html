@@ -1,0 +1,21 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Acme invoice</title>
+<style>
+body{font-family:-apple-system,Helvetica,sans-serif;margin:0;background:#f6f6f4;color:#1c1c1f}
+main{max-width:720px;margin:0 auto;padding:32px 20px}
+h1{font-size:24px;margin:0 0 4px}.due{color:#6b6b73;margin-bottom:24px}
+.card{background:#fff;border:1px solid #e3e3df;border-radius:12px;padding:16px 18px;margin-bottom:14px}
+.row{display:flex;justify-content:space-between;padding:6px 0}.total{font-weight:700;border-top:1px solid #e3e3df;margin-top:8px;padding-top:12px}
+.pay{display:flex;gap:10px;flex-wrap:wrap}.opt{flex:1;min-width:150px;border:1px solid #d6d6d1;border-radius:10px;padding:12px 14px}
+.opt.on{border-color:#7c5cff;box-shadow:0 0 0 2px #e6e0ff}
+button{width:100%;margin-top:16px;padding:12px;border:0;border-radius:10px;background:#7c5cff;color:#fff;font-size:15px;font-weight:600}
+</style></head>
+<body><main>
+<h1>Invoice INV-2041</h1><div class="due">Due 28 November · Acme Supply Co.</div>
+<div class="card"><div class="row"><span>Design retainer, November</span><span>$2,400.00</span></div>
+<div class="row"><span>Hosting</span><span>$120.00</span></div>
+<div class="row total"><span>Total</span><span>$2,520.00</span></div></div>
+<div class="card"><b>Pay with</b><div class="pay" style="margin-top:10px">
+<div class="opt on">Card<br><small>Visa, Mastercard, Amex</small></div>
+</div><button>Pay $2,520.00</button></div>
+</main></body></html>

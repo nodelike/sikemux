@@ -234,10 +234,19 @@ pub(super) fn all(
     cx: &Context<Workbench>,
 ) -> AnyElement {
     let t = Tokens::get(cx).clone();
+    let core_taken = core_pictures(bench, agent, &tab.url);
     let desks = bench.desks.read(cx);
     let held = (desks.engine.as_ref()).and_then(|engine| engine.viewport(agent, &tab.id));
     let live_at = live_preset(held);
-    let pictures = desks.pictures.by_address.get(&tab.url);
+    let own = desks.pictures.by_address.get(&tab.url);
+    let pictures: HashMap<&str, (Option<Arc<Image>>, u64)> = match &core_taken {
+        Some(taken) => (taken.iter())
+            .map(|(preset, id, at)| (*preset, (crate::chat::turn_picture_held(id, cx), *at)))
+            .collect(),
+        None => (own.into_iter().flatten())
+            .map(|(preset, picture)| (*preset, (Some(picture.image.clone()), picture.taken)))
+            .collect(),
+    };
     let label = |name: &str, after: String| {
         div()
             .flex()
@@ -268,9 +277,9 @@ pub(super) fn all(
             .filter(|(preset, ..)| *preset != live_at)
             .map(|(preset, name, _)| {
                 let size = Viewport::preset(preset).expect("every width is a preset");
-                let picture = pictures.and_then(|pictures| pictures.get(preset));
-                let after = picture.map_or_else(String::new, |picture| {
-                    format!(" · {}", ui::time::clock(picture.taken))
+                let picture = pictures.get(preset);
+                let after = picture.map_or_else(String::new, |(_, taken)| {
+                    format!(" · {}", ui::time::clock(*taken))
                 });
                 let shape = size.width as f32 / size.height as f32;
                 let (bench, agent, tab_id) =
@@ -293,12 +302,12 @@ pub(super) fn all(
                             .border_color(t.border)
                             .bg(t.surface_raised)
                             .hover(move |frame| frame.border_color(t.border_strong))
-                            .map(|frame| match picture {
-                                Some(picture) => frame.child(
+                            .map(|frame| match picture.and_then(|(image, _)| image.clone()) {
+                                Some(image) => frame.child(
                                     div()
                                         .w_full()
                                         .aspect_ratio(shape)
-                                        .child(gpui_kit::img(picture.image.clone()).size_full()),
+                                        .child(gpui_kit::img(image).size_full()),
                                 ),
                                 None => frame.flex().items_center().justify_center().child(
                                     gpui_kit::component::spinner::Spinner::new()
@@ -345,6 +354,25 @@ pub(super) fn all(
         .child(live_column)
         .child(pictures_column)
         .into_any_element()
+}
+
+/// The core's latest pictures of the page at `url`, as `agent`'s turns took it, each by width
+/// with its id and when it was taken; none when its turns took none of that page.
+fn core_pictures(
+    bench: &Workbench,
+    agent: &str,
+    url: &str,
+) -> Option<Vec<(&'static str, String, u64)>> {
+    let page = url::Url::parse(url).ok()?.path().to_owned();
+    let shown = bench.chats.open.get(agent)?.pictures_of(&page)?;
+    let taken = (WIDTHS.iter())
+        .filter_map(|(preset, ..)| {
+            let width = Viewport::preset(preset)?.width;
+            let shot = shown.widths.iter().find(|shot| shot.width == width)?;
+            Some((*preset, shot.after.id.clone(), shot.after.at))
+        })
+        .collect();
+    Some(taken)
 }
 
 /// `jpeg` at most [`PICTURE_PIXELS`] wide, so a desktop-wide picture is not kept at full size.
@@ -427,6 +455,16 @@ impl Workbench {
         ) else {
             return;
         };
+        if let Some(taken) = core_pictures(self, agent, &tab.url) {
+            let bench = cx.entity().downgrade();
+            for (_, id, _) in taken {
+                let redraw = bench.clone();
+                crate::chat::turn_picture(&id, agent, &bench, cx, move |cx| {
+                    redraw.update(cx, |_, cx| cx.notify()).ok();
+                });
+            }
+            return;
+        }
         if tab.loading {
             return;
         }

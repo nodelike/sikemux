@@ -1,0 +1,9 @@
+--- a/site/index.html
++++ b/site/index.html
+@@ -17,5 +17,6 @@
+ <div class="row total"><span>Total</span><span>$2,520.00</span></div></div>
+ <div class="card"><b>Pay with</b><div class="pay" style="margin-top:10px">
+ <div class="opt on">Card<br><small>Visa, Mastercard, Amex</small></div>
++<div class="opt">Bank transfer<br><small>2–3 working days</small></div>
+ </div><button>Pay $2,520.00</button></div>
+ </main></body></html>

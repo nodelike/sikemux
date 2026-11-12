@@ -81,6 +81,8 @@ pub(crate) mod page;
 mod questions;
 mod rows;
 mod schema;
+mod shown;
+pub(crate) use shown::{turn_picture, turn_picture_held};
 pub(crate) mod status;
 mod team;
 mod tools;
@@ -465,6 +467,10 @@ struct Reading {
     /// The runs of messages between agents the reader opened, and whether all of each shows,
     /// by the run.
     teams: HashMap<String, bool>,
+    /// The pages the chat's turns changed, as the core took them.
+    shown: Vec<sikemux_view::shown::TurnShown>,
+    /// Its workers' finished work.
+    results: Vec<sikemux_view::shown::ResultRow>,
 }
 
 impl Reading {
@@ -597,6 +603,15 @@ pub struct Chat {
 }
 
 impl Chat {
+    /// The core's latest pictures of the page at `page`, as this chat's turns took it.
+    pub(crate) fn pictures_of(&self, page: &str) -> Option<sikemux_view::shown::PageShown> {
+        let turns = &self.state.as_ref()?.shown;
+        (turns.iter().rev())
+            .flat_map(|turn| turn.pages.iter())
+            .find(|shown| shown.page == page)
+            .cloned()
+    }
+
     pub fn new(
         agent: String,
         provider: &str,
@@ -951,7 +966,14 @@ impl Chat {
             head.capabilities.editing && head.connection == ChatConnection::Ready && !head.running
         });
         let earlier_lost = self.state.as_ref().is_some_and(|head| head.earlier_lost);
+        let (shown, results) = self.state.as_ref().map_or_else(Default::default, |head| {
+            (head.shown.clone(), head.results.clone())
+        });
         self.reader.update(cx, |reading, cx| {
+            if reading.shown != shown || reading.results != results {
+                (reading.shown, reading.results) = (shown, results);
+                cx.notify();
+            }
             let now = (running, editable, earlier_lost);
             let was = (
                 reading.running.get(),

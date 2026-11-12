@@ -206,6 +206,16 @@ The arrow at the right of the assumptions' tabs folds them away, so the composer
 
 On your phone the questions sit at the end of the chat, with the same tabs. Tap an answer to pick it, or to tick it when the question takes several, and **Send** under the answers sends them all once each question has one. **Something else…** writes your own answer in the composer. The arrow beside who's asking folds them into one line; tap it to open them again.
 
+## What a turn showed
+
+When a turn changes a page of the project, such as a `.tsx`, `.vue`, `.html` or `.css` file, and something already serves that agent's copy of the project on this machine, Sikemux opens the page itself and takes it at a phone's, a tablet's and a desktop's width. It does that once the project's check passes on the turn's commit, or when the turn ends if the project has no check or the work isn't committed. The pictures sit under the reply that ended the turn, each width's **Before** and **After** side by side. Before is the last picture of the same page, and there's none the first time. Click one to see it full size. They show the page; they don't prove anything about it.
+
+Sikemux takes them in a view of its own that keeps no cookies or storage, so nothing you're signed in to shows, and only of pages served on this machine. It keeps the latest 60 sets per project, and a closed agent keeps only its latest of each page.
+
+When nothing serves the agent's copy yet, there are no pictures. Done then offers **Try it**, if the project's `sikemux.json` names a process that serves it, for its preview or for running. **Try it** starts that process in the agent's copy, as one of your processes you can see and stop, and opens the page on the agent's desk. Its next turn that changes the page gets pictures.
+
+In a lead's chat, each worker's finished work shows as a row where it finished. The row has the worker's name, what it did, where its work is and how its checks stand, and its pages' pictures under it. **Try it** opens its page from its own copy. **Undo**, on work that has landed, asks it to revert its own landed commits, which Sikemux lists for it; a commit it shares with another agent isn't its alone to take out. The arrow opens its chat. A shared chat shows neither the pictures nor these rows.
+
 ## Its desk
 
 Each agent has its own browser tabs on its desk. `⌘J` shows or hides the desk of the agent in front. See [Browser](/browser/desk-tabs/).

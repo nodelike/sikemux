@@ -258,6 +258,23 @@ pub(super) fn row(
             .children(meta::line(rows, ix, &group, looks, cx))
     };
     let user = user && !lettered;
+    let ended = shown::ended_at(rows, ix, &looks.reading.shown);
+    let finished = shown::results_after(rows, ix, &looks.reading.results);
+    let after = (!ended.is_empty() || !finished.is_empty()).then(|| {
+        div()
+            .w_full()
+            .max_w(px(800.))
+            .px(px(22.))
+            .children(ended.into_iter().map(|turn| {
+                let key = format!("shown:{}", turn.turn);
+                shown::pictures(&turn.pages, &key, looks, cx)
+            }))
+            .children(
+                finished
+                    .into_iter()
+                    .map(|row| shown::result_row(row, looks, cx)),
+            )
+    });
     let drawn = div()
         .w_full()
         .flex()
@@ -288,7 +305,8 @@ pub(super) fn row(
                     row.pt(SPACE_3)
                 })
                 .child(content),
-        );
+        )
+        .children(after);
     if !whole_row_tucked {
         return drawn.into_any_element();
     }

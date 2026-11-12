@@ -1,0 +1,9 @@
+--- a/site/index.html
++++ b/site/index.html
+@@ -18,5 +18,6 @@
+ <div class="card"><b>Pay with</b><div class="pay" style="margin-top:10px">
+ <div class="opt on">Card<br><small>Visa, Mastercard, Amex</small></div>
+ <div class="opt">Bank transfer<br><small>2–3 working days</small></div>
++</div><div class="card" style="margin-top:12px;background:#faf9ff"><b>Bank details</b><div class="row"><span>Account</span><span>Acme Supply Co.</span></div><div class="row"><span>IBAN</span><span>GB33 BUKB 2020 1555 5555 55</span></div><div class="row"><span>Reference</span><span>INV-2041</span></div>
+ </div><button>Pay $2,520.00</button></div>
+ </main></body></html>

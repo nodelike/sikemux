@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "tasks": [
+    { "id": "run", "label": "Site", "command": "python3 -m http.server 5173 --directory site" }
+  ],
+  "preview": { "url": "http://localhost:5173/", "command": "python3 -m http.server 5173 --directory site" }
+}

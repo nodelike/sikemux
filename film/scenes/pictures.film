@@ -1,0 +1,45 @@
+# Piece 13: the core's pictures of a page a turn changed, under the reply, and the lead's result
+# row for its worker. @Wren starts the site, then changes the invoice page twice; each change is
+# applied mid-turn, so the core sees it as Wren's, and takes the page at three widths at the end.
+stage 1760 1000
+window 1760 1000
+replies pictures.json
+prefer themeId aura-noir
+project storefront shop-site
+chat Kai
+title "Invoices"
+settle 4
+say "keep an eye on @Wren's invoice work"
+hold 4
+chat Wren
+title "Bank transfer on the invoice page"
+lead Kai
+settle 3
+say "start the site"
+hold 6
+say "add the card option to the invoice page"
+wait 2
+patch site-v1.diff
+hold 14
+say "add bank transfer to the invoice page, with the account details"
+wait 2
+patch site-v2.diff
+hold 16
+settle 2
+snap worker-pictures
+front Kai
+settle 3
+snap lead-result
+click 871,906
+type "on it" 80
+click 640,495
+type " a" 80
+click 1185,495
+settle 6
+type " b" 80
+wait 1
+snap lead-tried
+front Wren
+settle 4
+snap worker-desk
+end

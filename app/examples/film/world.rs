@@ -15,6 +15,8 @@ pub(super) struct World {
     pub(super) scenes: PathBuf,
     pub(super) project: Option<(String, PathBuf)>,
     pub(super) chat: Option<String>,
+    /// The chats the scene opened, by the name it gave each.
+    named: std::collections::HashMap<String, String>,
     pub(super) claude: PathBuf,
     pub(super) world: Value,
 }
@@ -165,6 +167,7 @@ impl World {
                 .map_or_else(|| PathBuf::from("."), Path::to_path_buf),
             project: None,
             chat: None,
+            named: std::collections::HashMap::new(),
             claude,
             world: args.world.clone(),
         })
@@ -460,7 +463,27 @@ impl World {
                 )?;
                 if let Ok(name) = step.text(0) {
                     self.call("renameAgent", json!({ "agentId": chat, "name": name }))?;
+                    self.named.insert(name.to_owned(), chat.clone());
                 }
+                self.chat = Some(chat);
+            }
+            "lead" => {
+                let chat = (self.chat.clone()).ok_or_else(|| anyhow!("open a chat first"))?;
+                let lead = (self.named.get(step.text(0)?).cloned())
+                    .ok_or_else(|| anyhow!("no chat named {}", step.text(0).unwrap_or_default()))?;
+                self.call(
+                    "updateAgent",
+                    json!({ "agentId": chat, "patch": { "lead": lead } }),
+                )?;
+            }
+            "front" => {
+                let (project, _) = self.project()?.clone();
+                let chat = (self.named.get(step.text(0)?).cloned())
+                    .ok_or_else(|| anyhow!("no chat named {}", step.text(0).unwrap_or_default()))?;
+                self.call(
+                    "openTab",
+                    json!({ "project": project, "kind": "agent", "target": chat }),
+                )?;
                 self.chat = Some(chat);
             }
             "title" => {
