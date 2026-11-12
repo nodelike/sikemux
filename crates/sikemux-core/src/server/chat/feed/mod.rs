@@ -1247,6 +1247,28 @@ impl Feed {
         Err("that part of the chat changed; ask again".into())
     }
 
+    /// The message `message_id`'s text parts with the sentences left out of them back in place:
+    /// from the rows the chat holds, else from a fold of its history from the event that opened
+    /// it, over the turn it is in and the next, which hold the turn's end and its sourcing.
+    pub(crate) fn left_out(&self, message_id: &str) -> Vec<sikemux_view::chat::RestoredPart> {
+        let held = self
+            .fold(&mut self.inner.locked())
+            .left_out_shown(message_id);
+        if !held.is_empty() {
+            return held;
+        }
+        let Some(index) = sikemux_fold::row_event(message_id) else {
+            return Vec::new();
+        };
+        let Ok(page) = self.page_of(PageOf::From(index), 2, ROW_BYTES, None) else {
+            return Vec::new();
+        };
+        (page.rows.iter())
+            .find(|row| row.id == message_id)
+            .map(sikemux_fold::restored_parts)
+            .unwrap_or_default()
+    }
+
     pub(crate) fn tool_detail(&self, tool_call_id: &str) -> Option<ToolDetail> {
         let mut inner = self.inner.locked();
         if let Some(detail) = self.fold(&mut inner).tool_detail(tool_call_id) {

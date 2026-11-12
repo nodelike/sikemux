@@ -152,6 +152,17 @@ pub(crate) fn tool_detail(
         .ok_or_else(|| CoreError::from("that call left nothing to show"))
 }
 
+/// The message `message_id` of `agent_id`'s chat with the sentences it left out back in place,
+/// for a client that draws only the core's trees. Nothing when the chat keeps no such message.
+pub(crate) fn left_out(
+    core: &Core,
+    agent_id: &str,
+    message_id: &str,
+) -> CoreResult<sikemux_view::chat::ChatLeftOut> {
+    let parts = core.chats.readable(agent_id)?.left_out(message_id);
+    Ok(sikemux_view::chat::ChatLeftOut { parts })
+}
+
 pub(crate) fn detach(core: &Core, client: ClientId, agent_id: &str) {
     if let Some(chat) = core.chats.get(agent_id) {
         chat.feed.unsubscribe(client);

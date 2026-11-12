@@ -9,6 +9,7 @@ pub mod pickers;
 mod prompt;
 pub use prompt::{sent_spans, SentNames};
 mod kinds;
+mod left_out;
 mod own;
 mod row;
 mod send;
@@ -37,9 +38,9 @@ use sikemux_view::chat::{
     ChatDraft, ChatFailure, ChatGoal, ChatHead, ChatMessage, ChatPart, ChatRole, ChatTrigger,
     Compactions, ContentBlock, ContextUsage, FailureKind, GuestMessage, LetterKind, MoveReason,
     NoticeSeverity, NoticeState, PermissionAsk, PermissionKind, PermissionOption, PlanEntry,
-    QueuedMessage, Retrying, SentContext, SessionEnded, StopReason, SubagentCard, SubagentState,
-    TaskNotice, TaskState, TaskUsage, ToolDetail, ToolStatus, TurnStart, Unsourced, UsageCost,
-    WhyChip, WorkflowAgent, WHY_URI,
+    QueuedMessage, RestoredPart, Retrying, SentContext, SessionEnded, StopReason, SubagentCard,
+    SubagentState, TaskNotice, TaskState, TaskUsage, ToolDetail, ToolStatus, TurnStart, Unsourced,
+    UsageCost, WhyChip, WorkflowAgent, WHY_URI,
 };
 use sikemux_view::shown::{ResultRow, TurnShown};
 use sikemux_view::turn::TurnState;
@@ -47,7 +48,8 @@ use tools::WithRow;
 
 pub use event::{ChatEvent, ChatEventKind};
 pub use find::{found_in, matches, searchable, Found, Query};
-pub use send::{read as answer_tree, with_trees, PageOf, PAGE_BYTES, TAIL_TURNS};
+pub use left_out::restored_parts;
+pub use send::{with_trees, PageOf, PAGE_BYTES, TAIL_TURNS};
 pub use team::AgentNeed;
 pub use update::UpdateKind;
 use update::{finished_compaction, stamped_at};
@@ -221,6 +223,12 @@ struct Transcript {
     bytes: usize,
     /// The number of the change it takes in now.
     now: u64,
+}
+
+/// The event that opened the row `id`, as [`Transcript::next_id`] names rows.
+pub fn row_event(id: &str) -> Option<u64> {
+    let index = id.strip_prefix('m')?;
+    index.split('.').next()?.parse().ok()
 }
 
 impl Transcript {
@@ -2519,6 +2527,16 @@ impl Fold {
 
     pub fn tool_detail(&self, tool_call_id: &str) -> Option<ToolDetail> {
         self.details.get(tool_call_id).cloned()
+    }
+
+    /// The text parts of the message `id`, while the fold holds it, that had sentences left out,
+    /// each with them back where they stood. Empty for one it holds no longer, which a fold of
+    /// the history from [`row_event`] finds.
+    pub fn left_out_shown(&self, id: &str) -> Vec<RestoredPart> {
+        (self.main.rows.iter())
+            .find(|row| row.msg.id == id)
+            .map(|row| restored_parts(&row.msg))
+            .unwrap_or_default()
     }
 }
 

@@ -958,6 +958,23 @@ pub enum WhyOpen {
     Unknown,
 }
 
+/// What `chatLeftOut` answers: the text parts of an answer with the sentences left out of them
+/// back in place.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatLeftOut {
+    pub parts: Vec<RestoredPart>,
+}
+
+/// A text part's whole tree with its left-out sentences back where they stood, each an inline
+/// element `{"t": "faint", "c": [...]}`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RestoredPart {
+    pub part: String,
+    pub md: PartTree,
+}
+
 /// Sentences taken out of a text part of an answer together, and where they stood.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

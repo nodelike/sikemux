@@ -43,6 +43,13 @@ pub struct ToolDetailParams {
     pub tool_call_id: String,
 }
 
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatLeftOutParams {
+    pub agent_id: String,
+    pub message_id: String,
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EditParams {

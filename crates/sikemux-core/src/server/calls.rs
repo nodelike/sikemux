@@ -175,6 +175,10 @@ calls! { core, client, method, params;
     },
     "sendGuestMessage" SendGuestMessage (share::GuestMessageParams) -> (): Full, counted => share::send_guest(&core, params).await?,
     "dismissGuestMessage" DismissGuestMessage (share::GuestMessageParams) -> (): Full => share::dismiss_guest(&core, params),
+    "chatLeftOut" ChatLeftOut (chat_calls::ChatLeftOutParams) -> sikemux_view::chat::ChatLeftOut: Watch, counted => {
+        let reading = core.clone();
+        blocking(move || super::chat::left_out(&reading, &params.agent_id, &params.message_id)).await?
+    },
     "dropQueued" DropQueued (chat_calls::QueuedParams) -> (): Full => {
         super::chat::queue::remove(&core, &params.agent_id, &params.ids)?
     },

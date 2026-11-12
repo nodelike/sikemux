@@ -166,7 +166,7 @@ fn units(text: &str) -> usize {
 }
 
 /// The whole tree of the agent's `text`, read from scratch.
-pub fn read(text: &str) -> PartTree {
+pub(crate) fn read(text: &str) -> PartTree {
     read_as(text, ANSWER)
 }
 

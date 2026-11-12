@@ -32,8 +32,7 @@ use sikemux_view::catalog::ChatDriver;
 use sikemux_view::chat::{
     AgentLetter, AgentNotice, ChatConnection, ChatHead, ChatMessage, ChatPage, ChatPart, ChatRole,
     ChatView, FiredRequest, LetterKind, MoveReason, NoticeSeverity, NoticeState, PartTree,
-    PermissionAsk, SubagentCard, SubagentState, TeamLine, TeamNeedKind, ToolDetail, Unsourced,
-    WorkFold,
+    PermissionAsk, SubagentCard, SubagentState, TeamLine, TeamNeedKind, ToolDetail, WorkFold,
 };
 use sikemux_view::layout::PaneKind;
 use sikemux_view::questions::{AgentQuestion, QuestionState};
@@ -155,53 +154,20 @@ impl Doc {
     }
 }
 
+impl Doc {
+    /// A part drawn from a tree alone, which no patch ever writes on to.
+    fn of_tree(part: &str, md: &PartTree) -> Doc {
+        let units = units_of(md.n);
+        Doc {
+            part: part.to_owned(),
+            markdown: Markdown::new(&md.blocks, units),
+            units,
+        }
+    }
+}
+
 fn units_of(n: u64) -> usize {
     usize::try_from(n).unwrap_or(usize::MAX)
-}
-
-/// Stands for a sentence put back in an answer while it is read, and never leaves the app.
-const LEFT_OUT: &str = "sikemux://why/left-out";
-
-/// `text` with the sentences `left_out` of it back where they stood, and its tree, which draws
-/// each of them faint.
-fn with_left_out(text: &str, mut left_out: Vec<&Unsourced>) -> (String, PartTree) {
-    let mut restored = text.to_owned();
-    left_out.sort_by_key(|out| std::cmp::Reverse(out.at));
-    for out in left_out {
-        let at = usize::try_from(out.at).unwrap_or(usize::MAX);
-        if at > restored.len() || !restored.is_char_boundary(at) {
-            continue;
-        }
-        let words = out.text.trim();
-        let lead = &out.text[..out.text.len() - out.text.trim_start().len()];
-        let tail = &out.text[lead.len() + words.len()..];
-        let escaped = (words.replace('\\', "\\\\"))
-            .replace('[', "\\[")
-            .replace(']', "\\]");
-        restored.insert_str(at, &format!("{lead}[{escaped}]({LEFT_OUT}){tail}"));
-    }
-    let mut tree = sikemux_fold::answer_tree(&restored);
-    faint(&mut tree.blocks);
-    (restored, tree)
-}
-
-/// Turns each put-back sentence's link in `blocks` into faint words.
-fn faint(blocks: &mut Value) {
-    match blocks {
-        Value::Array(items) => items.iter_mut().for_each(faint),
-        Value::Object(element) => {
-            let put_back = element.get("t").and_then(Value::as_str) == Some("a")
-                && element.get("href").and_then(Value::as_str) == Some(LEFT_OUT);
-            if put_back {
-                element.insert("t".into(), json!("faint"));
-                element.remove("href");
-            }
-            if let Some(children) = element.get_mut("c") {
-                faint(children);
-            }
-        }
-        _ => {}
-    }
 }
 
 /// Text the core sends without a tree, as the paragraphs it was written in.
@@ -299,20 +265,8 @@ impl ChatRow {
     }
 
     fn read_restored(&mut self) {
-        let left_out = &self.message.left_out;
-        self.restored = (self.message.parts.iter())
-            .filter_map(|part| {
-                let ChatPart::Text { id, text, .. } = part else {
-                    return None;
-                };
-                let here: Vec<&Unsourced> =
-                    (left_out.iter()).filter(|out| out.part == *id).collect();
-                if here.is_empty() {
-                    return None;
-                }
-                let (text, tree) = with_left_out(text, here);
-                Some(Doc::new(id, &text, Some(&tree)))
-            })
+        self.restored = (sikemux_fold::restored_parts(&self.message).iter())
+            .map(|part| Doc::of_tree(&part.part, &part.md))
             .collect();
     }
 
