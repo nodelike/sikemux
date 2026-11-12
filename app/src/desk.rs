@@ -295,8 +295,8 @@ impl Desks {
         self.engine.as_ref()
     }
 
-    /// Agents whose pages or device came back from before an update's restart, let go on the
-    /// first view if they are no longer in it.
+    /// Agents whose pages or device came back from the last run, let go on the first view if
+    /// they are no longer in it.
     pub fn expect(&mut self, agents: impl IntoIterator<Item = String>) {
         self.present.extend(agents);
     }

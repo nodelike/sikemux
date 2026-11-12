@@ -1,6 +1,6 @@
-//! An update restarts the app while agents keep working in the core. Each
-//! agent's tab strip is saved as the old app quits and comes back unloaded in
-//! the new one, so a tab loads its address again once it is shown or used.
+//! Agents keep working in the core while the app quits or restarts. Each
+//! agent's tab strip is saved by the old app and comes back unloaded in the
+//! new one, so a tab loads its address again once it is shown or used.
 
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
