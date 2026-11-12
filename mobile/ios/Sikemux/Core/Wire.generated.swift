@@ -2360,6 +2360,8 @@ enum CallResult: String, Codable, Hashable, Sendable {
     case notShipped
     /// It went, and failed.
     case failed
+    /// It started, and Sikemux restarted before it was seen to end, so it may have run.
+    case mayHaveRun
     /// Handed back to the asker's lead, or to the asker, to decide.
     case handedBack
     /// Closed with no answer from the person.

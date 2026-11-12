@@ -42,22 +42,46 @@ pub(crate) enum Source {
     Raised,
 }
 
+/// Another question that raised the same decision since, and the agent that asked it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct Also {
+    source: Source,
+    agent: String,
+}
+
 struct Kept {
     call: PersonCall,
     source: Source,
     /// What else raised the same decision since, each waiting on its answer.
-    also: Vec<Source>,
+    also: Vec<Also>,
     /// Calls raised with the same key are joined into one.
     key: Option<String>,
+    /// The option that lets what it holds run, on a call where one does.
+    yes: Option<String>,
+    /// What its yes lets run started, so a restart can't say nothing ran.
+    started: bool,
     /// The clients that drew it, and when each first did.
     seen: Vec<(CallClient, u64)>,
+}
+
+impl Kept {
+    /// What raised it, first and since.
+    fn sources(&self) -> impl Iterator<Item = &Source> {
+        std::iter::once(&self.source).chain(self.also.iter().map(|also| &also.source))
+    }
 }
 
 /// Calls a restart caught between the person's answer and what came of it.
 #[derive(Default)]
 struct AfterStart {
-    /// Production calls whose yes had not run: their askers hear it lapsed.
+    /// Calls whose yes had not started what it lets run: their askers hear it lapsed.
     lapsed: Vec<String>,
+    /// Calls whose yes had started what it lets run, unseen to its end: their askers hear it may
+    /// have run.
+    interrupted: Vec<String>,
+    /// Held actions, which a restart lets go of: their agents hear to run them again.
+    dropped: Vec<String>,
     /// Other calls whose answer may not have reached their askers.
     undelivered: Vec<String>,
 }
@@ -96,10 +120,12 @@ pub(crate) struct Raise {
     /// What the call is about, such as one piece of work at one place. Agents that raise a call
     /// with the key of one still open join it.
     pub key: Option<String>,
+    /// The option that lets what the call holds run, such as a deploy's yes.
+    pub yes: Option<String>,
 }
 
 impl Raise {
-    fn into_call(self, id: String) -> (PersonCall, Option<String>) {
+    fn into_call(self, id: String) -> (PersonCall, Option<String>, Option<String>) {
         let call = PersonCall {
             id,
             project: self.project,
@@ -124,7 +150,7 @@ impl Raise {
             answer: None,
             outcome: None,
         };
-        (call, self.key)
+        (call, self.key, self.yes)
     }
 }
 
@@ -181,20 +207,26 @@ fn apply(book: &mut Book, entry: Entry) {
         source,
         also,
         key,
+        yes,
     } = entry
     {
         let now = epoch_ms();
+        let seen = (book.iter())
+            .find(|kept| kept.call.id == id)
+            .map(|kept| kept.seen.clone())
+            .unwrap_or_default();
         book.retain(|kept| {
             kept.call.id != id
                 && (kept.call.state == CallState::Open
                     || now.saturating_sub(settled_at(&kept.call)) < SHOWN_AFTER_MS)
         });
-        let seen = Vec::new();
         book.push(Kept {
             call: *call,
             source,
             also,
             key,
+            yes,
+            started: false,
             seen,
         });
         return;
@@ -206,24 +238,38 @@ fn apply(book: &mut Book, entry: Entry) {
     match entry {
         Entry::Raised { .. } => {}
         Entry::Joined { asker, source, .. } => {
-            if !waits_on(call, &asker.agent_id) {
+            let agent = asker.agent_id.clone();
+            if !waits_on(call, &agent) {
                 call.joined.push(asker);
             }
-            kept.also.extend(source);
+            kept.also
+                .extend(source.map(|source| Also { source, agent }));
         }
         Entry::Left { source, .. } => {
-            if kept.source == source && !kept.also.is_empty() {
-                kept.source = kept.also.remove(0);
-                if !call.joined.is_empty() {
-                    call.asker = call.joined.remove(0);
+            let agent = match kept.also.iter().position(|also| also.source == source) {
+                Some(at) => kept.also.remove(at).agent,
+                None if kept.source == source && !kept.also.is_empty() => {
+                    let next = kept.also.remove(0);
+                    let agent = std::mem::replace(&mut call.asker.agent_id, next.agent.clone());
+                    kept.source = next.source;
+                    if let Some(at) = call
+                        .joined
+                        .iter()
+                        .position(|asker| asker.agent_id == next.agent)
+                    {
+                        call.asker = call.joined.remove(at);
+                    }
+                    agent
                 }
-            } else if let Some(at) = kept.also.iter().position(|also| *also == source) {
-                kept.also.remove(at);
-                if at < call.joined.len() {
-                    call.joined.remove(at);
-                }
+                None => return,
+            };
+            let still =
+                kept.also.iter().any(|also| also.agent == agent) || call.asker.agent_id == agent;
+            if !still {
+                call.joined.retain(|asker| asker.agent_id != agent);
             }
         }
+        Entry::Started { .. } => kept.started = true,
         Entry::Shown { by, at, .. } => {
             if !kept.seen.iter().any(|(seer, _)| *seer == by) {
                 kept.seen.push((by, at));
@@ -286,6 +332,7 @@ fn still_open(book: &Book, project: &str) -> Vec<Entry> {
             source: kept.source.clone(),
             also: kept.also.clone(),
             key: kept.key.clone(),
+            yes: kept.yes.clone(),
         };
         let shown = kept.seen.iter().map(|(by, at)| Entry::Shown {
             id: kept.call.id.clone(),
@@ -310,38 +357,48 @@ impl PersonCalls {
         for entry in log.read_all() {
             apply(&mut book, entry);
         }
-        let dead: Vec<String> = (book.iter())
-            .filter(|kept| kept.call.state == CallState::Open)
-            .filter(|kept| match &kept.source {
-                Source::Hold(_) => true,
-                Source::Question(id) => !question_open(id),
-                Source::Raised => false,
-            })
-            .map(|kept| kept.call.id.clone())
-            .collect();
         let mut after_start = AfterStart::default();
-        let mut closing: Vec<Entry> = (dead.into_iter())
-            .map(|id| Entry::Came {
-                id,
-                outcome: outcome(CallResult::Withdrawn),
-            })
-            .collect();
+        let mut closing = Vec::new();
+        for kept in book
+            .iter()
+            .filter(|kept| kept.call.state == CallState::Open)
+        {
+            let id = kept.call.id.clone();
+            let dead = match &kept.source {
+                Source::Hold(_) => {
+                    after_start.dropped.push(id.clone());
+                    true
+                }
+                Source::Question(question) => !question_open(question),
+                Source::Raised => false,
+            };
+            if dead {
+                let outcome = outcome(CallResult::Withdrawn);
+                closing.push(Entry::Came { id, outcome });
+            }
+        }
         let unsettled = (book.iter())
             .filter(|kept| kept.call.state == CallState::Answered && kept.call.outcome.is_none());
         for kept in unsettled {
             let id = kept.call.id.clone();
-            if kept.call.kind != CallKind::Production {
+            let picked = kept
+                .call
+                .answer
+                .as_ref()
+                .and_then(|answer| answer.option.as_deref());
+            if kept.yes.is_none() {
                 after_start.undelivered.push(id);
                 continue;
             }
-            let answer = kept.call.answer.as_ref();
-            let yes = answer
-                .and_then(|answer| answer.option.as_deref())
-                .is_some_and(|option| option != HOLD_REFUSE);
             let mut outcome = outcome(CallResult::NotShipped);
-            if yes {
+            if picked.is_some_and(|option| allows(kept, option)) {
                 outcome.why = Some(CallWhy::Restarted);
-                after_start.lapsed.push(id.clone());
+                if kept.started {
+                    outcome.result = CallResult::MayHaveRun;
+                    after_start.interrupted.push(id.clone());
+                } else {
+                    after_start.lapsed.push(id.clone());
+                }
             }
             closing.push(Entry::Came { id, outcome });
         }
@@ -459,13 +516,13 @@ impl PersonCalls {
     fn sync(&self, core: &Core, owns: impl Fn(&Source) -> bool, wanted: Vec<Wanted>) {
         let mut entries = Vec::new();
         let mut book = self.book.locked();
-        let is_wanted = |source: &Source| wanted.iter().any(|(wanted, ..)| wanted == source);
+        let is_wanted = |source: &Source| wanted.iter().any(|wanted| wanted.source == *source);
         for kept in book.iter() {
             if kept.call.state != CallState::Open || !owns(&kept.source) {
                 continue;
             }
             let id = kept.call.id.clone();
-            let sources = std::iter::once(&kept.source).chain(&kept.also);
+            let sources = kept.sources();
             let (live, gone): (Vec<&Source>, Vec<&Source>) =
                 sources.partition(|source| is_wanted(source));
             if live.is_empty() {
@@ -483,7 +540,13 @@ impl PersonCalls {
                 });
             }
         }
-        for (source, call, key) in wanted {
+        for Wanted {
+            source,
+            call,
+            key,
+            yes,
+        } in wanted
+        {
             let same = |kept: &&Kept| {
                 kept.call.state == CallState::Open
                     && matches!(kept.source, Source::Question(_))
@@ -492,7 +555,6 @@ impl PersonCalls {
                     && kept.call.secret == call.secret
                     && kept.call.multi == call.multi
                     && same_decision(&kept.call, &call)
-                    && !waits_on(&kept.call, &call.asker.agent_id)
             };
             match book.iter().find(|kept| raised_by(kept, &source)) {
                 Some(kept) if kept.call.state == CallState::Closed => {
@@ -512,6 +574,7 @@ impl PersonCalls {
                         source,
                         also: Vec::new(),
                         key,
+                        yes,
                     }),
                 },
             }
@@ -547,7 +610,7 @@ impl PersonCalls {
         let Some(kept) = kept(&book, id) else {
             return Vec::new();
         };
-        (std::iter::once(&kept.source).chain(&kept.also))
+        kept.sources()
             .filter_map(|source| match source {
                 Source::Question(id) => Some(id.clone()),
                 Source::Hold(_) | Source::Raised => None,
@@ -594,9 +657,16 @@ impl PersonCalls {
     }
 }
 
+/// Whether answering `option` lets what the call holds run: its yes, or always allowing a held
+/// action.
+fn allows(kept: &Kept, option: &str) -> bool {
+    kept.yes.as_deref() == Some(option)
+        || (matches!(kept.source, Source::Hold(_)) && option == HOLD_ALWAYS)
+}
+
 /// Whether `source` raised the call, first or since.
 fn raised_by(kept: &Kept, source: &Source) -> bool {
-    kept.source == *source || kept.also.contains(source)
+    kept.sources().any(|raised| raised == source)
 }
 
 /// Whether two calls put the same decision: the same kind, in the same project, asking the same
@@ -658,13 +728,14 @@ pub(crate) fn raise(core: &Core, raise: Raise) -> String {
                 id
             }
             None => {
-                let (call, key) = raise.into_call(uuid::Uuid::new_v4().simple().to_string());
+                let (call, key, yes) = raise.into_call(uuid::Uuid::new_v4().simple().to_string());
                 let id = call.id.clone();
                 let raised = Entry::Raised {
                     call: Box::new(call),
                     source: Source::Raised,
                     also: Vec::new(),
                     key,
+                    yes,
                 };
                 core.person_calls.write(&mut book, raised);
                 id
@@ -682,7 +753,7 @@ pub(crate) fn raise(core: &Core, raise: Raise) -> String {
     reason = "the gates by place tell the person of a change through it"
 )]
 pub(crate) fn told(core: &Core, raise: Raise, outcome: CallOutcome) -> String {
-    let (call, key) = raise.into_call(uuid::Uuid::new_v4().simple().to_string());
+    let (call, key, yes) = raise.into_call(uuid::Uuid::new_v4().simple().to_string());
     let id = call.id.clone();
     {
         let mut book = core.person_calls.book.locked();
@@ -691,6 +762,7 @@ pub(crate) fn told(core: &Core, raise: Raise, outcome: CallOutcome) -> String {
             source: Source::Raised,
             also: Vec::new(),
             key,
+            yes,
         };
         core.person_calls.write(&mut book, raised);
         core.person_calls.write(
@@ -734,22 +806,75 @@ pub(crate) fn set_outcome(core: &Core, id: &str, outcome: CallOutcome) {
 }
 
 /// What should be put to the person now: what raised it, the call, and the key it is found by.
-type Wanted = (Source, PersonCall, Option<String>);
+pub(crate) struct Wanted {
+    pub source: Source,
+    pub call: PersonCall,
+    /// What a gate finds the call's yes by.
+    pub key: Option<String>,
+    /// The option that lets what it holds run, on a call where one does.
+    pub yes: Option<String>,
+}
 
-/// The questions now put to the person, as calls, each with the key a gate finds its yes by.
-pub(crate) fn sync_questions(core: &Core, wanted: Vec<(String, PersonCall, Option<String>)>) {
-    let wanted = (wanted.into_iter())
-        .map(|(id, call, key)| (Source::Question(id), call, key))
-        .collect();
+/// The questions now put to the person, as calls.
+pub(crate) fn sync_questions(core: &Core, wanted: Vec<Wanted>) {
     (core.person_calls).sync(core, |source| matches!(source, Source::Question(_)), wanted);
 }
 
 /// The actions now held for the person, as calls.
 pub(crate) fn sync_holds(core: &Core, wanted: Vec<(String, PersonCall)>) {
     let wanted = (wanted.into_iter())
-        .map(|(id, call)| (Source::Hold(id), call, None))
+        .map(|(id, call)| Wanted {
+            source: Source::Hold(id),
+            call,
+            key: None,
+            yes: Some(HOLD_ALLOW.to_owned()),
+        })
         .collect();
     (core.person_calls).sync(core, |source| matches!(source, Source::Hold(_)), wanted);
+}
+
+/// What the yes of the call `id` lets run is about to start, so a restart says it may have run
+/// rather than that nothing did.
+pub(crate) fn started(core: &Core, id: &str) {
+    let mut book = core.person_calls.book.locked();
+    if kept(&book, id).is_some_and(|kept| !kept.started) {
+        let at = epoch_ms();
+        core.person_calls.write(
+            &mut book,
+            Entry::Started {
+                id: id.to_owned(),
+                at,
+            },
+        );
+    }
+}
+
+impl PersonCalls {
+    /// Marks the call `id` started when its answer is the yes that runs what it holds now, as an
+    /// approval's plugin call runs with the answer. A held action runs later, and says so itself.
+    fn starting_on_yes(&self, id: &str) {
+        let mut book = self.book.locked();
+        let Some(kept) = kept(&book, id) else {
+            return;
+        };
+        let picked = kept
+            .call
+            .answer
+            .as_ref()
+            .and_then(|answer| answer.option.as_deref());
+        let now = !matches!(kept.source, Source::Hold(_))
+            && picked.is_some_and(|option| allows(kept, option));
+        if now && !kept.started {
+            let at = epoch_ms();
+            self.write(
+                &mut book,
+                Entry::Started {
+                    id: id.to_owned(),
+                    at,
+                },
+            );
+        }
+    }
 }
 
 /// Every question an open call still waits on, which an agent's next turn leaves open.
@@ -757,7 +882,7 @@ impl PersonCalls {
     pub(crate) fn open_questions(&self) -> Vec<String> {
         (self.book.locked().iter())
             .filter(|kept| kept.call.state == CallState::Open)
-            .flat_map(|kept| std::iter::once(&kept.source).chain(&kept.also))
+            .flat_map(Kept::sources)
             .filter_map(|source| match source {
                 Source::Question(id) => Some(id.clone()),
                 Source::Hold(_) | Source::Raised => None,
@@ -816,7 +941,8 @@ pub(crate) fn written(core: &Core, agent_id: &str, text: &str) {
     let answerable: Vec<&Kept> = (book.iter())
         .filter(|kept| {
             let call = &kept.call;
-            let asked = (std::iter::once(&kept.source).chain(&kept.also))
+            let asked = kept
+                .sources()
                 .any(|source| matches!(source, Source::Question(id) if questions.contains(id)));
             asked
                 && call.state == CallState::Open
@@ -834,7 +960,8 @@ pub(crate) fn written(core: &Core, agent_id: &str, text: &str) {
         .any(|asker| asker.agent_id != agent_id);
     if shared {
         let id = kept.call.id.clone();
-        let mine = (std::iter::once(&kept.source).chain(&kept.also))
+        let mine = kept
+            .sources()
             .filter(|source| matches!(source, Source::Question(id) if questions.contains(id)))
             .cloned()
             .collect::<Vec<_>>();
@@ -980,6 +1107,7 @@ pub(crate) async fn answer(
         may_pass(core, &call, peer, answer.option.as_deref())?;
     }
     let (call, source) = core.person_calls.take_answer(&call.id, answer)?;
+    core.person_calls.starting_on_yes(&call.id);
     core.person_calls.changed(core);
     let reached = deliver(core, &call, &source, typed).await;
     if let Err(error) = reached {
@@ -1053,21 +1181,21 @@ async fn call_answered(core: &Arc<Core>, call: &PersonCall, typed: Option<String
 
 /// Tells every agent waiting on the call what the person answered.
 async fn tell_askers(core: &Arc<Core>, call: &PersonCall, typed: Option<String>) {
-    let Some(answer) = &call.answer else {
+    let Some(said) = said(call, typed) else {
         return;
     };
-    let label = (answer.option.as_ref())
-        .and_then(|id| call.options.iter().find(|option| option.id == *id))
-        .map(|option| option.label.clone());
-    let said = [label, typed]
-        .into_iter()
-        .flatten()
-        .collect::<Vec<_>>()
-        .join("\n\n");
     let text = format!("The person answered \"{}\":\n{said}", call.question);
-    for asker in std::iter::once(&call.asker).chain(&call.joined) {
-        let _ = messages::for_person(core, asker.agent_id.clone(), text.clone()).await;
-    }
+    tell(core, call, &text).await;
+}
+
+/// What the person answered, in words: the option they picked and what they typed with it.
+fn said(call: &PersonCall, typed: Option<String>) -> Option<String> {
+    let answer = call.answer.as_ref()?;
+    let picked = (answer.option.iter().chain(&answer.options))
+        .filter_map(|id| call.options.iter().find(|option| option.id == *id))
+        .map(|option| option.label.clone());
+    let said: Vec<String> = picked.chain(typed).collect();
+    (!said.is_empty()).then(|| said.join("\n\n"))
 }
 
 /// The option of a held action that lets it run once.
@@ -1086,7 +1214,11 @@ fn answered_before(
 ) -> CoreResult<Option<String>> {
     let client = client_of(peer).ok_or(NOT_A_CLIENT)?;
     let Some(id) = core.person_calls.id_of(source) else {
-        return Ok(None);
+        let settled = (core.person_calls.book.locked().iter()).any(|kept| raised_by(kept, source));
+        return match settled {
+            true => Err(GONE.into()),
+            false => Ok(None),
+        };
     };
     let call = call_of(core, &id)?;
     let given = answer(&call, client);
@@ -1094,6 +1226,7 @@ fn answered_before(
         may_pass(core, &call, peer, given.option.as_deref())?;
     }
     core.person_calls.take_answer(&id, given)?;
+    core.person_calls.starting_on_yes(&id);
     core.person_calls.changed(core);
     Ok(Some(id))
 }
@@ -1289,7 +1422,11 @@ pub(crate) fn raised_open(core: &Core) -> Vec<PersonCall> {
 impl super::part::Part for PersonCalls {
     fn start(&self, core: &Arc<Core>) -> Vec<tokio::task::JoinHandle<()>> {
         let left = std::mem::take(&mut *self.after_start.locked());
-        if left.lapsed.is_empty() && left.undelivered.is_empty() {
+        let nothing = left.lapsed.is_empty()
+            && left.interrupted.is_empty()
+            && left.dropped.is_empty()
+            && left.undelivered.is_empty();
+        if nothing {
             return Vec::new();
         }
         let core = core.clone();
@@ -1299,20 +1436,22 @@ impl super::part::Part for PersonCalls {
     }
 }
 
-/// Finishes what a restart cut short: the askers of a production yes that never ran hear it
-/// lapsed, and each other answer reaches its askers if it had not.
+/// Finishes what a restart cut short. The agents waiting on a yes hear whether what it let run
+/// never started, or started and may have run; an agent whose action was held hears to run it
+/// again; and each other answer reaches its askers if it had not. A stopped agent hears when it
+/// starts again.
 async fn after_restart(core: &Arc<Core>, left: AfterStart) {
-    for id in left.lapsed {
-        let Some(call) = kept(&core.person_calls.book.locked(), &id).map(|kept| kept.call.clone())
-        else {
-            continue;
-        };
-        let text = format!(
-            "Sikemux restarted before your action ran, so the person's yes to \"{}\" lapsed. Nothing ran. Try it again when you need it; that asks them again.",
-            call.question
-        );
-        for asker in std::iter::once(&call.asker).chain(&call.joined) {
-            let _ = messages::for_person(core, asker.agent_id.clone(), text.clone()).await;
+    let said = [
+        (left.lapsed, "Sikemux restarted before your action ran, so the person's yes to \"{}\" lapsed. Nothing ran. Try it again when you need it; that asks them again."),
+        (left.interrupted, "Sikemux restarted while your action ran after the person's yes to \"{}\", so it may have run. Check what happened before you try it again."),
+        (left.dropped, "Sikemux restarted, so your action held for the person's answer to \"{}\" no longer waits. Run it again when you need it; that asks them again."),
+    ];
+    for (ids, words) in said {
+        for id in ids {
+            if let Some(call) = call_any(core, &id) {
+                let text = words.replace("{}", &call.question);
+                tell(core, &call, &text).await;
+            }
         }
     }
     for id in left.undelivered {
@@ -1321,8 +1460,21 @@ async fn after_restart(core: &Arc<Core>, left: AfterStart) {
     core.person_calls.changed(core);
 }
 
-/// Gives an answer a restart may have kept from its askers. One already heard is marked so; one
-/// whose words were never kept, as an access call's, waits on the person again.
+fn call_any(core: &Core, id: &str) -> Option<PersonCall> {
+    kept(&core.person_calls.book.locked(), id).map(|kept| kept.call.clone())
+}
+
+/// Tells every agent waiting on the call, waiting for any that has stopped.
+async fn tell(core: &Arc<Core>, call: &PersonCall, text: &str) {
+    for asker in std::iter::once(&call.asker).chain(&call.joined) {
+        let to = asker.agent_id.clone();
+        let _ = messages::for_person_waiting(core, to, text.to_owned()).await;
+    }
+}
+
+/// Gives an answer a restart may have kept from its askers. An answer whose question is no longer
+/// open may have been lost between being taken and being sent, so it is sent as a plain message;
+/// one whose words were never kept, as an access call's, waits on the person again.
 async fn redeliver(core: &Arc<Core>, id: &str) {
     let Some((call, source)) = kept(&core.person_calls.book.locked(), id)
         .map(|kept| (kept.call.clone(), kept.source.clone()))
@@ -1336,10 +1488,19 @@ async fn redeliver(core: &Arc<Core>, id: &str) {
     let picked = answer.option.is_some() || !answer.options.is_empty();
     if let Source::Question(_) = source {
         let questions = core.person_calls.questions_of(id);
-        if !questions
-            .iter()
-            .any(|question| core.harness.questions.is_open(question))
-        {
+        let open = (questions.iter()).any(|question| core.harness.questions.is_open(question));
+        if !open {
+            let text = match said(&call, typed.clone()) {
+                Some(said) => format!(
+                    "The person answered \"{}\" as Sikemux restarted, and the answer may not have reached you:\n{said}",
+                    call.question
+                ),
+                None => format!(
+                    "The person answered \"{}\" as Sikemux restarted, and the answer was not kept. Ask them again if you still need it.",
+                    call.question
+                ),
+            };
+            tell(core, &call, &text).await;
             core.person_calls.settle(id, CallResult::Heard);
             return;
         }

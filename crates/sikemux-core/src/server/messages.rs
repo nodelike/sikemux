@@ -1405,6 +1405,35 @@ pub(crate) async fn ask_again(core: &Arc<Core>, to: String, text: String) -> Res
     deliver(core, &target, letter).await
 }
 
+/// Tells an agent what came of something it waited on the person for, as [`for_person`] does,
+/// but waits for it when it has stopped. Fails only when it is gone.
+pub(crate) async fn for_person_waiting(
+    core: &Arc<Core>,
+    to: String,
+    text: String,
+) -> Result<Value, String> {
+    let target = {
+        let core = core.clone();
+        blocking(move || {
+            listed(&core)
+                .into_iter()
+                .find(|agent| agent.agent_id == to)
+                .ok_or_else(|| "that agent is gone".into())
+        })
+        .await
+        .map_err(|error| error.to_string())?
+    };
+    let letter = Letter::from_sender(
+        Sender::Sikemux,
+        MessageKind::Message,
+        text,
+        Some(
+            "Sent by Sikemux with the person's answer about an action it held for them.".to_owned(),
+        ),
+    );
+    deliver(core, &target, letter).await
+}
+
 /// Tells an agent what the person decided about something of its that
 /// Sikemux held for them, which starts a turn when it is at rest. Fails when
 /// the agent has stopped or is gone.

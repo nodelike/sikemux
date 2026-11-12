@@ -245,6 +245,12 @@ impl Question {
         self.secret || (self.raise.as_ref()).is_some_and(|raise| raise.reason == RaisedFor::Access)
     }
 
+    /// The option of its call that runs what it holds, on an approval of a plugin call.
+    fn allows(&self) -> Option<String> {
+        let approving = self.approval.as_ref()?.approving()?;
+        Some((approving + 1).to_string())
+    }
+
     /// It as a call to the person.
     fn call(&self) -> PersonCall {
         let reason = self.raise.as_ref().map(|raise| raise.reason);
@@ -2915,18 +2921,18 @@ fn tell_phones(core: &Core) {
 /// key the gate there looks its yes up by, so the person answers it once. A call nobody is left
 /// to hear the answer of closes.
 fn tell_calls(core: &Core) {
-    let asked: Vec<PersonCall> = {
+    let asked: Vec<(PersonCall, Option<String>)> = {
         let state = core.harness.questions.state.locked();
         let asked = (state.open.iter())
             .filter(|question| question.listed_for_devices())
-            .map(Question::call);
+            .map(|question| (question.call(), question.allows()));
         let replied = (state.reply_questions.iter())
             .filter(|question| question.waits())
-            .map(ReplyQuestion::call);
+            .map(|question| (question.call(), None));
         asked.chain(replied).collect()
     };
     let wanted = (asked.into_iter())
-        .map(|mut call| {
+        .map(|(mut call, yes)| {
             let gate = (call.kind == CallKind::Production)
                 .then(|| person_calls::ask_key(core, &call.asker.agent_id, &call.project))
                 .flatten();
@@ -2934,7 +2940,12 @@ fn tell_calls(core: &Core) {
                 call.place = Some(place);
                 key
             });
-            (call.id.clone(), call, key)
+            person_calls::Wanted {
+                source: person_calls::Source::Question(call.id.clone()),
+                call,
+                key,
+                yes,
+            }
         })
         .collect();
     person_calls::sync_questions(core, wanted);

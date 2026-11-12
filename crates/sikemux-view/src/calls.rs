@@ -132,6 +132,8 @@ pub enum CallResult {
     NotShipped,
     /// It went, and failed.
     Failed,
+    /// It started, and Sikemux restarted before it was seen to end, so it may have run.
+    MayHaveRun,
     /// Handed back to the asker's lead, or to the asker, to decide.
     HandedBack,
     /// Closed with no answer from the person.

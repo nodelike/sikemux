@@ -1444,7 +1444,7 @@ export interface CallOutcome {
     at: number;
 }
 
-export type CallResult = "heard" | "shipped" | "notShipped" | "failed" | "handedBack" | "withdrawn";
+export type CallResult = "heard" | "shipped" | "notShipped" | "failed" | "mayHaveRun" | "handedBack" | "withdrawn";
 
 export type CallWhy = "restarted";
 

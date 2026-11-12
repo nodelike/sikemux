@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sikemux_view::calls::{CallAnswer, CallAsker, CallClient, CallOutcome, PersonCall};
 
-use super::Source;
+use super::{Also, Source};
 
 const FOLDER: &str = "person-calls";
 const MAX_FILE_BYTES: u64 = 1024 * 1024;
@@ -24,7 +24,10 @@ pub(super) enum Entry {
         source: Source,
         /// What else raised the same call and waits on its answer.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        also: Vec<Source>,
+        also: Vec<Also>,
+        /// The option that lets what it holds run, on a call where one does.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        yes: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         key: Option<String>,
     },
@@ -45,6 +48,9 @@ pub(super) enum Entry {
     /// It waits on the person again, as when an answer could not reach its asker.
     #[serde(rename_all = "camelCase")]
     Reopened { id: String, at: u64 },
+    /// What its yes lets run started running.
+    #[serde(rename_all = "camelCase")]
+    Started { id: String, at: u64 },
     /// An agent that waited on it no longer does, while others still do.
     #[serde(rename_all = "camelCase")]
     Left { id: String, source: Source, at: u64 },
@@ -62,6 +68,7 @@ impl Entry {
             | Entry::Answered { id, .. }
             | Entry::Reopened { id, .. }
             | Entry::Left { id, .. }
+            | Entry::Started { id, .. }
             | Entry::Came { id, .. } => id,
         }
     }

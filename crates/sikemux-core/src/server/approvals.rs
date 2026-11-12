@@ -73,6 +73,13 @@ pub(crate) struct Approval {
     held: Option<Arc<Held>>,
 }
 
+impl Approval {
+    /// The choice that runs the call, by its place among the question's choices.
+    pub(crate) fn approving(&self) -> Option<usize> {
+        (self.does.iter()).position(|does| matches!(does, Does::Approve))
+    }
+}
+
 impl fmt::Debug for Approval {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
