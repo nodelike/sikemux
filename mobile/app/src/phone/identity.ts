@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import * as SecureStore from 'expo-secure-store';
 import { Device, DeviceIdentity, newDeviceKey, type DeviceLike } from '@sikemux/native';
 
+import { translate } from '@/i18n';
 import { currentRelays, relaySettings, updateRequired } from '@/network/network';
 
 const KEY_ITEM = 'sikemux.device-key';
@@ -20,7 +21,7 @@ function bytes(text: string): ArrayBuffer {
 async function deviceKey(): Promise<ArrayBuffer> {
   const stored = await SecureStore.getItemAsync(KEY_ITEM);
   if (stored) {
-    if (!/^[0-9a-f]{64}$/.test(stored)) throw new Error("This phone's key is damaged; reinstall the app to connect again.");
+    if (!/^[0-9a-f]{64}$/.test(stored)) throw new Error(translate("This phone's key is damaged; reinstall the app to connect again."));
     return bytes(stored);
   }
   const key = newDeviceKey();
@@ -48,7 +49,7 @@ export async function deviceIdentity(): Promise<DeviceIdentity> {
 export function thisDevice(): Promise<DeviceLike> {
   if (!online) {
     const coming = Promise.all([deviceIdentity(), currentRelays()]).then(([me, relays]) => {
-      if (updateRequired()) throw new Error('Update Sikemux to reach your hosts.');
+      if (updateRequired()) throw new Error(translate('Update Sikemux to reach your hosts.'));
       return Device.create(me, relaySettings(relays));
     });
     online = coming;

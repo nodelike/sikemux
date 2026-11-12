@@ -13,6 +13,7 @@ import { reloadDevices, retry, useHostStatus, useLive } from '@/devices/hub';
 import { ASKING_AFTER_MS, retryJoin, useHostJoin } from '@/devices/hostJoins';
 import { channelLabel, deviceKind, deviceName, type PairedDevice } from '@/devices/paired';
 import { summary } from '@/devices/status';
+import { useT } from '@/i18n';
 import { haptics } from '@/ui/haptics';
 import { DeviceIcon, Icon } from '@/ui/Icon';
 import { Button, IconButton } from '@/ui/controls';
@@ -25,6 +26,7 @@ import { fonts, type Palette, radius, typeFor, useColors, useStyles } from '@/ui
 function DeviceCard({ device, onAccount, offAccount }: { device: PairedDevice; onAccount?: Device; offAccount: boolean }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
+  const t = useT();
   // Every host on the list streams its view while the list shows; one opened keeps its own connection.
   const showing = useIsFocused();
   const live = useLive(device.core, showing);
@@ -36,10 +38,15 @@ function DeviceCard({ device, onAccount, offAccount }: { device: PairedDevice; o
   const rollup = snapshot?.inbox.rollup;
   const background = (rollup?.subagents ?? 0) + (rollup?.tasks ?? 0);
   const busy = (snapshot?.inbox.agents ?? []).filter((agent) => agent.turn?.state === 'working' || agent.background);
-  const work = [working ? `${working} working` : null, background ? `${background} in the background` : null].filter(Boolean).join(' · ');
+  const work = [
+    working ? t('{count} working', { count: working }) : null,
+    background ? t('{count} in the background', { count: background }) : null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
   const channel = channelLabel(device.channel);
-  const state = offAccount ? 'Not on your account' : snapshot ? summary(snapshot) : status.online ? 'Connecting…' : status.line;
-  const meta = device.access === 'watch' ? `Watch only · ${state}` : state;
+  const state = offAccount ? t('Not on your account') : snapshot ? summary(snapshot, t) : status.online ? t('Connecting…') : status.line;
+  const meta = device.access === 'watch' ? t('Watch only · {state}', { state }) : state;
   const agents = snapshot?.workspace.agents;
   const style = snapshot?.faceStyle;
   const faces = useMemo(
@@ -60,7 +67,7 @@ function DeviceCard({ device, onAccount, offAccount }: { device: PairedDevice; o
           </View>
           <View style={{ flex: 1 }}>
             <Text style={[styles.name, away && { color: colors.tertiary }]} numberOfLines={1}>
-              {onAccount?.name || deviceName(device)}
+              {onAccount?.name || deviceName(device, t)}
             </Text>
             <Text style={styles.meta} numberOfLines={1}>
               {channel ? `${channel} · ${meta}` : meta}
@@ -90,6 +97,7 @@ function DeviceCard({ device, onAccount, offAccount }: { device: PairedDevice; o
 function AccountHostCard({ host }: { host: Device }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
+  const t = useT();
   const join = useHostJoin(host.key);
   const failure = join && 'stopped' in join ? join.stopped : undefined;
   const since = join && 'joining' in join ? join.joining : undefined;
@@ -101,7 +109,7 @@ function AccountHostCard({ host }: { host: Device }) {
   }, [since]);
   const asking = since !== undefined && now - since >= ASKING_AFTER_MS;
   const channel = channelLabel(host.channel);
-  const line = failure?.title ?? (asking ? `Waiting for ${host.name} to allow this phone` : 'Connecting…');
+  const line = failure?.title ?? (asking ? t('Waiting for {host} to allow this phone', { host: host.name }) : t('Connecting…'));
   return (
     <View style={[styles.card, failure && styles.away]}>
       <View style={styles.head}>
@@ -117,7 +125,7 @@ function AccountHostCard({ host }: { host: Device }) {
             {channel ? `${channel} · ${line}` : line}
           </Text>
         </View>
-        {failure ? <Button title="Try again" onPress={() => retryJoin(host)} /> : <Working />}
+        {failure ? <Button title={t('Try again')} onPress={() => retryJoin(host)} /> : <Working />}
       </View>
       {failure ? (
         <Text style={styles.why} numberOfLines={2}>
@@ -134,19 +142,20 @@ const DOWNLOAD = 'https://sikemux.com/phone';
 function HostSlot({ onDismiss }: { onDismiss?: () => void }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
+  const t = useT();
   return (
     <View style={styles.slot}>
       <View style={styles.slotTile}>
         <DeviceIcon kind="laptop" size={22} color={colors.tertiary} />
       </View>
       <View style={{ flex: 1 }}>
-        <Text style={styles.slotTitle}>Your computer goes here</Text>
+        <Text style={styles.slotTitle}>{t('Your computer goes here')}</Text>
         <View style={styles.watching}>
           <Working />
-          <Text style={styles.watchingText}>Watching the account</Text>
+          <Text style={styles.watchingText}>{t('Watching the account')}</Text>
         </View>
       </View>
-      {onDismiss ? <IconButton name="IconClose" label="Stop adding a host" onPress={onDismiss} /> : null}
+      {onDismiss ? <IconButton name="IconClose" label={t('Stop adding a host')} onPress={onDismiss} /> : null}
     </View>
   );
 }
@@ -154,11 +163,14 @@ function HostSlot({ onDismiss }: { onDismiss?: () => void }) {
 /** Where the list stands while the account's hosts are still being read, or could not be. */
 function AccountNote({ problem }: { problem?: string }) {
   const styles = useStyles(makeStyles);
+  const t = useT();
   return (
     <View style={styles.note} accessibilityLiveRegion="polite">
       {problem ? null : <Working />}
-      <Text style={styles.noteText}>{problem ? "Couldn't list the hosts on your account." : 'Looking for hosts on your account'}</Text>
-      {problem ? <Button title="Try again" onPress={retryHosts} /> : null}
+      <Text style={styles.noteText}>
+        {problem ? t("Couldn't list the hosts on your account.") : t('Looking for hosts on your account')}
+      </Text>
+      {problem ? <Button title={t('Try again')} onPress={retryHosts} /> : null}
     </View>
   );
 }
@@ -174,6 +186,19 @@ function Step({ number, children }: { number: number; children: ReactNode }) {
       </View>
       <Text style={styles.stepText}>{children}</Text>
     </View>
+  );
+}
+
+/** A sentence whose one {placeholder} is filled with `value` in bold. */
+function Strong({ sentence, value }: { sentence: string; value: string }) {
+  const styles = useStyles(makeStyles);
+  const [before, after = ''] = sentence.split(/\{\w+\}/);
+  return (
+    <>
+      {before}
+      <Text style={styles.strong}>{value}</Text>
+      {after}
+    </>
   );
 }
 
@@ -193,6 +218,7 @@ function Chip({ title, primary, onPress }: { title: string; primary?: boolean; o
 /** How to bring a host in: install Sikemux there and sign in to this account; the phone then connects by itself. */
 function BringItIn() {
   const styles = useStyles(makeStyles);
+  const t = useT();
   const { user } = useUser();
   const [copied, setCopied] = useState(false);
   const account = [providerName(user?.externalAccounts[0]?.provider), user?.primaryEmailAddress?.emailAddress].filter(Boolean).join(' · ');
@@ -214,20 +240,20 @@ function BringItIn() {
 
   return (
     <View style={styles.how}>
-      <Text style={styles.howTitle}>Bring it in</Text>
+      <Text style={styles.howTitle}>{t('Bring it in')}</Text>
       <View style={styles.steps}>
         <Step number={1}>
-          Get Sikemux from <Text style={styles.strong}>sikemux.com</Text>
+          <Strong sentence={t('Get Sikemux from {site}')} value="sikemux.com" />
         </Step>
         <Step number={2}>
-          Sign in with <Text style={styles.strong}>{account || 'this account'}</Text>
+          <Strong sentence={t('Sign in with {account}')} value={account || t('this account')} />
         </Step>
-        <Step number={3}>It shows up here and connects by itself</Step>
+        <Step number={3}>{t('It shows up here and connects by itself')}</Step>
       </View>
       <View style={styles.chips}>
-        <Chip primary title="Send me the link" onPress={send} />
-        <Chip title={copied ? 'Copied' : 'Copy link'} onPress={copy} />
-        <Chip title="Have a code?" onPress={() => router.push('/host-sign-in')} />
+        <Chip primary title={t('Send me the link')} onPress={send} />
+        <Chip title={copied ? t('Copied') : t('Copy link')} onPress={copy} />
+        <Chip title={t('Have a code?')} onPress={() => router.push('/host-sign-in')} />
       </View>
     </View>
   );
@@ -235,6 +261,7 @@ function BringItIn() {
 
 export function DevicesList({ devices }: { devices: PairedDevice[] }) {
   const styles = useStyles(makeStyles);
+  const t = useT();
   const bottom = useBottomGap();
   const [account, setAccount] = useState(false);
   const { hosts, loaded, problem } = useAccountHosts();
@@ -267,10 +294,10 @@ export function DevicesList({ devices }: { devices: PairedDevice[] }) {
     <Screen>
       <View style={styles.nav}>
         <Text style={styles.title} accessibilityRole="header">
-          Devices
+          {t('Devices')}
         </Text>
-        <IconButton name="IconPlus" label="Add a host" onPress={add} />
-        <Pressable onPress={() => setAccount(true)} accessibilityRole="button" accessibilityLabel="Account" style={styles.account}>
+        <IconButton name="IconPlus" label={t('Add a host')} onPress={add} />
+        <Pressable onPress={() => setAccount(true)} accessibilityRole="button" accessibilityLabel={t('Account')} style={styles.account}>
           <Avatar size={28} />
         </Pressable>
       </View>

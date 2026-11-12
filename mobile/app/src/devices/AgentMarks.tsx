@@ -6,7 +6,6 @@ import Svg, { Circle } from 'react-native-svg';
 import type { AgentGroup, TurnState } from '@shared/wire.generated';
 import { ringShare, rowLabel, rowMinutes } from '@shared/calls/words';
 import { useT } from '@/i18n';
-import { counted } from './words';
 
 import { Icon } from '@/ui/Icon';
 import { useAnimating } from '@/ui/motion';
@@ -43,8 +42,9 @@ function TwinkleCell({ period, index, still }: { period: number; index: number; 
 export function Working() {
   const styles = useStyles(makeStyles);
   const animating = useAnimating();
+  const t = useT();
   return (
-    <View style={styles.loader} accessible accessibilityLabel="Working">
+    <View style={styles.loader} accessible accessibilityLabel={t('Working')}>
       {TWINKLE.map((period, index) => (
         <TwinkleCell key={index} period={period} index={index} still={!animating} />
       ))}
@@ -81,8 +81,9 @@ function Ping({ delay }: { delay: number }) {
 export function NeedsYou() {
   const colors = useColors();
   const styles = useStyles(makeStyles);
+  const t = useT();
   return (
-    <View style={styles.dotBox} accessible accessibilityLabel="Needs input">
+    <View style={styles.dotBox} accessible accessibilityLabel={t('Needs input')}>
       {Array.from({ length: PINGS }, (_, ring) => (
         <Ping key={ring} delay={ring * 380} />
       ))}
@@ -95,8 +96,12 @@ export function NeedsYou() {
 export function SubagentCount({ count }: { count: number }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
+  const t = useT();
   return (
-    <View style={styles.count} accessible accessibilityLabel={`${count} ${counted('subagent', count)} running`}>
+    <View
+      style={styles.count}
+      accessible
+      accessibilityLabel={count === 1 ? t('1 subagent running') : t('{count} subagents running', { count })}>
       <Icon name="IconAgent" size={11} color={colors.live} filled />
       <Text style={styles.countText}>{count}</Text>
     </View>
@@ -107,11 +112,12 @@ export function SubagentCount({ count }: { count: number }) {
 export function ShellCount({ count }: { count: number }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
+  const t = useT();
   return (
     <View
       style={styles.count}
       accessible
-      accessibilityLabel={`${count} ${count === 1 ? 'shell or monitor' : 'shells or monitors'} running`}>
+      accessibilityLabel={count === 1 ? t('1 shell or monitor running') : t('{count} shells or monitors running', { count })}>
       <Icon name="IconCommand" size={11} color={colors.warn} />
       <Text style={styles.countText}>{count}</Text>
     </View>
@@ -122,6 +128,7 @@ export function ShellCount({ count }: { count: number }) {
 export function WakeTime({ at, now }: { at: number; now: number }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
+  const t = useT();
   const left = Math.max(0, at - now);
   const hour = 3_600_000;
   const words =
@@ -131,7 +138,7 @@ export function WakeTime({ at, now }: { at: number; now: number }) {
         ? `${Math.max(1, Math.round(left / hour))}h`
         : new Date(at).toLocaleDateString(undefined, { weekday: 'short' });
   return (
-    <View style={styles.count} accessible accessibilityLabel={`Snoozed, wakes in ${words}`}>
+    <View style={styles.count} accessible accessibilityLabel={t('Snoozed, wakes in {time}', { time: words })}>
       <Icon name="IconClock" size={11} color={colors.tertiary} />
       <Text style={[styles.countText, { color: colors.tertiary }]}>{words}</Text>
     </View>
@@ -150,7 +157,7 @@ export function TurnMark({ turn, now }: { turn?: TurnState; now: number }) {
   const t = useT();
   if (!turn) return null;
   const share = turn.state === 'waiting' ? ringShare(turn.wait, now) : undefined;
-  const time = rowMinutes(turn, now);
+  const time = rowMinutes(turn, now, t);
   const tint = turn.state === 'needsYou' ? colors.warn : turn.state === 'waiting' && share == null ? colors.cmd : colors.tertiary;
   return (
     <View style={styles.count} accessible accessibilityLabel={rowLabel(turn, now, t)}>

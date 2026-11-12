@@ -7,6 +7,7 @@ import type { ProjectInfo, RecentInfo } from '@shared/wire.generated';
 import type { Snapshot } from '@/core/protocol';
 import { problem as problemOf } from '@/core/problem';
 import { useLive } from '@/devices/hub';
+import { useT } from '@/i18n';
 import { haptics } from '@/ui/haptics';
 import { useMinute } from '@/ui/motion';
 import { AgentIcon } from '@/ui/Icon';
@@ -44,6 +45,7 @@ export function Recent({
   hostName: string;
 }) {
   const styles = useStyles(makeStyles);
+  const t = useT();
   const live = useLive(core);
   const minute = useMinute();
   const [all, setAll] = useState(false);
@@ -56,12 +58,12 @@ export function Recent({
     if (resuming) return;
     if (!full) {
       haptics.warning();
-      setNote({ text: `This phone can only watch ${hostName}.`, failed: false });
+      setNote({ text: t('This phone can only watch {host}.', { host: hostName }), failed: false });
       return;
     }
     if (live.status !== 'open') {
       haptics.failure();
-      setNote({ text: 'Not connected to the host.', failed: true });
+      setNote({ text: t('Not connected to the host.'), failed: true });
       return;
     }
     haptics.tap();
@@ -88,7 +90,7 @@ export function Recent({
   if (!chats.length) return null;
   return (
     <>
-      <SectionLabel>Recent</SectionLabel>
+      <SectionLabel>{t('Recent')}</SectionLabel>
       <Rows>
         {shown.map((chat) => (
           <RecentRow key={chat.id} chat={chat} resuming={resuming === chat.id} minute={minute} onResume={onResume} />
@@ -98,7 +100,7 @@ export function Recent({
             onPress={() => setAll(true)}
             style={({ pressed }) => [styles.more, pressed && styles.morePressed]}
             accessibilityRole="button">
-            <Text style={styles.moreText}>Show {chats.length - shown.length} more</Text>
+            <Text style={styles.moreText}>{t('Show {count} more', { count: chats.length - shown.length })}</Text>
           </Pressable>
         ) : null}
       </Rows>
@@ -127,12 +129,13 @@ const RecentRow = memo(function RecentRow({
 }) {
   const styles = useStyles(makeStyles);
   const type = useType();
+  const t = useT();
   return (
     <Row
       mark={<AgentIcon provider={chat.provider} size={20} />}
       title={chat.title}
       place={place}
-      end={resuming ? <Working /> : <Text style={[type.meta, styles.age]}>{formatAge(Number(chat.activeAt), minute * 60_000)}</Text>}
+      end={resuming ? <Working /> : <Text style={[type.meta, styles.age]}>{formatAge(Number(chat.activeAt), minute * 60_000, t)}</Text>}
       onPress={() => onResume(chat)}
     />
   );

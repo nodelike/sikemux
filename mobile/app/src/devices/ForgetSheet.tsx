@@ -3,6 +3,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 
 import { problem as problemOf } from '@/core/problem';
+import { useT } from '@/i18n';
 import { haptics } from '@/ui/haptics';
 import { goHome } from '@/ui/navigate';
 import { Button } from '@/ui/controls';
@@ -50,8 +51,9 @@ export function useForget(device: PairedDevice | undefined, done?: () => void) {
 
 export function ForgetSheet({ device, visible, onClose }: { device: PairedDevice; visible: boolean; onClose: () => void }) {
   const styles = useStyles(makeStyles);
+  const t = useT();
   const { forgetting, problem, leave } = useForget(device, onClose);
-  const name = deviceName(device);
+  const name = deviceName(device, t);
 
   return (
     <Sheet visible={visible} onClose={onClose}>
@@ -64,7 +66,7 @@ export function ForgetSheet({ device, visible, onClose }: { device: PairedDevice
         </View>
         {device.access === 'full' ? (
           <Button
-            title="Paired devices"
+            title={t('Paired devices')}
             onPress={() => {
               onClose();
               router.push(`/device/${device.core}/pairing`);
@@ -75,7 +77,7 @@ export function ForgetSheet({ device, visible, onClose }: { device: PairedDevice
         <Button
           kind="danger"
           icon="IconTrash"
-          title={forgetting ? 'Forgetting…' : 'Forget this host'}
+          title={forgetting ? t('Forgetting…') : t('Forget this host')}
           onPress={leave}
           disabled={forgetting}
           style={styles.button}

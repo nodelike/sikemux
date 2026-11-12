@@ -3,6 +3,7 @@ import * as LocalAuthentication from 'expo-local-authentication';
 import * as SecureStore from 'expo-secure-store';
 
 import { externalValue, useExternalValue } from '@shared/lib/externalValue';
+import { translate } from '@/i18n';
 
 /** How long the app may be away before it asks again, as password managers allow a quick switch to another app. */
 export const AWAY_MS = 60_000;
@@ -79,7 +80,7 @@ export async function lockFor(account: boolean) {
 export async function unlock(): Promise<void> {
   if (!locked || lock.get().asking || !active()) return;
   set({ asking: true });
-  const result = await LocalAuthentication.authenticateAsync({ promptMessage: 'Unlock Sikemux' }).catch(() => null);
+  const result = await LocalAuthentication.authenticateAsync({ promptMessage: translate('Unlock Sikemux') }).catch(() => null);
   // A phone without a passcode has nothing to ask for, and anyone holding it already has everything on it.
   if (result?.success || result?.error === 'passcode_not_set' || result?.error === 'not_enrolled') {
     open();
@@ -91,7 +92,7 @@ export async function unlock(): Promise<void> {
 /** Turns the lock on once the person passes the prompt, so it is known to work; answers why when it can't. */
 export async function turnLockOn(): Promise<string | undefined> {
   set({ asking: true });
-  const result = await LocalAuthentication.authenticateAsync({ promptMessage: 'Lock Sikemux' }).catch(() => null);
+  const result = await LocalAuthentication.authenticateAsync({ promptMessage: translate('Lock Sikemux') }).catch(() => null);
   set({ asking: false });
   if (!result) return undefined;
   if (!result.success)

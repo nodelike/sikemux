@@ -15,6 +15,7 @@ import { ForgetSheet, useForget } from '@/devices/ForgetSheet';
 import { ProjectSheet } from '@/devices/ProjectSheet';
 import { summary } from '@/devices/status';
 import { projectOf } from '@/devices/words';
+import { useT } from '@/i18n';
 import { haptics } from '@/ui/haptics';
 import { useScrollPause } from '@/ui/motion';
 import { AgentFace } from '@/devices/Buddy';
@@ -86,12 +87,13 @@ function HostTitle({
   onPick?: () => void;
 }) {
   const styles = useStyles(makeStyles);
+  const t = useT();
   return (
     <View style={styles.hostTitle}>
       <Text style={styles.hostName} numberOfLines={1}>
         {name}
       </Text>
-      <View style={online ? styles.online : styles.offline} accessibilityLabel={online ? 'Online' : 'Offline'} />
+      <View style={online ? styles.online : styles.offline} accessibilityLabel={online ? t('Online') : t('Offline')} />
       {project ? (
         <Animated.View style={[styles.barProjectWrap, { opacity: shown }]}>
           <Pressable
@@ -100,7 +102,7 @@ function HostTitle({
             hitSlop={8}
             style={styles.barProject}
             accessibilityRole="button"
-            accessibilityLabel={`Project, ${project}`}>
+            accessibilityLabel={t('Project, {project}', { project })}>
             <Text style={styles.slash}>/</Text>
             <Text style={styles.hostName} numberOfLines={1}>
               {project}
@@ -116,6 +118,7 @@ function HostTitle({
 /** The big title: the project in view, which opens the picker, with how the host is doing under it. */
 function ProjectHead({ title, line, provider, onPick }: { title: string; line: string; provider?: string; onPick?: () => void }) {
   const styles = useStyles(makeStyles);
+  const t = useT();
   return (
     <View style={[styles.head, styles.projectHead]}>
       <Pressable
@@ -123,7 +126,7 @@ function ProjectHead({ title, line, provider, onPick }: { title: string; line: s
         disabled={!onPick}
         style={({ pressed }) => [styles.projectTitle, pressed && { opacity: 0.6 }]}
         accessibilityRole="button"
-        accessibilityLabel={`Project, ${title}`}>
+        accessibilityLabel={t('Project, {project}', { project: title })}>
         <Text style={[styles.name, styles.projectName]} numberOfLines={1} maxFontSizeMultiplier={1.4}>
           {title}
         </Text>
@@ -199,6 +202,7 @@ const TABS: { tab: Tab; label: string; icon: 'IconAgent' | 'IconTerminal' | 'Ico
 function HostTabs({ tab, calling, onSwitch }: { tab: Tab; calling: number; onSwitch: (tab: Tab) => void }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
+  const t = useT();
   return (
     <View style={styles.tabs} accessibilityRole="tablist">
       {TABS.map((item) => {
@@ -209,11 +213,11 @@ function HostTabs({ tab, calling, onSwitch }: { tab: Tab; calling: number; onSwi
             onPress={() => onSwitch(item.tab)}
             style={[styles.tab, on && styles.tabOn]}
             accessibilityRole="tab"
-            accessibilityLabel={item.label}
+            accessibilityLabel={t(item.label)}
             accessibilityState={{ selected: on }}>
             <Icon name={item.icon} size={15} color={colors[item.tint] as string} />
             <Text style={[styles.tabText, on && { color: colors.ink }]} numberOfLines={1}>
-              {item.label}
+              {t(item.label)}
             </Text>
             {item.tab === 'calls' && calling ? (
               <View style={styles.count}>
@@ -232,14 +236,15 @@ function HostTabs({ tab, calling, onSwitch }: { tab: Tab; calling: number; onSwi
 /** The host turned this phone away: only forgetting it here and connecting again helps. */
 function Unpaired({ device }: { device?: PairedDevice }) {
   const styles = useStyles(makeStyles);
+  const t = useT();
   const { forgetting, problem, leave } = useForget(device);
   return (
-    <Prompt icon="IconUnlink" title="This host no longer knows this phone" fill>
+    <Prompt icon="IconUnlink" title={t('This host no longer knows this phone')} fill>
       {problem ? <Text style={styles.problem}>{problem}</Text> : null}
       <Button
         kind="danger"
         icon="IconTrash"
-        title={forgetting ? 'Forgetting…' : 'Forget this host'}
+        title={forgetting ? t('Forgetting…') : t('Forget this host')}
         onPress={() => void leave()}
         disabled={forgetting || !device}
         style={styles.retry}
@@ -254,6 +259,7 @@ export default function Device() {
   const colors = useColors();
   const styles = useStyles(makeStyles);
   const type = useType();
+  const t = useT();
   const { core, tab: linkedTab } = useLocalSearchParams<{ core: string; tab?: Tab }>();
   const { devices } = useDevices();
   const device = devices.find((known) => known.core === core);
@@ -270,10 +276,10 @@ export default function Device() {
   const away = live.status === 'closed' || !!status.problem;
   const unreachable =
     behind === 'host'
-      ? { title: 'This host needs a newer Sikemux' }
+      ? { title: t('This host needs a newer Sikemux') }
       : behind === 'phone'
-        ? { title: 'Update this app', body: 'This host runs a newer Sikemux.' }
-        : { title: "Can't reach this host", body: 'It may be asleep, offline, or have remote access turned off.' };
+        ? { title: t('Update this app'), body: t('This host runs a newer Sikemux.') }
+        : { title: t("Can't reach this host"), body: t('It may be asleep, offline, or have remote access turned off.') };
   const snapshot = live.snapshot;
   const [picking, setPicking] = useState(false);
   const [options, setOptions] = useState(false);
@@ -313,8 +319,8 @@ export default function Device() {
     outputRange: [headHeight + 1000, headHeight, 0],
     extrapolateRight: 'clamp',
   });
-  const hostName = device ? deviceName(device) : 'Host';
-  const projectLabel = scope?.name ?? 'All projects';
+  const hostName = device ? deviceName(device, t) : t('Host');
+  const projectLabel = scope?.name ?? t('All projects');
   // The title opens the project picker when there is something to pick.
   const pickable = !!snapshot && !status.unpaired && (snapshot.workspace.projects.length > 0 || providers.length > 1);
   const switchTo = (next: Tab) => {
@@ -356,11 +362,11 @@ export default function Device() {
                   hitSlop={6}
                   style={({ pressed }) => [styles.navButton, pressed && { opacity: 0.6 }]}
                   accessibilityRole="button"
-                  accessibilityLabel="New chat">
+                  accessibilityLabel={t('New chat')}>
                   <Icon name="IconPlus" size={20} color={colors.ink} />
                 </Pressable>
               ) : null}
-              <IconButton name="IconMore" label="Options" onPress={() => setOptions(true)} />
+              <IconButton name="IconMore" label={t('Options')} onPress={() => setOptions(true)} />
             </View>
           ) : null
         }
@@ -375,10 +381,10 @@ export default function Device() {
             <>
               <View style={styles.trying}>
                 <Working />
-                <Text style={type.meta}>Trying again</Text>
+                <Text style={type.meta}>{t('Trying again')}</Text>
               </View>
               <Button
-                title="Try now"
+                title={t('Try now')}
                 onPress={() => {
                   haptics.tap();
                   retry(core);
@@ -414,7 +420,7 @@ export default function Device() {
                 onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrolled } } }], { useNativeDriver: true })}
                 scrollEventThrottle={16}
                 style={status.online ? undefined : styles.stale}
-                accessibilityHint={status.online ? undefined : 'Out of date until the host answers again'}
+                accessibilityHint={status.online ? undefined : t('Out of date until the host answers again')}
                 contentContainerStyle={{ paddingBottom: bottom + 24 }}>
                 <View onLayout={(event) => setHeadHeight(event.nativeEvent.layout.height)}>
                   <ProjectHead
@@ -464,11 +470,11 @@ export default function Device() {
             <ProjectSheet
               visible={picking}
               onClose={() => setPicking(false)}
-              device={device ? deviceName(device) : undefined}
+              device={device ? deviceName(device, t) : undefined}
               projects={snapshot.workspace.projects}
               chosen={scope?.id ?? null}
               onChoose={scopeTo}
-              all={summary(snapshot)}
+              all={summary(snapshot, t)}
               tail={(project) => <ProjectTail snapshot={snapshot} project={project} />}
               providers={filtering ? { offered: providers, chosen: provider, onChoose: setFilter } : undefined}
             />

@@ -6,6 +6,7 @@ import { knownDevices, liveOf, onAnyHost, openConnections } from '@/devices/hub'
 import { deviceName } from '@/devices/paired';
 import { lockOn, onLockChange } from '@/lock/lock';
 import { formatAge } from '@shared/lib/format';
+import { translate } from '@/i18n';
 import type { AccountUsage, UsageResetAt } from '@shared/wire.generated';
 
 import { notifier } from '../../modules/notify';
@@ -38,17 +39,21 @@ function atWork(): AtWork | undefined {
     const row = glance.rows[0];
     if (row && !first?.agentId) {
       const lead = row.name ? `@${row.name} · ` : '';
-      first = { core: device.core, host: deviceName(device), agentId: row.agentId, line: `${lead}${row.title}` };
+      first = { core: device.core, host: deviceName(device, translate), agentId: row.agentId, line: `${lead}${row.title}` };
     } else if (!first && glance.projects[0]) {
       const project = glance.projects[0];
-      first = { core: device.core, host: deviceName(device), line: `${project.name} · ${project.working} working` };
+      first = {
+        core: device.core,
+        host: deviceName(device, translate),
+        line: translate('{project} · {count} working', { project: project.name, count: project.working }),
+      };
     }
   }
   if (needed === 0 && working === 0) return undefined;
   const counts = [
-    needed > 0 ? `${needed} ${needed === 1 ? 'needs' : 'need'} you` : null,
-    working > 0 ? `${working} working` : null,
-    done > 0 ? `${done} done` : null,
+    needed > 0 ? (needed === 1 ? translate('1 needs you') : translate('{count} need you', { count: needed })) : null,
+    working > 0 ? translate('{count} working', { count: working }) : null,
+    done > 0 ? translate('{count} done', { count: done }) : null,
   ];
   return {
     title: counts.filter(Boolean).join(' · '),
@@ -81,7 +86,7 @@ function limitLines(): LimitLine[] {
         return {
           label: `${account.label} · ${window.scope ? `${window.label} · ${window.scope}` : window.label}`,
           used: window.usedPercent,
-          resets: at === undefined ? '' : formatAge(now, at),
+          resets: at === undefined ? '' : formatAge(now, at, translate),
         };
       }),
     );

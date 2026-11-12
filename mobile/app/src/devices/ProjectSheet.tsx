@@ -3,6 +3,7 @@ import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-
 
 import type { ProjectInfo } from '@shared/wire.generated';
 import { agentLabel } from '@shared/agents/catalog';
+import { useT } from '@/i18n';
 import { AgentIcon, DrawnIcon, Icon } from '@/ui/Icon';
 import { Sheet } from '@/ui/Sheet';
 import { fonts, keyboardFor, type Palette, radius, typeFor, useColors, useStyles, useType } from '@/ui/theme';
@@ -31,6 +32,7 @@ type Props = {
 function ProviderTiles({ offered, chosen, onChoose }: NonNullable<Props['providers']>) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
+  const t = useT();
   return (
     <View style={styles.tiles}>
       {['all', ...offered].map((provider) => {
@@ -41,10 +43,10 @@ function ProviderTiles({ offered, chosen, onChoose }: NonNullable<Props['provide
             onPress={() => onChoose(provider)}
             style={[styles.tile, on && styles.tileOn]}
             accessibilityRole="button"
-            accessibilityLabel={provider === 'all' ? 'All agents' : agentLabel(provider)}
+            accessibilityLabel={provider === 'all' ? t('All agents') : agentLabel(provider)}
             accessibilityState={{ selected: on }}>
             {provider === 'all' ? (
-              <Text style={[styles.tileText, on && { color: colors.ink }]}>All</Text>
+              <Text style={[styles.tileText, on && { color: colors.ink }]}>{t('All')}</Text>
             ) : (
               <AgentIcon provider={provider} size={20} />
             )}
@@ -60,6 +62,7 @@ export function ProjectSheet({ visible, onClose, device, projects, chosen, onCho
   const colors = useColors();
   const styles = useStyles(makeStyles);
   const type = useType();
+  const t = useT();
   const [query, setQuery] = useState('');
   if (!visible && query) setQuery('');
   const needle = query.trim().toLowerCase();
@@ -73,7 +76,7 @@ export function ProjectSheet({ visible, onClose, device, projects, chosen, onCho
     <Sheet visible={visible} onClose={onClose} tall={projects.length > 6} scrolls>
       {providers ? <ProviderTiles {...providers} /> : null}
       <View style={styles.head}>
-        <Text style={styles.title}>Projects</Text>
+        <Text style={styles.title}>{t('Projects')}</Text>
         {device ? <Text style={type.meta}>{device}</Text> : null}
       </View>
       <View style={[styles.search, query ? { borderColor: colors.borderSelected } : null]}>
@@ -81,7 +84,7 @@ export function ProjectSheet({ visible, onClose, device, projects, chosen, onCho
         <TextInput
           value={query}
           onChangeText={setQuery}
-          placeholder="Search projects…"
+          placeholder={t('Search projects…')}
           placeholderTextColor={colors.tertiary}
           style={styles.searchInput}
           autoCorrect={false}
@@ -101,7 +104,7 @@ export function ProjectSheet({ visible, onClose, device, projects, chosen, onCho
               accessibilityState={{ selected: chosen === null }}>
               <DrawnIcon name="folders" size={16} color={colors.live} />
               <View style={{ flex: 1 }}>
-                <Text style={styles.name}>All projects</Text>
+                <Text style={styles.name}>{t('All projects')}</Text>
                 <Text style={styles.detail}>{all}</Text>
               </View>
               {chosen === null ? <Icon name="IconCheck" size={16} color={colors.ink} /> : null}
@@ -129,7 +132,7 @@ export function ProjectSheet({ visible, onClose, device, projects, chosen, onCho
             );
           })}
         </View>
-        {!found.length ? <Text style={[type.meta, { textAlign: 'center', paddingTop: 24 }]}>No open project matches.</Text> : null}
+        {!found.length ? <Text style={[type.meta, { textAlign: 'center', paddingTop: 24 }]}>{t('No open project matches.')}</Text> : null}
       </ScrollView>
     </Sheet>
   );

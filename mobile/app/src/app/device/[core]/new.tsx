@@ -95,10 +95,11 @@ function AgentSheet({
 }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
+  const t = useT();
   const agents = launchers.filter((launcher, index) => launchers.findIndex((first) => first.provider === launcher.provider) === index);
   return (
     <Sheet visible={visible} onClose={onClose}>
-      <SheetLabel>Agent</SheetLabel>
+      <SheetLabel>{t('Agent')}</SheetLabel>
       <View style={styles.agents}>
         {agents.map((launcher) => {
           const on = launcher.provider === chosen?.provider;
@@ -136,13 +137,14 @@ function SettingsSheet({
 }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
+  const t = useT();
   return (
     <Sheet visible={visible} onClose={onClose}>
       <View style={styles.sheetHead}>
         <AgentIcon provider={chosen.provider} size={20} />
         <Text style={styles.sheetTitle}>{agentLabel(chosen.provider)}</Text>
       </View>
-      <SheetLabel>Account</SheetLabel>
+      <SheetLabel>{t('Account')}</SheetLabel>
       <View style={styles.group}>
         {accounts.map((launcher, index) => {
           const on = launcher.id === chosen.id;
@@ -181,7 +183,7 @@ export default function NewChat() {
   const live = useLive(core);
   const { devices } = useDevices();
   const known = devices.find((device) => device.core === core);
-  const hostName = known ? deviceName(known) : 'the host';
+  const hostName = known ? deviceName(known, t) : t('the host');
   const [focused, setFocused] = useState(false);
   /** Where the caret sits in the draft, where a picked picture's tag goes. */
   const caret = useRef<number | undefined>(undefined);
@@ -228,7 +230,7 @@ export default function NewChat() {
     setFlipped({ project: project.id, on });
     callHost(live.connection, 'setWorktreeDefault', { project: project.path, on }).catch((error: unknown) => {
       setFlipped(undefined);
-      setProblem(`Could not change the worktree default: ${problemOf(error)}`);
+      setProblem(t('Could not change the worktree default: {problem}', { problem: problemOf(error) }));
     });
   };
   const room = MAX_ATTACHMENTS - attachments.length;
@@ -239,7 +241,7 @@ export default function NewChat() {
   const prompt = usePromptStash({
     stash: async () => {
       const token = stashToken();
-      if (!token) throw new Error('Sign in again.');
+      if (!token) throw new Error(t('Sign in again.'));
       const held = { draft, attachments, chips };
       stashedFrom.current = held;
       setDraft('');
@@ -272,10 +274,10 @@ export default function NewChat() {
   const blocked =
     live.status !== 'open'
       ? live.snapshot
-        ? 'Reconnecting to the host…'
-        : 'Not connected to the host yet.'
+        ? t('Reconnecting to the host…')
+        : t('Not connected to the host yet.')
       : workspace && !project
-        ? 'No open projects on the host.'
+        ? t('No open projects on the host.')
         : undefined;
   const noAgents = Boolean(workspace && !workspace.launchers.length);
   const absent: Glyph | undefined = noAgents ? 'IconAgent' : live.status === 'open' && workspace && !project ? 'IconFolder' : undefined;
@@ -298,7 +300,7 @@ export default function NewChat() {
   const attach = (picking: Promise<Attachment[]>) => {
     picking
       .then((picked) => {
-        const { fits, notice } = fitting(attachments.length, picked);
+        const { fits, notice } = fitting(attachments.length, picked, t);
         if (notice) setProblem(notice);
         const held = attachments.length;
         setAttachments((now) => [...now, ...fits]);
@@ -306,7 +308,7 @@ export default function NewChat() {
         const numbers = fits.flatMap((file, index) => (file.kind === 'image' ? [held + index + 1] : []));
         setDraft((now) => writeTags(now, caret.current, numbers));
       })
-      .catch((error: unknown) => setProblem(`Could not pick: ${problemOf(error)}`));
+      .catch((error: unknown) => setProblem(t('Could not pick: {problem}', { problem: problemOf(error) })));
   };
 
   const fromStash = (items: StashItem[], base = draft) => {
@@ -369,7 +371,11 @@ export default function NewChat() {
   return (
     <Screen>
       <Nav
-        title={launcher ? <ChatTitle provider={launcher.provider} title={`New ${agentLabel(launcher.provider)} chat`} /> : undefined}
+        title={
+          launcher ? (
+            <ChatTitle provider={launcher.provider} title={t('New {agent} chat', { agent: agentLabel(launcher.provider) })} />
+          ) : undefined
+        }
         end={
           accounts.length > 1 && !started ? (
             <Pressable
@@ -377,7 +383,7 @@ export default function NewChat() {
               hitSlop={6}
               style={({ pressed }) => [styles.more, pressed && { backgroundColor: colors.active }]}
               accessibilityRole="button"
-              accessibilityLabel="Chat settings">
+              accessibilityLabel={t('Chat settings')}>
               <Icon name="IconMoreVertical" size={16} color={colors.tertiary} />
             </Pressable>
           ) : undefined
@@ -387,7 +393,7 @@ export default function NewChat() {
         {sending ? (
           <View style={styles.sending}>
             <Message message={sending.message} unsent={{ state: 'sending' }} sentFiles={sending.files} />
-            {launcher ? <Activity provider={launcher.provider} doing={{ verb: step ?? 'Starting' }} since={sending.since} /> : null}
+            {launcher ? <Activity provider={launcher.provider} doing={{ verb: step ?? t('Starting') }} since={sending.since} /> : null}
           </View>
         ) : (
           <View style={styles.welcome}>
@@ -396,14 +402,12 @@ export default function NewChat() {
             ) : launcher ? (
               <AgentFace agentId={project?.id} provider={launcher.provider} size={38} logoSize={40} />
             ) : null}
-            <Text style={styles.welcomeTitle}>New chat</Text>
+            <Text style={styles.welcomeTitle}>{t('New chat')}</Text>
             {launcher && !noAgents && !problem && !blocked ? (
-              <Text style={type.meta}>
-                {agentLabel(launcher.provider)} on {hostName}
-              </Text>
+              <Text style={type.meta}>{t('{agent} on {host}', { agent: agentLabel(launcher.provider), host: hostName })}</Text>
             ) : null}
             {smartPick && launcher && !problem && !blocked ? <SmartPick move={smartPick} provider={launcher.provider} /> : null}
-            {noAgents ? <Text style={[type.meta, { textAlign: 'center' }]}>No agents on the host.</Text> : null}
+            {noAgents ? <Text style={[type.meta, { textAlign: 'center' }]}>{t('No agents on the host.')}</Text> : null}
             {problem ? <Text style={styles.problem}>{problem}</Text> : null}
             {!problem && blocked ? (
               <Text style={[type.meta, { textAlign: 'center' }]} accessibilityLiveRegion="polite">
@@ -459,7 +463,7 @@ export default function NewChat() {
                   (starting || room <= 0) && { opacity: 0.4 },
                 ]}
                 accessibilityRole="button"
-                accessibilityLabel="Add photos or files"
+                accessibilityLabel={t('Add photos or files')}
                 accessibilityState={{ disabled: starting || room <= 0 }}>
                 <Icon name="IconPlus" size={17} color={colors.inkDim} />
               </Pressable>
@@ -480,7 +484,7 @@ export default function NewChat() {
                   disabled={Boolean(started)}
                   hitSlop={5}
                   accessibilityRole="button"
-                  accessibilityLabel="Agent">
+                  accessibilityLabel={t('Agent')}>
                   <AgentIcon provider={launcher.provider} size={16} />
                   <Text style={styles.pickerText}>{agentLabel(launcher.provider)}</Text>
                   <View style={{ transform: [{ rotate: '90deg' }], opacity: 0.6 }}>
@@ -496,7 +500,7 @@ export default function NewChat() {
                 hitSlop={5}
                 style={[styles.send, !sendable && { opacity: 0.28 }]}
                 accessibilityRole="button"
-                accessibilityLabel="Start"
+                accessibilityLabel={t('Start')}
                 accessibilityHint={blocked}
                 accessibilityState={{ disabled: !sendable, busy: starting }}>
                 {starting ? <Working /> : <Icon name="IconArrowUp" size={16} color={colors.ground} />}
@@ -520,7 +524,7 @@ export default function NewChat() {
                 disabled={Boolean(started)}
                 hitSlop={6}
                 accessibilityRole="button"
-                accessibilityLabel={`Project, ${project.name}`}>
+                accessibilityLabel={t('Project, {project}', { project: project.name })}>
                 <Icon name="IconFolder" size={12} color={colors.live} />
                 <Text style={styles.placeName} numberOfLines={1}>
                   {project.name}

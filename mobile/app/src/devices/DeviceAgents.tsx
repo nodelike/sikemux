@@ -11,6 +11,7 @@ import { AgentFace } from '@/devices/Buddy';
 import { AwayNote, AwaySheet, restore } from '@/devices/AwaySheet';
 import { toggleFolded, useFolded } from '@/devices/folded';
 import { useLive } from '@/devices/hub';
+import { useT } from '@/i18n';
 import { Icon } from '@/ui/Icon';
 import { Row, Rows, SectionLabel } from '@/ui/list';
 import { EmptyState } from '@/ui/prompt';
@@ -97,6 +98,7 @@ export function Agents({
   onTab: (tab: Tab) => void;
 }) {
   const styles = useStyles(makeStyles);
+  const t = useT();
   const minute = useMinute();
   const { main: open, snoozed, settled } = openAgents(snapshot, scope, provider);
   const animating = useAnimating();
@@ -170,8 +172,8 @@ export function Agents({
           </Rows>
         </View>
       ) : null}
-      <AwayGroup label="Snoozed" fold="snoozed" agents={snoozed} row={awayRow} />
-      <AwayGroup label="Settled" fold="settled" agents={settled} row={awayRow} />
+      <AwayGroup label={t('Snoozed')} fold="snoozed" agents={snoozed} row={awayRow} />
+      <AwayGroup label={t('Settled')} fold="settled" agents={settled} row={awayRow} />
       <Recent core={core} snapshot={snapshot} scope={scope} provider={provider} full={full} hostName={hostName} />
       <AwaySheet core={core} shown={snoozingShown} onClose={() => setSnoozing(undefined)} />
       {!open.length &&
@@ -179,7 +181,7 @@ export function Agents({
       !snoozed.length &&
       !settled.length &&
       !snapshot.recent.some((chat) => !scope || chat.project === scope.id) ? (
-        <EmptyState icon="IconAgent" text={scope ? `No agents in ${scope.name}.` : 'No agents running.'} />
+        <EmptyState icon="IconAgent" text={scope ? t('No agents in {project}.', { project: scope.name }) : t('No agents running.')} />
       ) : null}
     </>
   );
@@ -223,6 +225,7 @@ const ChatRow = memo(function ChatRow({
   /** Opens its snooze sheet; absent for a phone that can only watch. */
   onHold?: (shown: AgentShown) => void;
 }) {
+  const t = useT();
   const away = shown.snoozedUntil != null || shown.settledAt != null;
   return (
     <Row
@@ -233,7 +236,7 @@ const ChatRow = memo(function ChatRow({
       }
       name={away ? undefined : shown.name}
       title={shown.title}
-      detail={shown.settledAt != null ? formatAgo(Number(shown.settledAt), minute * 60_000) : undefined}
+      detail={shown.settledAt != null ? formatAgo(Number(shown.settledAt), minute * 60_000, t) : undefined}
       dim={away}
       end={
         away ? (
@@ -262,6 +265,7 @@ function Faded({ away, children }: { away: boolean; children: ReactNode }) {
 function RestoreButton({ core, shown }: { core: string; shown: AgentShown }) {
   const styles = useStyles(makeStyles);
   const colors = useColors();
+  const t = useT();
   const live = useLive(core);
   if (live.status !== 'open') return null;
   const connection = live.connection;
@@ -271,8 +275,8 @@ function RestoreButton({ core, shown }: { core: string; shown: AgentShown }) {
       hitSlop={6}
       style={({ pressed }) => [styles.restore, pressed && { backgroundColor: colors.active }]}
       accessibilityRole="button"
-      accessibilityLabel={`Restore ${shown.title}`}>
-      <Text style={styles.restoreText}>Restore</Text>
+      accessibilityLabel={t('Restore {title}', { title: shown.title })}>
+      <Text style={styles.restoreText}>{t('Restore')}</Text>
     </Pressable>
   );
 }

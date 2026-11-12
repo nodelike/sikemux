@@ -6,6 +6,7 @@ import { AgentIcon } from '@/ui/Icon';
 import { Row } from '@/ui/list';
 import { AgentState, TurnMark } from '@/devices/AgentMarks';
 import { useMinute } from '@/ui/motion';
+import { useT } from '@/i18n';
 
 /**
  * A worker's mark from its turn, or before its first turn from its group. One out of reach carries no mark, as on the
@@ -19,6 +20,7 @@ function WorkerEnd({ worker }: { worker: RemoteAgent }) {
 
 /** A worker an agent here started on a linked host, set in when it sits under the agent that started it. */
 export const WorkerRow = memo(function WorkerRow({ worker, nested }: { worker: RemoteAgent; nested?: boolean }) {
+  const t = useT();
   return (
     <View style={nested && styles.nested}>
       <Row
@@ -32,7 +34,7 @@ export const WorkerRow = memo(function WorkerRow({ worker, nested }: { worker: R
         name={worker.name}
         host={worker.host}
         place={worker.projectName ?? worker.project}
-        detail={worker.reachable ? worker.label : 'Out of reach'}
+        detail={worker.reachable ? worker.label : t('Out of reach')}
         end={<WorkerEnd worker={worker} />}
       />
     </View>

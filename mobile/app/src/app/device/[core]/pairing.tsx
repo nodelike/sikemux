@@ -11,7 +11,7 @@ import { useDeviceId } from '@/phone/identity';
 import { problem as problemOf } from '@/core/problem';
 import { connectionOf, useDevices, useLive } from '@/devices/hub';
 import { deviceName } from '@/devices/paired';
-import { counted } from '@/devices/words';
+import { type Translate, useT } from '@/i18n';
 import { haptics } from '@/ui/haptics';
 import { DeviceIcon, Icon } from '@/ui/Icon';
 import { Button, Chip, Track } from '@/ui/controls';
@@ -21,7 +21,10 @@ import { Nav, Screen, useBottomGap } from '@/ui/screen';
 import { Sheet } from '@/ui/Sheet';
 import { fonts, type Palette, typeFor, useColors, useStyles, useType } from '@/ui/theme';
 
-const accessLabel = (access: DeviceAccess) => ACCESS_OPTIONS.find((option) => option.value === access)?.label ?? access;
+const accessLabel = (access: DeviceAccess, t: Translate) => {
+  const label = ACCESS_OPTIONS.find((option) => option.value === access)?.label;
+  return label ? t(label) : access;
+};
 
 /** The host's pairing requests and paired devices, read with its `pairing` call and changed with the calls that answer it. */
 function usePairing(connection: ConnectionLike | undefined) {
@@ -94,22 +97,24 @@ function DeviceSheet({
 }) {
   const styles = useStyles(makeStyles);
   const type = useType();
+  const t = useT();
+  const detail = ACCESS_OPTIONS.find((option) => option.value === device?.access)?.detail;
   return (
     <Sheet visible={!!device} onClose={onClose}>
       {device ? (
         <View style={styles.sheet}>
           <Text style={styles.sheetTitle} numberOfLines={1}>
-            {device.name || 'Unnamed phone'}
+            {device.name || t('Unnamed phone')}
           </Text>
           <Track
-            options={ACCESS_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
+            options={ACCESS_OPTIONS.map((option) => ({ value: option.value, label: t(option.label) }))}
             value={device.access}
             onChange={(access) => onAccess(device.id, access)}
           />
-          <Text style={type.meta}>{ACCESS_OPTIONS.find((option) => option.value === device.access)?.detail}</Text>
+          <Text style={type.meta}>{detail ? t(detail) : null}</Text>
           <Button
             kind="danger"
-            title="Remove from this host"
+            title={t('Remove from this host')}
             onPress={() => {
               onAccess(device.id, null);
               onClose();
@@ -124,11 +129,14 @@ function DeviceSheet({
 
 const hostKind = (platform: string) => (platform === 'linux' ? 'desktop' : 'laptop');
 
-const agentCount = (count: number) => `${count} ${counted('agent', count)}`;
+const agentCount = (count: number, t: Translate) => (count === 1 ? t('1 agent') : t('{count} agents', { count }));
 
-function linkDetail(link: LinkedHost, now: number): string {
-  const reach = link.connected ? 'connected' : link.lastSeen ? `seen ${formatAgo(link.lastSeen, now)}` : 'never connected';
-  return [platformName(link.platform), reach, link.agents ? agentCount(link.agents) : null].filter(Boolean).join(' · ');
+const seenAgo = (lastSeen: number | null | undefined, now: number, t: Translate) =>
+  lastSeen ? t('seen {ago}', { ago: formatAgo(lastSeen, now, t) }) : t('never connected');
+
+function linkDetail(link: LinkedHost, now: number, t: Translate): string {
+  const reach = link.connected ? t('connected') : seenAgo(link.lastSeen, now, t);
+  return [platformName(link.platform), reach, link.agents ? agentCount(link.agents, t) : null].filter(Boolean).join(' · ');
 }
 
 /** The host's lock (ADR 0018): whether each new device and host on the account waits for the person here. */
@@ -136,6 +144,7 @@ function ApprovalRow({ connection }: { connection: ConnectionLike | undefined })
   const colors = useColors();
   const styles = useStyles(makeStyles);
   const type = useType();
+  const t = useT();
   const [on, setOn] = useState<boolean>();
   const [problem, setProblem] = useState<string>();
   useEffect(() => {
@@ -164,8 +173,8 @@ function ApprovalRow({ connection }: { connection: ConnectionLike | undefined })
     <View style={styles.lock}>
       <Icon name="IconLock" size={18} color={colors.secondary} />
       <View style={{ flex: 1 }}>
-        <Text style={styles.lockTitle}>Require approval for new devices</Text>
-        <Text style={type.meta}>{problem ?? 'Ask here before a device or host on your account connects'}</Text>
+        <Text style={styles.lockTitle}>{t('Require approval for new devices')}</Text>
+        <Text style={type.meta}>{problem ?? t('Ask here before a device or host on your account connects')}</Text>
       </View>
       <Switch
         value={on ?? false}
@@ -173,7 +182,7 @@ function ApprovalRow({ connection }: { connection: ConnectionLike | undefined })
         onValueChange={(next) => void flip(next)}
         trackColor={{ false: colors.active, true: colors.live }}
         thumbColor={colors.ink}
-        accessibilityLabel="Require approval for new devices"
+        accessibilityLabel={t('Require approval for new devices')}
       />
     </View>
   );
@@ -185,6 +194,7 @@ export default function HostPairing() {
   const colors = useColors();
   const bottom = useBottomGap();
   const minute = useMinute();
+  const t = useT();
   const { core } = useLocalSearchParams<{ core: string }>();
   const { devices } = useDevices();
   const device = devices.find((known) => known.core === core);
@@ -193,7 +203,7 @@ export default function HostPairing() {
   const { pairing, problem, busy, reread, answer, setAccess } = usePairing(connection);
   const [editing, setEditing] = useState<string>();
   const phone = useDeviceId();
-  const hostName = device ? deviceName(device) : 'Host';
+  const hostName = device ? deviceName(device, t) : t('Host');
 
   const now = minute * 60_000;
   const pending = pairing?.pending.filter((request) => request.expiresAt > now) ?? [];
@@ -201,7 +211,7 @@ export default function HostPairing() {
   const links = pairing?.links ?? [];
   return (
     <Screen>
-      <Nav back="Back" title="Paired devices" />
+      <Nav back={t('Back')} title={t('Paired devices')} />
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[styles.body, { paddingBottom: bottom + 24 }]}
@@ -209,19 +219,19 @@ export default function HostPairing() {
         <ApprovalRow connection={connection} />
         {pending.length ? (
           <>
-            <SectionLabel>Asking to connect</SectionLabel>
+            <SectionLabel>{t('Asking to connect')}</SectionLabel>
             <Rows>
               {pending.map((request) => (
                 <View key={request.id}>
                   <Row
                     mark={<Icon name="IconPhone" size={18} color={colors.ink} />}
-                    title={request.name || 'A phone'}
-                    detail={`${platformName(request.platform)} · from your account`}
+                    title={request.name || t('A phone')}
+                    detail={t('{platform} · from your account', { platform: platformName(request.platform) })}
                   />
                   <View style={styles.chips}>
-                    <Chip title="Refuse" busy={busy === request.id} onPress={() => void answer(request.id, null)} />
-                    <Chip title="Watch only" busy={busy === request.id} onPress={() => void answer(request.id, 'watch')} />
-                    <Chip title="Full control" primary busy={busy === request.id} onPress={() => void answer(request.id, 'full')} />
+                    <Chip title={t('Refuse')} busy={busy === request.id} onPress={() => void answer(request.id, null)} />
+                    <Chip title={t('Watch only')} busy={busy === request.id} onPress={() => void answer(request.id, 'watch')} />
+                    <Chip title={t('Full control')} primary busy={busy === request.id} onPress={() => void answer(request.id, 'full')} />
                   </View>
                 </View>
               ))}
@@ -230,17 +240,17 @@ export default function HostPairing() {
         ) : null}
         {pairing ? (
           <>
-            <SectionLabel>Paired</SectionLabel>
+            <SectionLabel>{t('Paired')}</SectionLabel>
             <Rows>
               {pairing.devices.map((paired) => {
                 const self = paired.id === phone;
-                const seen = paired.lastSeen ? `seen ${formatAgo(paired.lastSeen, now)}` : 'never connected';
+                const seen = seenAgo(paired.lastSeen, now, t);
                 return (
                   <Row
                     key={paired.id}
                     mark={<Icon name="IconPhone" size={18} color={colors.secondary} />}
-                    title={paired.name || 'Unnamed phone'}
-                    detail={`${accessLabel(paired.access)} · ${self ? 'this phone' : seen}`}
+                    title={paired.name || t('Unnamed phone')}
+                    detail={`${accessLabel(paired.access, t)} · ${self ? t('this phone') : seen}`}
                     end={self ? null : <Icon name="IconChevron" size={14} color={colors.rest} />}
                     onPress={self ? undefined : () => setEditing(paired.id)}
                   />
@@ -251,18 +261,18 @@ export default function HostPairing() {
         ) : null}
         {asking.length ? (
           <>
-            <SectionLabel>Asking to link</SectionLabel>
+            <SectionLabel>{t('Asking to link')}</SectionLabel>
             <Rows>
               {asking.map((request) => (
                 <View key={request.id}>
                   <Row
                     mark={<DeviceIcon kind={hostKind(request.platform)} size={18} />}
-                    title={request.name || 'A host'}
-                    detail={`${platformName(request.platform)} · from your account`}
+                    title={request.name || t('A host')}
+                    detail={t('{platform} · from your account', { platform: platformName(request.platform) })}
                   />
                   <View style={styles.chips}>
-                    <Chip title="Decline" busy={busy === request.id} onPress={() => void answer(request.id, null)} />
-                    <Chip title="Allow" primary busy={busy === request.id} onPress={() => void answer(request.id, 'full')} />
+                    <Chip title={t('Decline')} busy={busy === request.id} onPress={() => void answer(request.id, null)} />
+                    <Chip title={t('Allow')} primary busy={busy === request.id} onPress={() => void answer(request.id, 'full')} />
                   </View>
                 </View>
               ))}
@@ -271,20 +281,20 @@ export default function HostPairing() {
         ) : null}
         {links.length ? (
           <>
-            <SectionLabel>Linked hosts</SectionLabel>
+            <SectionLabel>{t('Linked hosts')}</SectionLabel>
             <Rows>
               {links.map((link) => (
                 <Row
                   key={link.id}
                   mark={<DeviceIcon kind={hostKind(link.platform)} size={18} color={colors.secondary} />}
                   title={link.name}
-                  detail={linkDetail(link, now)}
+                  detail={linkDetail(link, now, t)}
                 />
               ))}
             </Rows>
           </>
         ) : null}
-        {!pairing && !problem ? <Text style={styles.note}>Asking {hostName}…</Text> : null}
+        {!pairing && !problem ? <Text style={styles.note}>{t('Asking {host}…', { host: hostName })}</Text> : null}
         {problem ? (
           <Text style={[styles.note, styles.problem]} accessibilityLiveRegion="polite">
             {problem}

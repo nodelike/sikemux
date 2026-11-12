@@ -4,6 +4,7 @@ import { CoreEvent, MobileError, type ConnectionLike, type CoreListener } from '
 
 import { callHost } from '@/core/hostCalls';
 import { problem } from '@/core/problem';
+import { translate, useT } from '@/i18n';
 import { forgetAgentCatalog, setAgentCatalog } from '@shared/agents/catalog';
 import { externalValue, useExternalValue } from '@shared/lib/externalValue';
 import type { HostInfo } from '@shared/wire.generated';
@@ -40,8 +41,6 @@ const UNPAIR_WAIT_MS = 3000;
 const AWAY_MS = 10_000;
 /** After the phone changes network, a connection that cannot answer in this time is replaced. */
 const CHECK_MS = 5000;
-
-const DAMAGED = "The list of paired hosts couldn't be read, so it was started again. Connect your hosts again.";
 
 type Entry = {
   live: Live;
@@ -151,7 +150,13 @@ export async function reloadDevices() {
   try {
     const devices = await pairedDevices();
     if (load !== devicesLoad) return;
-    paired.set({ devices, loaded: true, problem: pairedListDamaged() ? DAMAGED : null });
+    paired.set({
+      devices,
+      loaded: true,
+      problem: pairedListDamaged()
+        ? translate("The list of paired hosts couldn't be read, so it was started again. Connect your hosts again.")
+        : null,
+    });
   } catch (error) {
     if (load !== devicesLoad) return;
     paired.set({ ...paired.get(), loaded: true, problem: problem(error) });
@@ -246,7 +251,7 @@ function listener(core: string, found: Entry, attempt: object): CoreListener {
     closed() {
       if (!current() || found.live.status !== 'open') return;
       found.recovering = true;
-      drop(core, 'The connection closed.');
+      drop(core, translate('The connection closed.'));
     },
   };
 }
@@ -277,7 +282,7 @@ async function connect(core: string, found: Entry) {
     connection.close();
     if (found.current === attempt) {
       found.current = undefined;
-      set(core, found, { status: 'closed', problem: 'Not in use.', snapshot: found.live.snapshot });
+      set(core, found, { status: 'closed', problem: translate('Not in use.'), snapshot: found.live.snapshot });
     }
     return;
   }
@@ -349,7 +354,7 @@ export function watch(core: string) {
     found.watchers -= 1;
     if (found.watchers > 0) return;
     found.lingering = setTimeout(() => {
-      if (found.watchers === 0) close(core, found, 'Not in use.');
+      if (found.watchers === 0) close(core, found, translate('Not in use.'));
     }, LINGER_MS);
   };
 }
@@ -392,7 +397,7 @@ AppState.addEventListener('change', (state) => {
       away = true;
       entries.forEach((found, core) => {
         const wasOpen = found.live.status === 'open';
-        close(core, found, 'Paused while the app is away.');
+        close(core, found, translate('Paused while the app is away.'));
         found.recovering = wasOpen;
       });
       goOffline();
@@ -410,7 +415,7 @@ AppState.addEventListener('change', (state) => {
   entries.forEach((found, core) => {
     // A connection the phone held while it slept may be dead without having noticed yet.
     if (found.live.status === 'open' && (wasAway || !found.live.connection.isOpen())) {
-      close(core, found, 'Reconnecting.');
+      close(core, found, translate('Reconnecting.'));
       found.recovering = true;
     }
     if (found.watchers === 0 || found.live.status === 'open') return;
@@ -424,7 +429,7 @@ AppState.addEventListener('change', (state) => {
 function check(core: string, found: Entry, connection: ConnectionLike) {
   const stillThis = () => found.live.status === 'open' && found.live.connection === connection;
   if (!connection.isOpen()) {
-    reconnect(core, found, 'The network changed.');
+    reconnect(core, found, translate('The network changed.'));
     return;
   }
   const abort = new AbortController();
@@ -432,12 +437,12 @@ function check(core: string, found: Entry, connection: ConnectionLike) {
   const late = new Promise<never>((_, fail) => {
     timer = setTimeout(() => {
       abort.abort();
-      fail(new Error('No answer.'));
+      fail(new Error(translate('No answer.')));
     }, CHECK_MS);
   });
   Promise.race([connection.host({ signal: abort.signal }), late])
     .catch(() => {
-      if (stillThis()) reconnect(core, found, 'The network changed.');
+      if (stillThis()) reconnect(core, found, translate('The network changed.'));
     })
     .finally(() => clearTimeout(timer));
 }
@@ -491,9 +496,10 @@ export function useLiveWhile(core: string, needed: boolean): Live | undefined {
 
 /** How a host is doing, worded as the screens show it; the device stays connected while this is mounted and `watching`. */
 export function useHostStatus(core: string, watching = true): HostStatus {
+  const t = useT();
   const live = useLive(core, watching);
   const device = useExternalValue(paired, ({ devices }) => devices.find((known) => known.core === core));
-  return useMemo(() => hostStatus(live, device), [live, device]);
+  return useMemo(() => hostStatus(live, device, undefined, t), [live, device, t]);
 }
 
 /**

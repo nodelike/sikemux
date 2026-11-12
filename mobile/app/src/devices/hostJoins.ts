@@ -9,6 +9,7 @@ import { externalValue, useExternalValue } from '@shared/lib/externalValue';
 import { problem } from '@/core/problem';
 import type { TokenSource } from '@/account/api';
 import { useAccountHosts } from '@/account/session';
+import { translate } from '@/i18n';
 import { offerNotifications } from '@/notify/setting';
 import { readWhole, writeWhole } from './disk';
 import { useDevices } from './hub';
@@ -66,7 +67,7 @@ function startJoin(host: Device) {
   const controller = new AbortController();
   running.set(host.key, controller);
   setJoin(host.key, { joining: Date.now() });
-  joinHost({ core: host.key, name: host.name }, () => token(), controller.signal)
+  joinHost({ core: host.key, name: host.name }, () => token(), controller.signal, translate)
     .then(() => {
       if (controller.signal.aborted) return;
       running.delete(host.key);
@@ -76,7 +77,9 @@ function startJoin(host: Device) {
     .catch((error: unknown) => {
       if (controller.signal.aborted) return;
       running.delete(host.key);
-      setJoin(host.key, { stopped: error instanceof JoinFailed ? error.failure : { title: 'Connecting stopped', detail: problem(error) } });
+      setJoin(host.key, {
+        stopped: error instanceof JoinFailed ? error.failure : { title: translate('Connecting stopped'), detail: problem(error) },
+      });
     });
 }
 
@@ -92,7 +95,10 @@ export function retryJoin(host: Device) {
 export function forgotHost(core: string) {
   running.get(core)?.abort();
   running.delete(core);
-  if (account) setJoin(core, { stopped: { title: 'Forgotten on this phone', detail: 'Try again to use it here.', held: true } });
+  if (account)
+    setJoin(core, {
+      stopped: { title: translate('Forgotten on this phone'), detail: translate('Try again to use it here.'), held: true },
+    });
 }
 
 /** Joins every host on the account this phone has not paired with, as soon as the account lists it (ADR 0018). */

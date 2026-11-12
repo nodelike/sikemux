@@ -7,6 +7,7 @@ import { externalValue, useExternalValue } from '@shared/lib/externalValue';
 
 import { OFFLINE } from '@/account/api';
 import { apiUrl } from '@/account/config';
+import { translate } from '@/i18n';
 import { onNetworkChange } from './connectivity';
 import { installedRelease } from './installed';
 import { tooOld } from './versions';
@@ -45,7 +46,7 @@ function minimumVersions(value: unknown): MinimumVersions | null {
 
 /** The server's answer, or null when it could not be reached in time; the saved copy stands in then. */
 async function fetchNetwork(): Promise<Network | null> {
-  return connectApi({ url: apiUrl(), offline: OFFLINE, timeoutMs: FETCH_TIMEOUT_MS })
+  return connectApi({ url: apiUrl(), offline: translate(OFFLINE), timeoutMs: FETCH_TIMEOUT_MS, say: translate })
     .getNetwork()
     .catch(() => null);
 }

@@ -8,6 +8,7 @@ import { MenuItem } from '@/chat/ChatMenu';
 import { callHost, useHostCall } from '@/core/hostCalls';
 import { problem } from '@/core/problem';
 import { useLive } from '@/devices/hub';
+import { useT } from '@/i18n';
 import { haptics } from '@/ui/haptics';
 import { Sheet } from '@/ui/Sheet';
 import { fonts, type Palette, useColors, useStyles } from '@/ui/theme';
@@ -74,6 +75,7 @@ export function AwaySheet({
 function Choices({ core, shown, onClose, onDone }: { core: string; shown: AgentShown; onClose: () => void; onDone?: () => void }) {
   const styles = useStyles(makeStyles);
   const colors = useColors();
+  const t = useT();
   const live = useLive(core);
   const connection = live.status === 'open' ? live.connection : undefined;
   const presets = useHostCall(connection, 'snoozePresets', {}, shown.agentId);
@@ -86,7 +88,7 @@ function Choices({ core, shown, onClose, onDone }: { core: string; shown: AgentS
   const act = (work: (connection: ConnectionLike) => Promise<unknown>, said?: Note) => {
     if (!connection) {
       haptics.failure();
-      setFailed('Not connected to the host.');
+      setFailed(t('Not connected to the host.'));
       return;
     }
     haptics.tap();
@@ -107,7 +109,7 @@ function Choices({ core, shown, onClose, onDone }: { core: string; shown: AgentS
       (connection) => snooze(connection, ids, until, words),
       until || words
         ? {
-            text: until ? `Snoozed until ${clock(until)}` : 'Snoozed',
+            text: until ? t('Snoozed until {time}', { time: clock(until) }) : t('Snoozed'),
             undo: () => connection && void snooze(connection, ids, null),
           }
         : undefined,
@@ -116,11 +118,11 @@ function Choices({ core, shown, onClose, onDone }: { core: string; shown: AgentS
   return (
     <>
       <Text style={styles.title} numberOfLines={1}>
-        {snoozed ? `${shown.title} is snoozed` : `Snooze ${shown.title}`}
+        {snoozed ? t('{title} is snoozed', { title: shown.title }) : t('Snooze {title}', { title: shown.title })}
       </Text>
       {snoozed ? (
         <View style={styles.items}>
-          <MenuItem icon="IconClock" label="Wake now" onPress={() => snoozeUntil(null)} />
+          <MenuItem icon="IconClock" label={t('Wake now')} onPress={() => snoozeUntil(null)} />
         </View>
       ) : (
         <>
@@ -141,7 +143,7 @@ function Choices({ core, shown, onClose, onDone }: { core: string; shown: AgentS
               setFailed(undefined);
             }}
             onSubmitEditing={() => typed.trim() && snoozeUntil(null, typed.trim())}
-            placeholder="Or type a time: fri 2pm, in 90m"
+            placeholder={t('Or type a time: fri 2pm, in 90m')}
             placeholderTextColor={colors.tertiary}
             returnKeyType="done"
             autoCorrect={false}
@@ -153,14 +155,14 @@ function Choices({ core, shown, onClose, onDone }: { core: string; shown: AgentS
       {failed ? <Text style={styles.failed}>{failed}</Text> : null}
       <View style={styles.items}>
         {settled ? (
-          <MenuItem icon="IconRotate" label="Restore" onPress={() => act((connection) => settle(connection, ids, false))} />
+          <MenuItem icon="IconRotate" label={t('Restore')} onPress={() => act((connection) => settle(connection, ids, false))} />
         ) : (
           <MenuItem
             icon="IconCheck"
-            label="Settle"
+            label={t('Settle')}
             onPress={() =>
               act((connection) => settle(connection, ids, true), {
-                text: 'Settled',
+                text: t('Settled'),
                 undo: () => connection && void settle(connection, ids, false),
               })
             }
@@ -176,6 +178,7 @@ export function AwayNote() {
   const styles = useStyles(makeStyles);
   const colors = useColors();
   const shown = useExternalValue(note);
+  const t = useT();
   if (!shown) return null;
   return (
     <View style={styles.note} accessibilityLiveRegion="polite">
@@ -189,7 +192,7 @@ export function AwayNote() {
         hitSlop={8}
         style={({ pressed }) => [styles.undo, pressed && { backgroundColor: colors.active }]}
         accessibilityRole="button">
-        <Text style={styles.undoText}>Undo</Text>
+        <Text style={styles.undoText}>{t('Undo')}</Text>
       </Pressable>
     </View>
   );

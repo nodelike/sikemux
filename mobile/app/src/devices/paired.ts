@@ -1,5 +1,6 @@
 import { File, Paths } from 'expo-file-system';
 
+import { english, type Say } from '@shared/lib/say';
 import type { BackdropLook, BuildChannel, DeviceAccess } from '@shared/wire.generated';
 import type { DeviceKind } from '@/ui/Icon';
 import { readWhole, writeWhole } from './disk';
@@ -94,8 +95,8 @@ export function shortKey(key: string): string {
   return key.slice(0, 8);
 }
 
-export function deviceName(device: Pick<PairedDevice, 'name' | 'core'>): string {
-  return device.name ?? `Host ${shortKey(device.core)}`;
+export function deviceName(device: Pick<PairedDevice, 'name' | 'core'>, say: Say = english): string {
+  return device.name ?? say('Host {key}', { key: shortKey(device.core) });
 }
 
 /** Builds other than the stable release are named, since one host pairs once per channel. */
