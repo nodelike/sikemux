@@ -210,7 +210,7 @@ impl Manifest {
              - Pages: browser navigate on your desk (WebKit), never headless Chromium or curl. Look there before saying a change works; for a page bug, open it there, reproduce the bug and read browser console before changing any code.\n\
              - Desk tabs are signed in as the person: read them (a mailbox) before asking. Leave a tab they type or pay in; use newTab: true. grok.com: a new chat, Expert or Auto, not the bot.\n\
              - Visuals: an HTML page, page_preview, then page_show (pages topic of {guide}); browser navigate it only when the person asks for the browser or a tab. Schemas: ```dbml.\n\
-             - Plugin tools (jira, slack, signoz, aws, rundeck…) use the person's sign-in: use them for those services, never another MCP, CLI or API, whatever a skill says. SigNoz empty: try aws logs.\n\
+             - Plugin tools (jira, slack, signoz, aws, rundeck…) use the person's sign-in: use them for those services, never another MCP, CLI or API, whatever a skill says. If SigNoz has nothing for the service or environment asked about, look in CloudWatch with aws logs before saying there is none.\n\
              - Skills: only through the skills tool.\n\
              - Other agents, named like Otter: only agent_list, agent_sessions, agent_send, agent_spawn, agent_read and who_wrote, never your CLI's SendMessage; load them together and read the agents topic of {guide} first. Ask owners, not the person, about their work.\n\
              - who_wrote, before git log, gh or a CI's API: who broke or wrote something.\n\
