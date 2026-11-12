@@ -8,10 +8,11 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use sikemux_view::chat::FailureKind;
+use sikemux_view::inbox::AgentShown;
 use sikemux_view::slice::Verdict;
 use sikemux_view::turn::{
     ChecksStand, Landed, NextStep, Remedy, TurnCall, TurnDone, TurnFailed, TurnPhase, TurnState,
-    TurnStep, TurnStopped, WorkAt,
+    TurnStep, TurnStopped, TurnWait, TurnWaitKind, WorkAt,
 };
 use sikemux_view::workspace::AgentWorktree;
 use sikemux_wire::protocol::AgentStatus;
@@ -45,9 +46,16 @@ pub(crate) struct Problem {
     pub kind: Option<FailureKind>,
 }
 
-/// The permissions each agent's chat waits on the person for, gathered once for every agent's
-/// turn. Calls are kept apart, by `person_calls`.
-pub(crate) struct Asks(HashMap<String, Vec<Ask>>);
+/// What the turn of every agent reads of the others, gathered once per view.
+pub(crate) struct Gathered {
+    /// The permission requests each agent's chat waits on the person for. Calls are kept
+    /// apart, by `person_calls`.
+    asks: HashMap<String, Vec<Ask>>,
+    /// A worker each lead waits on, mid-turn, with when it started.
+    workers: HashMap<String, (String, u64)>,
+    /// Owners of slices waiting on the project's check: since when, and how long it usually takes.
+    on_check: HashMap<String, (u64, Option<u64>)>,
+}
 
 struct Ask {
     id: String,
@@ -55,8 +63,8 @@ struct Ask {
     at: u64,
 }
 
-impl Asks {
-    pub(crate) fn of(core: &Core) -> Self {
+impl Gathered {
+    pub(crate) fn of(core: &Core, agents: &[AgentShown]) -> Self {
         let mut asks: HashMap<String, Vec<Ask>> = HashMap::new();
         for attention in core.chats.attentions() {
             let choices = attention.choices;
@@ -66,13 +74,30 @@ impl Asks {
                 at: attention.at,
             });
         }
-        Self(asks)
+        let leads = core.workspaces.agent_leads();
+        let mut workers = HashMap::new();
+        let working = agents
+            .iter()
+            .filter(|agent| agent.status == AgentStatus::Working);
+        for worker in working {
+            let Some(lead) = leads.get(&worker.agent_id) else {
+                continue;
+            };
+            let since = core.seen.started_at(&worker.agent_id).unwrap_or_default();
+            let name = worker.name.clone().unwrap_or_else(|| worker.title.clone());
+            workers.entry(lead.clone()).or_insert((name, since));
+        }
+        Self {
+            asks,
+            workers,
+            on_check: super::board::owners_on_check(core),
+        }
     }
 }
 
 /// What the agent waits on the person for: its oldest permission or call, with how many wait.
-fn call_of(core: &Core, asks: &Asks, agent_id: &str) -> Option<TurnCall> {
-    let asked = asks.0.get(agent_id).map_or(&[][..], Vec::as_slice);
+fn call_of(core: &Core, gathered: &Gathered, agent_id: &str) -> Option<TurnCall> {
+    let asked = gathered.asks.get(agent_id).map_or(&[][..], Vec::as_slice);
     let call = core.person_calls.of_agent(agent_id);
     let count = (asked.len() + call.as_ref().map_or(0, |call| call.count)) as u32;
     let older = |ask: &&Ask| {
@@ -111,11 +136,11 @@ fn standing(state: TurnPhase, since: u64) -> TurnState {
 /// How the turn of `agent_id`, which shows `status`, stands; none before its first turn.
 pub(crate) fn of(
     core: &Core,
-    asks: &Asks,
+    gathered: &Gathered,
     agent_id: &str,
     status: AgentStatus,
 ) -> Option<TurnState> {
-    if let Some(call) = call_of(core, asks, agent_id) {
+    if let Some(call) = call_of(core, gathered, agent_id) {
         let mut state = standing(TurnPhase::NeedsYou, call.waiting_since);
         state.call = Some(call);
         return Some(state);
@@ -142,7 +167,7 @@ pub(crate) fn of(
         state.failed = Some(failed);
         return Some(state);
     }
-    if let Some(wait) = core.triggers.wait_of(agent_id, rested_at) {
+    if let Some(wait) = wait_of(core, gathered, agent_id, rested_at) {
         let mut state = standing(TurnPhase::Waiting, wait.started_at);
         state.wait = Some(wait);
         return Some(state);
@@ -162,6 +187,36 @@ pub(crate) fn of(
     let mut state = standing(TurnPhase::Done, at);
     state.done = Some(done(core, ended.work.as_ref()));
     Some(state)
+}
+
+/// What set to wake the agent it waits on, its turn having ended at `rested_at`: CI or a timer
+/// it set, a worker of its at work, or the project's check on its slice.
+fn wait_of(core: &Core, gathered: &Gathered, agent_id: &str, rested_at: u64) -> Option<TurnWait> {
+    let set = core
+        .triggers
+        .wait_of(agent_id, rested_at, |on| core.waits.expected(on));
+    if set.as_ref().is_some_and(|wait| wait.kind == TurnWaitKind::Ci) {
+        return set;
+    }
+    if let Some((name, since)) = gathered.workers.get(agent_id) {
+        return Some(TurnWait {
+            kind: TurnWaitKind::Agent,
+            what: name.clone(),
+            started_at: *since,
+            expected_ms: None,
+            until: None,
+        });
+    }
+    if let Some((since, took)) = gathered.on_check.get(agent_id) {
+        return Some(TurnWait {
+            kind: TurnWaitKind::Check,
+            what: String::new(),
+            started_at: *since,
+            expected_ms: *took,
+            until: None,
+        });
+    }
+    set
 }
 
 fn failed(core: &Core, agent_id: &str, ended: &Ended) -> Option<TurnFailed> {

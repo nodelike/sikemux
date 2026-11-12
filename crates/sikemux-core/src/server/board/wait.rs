@@ -8,6 +8,7 @@
 use std::collections::{HashMap, VecDeque};
 
 use sikemux_process::clock::epoch_ms;
+use sikemux_process::sync::Locked;
 use sikemux_view::slice::{CheckRun, Verdict, Wait, WaitOn};
 
 use super::{eta, Board, Card, CardStatus, State};
@@ -212,6 +213,27 @@ pub(super) fn settle(core: &Core, state: &mut State) -> (Option<u64>, Vec<GoalMo
         board.forget_places();
     }
     (next, moved_goals)
+}
+
+/// The owners of slices that wait on the project's check, each with when that wait began and how
+/// long the check usually takes.
+pub(crate) fn owners_on_check(core: &Core) -> HashMap<String, (u64, Option<u64>)> {
+    let state = core.boards.state.locked();
+    let mut owners = HashMap::new();
+    for board in state.boards.values() {
+        for (card, wait) in &board.told_waits {
+            if !matches!(wait.on, WaitOn::Check { .. }) {
+                continue;
+            }
+            let owner = (board.cards.iter())
+                .find(|known| known.id == *card)
+                .and_then(Card::owner_id);
+            if let Some(owner) = owner {
+                owners.insert(owner.to_owned(), (wait.since, wait.estimate_ms));
+            }
+        }
+    }
+    owners
 }
 
 /// Whether a wait began or ended, or what one is on, when it should end or

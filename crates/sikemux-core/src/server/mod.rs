@@ -113,6 +113,7 @@ mod upgrade;
 pub mod usage;
 pub mod vault;
 mod wait_for;
+mod waits;
 mod wake;
 pub mod wallpaper;
 mod who_wrote;
@@ -445,6 +446,7 @@ pub(crate) struct Core {
     pub(crate) memory: memory::Memory,
     pub(crate) triggers: triggers::Triggers,
     pub(crate) landing: landing::Histories,
+    pub(crate) waits: waits::Waits,
     pub(crate) changes: changed::Changes,
     pub(crate) ports: ports::Ports,
     pub(crate) spares: spare::Spares,
@@ -604,6 +606,7 @@ impl Core {
             goals: goals::Goals::default(),
             repo_events: repo_events::RepoEvents::default(),
             landing: landing::Histories::default(),
+            waits: waits::Waits::new(data_dir),
             memory: memory::Memory::new(data_dir),
             triggers: triggers::Triggers::new(data_dir),
             changes: changed::Changes::default(),

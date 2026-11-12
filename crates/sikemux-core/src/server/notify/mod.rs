@@ -87,6 +87,11 @@ pub(crate) enum Signal {
         agent_id: String,
         message: String,
     },
+    /// The CI an agent ended its turn waiting on ended, under the title it gave the wait.
+    WaitCleared {
+        agent_id: String,
+        what: String,
+    },
     Question {
         id: String,
         agent_id: String,
@@ -496,6 +501,11 @@ fn apply(core: &Core, signal: Signal, now: u64) {
                 }
             }
         }
+        Signal::WaitCleared { agent_id, what } => {
+            if let Some(draft) = wait_cleared(core, &agent_id, &what, now) {
+                alert_all(core, &draft, now);
+            }
+        }
         Signal::Problem { agent_id, message } => {
             if core
                 .notify
@@ -884,6 +894,20 @@ fn finished(core: &Core, agent_id: &str, now: u64) -> Option<Draft> {
     );
     draft.title = clipped_line(&format!("{} finished", named.agent), MAX_TITLE_CHARS);
     draft.body = clipped_line(&named.whereabouts(core, true), MAX_BODY_CHARS);
+    Some(draft)
+}
+
+fn wait_cleared(core: &Core, agent_id: &str, what: &str, now: u64) -> Option<Draft> {
+    let named = name(core, agent_id)?;
+    let mut draft = named.draft(
+        NotificationKind::Finished,
+        format!("wait|{agent_id}"),
+        agent_id,
+        now,
+        FINISHED_LIFE_MS,
+    );
+    draft.title = clipped_line(&format!("{}'s CI ended", named.agent), MAX_TITLE_CHARS);
+    draft.body = clipped_line(what, MAX_BODY_CHARS);
     Some(draft)
 }
 

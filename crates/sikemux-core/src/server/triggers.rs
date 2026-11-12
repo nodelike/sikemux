@@ -195,7 +195,12 @@ impl Triggers {
 
     /// What the agent's chat waits on of its triggers: CI first, else the soonest timer, which
     /// it has waited on since `rested_at`.
-    pub(crate) fn wait_of(&self, agent_id: &str, rested_at: u64) -> Option<TurnWait> {
+    pub(crate) fn wait_of(
+        &self,
+        agent_id: &str,
+        rested_at: u64,
+        expected: impl Fn(&str) -> Option<u64>,
+    ) -> Option<TurnWait> {
         let state = self.state.locked();
         let mine = || (state.triggers.iter()).filter(|trigger| trigger.prompts(agent_id));
         if let Some(trigger) = mine().find(|trigger| trigger.ci.is_some()) {
@@ -203,7 +208,7 @@ impl Triggers {
                 kind: TurnWaitKind::Ci,
                 what: trigger.title.clone(),
                 started_at: ci.since(),
-                expected_ms: None,
+                expected_ms: expected(&ci.waits_on()),
                 until: None,
             });
         }

@@ -1253,9 +1253,9 @@ pub(crate) fn view(core: &Core, chats: &[ChatInfo], sessions: &[SessionInfo]) ->
     let places = core.workspaces.places();
     let now = epoch_ms();
     let mut shown = shown(core, chats, sessions, &own_titles);
-    let asks = turn_state::Asks::of(core);
+    let gathered = turn_state::Gathered::of(core, &shown);
     for agent in &mut shown {
-        agent.turn = turn_state::of(core, &asks, &agent.agent_id, agent.status);
+        agent.turn = turn_state::of(core, &gathered, &agent.agent_id, agent.status);
         if let Some((place, _)) = places.get(&agent.agent_id) {
             super::settling::show(agent, place, now);
         }

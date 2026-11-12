@@ -15,6 +15,7 @@ use crate::git::Git;
 use crate::server::codehost::ci::Shown;
 use crate::server::codehost::repo::{self as codehost, Checks, Conclusion, CI_START_WAIT_MS};
 use crate::server::connection::blocking;
+use crate::server::notify::Signal;
 use crate::server::Core;
 
 /// How long a CI trigger goes without looking, when the CI watch says nothing moved.
@@ -35,6 +36,12 @@ pub(super) struct CiWatch {
 impl CiWatch {
     pub(super) fn since(&self) -> u64 {
         self.since
+    }
+
+    /// What its wait is kept under, so the next wait on CI in the same repository has an
+    /// estimate.
+    pub(super) fn waits_on(&self) -> String {
+        format!("ci {}", self.repo.id)
     }
 }
 
@@ -211,6 +218,12 @@ pub(super) async fn look(core: Arc<Core>, id: u64) {
     let Some(mut trigger) = remove_where(&core, |trigger: &Trigger| trigger.id == id) else {
         return;
     };
+    let took = epoch_ms().saturating_sub(watch.since);
+    core.waits.took(&watch.waits_on(), took);
+    core.notify.send(Signal::WaitCleared {
+        agent_id: trigger.agent_id.clone(),
+        what: trigger.title.clone(),
+    });
     trigger.prompt = format!("{}\n\n{said}", trigger.prompt);
     fire(
         core,
