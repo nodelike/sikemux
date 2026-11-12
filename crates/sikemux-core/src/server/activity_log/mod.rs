@@ -219,7 +219,7 @@ impl ActivityLog {
             log.with_database(|db| {
                 db.execute(
                     "INSERT INTO launches (at_ms, agent, project, transport, resumed) VALUES (?1, ?2, ?3, ?4, ?5)",
-                    params![at_ms, place.agent, place.cwd, transport, resumed],
+                    params![at_ms, place.agent, project_at(&place.cwd), transport, resumed],
                 )
             });
             let Some(transcript) = place.transcript.as_ref().filter(|_| resumed) else {
@@ -278,20 +278,21 @@ impl ActivityLog {
         let ended_ms = epoch_ms() as i64;
         let log = self.clone();
         in_background(move || {
+            let project = project_at(&place.cwd);
             log.with_database(|db| {
                 db.execute(
                     "INSERT INTO turns (started_ms, ended_ms, agent, project) VALUES (?1, ?2, ?3, ?4)",
-                    params![turn.started_ms, ended_ms, place.agent, place.cwd],
+                    params![turn.started_ms, ended_ms, place.agent, project],
                 )
             });
             if let Some(start) = turn.head.as_deref() {
-                log.record_commits_since(&place.cwd, start, Some(&place.agent));
+                log.record_commits_since(&place.cwd, &project, start, Some(&place.agent));
             }
-            log.record_new_tokens(&place, ended_ms);
+            log.record_new_tokens(&place, &project, ended_ms);
         });
     }
 
-    fn record_commits_since(&self, repo: &str, start: &str, agent: Option<&str>) {
+    fn record_commits_since(&self, repo: &str, project: &str, start: &str, agent: Option<&str>) {
         let range = format!("{start}..HEAD");
         let Some(log) = git(repo, &["log", "--format=%H %ct", &range]) else {
             return;
@@ -304,10 +305,10 @@ impl ActivityLog {
                 Some((sha, seconds.trim().parse::<i64>().ok()? * 1000))
             })
             .collect();
-        self.insert_commits(repo, &commits, agent);
+        self.insert_commits(project, &commits, agent);
     }
 
-    fn insert_commits(&self, repo: &str, commits: &[(&str, i64)], agent: Option<&str>) {
+    fn insert_commits(&self, project: &str, commits: &[(&str, i64)], agent: Option<&str>) {
         if commits.is_empty() {
             return;
         }
@@ -316,7 +317,7 @@ impl ActivityLog {
                 "INSERT OR IGNORE INTO commits (sha, at_ms, project, agent) VALUES (?1, ?2, ?3, ?4)",
             )?;
             for (sha, at_ms) in commits {
-                insert.execute(params![sha, at_ms, repo, agent])?;
+                insert.execute(params![sha, at_ms, project, agent])?;
             }
             Ok(())
         });
@@ -325,7 +326,7 @@ impl ActivityLog {
     /// A commit the person made in Sikemux.
     pub(crate) fn record_commit(&self, repo: &str) {
         if let Some(sha) = crate::git::head(repo) {
-            self.insert_commits(repo, &[(&sha, epoch_ms() as i64)], None);
+            self.insert_commits(&project_at(repo), &[(&sha, epoch_ms() as i64)], None);
         }
     }
 
@@ -458,6 +459,10 @@ const MIGRATIONS: &[&str] = &[
      );
      CREATE TABLE waited (day INTEGER PRIMARY KEY, ms INTEGER NOT NULL);",
     context::TABLES,
+    "UPDATE launches SET project = substr(project, 1, instr(project, '.worktrees/') - 1) WHERE instr(project, '.worktrees/') > 0;
+     UPDATE turns SET project = substr(project, 1, instr(project, '.worktrees/') - 1) WHERE instr(project, '.worktrees/') > 0;
+     UPDATE commits SET project = substr(project, 1, instr(project, '.worktrees/') - 1) WHERE instr(project, '.worktrees/') > 0;
+     UPDATE tokens SET project = substr(project, 1, instr(project, '.worktrees/') - 1) WHERE instr(project, '.worktrees/') > 0;",
 ];
 
 fn migrate(connection: &Connection) -> rusqlite::Result<()> {
@@ -469,6 +474,11 @@ fn migrate(connection: &Connection) -> rusqlite::Result<()> {
         ))?;
     }
     Ok(())
+}
+
+/// The project work in `cwd` is counted under: a teammate's worktree counts as its main checkout.
+fn project_at(cwd: &str) -> String {
+    super::workspace::project_of(Path::new(cwd), &[])
 }
 
 fn git(repo: &str, args: &[&str]) -> Option<String> {
@@ -486,7 +496,7 @@ fn transcript_key(kind: AgentKind, session: &str) -> String {
 }
 
 impl ActivityLog {
-    fn record_new_tokens(&self, place: &Place, at_ms: i64) {
+    fn record_new_tokens(&self, place: &Place, project: &str, at_ms: i64) {
         let Some(transcript) = &place.transcript else {
             return;
         };
@@ -542,7 +552,7 @@ impl ActivityLog {
                     params![
                         at_ms,
                         transcript.kind.as_str(),
-                        place.cwd,
+                        project,
                         entry.count.input as i64,
                         entry.count.output as i64,
                         entry.count.cache_read as i64,
@@ -591,7 +601,7 @@ impl ActivityLog {
             return;
         }
         let agent = kind.map_or_else(|| launch.provider.clone(), |kind| kind.as_str().to_owned());
-        let project = launch.cwd.to_string_lossy().into_owned();
+        let cwd = launch.cwd.clone();
         let model = launch.model.clone().unwrap_or_default();
         let account = (launch.account.as_ref())
             .map(|account| account.id.clone())
@@ -600,6 +610,7 @@ impl ActivityLog {
         let at_ms = epoch_ms() as i64;
         let log = self.clone();
         in_background(move || {
+            let project = project_at(&cwd.to_string_lossy());
             log.with_database(|db| {
                 db.execute(
                     "INSERT INTO tokens (at_ms, agent, project, input, output, cache_read, cache_write, model, speed, account, chat)
@@ -646,7 +657,8 @@ impl ActivityLog {
                 "SELECT SUM(input + output + cache_write) FROM tokens
                  WHERE project = ?1 AND chat != '' AND at_ms > ?2 GROUP BY chat",
             )?;
-            let rows = query.query_map(params![cwd, since], |row| row.get::<_, i64>(0))?;
+            let rows =
+                query.query_map(params![project_at(cwd), since], |row| row.get::<_, i64>(0))?;
             rows.collect::<rusqlite::Result<Vec<i64>>>()
         })?;
         if chats.len() < ENOUGH_CHATS {
