@@ -20,7 +20,7 @@ What you typed but did not send comes with you. A draft in the composer waits at
 
 - `↑` in an empty box brings back what you sent before, and `↓` goes forward again.
 - `/` at the start of a message lists Sikemux's own commands, then the session's commands and skills. `/model` opens the model picker, `/clear` starts a fresh chat with the same agent, account and model, and `/yolo` turns asking before acting off or on. A session command or skill you pick goes in as a chip, like a mention. A command the session doesn't have isn't sent: it stays in the draft, and the composer says so.
-- `@` names another agent, in this project or any other, or an earlier chat to open again. An agent you renamed keeps its name and buddy after you close it, so `@` finds it by that name and opens its chat again.
+- `@` names another agent, in this project or any other, or an earlier chat to open again. A closed agent keeps its name, so `@` finds it by that name and opens its chat again.
 - `#` hands over a GitHub, GitLab or Bitbucket issue, and `!` a pull request.
 - `+` attaches a file or folder from the project.
 - Drag an agent or chat from the tab rail onto a composer to hand it over as context. An open agent goes in as an `@` chip at the cursor, and the agent you are writing to learns how to read what it said; a closed chat opens again for the message, as with `@`. A teammate on another host goes in by its name and host; another host's agents outside your team can't be handed over.
@@ -100,7 +100,9 @@ A chat holds only the part of its transcript near what you're reading, so a long
 
 ## Agent names
 
-Each agent gets a one-word name when it starts, an anime character's such as Luffy or Frieren, that no other open agent in its project has. To name new agents after nature instead, such as Otter or Maple, set **Settings → Chats → Agent names** to **Nature**. Agents already open keep their names, and so does any agent you renamed.
+Each agent gets a one-word name when it starts, an anime character's such as Luffy or Frieren, that no other agent in its project has, open or closed. To name new agents after nature instead, such as Otter or Maple, set **Settings → Chats → Agent names** to **Nature**. Agents already open keep their names, and so does any agent you renamed.
+
+A chat keeps its agent and its name when you close it and open it again, from **Recent**, **Undo**, a link or `@`. Only when another open agent of the project holds that name by then does it come back under a new one. Names are reused only once the list runs out, the name of the chat closed longest first, and a name you chose is never reused. Clicking a closed agent's name, such as on a message it sent or a decision in a goal, opens its chat again.
 
 When you name an agent with `@` in a message, or another agent messages it, a band of light passes once over its row in the tab rail and on the island.
 

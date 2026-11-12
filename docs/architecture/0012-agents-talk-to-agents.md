@@ -28,7 +28,8 @@ MCP server every agent is launched with.
 - **Every agent has a name.** The core gives each agent a short noun from a built-in list
   (Otter, Maple, Flint) when it starts, unique among the project's open agents. An agent
   holds its name only while it is open: closing it frees the name, and a chat opened again
-  gets a new one. Leads do not choose names. The person can rename one. Tools, `@`
+  gets a new one (replaced by [ADR 0024](./0024-an-agent-belongs-to-its-chat.md): a chat keeps
+  its agent's id and name when closed and opened again). Leads do not choose names. The person can rename one. Tools, `@`
   mentions in the composer, tabs and the rail all use the name.
 - **The core knows who is calling from the processes it started.** The core starts every
   agent and records its process and start time. Every tool call is the call of the agent
