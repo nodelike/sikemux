@@ -21,9 +21,16 @@ function* rustFiles(dir) {
 
 const call = /\b[tn]!\(\s*"((?:[^"\\]|\\.)*)"/g;
 const used = new Set();
+const searchEntry = /\b(?:section|row)\(\s*\w+,\s*"((?:[^"\\]|\\.)*)",\s*(?:"((?:[^"\\]|\\.)*)",\s*)?"/g;
 for (const file of rustFiles(join(root, "app/src"))) {
-  for (const [, literal] of readFileSync(file, "utf8").matchAll(call)) {
+  const source = readFileSync(file, "utf8");
+  for (const [, literal] of source.matchAll(call)) {
     used.add(JSON.parse(`"${literal}"`));
+  }
+  if (file.includes("/settings/")) {
+    for (const [, first, second] of source.matchAll(searchEntry)) {
+      for (const literal of [first, second]) if (literal) used.add(JSON.parse(`"${literal}"`));
+    }
   }
 }
 

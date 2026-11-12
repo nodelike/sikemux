@@ -253,15 +253,21 @@ fn page_panel(bench: &Workbench, page: TabRailPage, cx: &mut Context<Workbench>)
                 .pt(SPACE_1)
                 .px(SPACE_2H)
                 .child(
-                    new_row("new-chat", Icon::Plus, "New chat", actions::NewChat::ID, cx)
-                        .children(elsewhere_chip("new-chat-copy", bench, cx))
-                        .on_click(cx.listener(|bench, _, window, cx| bench.new_chat(window, cx))),
+                    new_row(
+                        "new-chat",
+                        Icon::Plus,
+                        t!("New chat"),
+                        actions::NewChat::ID,
+                        cx,
+                    )
+                    .children(elsewhere_chip("new-chat-copy", bench, cx))
+                    .on_click(cx.listener(|bench, _, window, cx| bench.new_chat(window, cx))),
                 )
                 .child(
                     new_row(
                         "new-terminal",
                         Icon::Terminal,
-                        "New terminal",
+                        t!("New terminal"),
                         actions::NewTerminal::ID,
                         cx,
                     )
@@ -272,7 +278,7 @@ fn page_panel(bench: &Workbench, page: TabRailPage, cx: &mut Context<Workbench>)
                     new_row(
                         "new-browser",
                         Icon::Globe,
-                        "New browser",
+                        t!("New browser"),
                         actions::NewPage::ID,
                         cx,
                     )
@@ -1601,7 +1607,7 @@ fn scope_switch(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElem
                     .unwrap_or_default(),
             ),
         ),
-        (Icon::Stack, SharedString::from("All projects")),
+        (Icon::Stack, SharedString::from(t!("All projects"))),
     ];
     Segmented::new("scope", scope, usize::from(bench.rails.all_projects))
         .waiting(1, waiting_elsewhere(bench))

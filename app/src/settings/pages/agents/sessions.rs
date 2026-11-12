@@ -206,7 +206,7 @@ impl Fields {
             BUILD_RUNS
                 .iter()
                 .map(|runs| match runs {
-                    0 => "Automatic".to_owned(),
+                    0 => t!("Automatic").to_owned(),
                     runs => runs.to_string(),
                 })
                 .collect(),

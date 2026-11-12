@@ -190,8 +190,8 @@ pub fn side_rail(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoEle
         .map(|folded| project_tree(bench, folded, cx).into_any_element())
         .collect();
     let empty = match space {
-        Some(space) => format!("no projects in {}", space.name),
-        None => "no projects".to_owned(),
+        Some(space) => t!("no projects in {space}", space = space.name),
+        None => t!("no projects").to_owned(),
     };
     let rail = ui::panel(cx)
         .w(px(bench.rail_width(Edge::Start)))
@@ -259,7 +259,7 @@ pub fn side_rail(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoEle
                         .children(hosts(bench, cx)),
                 )
                 .child(
-                    Group::new(t!("Mods"), "no mods")
+                    Group::new(t!("Mods"), t!("no mods"))
                         .actions(actions(
                             None,
                             [IconButton::new(
@@ -273,7 +273,7 @@ pub fn side_rail(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoEle
                         .children(mods(bench, cx)),
                 )
                 .child(
-                    Group::new(t!("Terminals"), "no terminals")
+                    Group::new(t!("Terminals"), t!("no terminals"))
                         .actions(actions(
                             None,
                             [
@@ -319,7 +319,7 @@ fn this_host(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement
         .map_or(0, |view| view.workspace.agents.len());
     let alert = bench.host_alert(None, true).cloned();
     let alert = alert.as_ref();
-    let row = Row::new("this-host", "This host")
+    let row = Row::new("this-host", t!("This host"))
         .mark(
             16.,
             ui::icon(Icon::Laptop, 14.)
@@ -1739,7 +1739,7 @@ fn sign_in(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
         )
     } else {
         (
-            "Sign in to reach this host from your phone and other devices.",
+            t!("Sign in to reach this host from your phone and other devices."),
             Button::new("sign-in", t!("Sign in"), Variant::Primary)
                 .icon(Icon::LogIn)
                 .on_click(cx.listener(|bench, _, _, cx| {

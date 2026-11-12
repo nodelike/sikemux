@@ -1082,9 +1082,9 @@ pub fn render(
         ui::Segmented::new(
             "chat-width",
             vec![
-                (Icon::Message, SharedString::from("Comfortable")),
-                (Icon::Message, SharedString::from("Wide")),
-                (Icon::Message, SharedString::from("Full")),
+                (Icon::Message, SharedString::from(t!("Comfortable"))),
+                (Icon::Message, SharedString::from(t!("Wide"))),
+                (Icon::Message, SharedString::from(t!("Full"))),
             ],
             widths
                 .iter()
@@ -1118,9 +1118,9 @@ pub fn render(
                     ui::Button::new(
                         "pane-image-choose",
                         if has_pane_image {
-                            "Change…"
+                            t!("Change…")
                         } else {
-                            "Choose…"
+                            t!("Choose…")
                         },
                         ui::Variant::Outline,
                     )
@@ -1201,9 +1201,9 @@ pub fn render(
         .child(rows::row(
             t!("Pane image"),
             Some(if following_omarchy {
-                "Omarchy's background, dithered in place of the grain."
+                t!("Omarchy's background, dithered in place of the grain.")
             } else {
-                "A picture shared by every pane, dithered in place of the grain."
+                t!("A picture shared by every pane, dithered in place of the grain.")
             }),
             image,
             cx,

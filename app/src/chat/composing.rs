@@ -918,8 +918,8 @@ impl Chat {
         let ask = |commands: bool| match (to, commands) {
             (Some((to, true)), true) => format!("{to}, or type / for commands"),
             (Some((to, _)), _) => to.to_owned(),
-            (None, true) => "Ask about this project, or type / for commands".to_owned(),
-            (None, false) => "Ask about this project".to_owned(),
+            (None, true) => t!("Ask about this project, or type / for commands").to_owned(),
+            (None, false) => t!("Ask about this project").to_owned(),
         };
         let Some(head) = &self.state else {
             return ask(false);

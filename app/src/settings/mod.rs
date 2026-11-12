@@ -126,7 +126,7 @@ pub fn open(bench: &mut Workbench, page: Page, window: &mut Window, cx: &mut Con
     if shown.is_some() {
         return;
     }
-    let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search settings"));
+    let search = cx.new(|cx| InputState::new(window, cx).placeholder(t!("Search settings")));
     let typing = cx.subscribe(&search, |bench, search, event: &InputEvent, cx| {
         if let InputEvent::Change = event {
             let query = search.read(cx).value();
@@ -417,7 +417,7 @@ pub fn view(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> 
                         t.text_tertiary
                     })
                     .into_any_element(),
-                "Not signed in".into(),
+                t!("Not signed in").into(),
             ),
         };
         div()
@@ -601,7 +601,11 @@ pub fn view(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> 
                     .on_click(move |_, window, cx| {
                         this.update(cx, |bench, cx| go_to(bench, entry, window, cx))
                     })
-                    .child(div().text_color(t.text_primary).child(entry.label))
+                    .child(
+                        div()
+                            .text_color(t.text_primary)
+                            .child(crate::i18n::tr(entry.label)),
+                    )
                     .child(
                         div()
                             .text_size(crate::theme::ui_text(TEXT_2XS_H))

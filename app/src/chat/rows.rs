@@ -813,17 +813,15 @@ fn goal_marker(notice: &AgentNotice, looks: &Drawn, cx: &App) -> AnyElement {
 
 /// The line a finished turn folds behind: who worked, for how long, with how many tool calls.
 pub(super) fn work(fold: &WorkFold, open: bool, looks: &Drawn, cx: &App) -> AnyElement {
-    let verb = if fold.thought { "Thought" } else { "Worked" };
-    let worked = fold.took.map_or_else(
-        || verb.to_owned(),
-        |took| format!("{verb} for {}", crate::ui::time::took(took)),
-    );
-    let calls = (fold.calls > 0).then(|| {
-        format!(
-            "· {} tool {}",
-            fold.calls,
-            if fold.calls == 1 { "call" } else { "calls" }
-        )
+    let worked = match (fold.thought, fold.took) {
+        (true, None) => t!("Thought").to_owned(),
+        (false, None) => t!("Worked").to_owned(),
+        (true, Some(took)) => t!("Thought for {time}", time = crate::ui::time::took(took)),
+        (false, Some(took)) => t!("Worked for {time}", time = crate::ui::time::took(took)),
+    };
+    let calls = (fold.calls > 0).then(|| match fold.calls {
+        1 => t!("· 1 tool call").to_owned(),
+        calls => t!("· {calls} tool calls", calls = calls),
     });
     let (reader, id) = (looks.reader.clone(), fold.id.clone());
     let (hover, ink) = (looks.hover, looks.ink);

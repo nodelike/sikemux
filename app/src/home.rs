@@ -168,7 +168,7 @@ fn empty_stage(cx: &mut Context<Workbench>) -> impl IntoElement {
                         .on_click(cx.listener(|bench, _, window, cx| bench.new_chat(window, cx))),
                 )
                 .child(
-                    Button::new("empty-new-terminal", "New terminal", Variant::Outline)
+                    Button::new("empty-new-terminal", t!("New terminal"), Variant::Outline)
                         .keys(hint(actions::NewTerminal::ID))
                         .on_click(|_, window, cx| {
                             crate::keymap::dispatch(actions::NewTerminal::ID, window, cx)

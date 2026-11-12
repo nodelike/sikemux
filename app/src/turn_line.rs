@@ -31,7 +31,7 @@ pub fn said(turn: &TurnState, maker: &str, now: u64) -> Option<Said> {
         TurnPhase::Working => {
             let on = turn.on.clone()?;
             let running = ui::time::elapsed(now.saturating_sub(turn.since) / 1000);
-            ("Working".into(), vec![lowered(&on), running])
+            (t!("Working").into(), vec![lowered(&on), running])
         }
         TurnPhase::Waiting => {
             let wait = turn.wait.as_ref()?;
@@ -41,20 +41,20 @@ pub fn said(turn: &TurnState, maker: &str, now: u64) -> Option<Said> {
             let call = turn.call.as_ref()?;
             let more = match call.count {
                 0 | 1 => String::new(),
-                count => format!(" and {} more", count - 1),
+                count => t!(" and {more} more", more = count - 1),
             };
             (
-                "Needs you".into(),
+                t!("Needs you").into(),
                 vec![
                     format!("{}{more}", call.question),
-                    format!("{} min", minutes(call.waiting_since)),
+                    t!("{minutes} min", minutes = minutes(call.waiting_since)),
                 ],
             )
         }
         TurnPhase::Done => {
             let Some(done) = turn.done.as_ref() else {
                 return Some(Said {
-                    word: "Done".into(),
+                    word: t!("Done").into(),
                     phase: turn.state,
                     parts: Vec::new(),
                 });
@@ -62,36 +62,38 @@ pub fn said(turn: &TurnState, maker: &str, now: u64) -> Option<Said> {
             let mut parts = vec![changed(done.changes).to_owned()];
             if done.changes != WorkAt::None {
                 match (done.checks, done.tests) {
-                    (ChecksStand::Pass, Some(tests)) => parts.push(format!("{tests} tests pass")),
-                    (ChecksStand::Pass, None) => parts.push("checks pass".into()),
-                    (ChecksStand::Failed, _) => parts.push("checks fail".into()),
+                    (ChecksStand::Pass, Some(tests)) => {
+                        parts.push(t!("{tests} tests pass", tests = tests))
+                    }
+                    (ChecksStand::Pass, None) => parts.push(t!("checks pass").into()),
+                    (ChecksStand::Failed, _) => parts.push(t!("checks fail").into()),
                     _ => {}
                 }
             }
-            ("Done".into(), parts)
+            (t!("Done").into(), parts)
         }
         TurnPhase::Stopped => {
             let left = (turn.stopped.as_ref()).and_then(|stopped| stopped.left.as_deref());
             let mut parts: Vec<String> = left.map(lowered).into_iter().collect();
-            parts.push("nothing set to wake it".into());
-            ("Stopped".into(), parts)
+            parts.push(t!("nothing set to wake it").into());
+            (t!("Stopped").into(), parts)
         }
         TurnPhase::Failed => {
             let failed = turn.failed.as_ref()?;
             let why = match failed.why {
-                FailureKind::Limit => format!("{maker}'s limit"),
-                FailureKind::SignIn => format!("signed out of {maker}"),
-                FailureKind::Network => format!("lost the connection to {maker}"),
+                FailureKind::Limit => t!("{maker}'s limit", maker = maker),
+                FailureKind::SignIn => t!("signed out of {maker}", maker = maker),
+                FailureKind::Network => t!("lost the connection to {maker}", maker = maker),
                 _ => failed
                     .said
                     .clone()
-                    .unwrap_or_else(|| "the turn did not finish".into()),
+                    .unwrap_or_else(|| t!("the turn did not finish").into()),
             };
             let mut parts = vec![why];
             if let Some(at) = failed.resets_at.filter(|at| *at > now) {
-                parts.push(format!("resets {}", moment(at)));
+                parts.push(t!("resets {when}", when = moment(at)));
             }
-            ("Failed".into(), parts)
+            (t!("Failed").into(), parts)
         }
         TurnPhase::Unknown => return None,
     };
@@ -179,18 +181,18 @@ pub fn brief(turn: &TurnState, now: u64) -> Option<String> {
         None => word.to_owned(),
     };
     Some(match turn.state {
-        TurnPhase::Working => "working".to_owned(),
+        TurnPhase::Working => t!("working").to_owned(),
         TurnPhase::Waiting => match turn.wait.as_ref().map(|wait| wait.kind) {
-            Some(TurnWaitKind::Ci) => with("CI"),
-            Some(TurnWaitKind::Deploy) => with("deploy"),
-            Some(TurnWaitKind::Check) => with("checks"),
-            Some(TurnWaitKind::Timer) => with("timer"),
-            _ => with("waiting"),
+            Some(TurnWaitKind::Ci) => with(t!("CI")),
+            Some(TurnWaitKind::Deploy) => with(t!("deploy")),
+            Some(TurnWaitKind::Check) => with(t!("checks")),
+            Some(TurnWaitKind::Timer) => with(t!("timer")),
+            _ => with(t!("waiting")),
         },
-        TurnPhase::NeedsYou => with("needs you"),
-        TurnPhase::Done => "done".to_owned(),
-        TurnPhase::Failed => "failed".to_owned(),
-        TurnPhase::Stopped => "stopped".to_owned(),
+        TurnPhase::NeedsYou => with(t!("needs you")),
+        TurnPhase::Done => t!("done").to_owned(),
+        TurnPhase::Failed => t!("failed").to_owned(),
+        TurnPhase::Stopped => t!("stopped").to_owned(),
         TurnPhase::Unknown => return None,
     })
 }
@@ -213,16 +215,18 @@ pub fn moment(at: u64) -> String {
 
 fn waiting_on(wait: &TurnWait) -> String {
     match wait.kind {
-        TurnWaitKind::Ci => "Waiting on CI".into(),
-        TurnWaitKind::Deploy => "Waiting on the deploy".into(),
-        TurnWaitKind::Check => "Waiting on the checks".into(),
-        TurnWaitKind::Agent if wait.what.starts_with('@') => format!("Waiting on {}", wait.what),
-        TurnWaitKind::Agent => format!("Waiting on @{}", wait.what),
+        TurnWaitKind::Ci => t!("Waiting on CI").into(),
+        TurnWaitKind::Deploy => t!("Waiting on the deploy").into(),
+        TurnWaitKind::Check => t!("Waiting on the checks").into(),
+        TurnWaitKind::Agent if wait.what.starts_with('@') => {
+            t!("Waiting on {what}", what = wait.what)
+        }
+        TurnWaitKind::Agent => t!("Waiting on {what}", what = format!("@{}", wait.what)),
         TurnWaitKind::Timer => match wait.until {
-            Some(until) => format!("Waiting until {}", moment(until)),
-            None => "Waiting".into(),
+            Some(until) => t!("Waiting until {when}", when = moment(until)),
+            None => t!("Waiting").into(),
         },
-        TurnWaitKind::Process | TurnWaitKind::Unknown => format!("Waiting on {}", wait.what),
+        TurnWaitKind::Process | TurnWaitKind::Unknown => t!("Waiting on {what}", what = wait.what),
     }
 }
 
@@ -240,26 +244,26 @@ fn waited(wait: &TurnWait, now: u64) -> Option<String> {
 
 fn changed(changes: WorkAt) -> &'static str {
     match changes {
-        WorkAt::None | WorkAt::Unknown => "no changes",
-        WorkAt::Uncommitted => "uncommitted",
-        WorkAt::Committed => "committed",
-        WorkAt::Landed => "landed",
-        WorkAt::Staged => "on staging",
-        WorkAt::Shipped => "shipped",
+        WorkAt::None | WorkAt::Unknown => t!("no changes"),
+        WorkAt::Uncommitted => t!("uncommitted"),
+        WorkAt::Committed => t!("committed"),
+        WorkAt::Landed => t!("landed"),
+        WorkAt::Staged => t!("on staging"),
+        WorkAt::Shipped => t!("shipped"),
     }
 }
 
 /// The words on a step's button.
 pub fn step_label(step: TurnStep) -> Option<&'static str> {
     Some(match step {
-        TurnStep::Commit => "Commit",
-        TurnStep::Push => "Push",
-        TurnStep::DeployStaging => "Deploy to staging",
-        TurnStep::ShipProduction => "Ship to production…",
-        TurnStep::RollBack => "Roll back",
-        TurnStep::TryIt => "Try it",
-        TurnStep::CarryOn => "Carry on",
-        TurnStep::Undo => "Undo",
+        TurnStep::Commit => t!("Commit"),
+        TurnStep::Push => t!("Push"),
+        TurnStep::DeployStaging => t!("Deploy to staging"),
+        TurnStep::ShipProduction => t!("Ship to production…"),
+        TurnStep::RollBack => t!("Roll back"),
+        TurnStep::TryIt => t!("Try it"),
+        TurnStep::CarryOn => t!("Carry on"),
+        TurnStep::Undo => t!("Undo"),
         TurnStep::Unknown => return None,
     })
 }
@@ -344,7 +348,7 @@ pub fn line(
 
 /// The agent's own name for `provider`, such as Claude, as a failure names it.
 pub fn maker(provider: &str) -> &'static str {
-    sikemux_core::agent_catalog::agent(provider).map_or("the agent", |agent| agent.label)
+    sikemux_core::agent_catalog::agent(provider).map_or(t!("the agent"), |agent| agent.label)
 }
 
 /// Whether the words count time by the second while the turn stands so.

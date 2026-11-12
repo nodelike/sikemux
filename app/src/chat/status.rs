@@ -51,10 +51,13 @@ pub struct Activity {
 }
 
 /// What the agent is doing, said as a verb and what it is on: the command it runs, the agent
-/// it waits for, why it retries.
+/// it waits for, why it retries. A language puts the verb before or after what it is on, so the
+/// words come from a whole sentence with `{what}` in it, split where `what` goes.
 #[derive(Clone, PartialEq)]
 pub struct Doing {
     verb: SharedString,
+    /// The words after `what`, in a language that says them there.
+    after: Option<SharedString>,
     what: Option<SharedString>,
     /// `what` is a command, set as typed.
     typed: bool,
@@ -64,30 +67,41 @@ impl Doing {
     fn said(verb: impl Into<SharedString>) -> Self {
         Doing {
             verb: verb.into(),
+            after: None,
             what: None,
             typed: false,
         }
     }
 
-    fn on(verb: impl Into<SharedString>, what: impl Into<SharedString>, typed: bool) -> Self {
+    fn on(sentence: &str, what: impl Into<SharedString>, typed: bool) -> Self {
         let what: SharedString = what.into();
+        let (before, after) = sentence.split_once("{what}").unwrap_or((sentence, ""));
+        let (before, after) = (before.trim(), after.trim());
         Doing {
-            verb: verb.into(),
-            what: (!what.trim().is_empty()).then_some(what),
+            verb: before.to_owned().into(),
+            after: (!after.is_empty()).then(|| after.to_owned().into()),
+            what: Some(what),
             typed,
         }
     }
 
     /// Only the verb, when what it is on already shows above it.
     pub fn without_what(self) -> Self {
-        Doing { what: None, ..self }
+        let verb = match &self.after {
+            Some(after) => format!("{} {after}", self.verb).trim().to_owned().into(),
+            None => self.verb,
+        };
+        Doing::said(verb)
     }
 
     pub(super) fn whole(&self) -> SharedString {
-        match &self.what {
-            Some(what) => format!("{} {what}", self.verb).into(),
-            None => self.verb.clone(),
-        }
+        let parts = [Some(&self.verb), self.what.as_ref(), self.after.as_ref()];
+        let words: Vec<&str> = parts
+            .into_iter()
+            .flatten()
+            .map(|part| part.as_ref())
+            .collect();
+        words.join(" ").trim().to_owned().into()
     }
 }
 
@@ -276,16 +290,27 @@ impl Render for Activity {
                     .items_center()
                     .gap(SPACE_2)
                     .min_w_0()
-                    .child(
+                    .when(!label.verb.is_empty(), |line| {
+                        line.child(
+                            div()
+                                .flex_none()
+                                .font_weight(gpui_kit::FontWeight::MEDIUM)
+                                .child(crate::ui::shimmer::shimmer(
+                                    format!("activity:{}", cx.entity_id()),
+                                    label.verb.clone(),
+                                )),
+                        )
+                    })
+                    .children(what)
+                    .children(label.after.clone().map(|after| {
                         div()
                             .flex_none()
                             .font_weight(gpui_kit::FontWeight::MEDIUM)
                             .child(crate::ui::shimmer::shimmer(
-                                format!("activity:{}", cx.entity_id()),
-                                label.verb.clone(),
-                            )),
-                    )
-                    .children(what),
+                                format!("activity-after:{}", cx.entity_id()),
+                                after,
+                            ))
+                    })),
             )
             .children(through.and(self.before.as_ref()).map(|(before, _)| {
                 div()
@@ -348,12 +373,27 @@ impl Chat {
                 connection,
                 reason,
             } => {
-                let verb = match (connection, attempt) {
-                    (true, _) => t!("Reconnecting").to_owned(),
-                    (false, Some(attempt)) => t!("Retrying, attempt {attempt}", attempt = attempt),
-                    (false, None) => t!("Retrying").to_owned(),
+                let why = reason
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|why| !why.is_empty());
+                let Some(why) = why else {
+                    return Some(Doing::said(match (connection, attempt) {
+                        (true, _) => t!("Reconnecting").to_owned(),
+                        (false, Some(attempt)) => {
+                            t!("Retrying, attempt {attempt}", attempt = attempt)
+                        }
+                        (false, None) => t!("Retrying").to_owned(),
+                    }));
                 };
-                Doing::on(verb, reason.clone().unwrap_or_default(), false)
+                let sentence = match (connection, attempt) {
+                    (true, _) => t!("Reconnecting: {what}").to_owned(),
+                    (false, Some(attempt)) => {
+                        t!("Retrying, attempt {attempt}: {what}", attempt = attempt)
+                    }
+                    (false, None) => t!("Retrying: {what}").to_owned(),
+                };
+                Doing::on(&sentence, why.to_owned(), false)
             }
             ChatActivity::Call { row } => doing(row),
             ChatActivity::Thinking => Doing::said(t!("Thinking")),
@@ -369,6 +409,9 @@ fn doing(row: &ToolRow) -> Doing {
     use ToolIntent as I;
     let target = row.target.as_str();
     let subject = row.subject.as_deref().unwrap_or(target);
+    if subject.trim().is_empty() {
+        return said_action(row);
+    }
     let agent = |name: &str| {
         if name.is_empty() || name.starts_with('@') {
             name.to_owned()
@@ -378,43 +421,50 @@ fn doing(row: &ToolRow) -> Doing {
     };
     match (row.intent, row.family) {
         (I::Run | I::Test | I::Build | I::Git | I::Commit, F::Shell) => {
-            Doing::on(t!("Running"), target, true)
+            Doing::on(t!("Running {what}"), target, true)
         }
-        (I::Commit, _) => Doing::on(t!("Committing"), target, false),
+        (I::Commit, _) => Doing::on(t!("Committing {what}"), target, false),
         (I::Wait, F::Waiting) if row.subject.is_some() => {
-            Doing::on(t!("Waiting for"), agent(subject), false)
+            Doing::on(t!("Waiting for {what}"), agent(subject), false)
         }
-        (I::Wait, _) => Doing::on(t!("Waiting"), target, false),
-        (I::Message, _) => Doing::on(t!("Messaging"), agent(subject), false),
-        (I::Start, F::Agents) => Doing::on(t!("Starting"), agent(subject), false),
-        (I::Start, _) => Doing::on(t!("Starting"), subject, false),
-        (I::Read, F::Files | F::Shell) | (I::View, _) => Doing::on(t!("Reading"), subject, false),
-        (I::Search, F::Web) => Doing::on(t!("Searching the web for"), subject, false),
-        (I::Search, _) => Doing::on(t!("Searching for"), subject, true),
-        (I::List, _) => Doing::on(t!("Listing"), subject, false),
-        (I::Edit, _) => Doing::on(t!("Editing"), target, false),
-        (I::Write, _) => Doing::on(t!("Writing"), target, false),
-        (I::Open, _) => Doing::on(t!("Opening"), target, false),
-        (I::Click, F::Simulator) => Doing::on(t!("Tapping"), target, false),
-        (I::Click, _) => Doing::on(t!("Clicking"), target, false),
-        (I::Type, _) => Doing::on(t!("Typing"), target, false),
+        (I::Wait, _) => Doing::on(t!("Waiting {what}"), target, false),
+        (I::Message, _) => Doing::on(t!("Messaging {what}"), agent(subject), false),
+        (I::Start, F::Agents) => Doing::on(t!("Starting {what}"), agent(subject), false),
+        (I::Start, _) => Doing::on(t!("Starting {what}"), subject, false),
+        (I::Read, F::Files | F::Shell) | (I::View, _) => {
+            Doing::on(t!("Reading {what}"), subject, false)
+        }
+        (I::Search, F::Web) => Doing::on(t!("Searching the web for {what}"), subject, false),
+        (I::Search, _) => Doing::on(t!("Searching for {what}"), subject, true),
+        (I::List, _) => Doing::on(t!("Listing {what}"), subject, false),
+        (I::Edit, _) => Doing::on(t!("Editing {what}"), target, false),
+        (I::Write, _) => Doing::on(t!("Writing {what}"), target, false),
+        (I::Open, _) => Doing::on(t!("Opening {what}"), target, false),
+        (I::Click, F::Simulator) => Doing::on(t!("Tapping {what}"), target, false),
+        (I::Click, _) => Doing::on(t!("Clicking {what}"), target, false),
+        (I::Type, _) => Doing::on(t!("Typing {what}"), target, false),
         (I::Look, _) => Doing::said(t!("Taking a screenshot")),
-        (I::Fetch, _) => Doing::on(t!("Reading"), target, false),
-        _ => match &row.activity {
-            Some(activity) => Doing::said(activity.clone()),
-            None => Doing::said(match row.action {
-                ToolAction::Read => t!("Reading"),
-                ToolAction::Edit => t!("Editing"),
-                ToolAction::Delete => t!("Deleting"),
-                ToolAction::Move => t!("Moving"),
-                ToolAction::Search => t!("Searching"),
-                ToolAction::Execute => t!("Running a command"),
-                ToolAction::Think => t!("Thinking"),
-                ToolAction::Fetch => t!("Fetching"),
-                ToolAction::SwitchMode => t!("Switching mode"),
-                ToolAction::Mcp | ToolAction::Other => t!("Working"),
-            }),
-        },
+        (I::Fetch, _) => Doing::on(t!("Reading {what}"), target, false),
+        _ => said_action(row),
+    }
+}
+
+/// A call's own word for what it does, or its kind's, when it says nothing it is on.
+fn said_action(row: &ToolRow) -> Doing {
+    match &row.activity {
+        Some(activity) => Doing::said(activity.clone()),
+        None => Doing::said(match row.action {
+            ToolAction::Read => t!("Reading"),
+            ToolAction::Edit => t!("Editing"),
+            ToolAction::Delete => t!("Deleting"),
+            ToolAction::Move => t!("Moving"),
+            ToolAction::Search => t!("Searching"),
+            ToolAction::Execute => t!("Running a command"),
+            ToolAction::Think => t!("Thinking"),
+            ToolAction::Fetch => t!("Fetching"),
+            ToolAction::SwitchMode => t!("Switching mode"),
+            ToolAction::Mcp | ToolAction::Other => t!("Working"),
+        }),
     }
 }
 

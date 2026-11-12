@@ -1,5 +1,6 @@
 //! Every page of settings, and every place in them a search can find.
 
+use crate::i18n::tr;
 use gpui_kit::App;
 
 use super::pages;
@@ -360,17 +361,20 @@ pub fn search(query: &str, cx: &App) -> Vec<Entry> {
         .enumerate()
         .filter(|(_, (entry, more))| {
             let haystack = format!(
-                "{} {} {} {} {more}",
+                "{} {} {} {} {} {} {} {more}",
                 entry.label,
+                tr(entry.label),
                 entry.section,
+                tr(entry.section),
                 entry.page.name(),
+                tr(entry.page.name()),
                 entry.keywords
             )
             .to_lowercase();
             words.iter().all(|word| haystack.contains(word))
         })
         .map(|(order, (entry, _))| {
-            let label = entry.label.to_lowercase();
+            let label = tr(entry.label).to_lowercase();
             let rank = match () {
                 _ if label.starts_with(&query) => 0,
                 _ if label.contains(&query) => 1,

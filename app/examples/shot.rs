@@ -29,7 +29,8 @@
 //!                                 and whether they are disabled or checked (null where the menu does not say,
 //!                                 as Kit's items do not), and separators as {"separator":true};
 //!                                 "toast success|info|error text" shows a toast saying the text;
-//!                                 "settings <page>" opens settings at the page of that name
+//!                                 "settings <page>" opens settings at the page of that name;
+//!                                 "language es" draws the app in that language, as its picker does
 
 use std::cell::RefCell;
 use std::path::PathBuf;
@@ -291,6 +292,11 @@ fn main() -> anyhow::Result<()> {
                     window.push_notification(note, cx);
                 }
                 "activate" => window.activate_window(),
+                "language" => {
+                    sikemux_gpui::i18n::speak(Some(rest.trim()).filter(|code| !code.is_empty()));
+                    cx.refresh_windows();
+                    window.draw(cx).clear(cx);
+                }
                 "settings" => {
                     let page = sikemux_gpui::settings::Page::named(rest.trim())
                         .ok_or_else(|| anyhow::anyhow!("settings <page name>"))?;
