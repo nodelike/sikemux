@@ -306,6 +306,23 @@ fn user_message(uuid: &str, content: Vec<Value>, priority: Option<&str>) -> Valu
     message
 }
 
+/// Writes the prompt Sikemux adds to a file Claude reads once as it starts,
+/// rather than putting it on the command line, where a `pkill -f` pattern
+/// matching words in it would stop the agent. Removed when dropped.
+fn prompt_file(prompt: &str) -> Result<tempfile::TempPath, String> {
+    let mut file = tempfile::Builder::new()
+        .prefix("sikemux-prompt-")
+        .suffix(".md")
+        .tempfile()
+        .map_err(|error| {
+            format!("Claude did not start: its prompt could not be written: {error}")
+        })?;
+    std::io::Write::write_all(&mut file, prompt.as_bytes()).map_err(|error| {
+        format!("Claude did not start: its prompt could not be written: {error}")
+    })?;
+    Ok(file.into_temp_path())
+}
+
 impl Claude {
     async fn spawn(
         launch: &ChatLaunch,
@@ -353,9 +370,16 @@ impl Claude {
             &[]
         };
         let appended: Vec<&str> = sikemux_lines.iter().copied().chain(brief).collect();
-        if !appended.is_empty() {
-            args.extend(["--append-system-prompt".to_owned(), appended.join("\n\n")]);
-        }
+        let _prompt_file = if appended.is_empty() {
+            None
+        } else {
+            let file = prompt_file(&appended.join("\n\n"))?;
+            args.extend([
+                "--append-system-prompt-file".to_owned(),
+                file.to_string_lossy().into_owned(),
+            ]);
+            Some(file)
+        };
         if let Some(config) = mcp_config(&tools) {
             args.extend(["--mcp-config".to_owned(), config]);
         }
