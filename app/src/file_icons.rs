@@ -115,8 +115,13 @@ pub fn language_icon(lang: &str, cx: &App) -> Option<Arc<Image>> {
 
 /// The bundle's icon of a shell's output.
 pub fn console_icon(cx: &App) -> Option<Arc<Image>> {
+    named("console", cx)
+}
+
+/// The bundle's icon called `icon`, such as `kubernetes`.
+pub fn named(icon: &str, cx: &App) -> Option<Arc<Image>> {
     let icons = cx.try_global::<FileIcons>()?;
-    drawn(icons, bundle(icons)?, "console")
+    drawn(icons, bundle(icons)?, icon)
 }
 
 /// A file's icon at `size`, or the plain file glyph when the bundle has none for it.

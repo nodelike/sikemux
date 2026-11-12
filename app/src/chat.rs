@@ -67,7 +67,7 @@ mod files;
 mod find;
 mod gestures;
 mod installing;
-mod link;
+pub(crate) mod link;
 pub(crate) mod live;
 mod looks;
 mod mention;

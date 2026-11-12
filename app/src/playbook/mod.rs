@@ -4,6 +4,7 @@
 
 mod automation;
 mod landing;
+mod places;
 mod rules;
 mod said;
 
@@ -50,6 +51,7 @@ use sikemux_core::server::workspace::UpdateProjectParams;
 enum Page {
     #[default]
     Rules,
+    Places,
     Landing,
     Automation,
     General,
@@ -59,8 +61,9 @@ enum Page {
 }
 
 /// What the Playbook decided, above the settings, which a hairline parts.
-const DECIDED: [(Page, &str, Icon); 3] = [
+const DECIDED: [(Page, &str, Icon); 4] = [
     (Page::Rules, "Rules", Icon::Book),
+    (Page::Places, "Places", Icon::Shield),
     (Page::Landing, "Landing", Icon::Merge),
     (Page::Automation, "Automation", Icon::Bolt),
 ];
@@ -84,6 +87,11 @@ pub struct PlaybookTab {
     /// The repositories directly inside the project's folder.
     repos: Option<Vec<DiscoveredRepo>>,
     check: Entity<InputState>,
+    /// The name of a place the person adds, and what it is recognised by.
+    place_name: Entity<InputState>,
+    place_fact: Entity<InputState>,
+    /// While the person adds a place, which kind of fact recognises it.
+    adding: Option<usize>,
     /// Whether the check field has been given the command sikemux.json names.
     check_filled: bool,
     filter: Entity<InputState>,
@@ -269,6 +277,11 @@ impl Workbench {
 fn make(bench: &mut Workbench, folder: String, window: &mut Window, cx: &mut Context<Workbench>) {
     let check = cx.new(|cx| InputState::new(window, cx).placeholder("pnpm check"));
     let filter = cx.new(|cx| InputState::new(window, cx).placeholder("Filter processes"));
+    let place_name = cx
+        .new(|cx| InputState::new(window, cx).placeholder("Its name, such as acme.dev on Vercel"));
+    let place_fact = cx.new(|cx| {
+        InputState::new(window, cx).placeholder("Its address, command or name, as the menu shows")
+    });
     let saving = {
         let folder = folder.clone();
         cx.subscribe(&check, move |bench, _, event: &InputEvent, cx| {
@@ -292,6 +305,9 @@ fn make(bench: &mut Workbench, folder: String, window: &mut Window, cx: &mut Con
             config: None,
             repos: None,
             check,
+            place_name,
+            place_fact,
+            adding: None,
             check_filled: false,
             filter,
             space,
@@ -431,17 +447,21 @@ pub fn pane(
         .config
         .as_ref()
         .is_some_and(|config| matches!(config.load, ConfigLoad::Invalid { .. }));
-    let counts = settings
-        .playbook
-        .as_ref()
-        .map(|playbook| (playbook.rules.len(), playbook.automation.len()));
+    let counts = settings.playbook.as_ref().map(|playbook| {
+        (
+            playbook.rules.len(),
+            places::production(&playbook.places),
+            playbook.automation.len(),
+        )
+    });
     let page_row = |&(page, label, icon): &(Page, &'static str, Icon)| {
         let (this, folder) = (this.clone(), folder.to_owned());
         let on = settings.page == page;
         let ink = if on { t.text_primary } else { t.text_secondary };
         let count = match (page, counts) {
-            (Page::Rules, Some((rules, _))) => rules,
-            (Page::Automation, Some((_, lines))) => lines,
+            (Page::Rules, Some((rules, _, _))) => rules,
+            (Page::Places, Some((_, places, _))) => places,
+            (Page::Automation, Some((_, _, lines))) => lines,
             _ => 0,
         };
         div()
@@ -537,6 +557,7 @@ pub fn pane(
         );
     let body: Vec<AnyElement> = match settings.page {
         Page::Rules => rules::page(settings.playbook.as_ref(), folder, &this, cx),
+        Page::Places => places::page(settings, folder, &this, cx),
         Page::Landing => landing::page(settings.playbook.as_ref(), folder, &this, cx),
         Page::Automation => automation::page(
             bench,
