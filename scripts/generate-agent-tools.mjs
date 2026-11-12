@@ -300,11 +300,15 @@ const families = [
 ];
 for (const { where, family, tools } of families) {
   if (!/^[a-z]+$/u.test(family.name ?? ""))
-    throw new Error(`${where}: family name "${family.name}" must be lowercase letters`);
+    throw new Error(
+      `${where}: family name "${family.name}" must be lowercase letters`,
+    );
   if (!family.description)
     throw new Error(`${where}: family ${family.name} has no description`);
   if (!tools.some((tool) => tool.name.startsWith(`${family.name}_`)))
-    throw new Error(`${where}: family ${family.name} has no tool named ${family.name}_*`);
+    throw new Error(
+      `${where}: family ${family.name} has no tool named ${family.name}_*`,
+    );
 }
 const familyNames = families.map(({ family }) => family.name);
 if (new Set(familyNames).size !== familyNames.length)

@@ -134,9 +134,9 @@ def dialog_from_tool(run):
 
 
 def recording_from_tool(run):
-    started = desk.answered(run.prompt(desk.json_tool("browser.record", {"action": "start"})))
+    started = desk.answered(run.prompt(desk.json_tool("browser.record", {})))
     time.sleep(3)
-    stopped = desk.answered(run.prompt(desk.json_tool("browser.record", {"action": "stop"})))
+    stopped = desk.answered(run.prompt(desk.json_tool("browser.record", {"stop": True})))
     path = stopped.get("path") or ""
     probe = subprocess.run(["ffprobe", "-v", "error", "-count_frames", "-show_entries",
                             "stream=codec_name,nb_read_frames:format=duration", "-of", "json", path],
