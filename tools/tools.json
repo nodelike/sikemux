@@ -2237,11 +2237,10 @@
           }
         },
         "goal": {
-          "description": "A rule only the agents of your card's goal follow, kept on the goal's card",
+          "description": "Kept on your goal's card",
           "type": "boolean"
         },
         "person": {
-          "description": "A rule the person just told you, in their own words: kept as theirs, and their chat shows it with Undo",
           "type": "boolean"
         },
         "sensitive": {
