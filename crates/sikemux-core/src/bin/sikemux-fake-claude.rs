@@ -13,6 +13,11 @@
 //! - `limit` fails the way Claude Code does when the account is out of usage;
 //! - `question` asks three questions, or `question {...}` asks the AskUserQuestion input given;
 //! - `suggest WORDS` says `Done.` and, started with `--prompt-suggestions`, predicts WORDS next;
+//! - `apps N` says a line and calls the `counter` server's `show_counter` N times, a tool that
+//!   names an MCP App's page, after saying at the turn's start that it hosts MCP Apps as Claude
+//!   Code 2.1.301 does; `tools N` does the same with `count`, a tool with no page, for a chat
+//!   as long with no apps. With `FAKE_CLAUDE_APP_CALLS` set, each tool an app calls is
+//!   written to that file, a line each;
 //! - anything else is echoed back.
 //!
 //! `FAKE_CLAUDE_SCRIPT` names a JSON file of replies for recorded demos, each
@@ -43,7 +48,7 @@
 use std::collections::HashMap;
 use std::io::{BufRead, Write};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{channel, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -51,12 +56,41 @@ use std::time::{Duration, Instant};
 use serde_json::{json, Value};
 use sikemux_process::sync::Locked;
 
+/// What Claude Code says it can do when it hosts MCP Apps.
+const APP_CAPABILITIES: [&str; 3] = [
+    "mcp_tool_ui_meta_v1",
+    "mcp_read_resource_v1",
+    "mcp_call_result_not_for_model_v1",
+];
+const APP_URI: &str = "ui://counter/app.html";
+/// A small app such as a server ships: it shows the call's count with a moving bar, and its
+/// button, which it presses once as it opens, calls the server's `add_one`.
+const APP_PAGE: &str = r#"<!doctype html><html><head><meta charset="utf-8"><style>
+body{margin:0;padding:14px 16px;font:13px var(--font-sans,system-ui);color:var(--color-text-primary,#eee);background:var(--color-background-primary,#1b1b1f)}
+.n{font-size:28px;font-weight:600;margin:2px 0 8px}.bar{height:6px;border-radius:3px;background:var(--color-border-primary,#333);overflow:hidden}
+.bar i{display:block;height:100%;width:40%;background:var(--color-ring-primary,#a277ff);animation:go 1.6s ease-in-out infinite alternate}
+@keyframes go{from{transform:translateX(-40%)}to{transform:translateX(190%)}}
+button{margin-top:10px;font:inherit;padding:5px 10px;border-radius:6px;border:1px solid var(--color-border-primary,#333);background:transparent;color:inherit}
+</style></head><body><div>Counter</div><div class="n" id="n">…</div><div class="bar"><i></i></div><button id="b">Add one</button> <span id="s"></span>
+<script>
+let next=0;const waiting={};
+const ask=(method,params)=>new Promise((done,fail)=>{const id=++next;waiting[id]={done,fail};parent.postMessage({jsonrpc:"2.0",id,method,params},"*")});
+const tell=(method,params)=>parent.postMessage({jsonrpc:"2.0",method,params},"*");
+addEventListener("message",(event)=>{const m=event.data;if(!m||m.jsonrpc!=="2.0")return;
+if(m.id&&waiting[m.id]&&!m.method){m.error?waiting[m.id].fail(m.error):waiting[m.id].done(m.result);delete waiting[m.id];return}
+if(m.method==="ui/notifications/tool-result"){const v=m.params.structuredContent;document.getElementById("n").textContent=v?v.count:"?"}});
+document.getElementById("b").onclick=async()=>{try{const r=await ask("tools/call",{name:"add_one",arguments:{}});document.getElementById("s").textContent="added "+r.structuredContent.added}catch(e){document.getElementById("s").textContent="refused"}};
+ask("ui/initialize",{protocolVersion:"2026-01-26",appInfo:{name:"counter",version:"1"},appCapabilities:{}}).then(()=>{tell("ui/notifications/initialized",{});tell("ui/notifications/size-changed",{height:document.body.scrollHeight});document.getElementById("b").click()});
+</script></body></html>"#;
+
 struct Claude {
     out: Mutex<std::io::Stdout>,
     waiting: Mutex<HashMap<String, Sender<Value>>>,
     interrupted: AtomicBool,
     /// Started with `--prompt-suggestions`, so it predicts the next prompt after a turn.
     suggesting: bool,
+    /// How many times an app called `add_one`.
+    added: AtomicUsize,
     session_id: String,
     transcript: PathBuf,
     /// The newest record of the conversation, which the next one follows.
@@ -373,6 +407,37 @@ impl Claude {
                 self.say(&format!("{message_id}-b"), "held");
                 self.finish(uuid, None);
             }
+            "apps" | "tools" => {
+                let count: usize = words.next().and_then(|n| n.parse().ok()).unwrap_or(1);
+                let tool = if verb == "apps" {
+                    "show_counter"
+                } else {
+                    "count"
+                };
+                self.send(json!({ "type": "system", "subtype": "init", "capabilities": APP_CAPABILITIES }));
+                for at in 1..=count {
+                    let id = format!("{message_id}-{at}");
+                    self.say(&format!("{id}-said"), &format!("Call {at} of {count}."));
+                    let tool_id = format!("toolu_{}_{at}", uuid.replace('-', ""));
+                    let assistant = json!({
+                        "type": "assistant", "uuid": uuid::Uuid::new_v4().to_string(), "parent_tool_use_id": null,
+                        "message": { "id": id, "model": model(), "role": "assistant",
+                            "content": [{ "type": "tool_use", "id": tool_id, "name": format!("mcp__counter__{tool}"), "input": { "at": at } }] },
+                        "tool_use_meta": [{ "id": tool_id, "server_display_name": "counter", "tool_name": tool }],
+                    });
+                    self.record(assistant.clone());
+                    self.send(assistant);
+                    let said = format!("{{\"count\":{at}}}");
+                    let result = json!({
+                        "type": "user", "uuid": uuid::Uuid::new_v4().to_string(), "parent_tool_use_id": null,
+                        "message": { "role": "user", "content": [{ "type": "tool_result", "tool_use_id": tool_id, "content": said }] },
+                        "tool_use_result": { "content": said, "structuredContent": { "count": at } },
+                    });
+                    self.record(result.clone());
+                    self.send(result);
+                }
+                self.finish(uuid, None);
+            }
             "count" => {
                 let earlier = self
                     .chain()
@@ -511,6 +576,29 @@ impl Claude {
             Some("get_settings") => json!({
                 "effective": { "model": std::env::var("FAKE_CLAUDE_SETTINGS_MODEL").ok() },
             }),
+            Some("mcp_status") => json!({ "mcpServers": [{
+                "name": "counter", "status": "connected",
+                "tools": [
+                    { "name": "show_counter", "annotations": { "readOnly": true }, "_meta": { "ui": { "resourceUri": APP_URI } } },
+                    { "name": "add_one", "annotations": {}, "_meta": { "ui": { "resourceUri": APP_URI, "visibility": ["app"] } } },
+                    { "name": "count", "annotations": { "readOnly": true } },
+                ],
+            }] }),
+            Some("mcp_read_resource") if request["uri"] == APP_URI => json!({
+                "contents": [{ "uri": APP_URI, "mimeType": "text/html;profile=mcp-app", "text": APP_PAGE }],
+            }),
+            Some("mcp_call") => {
+                let at = self.added.fetch_add(1, Ordering::AcqRel) + 1;
+                if let Some(log) = std::env::var_os("FAKE_CLAUDE_APP_CALLS") {
+                    let line = format!("{}\n", request["tool"].as_str().unwrap_or_default());
+                    let _ = std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open(log)
+                        .and_then(|mut file| file.write_all(line.as_bytes()));
+                }
+                json!({ "content": [{ "type": "text", "text": format!("Added, now {at}") }], "structuredContent": { "added": at } })
+            }
             Some("get_usage") => account_file("fake-usage.json")
                 .unwrap_or_else(|| json!({ "rate_limits_available": false })),
             _ => json!({}),
@@ -641,6 +729,7 @@ fn main() {
         waiting: Mutex::new(HashMap::new()),
         interrupted: AtomicBool::new(false),
         suggesting: args.iter().any(|arg| arg == "--prompt-suggestions"),
+        added: AtomicUsize::new(0),
         session_id,
         transcript,
         leaf: Mutex::new(None),

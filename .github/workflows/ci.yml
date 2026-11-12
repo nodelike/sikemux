@@ -395,12 +395,21 @@ jobs:
           kill "$probe" 2>/dev/null || true
           test -s window-run/window.png
 
-      - name: Build the core and the fake agent
-        run: cargo build -p sikemux-core --bin sikemux-core --bin sikemux-fake-acp-agent
+      - name: Build the core and the fake agents
+        run: cargo build -p sikemux-core --bin sikemux-core --bin sikemux-fake-acp-agent --bin sikemux-fake-claude
 
       - name: Build the app with its in-app driver
         run: cargo build --features drive --bin sikemux --example fake_chat
         working-directory: app
+
+      - name: Time a long chat of MCP apps against one as long without
+        if: ${{ !cancelled() }}
+        working-directory: app
+        run: >-
+          python3 -I ci/mcp-apps-check.py --app ../target/debug/sikemux
+          --core ../target/debug/sikemux-core --agent ../target/debug/sikemux-fake-acp-agent
+          --seed ../target/debug/examples/fake_chat --claude ../target/debug/sikemux-fake-claude
+          --out "$RUNNER_TEMP/w/mcp-apps"
 
       # The checks' cores listen on sockets inside their output folders, and a socket's path must stay
       # under 104 bytes, which the checkout's own path would pass.

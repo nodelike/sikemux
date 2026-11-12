@@ -9,6 +9,7 @@
 //!   state, answered with what the desks hold and where the keys are, as JSON on its line
 //!   register, which takes the core's window calls without activating the window
 //!   resize width height, in points
+//!   frames start, then frames, answered with how far apart the window's frames came in between
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -95,6 +96,16 @@ async fn run(
             .update(cx, |_, window, cx| bench.read(cx).drive_state(window, cx))
             .map(|state| Some(state.to_string()))
             .map_err(|_| "the window is gone");
+    }
+    if line == "frames start" {
+        FRAMES.with_borrow_mut(|frames| *frames = Some(vec![std::time::Instant::now()]));
+        return send(window, cx, |window, _| window.on_next_frame(framed)).map(|()| None);
+    }
+    if line == "frames" {
+        let frames = FRAMES
+            .with_borrow_mut(Option::take)
+            .ok_or("frames were not started")?;
+        return Ok(Some(frame_times(&frames).to_string()));
     }
     if line == "register" {
         bench.read_with(cx, |bench, _| {
@@ -289,7 +300,45 @@ fn send(
         .map_err(|_| "the window is gone")
 }
 
+/// Notes when each frame came while frames are being timed, and asks for the next.
+fn framed(window: &mut gpui_kit::Window, _: &mut App) {
+    let timing = FRAMES.with_borrow_mut(|frames| {
+        frames
+            .as_mut()
+            .map(|frames| frames.push(std::time::Instant::now()))
+            .is_some()
+    });
+    if timing {
+        window.on_next_frame(framed);
+    }
+}
+
+/// The gaps between frames in milliseconds: how many, the middle, the slowest twentieth and
+/// hundredth, the longest, and how many passed 25 and 50 ms.
+fn frame_times(frames: &[std::time::Instant]) -> Value {
+    let mut gaps: Vec<f64> = frames
+        .windows(2)
+        .map(|pair| (pair[1] - pair[0]).as_secs_f64() * 1000.)
+        .collect();
+    gaps.sort_by(f64::total_cmp);
+    let at = |share: f64| {
+        gaps.get(((gaps.len() as f64 * share) as usize).min(gaps.len().saturating_sub(1)))
+            .copied()
+            .unwrap_or(0.)
+    };
+    json!({
+        "frames": gaps.len(),
+        "p50": at(0.5),
+        "p95": at(0.95),
+        "p99": at(0.99),
+        "max": gaps.last().copied().unwrap_or(0.),
+        "over25": gaps.iter().filter(|gap| **gap > 25.).count(),
+        "over50": gaps.iter().filter(|gap| **gap > 50.).count(),
+    })
+}
+
 thread_local! {
+    static FRAMES: RefCell<Option<Vec<std::time::Instant>>> = const { RefCell::new(None) };
     static SPOTS: RefCell<BTreeMap<String, [f32; 4]>> = const { RefCell::new(BTreeMap::new()) };
 }
 
