@@ -1,4 +1,4 @@
-//! The agent's `sim_*` tools. Each agent holds one simulator and acts on it
+//! The agent's `sim` tool. Each agent holds one simulator and acts on it
 //! in device points; a person watching the same device sees every step.
 
 use std::collections::{HashMap, HashSet};
@@ -543,7 +543,7 @@ fn holder_text(claim: &Claim) -> String {
 
 pub(super) fn in_use(device: &Device, claim: &Claim) -> String {
     format!(
-        "{} is in use by {}; pick another from sim_devices or ask the person",
+        "{} is in use by {}; pick another from sim devices or ask the person",
         device.name,
         holder_text(claim)
     )
@@ -628,7 +628,7 @@ pub(super) fn choose_device<'a>(devices: &'a [Device], wanted: &str) -> Result<&
         })
         .ok_or_else(|| {
             format!(
-                "no device is named {wanted}; sim_devices lists them. Xcode's Devices and Simulators window adds iOS simulators, Android Studio's Device Manager adds Android ones"
+                "no device is named {wanted}; sim devices lists them. Xcode's Devices and Simulators window adds iOS simulators, Android Studio's Device Manager adds Android ones"
             )
         })
 }
@@ -694,7 +694,7 @@ async fn attach(
             Ok(_) => {}
             Err(error) if error.contains("in time") => {
                 return Err(format!(
-                    "{} is still booting; call sim_attach again in a moment",
+                    "{} is still booting; call sim attach again in a moment",
                     device.name
                 ))
             }
@@ -747,7 +747,7 @@ impl Drop for InLine<'_> {
     }
 }
 
-/// The device `sim_attach` takes, or none when the project needs one made.
+/// The device `sim attach` takes, or none when the project needs one made.
 fn choose_for(
     manager: &SimulatorManager,
     agent_id: &str,
@@ -856,7 +856,7 @@ pub(super) fn queued_text(queued: &Queued) -> String {
         ),
     };
     format!(
-        "waiting for a simulator: {line}, as {why}. Call sim_attach again within a minute to keep your place; never boot one with simctl or Xcode yourself"
+        "waiting for a simulator: {line}, as {why}. Call sim attach again within a minute to keep your place; never boot one with simctl or Xcode yourself"
     )
 }
 
@@ -953,7 +953,7 @@ pub(super) fn newest_iphone(runtimes: &Value) -> Option<(String, String)> {
 fn attached(manager: &SimulatorManager, agent_id: &str) -> Result<Device, String> {
     manager
         .attached(agent_id)
-        .ok_or_else(|| "no simulator is attached; call sim_attach first".into())
+        .ok_or_else(|| "no simulator is attached; call sim attach first".into())
 }
 
 fn near_deadline() -> bool {
@@ -1011,7 +1011,7 @@ async fn launch(
     state["pid"] = pid.into();
     if !in_front {
         state["launching"] = format!(
-            "{bundle} is still launching; call sim_state in a moment, or sim_launch again, which waits for this launch rather than starting another"
+            "{bundle} is still launching; call sim state in a moment, or sim launch again, which waits for this launch rather than starting another"
         )
         .into();
     }
@@ -1362,7 +1362,7 @@ pub(super) fn changes(previous: &[Numbered], next: &[Numbered]) -> (Vec<String>,
     let mut changed_lines: Vec<String> = changed.iter().take(MAX_ELEMENTS).map(line).collect();
     if changed.len() > MAX_ELEMENTS {
         changed_lines.push(format!(
-            "… {} more changed; call sim_state to read them all",
+            "… {} more changed; call sim state to read them all",
             changed.len() - MAX_ELEMENTS
         ));
     }
@@ -1613,7 +1613,7 @@ pub(super) fn tap_point(
             .iter()
             .find(|(number, _)| *number as u64 == index)
             .ok_or_else(|| {
-                format!("element {index} is not on the screen now; the screen changed since you read it, so read it again with sim_state")
+                format!("element {index} is not on the screen now; the screen changed since you read it, so read it again with sim state")
             })?;
         if element.offscreen {
             return Err(format!(

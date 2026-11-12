@@ -1,7 +1,7 @@
 //! Android emulators and phones, driven through the SDK's `adb` and a small
 //! program Sikemux runs on the device itself. It answers the same requests the
 //! iOS helper does, in the same shapes and in device points (Android's dp), so the
-//! agents' `sim_*` tools and the desk drive both alike.
+//! agents' `sim` tool and the desk drive both alike.
 
 mod grpc;
 pub mod install;
@@ -225,7 +225,7 @@ impl Android {
         let target = self.target(udid);
         let serial = target.serial.ok_or_else(|| {
             format!(
-                "{} is not running. Call sim_attach to start it, or ask the person.",
+                "{} is not running. Call sim attach to start it, or ask the person.",
                 target.avd.as_deref().unwrap_or(udid)
             )
         })?;
@@ -628,7 +628,7 @@ impl Android {
             .last()
             .map(str::trim)
             .filter(|line| line.contains('/'))
-            .ok_or_else(|| format!("{package} is not installed, or has no screen to open; sim_install its .apk first"))?
+            .ok_or_else(|| format!("{package} is not installed, or has no screen to open; sim install its .apk first"))?
             .to_owned();
         let extras: String = arguments
             .and_then(Value::as_array)

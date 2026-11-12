@@ -226,7 +226,7 @@ impl Manifest {
         );
         if self.offers_simulator() {
             instructions.push_str(
-                "\n- Mobile apps: sim_attach a device, live on your desk, never Simulator.app. Read it with sim_state; act with sim_tap, sim_type and sim_swipe, loaded together. Install with sim_install and sim_launch, never expo run, react-native run-* or flutter run.",
+                "\n- Mobile apps: sim attach a device, live on your desk, never Simulator.app. Read it with sim state; act with sim tap, sim type and sim swipe. Install with sim install and sim launch, never expo run, react-native run-* or flutter run.",
             );
         }
         instructions

@@ -333,7 +333,7 @@ fn parse_reply(line: &str) -> Option<(u64, Reply)> {
             let message = match fields.get("reason").and_then(Value::as_str) {
                 Some(reason @ "streamUnavailable") => format!("{message} ({reason})"),
                 Some("notBooted") => {
-                    format!("{message} Call sim_attach to start it, or ask the person.")
+                    format!("{message} Call sim attach to start it, or ask the person.")
                 }
                 _ => message.to_owned(),
             };
@@ -624,7 +624,7 @@ mod tests {
         assert_eq!(id, 3);
         assert_eq!(
             reply.unwrap_err().to_string(),
-            "iPhone 17 is not running. Call sim_attach to start it, or ask the person."
+            "iPhone 17 is not running. Call sim attach to start it, or ask the person."
         );
     }
 
@@ -694,7 +694,7 @@ mod tests {
         let udid = device["udid"].as_str().unwrap().to_owned();
         let was_booted = device["state"] == "booted";
         call(json!({ "type": "boot", "udid": udid })).await.unwrap();
-        // A device says it is booted a little before its screen can be read, as sim_attach allows for.
+        // A device says it is booted a little before its screen can be read, as sim attach allows for.
         let mut tree = Err(String::new());
         for _ in 0..crate::tools::SCREEN_READY_READS {
             tree = call(json!({ "type": "tree", "udid": udid })).await;

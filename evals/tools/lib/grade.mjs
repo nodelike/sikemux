@@ -16,7 +16,7 @@ export const BANNED = {
 const FILE_TOOLS = ['Read', 'Edit', 'Write', 'MultiEdit', 'NotebookEdit'];
 
 const PARALLEL = [
-  { tool: 'sim_*', key: () => 'the simulator' },
+  { tool: 'sim', key: () => 'the simulator' },
   { tool: 'git_commit', key: () => 'the checkout' },
   { tool: FILE_TOOLS, key: (call) => call.args.file_path ?? call.args.notebook_path, writes: true },
 ];

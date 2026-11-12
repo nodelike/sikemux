@@ -64,7 +64,7 @@ For one area in depth, call `guide` with one of these as `topic`:
 - `browser-pages` — navigating, reloading, waiting, local files, viewports, tabs
 - `browser-evidence` — `browser screenshot`, `browser annotate`, `browser record`
 - `browser-debugging` — network, console, `app_console`, `browser evaluate`
-- `simulator` — driving an iOS simulator with `sim_*`
+- `simulator` — driving an iOS simulator with `sim`
 - `databases` — the `db_*` tools, SQL, and adding a database
 - `aws` — `aws_*` tools, profiles, expired sign-ins
 - `connectors` — PRs, CI and SigNoz logs
@@ -717,10 +717,10 @@ stopped it; `browser network` shows which.
 
 ## simulator: Driving the iOS Simulator and Android devices
 
-The `sim_*` tools drive the iOS simulators that Xcode installs on this Mac,
-and Android emulators and phones through the Android SDK. They are listed
+The `sim` tool drives the iOS simulators that Xcode installs on this Mac,
+and Android emulators and phones through the Android SDK. It is listed
 only when this computer can run one of them (macOS 15 or later with a full
-Xcode, or an Android SDK) and the person has not turned them off in Settings. `sim_attach` puts
+Xcode, or an Android SDK) and the person has not turned them off in Settings. `sim attach` puts
 the device live on your desk in Sikemux, beside the person, who watches what
 you do and can tap it too, so there is nothing else to open to show it: do not
 look for Simulator.app or open screenshots in another app. Its absence does
@@ -728,28 +728,28 @@ not mean Xcode is broken; from Xcode 27 its window is DeviceHub.
 `workspace_inspect` reports `simulator`: whether you have the tools, why not
 when you do not, and the device you hold.
 
-`sim_attach` comes first, and each device belongs to one agent at a time.
+`sim attach` comes first, and each device belongs to one agent at a time.
 Without a `device` you get, in order: the device the person picked on your
 desk, the one your project used before, the warmest free one of your project's
 iPhone (named `Sikemux · <project folder>`) and the iPhones booted now or
 before, or a new iPhone made for your project on the newest iOS. Name a device
 only when you need that model or iOS version; one never booted needs
 `fresh: true`, since a first boot is the heaviest work a simulator does.
-`sim_devices` lists every device with `inUseBy` naming who holds it; a device
+`sim devices` lists every device with `inUseBy` naming who holds it; a device
 another agent holds cannot be attached, so pick another or ask the person.
 Attaching boots the device if it is off and waits until its screen can be
 read. A cold boot can take a minute; when it outlasts the call it carries on,
-and `sim_attach` says it is still booting, so call it again. How many
+and `sim attach` says it is still booting, so call it again. How many
 simulators run at once follows this Mac's cores, memory and load, counting
-every simulator running, whoever started it. With no room, `sim_attach` waits
+every simulator running, whoever started it. With no room, `sim attach` waits
 in line and says your place; call it again within a minute to keep it, for up
 to five minutes. Never boot a simulator with `simctl` or Xcode to get around
 the line. A device you have not used for ten minutes goes to an agent waiting;
-`sim_detach` one you no longer need. Every other `sim_*`
-tool acts on the device you hold, and fails until you attach one. When the
+`sim detach` one you no longer need. Every other `sim`
+action acts on the device you hold, and fails until you attach one. When the
 person picks another device on your desk you move to it.
 
-`sim_state` reads the screen: the frontmost `app`, which is `Home Screen` when
+`sim state` reads the screen: the frontmost `app`, which is `Home Screen` when
 its icons show and `System` for what iOS draws over an app, such as a
 permission alert, Control Center or the lock screen, and numbered `elements`,
 each with its role, label, value, identifier and centre point, as in
@@ -767,80 +767,80 @@ as for the browser. `"changes"`, the default, returns the app and `changes`:
 `changes: "none"` means nothing moved. A different app in front, or no earlier
 read, gets the whole screen instead. `"outcome"` returns only the device and
 app, for a run of steps you check afterwards, and `"full"` the whole screen,
-as `sim_state` does.
+as `sim state` does.
 
-`sim_tap` takes an element `index`, a `label`, or `x` and `y`. A `label`
+`sim tap` takes an element `index`, a `label`, or `x` and `y`. A `label`
 matches the accessibility label or identifier, exact matches first, and fails
 when two elements match equally, listing them; tap one of them by its number.
 Prefer a number or label over a point read off a screenshot. `duration` holds
 the touch, for a long press.
 
-`sim_type` types into the focused field, so tap the field first. While a
+`sim type` types into the focused field, so tap the field first. While a
 field is focused the keyboard covers the bottom of the screen, and a swipe
 across it types a word, as sliding a finger over the keys does; press Return
 (`\n`) or tap outside the field before you swipe there to scroll. It types the
 characters of a US keyboard; other characters fail and are named.
-`sim_swipe` drags from one point to another; a swipe that starts within
+`sim swipe` drags from one point to another; a swipe that starts within
 10 points of a screen edge is a system gesture: up from the bottom goes home,
 in from the left goes back, down from the top opens Notification Center. Its
 result carries a `warning` saying so; to scroll, start inside the content.
-`sim_button` presses `home`, `lock`, `side`, `siri`, `volumeUp` or
+`sim button` presses `home`, `lock`, `side`, `siri`, `volumeUp` or
 `volumeDown`.
 
-`sim_rotate` turns the device to `portrait`, `landscapeLeft` or
+`sim rotate` turns the device to `portrait`, `landscapeLeft` or
 `landscapeRight` and reads the screen. An app that only runs upright, such as
 Settings, stays upright, and `screen` gives the size it is drawn at; read the
 screen again after turning, and after the person turns it from the desk.
 
-`sim_touch_path` puts one finger down on the first of its `points`, moves it
+`sim touch_path` puts one finger down on the first of its `points`, moves it
 through the rest evenly over `duration` seconds and lifts it on the last: a
-long-press drag, reordering a list or drawing. `sim_touch2_path` does the same
+long-press drag, reordering a list or drawing. `sim touch2_path` does the same
 with two fingers, each point naming both (`x1`, `y1`, `x2`, `y2`): spread them
 to zoom in, bring them together to zoom out, or turn them around a centre.
 
 Acting tools wait until two reads of the screen agree before they return, so
 an animation or an app's launch has finished. Content an app loads from the
-network can arrive later; read again with `sim_state`. Each call has about 50
+network can arrive later; read again with `sim state`. Each call has about 50
 seconds; one that runs short answers with the screen as it got, and your calls
 run one at a time, so wait for one to answer before the next. A cancelled turn
-stops the call at its next step. `sim_screenshot` returns the screen as an
-image at its size in points; read `sim_state` rather than a screenshot to
+stops the call at its next step. `sim screenshot` returns the screen as an
+image at its size in points; read `sim state` rather than a screenshot to
 decide what to tap.
 
 To try an app: build it for the simulator as a process (`xcodebuild` with
 `-sdk iphonesimulator` and a `-derivedDataPath` inside the project), then
-`sim_install` the `.app` it produced, which must be inside the project, and
-`sim_launch` it by bundle id, with optional `arguments` and `environment`.
-`sim_install` of a build already on the device answers `unchanged` at once.
-`sim_launch` relaunches an app that is running. A first launch can outlast
-the call; it then answers with `launching`, and calling `sim_launch` again
-waits for that launch instead of starting the app over. `sim_terminate` quits
-an app, and `sim_open_url` opens a URL or a deep link.
+`sim install` the `.app` it produced, which must be inside the project, and
+`sim launch` it by bundle id, with optional `arguments` and `environment`.
+`sim install` of a build already on the device answers `unchanged` at once.
+`sim launch` relaunches an app that is running. A first launch can outlast
+the call; it then answers with `launching`, and calling `sim launch` again
+waits for that launch instead of starting the app over. `sim terminate` quits
+an app, and `sim open_url` opens a URL or a deep link.
 
 Do not install with `expo run:ios`, `react-native run-ios`, `flutter run` or
 `open -a Simulator`: once the app is on the device they open Simulator.app,
 or DeviceHub from Xcode 27, over the person's screen. For an Expo or React
 Native app, build it with `xcodebuild` as above and start only the bundler as
 a process (`expo start --dev-client` or `react-native start`, without `--ios`).
-An Expo development build then reaches it through `sim_open_url` with
+An Expo development build then reaches it through `sim open_url` with
 `<scheme>://expo-development-client/?url=http%3A%2F%2F127.0.0.1%3A8081`.
 
 Android devices take the same tools, in the same device points (Android's
-dp). `sim_devices` lists them with `platform: "android"`; `sim_attach` one by
-its name or udid. Named none, `sim_attach` takes the device your desk or project
+dp). `sim devices` lists them with `platform: "android"`; `sim attach` one by
+its name or udid. Named none, `sim attach` takes the device your desk or project
 had, else an iOS one where Xcode is installed and an Android one where it is
 not. A virtual device starts with no window of its own and shows on your desk. Phones plugged in with USB debugging on are listed too. With no
 Android SDK on this computer, ask the person to set up the Android Emulator
-from the desk's device menu; do not install the SDK yourself. `sim_install` the
+from the desk's device menu; do not install the SDK yourself. `sim install` the
 `.apk` your build produced inside the project (`./gradlew assembleDebug` as a
-process) and `sim_launch` it by package name; `sim_logs` takes the package
-name as `process`. `sim_button` has `back` on Android. Do not install or launch with
+process) and `sim launch` it by package name; `sim logs` takes the package
+name as `process`. `sim button` has `back` on Android. Do not install or launch with
 `pnpm android`, `expo run:android`, `react-native run-android`, `flutter run`,
 `./gradlew installDebug` or `adb install`: they pick a device on their own,
 which may be one another agent holds or the person's phone. Start only the
 bundler as a process, as for iOS.
 
-`sim_logs` reads the device's log, kept from when you attached it, by
+`sim logs` reads the device's log, kept from when you attached it, by
 `cursor`: start at `0` and pass back the `cursor` and `generation` it
 returns, as with `process_read`. It holds what apps log through `Logger`, `os_log` or `NSLog` at
 the default level and above; `print()` goes to the app's standard output,
@@ -853,11 +853,11 @@ went before you read them. When the log started over, because the device or
 Sikemux's simulator helper restarted, the read says `restarted` and starts
 from the log's first line; carry on with its new `cursor`.
 
-`sim_detach` lets go of the device for another agent to use; it stays on your
+`sim detach` lets go of the device for another agent to use; it stays on your
 desk for the person. When you stop, your device is let go of for you, and a
 device Sikemux booted shuts down a few minutes after nobody holds it.
 
-If a call fails: "call sim_attach" means you hold no device or it is not
+If a call fails: "call sim attach" means you hold no device or it is not
 running; "in use by" means another agent holds it; "not on the screen now"
 means read the screen again; "still booting", "waiting for a simulator" or
 `launching` mean call again in a moment.

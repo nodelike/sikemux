@@ -38,11 +38,11 @@
           "tool": ["process_start", "Bash"],
           "args": { "command": "/xcodebuild[^\\n]*-derivedDataPath[ =]+(?![ =\"']*([\\/~]|\\$(HOME|TMPDIR)))|xcodebuild[^\\n]*-derivedDataPath[ =]+[\"']?\\S*\\/proj\\/app\\//" }
         },
-        { "tool": "sim_install", "args": { "path": { "$not": "/^(~|\\$HOME|\\/(?!.*\\/proj\\/app\\/))/" } } },
-        { "tool": "sim_launch", "args": { "bundleId": "com.nodelike.sikemux.dev" } }
+        { "tool": "sim", "args": { "action": "install", "path": { "$not": "/^(~|\\$HOME|\\/(?!.*\\/proj\\/app\\/))/" } } },
+        { "tool": "sim", "args": { "action": "launch", "bundleId": "com.nodelike.sikemux.dev" } }
       ],
       "forbid": [
-        { "tool": "sim_install", "args": { "path": "/^(~|\\$HOME|\\/(?!.*\\/proj\\/app\\/))/" }, "why": "installed a build from outside the project, such as Xcode's DerivedData" },
+        { "tool": "sim", "args": { "action": "install", "path": "/^(~|\\$HOME|\\/(?!.*\\/proj\\/app\\/))/" }, "why": "installed a build from outside the project, such as Xcode's DerivedData" },
         {
           "tool": ["Bash", "BashOutput"],
           "args": { "command": "/\\b(cp|ditto|rsync)\\b[^\\n]*DerivedData|expo\\s+run:ios|react-native\\s+run-ios|simctl\\s+install/" },
@@ -81,12 +81,12 @@
       ]
     },
     "grade": {
-      "expect": [{ "tool": "sim_tap", "args": { "$any": [{ "index": 12 }, { "label": "/^connect$/i" }] } }],
+      "expect": [{ "tool": "sim", "args": { "action": "tap", "$any": [{ "index": 12 }, { "label": "/^connect$/i" }] } }],
       "forbid": [
-        { "tool": "sim_tap", "args": { "x": { "$present": true } }, "why": "tapped a point instead of the element's number or label" },
+        { "tool": "sim", "args": { "action": "tap", "x": { "$present": true } }, "why": "tapped a point instead of the element's number or label" },
         { "tool": ["Bash", "BashOutput"], "args": { "command": "/\\b(xcrun|simctl|idb)\\b/" }, "why": "drove the simulator outside sim_*" }
       ],
-      "limit": [{ "tool": "sim_tap", "max": 2 }],
+      "limit": [{ "tool": "sim", "args": { "action": "tap" }, "max": 2 }],
       "reply": "/approve|waiting/i",
       "replyWhy": "did not report the waiting-for-approval screen"
     },

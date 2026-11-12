@@ -1768,4 +1768,4 @@ pub(super) const SPECS: &[(&str, Spec)] = &[
 
 pub(super) const GESTURES: &[&str] = &["react", "gif"];
 
-pub(super) const FAMILIES: &[&str] = &["browser"];
+pub(super) const FAMILIES: &[&str] = &["browser", "sim"];

@@ -1,7 +1,7 @@
 //! The iOS Simulator for agents and the desk, with no UI toolkit: the
 //! `sikemux-sim` helper that drives devices ([`SimManager`]), which device each
 //! agent holds, how it was last read and which devices Sikemux booted
-//! ([`SimulatorManager`]), and the agents' `sim_*` tools ([`tools`]). The app
+//! ([`SimulatorManager`]), and the agents' `sim` tool ([`tools`]). The app
 //! hosting it gives it a [`Host`] for its data folder and its events.
 
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -73,7 +73,7 @@ const PLACE_KEPT: Duration = Duration::from_secs(60);
 /// The longest an agent waits in line before it is told to ask the person.
 const MOST_WAIT: Duration = Duration::from_secs(300);
 const CANCELLED: &str = "the simulator call was cancelled";
-const OVERRAN: &str = "the simulator call ran out of time; call sim_state to see where it got to";
+const OVERRAN: &str = "the simulator call ran out of time; call sim state to see where it got to";
 
 struct Attachment {
     device: Device,
@@ -289,7 +289,7 @@ impl SimulatorManager {
         &self.android
     }
 
-    /// Whether agents are offered the `sim_*` tools: the person has not turned them
+    /// Whether agents are offered the `sim` tool: the person has not turned them
     /// off, and this computer can run iOS simulators or has the Android SDK.
     pub(crate) fn offered(&self) -> bool {
         self.enabled() && (capable() || self.android.sdk().is_some())

@@ -437,10 +437,16 @@
       "order": true,
       "expect": [
         {
-          "tool": "sim_attach"
+          "tool": "sim",
+          "args": {
+            "action": "attach"
+          }
         },
         {
-          "tool": "sim_screenshot"
+          "tool": "sim",
+          "args": {
+            "action": "screenshot"
+          }
         }
       ],
       "forbid": [
@@ -453,7 +459,7 @@
         }
       ]
     },
-    "judge": "Pass if the agent looked at the host screen on the simulator after the change was live (a sim_screenshot, after relaunching or reloading the app if needed) and answers from that. The screenshot in this run is a plain grey placeholder: an agent that says the picture did not let it confirm the line is gone passes too. Fail if it says the line is gone without having looked at the screen, or describes the screenshot as showing a fixed title.",
+    "judge": "Pass if the agent looked at the host screen on the simulator after the change was live (a sim screenshot, after relaunching or reloading the app if needed) and answers from that. The screenshot in this run is a plain grey placeholder: an agent that says the picture did not let it confirm the line is gone passes too. Fail if it says the line is gone without having looked at the screen, or describes the screenshot as showing a fixed title.",
     "maxTurns": 12
   },
   {

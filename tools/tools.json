@@ -11,6 +11,10 @@
     {
       "name": "browser",
       "description": "Your desk's browser tabs."
+    },
+    {
+      "name": "sim",
+      "description": "The simulator or Android device you attach, live on your desk."
     }
   ],
   "tools": [

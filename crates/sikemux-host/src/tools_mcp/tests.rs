@@ -184,16 +184,16 @@ fn the_simulator_tools_are_listed_only_where_they_work_and_stay_within_budget() 
     };
     let everywhere = names(Manifest::load().offering(false, false));
     let with_xcode = names(Manifest::load().offering(true, false));
-    assert!(everywhere.iter().all(|name| !name.starts_with("sim_")));
-    assert!(with_xcode.iter().any(|name| name == "sim_attach"));
+    assert!(everywhere.iter().all(|name| name != "sim"));
+    assert!(with_xcode.iter().any(|name| name == "sim"));
     assert!(!Manifest::load()
         .offering(false, false)
         .instructions()
-        .contains("sim_"));
+        .contains("sim attach"));
     assert!(Manifest::load()
         .offering(true, false)
         .instructions()
-        .contains("sim_attach"));
+        .contains("sim attach"));
     assert!(Manifest::load()
         .offering(true, false)
         .instructions()
@@ -203,14 +203,14 @@ fn the_simulator_tools_are_listed_only_where_they_work_and_stay_within_budget() 
         .offering(true, false)
         .declarations(&[])
         .into_iter()
-        .filter(|tool| field(tool, "name").starts_with("sim_"))
+        .filter(|tool| field(tool, "name") == "sim")
         .collect();
-    for tool in &simulator {
-        assert!(
-            field(tool, "description").len() <= 160,
-            "{} description belongs in the guide",
-            field(tool, "name")
-        );
+    for line in simulator
+        .iter()
+        .flat_map(|tool| field(tool, "description").lines())
+    {
+        let said = line.split_once(": ").map_or(line, |(_, said)| said);
+        assert!(said.len() <= 160, "{said} belongs in the guide");
     }
     let bytes = Value::Array(simulator).to_string().len();
     assert!(

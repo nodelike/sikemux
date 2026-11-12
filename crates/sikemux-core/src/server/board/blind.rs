@@ -309,7 +309,7 @@ struct Brief<'a> {
     cut: bool,
 }
 
-const HOW_TO_USE_IT: &str = "Use the change the way its user would before you decide. Reading is not enough: code can exist, be correct and pass its tests, and still never be reached.\n- A page or a desktop UI: build it, start it with process_start and a command, and drive it with the browser tools. Press what the card says to press and look at what happens.\n- A phone screen: sim_attach, sim_install, sim_launch, then sim_tap and sim_state.\n- A backend, API or CLI: run it and call it with real input, and read the real output.\nThen try what would break it, not only the path it was built for: empty, repeated and wrong input, a restart, anything it should remember.";
+const HOW_TO_USE_IT: &str = "Use the change the way its user would before you decide. Reading is not enough: code can exist, be correct and pass its tests, and still never be reached.\n- A page or a desktop UI: build it, start it with process_start and a command, and drive it with the browser tools. Press what the card says to press and look at what happens.\n- A phone screen: sim attach, sim install, sim launch, then sim tap and sim state.\n- A backend, API or CLI: run it and call it with real input, and read the real output.\nThen try what would break it, not only the path it was built for: empty, repeated and wrong input, a restart, anything it should remember.";
 
 const WHAT_NOT_TO_TOUCH: &str = "Take nobody's focus and touch nothing that is live: no `open`, no app windows, browser tabs only on your own desk, your own build and local data only. Leave the person's running apps, accounts and production alone, and do not stop a process you did not start. Stop what you started when you are done.";
 
