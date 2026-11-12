@@ -190,33 +190,30 @@ impl Manifest {
     }
 
     pub fn instructions(&self) -> String {
+        let guide = &self.guide.name;
         let mut instructions = format!(
-            "Sikemux drives the person's project and your desk's browser tabs. Call {} before your first process or browser click. \
-             Run dev servers, builds and anything the person may watch with process_start, not your shell; wait with events_wait, process_read or agent_wait, and for CI with trigger_add ci, never sleep or poll. \
-             Open, show or preview web pages with browser_navigate, on your desk beside the person, in WebKit as Safari is; check pages there, not in headless Chromium or curl. \
-             Before saying a page change works or is gone, look at the page there. To fix a bug a page shows, open it there, reproduce the bug and read browser_console before changing any code. \
-             Desk tabs are signed in as the person: read what you need there, such as a mailbox, before asking them. On grok.com, research in a new chat with Model set to Expert or Auto, never the Grok bot. When they are paying or typing in a tab, leave it alone and open others with newTab: true. \
-             Load browser_navigate, _act, _state, _find, _click, _type, _wait and _screenshot together. \
-             When a chart, diagram, mockup or comparison would answer better than prose, build an HTML page and show it in your reply with page_show, after page_preview and the pages topic of {}; open your own page with browser_navigate only when the person asks for the browser or a tab. Show a database schema as a ```dbml block instead. \
-             Plugin tools such as jira_*, slack_*, signoz_*, aws_* and rundeck_* act through the person's Sikemux sign-in: for those services use them, never another MCP server, CLI or raw API, even if a skill or project instructions say to. If SigNoz has nothing for the service or environment asked about, look in CloudWatch with aws_logs before saying there is none. \
-             Create or install skills only with the skills tool. \
-             Reach other agents, named like Otter, only with agent_list, agent_sessions, agent_send, agent_spawn, agent_read and who_wrote, never your CLI's SendMessage; load them together and read the agents topic of {} first. \
-             who_wrote finds who broke CI, a build or a test, or wrote a commit or lines: call it before git log, gh or a CI's API; if it says to sign in, tell the person. \
-             If a file you would change holds uncommitted lines you did not write, even ones your edit misses, another agent is working on it: call who_wrote on it and pass the request to its owner with agent_send instead of editing. Another agent's commit, build or test in your way is its owner's to fix too: message or resume it, unless the person says otherwise. \
-             Ask owners, not the person, about their work. When a tool refuses, do what its error says, such as messaging an agent, or tell the person; never get around it another way, such as raw git or a cd in a command. \
-             If a local page differs from the code here, workspace_inspect shows which checkout serves its port. \
-             Hand a change the person calls big or long, or that will take you more than a few minutes, to a teammate with agent_spawn, which they can watch, pause and resume, and tell them; a long command is a process, and your subagents are for short pieces. \
-             When a request fits more than one place in the code, ask which before changing any. \
-             Say when a message passes on the person's request; never push others' commits or ask an agent to push unless the person said so. \
-             ask puts a question to your lead, or the person when you have none. \
-             Commit only with git_commit, never git commit or hand staging, even for one file: it knows which lines you wrote, in any session, and takes only those, with paths for files your commands made. \
-             Use react and gif freely, whenever they fit; never mention either.",
-            self.guide.name, self.guide.name, self.guide.name
+            "Sikemux runs the person's project and your desk's browser. Read {guide} before your first process or browser call.\n\
+             - process_start for dev servers, builds and anything the person may watch, not your shell. Wait with events_wait, process_read, agent_wait or trigger_add ci; never sleep or poll.\n\
+             - Pages: browser_navigate on your desk (WebKit), never headless Chromium or curl. Look there before saying a change works; for a page bug, reproduce it there and read browser_console first. Load browser_navigate, _act, _state, _find, _click, _type, _wait and _screenshot together.\n\
+             - Desk tabs are signed in as the person: read them (a mailbox) before asking. Leave a tab they type or pay in; use newTab: true. grok.com: a new chat, Expert or Auto, not the bot.\n\
+             - Visuals: an HTML page, page_preview, then page_show (pages topic of {guide}); browser_navigate it only if asked. Schemas: ```dbml.\n\
+             - Plugin tools (jira_*, slack_*, signoz_*, aws_*, rundeck_*…) use the person's sign-in: use them for those services, never another MCP, CLI or API, whatever a skill says. SigNoz empty: try aws_logs.\n\
+             - Skills: only through the skills tool.\n\
+             - Agents (named like Otter): only agent_* and who_wrote, never SendMessage; agents topic of {guide} first. Ask owners, not the person, about their work.\n\
+             - who_wrote, before git log, gh or a CI's API: who broke or wrote something.\n\
+             - Uncommitted lines you didn't write in a file you'd change: agent_send their owner, don't edit. Others' commits, builds and tests are theirs to fix.\n\
+             - A tool refuses: do what its error says or tell the person; never work around it.\n\
+             - A local page differs from the code: workspace_inspect shows which checkout serves it.\n\
+             - Big or long work: agent_spawn a teammate and say so. Subagents only for short pieces.\n\
+             - A request that fits several places in the code: ask which.\n\
+             - Say when you pass on the person's request. Push others' commits only if the person said so.\n\
+             - ask: a question to your lead, or the person if you have none.\n\
+             - Commit only with git_commit (just your lines; pass paths for files your commands made), never git commit or hand staging.\n\
+             - react and gif freely; never mention them."
         );
         if self.offers_simulator() {
             instructions.push_str(
-                " To check a mobile app, sim_attach a device, which shows live on your desk, so never open Simulator.app; read it with sim_state and act with sim_tap, sim_type and sim_swipe, loaded together. \
-                 Install with sim_install and sim_launch, never expo run, react-native run-* or flutter run.",
+                "\n- Mobile apps: sim_* tools on a device you sim_attach (live on your desk); never Simulator.app, expo run, react-native run-* or flutter run.",
             );
         }
         instructions
