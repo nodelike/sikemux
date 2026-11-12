@@ -546,6 +546,9 @@ pub(crate) trait Backend: Sized + Send {
     /// chat's brief goes there rather than with its first message.
     const INSTRUCTIONS: bool = false;
 
+    /// The agent takes a new effort while a turn runs, so the person need not stop it first.
+    const EFFORT_MID_TURN: bool = false;
+
     /// Starts the agent and opens the chat's session, or loads the one it
     /// resumes, replaying its history through `sink`, with `brief` among its
     /// instructions when it takes them.
@@ -1510,7 +1513,8 @@ impl<B: Backend> Running<'_, B> {
         value: String,
         reply: tokio::sync::oneshot::Sender<Result<Value, String>>,
     ) {
-        let result = if self.chat.prompted() {
+        let result = if self.chat.prompted() && !(B::EFFORT_MID_TURN && self.is_effort(&config_id))
+        {
             Err("Stop the current turn before changing the model".into())
         } else {
             self.backend.set_config(&config_id, &value).await
@@ -1520,6 +1524,14 @@ impl<B: Backend> Running<'_, B> {
             self.chat.feed.set_setup(&self.state.setup);
         }
         let _ = reply.send(result.map(|options| json!({ "configOptions": options })));
+    }
+
+    fn is_effort(&self, config_id: &str) -> bool {
+        (self.state.setup["configOptions"]
+            .as_array()
+            .into_iter()
+            .flatten())
+        .any(|row| row["id"] == config_id && sikemux_fold::pickers::is_effort(row))
     }
 
     fn steer(

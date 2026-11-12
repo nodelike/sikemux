@@ -480,6 +480,8 @@ impl Backend for Codex {
 
     const INSTRUCTIONS: bool = true;
 
+    const EFFORT_MID_TURN: bool = true;
+
     async fn start(
         launch: &ChatLaunch,
         brief: Option<&str>,
