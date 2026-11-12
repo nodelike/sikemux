@@ -285,7 +285,7 @@ impl Question {
             _ => (given, breaks),
         };
         let assumption = (kind != CallKind::Production)
-            .then(|| self.assumption.as_deref())
+            .then_some(self.assumption.as_deref())
             .flatten()
             .map(|assumption| clipped(&crate::text::one_line(assumption), MAX_ASSUMPTION_CHARS));
         let (options, pick) = call_options(&self.choices);
