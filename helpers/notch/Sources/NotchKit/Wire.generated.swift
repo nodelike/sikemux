@@ -217,9 +217,11 @@ struct ChatContext: Codable, Hashable {
     let text: String
 }
 
-/// Whether a chat agent asks before it acts outside its workspace, or never asks.
+/// Whether a chat agent asks before it acts outside its workspace, has its own reviewer approve
+/// what is safe and ask the rest, or never asks.
 enum PermissionMode: String, Codable, Hashable {
     case workspaceWrite = "workspace-write"
+    case auto
     case bypass
     /// One added after this build.
     case unknown

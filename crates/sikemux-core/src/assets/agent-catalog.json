@@ -53,6 +53,7 @@
             "terminal": {
                 "normal": ["--permission-mode", "acceptEdits"],
                 "bypass": ["--dangerously-skip-permissions"],
+                "auto": ["--permission-mode", "auto"],
                 "effort": ["--effort", "{}"],
                 "resume": {
                     "flag": "--resume"
@@ -106,6 +107,7 @@
             "terminal": {
                 "normal": ["--sandbox", "workspace-write"],
                 "bypass": ["--dangerously-bypass-approvals-and-sandbox"],
+                "auto": ["--sandbox", "workspace-write", "-c", "approvals_reviewer=\"auto_review\""],
                 "effort": ["--config", "model_reasoning_effort=\"{}\""],
                 "resume": {
                     "subcommand": "resume"
@@ -157,6 +159,7 @@
             "terminal": {
                 "normal": [],
                 "bypass": ["--yolo"],
+                "auto": null,
                 "effort": ["--reasoning", "{}"],
                 "resume": {
                     "flag": "--resume"
@@ -208,6 +211,7 @@
             "terminal": {
                 "normal": [],
                 "bypass": null,
+                "auto": null,
                 "effort": ["--thinking", "{}"],
                 "resume": {
                     "flag": "--session"
@@ -246,6 +250,7 @@
             "terminal": {
                 "normal": [],
                 "bypass": null,
+                "auto": null,
                 "effort": null,
                 "resume": {
                     "flag": "--session"
@@ -287,6 +292,7 @@
             "terminal": {
                 "normal": [],
                 "bypass": ["--approval-mode", "yolo"],
+                "auto": null,
                 "effort": ["--thinking", "{}"],
                 "resume": {
                     "flag": "--resume"
@@ -337,6 +343,7 @@
             "terminal": {
                 "normal": [],
                 "bypass": ["--permission-mode", "bypassPermissions"],
+                "auto": null,
                 "effort": ["--reasoning-effort", "{}"],
                 "resume": {
                     "flag": "--resume"
@@ -382,6 +389,7 @@
             "terminal": {
                 "normal": [],
                 "bypass": ["--yolo"],
+                "auto": null,
                 "effort": ["--reasoning-effort", "{}"],
                 "resume": {
                     "flag": "resume"

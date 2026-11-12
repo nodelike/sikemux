@@ -11,14 +11,23 @@ use crate::launch::PermissionMode;
 
 pub(super) fn approval_policy(mode: PermissionMode) -> &'static str {
     match mode {
-        PermissionMode::WorkspaceWrite => "on-request",
+        PermissionMode::WorkspaceWrite | PermissionMode::Auto => "on-request",
         PermissionMode::Bypass => "never",
+    }
+}
+
+/// Who answers what Codex would ask: in Auto its own reviewer, which asks the person only
+/// what it finds risky.
+pub(super) fn approvals_reviewer(mode: PermissionMode) -> &'static str {
+    match mode {
+        PermissionMode::Auto => "auto_review",
+        PermissionMode::WorkspaceWrite | PermissionMode::Bypass => "user",
     }
 }
 
 pub(super) fn sandbox_policy(mode: PermissionMode) -> Value {
     match mode {
-        PermissionMode::WorkspaceWrite => json!({
+        PermissionMode::WorkspaceWrite | PermissionMode::Auto => json!({
             "type": "workspaceWrite",
             "writableRoots": [],
             "networkAccess": false,
@@ -31,7 +40,7 @@ pub(super) fn sandbox_policy(mode: PermissionMode) -> Value {
 
 pub(super) fn sandbox_name(mode: PermissionMode) -> &'static str {
     match mode {
-        PermissionMode::WorkspaceWrite => "workspace-write",
+        PermissionMode::WorkspaceWrite | PermissionMode::Auto => "workspace-write",
         PermissionMode::Bypass => "danger-full-access",
     }
 }

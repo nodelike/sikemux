@@ -283,9 +283,9 @@ impl Workspaces {
             .unwrap_or_default();
         let mut offered = Vec::new();
         for def in AGENTS.iter() {
-            let permission_mode = match saved.permission_mode {
-                Some(mode) if def.bypass => mode,
-                None if def.bypass => PermissionMode::Bypass,
+            let permission_mode = match saved.permission_mode.unwrap_or(PermissionMode::Bypass) {
+                PermissionMode::Bypass if def.bypass => PermissionMode::Bypass,
+                PermissionMode::Auto if def.auto => PermissionMode::Auto,
                 _ => PermissionMode::WorkspaceWrite,
             };
             let launcher = |id: String, label: String, agent: AgentSpec| Launcher {

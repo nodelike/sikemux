@@ -29,6 +29,8 @@ pub struct Terminal {
     pub normal: &'static [&'static str],
     /// YOLO, when the CLI has one.
     pub bypass: Option<&'static [&'static str]>,
+    /// Auto, when the CLI has its own reviewer for what it would ask.
+    pub auto: Option<&'static [&'static str]>,
     /// The flag taking a reasoning effort, and its value with `{}` for the effort.
     pub effort: Option<[&'static str; 2]>,
     pub resume: Resume,
@@ -152,6 +154,8 @@ pub struct AgentEntry {
     /// Whether a resumed chat shows its saved history before its agent starts.
     pub history_before_start: bool,
     pub bypass: bool,
+    /// Whether it has Auto: its own reviewer approves what is safe and asks the person the rest.
+    pub auto: bool,
     /// The models it writes commit messages with, the default first; none when it cannot.
     pub commit_models: &'static [&'static str],
     /// The reasoning efforts the CLI's own flag takes.
@@ -195,6 +199,7 @@ pub const AGENTS: &[AgentEntry] = &[
         relocatable_sessions: true,
         history_before_start: true,
         bypass: true,
+        auto: true,
         commit_models: &[
             "sonnet", "opus", "haiku", "opusplan", "sonnet[1m]", "default",
         ],
@@ -243,6 +248,7 @@ pub const AGENTS: &[AgentEntry] = &[
         terminal: Terminal {
             normal: &["--permission-mode", "acceptEdits"],
             bypass: Some(&["--dangerously-skip-permissions"]),
+            auto: Some(&["--permission-mode", "auto"]),
             effort: Some(["--effort", "{}"]),
             resume: Resume::Flag("--resume"),
             with_choices: &[],
@@ -269,6 +275,7 @@ pub const AGENTS: &[AgentEntry] = &[
         relocatable_sessions: true,
         history_before_start: false,
         bypass: true,
+        auto: true,
         commit_models: &[
             "gpt-5.5", "gpt-5.1-codex-max", "gpt-5.1-codex", "gpt-5.1-codex-mini", "gpt-5.1",
             "gpt-5",
@@ -311,6 +318,7 @@ pub const AGENTS: &[AgentEntry] = &[
         terminal: Terminal {
             normal: &["--sandbox", "workspace-write"],
             bypass: Some(&["--dangerously-bypass-approvals-and-sandbox"]),
+            auto: Some(&["--sandbox", "workspace-write", "-c", "approvals_reviewer=\"auto_review\""]),
             effort: Some(["--config", "model_reasoning_effort=\"{}\""]),
             resume: Resume::Subcommand("resume"),
             with_choices: &[],
@@ -337,6 +345,7 @@ pub const AGENTS: &[AgentEntry] = &[
         relocatable_sessions: false,
         history_before_start: false,
         bypass: true,
+        auto: false,
         commit_models: &[
             "openai/gpt-5.5", "openai/gpt-5.1", "anthropic/claude-sonnet-4.6",
             "anthropic/claude-opus-4.1", "google/gemini-2.5-pro",
@@ -368,6 +377,7 @@ pub const AGENTS: &[AgentEntry] = &[
         terminal: Terminal {
             normal: &[],
             bypass: Some(&["--yolo"]),
+            auto: None,
             effort: Some(["--reasoning", "{}"]),
             resume: Resume::Flag("--resume"),
             with_choices: &["--tui"],
@@ -398,6 +408,7 @@ pub const AGENTS: &[AgentEntry] = &[
         relocatable_sessions: false,
         history_before_start: false,
         bypass: true,
+        auto: false,
         commit_models: &[],
         efforts: &["off", "minimal", "low", "medium", "high", "xhigh", "max"],
         install: Some("curl -fsSL https://pi.dev/install.sh | sh"),
@@ -419,6 +430,7 @@ pub const AGENTS: &[AgentEntry] = &[
         terminal: Terminal {
             normal: &[],
             bypass: None,
+            auto: None,
             effort: Some(["--thinking", "{}"]),
             resume: Resume::Flag("--session"),
             with_choices: &[],
@@ -442,6 +454,7 @@ pub const AGENTS: &[AgentEntry] = &[
         relocatable_sessions: false,
         history_before_start: true,
         bypass: false,
+        auto: false,
         commit_models: &[],
         efforts: &[],
         install: Some("curl -fsSL https://opencode.ai/install | bash"),
@@ -456,6 +469,7 @@ pub const AGENTS: &[AgentEntry] = &[
         terminal: Terminal {
             normal: &[],
             bypass: None,
+            auto: None,
             effort: None,
             resume: Resume::Flag("--session"),
             with_choices: &[],
@@ -486,6 +500,7 @@ pub const AGENTS: &[AgentEntry] = &[
         relocatable_sessions: false,
         history_before_start: true,
         bypass: true,
+        auto: false,
         commit_models: &[],
         efforts: &["off", "minimal", "low", "medium", "high", "xhigh", "max"],
         install: Some("curl -fsSL https://omp.sh/install | sh"),
@@ -500,6 +515,7 @@ pub const AGENTS: &[AgentEntry] = &[
         terminal: Terminal {
             normal: &[],
             bypass: Some(&["--approval-mode", "yolo"]),
+            auto: None,
             effort: Some(["--thinking", "{}"]),
             resume: Resume::Flag("--resume"),
             with_choices: &[],
@@ -530,6 +546,7 @@ pub const AGENTS: &[AgentEntry] = &[
         relocatable_sessions: false,
         history_before_start: false,
         bypass: true,
+        auto: false,
         commit_models: &[],
         efforts: &["none", "minimal", "low", "medium", "high", "xhigh", "max"],
         install: Some("curl -fsSL https://x.ai/cli/install.sh | bash"),
@@ -556,6 +573,7 @@ pub const AGENTS: &[AgentEntry] = &[
         terminal: Terminal {
             normal: &[],
             bypass: Some(&["--permission-mode", "bypassPermissions"]),
+            auto: None,
             effort: Some(["--reasoning-effort", "{}"]),
             resume: Resume::Flag("--resume"),
             with_choices: &[],
@@ -583,6 +601,7 @@ pub const AGENTS: &[AgentEntry] = &[
         relocatable_sessions: false,
         history_before_start: false,
         bypass: true,
+        auto: false,
         commit_models: &[],
         efforts: &["minimal", "low", "medium", "high", "xhigh", "max", "ultra"],
         install: None,
@@ -604,6 +623,7 @@ pub const AGENTS: &[AgentEntry] = &[
         terminal: Terminal {
             normal: &[],
             bypass: Some(&["--yolo"]),
+            auto: None,
             effort: Some(["--reasoning-effort", "{}"]),
             resume: Resume::Flag("resume"),
             with_choices: &[],

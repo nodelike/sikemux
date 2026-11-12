@@ -484,7 +484,9 @@ impl Workbench {
                     .then(|| "Go on in a new chat that takes this one's words along".to_owned()),
                 Own::Yolo => yolo.map(|saved| match saved.permission_mode {
                     PermissionMode::Bypass => "Ask before acting again".to_owned(),
-                    PermissionMode::WorkspaceWrite => "Act without asking".to_owned(),
+                    PermissionMode::WorkspaceWrite | PermissionMode::Auto => {
+                        "Act without asking".to_owned()
+                    }
                 }),
             }?;
             Some((own, description))

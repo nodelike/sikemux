@@ -51,7 +51,7 @@ pub(in crate::settings) const ENTRIES: &[crate::settings::index::Entry] = &[
     crate::settings::index::section(
         crate::settings::index::Page::Permissions,
         "Launch boundary",
-        "permissions yolo sandbox safety bypass approval",
+        "permissions yolo auto sandbox safety bypass approval",
     ),
     crate::settings::index::section(crate::settings::index::Page::Chats, "Chats", "sessions"),
     crate::settings::index::row(
@@ -229,11 +229,16 @@ impl Fields {
 }
 
 /// Each mode agents can start in: its word in the core, its name, and what it does.
-const MODES: [(PermissionMode, &str, &str); 2] = [
+const MODES: [(PermissionMode, &str, &str); 3] = [
     (
         PermissionMode::WorkspaceWrite,
         "Normal",
         "Use the agent's normal approval and sandbox behavior.",
+    ),
+    (
+        PermissionMode::Auto,
+        "Auto",
+        "The agent's own reviewer approves safe actions and asks you the risky ones. Agents without one run as Normal.",
     ),
     (
         PermissionMode::Bypass,

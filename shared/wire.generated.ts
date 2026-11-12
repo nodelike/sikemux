@@ -400,8 +400,11 @@ export interface WorkspaceAgent {
     createdAt?: number;
 }
 
-/** Whether a chat agent asks before it acts outside its workspace, or never asks. */
-export type PermissionMode = "workspace-write" | "bypass";
+/**
+ * Whether a chat agent asks before it acts outside its workspace, has its own reviewer approve
+ * what is safe and ask the rest, or never asks.
+ */
+export type PermissionMode = "workspace-write" | "auto" | "bypass";
 
 /** The checkout an agent was given, as its workspace record keeps it. */
 export interface AgentWorktree {
@@ -4554,6 +4557,11 @@ export interface CatalogAgent {
     bypass: boolean;
     /** It can in a terminal too, where its CLI has a flag for it. */
     terminalBypass: boolean;
+    /**
+     * It has Auto, as a chat and in a terminal: its own reviewer approves what is safe and
+     * asks the person the rest.
+     */
+    auto?: boolean;
     /**
      * The models the core can ask it for a commit message with, the default first;
      * none when it cannot write one.

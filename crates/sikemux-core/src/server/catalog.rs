@@ -22,6 +22,7 @@ pub(crate) fn view() -> Vec<CatalogAgent> {
             relocatable_sessions: agent.relocatable_sessions,
             bypass: agent.bypass,
             terminal_bypass: agent.terminal.bypass.is_some(),
+            auto: agent.auto,
             commit_models: agent
                 .commit_models
                 .iter()

@@ -664,11 +664,11 @@ pub(super) fn composer(
         composer = composer.pickers(model, effort, pick);
     }
     if kind.is_some_and(|kind| kind.bypass) {
-        let on = head.is_some_and(|head| head.permission_mode == PermissionMode::Bypass);
+        let mode = head.map_or(PermissionMode::WorkspaceWrite, |head| head.permission_mode);
         let held = head.is_some_and(|head| head.changing_mode || !head.permissions.is_empty());
         let agent = agent.id.clone();
         composer = composer.yolo(
-            on,
+            mode,
             held,
             Rc::new(move |_, cx| {
                 crate::keymap::count(crate::workbench::actions::ToggleYolo::ID.name(), cx);

@@ -656,7 +656,7 @@ impl Backend for Codex {
             "threadId": self.kept.thread_id,
             "input": input,
             "approvalPolicy": config::approval_policy(self.kept.mode),
-            "approvalsReviewer": "user",
+            "approvalsReviewer": config::approvals_reviewer(self.kept.mode),
             "sandboxPolicy": config::sandbox_policy(self.kept.mode),
             "model": self.kept.model,
             "effort": self.kept.effort,

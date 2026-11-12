@@ -18,6 +18,11 @@ const NEW: &str = "new:";
 const SIGN_IN: &str = "signin:";
 const INSTALL: &str = "install:";
 const OPEN: &str = "open:";
+const MODES: [PermissionMode; 3] = [
+    PermissionMode::WorkspaceWrite,
+    PermissionMode::Auto,
+    PermissionMode::Bypass,
+];
 const RESUME: &str = "resume:";
 
 impl Workbench {
@@ -26,14 +31,22 @@ impl Workbench {
             return;
         };
         let rows = self.agent_palette_rows(&project);
-        let yolo = self
+        let current = self
             .this_view()
-            .is_some_and(|view| view.workspace.permission_mode == PermissionMode::Bypass);
-        let mode = Rc::new(Cell::new(usize::from(yolo)));
+            .map_or(PermissionMode::WorkspaceWrite, |view| {
+                view.workspace.permission_mode
+            });
+        let mode = Rc::new(Cell::new(
+            MODES.iter().position(|mode| *mode == current).unwrap_or(0),
+        ));
         let choice = Choice {
-            options: vec![(Icon::Lock, "safe".into()), (Icon::BoltFill, "yolo".into())],
+            options: vec![
+                (Icon::Lock, "safe".into()),
+                (Icon::ShieldBolt, "auto".into()),
+                (Icon::BoltFill, "yolo".into()),
+            ],
             chosen: mode.clone(),
-            armed: Some(1),
+            armed: Some(2),
         };
         let spec = Spec::new(
             "agent.choose",
@@ -45,15 +58,15 @@ impl Workbench {
                     let provider = launcher_of(bench, launcher)
                         .map(|known| known.provider.clone())
                         .unwrap_or_default();
-                    let can_skip = bench
-                        .reads
-                        .catalog
-                        .kind(&provider)
-                        .is_some_and(|kind| kind.bypass);
-                    let launch_mode = if mode.get() == 1 && can_skip {
-                        PermissionMode::Bypass
-                    } else {
-                        PermissionMode::WorkspaceWrite
+                    let kind = bench.reads.catalog.kind(&provider);
+                    let launch_mode = match MODES[mode.get()] {
+                        PermissionMode::Bypass if kind.is_some_and(|kind| kind.bypass) => {
+                            PermissionMode::Bypass
+                        }
+                        PermissionMode::Auto if kind.is_some_and(|kind| kind.auto) => {
+                            PermissionMode::Auto
+                        }
+                        _ => PermissionMode::WorkspaceWrite,
                     };
                     bench.target().start_chat(
                         launcher.to_owned(),

@@ -1,6 +1,6 @@
 ---
 title: Permission modes
-description: "Normal and YOLO, and why agents start in YOLO."
+description: "Normal, Auto and YOLO, and why agents start in YOLO."
 ---
 
 Every agent starts within a launch boundary:
@@ -8,17 +8,20 @@ Every agent starts within a launch boundary:
 | Mode | What it does |
 |---|---|
 | **Normal** | The agent's own approval and sandbox behaviour: it asks before acting |
+| **Auto** | The agent's own reviewer, a cheaper model, reads each action it would ask about, approves what is safe and asks you the rest |
 | **YOLO** | Approvals and sandboxing are off: the agent acts without asking |
 
-**Agents start in YOLO by default, on purpose.** Sikemux is built for agents that work on their own while you do something else. Change the default in **Settings → Permissions**, or pick **safe** or **yolo** for one launch in the agent palette (`⌘⇧N`).
+**Agents start in YOLO by default, on purpose.** Sikemux is built for agents that work on their own while you do something else. Change the default in **Settings → Permissions**, or pick **safe**, **auto** or **yolo** for one launch in the agent palette (`⌘⇧N`).
+
+Auto is Claude Code's `auto` permission mode and Codex's `auto_review` approvals reviewer, in a chat and in a terminal tab. Other agents have no reviewer of their own, so Auto starts them in Normal. The reviewer runs on the agent's own account and counts toward its usage.
 
 OpenCode has no YOLO mode, so it always starts in Normal. Pi has both in a chat; in its terminal it never asks, so there is no switch there.
 
-A running chat can switch between Normal and YOLO for agents that have both, from its composer, with `⌘⇧Y`, or with **Enable YOLO Mode** and **Disable YOLO Mode** in the agent's right-click menu. The switch applies to the running session at once and to the agent's next launch.
+A running chat can switch between its modes for agents that have them, from its composer, with `⌘⇧Y`, or with **Enable YOLO Mode** and **Disable YOLO Mode** in the agent's right-click menu. The switch applies to the running session at once and to the agent's next launch.
 
 ## What leaves this machine
 
-Agents run in YOLO, so Sikemux's gate is the only stop, and it stops only at a **production place**. A place is something an agent's action can change outside your Mac, listed on the project's [Playbook](/agents/playbook/) under **Places**. Sikemux lists the production ones from hard facts: the project's deploy config (`vercel.json`, `fly.toml`, `wrangler.toml`, `.firebaserc`, workflows that deploy to a production environment or publish a release, and the `ship` commands in [`sikemux.json`](/getting-started/projects/#project-config)), what a connector marks as production, such as a Rundeck job or a database, and what agents ran. You confirm the list once with **Looks right**; until then, every production place waits for you.
+Agents run in YOLO or Auto, so Sikemux's gate is the only sure stop: an agent's reviewer may approve a deploy, and the gate still holds it, and it stops only at a **production place**. A place is something an agent's action can change outside your Mac, listed on the project's [Playbook](/agents/playbook/) under **Places**. Sikemux lists the production ones from hard facts: the project's deploy config (`vercel.json`, `fly.toml`, `wrangler.toml`, `.firebaserc`, workflows that deploy to a production environment or publish a release, and the `ship` commands in [`sikemux.json`](/getting-started/projects/#project-config)), what a connector marks as production, such as a Rundeck job or a database, and what agents ran. You confirm the list once with **Looks right**; until then, every production place waits for you.
 
 What an agent's action does:
 

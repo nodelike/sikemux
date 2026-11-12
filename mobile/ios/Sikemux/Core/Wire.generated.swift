@@ -872,9 +872,11 @@ struct WorkspaceAgent: Codable, Hashable, Sendable {
     var createdAt: Int?
 }
 
-/// Whether a chat agent asks before it acts outside its workspace, or never asks.
+/// Whether a chat agent asks before it acts outside its workspace, has its own reviewer approve
+/// what is safe and ask the rest, or never asks.
 enum PermissionMode: String, Codable, Hashable, Sendable {
     case workspaceWrite = "workspace-write"
+    case auto
     case bypass
     /// One added after this build.
     case unknown
@@ -6943,6 +6945,9 @@ struct CatalogAgent: Codable, Hashable, Sendable {
     var bypass: Bool
     /// It can in a terminal too, where its CLI has a flag for it.
     var terminalBypass: Bool
+    /// It has Auto, as a chat and in a terminal: its own reviewer approves what is safe and
+    /// asks the person the rest.
+    var auto: Bool?
     /// The models the core can ask it for a commit message with, the default first;
     /// none when it cannot write one.
     var commitModels: [String]

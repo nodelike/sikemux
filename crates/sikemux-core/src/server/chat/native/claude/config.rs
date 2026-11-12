@@ -61,6 +61,7 @@ pub(crate) fn cache_lifetimes(
 pub(crate) fn permission_mode(mode: PermissionMode) -> &'static str {
     match mode {
         PermissionMode::Bypass => "bypassPermissions",
+        PermissionMode::Auto => "auto",
         PermissionMode::WorkspaceWrite => "acceptEdits",
     }
 }

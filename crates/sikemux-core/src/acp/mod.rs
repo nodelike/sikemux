@@ -32,7 +32,7 @@ pub fn permission_mode_id(
     };
     let expected = match mode {
         PermissionMode::Bypass => modes.bypass,
-        PermissionMode::WorkspaceWrite => modes.normal,
+        PermissionMode::WorkspaceWrite | PermissionMode::Auto => modes.normal,
     };
     setup
         .pointer("/modes/availableModes")

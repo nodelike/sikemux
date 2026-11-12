@@ -178,6 +178,7 @@ for (const agent of agents) {
   if (
     !isArgs(terminal?.normal) ||
     !(terminal.bypass === null || isArgs(terminal.bypass)) ||
+    !(terminal.auto === null || isArgs(terminal.auto)) ||
     !(
       terminal.effort === null ||
       (isArgs(terminal.effort) &&
@@ -188,7 +189,7 @@ for (const agent of agents) {
     !isArgs(terminal.withChoices)
   )
     fail(
-      'terminal must be { normal, bypass, effort: [flag, "…{}…"] | null, resume: { flag } | { subcommand }, withChoices }',
+      'terminal must be { normal, bypass, auto, effort: [flag, "…{}…"] | null, resume: { flag } | { subcommand }, withChoices }',
     );
   if (
     chat !== null &&
@@ -271,6 +272,7 @@ const entries = agents.map((agent) => ({
   ...Object.fromEntries(FLAGS.map((flag) => [flag, agent[flag]])),
   bypass: agent.terminal.bypass !== null || agent.chat?.bypass === true,
   terminalBypass: agent.terminal.bypass !== null,
+  auto: agent.terminal.auto !== null,
   commitModels: agent.commitMessages?.models ?? [],
   efforts: agent.efforts,
   install: agent.install,
@@ -391,6 +393,9 @@ ${privateField}
   const bypass = terminal.bypass
     ? `            bypass: Some(&[${terminal.bypass.map(rustString).join(", ")}]),`
     : "            bypass: None,";
+  const auto = terminal.auto
+    ? `            auto: Some(&[${terminal.auto.map(rustString).join(", ")}]),`
+    : "            auto: None,";
   const effort = terminal.effort
     ? `            effort: Some([${terminal.effort.map(rustString).join(", ")}]),`
     : "            effort: None,";
@@ -403,6 +408,7 @@ ${privateField}
         maker: ${rustOption(agent.maker, rustString)},
 ${[...FLAGS, ...CORE_FLAGS].map((flag) => `        ${snake(flag)}: ${agent[flag]},`).join("\n")}
         bypass: ${terminal.bypass !== null || chat?.bypass === true},
+        auto: ${terminal.auto !== null},
 ${rustList(8, "commit_models", agent.commitMessages?.models ?? [])}
 ${rustList(8, "efforts", agent.efforts)}
         install: ${rustOption(agent.install, rustString)},
@@ -417,6 +423,7 @@ ${homeField}
         terminal: Terminal {
 ${rustList(12, "normal", terminal.normal)}
 ${bypass}
+${auto}
 ${effort}
             resume: ${resume},
 ${rustList(12, "with_choices", terminal.withChoices)}
@@ -486,6 +493,8 @@ pub struct Terminal {
     pub normal: &'static [&'static str],
     /// YOLO, when the CLI has one.
     pub bypass: Option<&'static [&'static str]>,
+    /// Auto, when the CLI has its own reviewer for what it would ask.
+    pub auto: Option<&'static [&'static str]>,
     /// The flag taking a reasoning effort, and its value with \`{}\` for the effort.
     pub effort: Option<[&'static str; 2]>,
     pub resume: Resume,
@@ -604,6 +613,8 @@ ${FLAGS.map((flag) => `    pub ${snake(flag)}: bool,`).join("\n")}
     /// Whether a resumed chat shows its saved history before its agent starts.
     pub history_before_start: bool,
     pub bypass: bool,
+    /// Whether it has Auto: its own reviewer approves what is safe and asks the person the rest.
+    pub auto: bool,
     /// The models it writes commit messages with, the default first; none when it cannot.
     pub commit_models: &'static [&'static str],
     /// The reasoning efforts the CLI's own flag takes.

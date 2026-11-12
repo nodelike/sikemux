@@ -45,6 +45,10 @@ pub struct CatalogAgent {
     pub bypass: bool,
     /// It can in a terminal too, where its CLI has a flag for it.
     pub terminal_bypass: bool,
+    /// It has Auto, as a chat and in a terminal: its own reviewer approves what is safe and
+    /// asks the person the rest.
+    #[serde(default)]
+    pub auto: bool,
     /// The models the core can ask it for a commit message with, the default first;
     /// none when it cannot write one.
     pub commit_models: Vec<String>,

@@ -7,14 +7,6 @@ use sikemux_core::server::chat::handoff::{DropHandoffParams, HandOffParams};
 use sikemux_core::server::workspace::AgentPatch;
 use sikemux_view::layout::{At, OpenTab, PaneKind};
 
-/// The permission mode YOLO being on or off is.
-pub fn yolo_mode(on: bool) -> PermissionMode {
-    match on {
-        true => PermissionMode::Bypass,
-        false => PermissionMode::WorkspaceWrite,
-    }
-}
-
 impl Workbench {
     /// Moves a chat that has not started to another agent, account or provider. The model and
     /// effort it offered belong to the agent it leaves, so they go until the core says the new ones.
@@ -210,14 +202,21 @@ impl Workbench {
         let Some(saved) = self.saved_agent(agent) else {
             return;
         };
-        let can = self
-            .reads
-            .catalog
-            .kind(&saved.provider)
-            .is_some_and(|kind| kind.can_skip_asking(self.in_terminal(agent)));
-        if can {
-            let on = saved.permission_mode == PermissionMode::Bypass;
-            self.switch_mode(agent, yolo_mode(!on));
+        let Some(kind) = self.reads.catalog.kind(&saved.provider) else {
+            return;
+        };
+        if !kind.can_skip_asking(self.in_terminal(agent)) {
+            return;
         }
+        let auto_by_default = kind.auto
+            && self
+                .this_view()
+                .is_some_and(|view| view.workspace.permission_mode == PermissionMode::Auto);
+        let mode = match saved.permission_mode {
+            PermissionMode::Bypass if auto_by_default => PermissionMode::Auto,
+            PermissionMode::Bypass => PermissionMode::WorkspaceWrite,
+            _ => PermissionMode::Bypass,
+        };
+        self.switch_mode(agent, mode);
     }
 }

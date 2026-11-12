@@ -36,12 +36,14 @@ pub struct ChatLaunch {
     pub fallbacks: Vec<ChatAccount>,
 }
 
-/// Whether a chat agent asks before it acts outside its workspace, or never asks.
+/// Whether a chat agent asks before it acts outside its workspace, has its own reviewer approve
+/// what is safe and ask the rest, or never asks.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum PermissionMode {
     #[default]
     WorkspaceWrite,
+    Auto,
     Bypass,
 }
 
@@ -49,6 +51,7 @@ impl PermissionMode {
     pub fn parse(mode: &str) -> Result<Self, String> {
         match mode {
             "workspace-write" => Ok(Self::WorkspaceWrite),
+            "auto" => Ok(Self::Auto),
             "bypass" => Ok(Self::Bypass),
             _ => Err(format!("Unsupported permission mode: {mode}")),
         }
@@ -57,6 +60,7 @@ impl PermissionMode {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::WorkspaceWrite => "workspace-write",
+            Self::Auto => "auto",
             Self::Bypass => "bypass",
         }
     }

@@ -16,6 +16,7 @@ use gpui_kit::{
 };
 use sikemux_view::chat::{Compactions, ContextUsage};
 use sikemux_view::workspace::ConfigPicker;
+use sikemux_wire::protocol::PermissionMode;
 
 use crate::chat::model_picker::Picked;
 use crate::icons::Icon;
@@ -87,7 +88,7 @@ pub struct Composer {
     ready: bool,
     running: bool,
     steers: bool,
-    yolo: Option<(bool, bool, Act)>,
+    yolo: Option<(PermissionMode, bool, Act)>,
     pickers: Option<(Option<ConfigPicker>, Option<ConfigPicker>, Pick)>,
     /// The model menu, which before the chat starts also moves it to another agent or paying
     /// provider; the strip picks the account.
@@ -203,10 +204,10 @@ impl Composer {
         self
     }
 
-    /// The switch between asking before acting and not, for an agent that can switch;
+    /// The switch between the agent's permission modes, for an agent that can switch;
     /// `held` while a change of it is still on its way or the agent waits on a permission.
-    pub fn yolo(mut self, on: bool, held: bool, toggle: Act) -> Self {
-        self.yolo = Some((on, held, toggle));
+    pub fn yolo(mut self, mode: PermissionMode, held: bool, toggle: Act) -> Self {
+        self.yolo = Some((mode, held, toggle));
         self
     }
 
@@ -329,7 +330,8 @@ impl RenderOnce for Composer {
             cx,
         );
         let settable = self.ready && !self.running;
-        let yolo_on = self.yolo.as_ref().is_some_and(|(on, _, _)| *on);
+        let yolo_on =
+            (self.yolo.as_ref()).is_some_and(|(mode, _, _)| *mode == PermissionMode::Bypass);
         let width = window
             .use_keyed_state(
                 ElementId::NamedInteger("composer-width".into(), self.draft.entity_id().as_u64()),
@@ -359,9 +361,9 @@ impl RenderOnce for Composer {
                 self.stash
                     .map(|(fresh, open, toggle)| stash_button(fresh, open, toggle, room, cx)),
             );
-        if let Some((on, held, toggle)) = self.yolo {
+        if let Some((mode, held, toggle)) = self.yolo {
             bar = bar.child(yolo(
-                on,
+                mode,
                 settable && !held,
                 &self.agent_label,
                 toggle,
@@ -874,10 +876,10 @@ fn shape(width: f32, aside: Option<AsideRoom>) -> (Room, bool) {
     (Room::of(width - taken), labelled)
 }
 
-/// YOLO or SAFE: whether the agent acts without asking. YOLO's letters run through the
-/// rainbow the app paints it with.
+/// SAFE, AUTO or YOLO: whether the agent asks before it acts, has its own reviewer ask only
+/// what is risky, or never asks. YOLO's letters run through the rainbow the app paints it with.
 fn yolo(
-    on: bool,
+    mode: PermissionMode,
     settable: bool,
     agent: &str,
     toggle: Act,
@@ -886,13 +888,25 @@ fn yolo(
 ) -> impl IntoElement {
     let t = Tokens::get(cx).clone();
     let press = crate::keymap::hint(actions::ToggleYolo::ID, cx).unwrap_or("Click".into());
-    let about = if on {
-        format!("YOLO mode on — {agent} runs without approvals. {press} turns it off.")
-    } else {
-        format!("Safe mode — {agent} asks before it acts. {press} goes YOLO.")
+    let on = mode == PermissionMode::Bypass;
+    let about = match mode {
+        PermissionMode::Bypass => {
+            format!("YOLO mode on — {agent} runs without approvals. {press} turns it off.")
+        }
+        PermissionMode::Auto => format!(
+            "Auto mode — {agent}'s reviewer approves safe actions and asks you the rest. {press} goes YOLO."
+        ),
+        PermissionMode::WorkspaceWrite => {
+            format!("Safe mode — {agent} asks before it acts. {press} goes YOLO.")
+        }
+    };
+    let word = match mode {
+        PermissionMode::Bypass => "YOLO",
+        PermissionMode::Auto => "AUTO",
+        PermissionMode::WorkspaceWrite => "SAFE",
     };
     BaseButton::new("composer-yolo")
-        .accessibility_label(if on { "YOLO" } else { "SAFE" })
+        .accessibility_label(word)
         .selected(on)
         .disabled(!settable)
         .h(px(31.))
@@ -912,19 +926,20 @@ fn yolo(
         })
         .tooltip(ui::tooltip(about))
         .on_click(move |_, window, cx| toggle(window, cx))
-        .child(
-            ui::icon(if on { Icon::BoltFill } else { Icon::Lock }, 12.).text_color(if on {
-                t.accent
-            } else {
-                t.text_tertiary
-            }),
-        )
+        .child(match mode {
+            PermissionMode::Bypass => ui::icon(Icon::BoltFill, 12.).text_color(t.accent),
+            PermissionMode::Auto => ui::icon(Icon::ShieldBolt, 12.).text_color(t.accent),
+            PermissionMode::WorkspaceWrite => ui::icon(Icon::Lock, 12.).text_color(t.text_tertiary),
+        })
         .when(room >= Room::Compact, |toggle| {
             toggle.child(match on {
                 true => ui::yolo::wordmark(10.5, &t).into_any_element(),
-                false => ui::text("SAFE", TEXT_3XS_H, FontWeight::SEMIBOLD)
+                false => ui::text(word, TEXT_3XS_H, FontWeight::SEMIBOLD)
                     .letter_spacing(0.08)
-                    .text_color(t.text_tertiary)
+                    .text_color(match mode {
+                        PermissionMode::Auto => t.text_secondary,
+                        _ => t.text_tertiary,
+                    })
                     .into_any_element(),
             })
         })

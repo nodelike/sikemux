@@ -14,7 +14,7 @@ use crate::launch::PermissionMode;
 /// also decides how it is started, by `serve_args`.
 pub(super) fn approval_mode(mode: PermissionMode) -> &'static str {
     match mode {
-        PermissionMode::WorkspaceWrite => "onRequest",
+        PermissionMode::WorkspaceWrite | PermissionMode::Auto => "onRequest",
         PermissionMode::Bypass => "allowAll",
     }
 }
@@ -25,7 +25,7 @@ pub(super) fn approval_mode(mode: PermissionMode) -> &'static str {
 /// folder.
 pub(super) fn serve_args(mode: PermissionMode) -> Vec<String> {
     let sandbox: &[&str] = match mode {
-        PermissionMode::WorkspaceWrite => &["--sandbox-network", "enabled"],
+        PermissionMode::WorkspaceWrite | PermissionMode::Auto => &["--sandbox-network", "enabled"],
         PermissionMode::Bypass => &["--disable-sandbox"],
     };
     ["serve", "--trust-workspace"]
@@ -37,7 +37,7 @@ pub(super) fn serve_args(mode: PermissionMode) -> Vec<String> {
 
 pub(super) fn sandbox_name(mode: PermissionMode) -> &'static str {
     match mode {
-        PermissionMode::WorkspaceWrite => "on, network allowed",
+        PermissionMode::WorkspaceWrite | PermissionMode::Auto => "on, network allowed",
         PermissionMode::Bypass => "off",
     }
 }

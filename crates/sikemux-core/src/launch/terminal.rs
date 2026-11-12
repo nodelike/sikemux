@@ -23,14 +23,16 @@ fn effort(agent: &AgentEntry, chosen: &str) -> Option<&'static str> {
         .or_else(|| supported.into_iter().find(|effort| *effort == near))
 }
 
-/// The CLI's flags for Sikemux's Normal and YOLO modes. YOLO on an agent
-/// that has none runs as Normal.
+/// The CLI's flags for Sikemux's Normal, Auto and YOLO modes. A mode the agent
+/// lacks runs as Normal.
 pub fn permission_args(agent: &AgentEntry, mode: PermissionMode) -> Vec<String> {
     let flags = &agent.terminal;
-    let args = flags
-        .bypass
-        .filter(|_| mode == PermissionMode::Bypass)
-        .unwrap_or(flags.normal);
+    let args = match mode {
+        PermissionMode::Bypass => flags.bypass,
+        PermissionMode::Auto => flags.auto,
+        PermissionMode::WorkspaceWrite => None,
+    }
+    .unwrap_or(flags.normal);
     args.iter().map(|arg| (*arg).to_owned()).collect()
 }
 
@@ -108,7 +110,7 @@ mod tests {
     }
 
     #[test]
-    fn codex_and_claude_have_only_normal_and_yolo() {
+    fn codex_and_claude_have_normal_auto_and_yolo() {
         assert_eq!(
             permission_args(codex(), PermissionMode::WorkspaceWrite),
             ["--sandbox", "workspace-write"]
@@ -125,7 +127,21 @@ mod tests {
             permission_args(claude(), PermissionMode::Bypass),
             ["--dangerously-skip-permissions"]
         );
+        assert_eq!(
+            permission_args(claude(), PermissionMode::Auto),
+            ["--permission-mode", "auto"]
+        );
+        assert_eq!(
+            permission_args(codex(), PermissionMode::Auto),
+            [
+                "--sandbox",
+                "workspace-write",
+                "-c",
+                "approvals_reviewer=\"auto_review\""
+            ]
+        );
         assert!(permission_args(agent("pi"), PermissionMode::Bypass).is_empty());
+        assert!(permission_args(agent("hermes"), PermissionMode::Auto).is_empty());
     }
 
     #[test]
