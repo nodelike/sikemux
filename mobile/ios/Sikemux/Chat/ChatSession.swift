@@ -426,10 +426,10 @@ final class ChatSession {
     func startSideChat(_ text: String) async -> Bool {
         let params = SideChatParams(agentId: agentId, text: text.isEmpty ? nil : text)
         let core = core
-        return await ask(
-            "Could not open a side chat",
-            then: { (side: SideChat) in Router.shared.push(.chat(core: core, agent: side.agentId)) }
-        ) { try await $0.call(PhoneCall.StartSideChat.self, params) }
+        let opened: (SideChat) -> Void = { side in Router.shared.push(.chat(core: core, agent: side.agentId)) }
+        return await ask("Could not open a side chat", then: opened) {
+            try await $0.call(PhoneCall.StartSideChat.self, params)
+        }
     }
 
     /// Ends the chat's agent on the host and closes it in every app. Answers whether it did.
