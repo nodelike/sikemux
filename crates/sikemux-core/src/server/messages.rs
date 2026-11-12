@@ -1526,19 +1526,6 @@ pub(crate) async fn over_rule(core: &Arc<Core>, to: String, text: String) -> Res
     deliver(core, &target, letter).await
 }
 
-/// Sends an agent back to the questions its turn ended with, which did not reach the person. It
-/// starts a turn when the agent is at rest. Fails when the agent has stopped or is gone.
-pub(crate) async fn ask_again(core: &Arc<Core>, to: String, text: String) -> Result<Value, String> {
-    let target = running(core, to).await?;
-    let letter = Letter::from_sender(
-        Sender::Sikemux,
-        MessageKind::Message,
-        text,
-        Some("Sent by Sikemux itself about how your turn ended, not by the person.".to_owned()),
-    );
-    deliver(core, &target, letter).await
-}
-
 /// Tells an agent what came of something it waited on the person for, as [`for_person`] does,
 /// but waits for it when it has stopped. Fails only when it is gone.
 pub(crate) async fn for_person_waiting(
