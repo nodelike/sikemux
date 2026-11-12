@@ -81,5 +81,7 @@ final class Identity {
 
 enum IdentityError: LocalizedError {
     case damaged
-    var errorDescription: String? { "This phone's key is damaged; reinstall the app to connect again." }
+    var errorDescription: String? {
+        String(localized: "This phone's key is damaged; reinstall the app to connect again.")
+    }
 }

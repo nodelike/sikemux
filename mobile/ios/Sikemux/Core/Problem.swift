@@ -6,10 +6,11 @@ func problem(_ error: Error) -> String {
     if let error = error as? MobileError {
         switch error {
         case .Refused(let message, _), .Connection(let message), .Invalid(let message): return message
-        case .Unpaired: return "This host no longer knows this phone. Forget it, then connect again."
+        case .Unpaired: return String(localized: "This host no longer knows this phone. Forget it, then connect again.")
         case .Outdated(let macIsOlder):
             return macIsOlder
-                ? "Update Sikemux on this host to reach it from this app." : "Update this app to reach this host."
+                ? String(localized: "Update Sikemux on this host to reach it from this app.")
+                : String(localized: "Update this app to reach this host.")
         }
     }
     if let error = error as? LocalizedError, let description = error.errorDescription { return description }
@@ -21,7 +22,7 @@ struct ChatProblem: LocalizedError {
     let errorDescription: String?
     init(_ text: String) { errorDescription = text }
 
-    static let notConnected = ChatProblem("the host is not connected")
+    static let notConnected = ChatProblem(String(localized: "the host is not connected"))
 }
 
 extension MobileError {

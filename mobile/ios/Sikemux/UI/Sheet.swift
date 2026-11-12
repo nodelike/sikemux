@@ -132,7 +132,7 @@ struct SheetLabel: View {
     init(_ text: String) { self.text = text }
 
     var body: some View {
-        Text(text)
+        Text(LocalizedStringKey(text))
             .font(Theme.ui(13, .semibold))
             .foregroundStyle(palette.tertiary)
             .padding(.top, 14)

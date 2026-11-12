@@ -98,7 +98,8 @@ struct EmptyState: View {
     var body: some View {
         VStack(spacing: 12) {
             PromptGlyph(icon: icon, small: true)
-            Text(text).font(Theme.meta).foregroundStyle(palette.tertiary).multilineTextAlignment(.center)
+            Text(LocalizedStringKey(text)).font(Theme.meta).foregroundStyle(palette.tertiary)
+                .multilineTextAlignment(.center)
         }
         .padding(.top, 40)
         .padding(.horizontal, 28)
@@ -137,7 +138,7 @@ extension View {
     /// An alert saying what failed and why, as the Mac says it when an action it was asked for fails.
     func failureAlert(_ failure: Binding<Failure?>) -> some View {
         alert(
-            failure.wrappedValue?.title ?? "",
+            Text(LocalizedStringKey(failure.wrappedValue?.title ?? "")),
             isPresented: Binding(get: { failure.wrappedValue != nil }, set: { if !$0 { failure.wrappedValue = nil } }),
             presenting: failure.wrappedValue
         ) { _ in

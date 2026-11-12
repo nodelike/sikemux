@@ -97,7 +97,7 @@ struct IconButton: View {
                 .contentShape(Circle())
         }
         .buttonStyle(PressFade())
-        .accessibilityLabel(label)
+        .accessibilityLabel(LocalizedStringKey(label))
     }
 }
 
@@ -144,7 +144,7 @@ struct Field: View {
     }
 
     private var prompt: Text {
-        Text(placeholder).foregroundStyle(palette.tertiary)
+        Text(LocalizedStringKey(placeholder)).foregroundStyle(palette.tertiary)
     }
 }
 
@@ -233,7 +233,7 @@ struct Track<Value: Hashable>: View {
                     value = option.value
                 } label: {
                     HStack(spacing: 6) {
-                        Text(option.label)
+                        Text(LocalizedStringKey(option.label))
                             .font(Theme.ui(13))
                             .foregroundStyle(on ? palette.ink : palette.tertiary)
                         if let count = option.count, count > 0 {
@@ -276,7 +276,7 @@ struct MenuItem: View {
         Button(action: action) {
             HStack(spacing: 12) {
                 IconView(icon: icon, size: 18).foregroundStyle(ink)
-                Text(label).font(Theme.ui(15.5, .medium)).foregroundStyle(ink)
+                Text(LocalizedStringKey(label)).font(Theme.ui(15.5, .medium)).foregroundStyle(ink)
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 14)

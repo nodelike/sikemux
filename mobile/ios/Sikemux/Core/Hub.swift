@@ -90,7 +90,8 @@ final class Hub {
     /// After the phone changes network, a connection that cannot answer in this time is replaced.
     private static let checkWait: Duration = .seconds(5)
     private static let damagedProblem =
-        "The list of paired hosts couldn't be read, so it was started again. Connect your hosts again."
+        String(
+            localized: "The list of paired hosts couldn't be read, so it was started again. Connect your hosts again.")
 
     private(set) var devices: [PairedDevice] = []
     private(set) var loaded = false
@@ -158,7 +159,7 @@ final class Hub {
         if let found = hosts[core] { return found }
         let made = HostLive(core: core)
         if forgotten.contains(core) {
-            made.status = .closed(problem: "Forgotten.")
+            made.status = .closed(problem: String(localized: "Forgotten."))
         } else {
             hosts[core] = made
         }
@@ -186,7 +187,7 @@ final class Hub {
         found.lingering = Task { [weak self] in
             try? await Task.sleep(for: Self.linger)
             guard !Task.isCancelled, found.watchers == 0 else { return }
-            self?.close(found, reason: "Not in use.")
+            self?.close(found, reason: String(localized: "Not in use."))
         }
     }
 
@@ -226,7 +227,7 @@ final class Hub {
         }
         if let found {
             release(found)
-            found.status = .closed(problem: "Forgotten.")
+            found.status = .closed(problem: String(localized: "Forgotten."))
         }
         hosts[core] = nil
         Keys().remove(host: core)
@@ -271,7 +272,7 @@ final class Hub {
             connection.close()
             if found.current === box {
                 found.current = nil
-                found.status = .closed(problem: "Not in use.")
+                found.status = .closed(problem: String(localized: "Not in use."))
             }
             return
         }
@@ -353,7 +354,7 @@ final class Hub {
     fileprivate func closed(_ box: ListenerBox) {
         guard let found = hosts[box.core], found.current === box, found.status == .open else { return }
         found.recovering = true
-        drop(found, reason: "The connection closed.")
+        drop(found, reason: String(localized: "The connection closed."))
     }
 
     private func release(_ found: HostLive) {
@@ -433,7 +434,7 @@ final class Hub {
             away = true
             for found in hosts.values {
                 let wasOpen = found.status == .open
-                close(found, reason: "Paused while the app is away.")
+                close(found, reason: String(localized: "Paused while the app is away."))
                 found.recovering = wasOpen
             }
             await Identity.shared.goOffline()
@@ -449,7 +450,7 @@ final class Hub {
         away = false
         for found in hosts.values {
             if let connection = found.connection, wasAway || !connection.isOpen() {
-                close(found, reason: "Reconnecting.")
+                close(found, reason: String(localized: "Reconnecting."))
                 found.recovering = true
             }
             guard found.watchers > 0, found.status != .open else { continue }
@@ -476,7 +477,7 @@ final class Hub {
     /// Asks a connection to answer after the network changed under it, and replaces it when it cannot.
     private func check(_ found: HostLive, _ connection: Connection) {
         guard connection.isOpen() else {
-            reconnect(found, reason: "The network changed.")
+            reconnect(found, reason: String(localized: "The network changed."))
             return
         }
         Task {
@@ -490,7 +491,9 @@ final class Hub {
                 group.cancelAll()
                 return first
             }
-            if !answered, found.connection === connection { reconnect(found, reason: "The network changed.") }
+            if !answered, found.connection === connection {
+                reconnect(found, reason: String(localized: "The network changed."))
+            }
         }
     }
 }

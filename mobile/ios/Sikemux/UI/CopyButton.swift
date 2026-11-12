@@ -39,7 +39,7 @@ struct CopyButton: View {
             }
         }
         .buttonStyle(ActiveFill(radius: 7, rest: worded ? palette.overlay : .clear))
-        .accessibilityLabel(copied ? "Copied" : "Copy \(label)")
+        .accessibilityLabel(copied ? String(localized: "Copied") : String(localized: "Copy \(label)"))
     }
 }
 

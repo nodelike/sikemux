@@ -49,7 +49,10 @@ struct CodeEntry: View {
         .accessibilityLabel(failed ? "Code, wrong" : "Code")
         .accessibilityValue(
             code.isEmpty
-                ? "Empty" : "\(code.map(String.init).joined(separator: " ")), \(code.count) of \(Self.length) digits"
+                ? String(localized: "Empty")
+                : String(
+                    localized:
+                        "\(code.map(String.init).joined(separator: " ")), \(code.count) of \(Self.length) digits")
         )
         .accessibilityHint("Type the \(Self.length) digits")
     }

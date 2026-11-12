@@ -29,7 +29,7 @@ struct PairedDevice: Codable, Hashable, Identifiable {
 
     var id: String { core }
 
-    var displayName: String { name ?? "Host \(core.prefix(8))" }
+    var displayName: String { name ?? String(localized: "Host \(String(core.prefix(8)))") }
 
     var channelLabel: String? { channel?.label }
 

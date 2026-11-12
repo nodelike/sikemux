@@ -42,7 +42,7 @@ struct Nav<Title: View, End: View>: View {
                     IconView(icon: Icons.chevron, size: 18)
                         .rotationEffect(.degrees(180))
                     if let back {
-                        Text(back).font(Theme.ui(16)).foregroundStyle(palette.secondary)
+                        Text(LocalizedStringKey(back)).font(Theme.ui(16)).foregroundStyle(palette.secondary)
                     }
                 }
                 .foregroundStyle(palette.secondary)
@@ -52,7 +52,7 @@ struct Nav<Title: View, End: View>: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(back ?? "Back")
+            .accessibilityLabel(LocalizedStringKey(back ?? "Back"))
 
             HStack(spacing: 8) { title }
                 .frame(maxWidth: .infinity)
@@ -82,7 +82,7 @@ struct NavTitle: View {
     let text: String
 
     var body: some View {
-        Text(text)
+        Text(LocalizedStringKey(text))
             .font(Theme.ui(16, .semibold))
             .tracking(-0.25)
             .foregroundStyle(palette.ink)

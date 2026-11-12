@@ -9,7 +9,8 @@ struct SectionLabel<Action: View>: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Text(text.uppercased())
+            Text(LocalizedStringKey(text))
+                .textCase(.uppercase)
                 .font(Theme.ui(11, .medium))
                 .tracking(1.76)
                 .foregroundStyle(palette.tertiary)
@@ -110,7 +111,7 @@ struct Row<Mark: View, End: View, After: View>: View {
 
     private var content: some View {
         let handle = name.map { "@\($0)" }
-        let onHost = host.map { "on \($0)" }
+        let onHost = host.map { String(localized: "on \($0)") }
         let label = title ?? handle ?? ""
         let named = title != nil && handle != nil ? [handle, onHost].compactMap { $0 }.joined(separator: " ") : nil
         return HStack(spacing: 10) {
