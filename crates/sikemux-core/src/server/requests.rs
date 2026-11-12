@@ -542,6 +542,7 @@ pub(super) async fn run(
                     resume_id: None,
                     cwd: None,
                     title: None,
+                    terminal: false,
                 };
                 super::launching::start_chat(&core, &client, request_id, choice);
             }

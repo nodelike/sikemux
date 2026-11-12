@@ -122,6 +122,7 @@ pub(super) fn choice_of(
         resume_id: Some(chat.session_id.clone()),
         cwd: (chat.cwd != chat.project).then(|| chat.cwd.clone()),
         title: Some(chat.title.clone()).filter(|title| !title.trim().is_empty()),
+        terminal: false,
     })
 }
 
@@ -137,6 +138,8 @@ pub(crate) struct ChatChoice {
     pub cwd: Option<PathBuf>,
     /// The title the chat it resumes already had.
     pub title: Option<String>,
+    /// It runs in its CLI in a terminal, even for an agent that can chat.
+    pub terminal: bool,
 }
 
 /// A launcher as devices see it, with the models and effort its last session offered.

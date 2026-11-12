@@ -126,6 +126,7 @@ async fn start_taken(core: &Arc<Core>, taking: TakeChat) -> CoreResult<String> {
         resume_id: None,
         cwd: None,
         title: taking.title,
+        terminal: false,
     };
     let agent_id = launching::start_waiting(core, choice).await?;
     if !taking.text.is_empty() || taking.extra.is_some() {

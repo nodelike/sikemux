@@ -902,9 +902,12 @@ impl Workspaces {
 
     /// Every agent in the workspace, running or not.
     /// The account each agent in the workspace runs on, by profile id.
-    pub(crate) fn agent_profiles(&self) -> Vec<(String, Option<String>)> {
+    pub(crate) fn agent_runs(&self) -> Vec<(String, Option<String>, bool)> {
         (self.published.locked().saved.agents.iter())
-            .map(|kept| (kept.agent.id.clone(), kept.agent.profile_id.clone()))
+            .map(|kept| {
+                let agent = &kept.agent;
+                (agent.id.clone(), agent.profile_id.clone(), agent.terminal)
+            })
             .collect()
     }
 
@@ -1712,7 +1715,7 @@ fn agents_closed(core: &Core, before: HashSet<String>) {
 /// Agents in the workspace keep their names and the accounts they run on, and the names of
 /// agents gone from it are free again.
 fn settle_names(core: &Core) {
-    core.names.note_profiles(core.workspaces.agent_profiles());
+    core.names.note_runs(core.workspaces.agent_runs());
     core.names.settle(core.open_agents());
 }
 
@@ -1803,6 +1806,7 @@ mod tests {
             resume_id: None,
             cwd: None,
             title: None,
+            terminal: false,
         }
     }
 

@@ -700,6 +700,7 @@ impl Workspaces {
             model: None,
             effort: None,
         };
-        choice_of(&published, &chat, choice, open)
+        let terminal = ran.terminal;
+        choice_of(&published, &chat, choice, open).map(|chosen| ChatChoice { terminal, ..chosen })
     }
 }

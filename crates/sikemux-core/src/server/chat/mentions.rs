@@ -105,7 +105,7 @@ async fn woken(
             }
         });
     }
-    let named_as = if kept.is_some() {
+    let named_as = if kept.is_some_and(|back| back.same_name) {
         "under the name it had"
     } else {
         "under this new name"

@@ -734,10 +734,7 @@ impl Core {
         cwd: &Path,
         provider: Option<&str>,
         resume_id: Option<&str>,
-    ) -> (
-        names::AgentName,
-        Option<Option<sikemux_view::workspace::AgentBuddy>>,
-    ) {
+    ) -> (names::AgentName, Option<names::Returned>) {
         let starting = names::Starting {
             agent_id,
             project: self.workspaces.project_of(cwd),
@@ -745,7 +742,7 @@ impl Core {
             resume_id,
         };
         let reopened = (self.names).come_back(agent_id, &starting.project, self.open_agents());
-        if let Some(Some(buddy)) = &reopened {
+        if let Some(buddy) = reopened.as_ref().and_then(|back| back.buddy.as_ref()) {
             let _ = self
                 .workspaces
                 .edit_agent(agent_id, |agent| agent.buddy = Some(buddy.clone()));

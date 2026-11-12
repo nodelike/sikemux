@@ -663,7 +663,12 @@ async fn start_new(
     let (cwd, worktree) = resumed.as_ref().map_or((project, None), |resumed| {
         (resumed.cwd.clone(), resumed.worktree.clone())
     });
-    if let Some(launcher) = core.workspaces.terminal_launcher(&choice.launcher) {
+    let terminal = (core.workspaces.terminal_launcher(&choice.launcher)).or_else(|| {
+        (choice.terminal)
+            .then(|| core.workspaces.launcher(&choice.launcher).ok())
+            .flatten()
+    });
+    if let Some(launcher) = terminal {
         core.workspaces.put_agent(WorkspaceAgent {
             profile_id: LauncherId::parse(&launcher.id).account.map(str::to_owned),
             resume_id: choice.resume_id,
