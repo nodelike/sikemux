@@ -1743,7 +1743,8 @@ waiting in a loop.
 - `ci`: once CI ends on a commit, a branch (its newest commit here), `HEAD`,
   or a CI run's address or id, on GitHub, Bitbucket, GitLab or Forgejo.
 - `process`: once a run of `process_start` ends, by its `executionId`, or
-  with `until` once it prints that text (`"ready"` for its `readyWhen`).
+  with `until` once it prints that text. A dev server never ends, so park on
+  it with `until: "ready"`, its `readyWhen`.
 - `agent`: once another agent, by name, gets where `until` says: `done` (the
   default), `needs_you`, `idle` or `any`, as `agent_wait` reads them.
 

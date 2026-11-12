@@ -38,8 +38,8 @@
           "tool": ["process_start", "Bash"],
           "args": { "command": "/xcodebuild[^\\n]*-derivedDataPath[ =]+(?![ =\"']*([\\/~]|\\$(HOME|TMPDIR)))|xcodebuild[^\\n]*-derivedDataPath[ =]+[\"']?\\S*\\/proj\\/app\\//" }
         },
-        { "tool": "sim", "args": { "action": "install", "path": { "$not": "/^(~|\\$HOME|\\/(?!.*\\/proj\\/app\\/))/" } } },
-        { "tool": "sim", "args": { "action": "launch", "bundleId": "com.nodelike.sikemux.dev" } }
+        { "any": [{ "tool": "sim", "args": { "action": "install", "path": { "$not": "/^(~|\\$HOME|\\/(?!.*\\/proj\\/app\\/))/" } } }, { "tool": "trigger_add", "args": { "process": { "$present": true }, "prompt": "/install/i" } }] },
+        { "any": [{ "tool": "sim", "args": { "action": "launch", "bundleId": "com.nodelike.sikemux.dev" } }, { "tool": "trigger_add", "args": { "process": { "$present": true }, "prompt": "/launch/i" } }] }
       ],
       "forbid": [
         { "tool": "sim", "args": { "action": "install", "path": "/^(~|\\$HOME|\\/(?!.*\\/proj\\/app\\/))/" }, "why": "installed a build from outside the project, such as Xcode's DerivedData" },
