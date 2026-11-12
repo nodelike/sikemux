@@ -506,6 +506,39 @@
   .tucked b { font-family: var(--ui); font-size: 13.5px; font-weight: 600; color: var(--ink); margin-right: 6px; }
   .tucked .open { font-weight: 600; color: var(--ink); }
 
+  /* ---------- the chief's rows: away card, Overrule lines, the week's count ---------- */
+  .acc-mark { color: var(--acc); display: grid; }
+  .away { margin: 12px 0 8px; padding: 12px 12px 6px; border: 1px solid var(--border-strong); border-radius: 16px; background: var(--surface-overlay); }
+  .away-head { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-tertiary); }
+  .away-head > * { flex: none; white-space: nowrap; }
+  .away-head > :last-child { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .away-head b { font-size: 14.5px; font-weight: 600; color: var(--ink); }
+  .away-head i { font-style: normal; color: var(--ink-faint); }
+  .away-sec { display: flex; align-items: center; gap: 10px; margin: 14px 0 2px; font-size: 11px; font-weight: 500; letter-spacing: 0.2em; text-transform: uppercase; color: var(--text-tertiary); }
+  .away-sec::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+  .away-calls { display: flex; align-items: center; gap: 8px; min-height: 40px; font-size: 14px; color: var(--text-secondary); }
+  .away-calls .pip { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--warn); }
+  .away-calls .go { margin-left: auto; color: var(--ink); font-weight: 500; }
+  .away-row { display: flex; align-items: flex-start; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--border); }
+  .away-row:last-child { border-bottom: 0; }
+  .away-row .ico { flex: none; margin-top: 2px; color: var(--text-tertiary); display: grid; width: 16px; height: 16px; }
+  .away-row .txt { flex: 1; min-width: 0; }
+  .away-row .txt b { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: 14.5px; font-weight: 400; line-height: 1.4; color: var(--ink); }
+  .away-row .txt span { display: block; margin-top: 2px; font-size: 12.5px; color: var(--text-tertiary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .away-row.struck .txt b { text-decoration: line-through; color: var(--text-tertiary); }
+  .away-row .act { flex: none; align-self: center; height: 32px; padding: 0 12px; border-radius: 9px; border: 1px solid var(--border-strong); display: grid; place-items: center; font-size: 13.5px; font-weight: 500; color: var(--ink); }
+  .away-row .open { flex: none; align-self: center; color: var(--text-tertiary); display: grid; }
+  .chat.at-top { justify-content: flex-start; }
+  .overruled { display: flex; flex-direction: column; gap: 4px; margin: 10px 0; padding: 2px 0 2px 12px; font-size: 13px; color: var(--text-tertiary); }
+  .overruled .h { display: flex; align-items: center; gap: 8px; }
+  .overruled .h .ico { display: grid; color: var(--text-tertiary); }
+  .overruled .h .undo { margin-left: auto; color: var(--ink); font-weight: 500; padding: 4px 0 4px 12px; }
+  .overruled .q { font-size: 14px; line-height: 1.4; color: var(--ink); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .overruled .why { font-size: 12.5px; }
+  .week { margin: 12px 0; }
+  .week .when { font-size: 12px; color: var(--text-tertiary); }
+  .week p { margin-top: 4px; font-size: 14.5px; line-height: 1.57; color: var(--ink); }
+
   /* ---------- a call docked on its asker's chat, and the turn's last line ---------- */
   .call { margin: 0 0 8px; padding: 12px; border: 1px solid var(--border-strong); border-radius: 16px; background: var(--surface-overlay); }
   .call-who { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--text-tertiary); }
@@ -2930,6 +2963,184 @@
       <div class="home-bar"></div></div>
       <figcaption><b>A call, docked</b><div class="note">When the asker goes on with what it assumed (PersonCall.assumption), a quiet line above Go with this says so in the Mac's words, "Until you answer, @Maple goes on assuming cents", with the clock; a call that goes on draws no "Nothing happens until you answer". On such a call with no options, Go with this with nothing typed lets the assumption stand (answerCall with fine). An agent's question is a call now, and so is anything else it cannot settle without the person. The oldest call an agent waits on docks on its chat above the composer, as the Mac's call card does, a little tighter: who asks and how long ago, the question, its context in two lines, then the options in one block of 44-point rows with a ring before each. The asker's pick is chosen to start with and carries the S and pick; a tap chooses another and a tap on the chosen one clears it. The block's last row is the note field, or with nothing chosen the person's own answer. Go with this runs across the card's foot and sends answerCall. There is no Open chat: the chat is open. The composer carries Answering @Maple · the question, and reads Or type your answer to @Maple, so whatever is sent answers the call; × takes the chip off and the composer sends normal messages again. The card tells the host it was seen as it draws. The first answer anywhere wins and the card goes from every screen. When the agent waits on several calls, the card says which it is (1 of 2) and the others sit folded under it, a line each with how long it has waited; a tap brings one into the card, and a row on the Calls tab opens the call it shows. Go with this reads Connecting… until the host has taken that this phone drew the call. Over the docked card the chat's last line says only Needs you, how many calls wait when more than one does, and how long; where no card docks, it also says the question and offers Look. In the chief's chat, the card's asker is @Chief with Sikemux's S. A watching phone shows the card without the means to answer.</div></figcaption>
     </figure>
+    <figure><div class="phone"><div class="island"></div>
+      <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
+      <div class="screen">
+        <div class="nav"><span class="back">{{IconChevron:18}}</span><span class="mid"><span class="codex">{{IconCodex:17}}</span><span class="named"><b>@Atobe</b><i>·</i><em>Add bank transfer to the invoice page</em></span></span><span class="icon-btn">{{IconMoreVertical:16}}</span></div>
+        <div class="chat">
+          <div class="from"><div class="from-head"><span class="acc-mark">{{Logo:17}}</span><b>@Chief</b><span class="when">10:02</span></div><div class="msg-theirs">Add bank transfer to the invoice page, beside Card.</div></div>
+          <div class="turn-line"><span class="tl-mark"><span class="dot acc"></span></span><span class="turn-words"><b class="done">Done</b><i>·</i><span class="p1">no changes</span></span></div>
+        </div>
+        <div class="composer-wrap">
+          <div class="composer">
+            <div class="ta ph">Send to @Atobe · @Chief is told</div>
+            <div class="bar">
+              <span class="ib">{{IconPlus:18}}</span>
+              <span class="yolo on">{{IconShieldBolt:13}}<b>yolo</b></span>
+              <span class="picker model"><span class="claude">{{IconClaude:16}}</span>Opus 5.5<span class="ch">{{IconChevron:10}}</span></span>
+              <span class="spacer"></span>
+              <span class="send off">{{IconArrowUp:16}}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="home-bar"></div></div>
+      <figcaption><b>A worker, with a chief</b><div class="note">In a project with a chief, a worker's chat says who its words go to, and that the chief hears them: "Send to @Atobe · @Chief is told", whenever the core sets chiefHears on the chat. What the person types still goes to the worker; the chief reads it in its next digest. Without chiefHears it says "Send to @Atobe", as before.</div></figcaption></figure>
+    <figure><div class="phone"><div class="island"></div>
+      <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
+      <div class="screen">
+        <div class="nav"><span class="back">{{IconChevron:18}}</span><span class="mid"><span class="acc-mark">{{Logo:17}}</span><span class="named"><b>@Chief</b><i>·</i><em>Payments rollout</em></span></span><span class="icon-btn">{{IconMoreVertical:16}}</span></div>
+        <div class="chat at-top">
+          <div class="away">
+            <div class="away-head"><span class="acc-mark">{{Logo:15}}</span><b>While you were away</b><i>·</i><span>2 h 2 min</span></div>
+            <div class="away-sec">Needs you 3</div>
+            <div class="away-calls"><span class="pip"></span><span>Answer them in the card below</span></div>
+            <div class="away-sec">Decided for you 2</div>
+            <div class="away-row"><span class="ico">{{IconCheck:14}}</span><div class="txt"><b>Bank transfer is a tab beside Card on every invoice, shown first on phones</b><span>3 of 5 tests chose it · @Grimmjow</span></div><span class="act">Overrule</span></div>
+            <div class="away-row struck"><span class="ico">{{IconCheck:14}}</span><div class="txt"><b>Tax rules wait for the cart totals to land</b><span>@Crusch builds on the new rounding</span></div></div>
+            <div class="away-sec">Landed 1</div>
+            <div class="away-row"><span class="ico">{{IconClaude:16}}</span><div class="txt"><b>Fix the cart totals so every discount, coupon and shipping rule rounds once</b><span>@Gilda · 40m ago</span></div><span class="open">{{IconChevron:12}}</span></div>
+          </div>
+        </div>
+        <div class="composer-wrap">
+          <div class="call">
+            <div class="call-who"><span class="claude">{{IconClaude:20}}</span><b>@Gilda</b><i>·</i><span>3m ago</span><span class="call-place">1 of 3</span></div>
+            <div class="call-q">Which colour should the totals use?</div>
+            <div class="call-opts"><div class="call-opt on"><span class="call-radio on"></span><span class="call-lbl"><span>Blue</span></span><span class=call-pick>{{Logo:13}}pick</span></div><div class="call-opt"><span class="call-radio"></span><span class="call-lbl"><span>Red</span></span></div><div class="call-field">{{IconPencil:13}}<span>Add a note…</span></div></div>
+            <div class="call-goes">{{IconClock:13}}<span>Until you answer, @Gilda goes on assuming blue</span></div>
+            <div class="call-go">Go with this</div>
+            <div class="call-folded"><span class="claude">{{IconClaude:16}}</span><span class="q">What do we call the new way to pay?</span><span class="age">3m</span></div>
+          </div>
+          <div class="composer">
+            <div class="ta ph">Tell @Chief what you want</div>
+            <div class="bar">
+              <span class="ib">{{IconPlus:18}}</span>
+              <span class="yolo on">{{IconShieldBolt:13}}<b>yolo</b></span>
+              <span class="picker model"><span class="claude">{{IconClaude:16}}</span>Opus 5.5<span class="ch">{{IconChevron:10}}</span></span>
+              <span class="spacer"></span>
+              <span class="send off">{{IconArrowUp:16}}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="home-bar"></div></div>
+      <figcaption><b>While you were away, from its top</b><div class="note">The same chat scrolled up to the card's head: how long the person was away, the count of calls with a pointer to the card below, and the first decisions. The next frame is the same chat at its end.</div></figcaption></figure>
+    <figure><div class="phone"><div class="island"></div>
+      <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
+      <div class="screen">
+        <div class="nav"><span class="back">{{IconChevron:18}}</span><span class="mid"><span class="acc-mark">{{Logo:17}}</span><span class="named"><b>@Chief</b><i>·</i><em>Payments rollout</em></span></span><span class="icon-btn">{{IconMoreVertical:16}}</span></div>
+        <div class="chat">
+          <div class="away">
+            <div class="away-head"><span class="acc-mark">{{Logo:15}}</span><b>While you were away</b><i>·</i><span>2 h 2 min</span></div>
+            <div class="away-sec">Needs you 3</div>
+            <div class="away-calls"><span class="pip"></span><span>Answer them in the card below</span></div>
+            <div class="away-sec">Decided for you 2</div>
+            <div class="away-row"><span class="ico">{{IconCheck:14}}</span><div class="txt"><b>Bank transfer is a tab beside Card on every invoice, shown first on phones</b><span>3 of 5 tests chose it · @Grimmjow</span></div><span class="act">Overrule</span></div>
+            <div class="away-row struck"><span class="ico">{{IconCheck:14}}</span><div class="txt"><b>Tax rules wait for the cart totals to land</b><span>@Crusch builds on the new rounding</span></div></div>
+            <div class="away-sec">Landed 1</div>
+            <div class="away-row"><span class="ico">{{IconClaude:16}}</span><div class="txt"><b>Fix the cart totals so every discount, coupon and shipping rule rounds once</b><span>@Gilda · 40m ago</span></div><span class="open">{{IconChevron:12}}</span></div>
+          </div>
+        </div>
+        <div class="composer-wrap">
+          <div class="call">
+            <div class="call-who"><span class="claude">{{IconClaude:20}}</span><b>@Gilda</b><i>·</i><span>3m ago</span><span class="call-place">1 of 3</span></div>
+            <div class="call-q">Which colour should the totals use?</div>
+            <div class="call-opts"><div class="call-opt on"><span class="call-radio on"></span><span class="call-lbl"><span>Blue</span></span><span class=call-pick>{{Logo:13}}pick</span></div><div class="call-opt"><span class="call-radio"></span><span class="call-lbl"><span>Red</span></span></div><div class="call-field">{{IconPencil:13}}<span>Add a note…</span></div></div>
+            <div class="call-goes">{{IconClock:13}}<span>Until you answer, @Gilda goes on assuming blue</span></div>
+            <div class="call-go">Go with this</div>
+            <div class="call-folded"><span class="claude">{{IconClaude:16}}</span><span class="q">What do we call the new way to pay?</span><span class="age">3m</span></div>
+          </div>
+          <div class="composer">
+            <div class="ta ph">Tell @Chief what you want</div>
+            <div class="bar">
+              <span class="ib">{{IconPlus:18}}</span>
+              <span class="yolo on">{{IconShieldBolt:13}}<b>yolo</b></span>
+              <span class="picker model"><span class="claude">{{IconClaude:16}}</span>Opus 5.5<span class="ch">{{IconChevron:10}}</span></span>
+              <span class="spacer"></span>
+              <span class="send off">{{IconArrowUp:16}}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="home-bar"></div></div>
+      <figcaption><b>While you were away</b><div class="note">The chief's chat ends with what happened while the person was away, from ChatHead.away, as the Mac draws it: the head says how long only when back is set ("2 h 2 min"); it is the chief's own chat, so it does not say who it is from. Needs you counts the project's open calls and points down: they are the queue the chat already docks above the composer, 1 of 3 with the rest folded, never a second card. Decided for you lists each decision with what it rested on, or who made it, under it; Overrule sends overruleDecision, and like it needs the phone's Full access, so a phone that can only watch draws no Overrule. A decision overruled since the card came is struck and offers none. Landed lists each agent's finished work with its mark, title, name and when; the Mac's Try it opens the result on the desk, which a phone does not have, so the row opens that agent's chat instead, where its turn line offers what the phone can do. The card stays until every call in it is answered, or, with none, until the person next writes to the chief.</div></figcaption></figure>
+    <figure><div class="phone"><div class="island"></div>
+      <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
+      <div class="screen">
+        <div class="nav"><span class="back">{{IconChevron:18}}</span><span class="mid"><span class="acc-mark">{{Logo:17}}</span><span class="named"><b>@Chief</b><i>·</i><em>Payments rollout</em></span></span><span class="icon-btn">{{IconMoreVertical:16}}</span></div>
+        <div class="chat">
+          <div class="overruled"><div class="h"><span class="ico">{{IconReply:12}}</span><span>Overruled</span><span class="undo">Undo</span></div><div class="q">“Bank transfer is a tab beside Card on every invoice, shown first on phones”</div><div class="why">Decisions like this come to you from now on</div></div>
+          <div class="overruled"><div class="h"><span class="ico">{{IconReply:12}}</span><span>Overruled</span><span class="undo">Undo</span></div><div class="q">“Retry webhooks three times before giving up”</div></div>
+          <div class="overruled"><div class="h"><span class="ico">{{IconReply:12}}</span><span>Overruled, then undone</span></div><div class="q">“Keep the old ledger table for a week”</div><div class="why">It stands again</div></div>
+          <div class="overruled"><div class="h"><span class="ico">{{IconReply:12}}</span><span>Overruled</span></div><div class="q">“Ship the pricing page to everyone”</div><div class="why">This stopped Auto's run, so it can't be put back</div></div>
+        </div>
+        <div class="composer-wrap">
+          <div class="composer">
+            <div class="ta ph">Tell @Chief what you want</div>
+            <div class="bar">
+              <span class="ib">{{IconPlus:18}}</span>
+              <span class="yolo on">{{IconShieldBolt:13}}<b>yolo</b></span>
+              <span class="picker model"><span class="claude">{{IconClaude:16}}</span>Opus 5.5<span class="ch">{{IconChevron:10}}</span></span>
+              <span class="spacer"></span>
+              <span class="send off">{{IconArrowUp:16}}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="home-bar"></div></div>
+      <figcaption><b>An Overrule, in the chief's chat</b><div class="note">Overruling a decision leaves a quiet line in the chief's chat, from AgentNotice.overruled, in the Mac's words, on the phone's two lines rather than the Mac's one: "Overruled" with Undo at its end, then what was decided, quoted, never as the person's words. When the Overrule kept a rule, a third line says "Decisions like this come to you from now on". Undo sends undoOverrule (Full access, as Overrule); when the host refuses, its words show under the line. Once undone the line reads "Overruled, then undone · It stands again" with no Undo; an Overrule that stopped Auto's run says "This stopped Auto's run, so it can't be put back", with no Undo. The line stays in view when the turn around it folds.</div></figcaption></figure>
+    <figure><div class="phone"><div class="island"></div>
+      <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
+      <div class="screen">
+        <div class="nav"><span class="back">{{IconChevron:18}}</span><span class="mid"><span class="acc-mark">{{Logo:17}}</span><span class="named"><b>@Chief</b><i>·</i><em>Payments rollout</em></span></span><span class="icon-btn">{{IconMoreVertical:16}}</span></div>
+        <div class="chat">
+          <div class="week"><div class="when">Monday · 09:00</div><p>Last week I decided 212 things, and you overruled 3. You answered 12 of 14 calls as I picked.</p></div>
+          <div class="week"><div class="when">Monday · 09:00</div><p>Last week I decided 1 thing, and you overruled none.</p></div>
+        </div>
+        <div class="composer-wrap">
+          <div class="composer">
+            <div class="ta ph">Tell @Chief what you want</div>
+            <div class="bar">
+              <span class="ib">{{IconPlus:18}}</span>
+              <span class="yolo on">{{IconShieldBolt:13}}<b>yolo</b></span>
+              <span class="picker model"><span class="claude">{{IconClaude:16}}</span>Opus 5.5<span class="ch">{{IconChevron:10}}</span></span>
+              <span class="spacer"></span>
+              <span class="send off">{{IconArrowUp:16}}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="home-bar"></div></div>
+      <figcaption><b>The week's count</b><div class="note">At the first tick after Monday 09:00 the chief's chat gains the week's count, from AgentNotice.week, as the chief's own words under the day and time it came: "Last week I decided 212 things, and you overruled 3." with "You answered 12 of 14 calls as I picked." after it when any call was answered, and "1 thing" and "overruled none" as the Mac says them. It starts no turn and stays in view when the turn around it folds.</div></figcaption></figure>
+    <figure><div class="phone"><div class="island"></div>
+      <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
+      <div class="screen">
+        <div class="nav"><span class="back">{{IconChevron:18}}</span><span class="mid"><span class="acc-mark">{{Logo:17}}</span><span class="named"><b>@Chief</b><i>·</i><em>Payments rollout</em></span></span><span class="icon-btn">{{IconMoreVertical:16}}</span></div>
+        <div class="chat">
+          <div class="from"><div class="from-head"><span class="acc-mark">{{Logo:17}}</span><b>@Chief</b><span class="when">11:20</span></div><div class="msg-theirs">I need one thing from you before the release goes out.</div></div>
+          <div class="turn-line"><span class="tl-mark"><span class="dot warn"></span></span><span class="turn-words"><b class="needs">Needs you</b><i>·</i><span class="p1">1 call</span><i>·</i><span class="p2">2 min</span></span></div>
+        </div>
+        <div class="composer-wrap">
+          <div class="call">
+            <div class="call-who"><span class="acc-mark">{{Logo:20}}</span><b>@Chief</b><i>·</i><span>2m ago</span></div>
+            <div class="call-q">Should the release notes call out the new prices?</div>
+            <div class="call-opts"><div class="call-opt on"><span class="call-radio on"></span><span class="call-lbl"><span>Call them out</span></span><span class=call-pick>{{Logo:13}}pick</span></div><div class="call-opt"><span class="call-radio"></span><span class="call-lbl"><span>Leave them</span></span></div><div class="call-field">{{IconPencil:13}}<span>Add a note…</span></div></div>
+            <div class="call-go">Go with this</div>
+          </div>
+          <div class="composer">
+            <div class="answering"><span class="acc-mark">{{Logo:13}}</span><span>Answering @Chief · Should the release notes call out the new prices?</span><i class="x">{{IconClose:10}}</i></div><div class="ta ph">Or type your answer to @Chief</div>
+            <div class="bar">
+              <span class="ib">{{IconPlus:18}}</span>
+              <span class="yolo on">{{IconShieldBolt:13}}<b>yolo</b></span>
+              <span class="picker model"><span class="claude">{{IconClaude:16}}</span>Opus 5.5<span class="ch">{{IconChevron:10}}</span></span>
+              <span class="spacer"></span>
+              <span class="send off">{{IconArrowUp:16}}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="home-bar"></div></div>
+      <figcaption><b>Typing with a call up, in the chief's chat</b><div class="note">With a call docked on the chief's chat, the composer's words answer it only when it is the chief's own call and the only one open, as on the Mac: then the composer says "Answering @Chief" and "Or type your answer to @Chief". When the docked call is a worker's, or more than one waits (the away card's queue), the composer keeps "Tell @Chief what you want" and its words go to the chief; the calls are answered on their card.</div></figcaption></figure>
 
 
 

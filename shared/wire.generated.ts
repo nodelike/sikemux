@@ -5332,6 +5332,15 @@ export interface OpenedChief {
     agentId: string;
 }
 
+export interface OverruleParams {
+    project: string;
+    /** The goal whose log keeps the decision; none for its project's own log. */
+    goal: number | null;
+    decision: number;
+    /** What the person wants instead, when they said. */
+    instead?: string;
+}
+
 export interface ProjectEntriesParams {
     project: string;
     query?: string;
@@ -5461,6 +5470,12 @@ export interface TakeStepParams {
     step: TurnStep;
 }
 
+export interface UndoOverruleParams {
+    project: string;
+    goal: number | null;
+    decision: number;
+}
+
 /** The core's calls that name what they take and answer, by method. */
 export interface CoreCalls {
     agentCatalog: { params: NoParams; answer: CatalogAgent[] };
@@ -5494,6 +5509,7 @@ export interface CoreCalls {
     moveChatAccount: { params: MoveChatParams; answer: null };
     onScreen: { params: OnScreenParams; answer: null };
     openChief: { params: OpenChiefParams; answer: OpenedChief };
+    overruleDecision: { params: OverruleParams; answer: ProjectBoard };
     pairing: { params: NoParams; answer: RemotePairing };
     preferences: { params: NoParams; answer: Preferences };
     projectEntries: { params: ProjectEntriesParams; answer: ProjectEntry[] };
@@ -5515,4 +5531,5 @@ export interface CoreCalls {
     stashPrompt: { params: StashPromptParams; answer: StashedPrompt };
     steerQueued: { params: QueuedParams; answer: null };
     takeStep: { params: TakeStepParams; answer: null };
+    undoOverrule: { params: UndoOverruleParams; answer: ProjectBoard };
 }

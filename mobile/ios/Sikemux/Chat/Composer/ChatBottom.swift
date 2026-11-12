@@ -92,7 +92,7 @@ struct ChatBottom: View {
         guard view?.workspace.projects.first(where: { $0.id == project })?.chief != nil,
             let name = view?.chats.first(where: { $0.agentId == context.agentId })?.name
         else { return nil }
-        return (CallWords.sendTo(name), false)
+        return (rows.head.chiefHears != nil ? CallWords.sendToTold(name) : CallWords.sendTo(name), false)
     }
 }
 

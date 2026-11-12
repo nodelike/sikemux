@@ -93,6 +93,10 @@ struct AgentNoticeLine: View {
     var body: some View {
         if let goal = notice.goal {
             GoalLine(notice: notice, goal: goal)
+        } else if let overruled = notice.overruled {
+            OverruledLine(overruled: overruled)
+        } else if let week = notice.week {
+            WeekLine(week: week)
         } else {
             let tint =
                 notice.severity == .error ? palette.danger : notice.severity == .warning ? palette.warn : palette.inkDim

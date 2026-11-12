@@ -60,8 +60,12 @@ export function settledCalls(snapshot: Snapshot | undefined, project?: ProjectIn
     .sort((a, b) => settledAt(b) - settledAt(a));
 }
 
-/** Every call agent `agentId` waits on the person for, as asker or joined to it, oldest first. */
-export function queueOf(calls: readonly PersonCall[] | undefined, agentId: string): PersonCall[] {
+/**
+ * Every call agent `agentId` waits on the person for, as asker or joined to it, oldest first; or, given `among`, the open
+ * calls it names in its order, as the chief's chat docks every call its card from while the person was away counts.
+ */
+export function queueOf(calls: readonly PersonCall[] | undefined, agentId: string, among?: readonly string[]): PersonCall[] {
+  if (among?.length) return among.flatMap((id) => (calls ?? []).filter((call) => call.id === id && call.state === 'open'));
   return (calls ?? [])
     .filter(
       (call) =>

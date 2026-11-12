@@ -48,6 +48,7 @@ private struct ChatPane: View {
     @State private var find: ChatFind?
     @State private var away = false
     @State private var stillness: (() -> Void)?
+    @Environment(\.scenePhase) private var scenePhase
 
     init(core: String, agentId: String) {
         self.core = core
@@ -70,6 +71,7 @@ private struct ChatPane: View {
     private var device: PairedDevice? { Hub.shared.device(core) }
     private var hostName: String { device?.displayName ?? String(localized: "the host") }
     private var watchOnly: Bool { device?.access == .watch }
+    private var full: Bool { device?.access == .full }
     private var provider: String { info?.provider ?? "agent" }
     private var listed: AgentShown? { live.view?.inbox.agents.first { $0.agentId == agentId } }
 
@@ -114,8 +116,11 @@ private struct ChatPane: View {
         .environment(context)
         .onAppear(perform: appeared)
         .onDisappear(perform: left)
+        .onChange(of: session.rows.head.away?.calls) { _, calls in HostCalls.of(core).setAway(calls, for: agentId) }
+        .onChange(of: scenePhase) { _, phase in OnScreen.shared.front(phase == .active) }
         .onChange(of: info) { _, info in session.hostSaw(info) }
         .onChange(of: live.isOpen) { _, _ in
+            OnScreen.shared.tell(core)
             release?()
             release = session.hold(live.connection)
         }
@@ -160,6 +165,9 @@ private struct ChatPane: View {
 
     private func appeared() {
         Cards.dismiss(host: core, agent: agentId)
+        context.acts = full
+        HostCalls.of(core).setAway(session.rows.head.away?.calls, for: agentId)
+        if full { OnScreen.shared.show(core, agentId) }
         watch = Hub.shared.watch(core)
         session.hostSaw(info)
         release = session.hold(live.connection)
@@ -230,6 +238,7 @@ private struct ChatPane: View {
     }
 
     private func left() {
+        OnScreen.shared.hide(core, agentId)
         stillness?()
         stillness = nil
         release?()
@@ -262,7 +271,7 @@ private struct ChatPane: View {
             footer: {
                 TranscriptFooter(
                     session: session, core: core, agentId: agentId, provider: provider, hostName: hostName,
-                    canAct: !watchOnly, focus: focus)
+                    canAct: !watchOnly, full: full, focus: focus)
             }
         )
     }
@@ -376,6 +385,7 @@ private struct TranscriptFooter: View {
     let provider: String
     let hostName: String
     let canAct: Bool
+    let full: Bool
     let focus: ComposerFocus
 
     var body: some View {
@@ -388,6 +398,7 @@ private struct TranscriptFooter: View {
         let reachable = canAct && session.attached == .live && Hub.shared.live(core).isOpen
         VStack(alignment: .leading, spacing: 0) {
             if !rows.queued.isEmpty { QueuedLines(held: rows.queued) }
+            if let away = rows.head.away { AwayCard(core: core, away: away, full: full) }
             if let activity {
                 ActivityLine(provider: provider, doing: activity, since: session.turnSince)
             } else if let turn = rows.head.turn {

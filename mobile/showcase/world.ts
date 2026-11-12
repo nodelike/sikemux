@@ -5,10 +5,12 @@
 
 import type {
   AgentLetter,
+  AgentNotice,
   ChatGoal,
   ChatMessage,
   ChatPart,
   ChatView,
+  ChiefAway,
   GoalMarker,
   PermissionAsk,
   PermissionMode,
@@ -70,6 +72,22 @@ const letters = (...sent: AgentLetter[]): Step => ({ letters: sent });
 const goal = (marker: GoalMarker): Step => ({
   part: { kind: 'agent_notice', id: next('part'), notice: { severity: 'info', title: marker.name ?? 'Goal', goal: marker } },
 });
+/** A line the core puts in the chief's chat: an Overrule, or the week's count. */
+const notice = (said: Pick<AgentNotice, 'overruled' | 'week'>): Step => ({
+  part: {
+    kind: 'agent_notice',
+    id: next('part'),
+    notice: { severity: 'info', title: said.week ? "The week's count" : 'Overruled', ...said },
+  },
+});
+const DAY = 86_400_000;
+/** This week's Monday at 09:00, when the chief's count of the week before came. */
+const WEEK_START = (() => {
+  const monday = new Date();
+  monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7));
+  monday.setHours(9, 0, 0, 0);
+  return monday.getTime();
+})();
 const file = (kind: ToolAction, path: string, name: string): Step => tool(kind, path, 'completed', { target: name, path });
 
 type Pickers = Pick<ChatView['head'], 'model' | 'effort'>;
@@ -322,6 +340,13 @@ export const CHATS: DemoChat[] = [
         text: 'Read the failed run, fix it on a branch and open a pull request.',
         trigger: { title: 'CI on main', prompt: 'Read the failed run, fix it on a branch and open a pull request.' },
       }),
+      notice({ week: { from: WEEK_START - 7 * DAY, to: WEEK_START, decided: 212, overruled: 3, answered: 14, asPicked: 12 } }),
+      notice({
+        overruled: { project: `${HOME}/payments-api`, decision: 7, text: 'Refunds post to the ledger as negative amounts', rule: 3 },
+      }),
+      notice({
+        overruled: { project: `${HOME}/payments-api`, decision: 9, text: 'Keep the old ledger table for a week', undone: true },
+      }),
     ],
   },
 ];
@@ -547,6 +572,32 @@ export function recordedView(chat: Recorded): Pick<ChatView, 'head' | 'rows' | '
 }
 
 /** How the demo chat stands, as the head of the view a host sends. */
+/** What happened while the person was away from the payments-api chief, as the core counts it. */
+const AWAY: ChiefAway = {
+  since: Date.now() - 7_380_000,
+  back: Date.now() - 60_000,
+  calls: ['call-ledger'],
+  decided: [
+    {
+      project: `${HOME}/payments-api`,
+      decision: 11,
+      text: 'Refunds over $500 wait for a second approval before they post',
+      why: '3 of 5 support tickets asked for it',
+      by: { agentId: 'chat-refunds', name: 'Flint' },
+      at: Date.now() - 3_600_000,
+    },
+    {
+      project: `${HOME}/payments-api`,
+      decision: 12,
+      text: 'Webhooks retry three times before giving up',
+      by: { agentId: 'chat-refunds', name: 'Flint' },
+      at: Date.now() - 3_000_000,
+      overruled: true,
+    },
+  ],
+  landed: [{ agentId: 'chat-refunds', name: 'Flint', title: 'Add refunds to the payments API', at: Date.now() - 2_400_000 }],
+};
+
 export function chatHead(chat: DemoChat): ChatView['head'] {
   const asking = permissionPayload(chat);
   return {
@@ -567,6 +618,8 @@ export function chatHead(chat: DemoChat): ChatView['head'] {
     goal: chat.goal,
     turn: TURNS[chat.agentId],
     chief: chat.agentId === 'chat-team' || undefined,
+    chiefHears: chat.project === 'p-api' && chat.agentId !== 'chat-team' ? 'chat-team' : undefined,
+    away: chat.agentId === 'chat-team' ? AWAY : undefined,
   };
 }
 

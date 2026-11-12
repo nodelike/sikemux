@@ -198,6 +198,10 @@ extension Icons {
         IconShape(d: "M3 8a5 5 0 0 1 8.7-3.4M13 8a5 5 0 0 1-8.7 3.4", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0)),
         IconShape(d: "M11.7 2.6v2H9.7M4.3 13.4v-2h2", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0)),
     ])
+    static let reply = IconDef(viewBox: ViewBox(x: 0, y: 0, width: 16, height: 16), shapes: [
+        IconShape(d: "M6 4 2.5 7.5 6 11", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0)),
+        IconShape(d: "M2.5 7.5H9a4.5 4.5 0 0 1 4.5 4.5v.5", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0)),
+    ])
     static let resize = IconDef(viewBox: ViewBox(x: 0, y: 0, width: 24, height: 24), shapes: [
         IconShape(d: "M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 2.1),
     ])
@@ -454,6 +458,7 @@ extension Icons {
         case "IconPush": return push
         case "IconRecord": return record
         case "IconRefresh": return refresh
+        case "IconReply": return reply
         case "IconResize": return resize
         case "IconRocket": return rocket
         case "IconRotate": return rotate

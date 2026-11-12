@@ -25,3 +25,6 @@ export function liveRunKey(messages: readonly ChatMessage[], activeTool: string 
   }
   return `${message.id}/${message.parts[head].id}`;
 }
+
+/** Whether this phone may act on the host, as Overrule's Undo needs; a watching phone or a shared chat may not. */
+export const ActsContext = createContext(false);

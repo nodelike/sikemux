@@ -231,6 +231,61 @@ export const TELL_CHIEF = "Tell @Chief what you want";
 export const sendTo = (name: string, say: Say = english) => say("Send to @{name}", { name });
 /** Under the chief's row when a tap cannot reach the host to open its chat. */
 export const CHIEF_OFFLINE = "Not connected to this host yet, so its chief can't open.";
+/** The composer's words in a worker's chat whose project's chief hears what is typed there. */
+export const sendToTold = (name: string, say: Say = english) => say("Send to @{name} · @Chief is told", { name });
+
+// The chief's chat: what happened while the person was away, an Overrule, the week's count
+
+export const WHILE_AWAY = "While you were away";
+/** How long the person was away, `back - since`. */
+export function awayFor(ms: number, say: Say = english): string {
+    const total = Math.max(1, Math.round(ms / MINUTE));
+    const hours = Math.floor(total / 60);
+    const minutes = total % 60;
+    if (!hours) return say("{minutes} min", { minutes });
+    if (!minutes) return say("{hours} h", { hours });
+    return say("{hours} h {minutes} min", { hours, minutes });
+}
+export const AWAY_NEEDS_YOU = "Needs you";
+export const DECIDED_FOR_YOU = "Decided for you";
+export const LANDED = "Landed";
+/** Under Needs you: the calls are the queue docked above the composer. */
+export const answerBelow = (count: number, say: Say = english) =>
+    count === 1 ? say("Answer it in the card below") : say("Answer them in the card below");
+export const OVERRULE = "Overrule";
+export const UNDO = "Undo";
+export const OVERRULED = "Overruled";
+export const OVERRULED_UNDONE = "Overruled, then undone";
+export const STANDS_AGAIN = "It stands again";
+export const STOPPED_AUTO = "This stopped Auto's run, so it can't be put back";
+export const FROM_NOW_ON = "Decisions like this come to you from now on";
+/** What was decided, quoted, never as the person's own words. */
+export const quoted = (text: string, say: Say = english) => say("“{text}”", { text });
+/** When the week's count came: `Monday · 09:00`. */
+export function weekCame(at: number, say: Say = english): string {
+    const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+    const day = say(days[new Date(at).getDay()]);
+    const time = new Date(at).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false });
+    return say("{day} · {time}", { day, time });
+}
+/** The chief's count of a week, as the Mac words it. */
+export function weekCount(week: { decided: number; overruled: number; answered: number; asPicked: number }, say: Say = english): string {
+    const { decided, overruled } = week;
+    const first =
+        decided === 1
+            ? overruled === 0
+                ? say("Last week I decided 1 thing, and you overruled none.")
+                : say("Last week I decided 1 thing, and you overruled {overruled}.", { overruled })
+            : overruled === 0
+              ? say("Last week I decided {decided} things, and you overruled none.", { decided })
+              : say("Last week I decided {decided} things, and you overruled {overruled}.", { decided, overruled });
+    if (!week.answered) return first;
+    const second =
+        week.answered === 1
+            ? say("You answered {picked} of 1 call as I picked.", { picked: week.asPicked })
+            : say("You answered {picked} of {answered} calls as I picked.", { picked: week.asPicked, answered: week.answered });
+    return `${first} ${second}`;
+}
 
 // An assumption
 

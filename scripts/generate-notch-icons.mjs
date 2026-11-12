@@ -420,6 +420,7 @@ const PHONE_ICONS = [
   "IconPush",
   "IconRecord",
   "IconRefresh",
+  "IconReply",
   "IconResize",
   "IconRocket",
   "IconRotate",

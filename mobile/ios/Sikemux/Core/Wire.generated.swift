@@ -171,6 +171,7 @@ enum PhoneCall {
     enum MoveChatAccount {}
     enum OnScreen {}
     enum OpenChief {}
+    enum OverruleDecision {}
     enum Pairing {}
     enum Preferences {}
     enum ProjectEntries {}
@@ -192,6 +193,7 @@ enum PhoneCall {
     enum StashPrompt {}
     enum SteerQueued {}
     enum TakeStep {}
+    enum UndoOverrule {}
 }
 
 extension PhoneCall.AgentCatalog: PhoneCallable {
@@ -380,6 +382,12 @@ extension PhoneCall.OpenChief: PhoneCallable {
     typealias Answer = OpenedChief
 }
 
+extension PhoneCall.OverruleDecision: PhoneCallable {
+    static let method = "overruleDecision"
+    typealias Params = OverruleParams
+    typealias Answer = ProjectBoard
+}
+
 extension PhoneCall.Pairing: PhoneCallable {
     static let method = "pairing"
     typealias Params = NoParams
@@ -504,6 +512,12 @@ extension PhoneCall.TakeStep: PhoneCallable {
     static let method = "takeStep"
     typealias Params = TakeStepParams
     typealias Answer = WireNull
+}
+
+extension PhoneCall.UndoOverrule: PhoneCallable {
+    static let method = "undoOverrule"
+    typealias Params = UndoOverruleParams
+    typealias Answer = ProjectBoard
 }
 
 /// What the phone reads once it opens a sealed notification.
@@ -8052,6 +8066,15 @@ struct OpenedChief: Codable, Hashable, Sendable {
     var agentId: String
 }
 
+struct OverruleParams: Codable, Hashable, Sendable {
+    var project: String
+    /// The goal whose log keeps the decision; none for its project's own log.
+    var goal: Int?
+    var decision: Int
+    /// What the person wants instead, when they said.
+    var instead: String?
+}
+
 struct ProjectEntriesParams: Codable, Hashable, Sendable {
     var project: String
     var query: String?
@@ -8175,4 +8198,10 @@ struct StashedPrompt: Codable, Hashable, Sendable {
 struct TakeStepParams: Codable, Hashable, Sendable {
     var agentId: String
     var step: TurnStep
+}
+
+struct UndoOverruleParams: Codable, Hashable, Sendable {
+    var project: String
+    var goal: Int?
+    var decision: Int
 }

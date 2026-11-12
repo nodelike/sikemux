@@ -40,6 +40,10 @@ const SCENES = [
   { name: 'notes', route: `/device/${CORE}/chat/chat-notes` },
   { name: 'notes-top', route: `/device/${CORE}/chat/chat-notes`, scroll: -500 },
   { name: 'team', route: `/device/${CORE}/chat/chat-team` },
+  { name: 'chief-away-top', route: `/device/${CORE}/chat/chat-team`, scroll: -220, scrollAt: 0.2 },
+  { name: 'chief-away-mid', route: `/device/${CORE}/chat/chat-team`, scroll: -110, scrollAt: 0.2 },
+  { name: 'chief-lines', route: `/device/${CORE}/chat/chat-team`, scroll: -560, scrollAt: 0.2 },
+  { name: 'worker-told', route: `/device/${CORE}/chat/chat-refunds` },
   { name: 'asking', route: `/device/${CORE}/chat/chat-dark-mode` },
   { name: 'question', route: `/device/${CORE}/chat/chat-release` },
   { name: 'assumed', route: `/device/${CORE}/chat/chat-login-check` },
@@ -196,7 +200,7 @@ for (const scene of SCENES) {
     await page.waitForTimeout(800);
   }
   if (scene.scroll) {
-    await page.mouse.move(SCREEN.width / 2, (scene.height ?? SCREEN.height) * 0.7);
+    await page.mouse.move(SCREEN.width / 2, (scene.height ?? SCREEN.height) * (scene.scrollAt ?? 0.7));
     await page.mouse.wheel(0, scene.scroll);
     await page.waitForTimeout(800);
   }

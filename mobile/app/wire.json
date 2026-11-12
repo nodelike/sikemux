@@ -31,6 +31,7 @@
     "moveChatAccount",
     "onScreen",
     "openChief",
+    "overruleDecision",
     "pairing",
     "preferences",
     "projectEntries",
@@ -51,6 +52,7 @@
     "startSideChat",
     "stashPrompt",
     "steerQueued",
-    "takeStep"
+    "takeStep",
+    "undoOverrule"
   ]
 }

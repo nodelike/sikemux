@@ -266,6 +266,66 @@ enum CallWords {
     static func sendTo(_ name: String) -> String { String(localized: "Send to @\(name)") }
     /// Under the chief's row when a tap cannot reach the host to open its chat.
     static let chiefOffline = String(localized: "Not connected to this host yet, so its chief can't open.")
+    /// The composer's words in a worker's chat whose project's chief hears what is typed there.
+    static func sendToTold(_ name: String) -> String { String(localized: "Send to @\(name) · @Chief is told") }
+
+    // MARK: The chief's chat: what happened while the person was away, an Overrule, the week's count
+
+    static let whileAway = String(localized: "While you were away")
+    /// How long the person was away, `back - since`.
+    static func awayFor(_ milliseconds: Int) -> String {
+        let total = max(1, Int((Double(milliseconds) / 60_000).rounded()))
+        let (hours, minutes) = (total / 60, total % 60)
+        if hours == 0 { return String(localized: "\(minutes) min") }
+        if minutes == 0 { return String(localized: "\(hours) h") }
+        return String(localized: "\(hours) h \(minutes) min")
+    }
+    static let awayNeedsYou = String(localized: "Needs you")
+    static let decidedForYou = String(localized: "Decided for you")
+    static let landed = String(localized: "Landed")
+    /// Under Needs you: the calls are the queue docked above the composer.
+    static func answerBelow(_ count: Int) -> String {
+        count == 1
+            ? String(localized: "Answer it in the card below") : String(localized: "Answer them in the card below")
+    }
+    static let overrule = String(localized: "Overrule")
+    static let undo = String(localized: "Undo")
+    static let overruled = String(localized: "Overruled")
+    static let overruledUndone = String(localized: "Overruled, then undone")
+    static let standsAgain = String(localized: "It stands again")
+    static let stoppedAuto = String(localized: "This stopped Auto's run, so it can't be put back")
+    static let fromNowOn = String(localized: "Decisions like this come to you from now on")
+    /// What was decided, quoted, never as the person's own words.
+    static func quoted(_ text: String) -> String { String(localized: "“\(text)”") }
+    /// When the week's count came: `Monday · 09:00`.
+    static func weekCame(_ at: Date) -> String {
+        let days = [
+            String(localized: "Sunday"), String(localized: "Monday"), String(localized: "Tuesday"),
+            String(localized: "Wednesday"), String(localized: "Thursday"), String(localized: "Friday"),
+            String(localized: "Saturday"),
+        ]
+        let day = days[Calendar.current.component(.weekday, from: at) - 1]
+        let time = at.formatted(Date.FormatStyle().hour(.twoDigits(amPM: .omitted)).minute(.twoDigits))
+        return String(localized: "\(day) · \(time)")
+    }
+    /// The chief's count of a week, as the Mac words it.
+    static func weekCount(_ week: ChiefWeek) -> String {
+        let (decided, overruled) = (Int(week.decided), Int(week.overruled))
+        let first: String =
+            switch (decided, overruled) {
+            case (1, 0): String(localized: "Last week I decided 1 thing, and you overruled none.")
+            case (1, _): String(localized: "Last week I decided 1 thing, and you overruled \(overruled).")
+            case (_, 0): String(localized: "Last week I decided \(decided) things, and you overruled none.")
+            default: String(localized: "Last week I decided \(decided) things, and you overruled \(overruled).")
+            }
+        let (answered, picked) = (Int(week.answered), Int(week.asPicked))
+        if answered == 0 { return first }
+        let second =
+            answered == 1
+            ? String(localized: "You answered \(picked) of 1 call as I picked.")
+            : String(localized: "You answered \(picked) of \(answered) calls as I picked.")
+        return "\(first) \(second)"
+    }
 
     // MARK: An assumption
 
