@@ -485,6 +485,9 @@ pub struct AgentRollup {
 pub struct RemoteAgent {
     pub agent_id: String,
     pub name: String,
+    /// What its chat is called on its host, once it has a title of its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
     /// What this host calls the host it runs on.
     pub host: String,
     pub host_id: String,

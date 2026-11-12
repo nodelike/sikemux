@@ -1738,7 +1738,9 @@ fn untitled(saved: &Saved, agent: &WorkspaceAgent) -> bool {
 
 pub(crate) fn retitle(core: &Core, agent_id: &str, title: Option<String>, stand_in: bool) {
     if let Some(title) = title {
-        core.workspaces.note_title(agent_id, &title, stand_in);
+        if core.workspaces.note_title(agent_id, &title, stand_in) {
+            super::hosts::route::titled(core, agent_id);
+        }
         if let Some(own) = core.workspaces.own_title(agent_id).filter(|_| !stand_in) {
             super::goal_summary::chat_titled(core, agent_id, &own);
         }

@@ -60,9 +60,11 @@ pub(crate) struct Excerpt {
 
 const MAX_TITLE_CHARS: usize = 256;
 
-/// A title as the chat shows it: one line of bounded length without markdown's marks, or
-/// none when blank. Text that is only a code block keeps its characters.
+/// A title as the chat shows it: one line of bounded length without markdown's marks or the
+/// `[Image #n]` tags that stand for attached pictures, or none when blank. Text that is only a
+/// code block keeps its characters.
 pub(crate) fn title(text: &str) -> Option<String> {
+    let text = &without_image_tags(text);
     let words = sikemux_markdown::words(text);
     let text = if words.trim().is_empty() {
         text
@@ -77,6 +79,22 @@ pub(crate) fn title(text: &str) -> Option<String> {
         .take(MAX_TITLE_CHARS)
         .collect();
     (!title.is_empty()).then_some(title)
+}
+
+fn without_image_tags(text: &str) -> String {
+    const OPEN: &str = "[Image #";
+    let mut kept = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(at) = rest.find(OPEN) {
+        let after = &rest[at + OPEN.len()..];
+        let digits = after.len() - after.trim_start_matches(|c: char| c.is_ascii_digit()).len();
+        let tag = digits > 0 && after[digits..].starts_with(']');
+        let end = at + OPEN.len() + if tag { digits + 1 } else { 0 };
+        kept.push_str(&rest[..if tag { at } else { end }]);
+        rest = &rest[end..];
+    }
+    kept.push_str(rest);
+    kept
 }
 
 const RUNNING_TOOLS: &[&str] = &[

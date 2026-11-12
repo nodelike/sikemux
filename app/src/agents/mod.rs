@@ -992,11 +992,8 @@ fn remote_row(worker: &RemoteAgent, cx: &mut Context<Workbench>) -> AnyElement {
     };
     let reachable = worker.reachable;
     let host = &worker.host;
-    let title = format!(
-        "@{} on {host}{}",
-        worker.name,
-        if reachable { "" } else { ", out of reach" }
-    );
+    let handle = format!("@{}", worker.name);
+    let title = worker.title.clone().unwrap_or_else(|| handle.clone());
     let status = reachable.then_some(worker.status);
     let tip = if reachable {
         format!("Runs on {host}")
@@ -1029,6 +1026,10 @@ fn remote_row(worker: &RemoteAgent, cx: &mut Context<Workbench>) -> AnyElement {
                     ui::turn_mark(&worker.agent_id, worker.turn.as_ref())
                         .or_else(|| ui::status_mark(&worker.agent_id, status, cx)),
                 )
+            })
+            .child(tag(host.clone().into(), cx))
+            .when(worker.title.is_some(), |row| {
+                row.child(ui::meta(handle, cx).pl(SPACE_2).pr(SPACE_1))
             }),
         )
         .children(team_lines(team, false, cx))

@@ -34,6 +34,9 @@ pub(crate) struct Foreign {
     /// The key of the host it runs on.
     pub host: String,
     pub name: String,
+    /// What its chat is called on its host, once it has a title of its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
     pub cli: String,
     /// The project here its team works in.
     pub project: String,

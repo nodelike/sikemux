@@ -160,7 +160,7 @@ pub(crate) fn listed(core: &Core) -> Vec<Listed> {
         name: Some(foreign.name),
         project: foreign.project,
         cli: foreign.cli,
-        title: None,
+        title: foreign.title,
         status: foreign.status,
         parent: foreign.parent,
         active_at: foreign.active_at,
