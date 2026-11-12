@@ -3359,6 +3359,8 @@ struct SubagentCard: Codable, Hashable, Sendable {
     var calls: Int
     /// The last tool it called, which says what it is up to.
     var lastTool: ToolCall?
+    /// The person can stop it alone, leaving the chat that started it at work.
+    var canStop: Bool?
 }
 
 enum SubagentState: String, Codable, Hashable, Sendable {

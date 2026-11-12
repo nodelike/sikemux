@@ -2223,6 +2223,7 @@ impl Fold {
             tokens: None,
             calls: 0,
             last_tool: None,
+            can_stop: update.get("canStop").and_then(Value::as_bool) == Some(true),
         };
         let Some((row, part)) = self.append_part(
             index,

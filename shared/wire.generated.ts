@@ -2139,6 +2139,8 @@ export interface SubagentCard {
     calls: number;
     /** The last tool it called, which says what it is up to. */
     lastTool?: ToolCall;
+    /** The person can stop it alone, leaving the chat that started it at work. */
+    canStop?: boolean;
 }
 
 export type SubagentState = "running" | "completed" | "failed" | "cancelled" | "disconnected";

@@ -1616,6 +1616,9 @@ pub struct SubagentCard {
     /// The last tool it called, which says what it is up to.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_tool: Option<ToolCall>,
+    /// The person can stop it alone, leaving the chat that started it at work.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub can_stop: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

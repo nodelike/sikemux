@@ -1559,8 +1559,9 @@ impl Reader {
             text(message, "description"),
         ])
         .unwrap_or_else(|| states::UNNAMED_TASK.to_owned());
-        self.sink
-            .update(&parent_session, states::spawned(&session_id, &name, &task));
+        let mut spawned = states::spawned(&session_id, &name, &task);
+        spawned["canStop"] = json!(true);
+        self.sink.update(&parent_session, spawned);
         let background = message
             .get("is_backgrounded")
             .and_then(Value::as_bool)
@@ -1717,9 +1718,18 @@ impl Reader {
         self.sink.update(&self.data.session_id, update);
     }
 
-    /// A task the person stopped from the app, said at once rather than when
-    /// Claude Code gets round to it.
+    /// A task or subagent the person stopped from the app, said at once rather
+    /// than when Claude Code gets round to it.
     pub fn task_stopped(&mut self, task_id: &str) {
+        if let Some(child) = self.data.subagents.get_mut(task_id) {
+            if !child.ended {
+                child.ended = true;
+                let parent = child.parent.clone();
+                self.sink
+                    .update(&parent, Subagent::Cancelled.update(task_id));
+            }
+            return;
+        }
         let Some(task) = self.data.tasks.get_mut(task_id).filter(|task| !task.ended) else {
             return;
         };

@@ -494,7 +494,7 @@ fn running(agent: &AgentRow, chat: &Chat, cx: &mut Context<Workbench>) -> Option
     rows.extend(
         subagents
             .iter()
-            .map(|card| subagent_row(agent, card, &t, &tints)),
+            .map(|card| subagent_row(agent, card, chat, &t, &tints, cx)),
     );
     for (kind, group) in &kinds {
         for task in group {
@@ -636,7 +636,14 @@ fn work_row(
         )
 }
 
-fn subagent_row(agent: &AgentRow, card: &SubagentCard, t: &Tokens, tints: &Tints) -> AnyElement {
+fn subagent_row(
+    agent: &AgentRow,
+    card: &SubagentCard,
+    chat: &Chat,
+    t: &Tokens,
+    tints: &Tints,
+    cx: &mut Context<Workbench>,
+) -> AnyElement {
     let activity = match &card.last_tool {
         Some(tool) => format!("{} {}", word(&tool.row), tool.row.target)
             .trim()
@@ -650,9 +657,14 @@ fn subagent_row(agent: &AgentRow, card: &SubagentCard, t: &Tokens, tints: &Tints
             if card.calls == 1 { "call" } else { "calls" }
         )
     });
-    let working = ui::icon(Icon::Hourglass, 11.)
-        .text_color(tints.agent)
-        .into_any_element();
+    let end = if card.can_stop {
+        let stopping = chat.stopping.contains(&card.session_id);
+        stop(&agent.id, &card.session_id, &card.name, stopping, t, cx)
+    } else {
+        ui::icon(Icon::Hourglass, 11.)
+            .text_color(tints.agent)
+            .into_any_element()
+    };
     let activity = shimmer(
         SharedString::from(format!("subagent-{}", card.session_id)),
         activity,
@@ -663,7 +675,7 @@ fn subagent_row(agent: &AgentRow, card: &SubagentCard, t: &Tokens, tints: &Tints
         card.name.clone(),
         Some((activity, false)),
         cost([tokens(card.tokens), calls]),
-        Some(working),
+        Some(end),
     )
     .into_any_element()
 }
@@ -685,7 +697,7 @@ fn task_row_of(
     let stopping = chat.stopping.contains(&task.async_task_id);
     let stop = task
         .can_stop
-        .then(|| stop(&agent.id, task, stopping, t, cx));
+        .then(|| stop(&agent.id, &task.async_task_id, &task.name, stopping, t, cx));
     let finished = task
         .agents
         .iter()
@@ -737,14 +749,15 @@ fn task_row_of(
 
 fn stop(
     agent: &str,
-    task: &AsyncTask,
+    id: &str,
+    name: &str,
     stopping: bool,
     t: &Tokens,
     cx: &mut Context<Workbench>,
 ) -> AnyElement {
-    let (agent, id, danger) = (agent.to_owned(), task.async_task_id.clone(), t.danger);
+    let (agent, id, danger) = (agent.to_owned(), id.to_owned(), t.danger);
     BaseButton::new(SharedString::from(format!("stop:{id}")))
-        .accessibility_label(format!("Stop {}", task.name))
+        .accessibility_label(format!("Stop {name}"))
         .size(px(18.))
         .flex()
         .items_center()
