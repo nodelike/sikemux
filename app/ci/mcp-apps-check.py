@@ -5,9 +5,10 @@ python3 -I ci/mcp-apps-check.py --app APP --core CORE --agent FAKE_AGENT --seed 
 The arguments are desk-checks.py's, with FAKE_CLAUDE the sikemux-fake-claude binary. It seeds two
 Claude chats: `tools N`, N calls to a tool with no app, and `apps N`, N calls whose tool names an
 MCP App, each app calling its server once as it opens. In each it scrolls from the end to the
-start and back, timing the gaps between frames and sampling the memory of the app and of the
+start and back, timing the gaps between frames as it opens and as it scrolls and sampling the memory of the app and of the
 WebKit content processes, and captures the window. Prints each run as a JSON line. Exits 1 when
-the apps chat shows no app, its apps never reach their server, it runs more web content processes
+the apps chat shows no app, its first apps stall a frame past 50 ms as they appear where the plain
+chat's opening does not, its apps never reach their server, it runs more web content processes
 than the app's limit, or its frames or memory fall behind the plain chat's past the margins below.
 """
 
@@ -76,6 +77,10 @@ class Sampler(threading.Thread):
         }
 
 
+def frames(run):
+    return next((json.loads(line.split(" ", 2)[2]) for line in run.drive("frames") if line.startswith("did: frames ")), {})
+
+
 def seed(run, claude, prompt, calls):
     env = {**run.env, "FAKE_PROJECT": str(run.root / "project"), "FAKE_PROVIDER": "claude", "FAKE_PAUSE_MS": "500"}
     seeded = subprocess.run([run.seed_exe, run.socket, claude, prompt], env=env, capture_output=True, text=True, timeout=60)
@@ -102,8 +107,8 @@ def scroll_through(run, chat, label):
         for flick in range(28):
             flicks.append(round((time.monotonic() - started) * 1000))
             run.drive(f"scroll {x:.0f} {y:.0f} 0 {direction * 420} 14 momentum", "wait 0.25")
-    frames = next((json.loads(line.split(" ", 2)[2]) for line in run.drive("frames") if line.startswith("did: frames ")), {})
-    frames["flicks"] = flicks
+    timed = frames(run)
+    timed["flicks"] = flicks
     run.drive("wait 2.5")
     memory = sampler.stop()
     run.capture(f"{label}-end")
@@ -113,7 +118,7 @@ def scroll_through(run, chat, label):
         run.drive(f"scroll {x:.0f} {y:.0f} 0 420 14 momentum", "wait 0.25")
     run.drive("wait 2")
     run.capture(f"{label}-scrolling")
-    return {"chat": label, **frames, **memory}
+    return {"chat": label, **timed, **memory}
 
 
 def main():
@@ -136,19 +141,25 @@ def main():
         claude.write_bytes(Path(options.claude).read_bytes())
         claude.chmod(0o755)
 
+        run.drive("frames start")
         plain_chat = seed(run, str(claude), f"tools {options.calls}", options.calls)
-        run.drive("wait 3")
+        run.drive("wait 4")
+        plain_open = frames(run)
         run.capture("plain-start")
         plain = scroll_through(run, plain_chat, "plain")
 
+        run.drive("frames start")
         apps_chat = seed(run, str(claude), f"apps {options.calls}", options.calls)
         run.drive("wait 4")
+        apps_open = frames(run)
         run.capture("apps-start")
         drawn = [name for name in ((run.state() or {}).get("spots") or {}) if name.startswith("chat-app-")]
         apps = scroll_through(run, apps_chat, "apps")
         print(json.dumps(plain), flush=True)
         print(json.dumps(apps), flush=True)
-        (out / "mcp-apps.json").write_text(json.dumps({"plain": plain, "apps": apps}, indent=2))
+        print(json.dumps({"plainOpening": plain_open, "appsOpening": apps_open}), flush=True)
+        (out / "mcp-apps.json").write_text(json.dumps(
+            {"plain": plain, "apps": apps, "plainOpening": plain_open, "appsOpening": apps_open}, indent=2))
 
         kept = list((run.root / "data/mcp-apps").glob("*.json"))
         reached = calls_log.read_text().splitlines() if calls_log.exists() else []
@@ -167,6 +178,9 @@ def main():
                 failures.append(f"slowest twentieth of frames {apps['p95']:.1f} ms against {plain['p95']:.1f} ms")
             if apps["over50"] > plain["over50"] + LONG_FRAMES:
                 failures.append(f"{apps['over50']} frames past 50 ms against {plain['over50']}")
+            if apps_open.get("over50", 0) > plain_open.get("over50", 0):
+                failures.append(f"{apps_open.get('over50')} frames past 50 ms as the first apps appeared, "
+                                f"against {plain_open.get('over50')} as the plain chat opened")
             if apps["totalMbMost"] > plain["totalMbMost"] + MEMORY_MB:
                 failures.append(f"{apps['totalMbMost']} MB against {plain['totalMbMost']} MB")
         print(f"apps kept {len(kept)}, cards drawn at the end {len(drawn)}, app calls that reached the server {len(reached)}", flush=True)
