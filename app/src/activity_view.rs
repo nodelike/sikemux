@@ -313,7 +313,7 @@ pub(crate) fn calendar(
         .enumerate()
         .map(|(index, (shown, label))| {
             let (this, shown) = (this.clone(), *shown);
-            Toggle::new(("metric", index), crate::i18n::tr(*label), shown == metric).on_click(
+            Toggle::new(("metric", index), crate::i18n::tr(label), shown == metric).on_click(
                 move |_, _, cx| {
                     this.update(cx, |bench, cx| {
                         bench.calendar.metric = shown;

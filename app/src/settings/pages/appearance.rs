@@ -758,7 +758,7 @@ pub fn render(
         (count > 0).then(|| {
             (
                 Some(*source),
-                SharedString::from(crate::i18n::tr(*label)),
+                SharedString::from(crate::i18n::tr(label)),
                 Some(count as u64),
             )
         })
@@ -942,7 +942,7 @@ pub fn render(
         let kind = SOURCES
             .iter()
             .find(|(source, _)| *source == worn.source)
-            .map_or("", |(_, label)| crate::i18n::tr(*label));
+            .map_or("", |(_, label)| crate::i18n::tr(label));
         div()
             .flex()
             .items_center()

@@ -256,7 +256,7 @@ pub fn render(
             "action-placement",
             PLACEMENTS
                 .iter()
-                .map(|(_, icon, name)| (*icon, SharedString::from(crate::i18n::tr(*name))))
+                .map(|(_, icon, name)| (*icon, SharedString::from(crate::i18n::tr(name))))
                 .collect(),
             chosen,
         )
@@ -274,7 +274,7 @@ pub fn render(
         .children(CONTEXTS.iter().map(|context| {
             let this = this.clone();
             Checkbox::new(SharedString::from(format!("action-context-{context}")))
-                .label(crate::i18n::tr(*context))
+                .label(crate::i18n::tr(context))
                 .checked(fields.contexts.iter().any(|chosen| chosen == context))
                 .on_click(move |on: &bool, _, cx| {
                     let on = *on;

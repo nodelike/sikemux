@@ -360,7 +360,7 @@ pub fn render(
                             div()
                                 .text_size(crate::theme::ui_text(TEXT_2XS))
                                 .text_color(t.text_secondary)
-                                .child(crate::i18n::tr(*category)),
+                                .child(crate::i18n::tr(category)),
                         )
                         .child(
                             div()

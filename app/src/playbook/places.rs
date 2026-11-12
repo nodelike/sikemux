@@ -284,7 +284,7 @@ fn level_word(level: Level) -> &'static str {
     LEVELS
         .iter()
         .find(|(each, ..)| *each == level)
-        .map_or(t!("Mine"), |(_, _, word, _)| crate::i18n::tr(*word))
+        .map_or(t!("Mine"), |(_, _, word, _)| crate::i18n::tr(word))
 }
 
 /// The place's level as a word, whose menu says what each level lets agents do.
@@ -310,7 +310,7 @@ fn level_select(
         LEVELS
             .iter()
             .map(|(_, key, word, hint)| {
-                Pick::new(*key, crate::i18n::tr(*word)).hint(crate::i18n::tr(*hint))
+                Pick::new(*key, crate::i18n::tr(word)).hint(crate::i18n::tr(hint))
             })
             .collect(),
         chosen,

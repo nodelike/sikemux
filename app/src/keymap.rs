@@ -431,7 +431,7 @@ pub fn reserved(keys: &str) -> Option<&'static str> {
     reserved
         .iter()
         .find(|(taken, _)| *taken == keys)
-        .map(|(_, what)| crate::i18n::tr(*what))
+        .map(|(_, what)| crate::i18n::tr(what))
 }
 
 /// A binding in the table's spelling, `Meta+Shift+KeyP`, as GPUI writes it, `cmd-shift-p`.

@@ -89,7 +89,7 @@ fn named(preset: &str) -> (&'static str, Icon) {
         .iter()
         .find(|(known, ..)| *known == preset)
         .map_or((t!("Fit"), Icon::Resize), |(_, name, icon)| {
-            (crate::i18n::tr(*name), *icon)
+            (crate::i18n::tr(name), *icon)
         })
 }
 
@@ -158,7 +158,7 @@ pub(super) fn chip(
             let fit = std::iter::once((None, t!("Fit"), Icon::Resize));
             let fixed = WIDTHS
                 .iter()
-                .map(|(preset, name, icon)| (Some(*preset), crate::i18n::tr(*name), *icon));
+                .map(|(preset, name, icon)| (Some(*preset), crate::i18n::tr(name), *icon));
             for (preset, name, icon) in fit.chain(fixed) {
                 let size = preset.and_then(Viewport::preset);
                 let (bench, agent, tab_id) = (bench.clone(), agent.clone(), tab_id.clone());
@@ -293,7 +293,7 @@ pub(super) fn all(
                     .gap(SPACE_1H)
                     .cursor_pointer()
                     .group("desk-width-picture")
-                    .child(label(crate::i18n::tr(*name), after))
+                    .child(label(crate::i18n::tr(name), after))
                     .child(
                         div()
                             .w_full()

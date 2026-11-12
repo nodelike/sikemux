@@ -251,7 +251,7 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
                                 }
                                 cx.notify();
                             }))
-                            .child(crate::i18n::tr(*words))
+                            .child(crate::i18n::tr(words))
                     })),
             ),
     };

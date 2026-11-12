@@ -1147,7 +1147,7 @@ fn repeats(when: &TriggerWhen) -> Option<String> {
             days => days
                 .iter()
                 .filter_map(|day| WEEKDAYS.get(usize::from(*day)))
-                .map(|day| crate::i18n::tr(*day))
+                .map(|day| crate::i18n::tr(day))
                 .collect::<Vec<_>>()
                 .join(" "),
         }),

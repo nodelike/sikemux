@@ -55,6 +55,7 @@ fn retag(bench: &Workbench, place: &Place, agent: &str, tags: Vec<String>) {
 
 /// The agent menu's Tags: each tag in use, checked when `agent` has it, and one to add a new
 /// tag by name.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn menu_item(
     popup: PopupMenu,
     bench: WeakEntity<Workbench>,

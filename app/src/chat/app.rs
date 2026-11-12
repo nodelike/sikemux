@@ -722,7 +722,7 @@ fn ask(id: &str, message: Value, wake: &Wake, cx: &mut App) {
             Ok(result) => (true, result),
             Err(error) => (false, Value::String(error)),
         };
-        let _ = cx.update(|cx| {
+        cx.update(|cx| {
             if let Some(view) = apps(cx).view_of(&id) {
                 view.run(&format!(
                     "window.__sikemuxApp && window.__sikemuxApp.reply({asked}, {ok}, {value})"

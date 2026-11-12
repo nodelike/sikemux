@@ -396,7 +396,7 @@ fn price_form(
                                     div()
                                         .text_size(crate::theme::ui_text(TEXT_2XS))
                                         .text_color(t.text_tertiary)
-                                        .child(crate::i18n::tr(*label)),
+                                        .child(crate::i18n::tr(label)),
                                 )
                                 .child(ui::Field::new(input))
                         }),

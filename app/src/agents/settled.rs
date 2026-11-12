@@ -188,6 +188,7 @@ fn when(at: u64) -> String {
 
 /// Snooze and Settle in an agent's menu, or Wake and Restore once it is out of the main list,
 /// asked of the core at `place`.
+#[allow(clippy::too_many_arguments)]
 pub fn menu_items(
     popup: PopupMenu,
     bench: WeakEntity<Workbench>,

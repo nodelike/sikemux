@@ -134,7 +134,7 @@ pub fn read_names(bench: &Workbench, window: &mut Window, cx: &mut Context<Workb
             let names = Choice::new(
                 NAMES
                     .iter()
-                    .map(|(_, label)| crate::i18n::tr(*label))
+                    .map(|(_, label)| crate::i18n::tr(label))
                     .collect(),
                 chosen,
                 |bench, at, _| {
@@ -298,13 +298,13 @@ pub fn boundary(
                         } else {
                             t.text_primary
                         })
-                        .child(crate::i18n::tr(*name)),
+                        .child(crate::i18n::tr(name)),
                 )
                 .child(
                     div()
                         .text_size(crate::theme::ui_text(TEXT_2XS_H))
                         .text_color(t.text_tertiary)
-                        .child(crate::i18n::tr(*detail)),
+                        .child(crate::i18n::tr(detail)),
                 )
                 .on_click(move |_, _, cx| {
                     this.update(cx, |bench, _| {

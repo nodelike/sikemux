@@ -137,7 +137,7 @@ fn means_row(
         "playbook-landed-means",
         MEANS
             .iter()
-            .map(|(_, word)| (SharedString::from(crate::i18n::tr(*word)), None))
+            .map(|(_, word)| (SharedString::from(crate::i18n::tr(word)), None))
             .collect(),
         chosen.unwrap_or(usize::MAX),
     )
