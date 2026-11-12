@@ -165,6 +165,8 @@ fn list(
                 AgentStatus::Broken { .. } => ui::Tone::Failed,
             };
             let status = div()
+                .min_w_0()
+                .overflow_hidden()
                 .flex()
                 .items_center()
                 .gap(SPACE_1H)
@@ -176,6 +178,8 @@ fn list(
                 .child(ui::dot(tone, cx))
                 .child(
                     div()
+                        .min_w_0()
+                        .truncate()
                         .text_size(crate::theme::ui_text(TEXT_2XS))
                         .text_color(t.text_secondary)
                         .child(status_label(&agent.status)),

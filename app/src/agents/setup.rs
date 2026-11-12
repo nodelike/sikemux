@@ -144,6 +144,21 @@ pub enum Installing {
 }
 
 impl Setup {
+    /// The agents found on the host at `place`, once its core has said.
+    pub fn on(&self, place: &Place) -> Option<&[Found]> {
+        match place {
+            Place::This => self.found.as_deref(),
+            Place::Account(host) => (self.elsewhere.iter())
+                .find(|each| &each.host == host)
+                .map(|each| each.found.as_slice()),
+        }
+    }
+
+    /// Whether the host at `place` has listed its agents.
+    pub fn knows(&self, place: &Place) -> bool {
+        self.on(place).is_some()
+    }
+
     /// The sheet running `session`, shown or not.
     fn running(&mut self, session: SessionId) -> Option<&mut Sheet> {
         self.sheet

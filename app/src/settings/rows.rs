@@ -185,7 +185,8 @@ pub fn row_with(
     row_parts(mark, label.into(), about, control, cx)
 }
 
-/// A row whose name and line under it are drawn by the page.
+/// A row whose name and line under it are drawn by the page. The name keeps its width;
+/// where the row is too narrow, the control gives way.
 pub fn row_parts(
     mark: Option<AnyElement>,
     label: impl IntoElement,
@@ -206,19 +207,19 @@ pub fn row_parts(
         .child(
             div()
                 .flex_1()
-                .min_w_0()
                 .flex()
                 .flex_col()
                 .gap(SPACE_0)
                 .child(
                     div()
+                        .whitespace_nowrap()
                         .text_size(crate::theme::ui_text(TEXT_SM))
                         .text_color(t.text_primary)
                         .child(label),
                 )
-                .children(about),
+                .children(about.map(|about| div().min_w_0().child(about))),
         )
-        .child(div().flex_none().child(control))
+        .child(div().min_w_0().overflow_hidden().child(control))
 }
 
 /// A switch that sets a boolean preference, as `change` says.

@@ -102,6 +102,8 @@ enum Act {
     AddProvider,
     /// Shows or folds away the older releases of the agent's models.
     Fold,
+    /// Updates the chat's agent on its host, for the models its newest release brings.
+    Update,
 }
 
 #[derive(Clone)]
@@ -192,6 +194,9 @@ impl Menu {
             }
         });
         Self::read_routes(picked.target.clone(), picked.model_provider.clone(), cx);
+        if !bench.read(cx).agent_setup.knows(picked.target.place()) {
+            bench.update(cx, |bench, cx| crate::agents::setup::read(bench, cx));
+        }
         Self {
             bench: bench.downgrade(),
             picked,
@@ -348,6 +353,9 @@ impl Menu {
                 })),
             }
         }
+        if let Some(update) = self.update_row(bench) {
+            options.push(update);
+        }
         if folded && query.is_empty() {
             options.push(Row {
                 group: 0,
@@ -406,7 +414,7 @@ impl Menu {
             });
         }
         options.retain(|option| {
-            matches!(option.act, Act::AddProvider | Act::Fold)
+            matches!(option.act, Act::AddProvider | Act::Fold | Act::Update)
                 || format!(
                     "{} {} {}",
                     option.label,
@@ -436,6 +444,17 @@ impl Menu {
             }
             Act::Move(going) => (self.picked.moving)(going, window, cx),
             Act::Fold => {}
+            Act::Update => {
+                let (place, kind) = (
+                    self.picked.target.place().clone(),
+                    self.picked.provider.clone(),
+                );
+                if let Some(bench) = self.bench.upgrade() {
+                    bench.update(cx, |bench, cx| {
+                        crate::agents::setup::update(bench, place, vec![kind], cx)
+                    });
+                }
+            }
             Act::AddProvider => {
                 let chat = (!self.picked.locked).then(|| self.picked.moving.clone());
                 if let Some(bench) = self.bench.upgrade() {
@@ -443,6 +462,29 @@ impl Menu {
                 }
             }
         }
+    }
+
+    /// "Update Claude to use Fable 5.2", while the chat's agent on its host has a newer release
+    /// that brings models, or is updating to one.
+    fn update_row(&self, bench: &Workbench) -> Option<Row> {
+        let agent = bench
+            .agent_setup
+            .on(self.picked.target.place())?
+            .iter()
+            .find(|agent| agent.kind == self.picked.provider)?;
+        let label = match agent.updating_now() {
+            true => format!("Updating {}…", agent.label),
+            false if agent.unlocks.is_empty() || agent.update_to().is_none() => return None,
+            false => format!("Update {} to use {}", agent.label, agent.unlocks.join(", ")),
+        };
+        Some(Row {
+            group: 0,
+            mark: None,
+            label,
+            meta: agent.latest.clone(),
+            current: false,
+            act: Act::Update,
+        })
     }
 
     /// Whether the chat runs on this host, where an agent it moves to can be installed.
@@ -559,7 +601,7 @@ impl Menu {
         this: &Entity<Self>,
     ) -> AnyElement {
         let (menu, act) = (this.clone(), row.act.clone());
-        let adds = matches!(row.act, Act::AddProvider | Act::Fold);
+        let adds = matches!(row.act, Act::AddProvider | Act::Fold | Act::Update);
         div()
             .id(("model-option", at))
             .flex()
@@ -587,6 +629,7 @@ impl Menu {
                     ui::icon(
                         match row.act {
                             Act::Fold => Icon::Chevron,
+                            Act::Update => Icon::Download,
                             _ => Icon::Plus,
                         },
                         13.,
