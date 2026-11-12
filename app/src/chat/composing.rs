@@ -474,8 +474,7 @@ pub fn drafting(
         .filter(|(_, at)| at.elapsed() < attach::FRESH)
         .map(|(path, _)| path.as_path());
     let tiles = attach::tiles(
-        &composing.attachments,
-        fresh,
+        (&composing.attachments, fresh),
         &composing.context,
         remove,
         forget,

@@ -1149,9 +1149,9 @@ fn chip_words(id: &str, label: &SharedString) -> (SharedString, Option<SharedStr
 
 /// The files going with the message, as tiles: a picture's preview or a file's icon, its
 /// number, and a way to take it off; then the chats and issues it carries, as chips.
+/// `attachments` are the files going, with the one just attached, whose tile flashes.
 pub fn tiles(
-    attachments: &[PathBuf],
-    fresh: Option<&Path>,
+    (attachments, fresh): (&[PathBuf], Option<&Path>),
     context: &[ChatContext],
     remove: impl Fn(usize, &mut Window, &mut App) + Clone + 'static,
     forget: impl Fn(usize, &mut Window, &mut App) + Clone + 'static,
