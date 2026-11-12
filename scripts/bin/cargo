@@ -14,6 +14,7 @@ LIMIT_VARIABLE = "SIKEMUX_CARGO_RUNS"
 PRIORITY_VARIABLE = "SIKEMUX_CARGO_PRIORITY"
 FINAL_CHECKS = {"clippy", "nextest", "t", "test"}
 FINAL_HEAD_START = 15 * 60
+ADMIT_GAP = 20
 SLOTS = os.path.expanduser("~/.cache/sikemux-cargo")
 COMPILING = {"b", "build", "c", "check", "clippy", "d", "doc", "fix", "rustc", "rustdoc"}
 COMPILING_THEN_RUNNING = {"bench", "r", "run", "t", "test"}
@@ -74,10 +75,18 @@ def runs_allowed(running):
     override = limit_override()
     if override:
         return override
-    by_cores = round((os.cpu_count() or 1) / JOBS_PER_RUN)
+    cores = os.cpu_count() or 1
     memory = available_memory()
-    by_memory = by_cores if memory is None else running + memory // BYTES_PER_RUN
-    return max(1, min(by_cores, by_memory))
+    if memory is None:
+        return max(1, round(cores / JOBS_PER_RUN))
+    return max(1, min(cores, running + memory // BYTES_PER_RUN))
+
+
+def admitted_lately():
+    try:
+        return time.time() - os.path.getmtime(os.path.join(SLOTS, "admitted")) < ADMIT_GAP
+    except OSError:
+        return False
 
 
 def run_is_final(name):
@@ -119,7 +128,10 @@ def free_slot():
             slot.close()
             running += 1
     allowed = runs_allowed(running)
-    mine = free.pop(0) if running < allowed and free else None
+    paced = running > 0 and admitted_lately() and not limit_override()
+    mine = free.pop(0) if running < allowed and free and not paced else None
+    if mine:
+        open(os.path.join(SLOTS, "admitted"), "w").close()
     for slot in free:
         slot.close()
     return mine, running, allowed
@@ -149,7 +161,7 @@ def take_slot(final):
                 print(f"cargo: queued behind {ahead} waiting cargo runs; it starts by itself when its turn comes.", file=sys.stderr)
             elif not told:
                 print(
-                    f"cargo: queued: {running} cargo runs are building and this machine takes {allowed} at once."
+                    f"cargo: queued: {running} cargo runs are building and free memory takes {allowed} at once, started 20s apart."
                     f" It starts by itself when one finishes; {LIMIT_VARIABLE} sets the limit.",
                     file=sys.stderr,
                 )
@@ -208,9 +220,12 @@ def main():
     cache = next(filter(None, (shutil.which(name, path=path) for name in COMPILER_CACHES)), None)
     if cache and "RUSTC_WRAPPER" not in env:
         env["RUSTC_WRAPPER"] = cache
+    policy = shutil.which("taskpolicy") if sys.platform == "darwin" and "SIKEMUX_AGENT_ID" in env else None
+    if policy:
+        command = [policy, "-c", "utility", *command]
     name = subcommand(args)
     if "-h" in args or "--help" in args or name not in COMPILING | COMPILING_THEN_RUNNING:
-        os.execve(cargo, command, env)
+        os.execve(command[0], command, env)
     try:
         slot = take_slot(run_is_final(name))
     except KeyboardInterrupt:
