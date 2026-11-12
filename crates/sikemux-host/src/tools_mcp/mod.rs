@@ -8,6 +8,7 @@
 //! answer is shown. This binary's own copy is used only when Sikemux cannot be
 //! reached.
 
+mod bound;
 mod family;
 mod harness;
 mod manifest;
@@ -713,8 +714,14 @@ fn invalid(message: &str) -> Value {
 
 fn answer(tool: &Tool, result: Result<Value, String>) -> Value {
     match result {
-        Ok(value) => content(content_for(tool.answer.as_deref(), &value), false),
-        Err(message) => content(vec![text(&message)], true),
+        Ok(value) if tool.answer.is_some() => {
+            content(content_for(tool.answer.as_deref(), &value), false)
+        }
+        Ok(value) => content(
+            content_for(None, &bound::bounded(value, |name| tool.takes(name))),
+            false,
+        ),
+        Err(message) => content(vec![text(&bound::bounded_text(&message))], true),
     }
 }
 
