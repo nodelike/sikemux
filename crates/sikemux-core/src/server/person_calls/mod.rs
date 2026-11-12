@@ -973,6 +973,35 @@ pub(crate) async fn answer_questions(
     peer: &Peer,
     given: questions::AnswersParams,
 ) -> CoreResult<()> {
+    let answered: Vec<&str> = given
+        .answers
+        .iter()
+        .map(|params| params.id.as_str())
+        .collect();
+    let mut joined = Vec::new();
+    for params in &given.answers {
+        let Some(call) = core
+            .person_calls
+            .id_of(&Source::Question(params.id.clone()))
+        else {
+            continue;
+        };
+        let waiting = core.person_calls.questions_of(&call);
+        for id in waiting
+            .into_iter()
+            .filter(|id| !answered.contains(&id.as_str()))
+        {
+            joined.push(AnswerParams {
+                id,
+                answer: params.answer.clone(),
+                paths: params.paths.clone(),
+                choice: params.choice,
+                choices: params.choices.clone(),
+                fine: params.fine,
+                ..AnswerParams::default()
+            });
+        }
+    }
     let mut taken = Vec::new();
     for params in &given.answers {
         let taken_now = answered_before(
@@ -1005,35 +1034,6 @@ pub(crate) async fn answer_questions(
                     .for_each(|id: &String| core.person_calls.reopen(id));
                 return Err(error);
             }
-        }
-    }
-    let answered: Vec<&str> = given
-        .answers
-        .iter()
-        .map(|params| params.id.as_str())
-        .collect();
-    let mut joined = Vec::new();
-    for params in &given.answers {
-        let Some(call) = core
-            .person_calls
-            .id_of(&Source::Question(params.id.clone()))
-        else {
-            continue;
-        };
-        let waiting = core.person_calls.questions_of(&call);
-        for id in waiting
-            .into_iter()
-            .filter(|id| !answered.contains(&id.as_str()))
-        {
-            joined.push(AnswerParams {
-                id,
-                answer: params.answer.clone(),
-                paths: params.paths.clone(),
-                choice: params.choice,
-                choices: params.choices.clone(),
-                fine: params.fine,
-                ..AnswerParams::default()
-            });
         }
     }
     match questions::answer_all(core, given).await {
