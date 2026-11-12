@@ -129,6 +129,11 @@ pub enum MdElement {
     Del {
         c: Vec<MdNode>,
     },
+    /// Words drawn faint: sentences an answer left out, put back for a reader who asked to see
+    /// them. Reading markdown never makes one.
+    Faint {
+        c: Vec<MdNode>,
+    },
     Code {
         v: String,
         /// `v` is LaTeX math the message wrote between single dollar signs.
@@ -403,6 +408,7 @@ fn plain_text(nodes: &[MdNode], out: &mut String) {
                 | MdElement::Em { c }
                 | MdElement::Strong { c }
                 | MdElement::Del { c }
+                | MdElement::Faint { c }
                 | MdElement::A { c, .. }
                 | MdElement::Path { c, .. },
             ) => plain_text(c, out),

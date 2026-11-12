@@ -4025,6 +4025,9 @@ enum MdElement: Codable, Hashable, Sendable {
     case em(Em)
     case strong(Strong)
     case del(Del)
+    /// Words drawn faint: sentences an answer left out, put back for a reader who asked to see
+    /// them. Reading markdown never makes one.
+    case faint(Faint)
     case code(Code)
     case a(A)
     case img(Img)
@@ -4095,6 +4098,10 @@ enum MdElement: Codable, Hashable, Sendable {
     }
 
     struct Del: Codable, Hashable, Sendable {
+        var c: [MdNode]
+    }
+
+    struct Faint: Codable, Hashable, Sendable {
         var c: [MdNode]
     }
 
@@ -4172,6 +4179,8 @@ enum MdElement: Codable, Hashable, Sendable {
             self = .strong(try Strong(from: decoder))
         case "del":
             self = .del(try Del(from: decoder))
+        case "faint":
+            self = .faint(try Faint(from: decoder))
         case "code":
             self = .code(try Code(from: decoder))
         case "a":
@@ -4234,6 +4243,9 @@ enum MdElement: Codable, Hashable, Sendable {
         case .del(let value):
             try value.encode(to: encoder)
             tag = "del"
+        case .faint(let value):
+            try value.encode(to: encoder)
+            tag = "faint"
         case .code(let value):
             try value.encode(to: encoder)
             tag = "code"

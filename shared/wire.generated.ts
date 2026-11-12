@@ -2698,6 +2698,14 @@ export type MdElement =
           t: "del";
           c: MdNode[];
       }
+    /**
+     * Words drawn faint: sentences an answer left out, put back for a reader who asked to see
+     * them. Reading markdown never makes one.
+     */
+    | {
+          t: "faint";
+          c: MdNode[];
+      }
     | {
           t: "code";
           v: string;
