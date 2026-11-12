@@ -24,6 +24,7 @@ pub(crate) enum Activity<'a> {
 impl Core {
     /// Every consumer of what an agent does hears of it here, in this order.
     pub(crate) fn note_activity(&self, agent_id: &str, activity: Activity<'_>) {
+        let moves_turn = !matches!(activity, Activity::Working);
         match activity {
             Activity::Started => {
                 self.journal_agent(agent_id, Happened::Working);
@@ -98,6 +99,12 @@ impl Core {
                     message: message.to_owned(),
                 });
                 self.changed(What::Agents);
+            }
+        }
+        if moves_turn {
+            super::hosts::route::turn_moved(self, agent_id);
+            if let Some(lead) = self.names.reports_to(agent_id) {
+                super::hosts::route::turn_moved(self, &lead);
             }
         }
     }

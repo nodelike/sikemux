@@ -1078,6 +1078,9 @@ impl Chat {
             agent_id: self.launch.agent_id.clone(),
         });
         self.publish_state();
+        if let Some(core) = self.core.upgrade() {
+            crate::server::hosts::route::turn_moved(&core, self.agent_id());
+        }
     }
 
     fn permission_closed(&self, asked_at: u64, answered_by: Option<&Peer>) {

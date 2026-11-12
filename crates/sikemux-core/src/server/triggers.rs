@@ -568,6 +568,7 @@ async fn look(core: Arc<Core>, id: u64) {
 /// device's view when the chat's next one fires.
 fn show(core: &Core, trigger: &Trigger) {
     core.changed(What::Read(super::changed::Topic::Playbook));
+    super::hosts::route::turn_moved(core, &trigger.agent_id);
     if let Some(project) = &trigger.board {
         super::board::triggers_changed(core, project);
         return;

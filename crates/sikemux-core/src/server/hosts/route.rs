@@ -14,8 +14,7 @@ use serde_json::{json, Value};
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 
-use sikemux_view::inbox::AgentShown;
-use sikemux_view::turn::TurnState;
+use sikemux_view::turn::{TurnPhase, TurnState};
 use sikemux_wire::protocol::AgentStatus;
 
 use super::super::connection::blocking;
@@ -35,11 +34,9 @@ const WORKED_EVERY_MS: u64 = 30_000;
 /// How far up a chain of leads to look.
 const MAX_CHAIN: usize = 8;
 
-/// Names this host keeps for agents on linked hosts while they run there. Their hosts then
-/// hear how each turn here stands, which the device view tells them.
+/// Names this host keeps for agents on linked hosts while they run there.
 pub(crate) fn pin(core: &Core) {
     core.names.pin(core.hosts.team.ids());
-    core.view_watched();
 }
 
 /// The hosts that know `agent_id`, an agent here, as one of a team's: the one
@@ -122,27 +119,59 @@ pub(crate) fn asleep(core: &Core, agent_id: &str) {
     tell_watchers(core, agent_id, ASLEEP, AgentStatus::Asleep, None, false);
 }
 
-/// The hosts each agent's teammates run on hear how its turn stands, whenever that moved.
-pub(crate) fn turns_moved(core: &Core, agents: &[AgentShown]) {
-    let moved: Vec<&AgentShown> = {
-        let mut told = core.hosts.turns_told.locked();
-        if core.hosts.team.is_empty() {
-            told.clear();
-            return;
-        }
-        let open: HashSet<&str> = agents.iter().map(|agent| agent.agent_id.as_str()).collect();
-        told.retain(|agent_id, _| open.contains(agent_id.as_str()));
-        let moved: Vec<&AgentShown> = (agents.iter())
-            .filter(|agent| told.get(&agent.agent_id) != Some(&agent.turn))
-            .collect();
-        for agent in &moved {
-            told.insert(agent.agent_id.clone(), agent.turn.clone());
-        }
-        moved
+/// Something `agent_id`'s turn is worked out from changed here: the hosts its teammates run on
+/// hear how the turn stands now, when that differs from what they were last told.
+pub(crate) fn turn_moved(core: &Core, agent_id: &str) {
+    if core.hosts.team.is_empty() {
+        return;
+    }
+    let Some(core) = core.arc() else {
+        return;
     };
-    for agent in moved {
-        let turn = agent.turn.clone();
-        tell_watchers(core, &agent.agent_id, TURN, agent.status, turn, false);
+    let agent_id = agent_id.to_owned();
+    tokio::task::spawn_blocking(move || tell_turn(&core, &agent_id));
+}
+
+/// [`turn_moved`] for every agent here with teammates on another host, after a change that
+/// names no agent.
+pub(crate) fn turns_moved(core: &Core) {
+    if core.hosts.team.is_empty() {
+        return;
+    }
+    let Some(core) = core.arc() else {
+        return;
+    };
+    tokio::task::spawn_blocking(move || {
+        for agent_id in core.open_agents() {
+            tell_turn(&core, &agent_id);
+        }
+    });
+}
+
+fn tell_turn(core: &Core, agent_id: &str) {
+    if watchers(core, agent_id).is_empty() {
+        return;
+    }
+    let mut told = core.hosts.turns_told.locked();
+    let turn = super::super::turn_state::now(core, agent_id);
+    if told.get(agent_id) == Some(&turn) {
+        return;
+    }
+    told.insert(agent_id.to_owned(), turn.clone());
+    if let Some(status) = turn.as_ref().map(status_of_turn) {
+        tell_watchers(core, agent_id, TURN, status, turn, false);
+    }
+}
+
+/// The status a host that does not know turns takes from one.
+fn status_of_turn(turn: &TurnState) -> AgentStatus {
+    match turn.state {
+        TurnPhase::Working => AgentStatus::Working,
+        TurnPhase::NeedsYou => AgentStatus::Blocked,
+        TurnPhase::Done => AgentStatus::Done,
+        TurnPhase::Waiting | TurnPhase::Stopped | TurnPhase::Failed | TurnPhase::Unknown => {
+            AgentStatus::Idle
+        }
     }
 }
 
@@ -158,6 +187,7 @@ pub(crate) fn closed(core: &Core, agent_ids: &[&String]) {
             None,
             true,
         );
+        core.hosts.turns_told.locked().remove(agent_id.as_str());
         local_gone(core, agent_id);
     }
 }

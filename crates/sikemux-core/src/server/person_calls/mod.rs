@@ -479,6 +479,7 @@ impl PersonCalls {
 
     fn changed(&self, core: &Core) {
         core.changed(What::View);
+        crate::server::hosts::route::turns_moved(core);
     }
 
     /// Every call the device view shows: those still open, oldest first, then those answered or

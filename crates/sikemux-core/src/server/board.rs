@@ -3717,6 +3717,9 @@ pub(crate) fn settle(core: &Arc<Core>) {
 /// Tells every client which boards changed, so each reads them again.
 fn tell_clients(core: &Core) {
     let dirty = std::mem::take(&mut core.boards.state.locked().dirty);
+    if !dirty.is_empty() {
+        super::hosts::route::turns_moved(core);
+    }
     for project in dirty {
         core.changed(What::ReadIn(Topic::Boards, Some(&project), None));
     }
