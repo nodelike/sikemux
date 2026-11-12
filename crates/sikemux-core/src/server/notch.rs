@@ -4,6 +4,7 @@
 //! closes, as the core does.
 
 use super::Core;
+#[cfg(target_os = "macos")]
 use crate::server::parts::Parts;
 
 /// Starts or stops the helper, as the person's Notch preferences say.
