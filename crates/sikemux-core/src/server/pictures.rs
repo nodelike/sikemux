@@ -640,11 +640,7 @@ mod tests {
     }
 
     fn git(dir: &Path, args: &[&str]) {
-        let ran = std::process::Command::new("git")
-            .args(args)
-            .current_dir(dir)
-            .output()
-            .expect("git runs");
+        let ran = crate::git::Git::at(dir).output(args).expect("git runs");
         assert!(ran.status.success(), "git {args:?}: {ran:?}");
     }
 
